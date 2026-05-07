@@ -115,3 +115,25 @@
   - The script must self-exclude its own path (`api/scripts/verify/assert-no-legacy-prod-refs.ts`) because the BANNED list is stored as string literals inside it; without self-exclusion the script always flags itself.
   - For failure messages, write the offender file:line on stderr (not stdout) — the AC text says "stderr names offending file", and CI logs separate the two.
 ---
+
+## 2026-05-07 - T6 (api/test/ — Vitest tests for health, admin-auth, verify-script)
+- Created `api/test/health.test.ts` (2 tests): GET /health returns 200 with `{ ok: true, app: "kodigital-homepages-cms" }`; unknown route returns 404 with non-empty body.
+- Created `api/test/admin-auth.test.ts` (4 tests): /admin returns 401 when DEV_BYPASS_AUTH is unset and no auth header/cookie; returns 200 when DEV_BYPASS_AUTH=true; returns 200 with `cf-access-jwt-assertion` header; returns 200 with `CF_Authorization` cookie.
+- Created `api/test/verify-script.test.ts` (2 tests): clean repo → script exits 0; fixture with banned token at `api/src/__verify-test-fixture.txt` → script exits non-zero and stderr names the fixture file. `afterEach` removes the fixture; the test file itself constructs the banned token via concatenation (`"theiw" + "ise.com"`) so the verify scanner does not flag this test file.
+- Tests use Hono's `app.request(path, init?, env?)` to invoke handlers in-process — no live worker needed. Env is built from a typed `Env` literal with `D1Database`/`KVNamespace`/`R2Bucket` cast as empty objects (the unit under test reads only `DEV_BYPASS_AUTH`).
+- **Self-check results:**
+  - File sizes: health.test.ts 19, admin-auth.test.ts 49, verify-script.test.ts 44 (limit: 200) — PASS
+  - Secret scan (API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string in test/): 0 matches — PASS
+  - Error handling: PASS — verify-script test uses try/finally semantics via `afterEach` to remove fixture even on failure
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance grep ACs T6-AC5..T6-AC7 (`describe|test|it` count per file): health 9, admin-auth 12, verify-script 12 — all >= 1 — PASS
+  - T6-AC1 BEHAVIORAL (`cd api && npm test` exit 0, >= 4 cases): `npx vitest run` → 8/8 tests passing across 3 files — PASS
+  - T6-AC2..AC4 BEHAVIORAL: each scenario covered by corresponding test case (see file list above) — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 (no banned tokens leaked into test files) — PASS
+- **Learnings for future iterations:**
+  - When writing tests for the banned-string verify scanner, the test file itself is in the scan path — never write the literal banned token in source. Build it at runtime via concatenation/charcodes so the AC `verify:no-legacy-prod-refs` stays green.
+  - Hono's `app.request(input, init?, env?, ctx?)` accepts a third `env` arg that becomes `c.env`, which is the cleanest way to unit-test middleware that reads `c.env.*` without spinning up wrangler.
+  - Use a fixture path inside the scanned tree (e.g. `api/src/__verify-test-fixture.txt`) and clean up via `afterEach` so a failing test does not leave the repo dirty for the next run.
+---

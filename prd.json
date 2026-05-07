@@ -151,7 +151,7 @@
         "grep -cE 'describe|test|it' api/test/verify-script.test.ts"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T7",
