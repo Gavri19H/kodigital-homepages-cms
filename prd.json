@@ -1,0 +1,227 @@
+{
+  "changeId": "homepage-project-phase-0-2026-05-07",
+  "mainGoal": "Phase 0 scaffold for kodigital-homepages-cms passes typecheck + tests + verify:no-legacy-prod-refs + can serve /health locally via wrangler dev — without touching any TheIWise production resource.",
+  "stories": [
+    {
+      "id": "T1",
+      "title": "api/package.json — Worker-ready TypeScript package config",
+      "category": "config",
+      "targetFiles": [
+        "api/package.json",
+        "api/tsconfig.json",
+        "api/vitest.config.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c '\"hono\"' api/package.json",
+        "grep -c '\"wrangler\"' api/package.json",
+        "grep -c '\"vitest\"' api/package.json",
+        "grep -c '\"typescript\"' api/package.json",
+        "grep -c '\"dev\"' api/package.json",
+        "grep -c '\"test\"' api/package.json",
+        "grep -c '\"typecheck\"' api/package.json",
+        "grep -c '\"verify:no-legacy-prod-refs\"' api/package.json",
+        "grep -c '\"smoke:local\"' api/package.json",
+        "grep -c '\"db:migrate:local\"' api/package.json",
+        "grep -c '\"db:migrate:remote\"' api/package.json",
+        "grep -c '\"deploy:staging\"' api/package.json",
+        "grep -c '\"deploy:production\"' api/package.json",
+        "cd api && npm install --dry-run exits 0"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T2",
+      "title": "api/wrangler.toml — new placeholder bindings only",
+      "category": "config",
+      "targetFiles": [
+        "api/wrangler.toml"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'name = \"kodigital-homepages-cms-worker\"' api/wrangler.toml",
+        "grep -c 'main = \"src/index.ts\"' api/wrangler.toml",
+        "grep -c 'compatibility_date = \"2026-05-06\"' api/wrangler.toml",
+        "grep -c 'APP_ENV' api/wrangler.toml",
+        "grep -c 'ADMIN_BASE_URL' api/wrangler.toml",
+        "grep -c 'CACHE_API_ENABLED' api/wrangler.toml",
+        "grep -c 'OPENAI_TEXT_MODEL' api/wrangler.toml",
+        "grep -c 'OPENAI_IMAGE_MODEL' api/wrangler.toml",
+        "grep -c 'database_name = \"kodigital-homepages-cms-db\"' api/wrangler.toml",
+        "grep -c 'binding = \"CACHE\"' api/wrangler.toml",
+        "grep -c 'bucket_name = \"kodigital-homepages-cms-media\"' api/wrangler.toml",
+        "grep -c '\\[env\\.staging\\]' api/wrangler.toml",
+        "grep -c '\\[env\\.production\\]' api/wrangler.toml",
+        "grep -c 'a2z-cf-cms-v1' api/wrangler.toml",
+        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/wrangler.toml"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T3",
+      "title": "api/src/env.ts — typed Env interface + parse helpers",
+      "category": "api",
+      "targetFiles": [
+        "api/src/env.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'DB: D1Database' api/src/env.ts",
+        "grep -c 'CACHE: KVNamespace' api/src/env.ts",
+        "grep -c 'MEDIA: R2Bucket' api/src/env.ts",
+        "grep -c 'OPENAI_API_KEY' api/src/env.ts",
+        "grep -c 'DEV_BYPASS_AUTH' api/src/env.ts",
+        "grep -c 'CF_ACCESS_TEAM_DOMAIN' api/src/env.ts",
+        "grep -c 'parseBoolean' api/src/env.ts",
+        "grep -c 'parseNumber' api/src/env.ts",
+        "BEHAVIORAL: GIVEN env.ts is imported, WHEN parseBoolean(\"true\") is called, THEN returns true; WHEN parseBoolean(undefined) is called, THEN returns false. Verified by vitest unit test in T6.",
+        "cd api && npx tsc --noEmit exits 0"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T4",
+      "title": "api/src/index.ts — Hono app with /health, /admin, accessAuth middleware",
+      "category": "api",
+      "targetFiles": [
+        "api/src/index.ts",
+        "api/src/auth/access-auth.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN wrangler dev running locally, WHEN curl http://localhost:8787/health, THEN HTTP 200 with JSON body containing ok:true and app:kodigital-homepages-cms",
+        "BEHAVIORAL: GIVEN DEV_BYPASS_AUTH is NOT set to true, WHEN GET /admin without cf-access-jwt-assertion header AND without CF_Authorization cookie, THEN HTTP 401 with JSON error message",
+        "BEHAVIORAL: GIVEN DEV_BYPASS_AUTH=true is set in env, WHEN GET /admin, THEN HTTP 200",
+        "BEHAVIORAL: GIVEN any unmatched route, WHEN GET /nonexistent, THEN HTTP 404 with non-empty body",
+        "grep -c 'accessAuth' api/src/index.ts",
+        "grep -c 'GET.*health' api/src/index.ts",
+        "grep -E 'verify\\(.*JWT' api/src/index.ts | grep -v -E '//|TODO' | wc -l == 0",
+        "cd api && npx tsc --noEmit exits 0"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T5",
+      "title": "api/scripts/verify/assert-no-legacy-prod-refs.ts — banned-string scanner",
+      "category": "script",
+      "targetFiles": [
+        "api/scripts/verify/assert-no-legacy-prod-refs.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN banned string theiwise.com in api/src/dummy-test-fixture.txt, WHEN cd api && npm run verify:no-legacy-prod-refs, THEN exit code != 0 AND stderr names offending file (fixture removed after test)",
+        "BEHAVIORAL: GIVEN clean repo with no banned strings in active files, WHEN cd api && npm run verify:no-legacy-prod-refs, THEN exit code == 0",
+        "grep -c 'node_modules' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'a2z-cf-cms-v1-api' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'a2z-cf-cms-v1-db' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'theiwise\\.com' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'insureprimo' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'quotesRoutes' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'psychic-quiz' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'rental-booking' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'docs/source-architecture\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'docs/no-touch-red-line\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "grep -c 'docs/reference/current-theiwise-technical-spec\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T6",
+      "title": "api/test/ — Vitest tests for health, admin-auth, verify-script",
+      "category": "script",
+      "targetFiles": [
+        "api/test/health.test.ts",
+        "api/test/admin-auth.test.ts",
+        "api/test/verify-script.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the Vitest suite runs, WHEN cd api && npm test, THEN exit 0 AND all >= 4 test cases pass",
+        "BEHAVIORAL: GIVEN health.test.ts, WHEN /health handler called with mock request, THEN response status 200 AND body JSON has ok: true AND app: kodigital-homepages-cms",
+        "BEHAVIORAL: GIVEN admin-auth.test.ts, WHEN accessAuth receives request with no cf-access-jwt-assertion AND no CF_Authorization AND DEV_BYPASS_AUTH not true, THEN returns 401",
+        "BEHAVIORAL: GIVEN admin-auth.test.ts, WHEN accessAuth receives request AND DEV_BYPASS_AUTH is true, THEN calls next() allowing through (200)",
+        "grep -cE 'describe|test|it' api/test/health.test.ts",
+        "grep -cE 'describe|test|it' api/test/admin-auth.test.ts",
+        "grep -cE 'describe|test|it' api/test/verify-script.test.ts"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T7",
+      "title": "docs/ — no-touch-red-line, source-architecture, secrets-manifest, storage-cost-model, phase-plan",
+      "category": "config",
+      "targetFiles": [
+        "docs/no-touch-red-line.md",
+        "docs/source-architecture.md",
+        "docs/secrets-manifest.md",
+        "docs/storage-cost-model.md",
+        "docs/phase-plan.md"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'theiwise\\.com' docs/no-touch-red-line.md",
+        "grep -c 'a2z-cf-cms-v1-api' docs/no-touch-red-line.md",
+        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' docs/no-touch-red-line.md",
+        "grep -c 'insureprimo' docs/no-touch-red-line.md",
+        "grep -c 'reusable\\|Reusable' docs/source-architecture.md",
+        "grep -c 'excluded\\|Excluded' docs/source-architecture.md",
+        "grep -c 'insureprimo\\|quotesRoutes\\|psychic-quiz\\|rental-booking' docs/source-architecture.md",
+        "grep -c 'OPENAI_API_KEY\\|CF_ACCESS_TEAM_DOMAIN\\|CLOUDFLARE_API_TOKEN' docs/secrets-manifest.md",
+        "grep -c 'Dashboard\\|\\.dev\\.vars\\|never committed' docs/secrets-manifest.md",
+        "grep -c 'D1\\|R2\\|KV' docs/storage-cost-model.md",
+        "grep -c '200.*sites\\|10.000\\|10000\\|15.*articles\\|15 starter' docs/storage-cost-model.md",
+        "grep -c 'Phase 1\\|Phase 2\\|Phase 3\\|Phase 4\\|Phase 5\\|Phase 6\\|Phase 7' docs/phase-plan.md",
+        "grep -c '\\.dev\\.vars\\|placeholder\\|never' docs/secrets-manifest.md"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T8",
+      "title": ".github/workflows/deploy.yml — CI pipeline with typecheck, test, verify, conditional deploy",
+      "category": "infra",
+      "targetFiles": [
+        ".github/workflows/deploy.yml"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'pull_request' .github/workflows/deploy.yml",
+        "grep -c 'push' .github/workflows/deploy.yml",
+        "grep -c 'node-version.*20\\|node-version: 20' .github/workflows/deploy.yml",
+        "grep -c 'npm ci' .github/workflows/deploy.yml",
+        "grep -c 'typecheck' .github/workflows/deploy.yml",
+        "grep -c 'npm test' .github/workflows/deploy.yml",
+        "grep -c 'verify:no-legacy-prod-refs\\|no-legacy-prod-refs' .github/workflows/deploy.yml",
+        "grep -c 'refs/heads/main\\|github.ref.*main' .github/workflows/deploy.yml",
+        "grep -c 'secrets.CLOUDFLARE_API_TOKEN\\|CLOUDFLARE_API_TOKEN' .github/workflows/deploy.yml",
+        "grep -c 'a2z-cf-cms-v1\\|44c73f76' .github/workflows/deploy.yml"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T9",
+      "title": "Root files — .gitignore, .env.example, .dev.vars.example, README.md",
+      "category": "config",
+      "targetFiles": [
+        ".gitignore",
+        ".env.example",
+        ".dev.vars.example",
+        "README.md"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'node_modules' .gitignore",
+        "grep -c '\\.wrangler' .gitignore",
+        "grep -c '\\.dev\\.vars' .gitignore",
+        "grep -c '\\.env' .gitignore",
+        "grep -c 'dist' .gitignore",
+        "grep -c 'coverage' .gitignore",
+        "grep -c '\\.DS_Store' .gitignore",
+        "grep -c 'OPENAI_API_KEY\\|CF_ACCESS_TEAM_DOMAIN\\|CLOUDFLARE_API_TOKEN' .dev.vars.example",
+        "grep -E '[A-Za-z0-9+/]{40,}|[0-9a-f]{32,}' .dev.vars.example",
+        "grep -c 'kodigital-homepages-cms\\|standalone CMS\\|Cloudflare Worker' README.md"
+      ],
+      "passes": false,
+      "state": "planned"
+    }
+  ]
+}

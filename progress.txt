@@ -1,0 +1,24 @@
+## Codebase Patterns
+- Worker package lives under `api/` (separate from repo root); `api/package.json` carries all worker scripts (dev/test/typecheck/verify/db:migrate/deploy).
+- Use `tsx` to run TypeScript scripts (e.g., verify scripts) without a build step.
+- `compatibility_date` for wrangler is mission-pinned ("2026-05-06") — do not bump silently.
+- Banned legacy production identifiers (must NOT appear in active code/config): `theiwise.com`, `a2z-cf-cms-v1-api`, `a2z-cf-cms-v1-db`, `insureprimo`, `quotesRoutes`, `psychic-quiz`, `rental-booking`. The Cloudflare account UUID `44c73f76-6ed5-4b26-b442-6c2044326c4d` is shared with the new project (allowed in wrangler.toml/CI/docs/verify-script as account_id), so it is NOT in the banned scan set.
+- Verify script must self-exclude and exclude legacy reference docs (docs/source-architecture.md, docs/no-touch-red-line.md, docs/reference/current-theiwise-technical-spec.md).
+
+## 2026-05-07 - T1 (api/package.json + tsconfig.json + vitest.config.ts)
+- Created `api/package.json` with hono dependency; devDeps wrangler, vitest, typescript, tsx, @cloudflare/workers-types, @types/node.
+- Scripts: dev, test, test:watch, typecheck, verify:no-legacy-prod-refs, smoke:local, db:migrate:local, db:migrate:remote, deploy:staging, deploy:production.
+- Created `api/tsconfig.json` (ES2022, strict, Bundler module resolution, workers-types + node types).
+- Created `api/vitest.config.ts` (node environment, includes test/**/*.test.ts).
+- **Self-check results:**
+  - File sizes: package.json 33 lines, tsconfig.json 24, vitest.config.ts 10 (limit: 200) — PASS
+  - Secret scan: PASS (no hardcoded secrets)
+  - Error handling: N/A (config files)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance grep ACs (T1-AC1..T1-AC13): all return >=1 — PASS
+  - T1-AC14 `cd api && npm install --dry-run` — exit 0 (114 packages resolved) — PASS
+- **Learnings for future iterations:**
+  - npm registry resolves chosen versions cleanly; lockfile not committed yet (will appear when actual `npm install` runs).
+  - `tsx` chosen as runner for verify script (T5) — `package.json` script uses `tsx scripts/verify/assert-no-legacy-prod-refs.ts`.
+---
