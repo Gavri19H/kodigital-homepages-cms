@@ -83,7 +83,7 @@
         "cd api && npx tsc --noEmit exits 0"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T4",

@@ -45,3 +45,23 @@
   - Use literal substring `a2z-cf-cms-v1` (without -api/-db suffix) when AC requires that token but banned-string scan must still pass.
   - For Phase 0, real D1/KV resource IDs are not yet provisioned — use clearly-named PLACEHOLDER_* tokens so a future phase can spot and replace them.
 ---
+
+## 2026-05-07 - T3 (api/src/env.ts — typed Env interface + parse helpers)
+- Created `api/src/env.ts` exporting `Env` interface (DB: D1Database, CACHE: KVNamespace, MEDIA: R2Bucket, plus typed string vars APP_ENV/ADMIN_BASE_URL/CACHE_API_ENABLED/OPENAI_TEXT_MODEL/OPENAI_IMAGE_MODEL and optional secrets OPENAI_API_KEY/CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD/DEV_BYPASS_AUTH).
+- Added `parseBoolean(value)` returning false for undefined/null and true for "true"/"1"/"yes" (case-insensitive, trimmed).
+- Added `parseNumber(value, fallback=0)` returning the parsed number or `fallback` for undefined/null/empty/non-finite input.
+- DEV_BYPASS_AUTH and CF_ACCESS_TEAM_DOMAIN are typed as `string | undefined` so middleware in T4 can use `parseBoolean(env.DEV_BYPASS_AUTH)` to gate access in dev.
+- **Self-check results:**
+  - File sizes: api/src/env.ts 30 lines (limit: 200 for TS) — PASS
+  - Secret scan: PASS (no API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string in file; the literal `OPENAI_API_KEY` is a property name, not a value)
+  - Error handling: N/A (pure type + parsing module)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance grep ACs T3-AC1..T3-AC8: each return 1 — PASS
+  - T3-AC10 `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - PRD quality check `cd api && npx vitest run --passWithNoTests`: "No test files found, exiting with code 0" — PASS
+  - T3-AC9 BEHAVIORAL (parseBoolean) is verified by vitest test in T6 (per AC text); pure function logic is sound and will be exercised then.
+- **Learnings for future iterations:**
+  - `noUncheckedIndexedAccess: true` in tsconfig means anything that reads from a record-typed object gets `T | undefined`; helpers like `parseBoolean`/`parseNumber` accept `string | undefined | null` to compose cleanly with that.
+  - Cloudflare Workers `D1Database` / `KVNamespace` / `R2Bucket` types come from `@cloudflare/workers-types` (already in tsconfig `types`); no explicit import needed inside `env.ts`.
+---
