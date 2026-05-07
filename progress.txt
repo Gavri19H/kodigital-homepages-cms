@@ -182,3 +182,24 @@
   - The conditional `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` on a deploy job (combined with `on.push.branches: [main]`) is belt-and-suspenders: it guarantees PR runs never deploy even if the trigger config is later loosened.
   - Use `cache-dependency-path` on `actions/setup-node` whenever the lockfile lives in a sub-directory; the default cache key only finds a root-level lockfile and silently disables caching otherwise.
 ---
+
+## 2026-05-07 - T9 (Root files — .gitignore, .env.example, .dev.vars.example, README.md)
+- Created `.gitignore` (32 lines): node_modules, .wrangler, dist, env/secret files (`.env`, `.env.local`, `.env.*.local`, `.dev.vars`, `api/.dev.vars`), coverage, editor/OS noise (`.DS_Store`, `.idea/`, `.vscode/`), logs, and mission scaffold runtime state. No-extension dotfile, so the verify scanner skips it automatically.
+- Created `.env.example` (17 lines): top-level placeholder for tooling that runs OUTSIDE the Worker; explicitly points at `api/.dev.vars.example` for runtime secrets. APP_ENV=local + a commented-out CLOUDFLARE_ACCOUNT_ID example. No real values.
+- Created `.dev.vars.example` (29 lines): template for `api/.dev.vars`. Lists the three contractually-required keys (`OPENAI_API_KEY`, `CF_ACCESS_TEAM_DOMAIN`, `CLOUDFLARE_API_TOKEN`) plus `CF_ACCESS_AUD` and `DEV_BYPASS_AUTH`. Each value is an obvious placeholder string with the literal token "EXAMPLEPLACEHOLDER" or "PLACEHOLDER" embedded so it cannot be mistaken for a real secret. The OPENAI_API_KEY placeholder is a 60-char letters+digits run after `sk-`, and the CF_ACCESS_AUD / CLOUDFLARE_API_TOKEN placeholders include a 32+ char hex-ish run, satisfying T9-AC9.
+- Created `README.md` (85 lines): names "kodigital-homepages-cms", "standalone CMS", and "Cloudflare Worker" (T9-AC10), describes the stack, repository layout, getting-started commands, deployment flow, isolation contract (delegates the canonical banned-token list to `docs/no-touch-red-line.md` so the verify scanner stays green), and pointers to all docs.
+- **Self-check results:**
+  - File sizes: .gitignore 32, .env.example 17, .dev.vars.example 29, README.md 85 (limit: 200) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 2 matches in `.dev.vars.example` (`OPENAI_API_KEY=sk-EXAMPLEPLACEHOLDER…`, `CLOUDFLARE_API_TOKEN=PLACEHOLDERtoken…`) — these are PLACEHOLDER values in a `.example` template file by design (T9-AC8/AC9 require the key names AND a placeholder shape ≥40 alpha/+/ chars or ≥32 hex). The literal strings "EXAMPLEPLACEHOLDER" / "PLACEHOLDER" make the scrubbing explicit; no real secret is committed. `.gitignore` excludes the actual `api/.dev.vars` and `.env` files where real values live. PASS (intent-correct: placeholders only).
+  - Error handling: N/A (root config / docs files)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify (`cd api && npm run verify:no-legacy-prod-refs`): exit 0 — PASS. Initial draft of README.md enumerated the banned tokens inline; rewrote it to delegate the canonical list to `docs/no-touch-red-line.md` (which is allow-listed in EXCLUDED_FILES) so the active-source scanner stays clean.
+  - Acceptance grep ACs T9-AC1..T9-AC10 (counts: 1, 1, 2, 3, 1, 2, 1, 3, 3-line-match, 6): all return ≥1 — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - PRD quality check `cd api && npx vitest run --passWithNoTests`: 8/8 tests passing across 3 files, exit 0 — PASS
+- **Learnings for future iterations:**
+  - The verify scanner whitelists files by extension (`TEXT_EXT_RE`); extension-less dotfiles like `.gitignore` are auto-skipped, but `.example` and `.env` ARE scanned. Treat any new `.dev.vars.example` / `.env.example` as in-scope and keep banned tokens out of them.
+  - When a top-level README needs to discuss the isolation contract, do NOT enumerate banned tokens inline — link to `docs/no-touch-red-line.md` (which lives in the verify scanner's `EXCLUDED_FILES`). README.md is NOT excluded, so any banned token there fails CI.
+  - For `.dev.vars.example`, embed a literal sentinel like "PLACEHOLDER" or "EXAMPLE" inside every value. This (a) makes the file's purpose unmistakable to a human reader and (b) makes a future automated check trivially able to assert "every value contains PLACEHOLDER" if we ever harden the secret scanner.
+---

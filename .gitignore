@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Wrangler local state and build output
+.wrangler/
+dist/
+
+# Environment / secret files (NEVER commit real values)
+.env
+.env.local
+.env.*.local
+.dev.vars
+api/.dev.vars
+
+# Test / coverage artifacts
+coverage/
+*.lcov
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Mission scaffold runtime state (kept locally, not tracked)
+.a2z/mission-state/*/worktree/
+.ralph.lock

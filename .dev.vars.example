@@ -1,0 +1,29 @@
+# .dev.vars.example
+#
+# Template for `api/.dev.vars`, the local-only secrets file that
+# `wrangler dev` reads. Copy this file to `api/.dev.vars` and replace
+# every placeholder below with a real value. `api/.dev.vars` is
+# gitignored and MUST NEVER be committed.
+#
+# All values in THIS file are placeholders that look like the right
+# shape but are not real credentials. See docs/secrets-manifest.md
+# for the canonical list of keys and where each value lives.
+
+# OpenAI key used by /admin to call text/image models in staging/prod.
+# Real keys start with "sk-" and are issued at platform.openai.com.
+OPENAI_API_KEY=sk-EXAMPLEPLACEHOLDERREPLACEMEABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+
+# Cloudflare Access team domain (e.g. yourteam.cloudflareaccess.com).
+CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com
+
+# Cloudflare Access AUD claim (application-specific, hex-ish string).
+CF_ACCESS_AUD=PLACEHOLDER0123456789abcdef0123456789abcdef0123456789abcd
+
+# Cloudflare API token used by CI (`wrangler deploy`). NOT consumed by
+# the Worker itself — kept here only to document the local shape; in CI
+# this value lives in GitHub Actions Secrets.
+CLOUDFLARE_API_TOKEN=PLACEHOLDERtoken000000000000000000000000000000
+
+# Local-dev escape hatch: when `true`, accessAuth lets /admin through
+# without a Cloudflare Access JWT. NEVER set this in staging or prod.
+DEV_BYPASS_AUTH=true

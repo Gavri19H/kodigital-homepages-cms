@@ -227,7 +227,7 @@
         "grep -c 'kodigital-homepages-cms\\|standalone CMS\\|Cloudflare Worker' README.md"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     }
   ]
 }
