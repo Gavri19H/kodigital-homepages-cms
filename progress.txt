@@ -92,3 +92,26 @@
   - Phase 0 accessAuth is a presence check only (header OR cookie); JWT signature verification is deliberately out of scope. Keep `verify(...JWT...)` patterns out of `index.ts` so the AC grep stays at 0.
   - `MiddlewareHandler<{ Bindings: Env }>` from Hono v4 gives a typed `c.env`; pass the `Env` type via `Bindings`, not as a direct generic.
 ---
+
+## 2026-05-07 - T5 (api/scripts/verify/assert-no-legacy-prod-refs.ts — banned-string scanner)
+- Created `api/scripts/verify/assert-no-legacy-prod-refs.ts` (tsx-runnable). It walks the repo root (one level up from `api/`), scans text files, and exits non-zero when any legacy production identifier appears in an active source file. Stderr names every offending file:line.
+- BANNED_IDENTIFIERS = theiwise.com, a2z-cf-cms-v1-api, a2z-cf-cms-v1-db, insureprimo, quotesRoutes, psychic-quiz, rental-booking. The Cloudflare account UUID is documented in a comment as allow-listed (shared with sibling project).
+- EXCLUDED_DIRS = node_modules, .git, .wrangler, .a2z, dist, coverage, build, acceptance-tests.
+- EXCLUDED_FILES (relative to repo root) = docs/source-architecture.md, docs/no-touch-red-line.md, docs/reference/current-theiwise-technical-spec.md, the verify script itself, prd.json, progress.txt.
+- Only files with text-ish extensions (ts/tsx/js/json/toml/yml/yaml/md/txt/html/css/sh/sql/env/example) are scanned, so binary blobs and extension-less dotfiles are skipped automatically.
+- **Self-check results:**
+  - File sizes: api/scripts/verify/assert-no-legacy-prod-refs.ts 130 lines (limit: 200) — PASS
+  - Secret scan (API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string): no matches — PASS
+  - Error handling: PASS — readdir/stat/readFile each wrapped in try/catch and skip on failure; fatal exit only via explicit process.exit(1) with stderr message
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance grep ACs T5-AC3..T5-AC14 (12 grep ACs incl. node_modules / a2z-cf-cms-v1-api / a2z-cf-cms-v1-db / 44c73f76-… UUID / theiwise.com / insureprimo / quotesRoutes / psychic-quiz / rental-booking / 3 docs/* exclusion paths): each return >=1 — PASS
+  - T5-AC1 BEHAVIORAL (fixture present → exit !=0, stderr names file): created `api/src/dummy-test-fixture.txt` with `theiwise.com`; `npm run verify:no-legacy-prod-refs` exited 1 with stderr `api/src/dummy-test-fixture.txt:3 -> "theiwise.com"`. Fixture removed after test — PASS
+  - T5-AC2 BEHAVIORAL (clean repo → exit 0): `npm run verify:no-legacy-prod-refs` exited 0 with `verify:no-legacy-prod-refs OK -- no banned legacy production identifiers found.` — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - PRD quality check `cd api && npx vitest run --passWithNoTests`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - When a verify script must scan the whole repo from a sub-package, use `resolve(process.cwd(), "..")` as the scan root and exclude scaffold metadata at the project root (prd.json/progress.txt) so the BEHAVIORAL "clean repo → exit 0" AC isn't tripped by tracking files that legitimately list banned tokens.
+  - The script must self-exclude its own path (`api/scripts/verify/assert-no-legacy-prod-refs.ts`) because the BANNED list is stored as string literals inside it; without self-exclusion the script always flags itself.
+  - For failure messages, write the offender file:line on stderr (not stdout) — the AC text says "stderr names offending file", and CI logs separate the two.
+---

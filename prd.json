@@ -130,7 +130,7 @@
         "grep -c 'docs/reference/current-theiwise-technical-spec\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T6",
