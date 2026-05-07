@@ -180,7 +180,7 @@
         "grep -c '\\.dev\\.vars\\|placeholder\\|never' docs/secrets-manifest.md"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T8",

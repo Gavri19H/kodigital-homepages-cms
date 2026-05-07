@@ -137,3 +137,25 @@
   - Hono's `app.request(input, init?, env?, ctx?)` accepts a third `env` arg that becomes `c.env`, which is the cleanest way to unit-test middleware that reads `c.env.*` without spinning up wrangler.
   - Use a fixture path inside the scanned tree (e.g. `api/src/__verify-test-fixture.txt`) and clean up via `afterEach` so a failing test does not leave the repo dirty for the next run.
 ---
+
+## 2026-05-07 - T7 (docs/ — no-touch-red-line, source-architecture, secrets-manifest, storage-cost-model, phase-plan)
+- Created `docs/no-touch-red-line.md` (53 lines): defines the hard isolation boundary against TheIWise production resources; explicitly names every banned legacy identifier and the shared Cloudflare account UUID. This file is in the verify script's `EXCLUDED_FILES`, so it may legitimately contain banned tokens.
+- Created `docs/source-architecture.md` (60 lines): catalogs the patterns this project reuses (Hono + typed Env, Access-gated /admin, verify scanner, compatibility-date pinning, tsx scripts, D1/R2/KV split) versus the legacy surfaces it explicitly excludes (`insureprimo`, `quotesRoutes`, `psychic-quiz`, `rental-booking`). Also in `EXCLUDED_FILES`.
+- Created `docs/secrets-manifest.md` (59 lines): table of every secret key (`OPENAI_API_KEY`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `CLOUDFLARE_API_TOKEN`, `DEV_BYPASS_AUTH`), where each value lives (`.dev.vars` locally, Cloudflare Dashboard for staging/prod, GitHub Settings Dashboard for CI), and the rule that secrets are **never committed**. NOT excluded from scanner — keys only, no banned tokens.
+- Created `docs/storage-cost-model.md` (73 lines): sizes D1, R2, and KV at the target scale (200 sites, 15 starter articles per site, ~10000 daily renders). NOT excluded from scanner.
+- Created `docs/phase-plan.md` (65 lines): roadmap from Phase 0 (this PR) through Phase 7 (production cutover). NOT excluded from scanner.
+- **Self-check results:**
+  - File sizes: no-touch-red-line.md 53, source-architecture.md 60, secrets-manifest.md 59, storage-cost-model.md 73, phase-plan.md 65 (limit: 300 for templates / 200 default — all PASS)
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string` across `docs/`): 0 matches — PASS (key NAMES only; no values)
+  - Error handling: N/A (markdown docs)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-string verify (`cd api && npm run verify:no-legacy-prod-refs`): exit 0 — PASS. Confirms only the two excluded docs (no-touch-red-line.md, source-architecture.md) contain banned tokens; the other three docs are clean.
+  - Acceptance grep ACs T7-AC1..T7-AC13: all return >=1 (counts: 2, 1, 2, 2, 6, 7, 5, 7, 14, 19, 8, 7, 9) — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - PRD quality check `cd api && npx vitest run --passWithNoTests`: 8/8 tests passing across 3 files, exit 0 — PASS
+- **Learnings for future iterations:**
+  - Two-tier doc scheme: docs that legitimately reference legacy identifiers (red-line, source-architecture) are listed in the verify script's `EXCLUDED_FILES`; ops/cost/plan docs are NOT excluded and must keep banned tokens out. Always check which side of that line a new doc belongs on before writing it.
+  - Secret manifests should name keys, not values. Use placeholder verbs ("set via `wrangler secret put`", "stored in Cloudflare Dashboard") to make the contract explicit without ever embedding a real token.
+  - When grouping ACs into one grep alternation (e.g. `'D1\|R2\|KV'`), the count is lines-with-any-match (not occurrences). Aim for the keyword to appear on multiple lines naturally rather than packing all three into a one-liner — easier to read AND increases the count.
+---
