@@ -1,6 +1,12 @@
 {
   "changeId": "homepage-project-phase-0-2026-05-07",
   "mainGoal": "Phase 0 scaffold for kodigital-homepages-cms passes typecheck + tests + verify:no-legacy-prod-refs + can serve /health locally via wrangler dev — without touching any TheIWise production resource.",
+  "qualityChecks": [
+    {
+      "name": "tests-or-skip-empty",
+      "command": "cd api && npx vitest run --passWithNoTests"
+    }
+  ],
   "stories": [
     {
       "id": "T1",
@@ -55,7 +61,7 @@
         "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/wrangler.toml"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T3",

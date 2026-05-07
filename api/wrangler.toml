@@ -1,0 +1,48 @@
+name = "kodigital-homepages-cms-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-06"
+account_id = "44c73f76-6ed5-4b26-b442-6c2044326c4d"
+
+# This worker shares the Cloudflare account with the sibling project a2z-cf-cms-v1
+# (TheIWise). All bindings below are kodigital-homepages-cms-* placeholders only —
+# this Phase 0 scaffold MUST NOT bind to or modify any TheIWise resource.
+
+[vars]
+APP_ENV = "development"
+ADMIN_BASE_URL = "http://localhost:8787"
+CACHE_API_ENABLED = "true"
+OPENAI_TEXT_MODEL = "gpt-4o-mini"
+OPENAI_IMAGE_MODEL = "gpt-image-1"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kodigital-homepages-cms-db"
+database_id = "PLACEHOLDER_KODIGITAL_DB_ID"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "PLACEHOLDER_KODIGITAL_KV_ID"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "kodigital-homepages-cms-media"
+
+[env.staging]
+name = "kodigital-homepages-cms-worker-staging"
+
+[env.staging.vars]
+APP_ENV = "staging"
+ADMIN_BASE_URL = "https://staging-cms.kodigital.io"
+CACHE_API_ENABLED = "true"
+OPENAI_TEXT_MODEL = "gpt-4o-mini"
+OPENAI_IMAGE_MODEL = "gpt-image-1"
+
+[env.production]
+name = "kodigital-homepages-cms-worker"
+
+[env.production.vars]
+APP_ENV = "production"
+ADMIN_BASE_URL = "https://cms.kodigital.io"
+CACHE_API_ENABLED = "true"
+OPENAI_TEXT_MODEL = "gpt-4o-mini"
+OPENAI_IMAGE_MODEL = "gpt-image-1"

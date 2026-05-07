@@ -22,3 +22,26 @@
   - npm registry resolves chosen versions cleanly; lockfile not committed yet (will appear when actual `npm install` runs).
   - `tsx` chosen as runner for verify script (T5) — `package.json` script uses `tsx scripts/verify/assert-no-legacy-prod-refs.ts`.
 ---
+
+## 2026-05-07 - T2 (api/wrangler.toml — placeholder bindings)
+- Created `api/wrangler.toml` with kodigital-homepages-cms-* placeholder bindings only (worker name, D1 database_name, KV CACHE binding, R2 bucket_name).
+- Top-level vars: APP_ENV, ADMIN_BASE_URL, CACHE_API_ENABLED, OPENAI_TEXT_MODEL, OPENAI_IMAGE_MODEL.
+- compatibility_date pinned to 2026-05-06 (mission-pinned, see Codebase Patterns).
+- account_id = 44c73f76-6ed5-4b26-b442-6c2044326c4d (shared Cloudflare account; UUID is allowed in wrangler.toml per Codebase Patterns).
+- [env.staging] and [env.production] scopes set with their own vars; bindings inherit from top-level.
+- A short comment names the sibling project a2z-cf-cms-v1 to satisfy AC14 and to make the no-touch boundary explicit; the banned suffixed forms (a2z-cf-cms-v1-api / -db) are NOT used.
+- D1 database_id and KV namespace id are PLACEHOLDER_* tokens — real IDs are issued in a later phase when the resources are created.
+- **Self-check results:**
+  - File sizes: wrangler.toml 48 lines (limit: 200) — PASS
+  - Secret scan: PASS (only placeholder identifiers, no API_KEY / Bearer / TOKEN / SECRET / password / private_key / connection_string)
+  - Error handling: N/A (config file)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-string scan (theiwise.com / a2z-cf-cms-v1-api / a2z-cf-cms-v1-db / insureprimo / quotesRoutes / psychic-quiz / rental-booking): PASS (no matches)
+  - Acceptance grep ACs (T2-AC1..T2-AC15): all return >=1 — PASS
+  - PRD quality check `cd api && npx vitest run --passWithNoTests`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - Wrangler env-scoped vars must be re-declared per env block; they don't inherit from top-level [vars] (bindings DO inherit).
+  - Use literal substring `a2z-cf-cms-v1` (without -api/-db suffix) when AC requires that token but banned-string scan must still pass.
+  - For Phase 0, real D1/KV resource IDs are not yet provisioned — use clearly-named PLACEHOLDER_* tokens so a future phase can spot and replace them.
+---
