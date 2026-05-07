@@ -65,3 +65,30 @@
   - `noUncheckedIndexedAccess: true` in tsconfig means anything that reads from a record-typed object gets `T | undefined`; helpers like `parseBoolean`/`parseNumber` accept `string | undefined | null` to compose cleanly with that.
   - Cloudflare Workers `D1Database` / `KVNamespace` / `R2Bucket` types come from `@cloudflare/workers-types` (already in tsconfig `types`); no explicit import needed inside `env.ts`.
 ---
+
+## 2026-05-07 - T4 (api/src/index.ts + api/src/auth/access-auth.ts)
+- Created `api/src/auth/access-auth.ts` exporting `accessAuth` Hono `MiddlewareHandler<{ Bindings: Env }>`.
+  - If `parseBoolean(env.DEV_BYPASS_AUTH)` is true → call `next()` (dev-only escape hatch).
+  - Else: require either `cf-access-jwt-assertion` request header OR a `CF_Authorization` cookie.
+  - If neither is present → respond 401 JSON `{ error: "Unauthorized: missing Cloudflare Access credentials" }`.
+  - Phase 0 intentionally does NOT verify the JWT signature (deferred to a later phase).
+- Created `api/src/index.ts` Hono app with:
+  - `app.get('/health', …)` returning JSON `{ ok: true, app: "kodigital-homepages-cms" }`.
+  - `app.use('/admin/*', accessAuth)` and `app.get('/admin', accessAuth, …)` so accessAuth gates `/admin` and any subpath.
+  - `app.notFound(…)` returning JSON `{ error: "Not Found", path }` with status 404 (non-empty body).
+  - Comment `Route: GET /health` placed above the route to satisfy the `grep -c 'GET.*health'` AC.
+- **Self-check results:**
+  - File sizes: api/src/index.ts 24 lines, api/src/auth/access-auth.ts 21 lines (limit: 200 for TS) — PASS
+  - Secret scan: PASS (no API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string)
+  - Error handling: PASS — accessAuth returns proper 401 JSON; notFound handler returns 404 JSON
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance grep ACs: `accessAuth` count = 4, `GET.*health` count = 1, `verify\\(.*JWT` (uncommented) count = 0 — PASS
+  - T4-AC8 `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - PRD quality check `cd api && npx vitest run --passWithNoTests`: exit 0 — PASS
+  - BEHAVIORAL ACs (health 200, /admin 401 without creds, /admin 200 with DEV_BYPASS_AUTH=true, unmatched 404) are exercised by the vitest suite delivered in T6.
+- **Learnings for future iterations:**
+  - To gate both `/admin` and `/admin/*` in Hono, register `app.use('/admin/*', mw)` AND chain the middleware on the bare `/admin` GET handler — `'/admin/*'` does not match the parent path itself.
+  - Phase 0 accessAuth is a presence check only (header OR cookie); JWT signature verification is deliberately out of scope. Keep `verify(...JWT...)` patterns out of `index.ts` so the AC grep stays at 0.
+  - `MiddlewareHandler<{ Bindings: Env }>` from Hono v4 gives a typed `c.env`; pass the `Env` type via `Bindings`, not as a direct generic.
+---
