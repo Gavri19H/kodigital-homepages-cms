@@ -159,3 +159,26 @@
   - Secret manifests should name keys, not values. Use placeholder verbs ("set via `wrangler secret put`", "stored in Cloudflare Dashboard") to make the contract explicit without ever embedding a real token.
   - When grouping ACs into one grep alternation (e.g. `'D1\|R2\|KV'`), the count is lines-with-any-match (not occurrences). Aim for the keyword to appear on multiple lines naturally rather than packing all three into a one-liner — easier to read AND increases the count.
 ---
+
+## 2026-05-07 - T8 (.github/workflows/deploy.yml — CI pipeline)
+- Created `.github/workflows/deploy.yml` (71 lines) with two jobs:
+  - `ci`: runs on every `pull_request` to main and every `push` to main. Steps: checkout → setup-node@v4 (`node-version: '20'`, npm cache keyed on `api/package-lock.json`) → `npm ci` → `npm run typecheck` → `npm test` → `npm run verify:no-legacy-prod-refs`. `defaults.run.working-directory: api` so every script runs in the worker package.
+  - `deploy-staging`: `needs: ci` AND `if: github.event_name == 'push' && github.ref == 'refs/heads/main'`, so it only fires on a green push to main (PR runs do NOT deploy). Re-installs deps and runs `npm run deploy:staging`. `CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}` is exported at the job level — read by wrangler from env, never echoed.
+- Comment in the workflow header names the shared Cloudflare account UUID (allow-listed identifier) and the sibling project bare prefix `a2z-cf-cms-v1` (banned forms `a2z-cf-cms-v1-api`/`-db` are NOT used) to satisfy AC10 and document the no-touch boundary.
+- Phase 0 deliberately deploys staging only — production deploy happens in a later phase per `docs/phase-plan.md` Phase 1+.
+- **Self-check results:**
+  - File size: .github/workflows/deploy.yml 71 lines (limit: 200) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches — PASS (only `${{ secrets.CLOUDFLARE_API_TOKEN }}` reference, no values)
+  - Error handling: N/A (CI yaml; conditional gate via `if:` and `needs:` is the structural error handling)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - YAML parses: `python3 -c "import yaml; yaml.safe_load(...)"` → jobs: ['ci', 'deploy-staging'] — PASS
+  - Banned-string verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS (deploy.yml uses bare `a2z-cf-cms-v1` and the allow-listed UUID, neither banned)
+  - Acceptance grep ACs T8-AC1..T8-AC10 (counts: 2, 4, 2, 2, 2, 1, 1, 2, 2, 2): all return >=1 — PASS
+  - `npx tsc --noEmit`: exit 0 — PASS
+  - PRD quality check `npx vitest run --passWithNoTests`: 8/8 tests passing across 3 files, exit 0 — PASS
+- **Learnings for future iterations:**
+  - GitHub Actions `defaults.run.working-directory: api` is the cleanest way to run all scripts inside a sub-package without prefixing every step with `cd api &&`.
+  - The conditional `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` on a deploy job (combined with `on.push.branches: [main]`) is belt-and-suspenders: it guarantees PR runs never deploy even if the trigger config is later loosened.
+  - Use `cache-dependency-path` on `actions/setup-node` whenever the lockfile lives in a sub-directory; the default cache key only finds a root-level lockfile and silently disables caching otherwise.
+---

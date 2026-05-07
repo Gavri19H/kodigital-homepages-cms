@@ -202,7 +202,7 @@
         "grep -c 'a2z-cf-cms-v1\\|44c73f76' .github/workflows/deploy.yml"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T9",
