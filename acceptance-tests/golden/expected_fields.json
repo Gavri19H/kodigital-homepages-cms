@@ -1,0 +1,31 @@
+{
+  "source_doc": "/Users/guyhaikov/Downloads/phase-0.md",
+  "extraction_method": "yaml_like",
+  "field_count": 4,
+  "fields": [
+    {
+      "name": "Use",
+      "type": "string",
+      "required": true,
+      "source": "yaml_like"
+    },
+    {
+      "name": "Vars",
+      "type": "string",
+      "required": true,
+      "source": "yaml_like"
+    },
+    {
+      "name": "Bindings",
+      "type": "string",
+      "required": true,
+      "source": "yaml_like"
+    },
+    {
+      "name": "Create",
+      "type": "string",
+      "required": true,
+      "source": "yaml_like"
+    }
+  ]
+}

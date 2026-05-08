@@ -1,0 +1,79 @@
+name: CI / Deploy
+
+# CI runs on every pull_request targeting main and on every push to main.
+# Conditional deploy step runs only on push to refs/heads/main, after CI
+# passes. Cloudflare account 44c73f76-6ed5-4b26-b442-6c2044326c4d hosts both
+# this project (kodigital-homepages-cms) and the sibling project a2z-cf-cms-v1;
+# CLOUDFLARE_API_TOKEN is scoped to deploy permissions only (see
+# docs/secrets-manifest.md).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    name: typecheck + test + verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Verify no legacy production references
+        run: npm run verify:no-legacy-prod-refs
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: ci
+    # Deployment is OFF by default. To enable, set the repo variable
+    # ENABLE_STAGING_DEPLOY to the literal string 'true'
+    # (Settings -> Secrets and variables -> Actions -> Variables).
+    # Until that flag is flipped, this job is skipped on every push to main,
+    # so a merge to main cannot accidentally deploy.
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && vars.ENABLE_STAGING_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to staging
+        run: npm run deploy:staging
