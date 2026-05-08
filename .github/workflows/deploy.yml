@@ -46,7 +46,15 @@ jobs:
   deploy-staging:
     name: Deploy to staging
     needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deployment is OFF by default. To enable, set the repo variable
+    # ENABLE_STAGING_DEPLOY to the literal string 'true'
+    # (Settings -> Secrets and variables -> Actions -> Variables).
+    # Until that flag is flipped, this job is skipped on every push to main,
+    # so a merge to main cannot accidentally deploy.
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && vars.ENABLE_STAGING_DEPLOY == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
