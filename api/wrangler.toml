@@ -1,7 +1,7 @@
 name = "kodigital-homepages-cms-worker"
 main = "src/index.ts"
 compatibility_date = "2026-05-06"
-account_id = "44c73f76-6ed5-4b26-b442-6c2044326c4d"
+account_id = "a05d7505b71c6cd931e436defe670509"
 
 # This worker shares the Cloudflare account with the sibling project a2z-cf-cms-v1
 # (TheIWise). All bindings below are kodigital-homepages-cms-* placeholders only —
@@ -17,11 +17,11 @@ OPENAI_IMAGE_MODEL = "gpt-image-1"
 [[d1_databases]]
 binding = "DB"
 database_name = "kodigital-homepages-cms-db"
-database_id = "PLACEHOLDER_KODIGITAL_DB_ID"
+database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "PLACEHOLDER_KODIGITAL_KV_ID"
+id = "77bb281de4fb4008a06b0993eb8b1774"
 
 [[r2_buckets]]
 binding = "MEDIA"
