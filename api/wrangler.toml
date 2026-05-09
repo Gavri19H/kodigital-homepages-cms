@@ -1,7 +1,7 @@
 name = "kodigital-homepages-cms-worker"
 main = "src/index.ts"
 compatibility_date = "2026-05-06"
-account_id = "44c73f76-6ed5-4b26-b442-6c2044326c4d"
+account_id = "a05d7505b71c6cd931e436defe670509"
 
 # This worker shares the Cloudflare account with the sibling project a2z-cf-cms-v1
 # (TheIWise). All bindings below are kodigital-homepages-cms-* placeholders only —
@@ -11,17 +11,17 @@ account_id = "44c73f76-6ed5-4b26-b442-6c2044326c4d"
 APP_ENV = "development"
 ADMIN_BASE_URL = "http://localhost:8787"
 CACHE_API_ENABLED = "true"
-OPENAI_TEXT_MODEL = "gpt-4o-mini"
-OPENAI_IMAGE_MODEL = "gpt-image-1"
+OPENAI_TEXT_MODEL = "gpt-5.5"
+OPENAI_IMAGE_MODEL = "gpt-image-2"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "kodigital-homepages-cms-db"
-database_id = "PLACEHOLDER_KODIGITAL_DB_ID"
+database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "PLACEHOLDER_KODIGITAL_KV_ID"
+id = "77bb281de4fb4008a06b0993eb8b1774"
 
 [[r2_buckets]]
 binding = "MEDIA"
@@ -34,8 +34,8 @@ name = "kodigital-homepages-cms-worker-staging"
 APP_ENV = "staging"
 ADMIN_BASE_URL = "https://staging-cms.kodigital.io"
 CACHE_API_ENABLED = "true"
-OPENAI_TEXT_MODEL = "gpt-4o-mini"
-OPENAI_IMAGE_MODEL = "gpt-image-1"
+OPENAI_TEXT_MODEL = "gpt-5.5"
+OPENAI_IMAGE_MODEL = "gpt-image-2"
 
 [env.production]
 name = "kodigital-homepages-cms-worker"
@@ -44,5 +44,5 @@ name = "kodigital-homepages-cms-worker"
 APP_ENV = "production"
 ADMIN_BASE_URL = "https://cms.kodigital.io"
 CACHE_API_ENABLED = "true"
-OPENAI_TEXT_MODEL = "gpt-4o-mini"
-OPENAI_IMAGE_MODEL = "gpt-image-1"
+OPENAI_TEXT_MODEL = "gpt-5.5"
+OPENAI_IMAGE_MODEL = "gpt-image-2"
