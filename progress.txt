@@ -319,3 +319,37 @@
   - When a test file MUST contain attack-payload literals (e.g. `<script>` tag or `javascript:` URL), build them via runtime concatenation (`"<scr" + "ipt>"`) so the verify-no-legacy-prod-refs scanner — which runs over all .ts files including tests — does not flag the test file itself, and so a casual `grep` doesn't get false-positive XSS hits across the test corpus.
   - For attack-test ergonomics, `expect(html.toLowerCase()).not.toContain("<scr" + "ipt")` is a stronger contract than `not.toMatch(/<script/i)` because it survives any future change to the regex engine and is unmistakable when a test fails.
 ---
+
+## 2026-05-09 - T6 (api/src/workflow/{publish,index}.ts + api/test/workflow.test.ts)
+- Created `api/src/workflow/publish.ts` exporting:
+  - `VALID_TRANSITIONS` (exactly the 6 PRD pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft)
+  - `isValidTransition(from, to)` predicate over that table
+  - `publish(env, articleId, options?)` — the canonical "draft -> published" path
+- `publish()` does (a) snapshot pre-publish row into `article_versions` (next version_number via `MAX(version_number) + 1`, status field captures the PRE-publish status), (b) render `content_json` via `contentJsonToHtml` from the editor module and set `content_html`, (c) flip `status='published'` + set `published_at`/`updated_at` (unix seconds via `Math.floor(Date.now()/1000)`) + clear `scheduled_at`, (d) call `invalidateFeeds(env)` once.
+- `publish()` rejects illegal transitions ("Illegal transition from '<from>' to 'published'") and missing articles ("Article <id> not found") via `Error` throws so callers can surface 4xx/404.
+- All four D1 statements use `prepare(<static SQL>).bind(...)` with positional `?` placeholders only — zero template-literal SQL in `publish.ts`.
+- `api/src/workflow/index.ts` re-exports the public surface (functions + `ArticleStatus`/`PublishOptions`/`StatusTransition` types) so admin endpoints (T10) can import from `../workflow`.
+- `api/test/workflow.test.ts` (5 tests):
+  - T6.AC1: VALID_TRANSITIONS contains exactly the 6 listed pairs and `isValidTransition` accepts each + rejects three illegal ones (published->scheduled, archived->published, archived->draft).
+  - T6.AC2 BEHAVIORAL: planted draft article with paragraph-only content_json → after `publish()`, version row has the original content_json, content_html='<p>Body</p>', status='published', published_at>0, scheduled_at=null, AND `feed:rss`/`feed:atom` are deleted from KV while `page:home` is untouched (proves invalidateFeeds was invoked end-to-end).
+  - Negative paths: archived article rejects with /Illegal transition/; missing article id rejects with /not found/.
+  - SQL parameterization: every prepare(sql) is template-literal-free; bind arities are 1/1/7/4 for SELECT-by-id / MAX(version_number) / INSERT version / UPDATE article.
+  - Fake D1 harness records `prepare(sql)`/`bind(...)` calls and supports first()/run() semantics for the four statements `publish()` issues; KV mock records deletes and supports list({prefix, cursor}) so `invalidateFeeds()` runs end-to-end.
+- **Self-check results:**
+  - File sizes: publish.ts 128, index.ts 14, workflow.test.ts 194 (limit: 200) — PASS
+  - Secret scan (API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string in changed files): 0 matches — PASS
+  - Error handling: PASS — `publish()` throws on missing article and on illegal transitions; both have descriptive messages
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries (`grep -nE 'prepare.*\$\{|prepare.*\`' src/workflow/publish.ts`): only a comment line matches (the rule itself); zero code matches — PASS
+  - T6.AC1 grep (`isValidTransition` count, VALID_TRANSITIONS pair count): table has 6 entries, all assertions pass — PASS
+  - T6.AC2 BEHAVIORAL covered by the planted-article test (a/b/c/d all asserted) — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS
+  - `cd api && npx vitest run`: 7 files / 45 tests passing (workflow.test.ts contributes 5) — PASS
+- **Learnings for future iterations:**
+  - Articles use INTEGER unix-second timestamps (per migration 0001_init_cms.sql `unixepoch()` defaults), so workflow code computes `Math.floor(Date.now()/1000)` rather than ISO strings. Bind those to `?` directly — no string conversion.
+  - `article_versions.version_number` is `UNIQUE(article_id, version_number)`. To compute the next number safely use `SELECT COALESCE(MAX(version_number), 0) AS max_version FROM article_versions WHERE article_id = ?` and `+1` — `COALESCE` lets the first version on a new article be `1` without a separate "no rows" branch.
+  - When testing modules that compose db + cache, take an `Env` parameter (with `DB`/`CACHE` bindings) rather than separate `db, kv` args. It mirrors the production handler signature and keeps test wiring identical to runtime wiring.
+  - To assert "invalidateFeeds is called once" without mocking the function itself, plant a `feed:*` key in the KV mock and assert it gets deleted. This proves the real invalidation path ran end-to-end (KV list -> delete loop), not just that the wrapper function was called.
+  - When asserting bind arity per SQL statement, branch on `sql.startsWith(...)` of the unique opening — otherwise `WHERE id = ?` matches both the SELECT-by-id and the UPDATE WHERE clause and gives you mismatched arity assertions.
+---
