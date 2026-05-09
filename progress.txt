@@ -270,3 +270,25 @@
   - `jose` v5.x does NOT export a `CryptoKey` type — the runtime `CryptoKey` is the global Web Crypto type and `generateKeyPair`'s return type is already inferred as the algorithm-specific Web Crypto key. Don't import `CryptoKey` from `jose`; let TypeScript infer or rely on the global lib.dom type.
   - When a grep AC is `expirationTtl:\s*86400` (literal-number), do NOT extract the magic number to a named constant in the same file. The grep is regex-strict on the literal and won't match `expirationTtl: NAMED_CONST` even when the const value is 86400. Inline the literal with a brief comment explaining what 86400 means.
 ---
+
+## 2026-05-09 - T4 (api/src/cache/index.ts + api/test/cache.test.ts)
+- Created `api/src/cache/index.ts` (61 lines): KV-backed cache helpers with the four contractually-required exports — `cacheGet(env, key)`, `cacheSet(env, key, body, { expirationTtl? })`, `cacheDel(env, key)`, `invalidateFeeds(env)`. KV (`env.CACHE`) is the primary store; the Cache API path inside `cacheDel` is gated by `parseBoolean(env.CACHE_API_ENABLED)` so `caches.default` is NEVER touched unless the operator opts in (T4.AC2). `caches.default` access is wrapped in try/catch so a Node test runtime that lacks the global doesn't blow up the helper. `invalidateFeeds` lists every key with prefix `"feed:"` (paginated via `KVNamespaceListResult.list_complete` + `cursor`) and deletes each one.
+- Created `api/test/cache.test.ts` (123 lines, 6 tests). Includes an in-memory KV mock that supports `get`/`put`/`delete`/`list({ prefix, cursor })` with **2 keys per page** to exercise the pagination loop in `invalidateFeeds`. The cursor is the last-seen key NAME (not a numeric index), matching real KV semantics so it survives the deletes-during-iteration the helper performs. Tests cover: missing-key get (null); roundtrip set/get; delete; expirationTtl flow-through; the BEHAVIORAL T4.AC3 scenario (`cacheSet("feed:rss", body)` + `cacheSet("feed:atom", …)` + `cacheSet("feed:sitemap", …)` + a non-feed key → `invalidateFeeds(env)` → all three feed keys read null AND the non-feed key is untouched); and that `cacheDel` resolves cleanly when `CACHE_API_ENABLED=false` (i.e. the gate prevents `caches.default` access in a test runtime that doesn't define it).
+- The describe block is named `cache module: feed-key invalidation + KV roundtrip` so vitest test names match the contractual regex `/cache.*invalidat/i`.
+- **Self-check results:**
+  - File sizes: api/src/cache/index.ts 61 lines, api/test/cache.test.ts 123 lines (limit 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`) on the two new files: 0 matches — PASS
+  - Error handling: PASS — `cacheDel` wraps `caches.default.delete` in try/catch (returns void on Cache API absence); `invalidateFeeds` paginates correctly without throwing on `list_complete=true`
+  - Migration execution: N/A (not a db-migration story)
+  - Parameterized queries: N/A (not a db story)
+  - T4.AC1 grep `export (async )?function (cacheGet|cacheSet|cacheDel|invalidateFeeds)\b` src/cache/index.ts: 4 (>=4) — PASS
+  - T4.AC2 grep `CACHE_API_ENABLED` src/cache/index.ts: 3 (>=1) — PASS
+  - T4.AC3 BEHAVIORAL `npx vitest run test/cache.test.ts`: 6/6 tests passing under describe `cache module: feed-key invalidation + KV roundtrip` (regex `/cache.*invalidat/i` matches the describe block) — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm test`: 24/24 tests passing across 5 files (health 2, admin-auth 8, verify-script 2, db 6, cache 6) — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - When mocking `KVNamespace.list({ prefix, cursor })` for a test that ALSO deletes between pages, use the last-key-name as the cursor (not a numeric index). With a numeric-index cursor, deletes during iteration shift the underlying array and the second `list()` call's startIdx ends up past the array's new length — the last page's keys are silently skipped and `invalidateFeeds` looks like it's leaking entries. Real Cloudflare KV cursors are key-based, so mirror that.
+  - `caches.default` is a Workers runtime global; in a Node-vitest environment it isn't defined. ANY helper that touches `caches.default` MUST be gated by an env flag AND wrapped in try/catch — otherwise a test that exercises the helper with `CACHE_API_ENABLED=false` still throws if the type-narrowing breaks (or if a future refactor evaluates the global before the gate).
+  - For multi-call paginated KV scans, the `KVNamespaceListResult` type is a discriminated union: `list_complete: true` has no `cursor`; `list_complete: false` has `cursor: string`. Branch on `list_complete` (not on `cursor`) for the loop exit condition — TypeScript narrows correctly and the runtime contract is explicit.
+---
