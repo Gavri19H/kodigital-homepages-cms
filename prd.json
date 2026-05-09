@@ -131,7 +131,7 @@
         "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T9",
