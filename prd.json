@@ -82,7 +82,7 @@
         "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T6",
