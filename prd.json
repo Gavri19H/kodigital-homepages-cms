@@ -49,7 +49,7 @@
         "package.json adds jose as a dependency"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T4",
