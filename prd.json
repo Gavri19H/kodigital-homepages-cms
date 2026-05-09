@@ -150,7 +150,7 @@
         "Public router declares all 12 required routes"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T10",

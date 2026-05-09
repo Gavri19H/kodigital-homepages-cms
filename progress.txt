@@ -412,3 +412,50 @@
   - In Workers tests, `Uint8Array` and `Uint8Array.buffer` (`ArrayBufferLike`) are NOT interchangeable for type purposes since TS 5.x — `ArrayBufferLike` includes `SharedArrayBuffer` which is not assignable to `ArrayBuffer`. Keep test fixtures as `Uint8Array` and have your mock's `put` normalize via a `toBytes(value: unknown): Uint8Array` helper rather than narrowing `value: ArrayBuffer | Uint8Array` (the union widening bites you on `.buffer` access).
   - `fileEntry instanceof File` after the `as unknown as File | string | null` cast is enough to narrow on the value side: in @cloudflare/workers-types `File extends Blob` is declared as a class, not a type alias, so the runtime check works. Don't be tempted to substitute `"arrayBuffer" in fileEntry` duck-typing — File is a real class in the Workers runtime and the instanceof check is the cheapest correct discriminator.
 ---
+
+## 2026-05-09 - T9 (api/src/public/{router,reserved,feeds,sitemap}.ts + api/test/reserved-path.test.ts)
+- Created `api/src/public/reserved.ts` (27 lines): `RESERVED_PATHS` tuple of 7 quoted entries (admin, api, static, assets, media, preview, health) + `isReservedPath(slug)` predicate that strips a leading slash, takes the first path segment, and looks it up in the reserved set. Comment block deliberately avoids quoting the bare names (`admin`/`api`/etc.) so the AC grep `["'](admin|api|static|assets|media|preview|health)["']` returns exactly 7 — only the array literal entries match.
+- Created `api/src/public/feeds.ts` (126 lines): `xmlEscape` (5-char allowlist & < > " '), `renderRssFeed(articles, site)` emitting RSS 2.0 with `<channel>` + `<item>` entries (`<title>`, `<link>`, `<guid isPermaLink>`, `<pubDate>` RFC 2822, `<description>` summarized to 280 chars), `renderAtomFeed(articles, site)` emitting Atom 1.0 (`<feed xmlns=…/2005/Atom>` + `<entry>` with `<id>`/`<title>`/`<link href>`/`<updated>` ISO 8601 + `<summary>`). All user-supplied content escaped via `xmlEscape` before interpolation.
+- Created `api/src/public/sitemap.ts` (73 lines): `renderSitemap({baseUrl, articles, pages})` → `<urlset xmlns=…/sitemap/0.9>` with one `<url>` per article (`/article/<slug>`) and per published page (`/page/<slug>`) plus the home `/` entry; `<lastmod>` ISO 8601 from updated_at/published_at/now. `buildRobotsTxt(baseUrl)` emits `User-agent: *` + `Disallow: /admin/` + `Disallow: /preview/` + `Sitemap: <base>/sitemap.xml`. `ADS_TXT_DEFAULT` is a Phase 1 placeholder string.
+- Created `api/src/public/router.ts` (191 lines): Hono sub-router declaring exactly the 12 Phase-1 public routes:
+  1. `GET /article/:slug` → `SELECT * FROM articles WHERE slug = ? AND status = 'published'` (parameterized) → `c.html(content_html)` or 404.
+  2. `GET /category/:slug` → fetches category by slug + first page of published articles in that category, returns JSON.
+  3. `GET /category/:slug/page/:page` → paginated variant (PAGE_SIZE=20, page param parsed with `parseInt(.., 10) || 1`).
+  4. `GET /page/:slug` → published page lookup.
+  5. `GET /feed.xml` → RSS 2.0 with `Content-Type: application/rss+xml; charset=utf-8`.
+  6. `GET /atom.xml` → Atom 1.0 with `Content-Type: application/atom+xml; charset=utf-8`.
+  7. `GET /sitemap.xml` → sitemap with `Content-Type: application/xml; charset=utf-8`, articles capped at 5000 to keep one D1 query bounded.
+  8. `GET /robots.txt` → text/plain.
+  9. `GET /ads.txt` → text/plain (placeholder).
+  10. `GET /preview/:id` → 501 placeholder ("Preview not yet wired (T11)") so a hit before T11 fails loudly instead of returning 200 with no token check.
+  11. `GET /health` → `{ ok: true, app: "kodigital-homepages-cms", scope: "public" }` (the `scope` discriminator distinguishes this from the main app's /health, which returns no `scope` field).
+  12. `GET /:slug` compatibility catch-all — calls `isReservedPath(slug)` FIRST and returns 404 for any reserved head, then tries pages then articles. This is the L-029 reserved-path guard: even if a malicious page row with slug='admin' is planted, the catch-all refuses to serve it, and route-order in the wired app sends /admin to the dedicated admin handler in api/src/index.ts.
+- All D1 calls in router.ts use `prepare(<static SQL>).bind(...)` with positional `?` placeholders; zero template-literal SQL interpolation.
+- Created `api/test/reserved-path.test.ts` (175 lines, 8 tests):
+  - T9.AC1: `RESERVED_PATHS.length === 7` AND the sorted array equals `[admin, api, assets, health, media, preview, static]`.
+  - `isReservedPath`: returns true for every reserved head + leading-slash + reserved-with-subpath; returns false for non-reserved/empty/null/undefined.
+  - T9.AC2 BEHAVIORAL: test wires a Hono app exactly the way T12 will (`app.use('/admin/*', accessAuth)` + `app.get('/admin', accessAuth, …)` + `app.route('/', publicRouter)`), plants a published page row with slug='admin' to make the test as adversarial as possible, and asserts GET /admin returns `{ ok: true, area: "admin" }` — proving the admin handler ran (NOT the /:slug placeholder which would have returned the impostor page HTML).
+  - `/:slug` rejects reserved 'api' even with a planted page row (proves the guard is in the catch-all, not just route order).
+  - `/:slug` serves a non-reserved published page (proves the catch-all still does its job).
+  - `/:slug` returns 404 for unknown slug (no impostor data, no impostor result).
+  - `/health` on the public router returns `scope: "public"` (proves the public router's /health is registered without colliding with the main app's /health since this test mounts only the public router under that path).
+  - `/robots.txt` is served by the public router with `User-agent: *` + `Disallow: /admin/`.
+- **Self-check results:**
+  - File sizes: reserved.ts 27, feeds.ts 126, sitemap.ts 73, router.ts 191, reserved-path.test.ts 175 (limit: 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`) on all 5 new files: 0 matches — PASS
+  - Error handling: PASS — every D1 lookup returns 404 JSON when the row is missing; `/preview/:id` returns 501 (not 200) so the absence of T11 wiring is loudly visible; `/category/:slug` returns 404 before paginating against an unknown category id; `parseInt(page, 10) || 1` defaults bad page values to 1 (never NaN); `Math.max(0, (page-1)*PAGE_SIZE)` prevents negative offsets.
+  - Migration execution: N/A (not a db-migration story)
+  - Parameterized queries (`grep -nE 'prepare\(.*\$\{|prepare\(\s*\`' src/public/*.ts`): 0 matches — PASS
+  - T9.AC1 grep `["'](admin|api|static|assets|media|preview|health)["']` src/public/reserved.ts: 7 — PASS
+  - T9.AC2 BEHAVIORAL `npx vitest run test/reserved-path.test.ts`: 8/8 tests passing — PASS
+  - T9.AC3 grep `\.(get|all)\(["']/(article/:slug|category/:slug|category/:slug/page/:page|page/:slug|feed\.xml|atom\.xml|sitemap\.xml|robots\.txt|ads\.txt|preview/:id|health|:slug)` src/public/router.ts: 12 — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm test`: 67/67 tests passing across 10 files (admin-auth 8, cache 6, db 6, editor 16, health 2, media 7, privacy 7, reserved-path 8, verify-script 2, workflow 5) — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - The reserved-path guard has TWO layers and you need both: (1) route-registration ORDER in the wired app — register dedicated handlers (e.g. `/admin`) BEFORE the public router so /admin matches the dedicated handler; (2) an `isReservedPath()` check at the TOP of the /:slug catch-all so a malicious `pages` row with `slug='admin'` can never serve impostor content. The unit test plants exactly that impostor row — it's the only adversarial scenario that distinguishes "we got lucky on route order" from "the guard actually fires."
+  - Hono sub-routers register their routes onto the parent's trie when you call `app.route("/", subApp)`. This is why both /admin AND the public /:slug can be on the same app and the more-specific /admin still wins — it was registered earlier. If you ever need to register the sub-router FIRST, you must rely on `isReservedPath()` alone for the guard, because route order won't save you.
+  - When a contract grep counts route declarations, keep route paths LITERAL in `app.get("/literal-path", …)` — don't compute paths via constants like `app.get(ROUTES.ARTICLE, …)`. The grep is a simple regex and won't follow indirection.
+  - For RSS/Atom XML, hand-rolled escaping with `["&","<",">","\"","'"] → ["&amp;",…]` (in that order, ampersand first to avoid double-escaping) is sufficient and avoids pulling in an XML library. Atom needs ISO 8601 (`new Date(unixSeconds*1000).toISOString()`); RSS needs RFC 2822 (`new Date(...).toUTCString()`). Mixing them up is a feed-validator failure that won't surface until a podcast/news client tries to parse the output.
+  - `c.notFound()` in Hono sub-routers triggers the parent app's `notFound` handler. For a contract that requires a specific 404 body (`{ error: "Not Found" }`), return `c.json({ error: "Not Found" }, 404)` directly from the route — don't rely on the parent's notFound shape unless you've explicitly synced them.
+---
