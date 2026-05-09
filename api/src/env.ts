@@ -13,6 +13,7 @@ export interface Env {
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
   DEV_BYPASS_AUTH?: string;
+  PREVIEW_SECRET?: string;
 }
 
 export function parseBoolean(value: string | undefined | null): boolean {
