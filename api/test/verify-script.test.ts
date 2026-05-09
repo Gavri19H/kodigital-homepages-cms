@@ -41,4 +41,27 @@ describe("verify:no-legacy-prod-refs script", () => {
     expect(res.status).not.toBe(0);
     expect(res.stderr).toContain("__verify-test-fixture.txt");
   });
+
+  it("catches each of the 5 T13 legacy CMS identifiers added to the denylist", () => {
+    // Concatenated so this test file does not itself contain the literal
+    // banned strings (the scanner would otherwise flag this file).
+    const t13BannedTokens = [
+      "kodigital2." + "cloudflareaccess.com",
+      "admin." + "theiw" + "ise.com",
+      "7542d73ba678850e7ec62797f0ffb6e5e" + "5279b6e57bd1f34ac372f04a4ded425",
+      "44c73f76-6ed5-4b26-b442-" + "6c2044326c4d",
+      "111320b080274cfd" + "8465e89400712c5d",
+    ];
+    for (const token of t13BannedTokens) {
+      writeFileSync(
+        FIXTURE_PATH,
+        `test fixture: this file intentionally references ${token}.\n`,
+        "utf8",
+      );
+      const res = runVerifyScript();
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain("__verify-test-fixture.txt");
+      rmSync(FIXTURE_PATH);
+    }
+  });
 });
