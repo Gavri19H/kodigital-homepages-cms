@@ -524,3 +524,36 @@
   - For draft-preview responses, set BOTH `Cache-Control: private, no-store` (so no proxy or CDN caches the draft) AND `X-Robots-Tag: noindex, nofollow` (so a leaked URL doesn't end up in a search index). Just one of these is insufficient — Cloudflare CDN respects `private`+`no-store` but Google's crawler ignores Cache-Control for indexing decisions.
   - For routes that 401 on token failure, consume the token from BOTH `?token=` query param (link previews) AND a header (`x-preview-token`, machine-to-machine). Browsers strip Authorization on cross-origin redirects but URL params survive — the dual-source pattern matches what the legacy CMS shipped and avoids breaking existing preview link integrations.
 ---
+
+## 2026-05-09 - T12 (api/src/index.ts — wire all sub-routers + reserved-path guard before /:slug)
+- Rewrote `api/src/index.ts` (46 lines) to mount the 5 Phase-1 sub-routers via `app.route("/", subApp)`. Mount order is the load-bearing detail because the public router declares a `/:slug` compatibility catch-all that would shadow any later-registered specific path:
+  1. `app.get("/health", ...)` — registered FIRST so the main app's literal liveness probe wins over publicRouter's `/health` (which adds a `scope: "public"` discriminator the contract grep does not want at the top-level).
+  2. `app.route("/", previewRouter)` — wins over publicRouter's `/preview/:id` 501 placeholder.
+  3. `app.route("/", mediaRouter)` — registers GET /media/* and POST /admin/media. The admin auth gate registered by adminRouter (next) covers POST /admin/media because Hono's middleware-by-path matching applies regardless of registration order relative to the route handler.
+  4. `app.route("/", adminRouter)` — registers /admin (and /admin/*) + /api/admin/* with their accessAuth middleware (which itself short-circuits on DEV_BYPASS_AUTH only when APP_ENV !== "production").
+  5. `app.route("/", privacyRouter)` — public, unauthenticated (3 routes under /api/privacy/*).
+  6. `app.route("/", publicRouter)` — registered LAST so the /:slug catch-all is the lowest-priority match for single-segment paths.
+- Removed the inline `/admin` JSON handler and inline `app.use("/admin/*", accessAuth)` from `api/src/index.ts`. adminRouter (T10) owns the admin surface end-to-end now — including the auth gate, the 8 shell HTML GETs, the auth-status route, and the `/api/admin/*` JSON sub-routers (CRUD/workflow/AI). Keeping a duplicate `/admin` handler in index.ts would have served the legacy `{ ok: true, area: "admin" }` JSON instead of the HTML shell that admin-auth.test.ts reaches via app.request through this main file. (admin-auth.test.ts only checks status, not body, so the swap is invisible to that test, but it would have been a real divergence.)
+- `app.notFound(...)` retained for true unmatched paths (multi-segment unknowns that don't hit /:slug). Returns `{ error: "Not Found", path }` 404.
+- Updated `api/test/health.test.ts` (22 lines): changed the "unknown route" case from a single-segment `/this-route-does-not-exist` (which now matches publicRouter's `/:slug` and would crash because that path needs a DB binding) to a multi-segment `/this/route/does/not/exist` (cannot match `/:slug`, falls through to notFound). Added inline comment explaining the routing reason. The single-segment unknown-slug path is exercised by `reserved-path.test.ts` where a DB mock is provided.
+- **Self-check results:**
+  - File sizes: api/src/index.ts 46 lines, api/test/health.test.ts 22 lines (limit: 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`) on src/index.ts: 0 matches — PASS
+  - Error handling: PASS — accessAuth (per-router) returns 401 JSON; main app's notFound returns 404 JSON; no swallowed exceptions
+  - Migration execution: N/A (not a db-migration story)
+  - Parameterized queries: N/A (no SQL in index.ts)
+  - T12.AC1 grep `app\.route\(` src/index.ts: 5 (>=1, satisfies the "mounts all sub-routers" contract — admin/public/privacy/media/preview each appear) — PASS
+  - T12.AC2 BEHAVIORAL `npx vitest run test/health.test.ts test/admin-auth.test.ts test/privacy.test.ts`: 17/17 tests passing across 3 files — PASS
+    - `/health` returns 200 with `{ ok: true, app: "kodigital-homepages-cms" }` (no `scope` field, so the main app's handler answered) ✓
+    - `/admin` returns 401 without JWT and without DEV_BYPASS_AUTH (admin router's accessAuth fired) ✓
+    - `/admin` returns 200 with valid signed CF Access JWT (admin shell rendered) ✓
+    - `/api/privacy/status` returns 200 unauthenticated (privacy router is public) ✓
+  - `npx tsc --noEmit`: exit 0 — PASS
+  - `npm test`: 94/94 tests passing across 12 files (admin 18, admin-auth 8, cache 6, db 6, editor 16, health 2, media 7, preview 9, privacy 7, reserved-path 8, verify-script 2, workflow 5) — PASS
+  - `npm run verify:no-legacy-prod-refs`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - Mount-order precedence in Hono v4: sub-routers registered via `app.route("/", subApp)` add their routes to the parent's trie in registration order. For overlapping route patterns (e.g. publicRouter declares `/:slug` AND `/health`), the one registered FIRST wins. The strategy that survives a refactor: register every literal/specific path BEFORE the catch-all, including paths declared inside sub-routers — which means the catch-all sub-router goes LAST in the mount order. Re-registration order is a real regression risk; always pair this with an in-router reserved-path guard (publicRouter's `/:slug` does this) so a future order swap doesn't open a hole.
+  - When refactoring index.ts to delegate `/admin` to a sub-router, double-check that any test importing the main app (not the sub-router directly) doesn't assert against the old inline handler's body shape. admin-auth.test.ts checks `res.status` only — body shape changed (JSON → HTML) but the test is intact. health.test.ts had a body-presence check (`body.length > 0`) that survived, and its status check was the load-bearing assertion that the route resolved without crashing.
+  - Hono `app.request(url, init)` (no env arg) leaves c.env undefined. Routes that reach for `c.env.DB` will throw, and the default error handler returns 500 — NOT 404. So "unknown route returns 404" tests have to either (a) use a path that won't match any route handler that touches env, or (b) pass a mock env. Multi-segment paths are the cheapest way to land in app.notFound directly.
+  - Hono middleware registered on a sub-router (e.g. `admin.use("/admin/*", accessAuth)` inside adminRouter) attaches to the parent app's trie when `app.route("/", adminRouter)` runs. Subsequent `app.route("/", mediaRouter)` calls that register `POST /admin/media` are still gated by that earlier middleware because middleware path-pattern matching is independent of route-registration order. This is what makes the wiring strategy "admin router first, then media router" sound — the upload route inherits the admin gate without needing duplicate middleware.
+---

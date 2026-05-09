@@ -10,8 +10,11 @@ describe("GET /health", () => {
     expect(body.app).toBe("kodigital-homepages-cms");
   });
 
-  it("returns 404 with non-empty body for unknown route", async () => {
-    const res = await app.request("/this-route-does-not-exist");
+  it("returns 404 with non-empty body for unknown multi-segment route", async () => {
+    // Multi-segment paths bypass the publicRouter `/:slug` catch-all and fall
+    // through to the app-level notFound handler. Single-segment unknowns are
+    // exercised by reserved-path.test.ts where a DB binding is provided.
+    const res = await app.request("/this/route/does/not/exist");
     expect(res.status).toBe(404);
     const body = await res.text();
     expect(body.length).toBeGreaterThan(0);
