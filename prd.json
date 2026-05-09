@@ -1,233 +1,220 @@
 {
-  "changeId": "homepage-project-phase-0-2026-05-07",
-  "mainGoal": "Phase 0 scaffold for kodigital-homepages-cms passes typecheck + tests + verify:no-legacy-prod-refs + can serve /health locally via wrangler dev — without touching any TheIWise production resource.",
-  "qualityChecks": [
-    {
-      "name": "tests-or-skip-empty",
-      "command": "cd api && npx vitest run --passWithNoTests"
-    }
-  ],
+  "changeId": "kodigital-homepages-cms-phase1-2026-05-09",
+  "mainGoal": "Port the reusable CMS foundation (auth, db, media, cache, editor, workflow, ai placeholders, privacy, admin, public, preview) from the legacy Hono+TS Worker into the new standalone kodigital-homepages-cms Worker, satisfying all seven Phase 1 acceptance gates with no legacy production identifiers in active code.",
   "stories": [
     {
       "id": "T1",
-      "title": "api/package.json — Worker-ready TypeScript package config",
-      "category": "config",
+      "title": "Initial CMS migration 0001_init_cms.sql with 11 tables and Phase-2 site_id TODO comments",
+      "category": "migration",
       "targetFiles": [
-        "api/package.json",
-        "api/tsconfig.json",
-        "api/vitest.config.ts"
+        "migrations/0001_init_cms.sql",
+        "wrangler.toml"
       ],
       "acceptanceCriteria": [
-        "grep -c '\"hono\"' api/package.json",
-        "grep -c '\"wrangler\"' api/package.json",
-        "grep -c '\"vitest\"' api/package.json",
-        "grep -c '\"typescript\"' api/package.json",
-        "grep -c '\"dev\"' api/package.json",
-        "grep -c '\"test\"' api/package.json",
-        "grep -c '\"typecheck\"' api/package.json",
-        "grep -c '\"verify:no-legacy-prod-refs\"' api/package.json",
-        "grep -c '\"smoke:local\"' api/package.json",
-        "grep -c '\"db:migrate:local\"' api/package.json",
-        "grep -c '\"db:migrate:remote\"' api/package.json",
-        "grep -c '\"deploy:staging\"' api/package.json",
-        "grep -c '\"deploy:production\"' api/package.json",
-        "cd api && npm install --dry-run exits 0"
+        "Migration creates all 11 required tables (CREATE TABLE count >= 11 covering articles, article_versions, categories, tags, article_tags, pages, media, redirects, site_settings, prompt_presets, privacy_opt_outs)",
+        "Migration contains TODO Phase-2 site_id comment markers (>=1 per multi-tenant table)",
+        "BEHAVIORAL: GIVEN the new D1 binding kodigital-homepages-cms-db with no tables, WHEN `wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN all 11 tables appear in the local sqlite file with the documented columns and indexes"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T2",
-      "title": "api/wrangler.toml — new placeholder bindings only",
-      "category": "config",
+      "title": "Typed D1 query helpers in api/src/db/index.ts (parameterized only)",
+      "category": "api",
       "targetFiles": [
-        "api/wrangler.toml"
+        "src/db/index.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'name = \"kodigital-homepages-cms-worker\"' api/wrangler.toml",
-        "grep -c 'main = \"src/index.ts\"' api/wrangler.toml",
-        "grep -c 'compatibility_date = \"2026-05-06\"' api/wrangler.toml",
-        "grep -c 'APP_ENV' api/wrangler.toml",
-        "grep -c 'ADMIN_BASE_URL' api/wrangler.toml",
-        "grep -c 'CACHE_API_ENABLED' api/wrangler.toml",
-        "grep -c 'OPENAI_TEXT_MODEL' api/wrangler.toml",
-        "grep -c 'OPENAI_IMAGE_MODEL' api/wrangler.toml",
-        "grep -c 'database_name = \"kodigital-homepages-cms-db\"' api/wrangler.toml",
-        "grep -c 'binding = \"CACHE\"' api/wrangler.toml",
-        "grep -c 'bucket_name = \"kodigital-homepages-cms-media\"' api/wrangler.toml",
-        "grep -c '\\[env\\.staging\\]' api/wrangler.toml",
-        "grep -c '\\[env\\.production\\]' api/wrangler.toml",
-        "grep -c 'a2z-cf-cms-v1' api/wrangler.toml",
-        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/wrangler.toml"
+        "All D1 calls use prepare(...).bind(...) — zero template-literal SQL interpolation in db/index.ts",
+        "Helper exposes typed exports: getArticleBySlug, listArticles, getMediaById, listCategories at minimum",
+        "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts)."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T3",
-      "title": "api/src/env.ts — typed Env interface + parse helpers",
+      "title": "Replace presence-check auth with full CF Access JWKS+RS256 validation in api/src/auth/access-auth.ts",
       "category": "api",
       "targetFiles": [
-        "api/src/env.ts"
+        "src/auth/access-auth.ts",
+        "package.json",
+        "test/admin-auth.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'DB: D1Database' api/src/env.ts",
-        "grep -c 'CACHE: KVNamespace' api/src/env.ts",
-        "grep -c 'MEDIA: R2Bucket' api/src/env.ts",
-        "grep -c 'OPENAI_API_KEY' api/src/env.ts",
-        "grep -c 'DEV_BYPASS_AUTH' api/src/env.ts",
-        "grep -c 'CF_ACCESS_TEAM_DOMAIN' api/src/env.ts",
-        "grep -c 'parseBoolean' api/src/env.ts",
-        "grep -c 'parseNumber' api/src/env.ts",
-        "BEHAVIORAL: GIVEN env.ts is imported, WHEN parseBoolean(\"true\") is called, THEN returns true; WHEN parseBoolean(undefined) is called, THEN returns false. Verified by vitest unit test in T6.",
-        "cd api && npx tsc --noEmit exits 0"
+        "auth module imports jose JWKS+jwtVerify and validates exp/nbf/iss/aud/email",
+        "JWKS cache key written to KV with expirationTtl 24h (86400 seconds)",
+        "BEHAVIORAL: GIVEN APP_ENV=development AND DEV_BYPASS_AUTH=true, WHEN any /admin route is requested without a JWT, THEN the handler proceeds and returns the admin shell (200); GIVEN APP_ENV!=development OR DEV_BYPASS_AUTH unset, WHEN /admin is requested without a valid JWT, THEN response is 401",
+        "package.json adds jose as a dependency"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T4",
-      "title": "api/src/index.ts — Hono app with /health, /admin, accessAuth middleware",
+      "title": "KV cache helper with feed-key invalidation + Cache API stub in api/src/cache/index.ts",
       "category": "api",
       "targetFiles": [
-        "api/src/index.ts",
-        "api/src/auth/access-auth.ts"
+        "src/cache/index.ts"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN wrangler dev running locally, WHEN curl http://localhost:8787/health, THEN HTTP 200 with JSON body containing ok:true and app:kodigital-homepages-cms",
-        "BEHAVIORAL: GIVEN DEV_BYPASS_AUTH is NOT set to true, WHEN GET /admin without cf-access-jwt-assertion header AND without CF_Authorization cookie, THEN HTTP 401 with JSON error message",
-        "BEHAVIORAL: GIVEN DEV_BYPASS_AUTH=true is set in env, WHEN GET /admin, THEN HTTP 200",
-        "BEHAVIORAL: GIVEN any unmatched route, WHEN GET /nonexistent, THEN HTTP 404 with non-empty body",
-        "grep -c 'accessAuth' api/src/index.ts",
-        "grep -c 'GET.*health' api/src/index.ts",
-        "grep -E 'verify\\(.*JWT' api/src/index.ts | grep -v -E '//|TODO' | wc -l == 0",
-        "cd api && npx tsc --noEmit exits 0"
+        "Module exports cacheGet, cacheSet, cacheDel, invalidateFeeds",
+        "Cache API path gated by env.CACHE_API_ENABLED before any caches.default access",
+        "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T5",
-      "title": "api/scripts/verify/assert-no-legacy-prod-refs.ts — banned-string scanner",
-      "category": "script",
+      "title": "Editor block engine + sanitizer (7 block types, hand-rolled allowlist) in api/src/editor/",
+      "category": "api",
       "targetFiles": [
-        "api/scripts/verify/assert-no-legacy-prod-refs.ts"
+        "src/editor/blocks.ts",
+        "src/editor/sanitize.ts",
+        "src/editor/index.ts",
+        "test/editor.test.ts"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN banned string theiwise.com in api/src/dummy-test-fixture.txt, WHEN cd api && npm run verify:no-legacy-prod-refs, THEN exit code != 0 AND stderr names offending file (fixture removed after test)",
-        "BEHAVIORAL: GIVEN clean repo with no banned strings in active files, WHEN cd api && npm run verify:no-legacy-prod-refs, THEN exit code == 0",
-        "grep -c 'node_modules' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'a2z-cf-cms-v1-api' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'a2z-cf-cms-v1-db' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'theiwise\\.com' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'insureprimo' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'quotesRoutes' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'psychic-quiz' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'rental-booking' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'docs/source-architecture\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'docs/no-touch-red-line\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'docs/reference/current-theiwise-technical-spec\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts"
+        "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed')",
+        "BEHAVIORAL: GIVEN an editor JSON document containing an html block with <script>alert(1)</script>, WHEN contentJsonToHtml is called, THEN the rendered HTML contains no <script> tag and no on* attribute and no javascript: URL",
+        "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T6",
-      "title": "api/test/ — Vitest tests for health, admin-auth, verify-script",
-      "category": "script",
+      "title": "Publish workflow state machine + version snapshot + feed invalidation in api/src/workflow/",
+      "category": "api",
       "targetFiles": [
-        "api/test/health.test.ts",
-        "api/test/admin-auth.test.ts",
-        "api/test/verify-script.test.ts"
+        "src/workflow/publish.ts",
+        "src/workflow/index.ts",
+        "test/workflow.test.ts"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN the Vitest suite runs, WHEN cd api && npm test, THEN exit 0 AND all >= 4 test cases pass",
-        "BEHAVIORAL: GIVEN health.test.ts, WHEN /health handler called with mock request, THEN response status 200 AND body JSON has ok: true AND app: kodigital-homepages-cms",
-        "BEHAVIORAL: GIVEN admin-auth.test.ts, WHEN accessAuth receives request with no cf-access-jwt-assertion AND no CF_Authorization AND DEV_BYPASS_AUTH not true, THEN returns 401",
-        "BEHAVIORAL: GIVEN admin-auth.test.ts, WHEN accessAuth receives request AND DEV_BYPASS_AUTH is true, THEN calls next() allowing through (200)",
-        "grep -cE 'describe|test|it' api/test/health.test.ts",
-        "grep -cE 'describe|test|it' api/test/admin-auth.test.ts",
-        "grep -cE 'describe|test|it' api/test/verify-script.test.ts"
+        "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft",
+        "BEHAVIORAL: GIVEN an article in draft with content_json blocks, WHEN publish() is called, THEN (a) article_versions row is inserted with snapshotted content_json, (b) articles.content_html is set to the rendered HTML, (c) articles.status='published' and published_at is set, (d) invalidateFeeds is called once"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T7",
-      "title": "docs/ — no-touch-red-line, source-architecture, secrets-manifest, storage-cost-model, phase-plan",
-      "category": "config",
+      "title": "Privacy module: SHA-256(IP+UA), opt-out cookie, public unauthenticated routes in api/src/privacy/",
+      "category": "api",
       "targetFiles": [
-        "docs/no-touch-red-line.md",
-        "docs/source-architecture.md",
-        "docs/secrets-manifest.md",
-        "docs/storage-cost-model.md",
-        "docs/phase-plan.md"
+        "src/privacy/index.ts",
+        "test/privacy.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'theiwise\\.com' docs/no-touch-red-line.md",
-        "grep -c 'a2z-cf-cms-v1-api' docs/no-touch-red-line.md",
-        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' docs/no-touch-red-line.md",
-        "grep -c 'insureprimo' docs/no-touch-red-line.md",
-        "grep -c 'reusable\\|Reusable' docs/source-architecture.md",
-        "grep -c 'excluded\\|Excluded' docs/source-architecture.md",
-        "grep -c 'insureprimo\\|quotesRoutes\\|psychic-quiz\\|rental-booking' docs/source-architecture.md",
-        "grep -c 'OPENAI_API_KEY\\|CF_ACCESS_TEAM_DOMAIN\\|CLOUDFLARE_API_TOKEN' docs/secrets-manifest.md",
-        "grep -c 'Dashboard\\|\\.dev\\.vars\\|never committed' docs/secrets-manifest.md",
-        "grep -c 'D1\\|R2\\|KV' docs/storage-cost-model.md",
-        "grep -c '200.*sites\\|10.000\\|10000\\|15.*articles\\|15 starter' docs/storage-cost-model.md",
-        "grep -c 'Phase 1\\|Phase 2\\|Phase 3\\|Phase 4\\|Phase 5\\|Phase 6\\|Phase 7' docs/phase-plan.md",
-        "grep -c '\\.dev\\.vars\\|placeholder\\|never' docs/secrets-manifest.md"
+        "Privacy module uses Web Crypto subtle.digest('SHA-256', ...) for the IP+UA hash",
+        "BEHAVIORAL: GIVEN no ccpa_opt_out cookie set, WHEN POST /api/privacy/opt-out is called with IP=1.2.3.4 UA='ua/1', THEN response 200 sets Set-Cookie ccpa_opt_out=1 AND a privacy_opt_outs row exists keyed by sha256('1.2.3.4|ua/1')",
+        "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T8",
-      "title": ".github/workflows/deploy.yml — CI pipeline with typecheck, test, verify, conditional deploy",
-      "category": "infra",
+      "title": "Media serve + upload with R2 ETag and 1y immutable Cache-Control in api/src/media/",
+      "category": "api",
       "targetFiles": [
-        ".github/workflows/deploy.yml"
+        "src/media/serve.ts",
+        "src/media/upload.ts",
+        "src/media/index.ts",
+        "test/media.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'pull_request' .github/workflows/deploy.yml",
-        "grep -c 'push' .github/workflows/deploy.yml",
-        "grep -c 'node-version.*20\\|node-version: 20' .github/workflows/deploy.yml",
-        "grep -c 'npm ci' .github/workflows/deploy.yml",
-        "grep -c 'typecheck' .github/workflows/deploy.yml",
-        "grep -c 'npm test' .github/workflows/deploy.yml",
-        "grep -c 'verify:no-legacy-prod-refs\\|no-legacy-prod-refs' .github/workflows/deploy.yml",
-        "grep -c 'refs/heads/main\\|github.ref.*main' .github/workflows/deploy.yml",
-        "grep -c 'secrets.CLOUDFLARE_API_TOKEN\\|CLOUDFLARE_API_TOKEN' .github/workflows/deploy.yml",
-        "grep -c 'a2z-cf-cms-v1\\|44c73f76' .github/workflows/deploy.yml"
+        "GET /media/* response sets Cache-Control: public, max-age=31536000, immutable",
+        "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T9",
-      "title": "Root files — .gitignore, .env.example, .dev.vars.example, README.md",
-      "category": "config",
+      "title": "Public router + reserved-path guard + feeds (RSS/Atom/sitemap/robots/ads) in api/src/public/",
+      "category": "api",
       "targetFiles": [
-        ".gitignore",
-        ".env.example",
-        ".dev.vars.example",
-        "README.md"
+        "src/public/router.ts",
+        "src/public/reserved.ts",
+        "src/public/feeds.ts",
+        "src/public/sitemap.ts",
+        "test/reserved-path.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'node_modules' .gitignore",
-        "grep -c '\\.wrangler' .gitignore",
-        "grep -c '\\.dev\\.vars' .gitignore",
-        "grep -c '\\.env' .gitignore",
-        "grep -c 'dist' .gitignore",
-        "grep -c 'coverage' .gitignore",
-        "grep -c '\\.DS_Store' .gitignore",
-        "grep -c 'OPENAI_API_KEY\\|CF_ACCESS_TEAM_DOMAIN\\|CLOUDFLARE_API_TOKEN' .dev.vars.example",
-        "grep -E '[A-Za-z0-9+/]{40,}|[0-9a-f]{32,}' .dev.vars.example",
-        "grep -c 'kodigital-homepages-cms\\|standalone CMS\\|Cloudflare Worker' README.md"
+        "Reserved path list contains exactly admin, api, static, assets, media, preview, health (7 entries)",
+        "BEHAVIORAL: GIVEN no published page row with slug='admin', WHEN GET /admin is requested, THEN the request is routed to the admin handler (NOT the /:slug compatibility placeholder) — proven by response Content-Type or admin-specific marker",
+        "Public router declares all 12 required routes"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
+    },
+    {
+      "id": "T10",
+      "title": "Admin router + CRUD/workflow/AI placeholder APIs in api/src/admin/",
+      "category": "api",
+      "targetFiles": [
+        "src/admin/router.ts",
+        "src/admin/api.ts",
+        "src/admin/workflow-api.ts",
+        "src/admin/ai-api.ts"
+      ],
+      "acceptanceCriteria": [
+        "Admin shell GETs declared for /admin, /admin/articles, /admin/pages, /admin/categories, /admin/tags, /admin/media, /admin/settings, /admin/presets",
+        "AI endpoints return 501 unless OPENAI_API_KEY is set",
+        "Admin auth-status route declared at /api/admin/auth/status",
+        "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T11",
+      "title": "Preview route with HMAC-signed short-lived tokens in api/src/preview/",
+      "category": "api",
+      "targetFiles": [
+        "src/preview/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "Preview module uses Web Crypto HMAC (subtle.sign with HMAC) for token signing — no jose, no full JWT",
+        "Token payload encodes articleId, versionId, exp",
+        "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T12",
+      "title": "Wire all routers into api/src/index.ts with reserved-path guard before /:slug",
+      "category": "api",
+      "targetFiles": [
+        "src/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "index.ts mounts all sub-routers (admin, public, privacy, media, preview)",
+        "BEHAVIORAL: GIVEN wrangler dev running locally with DEV_BYPASS_AUTH unset, WHEN curl GET /health and curl GET /admin and curl GET /api/privacy/status, THEN /health returns 200 AND /admin returns 401 AND /api/privacy/status returns 200"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T13",
+      "title": "Extend assert-no-legacy-prod-refs.ts denylist with 5 legacy CMS identifiers",
+      "category": "script",
+      "targetFiles": [
+        "scripts/verify/assert-no-legacy-prod-refs.ts",
+        "test/verify-script.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Denylist additions present: kodigital2.cloudflareaccess.com, admin.theiwise.com, legacy CF_ACCESS_AUD, legacy D1 id, legacy KV id",
+        "Verify script exits 0 against the current worktree (no banned identifiers in active code)",
+        "Shared account_id a05d7505b71c6cd931e436defe670509 is NOT added to the denylist (must remain allowed)"
+      ],
+      "passes": false,
+      "state": "planned"
     }
   ]
 }
