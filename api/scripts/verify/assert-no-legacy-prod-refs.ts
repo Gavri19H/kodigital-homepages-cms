@@ -56,6 +56,7 @@ const EXCLUDED_FILES: readonly string[] = [
   "api/scripts/verify/assert-no-legacy-prod-refs.ts",
   "prd.json",
   "progress.txt",
+  "GUARDRAILS.md",
 ];
 
 const TEXT_EXT_RE =
