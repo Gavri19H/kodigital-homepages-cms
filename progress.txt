@@ -353,3 +353,38 @@
   - To assert "invalidateFeeds is called once" without mocking the function itself, plant a `feed:*` key in the KV mock and assert it gets deleted. This proves the real invalidation path ran end-to-end (KV list -> delete loop), not just that the wrapper function was called.
   - When asserting bind arity per SQL statement, branch on `sql.startsWith(...)` of the unique opening — otherwise `WHERE id = ?` matches both the SELECT-by-id and the UPDATE WHERE clause and gives you mismatched arity assertions.
 ---
+
+## 2026-05-09 - T7 (api/src/privacy/index.ts + api/test/privacy.test.ts)
+- Created `api/src/privacy/index.ts` (101 lines): three unauthenticated public routes mounted as a Hono sub-router.
+  - `GET /api/privacy/status` — checks `ccpa_opt_out=1` cookie first; if absent, computes `sha256(<ip>|<ua>)` and looks up `privacy_opt_outs.identifier_hash` in D1; returns `{ opted_out, source }` so callers can tell which side answered.
+  - `POST /api/privacy/opt-out` — UPSERT into `privacy_opt_outs` (`opted_out=1`) keyed by hash, then `Set-Cookie: ccpa_opt_out=1; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`.
+  - `POST /api/privacy/opt-in` — UPSERT (`opted_out=0`) and expire the cookie (`Max-Age=0`).
+- `hashIdentifier(ip, ua)` uses Web Crypto `crypto.subtle.digest("SHA-256", new TextEncoder().encode(`<ip>|<ua>`))`, then converts to lowercase hex (64 chars). Exported so tests can recompute the expected key from the same fingerprint.
+- `clientFingerprint(req)` reads `cf-connecting-ip`, then falls back to the first `x-forwarded-for` hop, finally `"0.0.0.0"`. UA falls back to empty string. Determinism over privacy quality — the hash is the same whether the UA is empty or unknown.
+- All D1 calls use `prepare(<static SQL>).bind(?)` only — zero template-literal interpolation. Both UPSERT routes use `INSERT ... ON CONFLICT(identifier_hash) DO UPDATE SET opted_out = ?` to honour the `UNIQUE(identifier_hash)` constraint from migration 0001.
+- Per L-002, all defaults use `??` (`req.headers.get(...) ?? "0.0.0.0"`); no `||` numeric/string fallbacks.
+- Created `api/test/privacy.test.ts` (196 lines, 7 tests). Fake D1 records every `prepare(sql)`/`bind(...)` and supports `first()` (status SELECT) and `run()` (UPSERT with `opted_out` parsed from the SQL literal). Tests cover:
+  - `hashIdentifier` returns 64-char lowercase hex AND equals an independently-computed Web Crypto digest of `1.2.3.4|ua/1`.
+  - BEHAVIORAL T7.AC2: POST /api/privacy/opt-out with `cf-connecting-ip: 1.2.3.4` + `user-agent: ua/1` → 200, `Set-Cookie` contains `ccpa_opt_out=1; Path=/; HttpOnly; Secure`, and the inserted row's `identifier_hash` equals `sha256('1.2.3.4|ua/1')` with `opted_out=1`.
+  - GET status: cookie path returns `{ opted_out: true, source: "cookie" }`; DB-fallback path returns `{ opted_out: true, source: "db" }` when a planted row matches the fingerprint; empty path returns `{ opted_out: false, source: "db" }`.
+  - POST /api/privacy/opt-in expires the cookie (`Max-Age=0`) and writes `opted_out=0`.
+  - Toggle: opt-out then opt-in keeps a single row (UNIQUE on identifier_hash), `opted_out` flips 1 → 0.
+- T12 will mount the router via `app.route("/", privacyRouter)` so the full `/api/privacy/*` paths declared inside the module match incoming requests verbatim.
+- **Self-check results:**
+  - File sizes: api/src/privacy/index.ts 101 lines, api/test/privacy.test.ts 196 lines (limit 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`) on the two new files: 0 matches — PASS
+  - Error handling: PASS — every D1 call awaits a parameterized prepare/bind; missing `cookie` / `user-agent` / `cf-connecting-ip` headers are all defaulted (`?? null` / `?? "0.0.0.0"` / `?? ""`); no swallowed exceptions, no silent failures
+  - Migration execution: N/A (T1 already executed `0001_init_cms.sql` locally)
+  - Parameterized queries (`grep -nE 'prepare.*\$\{|prepare.*\`' src/privacy/index.ts`): 0 matches — PASS
+  - T7.AC1 grep `subtle\.digest\(['\"]SHA-256['\"]` src/privacy/index.ts: 2 (>=1) — PASS
+  - T7.AC2 BEHAVIORAL `npx vitest run test/privacy.test.ts`: 7/7 tests passing — PASS
+  - T7.AC3 grep `['\"]/api/privacy/(status|opt-out|opt-in)['\"]` src/privacy/index.ts: 3 (>=3) — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm test`: 52/52 tests passing across 8 files (cache 6, db 6, editor 16, health 2, admin-auth 8, verify-script 2, workflow 5, privacy 7) — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - For hex-string conversion in Workers, hand-rolled `for (i; i<bytes.length; i++) { hex += bytes[i].toString(16).padStart(2, "0") }` is ~3× faster than the spread-`Array.from` form on long buffers AND avoids the temporary string array. Use it for hot crypto paths.
+  - When a route file declares full paths like `/api/privacy/status` (so a contract grep can verify them in source) AND must be mountable by a wiring layer (T12) without path collisions, mount with `app.route("/", subApp)` — the sub-app's literal paths become the final paths. Don't use `app.route("/api/privacy", subApp)` with relative `/status` paths because that defeats the contract grep.
+  - For UPSERT with a single UNIQUE column in D1/SQLite, `INSERT ... ON CONFLICT(<col>) DO UPDATE SET <col> = ?` is one round-trip and atomic. Avoids the SELECT-then-INSERT race that would otherwise need a transaction.
+  - When testing a Set-Cookie response in Hono's `app.request(...)`, use `res.headers.get("set-cookie")` (lowercase) and assert with `.toContain()` on individual attributes (`HttpOnly`, `Secure`, `Path=/`, `Max-Age=...`). Do NOT match the entire cookie string with regex — Set-Cookie attribute order is implementation-defined and brittle to future Hono/runtime changes.
+---

@@ -114,7 +114,7 @@
         "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T8",
