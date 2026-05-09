@@ -224,3 +224,23 @@
   - SQLite accepts forward FK references at CREATE TABLE time (FK enforcement is OFF by default, and even with `PRAGMA foreign_keys=ON` only INSERTs check), so table CREATE order is a readability concern only. Order so that visually obvious dependency targets come first (categories before articles, media before articles).
   - For grep-based ACs that count CREATE TABLE statements, prefer `IF NOT EXISTS` for re-runnability — the AC regex `CREATE TABLE( IF NOT EXISTS)?` already accommodates both forms.
 ---
+
+## 2026-05-09 - T2 (api/src/db/index.ts + api/test/db/index.test.ts)
+- Created `api/src/db/index.ts` (111 lines): typed D1 helpers for the Phase-1 read paths. Every query is built as `db.prepare(<static SQL string>).bind(<positional values>)` — no template-literal interpolation, no string concatenation into SQL. Exposes typed row interfaces (`ArticleRow`, `MediaRow`, `CategoryRow`) plus the four contractually-required helpers: `getArticleBySlug(db, slug)`, `listArticles(db, { status?, limit?, offset? })`, `getMediaById(db, id)`, `listCategories(db, { limit?, offset? })`. All numeric defaults use `??` (per L-002 guardrail), not `||`. SELECT statements are kept narrow on intent (slug lookup, status+ordered listing, id lookup, ordered listing).
+- Created `api/test/db/index.test.ts` (166 lines, 6 tests): in-memory `D1Database` fake records every `.prepare(sql)` and the subsequent `.bind(...args)`, then plants results for `.first()` and `.all()`. Tests assert (a) the SQL passed to `prepare` contains the static `WHERE slug = ?` / `LIMIT ? OFFSET ?` placeholders, never `${...}` and never the literal slug value, and (b) `bindArgs` equals the positional values the helper was invoked with. The describe block is named `test/db prepare bind helpers` so vitest test names match the contractual regex `/test/db.*prepare.*bind/`.
+- **Self-check results:**
+  - File sizes: api/src/db/index.ts 111 lines, api/test/db/index.test.ts 166 lines (limit 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string` on the two new files): 0 matches — PASS
+  - Error handling: PASS — helpers return `T | null` (single-row) or `T[]` (list); `result.results ?? []` handles a missing `results` field defensively without swallowing thrown errors
+  - Migration execution: N/A (not a db-migration story)
+  - Parameterized queries: PASS — `grep -cE '\.prepare\(`[^`]*\$\{' src/db/index.ts` = 0 (T2.AC1 == 0); manual scan confirms every prepare() takes a static double-quoted string
+  - T2.AC2 grep `export (async )?function (getArticleBySlug|listArticles|getMediaById|listCategories)\b` count = 4 (>=4) — PASS
+  - T2.AC3 BEHAVIORAL: `npx vitest run test/db/index.test.ts --reporter=verbose` reports 6/6 tests passing under describe `test/db prepare bind helpers`; full test paths match `/test/db.*prepare.*bind/` — PASS
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm test`: 14/14 tests passing across 4 files (health, admin-auth, verify-script, db) — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS
+- **Learnings for future iterations:**
+  - For helpers that take optional numeric/string options (`limit`, `offset`, `status`), use `options.x ?? <default>` (NOT `||`) so a legitimate `0` offset is not silently replaced. Per guardrail L-002.
+  - When testing parameter binding without a real D1, the smallest fake is a `prepare(sql) -> { bind(...args) -> { first()/all() } }` chain that records `{sql, bindArgs}` per call. This lets the assertion suite verify both halves of the contract: the SQL is static (no `${`) AND the values arrived via `bind`.
+  - Vitest's `vitest_text` evidence regex matches against the FULL test path (`<file> > <describe> > <test name>`). Naming the describe block to literally include the regex keywords (`test/db prepare bind helpers`) is the most reliable way to keep the parser_strategy stable across reporter/format changes.
+---
