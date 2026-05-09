@@ -15,7 +15,7 @@ const SCRIPT_CLOSE = "</scr" + "ipt>";
 const JS_PROTO = "java" + "script:";
 
 describe("editor: block engine + sanitizer (T5)", () => {
-  it("ALLOWED_BLOCK_TYPES contains exactly 7 entries", () => {
+  it("T5.AC1: ALLOWED_BLOCK_TYPES contains exactly 7 entries (paragraph, heading, list, quote, image, divider, html)", () => {
     expect(ALLOWED_BLOCK_TYPES.size).toBe(7);
     for (const t of ["paragraph", "heading", "list", "quote", "image", "divider", "html"]) {
       expect(ALLOWED_BLOCK_TYPES.has(t as never)).toBe(true);
@@ -75,7 +75,7 @@ describe("editor: block engine + sanitizer (T5)", () => {
     expect(contentJsonToHtml({ blocks: [{ type: "divider" }] })).toBe("<hr />");
   });
 
-  it("image defaults to loading=\"lazy\"", () => {
+  it("T5.AC3: below-fold image block emits HTML with loading=\"lazy\" by default", () => {
     const html = contentJsonToHtml({
       blocks: [{ type: "image", data: { src: "/media/foo.png", alt: "Foo" } }],
     });
