@@ -55,7 +55,7 @@
         "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path is not '/admin*' and not '/api/admin*' and not '/' and not '/health' WHEN Worker handles request THEN response status is 404"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T4",

@@ -276,3 +276,35 @@
   - When AC text says `>= 1` for a grep count, a single function definition line `export function NAME(env: Env)` is sufficient — there is no need to padding the file with extra references.
   - Helpers like `isDryRunProvisioning` should default-deny: `parseBoolean` returns `false` for missing/unset values, so a misconfigured staging env will NOT trip into "live" provisioning mode. This is the safer failure mode given the no-touch contract.
 ---
+
+## 2026-05-10 - T3 (api/src/index.ts — hostname-aware Worker routing for cms.kodigital.app)
+- Added a global `app.use("*", ...)` D3 hostname gate at the top of `api/src/index.ts`. Reads `getAdminHost(c.env)` and lowercases it; reads `new URL(c.req.url).hostname.toLowerCase()`. If `path` is `/admin`, `/admin/*`, `/api/admin`, or `/api/admin/*` AND `requestHost !== adminHost`, returns flat `404 {error:"Not Found", path}` — no admin host leak to public content domains.
+- Added `app.get("/", ...)` root handler. On ADMIN_HOST → `c.redirect(c.env.ADMIN_BASE_PATH, 302)`. On any other host → 404 fallthrough. Empty/missing ADMIN_HOST is treated as "no admin host" (no redirect, 404).
+- Preserved `/health` handler — public on any hostname so external uptime monitors keep working independent of the admin host.
+- Preserved `app.use("/admin/*", accessAuth)` and `app.get("/admin", accessAuth, ...)` — the hostname gate runs first, so these only execute for ADMIN_HOST traffic.
+- Added `app.use("/api/admin/*", accessAuth)` to gate the future admin API surface (T4 will add `/api/admin/auth/status`).
+- `app.notFound` retained → catches any unmatched ADMIN_HOST path (e.g. `/random`) with 404, satisfying T3-AC5.
+- Updated `api/test/health.test.ts` to pass a typed `baseEnv` literal (matching admin-auth.test.ts) on every `app.request` call. Without env, the new global middleware crashed (500) reading `c.env.ADMIN_HOST` — adding env keeps the existing health-route assertions green.
+- **Self-check results:**
+  - File sizes: api/src/index.ts 52 lines (limit 200) — PASS; api/test/health.test.ts 36 lines — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches in changed files — PASS
+  - Error handling: PASS — middleware returns proper 404 JSON for cross-host admin attempts; root handler returns redirect or 404; notFound returns 404 JSON
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS
+  - Typecheck (`npx tsc --noEmit`): exit 0 — PASS
+  - Tests (`npx vitest run`): 8/8 passing across 3 files (health, admin-auth, verify-script) — PASS
+  - Acceptance grep ACs:
+    - AC4 `grep -c 'ADMIN_HOST' api/src/index.ts` = 3 (>=1) — PASS
+  - BEHAVIORAL ACs (AC1 / AC2 / AC3 / AC5) covered by routing logic; full vitest validation lands in T14's `cms-routing.test.ts` (story scope). Inspected logic by tracing each scenario against the new middleware + handlers — passes by inspection.
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 3 files / 8 tests passing, exit 0
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+- **Source story id covered this iteration:** T3
+- **Learnings for future iterations:**
+  - When global middleware reads `c.env.X`, every `app.request(path)` call site that previously omitted env will start crashing (Hono passes `undefined` rather than a default `{}`). Update all existing tests to pass an `Env` literal in the same iteration that introduces the env-reading middleware — otherwise typecheck stays green but tests go red with 500s.
+  - Use `new URL(c.req.url).hostname` for hostname extraction in Workers — `c.req.header("host")` is also available but `URL.hostname` is canonical and strips port automatically.
+  - Hono's `app.use("*", mw)` registers a global middleware that runs before route handlers; combine with route-specific `app.use("/admin/*", mw2)` to layer hostname gating before authentication gating cleanly.
+  - `c.redirect(path, 302)` with a path-only string sends a relative Location header — Cloudflare's edge resolves it against the request's hostname, so a redirect to `/admin` from `cms.kodigital.app/` lands on `cms.kodigital.app/admin` without hardcoding the hostname.
+---
