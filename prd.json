@@ -91,7 +91,7 @@
         "grep -c 'cms.kodigital.app' docs/cloudflare-access-service-token-setup.md >= 1 (curl example present)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T6",
