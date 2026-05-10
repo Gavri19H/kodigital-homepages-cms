@@ -1,8 +1,12 @@
 import { Hono } from "hono";
 import { getAdminHost, type Env } from "./env";
-import { accessAuth } from "./auth/access-auth";
+import {
+  accessAuth,
+  authStatusHandler,
+  type AccessAuthVariables,
+} from "./auth/access-auth";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 
 // Phase 1.5 D3 hostname gate: any /admin* or /api/admin* path MUST arrive
 // on ADMIN_HOST (cms.kodigital.app). On any other hostname those paths get
@@ -44,6 +48,7 @@ app.get("/", (c) => {
 app.use("/admin/*", accessAuth);
 app.get("/admin", accessAuth, (c) => c.json({ ok: true, area: "admin" }));
 app.use("/api/admin/*", accessAuth);
+app.get("/api/admin/auth/status", authStatusHandler);
 
 app.notFound((c) =>
   c.json({ error: "Not Found", path: c.req.path }, 404),

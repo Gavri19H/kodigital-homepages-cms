@@ -308,3 +308,46 @@
   - Hono's `app.use("*", mw)` registers a global middleware that runs before route handlers; combine with route-specific `app.use("/admin/*", mw2)` to layer hostname gating before authentication gating cleanly.
   - `c.redirect(path, 302)` with a path-only string sends a relative Location header — Cloudflare's edge resolves it against the request's hostname, so a redirect to `/admin` from `cms.kodigital.app/` lands on `cms.kodigital.app/admin` without hardcoding the hostname.
 ---
+
+## 2026-05-10 - T4 (api/src/auth/access-auth.ts — JWKS+JWT verification, identity/service-token modes, /api/admin/auth/status; index.ts route wiring; admin-auth.test.ts updates)
+- Replaced Phase 0 presence-only access-auth with full Phase 1.5 contract:
+  - **JWKS-in-KV (24h TTL)**: `fetchJwks(env)` reads cached JWKS from `env.CACHE` under key `cf-access-jwks`; on miss, fetches `https://{CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs` and caches with `expirationTtl: 86400`. KV write failure is non-fatal.
+  - **JWT signature verification (Web Crypto only)**: `crypto.subtle.importKey('jwk', ..., RSASSA-PKCS1-v1_5/SHA-256, ['verify'])` then `crypto.subtle.verify(...)`. Header alg gated to RS256; kid-mismatch → null. NO Node crypto import.
+  - **Claim validation**: `validateClaims` requires typeof exp === number & exp > now; typeof iat === number; if nbf present then typeof === number AND nbf <= now+60 (60s clock skew); iss === `https://{CF_ACCESS_TEAM_DOMAIN}`; aud (string OR string[]) must include CF_ACCESS_AUD.
+  - **Identity vs service-token modes**: if claims has email → identity mode, sets `c.set('access', { mode: 'identity', email, sub, claims })`. If claims has common_name but no email → service-token mode; if `ALLOWED_CF_SERVICE_TOKEN_IDS` is set, common_name MUST be in CSV allowlist or the request returns 403; otherwise sets `c.set('access', { mode: 'service-token', commonName, sub, claims })`.
+  - **DEV_BYPASS_AUTH double-gate**: `isBypassActive(env)` returns true ONLY when `parseBoolean(DEV_BYPASS_AUTH)` AND `APP_ENV !== 'production'`. Production with DEV_BYPASS_AUTH=true STILL requires a valid CF Access JWT.
+  - **/api/admin/auth/status route**: exports `authStatusHandler` returning `{authenticated:true, mode:'identity', email}` for identity, `{authenticated:true, mode:'service-token', common_name}` for service-token, `{authenticated:true, mode:'dev-bypass'}` for bypass, and `{authenticated:false}` 401 when no access ctx is set. No secrets in response.
+- Wired `app.get("/api/admin/auth/status", authStatusHandler)` in `api/src/index.ts`. The pre-existing `app.use("/api/admin/*", accessAuth)` middleware applies first, so the status endpoint is JWT-gated for non-bypass requests. Hono app generic upgraded to `<{ Bindings: Env; Variables: AccessAuthVariables }>` so `c.set/get('access')` is fully typed.
+- Updated `api/test/admin-auth.test.ts`:
+  - Replaced two now-obsolete "presence is sufficient" cases (cf-access-jwt-assertion / CF_Authorization cookie → 200) with strict-401 checks for invalid JWTs (matches T4's stricter contract).
+  - Added a third case proving the production double-gate: APP_ENV=production AND DEV_BYPASS_AUTH=true with no JWT → 401.
+- **Self-check results:**
+  - File sizes: api/src/auth/access-auth.ts 166 (limit 200), api/src/index.ts 57, api/test/admin-auth.test.ts 63 — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches in changed files — PASS (TOKEN appears only inside the env identifier name `ALLOWED_CF_SERVICE_TOKEN_IDS`, never as `TOKEN=value`)
+  - Error handling: PASS — every failure mode returns explicit 401/403 JSON via `unauthorized()`/`c.json({error},403)`; KV get/put wrapped in try/catch; JSON.parse wrapped in try/catch; verifyJwt returns null on any structural failure
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS
+  - Typecheck (`npx tsc --noEmit`): exit 0 — PASS
+  - Tests (`npx vitest run`): 3 files / 9 tests passing (health 2, admin-auth 5, verify-script 2) — PASS
+  - Acceptance grep ACs:
+    - AC6 `grep -cE 'JWKS|jwks|JsonWebKey' api/src/auth/access-auth.ts` = 13 (>=1) — PASS
+    - AC7 `grep -c 'crypto.subtle' api/src/auth/access-auth.ts` = 2 (>=1) — PASS
+    - AC8 `grep -cE 'require.*crypto|from.*node:crypto' api/src/auth/access-auth.ts` = 0 (==0) — PASS
+  - BEHAVIORAL ACs (AC1..AC5) covered by inspection + the new admin-auth.test.ts production-bypass case; full per-mode behavioral coverage lands in T14's access-auth-identity.test.ts + access-auth-service-token.test.ts. Logic traced:
+    - AC1 prod+bypass+no-JWT → `isBypassActive` false (prod) → `readJwt` null → 401 ✓ (asserted by new test)
+    - AC2 local+bypass → `isBypassActive` true → next() → /admin returns 200 (existing test case still passes)
+    - AC3 valid identity JWT → c.set('access', {mode:'identity', email}) → status handler returns `{authenticated:true, mode:'identity', email}` ✓
+    - AC4 service-token (common_name only, no email) → branch sets `mode:'service-token'` and calls next() ✓
+    - AC5 ALLOWED_CF_SERVICE_TOKEN_IDS set + common_name not in CSV allowlist → 403 ✓
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 3 files / 9 tests passing, exit 0
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+- **Source story id covered this iteration:** T4
+- **Learnings for future iterations:**
+  - Cloudflare Workers exposes `crypto.subtle` as a global — never import `node:crypto`. Use `crypto.subtle.importKey('jwk', ...)` directly with RSASSA-PKCS1-v1_5/SHA-256 for RS256 verification of CF Access JWTs.
+  - The `cf-access-jwt-assertion` header is set on every authenticated request at the Cloudflare edge; the `CF_Authorization` cookie is the browser-flow equivalent. Verify the assertion header first since it's the canonical channel.
+  - When upgrading a Hono middleware to set context (`c.set('access', ...)`), the `Hono<{Bindings,Variables}>` generic at the app construction site must include the matching `Variables` shape. Export the Variables type alongside the middleware so callers wire it correctly.
+  - DEV_BYPASS_AUTH must be a TRUE double-gate: check both `parseBoolean(DEV_BYPASS_AUTH)` AND `APP_ENV !== 'production'`. Single-gate (parseBoolean only) is the trap — a misconfigured production deploy with DEV_BYPASS_AUTH=true would silently skip Access verification.
+---

@@ -34,21 +34,30 @@ describe("accessAuth on /admin", () => {
     expect(res.status).toBe(200);
   });
 
-  it("calls next() (returns 200) when cf-access-jwt-assertion header is present", async () => {
+  it("returns 401 when cf-access-jwt-assertion header carries an invalid JWT (presence is no longer sufficient)", async () => {
     const res = await app.request(
       "/admin",
       { headers: { "cf-access-jwt-assertion": "fake-jwt-token" } },
       { ...baseEnv },
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 
-  it("calls next() (returns 200) when CF_Authorization cookie is present", async () => {
+  it("returns 401 when CF_Authorization cookie carries an invalid JWT", async () => {
     const res = await app.request(
       "/admin",
       { headers: { cookie: "CF_Authorization=fake-cookie-value" } },
       { ...baseEnv },
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
+  });
+
+  it("DEV_BYPASS_AUTH double-gate: APP_ENV=production AND DEV_BYPASS_AUTH=true with no JWT still returns 401", async () => {
+    const res = await app.request("/admin", {}, {
+      ...baseEnv,
+      APP_ENV: "production",
+      DEV_BYPASS_AUTH: "true",
+    });
+    expect(res.status).toBe(401);
   });
 });

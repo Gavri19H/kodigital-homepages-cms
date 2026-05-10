@@ -75,7 +75,7 @@
         "grep -c 'require.*crypto\\|from.*node:crypto' api/src/auth/access-auth.ts == 0 (no Node crypto import)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T5",
