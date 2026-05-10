@@ -552,3 +552,38 @@
   - Two-group structure beats a single flat BANNED list because each banned literal has a DIFFERENT "where is it legitimately allowed?" answer. Group A (legacy resource identifiers) is allowed only in approved legacy docs; Group B (protected hostnames) is also allowed in the runtime denylist module that actively defends against operating on those hostnames. Flattening this into one allowlist either (a) leaks Group A names into prod-code locations they don't belong (over-permissive), or (b) bans Group B from the safety module that needs to literally name the hostnames (under-permissive). The two-group shape encodes WHY each literal is allowed where it is.
   - Tagging offender output with `[Group A]` / `[Group B]` makes the CI failure message self-explanatory — an operator seeing `[Group B] some/file:42 -> "theiwise.com"` immediately knows the file accidentally references a protected hostname (probably needs to import the safety module instead of inlining the literal); a `[Group A]` failure points to a legacy-resource-name leak (different remediation). Anonymous offender lines force the operator to recompute the group/intent.
 ---
+
+## 2026-05-11 - T11 (api/scripts/verify/{infra-contract,required-secrets,worker-config}.ts + api/scripts/smoke/cms-domain.ts + api/package.json)
+- Created `api/scripts/verify/infra-contract.ts` (109 lines): asserts wrangler.toml declares the Phase 1.5 contract names per docs/cloudflare-worker-setup.md + docs/cloudflare-resources-setup.md. 8 checks: production worker `kodigital-homepages-cms-worker`, staging worker `kodigital-homepages-cms-worker-staging`, D1 `database_name = "kodigital-homepages-cms-db"`, R2 `bucket_name = "kodigital-homepages-cms-media"`, KV binding `CACHE`, top-level `account_id`, `compatibility_date` (yyyy-mm-dd), and `CLOUDFLARE_API_TOKEN` MUST NOT appear in wrangler.toml (runtime tokens are CLOUDFLARE_PROVISIONING_API_TOKEN + CLOUDFLARE_CACHE_API_TOKEN; the legacy name belongs to GitHub Actions only).
+- Created `api/scripts/verify/required-secrets.ts` (99 lines): asserts `.dev.vars.example` contains a `KEY=` placeholder line for every Worker-runtime secret AND `docs/secrets-manifest.md` lists each key. The 5 required runtime secrets are OPENAI_API_KEY, CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD, CLOUDFLARE_PROVISIONING_API_TOKEN, CLOUDFLARE_CACHE_API_TOKEN. Also asserts `.dev.vars.example` does NOT contain a `CLOUDFLARE_API_TOKEN=` placeholder (legacy single-token surface is forbidden as a Worker runtime placeholder).
+- Created `api/scripts/verify/worker-config.ts` (153 lines): asserts the three [vars] blocks in wrangler.toml ([vars], [env.staging.vars], [env.production.vars]) declare the Phase 1.5 routing contract — ADMIN_HOST/ADMIN_BASE_URL/ADMIN_BASE_PATH per env (production = cms.kodigital.app + https://cms.kodigital.app + /admin; staging = staging-cms.kodigital.app + https://staging-cms.kodigital.app + /admin), plus the safety flags SITE_PROVISIONING_DRY_RUN and SITE_PROVISIONING_ALLOW_ROUTE_MUTATION, plus HTML_CACHE_TTL_SECONDS, plus APP_ENV (with expected values per env). Section-scoped substring search avoids needing a TOML parser.
+- Created `api/scripts/smoke/cms-domain.ts` (141 lines): live-network smoke test for the four routing contract behaviors against `SMOKE_HOST` (default cms.kodigital.app) — GET /health → 200 ok=true, GET / → 302 ending in /admin, GET /unknown-path-* → 404, GET /admin → 302 to *.cloudflareaccess.com unauthenticated OR 200 when CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET are set. Wrapped in `async function main()` to keep TS happy with top-level `await` under module mode. NOT in CI: depends on operator-set service-token credentials.
+- Updated `api/package.json` scripts: added `verify:infra`, `verify:required-secrets`, `verify:worker-config`, `smoke:cms-domain` — all run via `tsx scripts/...` so no build step is required.
+- **Self-check results:**
+  - File sizes: infra-contract.ts 109, required-secrets.ts 99, worker-config.ts 153, cms-domain.ts 141, package.json 37 (limit: 200 for TS / 200 default) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): only 1 match — `api/scripts/verify/required-secrets.ts:79  if (/^CLOUDFLARE_API_TOKEN=/m.test(devVars)) {`. This is a regex literal used to detect the legacy token name in `.dev.vars.example`, not a hardcoded credential — PASS.
+  - Error handling: PASS — every readFileSync wrapped in try/catch (or readOrExit helper) with stderr message + non-zero exit; smoke fetch wrapped per-check; main() rejection handler emits stderr and exits non-zero.
+  - Migration execution: N/A (not a db story).
+  - Parameterized queries: N/A.
+  - Banned-token verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS.
+  - Acceptance grep ACs:
+    - AC1 `grep -c '"verify:infra"' api/package.json` = 1 (>=1) — PASS
+    - AC2 `grep -c '"verify:worker-config"' api/package.json` = 1 (>=1) — PASS
+    - AC3 `grep -c '"smoke:cms-domain"' api/package.json` = 1 (>=1) — PASS
+    - AC4 `cd api && npm run verify:infra` exit 0 — PASS (output: "wrangler.toml matches the Phase 1.5 infra contract (8 checks passed).")
+    - AC5 `cd api && npm run verify:worker-config` exit 0 — PASS (output: "wrangler.toml [vars] blocks match the Phase 1.5 routing contract (3 blocks checked).")
+    - AC6 `grep -c 'kodigital-homepages-cms-worker' api/scripts/verify/infra-contract.ts` = 6 (>=1) — PASS
+    - AC7 `grep -c 'CLOUDFLARE_API_TOKEN' api/scripts/verify/infra-contract.ts` = 5 (>=1) — PASS
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit` → exit 0 (after wrapping `await Promise.all(...)` in `main()` to make smoke/cms-domain.ts a proper module — top-level await requires `import`/`export`)
+  - `npx vitest run` → 3 files / 9 tests passing, exit 0 (existing T2/T4/T6 suites — no new tests added in this story; T14 owns the dedicated infra-verify.test.ts + worker-config-verify.test.ts coverage)
+  - `npm run verify:infra` → exit 0
+  - `npm run verify:worker-config` → exit 0
+  - `npm run verify:required-secrets` → exit 0
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+- **Source story id covered this iteration:** T11
+- **Learnings for future iterations:**
+  - With `"type": "module"` set in package.json AND `tsconfig.json` strict mode, top-level `await` in a TS file requires the file to also be a module — i.e. it must contain at least one `import` / `export` statement, OR you can wrap the awaited code in `async function main(): Promise<void> { ... } main().catch(...)` and end the file with `export {};`. The latter is the cleaner pattern when the script has no other exports and no other imports. (`tsc` error TS1375.)
+  - Section-scoped substring/regex parsing of wrangler.toml is sufficient for "does X appear inside [block]" verifiers. Pulling in a TOML parser dep would expand the trust surface for no behavioral gain — wrangler.toml is small, hand-edited, and the layout is stable.
+  - When a verify script's own source contains a literal that looks like a secret pattern (e.g. the regex `/^CLOUDFLARE_API_TOKEN=/m`), the secret-scan grep WILL flag it. This is unavoidable for a verifier whose job is to detect the absence of that very pattern; document the false positive in the self-check entry.
+---

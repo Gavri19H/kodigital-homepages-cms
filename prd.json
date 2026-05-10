@@ -207,7 +207,7 @@
         "grep -c 'CLOUDFLARE_API_TOKEN' api/scripts/verify/infra-contract.ts >= 1 (verifier checks that CLOUDFLARE_API_TOKEN is NOT used as runtime provisioning token)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T12",
