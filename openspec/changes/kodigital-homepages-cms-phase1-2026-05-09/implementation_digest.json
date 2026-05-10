@@ -1,0 +1,1573 @@
+{
+  "change_id": "kodigital-homepages-cms-phase1-2026-05-09",
+  "contract_version": "1.0.0",
+  "created_at": "2026-05-09T01:16:26Z",
+  "digest_size_estimate_kb": 21,
+  "forbidden_red_lines": [
+    {
+      "canonical_name": "CF_ACCESS_TEAM_DOMAIN",
+      "claim": "{'value': 'kodigital2.cloudflareaccess.com', 'reason': 'Legacy theiwise tenant; banned by no-touch red line for the Phase 1 standalone Worker.', 'source_id': 'SP-LOCAL-3'}",
+      "origin": "field_contract.fields.forbidden_substitutes",
+      "reason": "Legacy theiwise tenant; banned by no-touch red line for the Phase 1 standalone Worker.",
+      "source_id": "SP-LOCAL-3"
+    },
+    {
+      "canonical_name": "CF_ACCESS_AUD",
+      "claim": "{'value': '7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425', 'reason': 'Legacy admin.theiwise.com AUD; banned by no-touch red line.', 'source_id': 'SP-LOCAL-3'}",
+      "origin": "field_contract.fields.forbidden_substitutes",
+      "reason": "Legacy admin.theiwise.com AUD; banned by no-touch red line.",
+      "source_id": "SP-LOCAL-3"
+    },
+    {
+      "canonical_name": null,
+      "claim": "insureprimo",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "quotesRoutes",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "psychic-quiz",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "rental-booking",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "investing-funnels",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "lead-gen",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "theiwise.com",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "a2z-cf-cms-v1-api",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "a2z-cf-cms-v1-db",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "kodigital2.cloudflareaccess.com",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "admin.theiwise.com",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "44c73f76-6ed5-4b26-b442-6c2044326c4d",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "111320b080274cfd8465e89400712c5d",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    }
+  ],
+  "global_design_contract": null,
+  "input_sha256": {
+    "design_contract": null,
+    "evidence_route_readiness": "856c1b21beadde2d07c9ffa5f196c2f9ed35f1a636eefca004c2e5fa73a4d0ed",
+    "field_contract": "bd2b37e3bfe3d6a4f171ec5f3271e922d0ecfaa442a79a8287577aebed0fb12c",
+    "interface_contract": "d49e6ee1a95a9698429dc43a5f478a2bcd9338b67a8c1a9cbe1c6f549ca68cbe",
+    "mission_spec": "41abc8950bbbf4d9291423084ef17ef4a258899942e99e2c387a00c5fd30c33c",
+    "prd": null,
+    "quality_profile": "071e231ba8766ba8685998e014dc9fef0dd80acb507971156fd28e6b68fd17b6",
+    "required_evidence_plan": "d39212555fe90044fe12bc973ef5438e1040571a1f5f9db228d3a92d84bb6348",
+    "source_pack": "f529e38b56b1d92b6c05428a9c563ce23805819a5c6e0741c6d33fcf356ba9a9",
+    "test_contract": "f802940ce88c63348882a9712b9b971ff1ae96fffa348064d7c1c94c7da8d081"
+  },
+  "mission_global": {
+    "actionable_rc_ids": [],
+    "deferred_rc_ids": [
+      "RC-001"
+    ],
+    "evidence_routes": [
+      {
+        "action": "SKIP_DEFERRED_TO_SHIP",
+        "claim_category": "production_pending",
+        "classification": "production_pending",
+        "cwd": null,
+        "cwd_anchor": null,
+        "deferred_to": "ship",
+        "evidence_command": null,
+        "expected_test_file": null,
+        "expected_test_name_regex": null,
+        "expected_value": null,
+        "operator": null,
+        "parser_strategy": null,
+        "required_claim_id": "RC-001",
+        "value_path": null
+      }
+    ],
+    "runner_command_rendered": null,
+    "skip_diagnostic_rc_ids": []
+  },
+  "mode": "field_sensitive",
+  "quality_profiles": [
+    "api_contract",
+    "db_schema",
+    "evidence_route_strict",
+    "field_sensitive"
+  ],
+  "stories": [
+    {
+      "ac_ids": [
+        "T1.AC1",
+        "T1.AC2",
+        "T1.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T1-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-002",
+        "RC-003",
+        "RC-004"
+      ],
+      "category": "migration",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'CREATE TABLE( IF NOT EXISTS)? (articles|article_versions|categories|tags|article_tags|pages|media|redirects|site_settings|prompt_presets|privacy_opt_outs)\\b' migrations/0001_init_cms.sql",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 11,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-002",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'TODO Phase 2: site_id' migrations/0001_init_cms.sql",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 5,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-003",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx wrangler d1 migrations apply kodigital-homepages-cms-db --local",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-004",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-002",
+        "RC-003",
+        "RC-004"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-002,RC-003,RC-004 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T1",
+      "target_files": [
+        "migrations/0001_init_cms.sql",
+        "wrangler.toml"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T1.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'CREATE TABLE( IF NOT EXISTS)? (articles|article_versions|categories|tags|article_tags|pages|media|redirects|site_settings|prompt_presets|privacy_opt_outs)\\b' api/migrations/0001_init_cms.sql",
+          "expected": 11,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T1.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'TODO Phase 2: site_id' api/migrations/0001_init_cms.sql",
+          "expected": 5,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T1.AC3",
+          "binding_type": "command",
+          "command": "cd api && npx wrangler d1 migrations apply kodigital-homepages-cms-db --local",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Initial CMS migration 0001_init_cms.sql with 11 tables and Phase-2 site_id TODO comments"
+    },
+    {
+      "ac_ids": [
+        "T2.AC1",
+        "T2.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T2-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-005",
+        "RC-006"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE '\\.prepare\\(`[^`]*\\$\\{' src/db/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 0,
+          "operator": "==",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-005",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'export (async )?function (getArticleBySlug|listArticles|getMediaById|listCategories)\\b' src/db/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 4,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-006",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-005",
+        "RC-006"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-005,RC-006 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T2",
+      "target_files": [
+        "src/db/index.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T2.AC1",
+          "binding_type": "command",
+          "command": "grep -cE '\\.prepare\\(`[^`]*\\$\\{' api/src/db/index.ts",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T2.AC2",
+          "binding_type": "command",
+          "command": "grep -cE 'export (async )?function (getArticleBySlug|listArticles|getMediaById|listCategories)\\b' api/src/db/index.ts",
+          "expected": 4,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Typed D1 query helpers in api/src/db/index.ts (parameterized only)"
+    },
+    {
+      "ac_ids": [
+        "T3.AC1",
+        "T3.AC2",
+        "T3.AC3",
+        "T3.AC4"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T3-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-007",
+        "RC-008",
+        "RC-009",
+        "RC-010"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"from ['\\\"]jose['\\\"]\" src/auth/access-auth.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-007",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'expirationTtl:\\s*86400' src/auth/access-auth.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-008",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/admin-auth.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/admin\\-auth\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-009",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE '\"jose\":' package.json",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-010",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-007",
+        "RC-008",
+        "RC-009",
+        "RC-010"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-007,RC-008,RC-009,RC-010 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T3",
+      "target_files": [
+        "src/auth/access-auth.ts",
+        "package.json",
+        "test/admin-auth.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T3.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"from ['\\\"]jose['\\\"]\" api/src/auth/access-auth.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T3.AC2",
+          "binding_type": "command",
+          "command": "grep -cE 'expirationTtl:\\s*86400' api/src/auth/access-auth.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T3.AC3",
+          "binding_type": "test_file",
+          "command": null,
+          "expected": null,
+          "expected_test_file": "api/test/admin-auth.test.ts",
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": false
+        },
+        {
+          "ac_id": "T3.AC4",
+          "binding_type": "command",
+          "command": "grep -cE '\"jose\":' api/package.json",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Replace presence-check auth with full CF Access JWKS+RS256 validation in api/src/auth/access-auth.ts"
+    },
+    {
+      "ac_ids": [
+        "T4.AC1",
+        "T4.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T4-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-011",
+        "RC-012"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'export (async )?function (cacheGet|cacheSet|cacheDel|invalidateFeeds)\\b' src/cache/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 4,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-011",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'CACHE_API_ENABLED' src/cache/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-012",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-011",
+        "RC-012"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-011,RC-012 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T4",
+      "target_files": [
+        "src/cache/index.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T4.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'export (async )?function (cacheGet|cacheSet|cacheDel|invalidateFeeds)\\b' api/src/cache/index.ts",
+          "expected": 4,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T4.AC2",
+          "binding_type": "command",
+          "command": "grep -cE 'CACHE_API_ENABLED' api/src/cache/index.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "KV cache helper with feed-key invalidation + Cache API stub in api/src/cache/index.ts"
+    },
+    {
+      "ac_ids": [
+        "T5.AC1",
+        "T5.AC2",
+        "T5.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T5-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-013",
+        "RC-014",
+        "RC-015"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"case ['\\\"](paragraph|heading|list|quote|image|divider|html)['\\\"]\" src/editor/blocks.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 7,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-013",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/editor.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/editor\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-014",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'loading=\"lazy\"' src/editor/blocks.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-015",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-013",
+        "RC-014",
+        "RC-015"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-013,RC-014,RC-015 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T5",
+      "target_files": [
+        "src/editor/blocks.ts",
+        "src/editor/sanitize.ts",
+        "src/editor/index.ts",
+        "test/editor.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T5.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"case ['\\\"](paragraph|heading|list|quote|image|divider|html)['\\\"]\" api/src/editor/blocks.ts",
+          "expected": 7,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T5.AC2",
+          "binding_type": "test_file",
+          "command": null,
+          "expected": null,
+          "expected_test_file": "api/test/editor.test.ts",
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": false
+        },
+        {
+          "ac_id": "T5.AC3",
+          "binding_type": "command",
+          "command": "grep -cE 'loading=\"lazy\"' api/src/editor/blocks.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Editor block engine + sanitizer (7 block types, hand-rolled allowlist) in api/src/editor/"
+    },
+    {
+      "ac_ids": [
+        "T6.AC1",
+        "T6.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T6-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-016",
+        "RC-017"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"['\\\"](draft|published|scheduled|archived)['\\\"]\\s*->\\s*['\\\"](draft|published|scheduled|archived)['\\\"]|\\[\\s*['\\\"](draft|scheduled|published|archived)['\\\"]\\s*,\\s*['\\\"](draft|scheduled|published|archived)['\\\"]\\s*\\]\" src/workflow/publish.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 6,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-016",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/workflow.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/workflow\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-017",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-016",
+        "RC-017"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-016,RC-017 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T6",
+      "target_files": [
+        "src/workflow/publish.ts",
+        "src/workflow/index.ts",
+        "test/workflow.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T6.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"['\\\"](draft|published|scheduled|archived)['\\\"]\\s*->\\s*['\\\"](draft|published|scheduled|archived)['\\\"]|\\[\\s*['\\\"](draft|scheduled|published|archived)['\\\"]\\s*,\\s*['\\\"](draft|scheduled|published|archived)['\\\"]\\s*\\]\" api/src/workflow/publish.ts",
+          "expected": 6,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T6.AC2",
+          "binding_type": "test_file",
+          "command": null,
+          "expected": null,
+          "expected_test_file": "api/test/workflow.test.ts",
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": false
+        }
+      ],
+      "title": "Publish workflow state machine + version snapshot + feed invalidation in api/src/workflow/"
+    },
+    {
+      "ac_ids": [
+        "T7.AC1",
+        "T7.AC2",
+        "T7.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T7-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-018",
+        "RC-019",
+        "RC-020"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"subtle\\.digest\\(['\\\"]SHA-256['\\\"]\" src/privacy/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-018",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/privacy.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/privacy\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-019",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"['\\\"]/api/privacy/(status|opt-out|opt-in)['\\\"]\" src/privacy/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 3,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-020",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-018",
+        "RC-019",
+        "RC-020"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-018,RC-019,RC-020 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T7",
+      "target_files": [
+        "src/privacy/index.ts",
+        "test/privacy.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T7.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"subtle\\.digest\\(['\\\"]SHA-256['\\\"]\" api/src/privacy/index.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T7.AC2",
+          "binding_type": "test_file",
+          "command": null,
+          "expected": null,
+          "expected_test_file": "api/test/privacy.test.ts",
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": false
+        },
+        {
+          "ac_id": "T7.AC3",
+          "binding_type": "command",
+          "command": "grep -cE \"['\\\"]/api/privacy/(status|opt-out|opt-in)['\\\"]\" api/src/privacy/index.ts",
+          "expected": 3,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Privacy module: SHA-256(IP+UA), opt-out cookie, public unauthenticated routes in api/src/privacy/"
+    },
+    {
+      "ac_ids": [
+        "T8.AC1",
+        "T8.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T8-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-021",
+        "RC-022"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'public,\\s*max-age=31536000,\\s*immutable' src/media/serve.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-021",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/media.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/media\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-022",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-021",
+        "RC-022"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-021,RC-022 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T8",
+      "target_files": [
+        "src/media/serve.ts",
+        "src/media/upload.ts",
+        "src/media/index.ts",
+        "test/media.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T8.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'public,\\s*max-age=31536000,\\s*immutable' api/src/media/serve.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T8.AC2",
+          "binding_type": "test_file",
+          "command": null,
+          "expected": null,
+          "expected_test_file": "api/test/media.test.ts",
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": false
+        }
+      ],
+      "title": "Media serve + upload with R2 ETag and 1y immutable Cache-Control in api/src/media/"
+    },
+    {
+      "ac_ids": [
+        "T9.AC1",
+        "T9.AC2",
+        "T9.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T9-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-023",
+        "RC-024",
+        "RC-025"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"['\\\"](admin|api|static|assets|media|preview|health)['\\\"]\" src/public/reserved.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 7,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-023",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/reserved-path.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/reserved\\-path\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-024",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"\\.(get|all)\\(['\\\"]/(article/:slug|category/:slug|category/:slug/page/:page|page/:slug|feed\\.xml|atom\\.xml|sitemap\\.xml|robots\\.txt|ads\\.txt|preview/:id|health|:slug)\" src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 12,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-025",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-023",
+        "RC-024",
+        "RC-025"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-023,RC-024,RC-025 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T9",
+      "target_files": [
+        "src/public/router.ts",
+        "src/public/reserved.ts",
+        "src/public/feeds.ts",
+        "src/public/sitemap.ts",
+        "test/reserved-path.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T9.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"['\\\"](admin|api|static|assets|media|preview|health)['\\\"]\" api/src/public/reserved.ts",
+          "expected": 7,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T9.AC2",
+          "binding_type": "test_file",
+          "command": null,
+          "expected": null,
+          "expected_test_file": "api/test/reserved-path.test.ts",
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": false
+        },
+        {
+          "ac_id": "T9.AC3",
+          "binding_type": "command",
+          "command": "grep -cE \"\\.(get|all)\\(['\\\"]/(article/:slug|category/:slug|category/:slug/page/:page|page/:slug|feed\\.xml|atom\\.xml|sitemap\\.xml|robots\\.txt|ads\\.txt|preview/:id|health|:slug)\" api/src/public/router.ts",
+          "expected": 12,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Public router + reserved-path guard + feeds (RSS/Atom/sitemap/robots/ads) in api/src/public/"
+    },
+    {
+      "ac_ids": [
+        "T10.AC1",
+        "T10.AC2",
+        "T10.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T10-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-026",
+        "RC-027",
+        "RC-028"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"\\.get\\(['\\\"]/admin(|/articles|/pages|/categories|/tags|/media|/settings|/presets)['\\\"]\" src/admin/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 8,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-026",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'OPENAI_API_KEY' src/admin/ai-api.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-027",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"['\\\"]/api/admin/auth/status['\\\"]\" src/admin/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-028",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-026",
+        "RC-027",
+        "RC-028"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-026,RC-027,RC-028 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T10",
+      "target_files": [
+        "src/admin/router.ts",
+        "src/admin/api.ts",
+        "src/admin/workflow-api.ts",
+        "src/admin/ai-api.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T10.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"\\.get\\(['\\\"]/admin(|/articles|/pages|/categories|/tags|/media|/settings|/presets)['\\\"]\" api/src/admin/router.ts",
+          "expected": 8,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T10.AC2",
+          "binding_type": "command",
+          "command": "grep -cE 'OPENAI_API_KEY' api/src/admin/ai-api.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T10.AC3",
+          "binding_type": "command",
+          "command": "grep -cE \"['\\\"]/api/admin/auth/status['\\\"]\" api/src/admin/router.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Admin router + CRUD/workflow/AI placeholder APIs in api/src/admin/"
+    },
+    {
+      "ac_ids": [
+        "T11.AC1",
+        "T11.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T11-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-029",
+        "RC-030"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE \"subtle\\.(sign|verify)\\(\\s*['\\\"]?HMAC\" src/preview/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 2,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-029",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'articleId|versionId' src/preview/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 2,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-030",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-029",
+        "RC-030"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-029,RC-030 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T11",
+      "target_files": [
+        "src/preview/index.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T11.AC1",
+          "binding_type": "command",
+          "command": "grep -cE \"subtle\\.(sign|verify)\\(\\s*['\\\"]?HMAC\" api/src/preview/index.ts",
+          "expected": 2,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T11.AC2",
+          "binding_type": "command",
+          "command": "grep -cE 'articleId|versionId' api/src/preview/index.ts",
+          "expected": 2,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Preview route with HMAC-signed short-lived tokens in api/src/preview/"
+    },
+    {
+      "ac_ids": [
+        "T12.AC1",
+        "T12.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T12-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-031",
+        "RC-032"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'app\\.route\\(' src/index.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 5,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-031",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run test/health.test.ts test/admin-auth.test.ts test/privacy.test.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": "npx\\ vitest\\ run\\ test/health\\.test\\.ts\\ test/admin\\-auth\\.test\\.ts\\ test/privacy\\.test\\.ts",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "parse_test_output",
+          "required_claim_id": "RC-032",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-031",
+        "RC-032"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-031,RC-032 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T12",
+      "target_files": [
+        "src/index.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T12.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'app\\.route\\(' api/src/index.ts",
+          "expected": 5,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T12.AC2",
+          "binding_type": "command",
+          "command": "cd api && npx vitest run test/health.test.ts test/admin-auth.test.ts test/privacy.test.ts",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Wire all routers into api/src/index.ts with reserved-path guard before /:slug"
+    },
+    {
+      "ac_ids": [
+        "T13.AC1",
+        "T13.AC2",
+        "T13.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T13-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-033",
+        "RC-034",
+        "RC-035"
+      ],
+      "category": "script",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'kodigital2\\.cloudflareaccess\\.com|admin\\.theiwise\\.com|7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425|44c73f76-6ed5-4b26-b442-6c2044326c4d|111320b080274cfd8465e89400712c5d' scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 5,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-033",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "npm run verify:no-legacy-prod-refs",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-034",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": ".",
+          "cwd_anchor": "project_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'a05d7505b71c6cd931e436defe670509' scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 0,
+          "operator": "==",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-035",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-033",
+        "RC-034",
+        "RC-035"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase1-2026-05-09 --required-claim-ids=RC-033,RC-034,RC-035 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T13",
+      "target_files": [
+        "scripts/verify/assert-no-legacy-prod-refs.ts",
+        "test/verify-script.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T13.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'kodigital2\\.cloudflareaccess\\.com|admin\\.theiwise\\.com|7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425|44c73f76-6ed5-4b26-b442-6c2044326c4d|111320b080274cfd8465e89400712c5d' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected": 5,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T13.AC2",
+          "binding_type": "command",
+          "command": "cd api && npm run verify:no-legacy-prod-refs",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T13.AC3",
+          "binding_type": "command",
+          "command": "grep -c 'a05d7505b71c6cd931e436defe670509' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Extend assert-no-legacy-prod-refs.ts denylist with 5 legacy CMS identifiers"
+    }
+  ],
+  "writer": "build_implementation_digest.py"
+}

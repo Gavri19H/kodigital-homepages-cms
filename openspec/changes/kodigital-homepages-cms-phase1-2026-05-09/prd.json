@@ -1,0 +1,220 @@
+{
+  "changeId": "kodigital-homepages-cms-phase1-2026-05-09",
+  "mainGoal": "Port the reusable CMS foundation (auth, db, media, cache, editor, workflow, ai placeholders, privacy, admin, public, preview) from the legacy Hono+TS Worker into the new standalone kodigital-homepages-cms Worker, satisfying all seven Phase 1 acceptance gates with no legacy production identifiers in active code.",
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Initial CMS migration 0001_init_cms.sql with 11 tables and Phase-2 site_id TODO comments",
+      "category": "migration",
+      "targetFiles": [
+        "migrations/0001_init_cms.sql",
+        "wrangler.toml"
+      ],
+      "acceptanceCriteria": [
+        "Migration creates all 11 required tables (CREATE TABLE count >= 11 covering articles, article_versions, categories, tags, article_tags, pages, media, redirects, site_settings, prompt_presets, privacy_opt_outs)",
+        "Migration contains TODO Phase-2 site_id comment markers (>=1 per multi-tenant table)",
+        "BEHAVIORAL: GIVEN the new D1 binding kodigital-homepages-cms-db with no tables, WHEN `wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN all 11 tables appear in the local sqlite file with the documented columns and indexes"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T2",
+      "title": "Typed D1 query helpers in api/src/db/index.ts (parameterized only)",
+      "category": "api",
+      "targetFiles": [
+        "src/db/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "All D1 calls use prepare(...).bind(...) — zero template-literal SQL interpolation in db/index.ts",
+        "Helper exposes typed exports: getArticleBySlug, listArticles, getMediaById, listCategories at minimum",
+        "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts)."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T3",
+      "title": "Replace presence-check auth with full CF Access JWKS+RS256 validation in api/src/auth/access-auth.ts",
+      "category": "api",
+      "targetFiles": [
+        "src/auth/access-auth.ts",
+        "package.json",
+        "test/admin-auth.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "auth module imports jose JWKS+jwtVerify and validates exp/nbf/iss/aud/email",
+        "JWKS cache key written to KV with expirationTtl 24h (86400 seconds)",
+        "BEHAVIORAL: GIVEN APP_ENV=development AND DEV_BYPASS_AUTH=true, WHEN any /admin route is requested without a JWT, THEN the handler proceeds and returns the admin shell (200); GIVEN APP_ENV!=development OR DEV_BYPASS_AUTH unset, WHEN /admin is requested without a valid JWT, THEN response is 401",
+        "package.json adds jose as a dependency"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T4",
+      "title": "KV cache helper with feed-key invalidation + Cache API stub in api/src/cache/index.ts",
+      "category": "api",
+      "targetFiles": [
+        "src/cache/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "Module exports cacheGet, cacheSet, cacheDel, invalidateFeeds",
+        "Cache API path gated by env.CACHE_API_ENABLED before any caches.default access",
+        "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T5",
+      "title": "Editor block engine + sanitizer (7 block types, hand-rolled allowlist) in api/src/editor/",
+      "category": "api",
+      "targetFiles": [
+        "src/editor/blocks.ts",
+        "src/editor/sanitize.ts",
+        "src/editor/index.ts",
+        "test/editor.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed') — verified semantically by editor tests covering each renderer + the unknown-type rejection path",
+        "BEHAVIORAL: GIVEN an editor JSON document containing an html block with <script>alert(1)</script>, WHEN contentJsonToHtml is called, THEN the rendered HTML contains no <script> tag and no on* attribute and no javascript: URL",
+        "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true — verified by editor test that renders a below-fold image and asserts the resulting HTML contains loading=\"lazy\""
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T6",
+      "title": "Publish workflow state machine + version snapshot + feed invalidation in api/src/workflow/",
+      "category": "api",
+      "targetFiles": [
+        "src/workflow/publish.ts",
+        "src/workflow/index.ts",
+        "test/workflow.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft — verified by workflow tests that exercise each legal transition and reject illegal ones",
+        "BEHAVIORAL: GIVEN an article in draft with content_json blocks, WHEN publish() is called, THEN (a) article_versions row is inserted with snapshotted content_json, (b) articles.content_html is set to the rendered HTML, (c) articles.status='published' and published_at is set, (d) invalidateFeeds is called once"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T7",
+      "title": "Privacy module: SHA-256(IP+UA), opt-out cookie, public unauthenticated routes in api/src/privacy/",
+      "category": "api",
+      "targetFiles": [
+        "src/privacy/index.ts",
+        "test/privacy.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Privacy module uses Web Crypto subtle.digest('SHA-256', ...) for the IP+UA hash",
+        "BEHAVIORAL: GIVEN no ccpa_opt_out cookie set, WHEN POST /api/privacy/opt-out is called with IP=1.2.3.4 UA='ua/1', THEN response 200 sets Set-Cookie ccpa_opt_out=1 AND a privacy_opt_outs row exists keyed by sha256('1.2.3.4|ua/1')",
+        "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T8",
+      "title": "Media serve + upload with R2 ETag and 1y immutable Cache-Control in api/src/media/",
+      "category": "api",
+      "targetFiles": [
+        "src/media/serve.ts",
+        "src/media/upload.ts",
+        "src/media/index.ts",
+        "test/media.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "GET /media/* response sets Cache-Control: public, max-age=31536000, immutable",
+        "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T9",
+      "title": "Public router + reserved-path guard + feeds (RSS/Atom/sitemap/robots/ads) in api/src/public/",
+      "category": "api",
+      "targetFiles": [
+        "src/public/router.ts",
+        "src/public/reserved.ts",
+        "src/public/feeds.ts",
+        "src/public/sitemap.ts",
+        "test/reserved-path.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Reserved path list contains exactly admin, api, static, assets, media, preview, health (7 entries)",
+        "BEHAVIORAL: GIVEN no published page row with slug='admin', WHEN GET /admin is requested, THEN the request is routed to the admin handler (NOT the /:slug compatibility placeholder) — proven by response Content-Type or admin-specific marker",
+        "Public router declares all 12 required routes"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T10",
+      "title": "Admin router + CRUD/workflow/AI placeholder APIs in api/src/admin/",
+      "category": "api",
+      "targetFiles": [
+        "src/admin/router.ts",
+        "src/admin/api.ts",
+        "src/admin/workflow-api.ts",
+        "src/admin/ai-api.ts"
+      ],
+      "acceptanceCriteria": [
+        "Admin shell GETs declared for /admin, /admin/articles, /admin/pages, /admin/categories, /admin/tags, /admin/media, /admin/settings, /admin/presets",
+        "AI endpoints return 501 unless OPENAI_API_KEY is set",
+        "Admin auth-status route declared at /api/admin/auth/status",
+        "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T11",
+      "title": "Preview route with HMAC-signed short-lived tokens in api/src/preview/",
+      "category": "api",
+      "targetFiles": [
+        "src/preview/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "Preview module uses Web Crypto HMAC (subtle.sign with HMAC) for token signing — no jose, no full JWT",
+        "Token payload encodes articleId, versionId, exp",
+        "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T12",
+      "title": "Wire all routers into api/src/index.ts with reserved-path guard before /:slug",
+      "category": "api",
+      "targetFiles": [
+        "src/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "index.ts mounts all sub-routers (admin, public, privacy, media, preview)",
+        "BEHAVIORAL: GIVEN wrangler dev running locally with DEV_BYPASS_AUTH unset, WHEN curl GET /health and curl GET /admin and curl GET /api/privacy/status, THEN /health returns 200 AND /admin returns 401 AND /api/privacy/status returns 200"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T13",
+      "title": "Extend assert-no-legacy-prod-refs.ts denylist with 5 legacy CMS identifiers",
+      "category": "script",
+      "targetFiles": [
+        "scripts/verify/assert-no-legacy-prod-refs.ts",
+        "test/verify-script.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Denylist additions present: kodigital2.cloudflareaccess.com, admin.theiwise.com, legacy CF_ACCESS_AUD, legacy D1 id, legacy KV id",
+        "Verify script exits 0 against the current worktree (no banned identifiers in active code)",
+        "Shared account_id a05d7505b71c6cd931e436defe670509 is NOT added to the denylist (must remain allowed)"
+      ],
+      "passes": false,
+      "state": "planned"
+    }
+  ]
+}

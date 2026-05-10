@@ -1,0 +1,179 @@
+{
+  "contract_version": "1.0.0",
+  "plan_id": "plan-kodigital-homepages-cms-phase1-2026-05-09-v1",
+  "mission_spec_ref": ".a2z/mission-state/kodigital-homepages-cms-phase1-2026-05-09/mission_spec.json",
+  "decisions": [
+    {
+      "point": "JWT verification library for CF Access",
+      "chosen": "jose (Workers-compatible, ESM, used by Cloudflare's own examples)",
+      "alternatives": [
+        "Hand-rolled WebCrypto RS256 + manual JWKS parsing",
+        "jsonwebtoken (Node-only, not Workers-compatible)"
+      ],
+      "rationale": "jose is the smallest Workers-compatible jwt+JWKS lib, supports remote JWKS with caching, and avoids the high-risk hand-roll of RS256 signature verification. jsonwebtoken depends on Node crypto and won't run in the Worker runtime."
+    },
+    {
+      "point": "HTML sanitizer for editor html-block output",
+      "chosen": "Hand-rolled regex allowlist (tags, attrs, URL schemes) sized to legacy parity",
+      "alternatives": [
+        "dompurify (DOM-required, not Workers-runtime)",
+        "isomorphic-dompurify (jsdom dependency, heavy bundle)"
+      ],
+      "rationale": "Workers runtime has no DOM. dompurify needs jsdom (huge + not edge-friendly). The legacy code uses a regex allowlist; we replicate that pattern with explicit tests asserting <script>, on* attributes, and javascript: URLs are stripped."
+    },
+    {
+      "point": "Preview token format",
+      "chosen": "HMAC-SHA256 over articleId|versionId|exp using PREVIEW_SECRET",
+      "alternatives": [
+        "Full JWT signed with jose (extra dep coupling, larger payload)",
+        "Random URL-only signed token + KV lookup (extra KV write per preview)"
+      ],
+      "rationale": "Preview tokens are short-lived and never leave the surface; HMAC keeps the signing path one Web Crypto call without depending on jose. Avoids KV round-trip for ephemeral previews."
+    },
+    {
+      "point": "AI endpoint behavior when OPENAI_API_KEY unset",
+      "chosen": "Return 501 Not Implemented with explanatory JSON body",
+      "alternatives": [
+        "Return 200 with mock body (encourages downstream to wire real calls prematurely)",
+        "Return 200 + always call OpenAI (Phase 1 explicitly defers AI provisioning)"
+      ],
+      "rationale": "User spec line 104 prohibits calling OpenAI in Phase 1 unless OPENAI_API_KEY exists. 501 is the honest signal; mock 200 hides the wiring gap and risks downstream consumers caching fake responses."
+    },
+    {
+      "point": "Behavior of /:slug compatibility route",
+      "chosen": "Return 404 unless slug matches a published page row; reserved paths short-circuit to 404 before this lookup",
+      "alternatives": [
+        "Always render-as-page (ambiguous: every URL becomes a page)",
+        "301 redirect to /page/:slug (breaks legacy bookmarks for content not yet ported)"
+      ],
+      "rationale": "The legacy compatibility surface is a placeholder; 404 for non-pages is the safe default. Reserved-path guard MUST run first to keep /admin etc. from leaking into this lookup."
+    },
+    {
+      "point": "Verify denylist extension scope",
+      "chosen": "Add legacy team-domain (kodigital2.cloudflareaccess.com), legacy admin host (admin.theiwise.com), legacy CF_ACCESS_AUD hex, legacy D1 id, legacy KV id; do NOT add the shared account_id a05d7505b71c6cd931e436defe670509",
+      "alternatives": [
+        "Tighten only legacy hostname (insufficient — IDs leak through copied code)",
+        "Add account_id a05d7505b71c6cd931e436defe670509 to denylist (would break this Worker — shared account)"
+      ],
+      "rationale": "Shared account_id is allow-listed by orchestrator instructions; banning it would break the new Worker's own deploy. Other 5 identifiers are legacy-only and would create cross-tenant config leak if copied."
+    },
+    {
+      "point": "D1 query helper architecture",
+      "chosen": "Thin parameterized prepare/bind wrappers, no ORM",
+      "alternatives": [
+        "Full SQL builder (e.g. drizzle, kysely) — Workers compat varies, increases bundle size",
+        "Inline prepare/bind at every call site — repeats ?? defaults and JSON.parse safety patterns"
+      ],
+      "rationale": "Wrappers centralize the workspace D1 safety rules (?? for numeric defaults, parameterized only, JSON.parse wrapped with try/catch + cache-miss recovery) without the Workers-bundle cost of an ORM."
+    }
+  ],
+  "implementation_steps": [
+    "Add jose dep to api/package.json; npm install",
+    "Write api/migrations/0001_init_cms.sql; apply --local to verify schema",
+    "Implement api/src/db/index.ts parameterized query helpers",
+    "Replace api/src/auth/access-auth.ts presence-check with full JWKS+RS256 path; extend test/admin-auth.test.ts",
+    "Add api/src/cache/index.ts with KV helpers + Cache API stub",
+    "Add api/src/editor/{blocks,sanitize,index}.ts with hand-rolled allowlist; add test/editor.test.ts",
+    "Add api/src/workflow/{publish,index}.ts; add test/workflow.test.ts",
+    "Add api/src/privacy/index.ts with SHA-256 hash + 3 routes; add test/privacy.test.ts",
+    "Add api/src/media/{serve,upload,index}.ts with R2 ETag + cache headers; add test/media.test.ts",
+    "Add api/src/public/{router,reserved,feeds,sitemap}.ts; add test/reserved-path.test.ts",
+    "Add api/src/admin/{router,api,workflow-api,ai-api}.ts admin shell + placeholders",
+    "Add api/src/preview/index.ts HMAC-signed preview tokens",
+    "Wire api/src/index.ts: mount all routers in correct order with reserved-path guard before /:slug",
+    "Extend api/scripts/verify/assert-no-legacy-prod-refs.ts denylist with 5 legacy CMS identifiers",
+    "Run npm install + npm run typecheck + npm test + npm run verify:no-legacy-prod-refs",
+    "Smoke-test wrangler dev: GET /health 200, GET /admin 401, GET /api/privacy/status 200",
+    "Commit + push branch mission/kodigital-homepages-cms-phase1-2026-05-09; open PR"
+  ],
+  "files_expected_to_change": [
+    "api/migrations/0001_init_cms.sql",
+    "api/src/db/index.ts",
+    "api/src/auth/access-auth.ts",
+    "api/src/cache/index.ts",
+    "api/src/editor/blocks.ts",
+    "api/src/editor/sanitize.ts",
+    "api/src/editor/index.ts",
+    "api/src/workflow/publish.ts",
+    "api/src/workflow/index.ts",
+    "api/src/privacy/index.ts",
+    "api/src/media/serve.ts",
+    "api/src/media/upload.ts",
+    "api/src/media/index.ts",
+    "api/src/public/router.ts",
+    "api/src/public/reserved.ts",
+    "api/src/public/feeds.ts",
+    "api/src/public/sitemap.ts",
+    "api/src/admin/router.ts",
+    "api/src/admin/api.ts",
+    "api/src/admin/workflow-api.ts",
+    "api/src/admin/ai-api.ts",
+    "api/src/preview/index.ts",
+    "api/src/index.ts",
+    "api/scripts/verify/assert-no-legacy-prod-refs.ts",
+    "api/test/admin-auth.test.ts",
+    "api/test/editor.test.ts",
+    "api/test/workflow.test.ts",
+    "api/test/privacy.test.ts",
+    "api/test/media.test.ts",
+    "api/test/reserved-path.test.ts",
+    "api/test/verify-script.test.ts",
+    "api/package.json",
+    "api/package-lock.json"
+  ],
+  "files_forbidden_to_change": [
+    ".github/workflows/deploy.yml",
+    "docs/no-touch-red-line.md",
+    "docs/reference/current-theiwise-technical-spec.md",
+    "docs/reference/implementation-spec-standalone.html",
+    "docs/reference/theiwise-home-article-implementation-spec.pdf",
+    "docs/source-architecture.md",
+    "../theiwise-legacy-readonly/**",
+    "api/wrangler.toml [vars] for production env",
+    "prd.json (project-side, owned by ship/meta)"
+  ],
+  "acceptance_tests": [
+    "cd api && npm install",
+    "cd api && npm run typecheck",
+    "cd api && npm test",
+    "cd api && npm run verify:no-legacy-prod-refs",
+    "cd api && npx wrangler dev (smoke /health 200, /admin 401, /api/privacy/status 200)",
+    "cd api && npx vitest run test/admin-auth.test.ts",
+    "cd api && npx vitest run test/editor.test.ts",
+    "cd api && npx vitest run test/workflow.test.ts",
+    "cd api && npx vitest run test/privacy.test.ts",
+    "cd api && npx vitest run test/media.test.ts",
+    "cd api && npx vitest run test/reserved-path.test.ts",
+    "cd api && npx vitest run test/verify-script.test.ts"
+  ],
+  "risk_controls": [
+    "No production data migration this phase (mission_draft.risk.production_data_risk=false)",
+    "AI endpoints return 501 by default — no accidental OpenAI cost",
+    "DEV_BYPASS_AUTH only honored when APP_ENV=development AND env truthy (double gate)",
+    "site_id columns deferred to Phase 2 — only TODO markers in 0001_init_cms.sql",
+    "All D1 calls parameterized via prepare(...).bind(...) — verify by AC T2.AC1 (zero matches for ${} interpolation)",
+    "JWKS cache TTL fixed at 86400s — verify by AC T3.AC2",
+    "verify:no-legacy-prod-refs run as final gate before push (AC T13.AC2)"
+  ],
+  "rollback_plan": "Revert merge commit of mission/kodigital-homepages-cms-phase1-2026-05-09 on main (single squash commit). Phase 1 introduces no production data; KV CACHE namespace can be cleared via Dashboard if stale; if 0001_init_cms.sql was applied to remote D1, run `npx wrangler d1 execute kodigital-homepages-cms-db --remote --command 'DROP TABLE IF EXISTS articles; DROP TABLE IF EXISTS article_versions; DROP TABLE IF EXISTS categories; DROP TABLE IF EXISTS tags; DROP TABLE IF EXISTS article_tags; DROP TABLE IF EXISTS pages; DROP TABLE IF EXISTS media; DROP TABLE IF EXISTS redirects; DROP TABLE IF EXISTS site_settings; DROP TABLE IF EXISTS prompt_presets; DROP TABLE IF EXISTS privacy_opt_outs;'` (safe — Phase 1 carries no tenant data). R2 MEDIA bucket retains uploaded objects; can be purged separately if needed.",
+  "evidence_plan": [
+    "vitest exit code per test file (test_exit_code parser)",
+    "tsc --noEmit exit code (test_exit_code parser)",
+    "verify:no-legacy-prod-refs exit code (test_exit_code parser)",
+    "grep counts per AC (parse_grep_count parser) for surface declarations and denylist additions",
+    "wrangler dev curl smoke against /health, /admin, /api/privacy/status (parse_curl_response parser via captured output)"
+  ],
+  "call_path_expectation": "Phase 1 introduces no cross-service calls. All routes resolve within the Worker. CF Access JWT validates via JWKS fetched from CF_ACCESS_TEAM_DOMAIN, cached in KV CACHE for 24h. R2 MEDIA serves blobs directly. D1 reads/writes go through api/src/db/index.ts wrappers. Preview HMAC verification is in-process via Web Crypto.",
+  "implementation_route": {
+    "route": "ralph",
+    "tier": "COMPLEX",
+    "justification": "Multi-module port with schema mutation across 13 stories spanning auth/editor/workflow/media/privacy/admin/public/preview. One Ralph cycle plus Evaluator review; max 2 fix cycles before escalation.",
+    "required_review": "evaluator",
+    "required_verification": [
+      "typecheck",
+      "vitest",
+      "verify:no-legacy-prod-refs",
+      "smoke"
+    ]
+  }
+}
