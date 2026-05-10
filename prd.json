@@ -239,7 +239,7 @@
         "grep -c 'a2z-cf-cms-v1' docs/session-map-v2.md == 0 (no old TheIWise Worker name)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T14",

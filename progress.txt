@@ -622,3 +622,40 @@
   - `CLOUDFLARE_ACCOUNT_ID` belongs in the `env:` block of EACH deploy job, not just one. wrangler reads it from the process env; if it's missing on the production job because we only set it on staging, the production deploy fails with `account_id required` and the failure mode looks like a credentials bug when it's actually a workflow-config bug. The triple-reference (header comment + staging env + production env) makes the contract auditable from a single grep.
   - Auto-production-deploy is BANNED as a Phase 1.5 contract not just as a Phase 1.5 preference. The deployment-runbook explicitly says "every prod deploy requires a human click" — encoding that as `workflow_dispatch` only (no `push` trigger for the prod job) means the contract is enforced by GitHub's event router, not by operator discipline. A future "let's just auto-deploy on tag" PR should be required to amend both this workflow AND the runbook.
 ---
+
+## 2026-05-11 - T13 (docs/session-map-v2.md — 8-session map, Session 2 = Phase 1.5 current)
+- Created docs/session-map-v2.md (153 lines) — 0-indexed Sessions 0..7 bound to docs/phase-plan.md but with Phase 1.5 promoted to a first-class slot:
+  - Session 0 → Phase 0 scaffold (completed in prior mission); exit gate = typecheck + test + verify:no-legacy-prod-refs.
+  - Session 1 → Phase 1 real CF resources + Access wiring (completed in prior mission); exit gate = staging /health round-trip + /admin Access redirect.
+  - Session 2 → Phase 1.5 infra/secrets/domain — CURRENT mission; exit gate = the 5-step acceptance gate (typecheck + test + verify:no-legacy-prod-refs + verify:infra + verify:worker-config), production deploy stays workflow_dispatch-only.
+  - Session 3 → Phase 2 core CMS schema + admin CRUD.
+  - Session 4 → Phase 3 public render + media pipeline (uses HTML_CACHE_TTL_SECONDS contract pinned in Session 2).
+  - Session 5 → Phase 4 AI authoring (admin-gated, rate-limited, audit-logged, OPENAI_API_KEY scoped to admin requests).
+  - Session 6 → Phase 5 multi-site onboarding + Phase 6 observability bundled together (onboarding is the first workload that stresses observability so they travel together).
+  - Session 7 → Phase 7 production cutover with feature-flagged DNS switch and the no-touch-red-line still in force.
+- Each session entry follows the same shape (status / scope / exit gate) so reviewers and operators read the file the same way.
+- Closing "How to use this map" section codifies the rule that a PR mixing two sessions is a smell (except Session 6 which is explicitly a bundled slice), and that the session exit gate is the same command list the runbook would run.
+- File contains NO banned identifiers (no legacy hostname substring, no a2z-cf-cms-v1, no 44c73f76 UUID, no insureprimo/quotesRoutes/psychic-quiz/rental-booking) — verified by grep below + by npm run verify:no-legacy-prod-refs exit 0.
+- **Self-check results:**
+  - File size: docs/session-map-v2.md 153 lines (limit: 300 for markdown/docs) — PASS
+  - Secret scan (`grep -n 'API_KEY=\|Bearer \|TOKEN=\|SECRET=\|password=\|private_key\|connection_string' docs/session-map-v2.md`): 0 matches — PASS
+  - Error handling: N/A (markdown doc, no runtime code)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify: see npm run verify:no-legacy-prod-refs below
+  - Acceptance ACs (T13-AC1..T13-AC3):
+    - AC1 `grep -c 'Session 2' docs/session-map-v2.md` = 2 (>=1) — PASS (header + cross-reference in Session 4 "HTML_CACHE_TTL_SECONDS contract pinned in Session 2")
+    - AC2 `grep -c 'Session 7' docs/session-map-v2.md` = 1 (>=1) — PASS (8 sessions present, 0-indexed)
+    - AC3 `grep -c 'a2z-cf-cms-v1' docs/session-map-v2.md` = 0 (== 0) — PASS (no old TheIWise Worker name)
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 3 files / 9 tests passing, exit 0
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+  - `npm run verify:infra` → exit 0
+  - `npm run verify:worker-config` → exit 0
+- **Source story id covered this iteration:** T13
+- **Learnings for future iterations:**
+  - A session map is a navigational artifact, not a status artifact — the per-session "Status" line should be the only thing that ages between PRs, and updating it is a one-line edit. Putting status into the SECTION TITLE (e.g. "Session 2 — ... (CURRENT)") is tempting but creates churn that breaks anchor links; keep status in a "Status:" field on the second line of each section so the section anchor stays stable across the project's life.
+  - The session boundaries deliberately diverge from the phase boundaries in `docs/phase-plan.md` because Phase 1.5 needed a first-class slot. Document this divergence in the file header so a future reader who notices the mismatch reads the WHY before "fixing" the apparent off-by-one. The map and the phase plan are two views of the same work — both correct, both load-bearing, neither obsolete.
+  - Bundling Session 6 (Phase 5 onboarding + Phase 6 observability) is intentional because tenant onboarding is the first workload that produces enough traffic to validate the observability story. Calling that intent out in the section itself prevents a future "let's split these into two sessions" refactor that would land an observability stack with no real traffic to observe.
+---
