@@ -517,3 +517,38 @@
   - Cross-story dependencies inside a single mission generate intentional transition states. T9 creates the file; T10 updates the verifier's allowlist; in between, `npm run verify:no-legacy-prod-refs` correctly exits 1 because the verifier is doing its job. Document the regression in progress.txt (not as a self-check failure but as an EXPECTED CONSEQUENCE of one-story-per-iteration ordering), AND make sure the next iteration's commit message/PR description names the failing test it intends to restore. The failure is a correctness signal, not a code bug.
   - A "block exact 4 hostnames" contract is best implemented as an explicit `readonly string[]` (apex + the three canonical subdomain patterns: `www`, `staging`, `app`). Subdomain wildcard matching is deliberately NOT introduced here — defense-in-depth against accidental subdomain leaks lives in (a) the verify-script substring scanner and (b) the T3 hostname routing guard. Keeping `isProtectedDomain` exact-match keeps the unit-test surface small and the contract auditable.
 ---
+
+## 2026-05-11 - T10 (api/scripts/verify/assert-no-legacy-prod-refs.ts — two-group BANNED_IDENTIFIERS split + remove global UUID allowlist)
+- Restructured the verifier into TWO banned-identifier groups with separate allowlists:
+  - `GROUP_A_BANNED` = `a2z-cf-cms-v1-api`, `a2z-cf-cms-v1-db`, `insureprimo`, `quotesRoutes`, `psychic-quiz`, `rental-booking`, AND `44c73f76-6ed5-4b26-b442-6c2044326c4d` (the shared Cloudflare account UUID). The UUID is NEW to the banned set in T10 — the prior global allowlist comment ("UUID is allowed in wrangler.toml/CI/docs/verify-script as account_id") is removed because the new project no longer shares an account_id with the sibling stack (`api/wrangler.toml:4` now declares `a05d7505b71c6cd931e436defe670509`, not 44c73f76). Any remaining reference to 44c73f76 must therefore live ONLY in approved legacy docs.
+  - `GROUP_B_BANNED` = `theiwise.com` (single substring; substring-matches `www.theiwise.com`, `staging.theiwise.com`, `app.theiwise.com` — the four canonical TheIWise hostnames declared in `api/src/safety/protected-domains.ts`).
+- Two separate allowlists:
+  - `GROUP_A_ALLOWED_FILES` = `docs/source-architecture.md`, `docs/no-touch-red-line.md`, `docs/reference/current-theiwise-technical-spec.md`, the verifier's own source, `prd.json`, `progress.txt`.
+  - `GROUP_B_ALLOWED_FILES` = Group A allowlist + `api/src/safety/protected-domains.ts` (the runtime denylist module is the ONE production-code location where TheIWise hostnames are allowed to appear, so the Worker can refuse to operate on them at boundary).
+- Scan loop now emits `[Group A]` / `[Group B]` tags in the offender lines so CI logs identify which contract was violated (helpful when both groups fail in one run).
+- Cleanup: removed the legacy comment lines in `.github/workflows/deploy.yml` that referenced the 44c73f76 UUID + the sibling project name. The comment now says: "Cloudflare deploy credentials are scoped to this project; CLOUDFLARE_API_TOKEN is only available to GitHub Actions (see docs/github-secrets-setup.md and docs/secrets-manifest.md for the per-surface secret contract)." T12 will substantively rewrite this workflow; the T10 edit is the minimal change needed to make `verify:no-legacy-prod-refs` exit 0 after the UUID joins Group A.
+- **Self-check results:**
+  - File size: api/scripts/verify/assert-no-legacy-prod-refs.ts 170 lines (limit: 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`) over changed files: 1 match — `.github/workflows/deploy.yml:63 CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}` — that line existed BEFORE T10 (T10 only edited the header comment) and is the legitimate GitHub Actions env-var binding pattern, not a hardcoded secret. PASS.
+  - Error handling: PASS — verifier exits 1 with structured stderr listing every offender (file:line + group + banned literal); exits 0 with a one-line OK message naming the two groups.
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance ACs (T10-AC1..T10-AC6):
+    - AC1 `grep -c 'GROUP_A\|groupA\|group_a\|Group A\|legacy resource' api/scripts/verify/assert-no-legacy-prod-refs.ts` = 12 (>=1) — PASS (matches `GROUP_A_BANNED`, `GROUP_A_ALLOWED_FILES`, `Group A`, `legacy resource`)
+    - AC2 `grep -c '44c73f76' api/scripts/verify/assert-no-legacy-prod-refs.ts` = 2 (>=1) — PASS (UUID literal present in Group A BANNED + header comment)
+    - AC3 `grep -c 'protected-domains.ts' api/scripts/verify/assert-no-legacy-prod-refs.ts` = 3 (>=1) — PASS (listed in `GROUP_B_ALLOWED_FILES` + 2 docstring mentions)
+    - AC4 BEHAVIORAL: wrote `api/src/__t10_behavioral_test.txt` containing `theiwise.com` (token built via concat to keep the source clean); verifier exited 1; stderr contained `[Group B] api/src/__t10_behavioral_test.txt:1 -> "theiwise.com"` — PASS. Fixture deleted after assertion.
+    - AC5 BEHAVIORAL: `api/src/safety/protected-domains.ts` contains `theiwise.com` (5 occurrences); verifier exits 0 because the file is in `GROUP_B_ALLOWED_FILES` — PASS (proven by AC6's clean-repo run).
+    - AC6 `cd api && npm run verify:no-legacy-prod-refs` → exit 0 — PASS (the T9→T10 transition state from last iteration is now resolved).
+  - Typecheck (`cd api && npx tsc --noEmit`): exit 0 — PASS
+  - Tests (`cd api && npx vitest run`): 3 files / 9 tests passing (health 2, admin-auth 5, verify-script 2 — including the "exits 0 on a clean repo" test that was failing pre-T10) — PASS
+- **Test commands actually run (from `api/` worktree):**
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 3 files / 9 tests passing, exit 0
+- **Source story id covered this iteration:** T10
+- **Learnings for future iterations:**
+  - When a shared identifier gets re-scoped (UUID was "shared with sibling" → now "this project owns its own account"), the verify-script's allowlist must be tightened SIMULTANEOUSLY with any code/config that drops the shared reference, OR the verifier flags every legacy doc comment as a fresh CI fail. The cleanest sequencing is: (1) move the now-banned identifier into the explicit BANNED list, (2) curate the new minimal allowlist of files allowed to mention it for historical reasons, (3) sweep ACTIVE config/code (CI yaml, runtime modules) for any stale reference and remove it in the same commit. Splitting these steps across stories produces transient red-CI states that look like a regression but are actually a contract migration in flight.
+  - Two-group structure beats a single flat BANNED list because each banned literal has a DIFFERENT "where is it legitimately allowed?" answer. Group A (legacy resource identifiers) is allowed only in approved legacy docs; Group B (protected hostnames) is also allowed in the runtime denylist module that actively defends against operating on those hostnames. Flattening this into one allowlist either (a) leaks Group A names into prod-code locations they don't belong (over-permissive), or (b) bans Group B from the safety module that needs to literally name the hostnames (under-permissive). The two-group shape encodes WHY each literal is allowed where it is.
+  - Tagging offender output with `[Group A]` / `[Group B]` makes the CI failure message self-explanatory — an operator seeing `[Group B] some/file:42 -> "theiwise.com"` immediately knows the file accidentally references a protected hostname (probably needs to import the safety module instead of inlining the literal); a `[Group A]` failure points to a legacy-resource-name leak (different remediation). Anonymous offender lines force the operator to recompute the group/intent.
+---

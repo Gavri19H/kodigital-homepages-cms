@@ -184,7 +184,7 @@
         "cd api && npm run verify:no-legacy-prod-refs exits 0 on clean repo after T9 creates protected-domains.ts"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T11",
