@@ -224,7 +224,7 @@
         "grep -c 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/deploy.yml >= 1 (new GitHub secret referenced)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T13",

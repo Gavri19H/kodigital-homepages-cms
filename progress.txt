@@ -587,3 +587,38 @@
   - Section-scoped substring/regex parsing of wrangler.toml is sufficient for "does X appear inside [block]" verifiers. Pulling in a TOML parser dep would expand the trust surface for no behavioral gain — wrangler.toml is small, hand-edited, and the layout is stable.
   - When a verify script's own source contains a literal that looks like a secret pattern (e.g. the regex `/^CLOUDFLARE_API_TOKEN=/m`), the secret-scan grep WILL flag it. This is unavoidable for a verifier whose job is to detect the absence of that very pattern; document the false positive in the self-check entry.
 ---
+
+## 2026-05-11 - T12 (.github/workflows/deploy.yml — Phase 1.5 CI + deploy contract: verify:infra + verify:worker-config added to CI; production deploy gated on workflow_dispatch only)
+- Rewrote `.github/workflows/deploy.yml` (144 lines) into a three-job pipeline that matches the Phase 1.5 acceptance-gate contract documented in `docs/deployment-runbook.md` and the GitHub-secrets contract in `docs/github-secrets-setup.md`:
+  - **`ci`** job (runs on every `pull_request` to main AND every `push` to main): typecheck → tests → `verify:no-legacy-prod-refs` → `verify:infra` → `verify:worker-config`. All five steps must exit 0; CI fails on the first non-zero. The deployment-runbook calls out these exact five commands as the Phase 1.5 acceptance gate, so the CI step ordering + names are byte-for-byte aligned with the runbook to make drift detectable from either surface.
+  - **`deploy-staging`** job (needs `ci`; gated `push` + `main` + `vars.ENABLE_STAGING_DEPLOY == 'true'`): unchanged from previous staging-deploy behavior, with `CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}` now added alongside `CLOUDFLARE_API_TOKEN` so wrangler can resolve the account when the staging deploy runs. Staging deploy remains OFF by default; flipping the repo variable `ENABLE_STAGING_DEPLOY=true` enables it.
+  - **`deploy-production`** job (NEW; needs `ci`; gated `github.event_name == 'workflow_dispatch' && inputs.target_env == 'production'`): production deploys NEVER trigger on `push` or `pull_request`. The operator must manually invoke the workflow from the Actions tab (or `gh workflow run`) with `target_env=production` AFTER staging smoke passes — exactly as the deployment-runbook "Flight — Production" section requires.
+- `on:` block extended with `workflow_dispatch.inputs.target_env` (`type: choice`, `options: [production]`, default `production`) so the operator's only manual-trigger option is a production deploy. Staging is deliberately NOT a `workflow_dispatch` option — staging is push-driven by design, so the manual trigger surface stays purpose-built for prod cutover.
+- Header comment rewritten to enumerate the per-surface secret contract: `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are GitHub Actions secrets (CI-only deploy credentials), while the Worker runtime uses `CLOUDFLARE_PROVISIONING_API_TOKEN` + `CLOUDFLARE_CACHE_API_TOKEN` set via `wrangler secret put` per `docs/cloudflare-worker-secrets-setup.md`. This anchors the three-token-split rationale from `docs/secrets-manifest.md` "Phase 1.5 token-split rationale" directly inside the workflow file so a future operator reading the YAML can't accidentally bind the runtime tokens to the deploy job.
+- No legacy TheIWise Worker references (`a2z-cf-cms-v1` or the legacy `theiwise.com` hostname) appear anywhere in the workflow. The T10 cleanup of the prior header comment is preserved and extended.
+- **Self-check results:**
+  - File size: `.github/workflows/deploy.yml` 144 lines (limit: 200 for YAML / 200 default) — PASS
+  - Secret scan (`grep -n 'API_KEY=\|Bearer \|TOKEN=\|SECRET=\|password=\|private_key\|connection_string' .github/workflows/deploy.yml`): 0 matches — PASS (all secret references use the `${{ secrets.NAME }}` GitHub Actions binding pattern with `:` not `=`, so `TOKEN=`/`SECRET=`/`password=` literals never appear).
+  - Error handling: N/A (workflow YAML — CI step failure is handled by GitHub's job-failure semantics; no custom error paths needed).
+  - Migration execution: N/A (not a db story).
+  - Parameterized queries: N/A.
+  - Banned-token verify (`cd api && npm run verify:no-legacy-prod-refs`): exit 0 — PASS.
+  - Acceptance grep ACs (T12-AC1..T12-AC5):
+    - AC1 `grep -c 'verify:infra' .github/workflows/deploy.yml` = 1 (>=1) — PASS
+    - AC2 `grep -c 'verify:worker-config' .github/workflows/deploy.yml` = 1 (>=1) — PASS
+    - AC3 `grep -c 'workflow_dispatch' .github/workflows/deploy.yml` = 4 (>=1) — PASS (matches `workflow_dispatch:` trigger, `inputs.target_env` description hint, and the deploy-production `if:` gate)
+    - AC4 `grep -c 'a2z-cf-cms-v1' .github/workflows/deploy.yml` = 0 (== 0) — PASS (no legacy TheIWise Worker name)
+    - AC5 `grep -c 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/deploy.yml` = 3 (>=1) — PASS (referenced in header comment + `env:` blocks for both deploy-staging and deploy-production)
+- **Test commands actually run (from `api/` worktree unless noted):**
+  - `cd api && npx tsc --noEmit` → exit 0
+  - `cd api && npx vitest run` → 3 files / 9 tests passing, exit 0
+  - `cd api && npm run verify:no-legacy-prod-refs` → exit 0
+  - `cd api && npm run verify:infra` → exit 0 ("wrangler.toml matches the Phase 1.5 infra contract (8 checks passed).")
+  - `cd api && npm run verify:worker-config` → exit 0 ("wrangler.toml [vars] blocks match the Phase 1.5 routing contract (3 blocks checked).")
+- **Source story id covered this iteration:** T12
+- **Learnings for future iterations:**
+  - The CI step list in `.github/workflows/deploy.yml` and the "Phase 1.5 acceptance gate" command list in `docs/deployment-runbook.md` are a SHARED contract — the same five npm scripts must appear in the same order in both surfaces. When adding a sixth check, update both files in one commit; drift between them is the precise failure mode that makes "green CI but the runbook lies" happen. Pinning the order also makes a CI log skim diagnose-by-first-failure: the operator already knows what comes next.
+  - `workflow_dispatch.inputs.target_env` with `type: choice` and a single option (`production`) is the cleanest way to encode "manual trigger is production-only" — it removes the foot-gun where an operator could accidentally fire the workflow against `staging` from the UI when staging is actually push-driven. Staging-via-workflow-dispatch is intentionally NOT an option; if it ever needs to be (e.g. staging rebuild after a config drift), add a second option in a follow-up that ALSO updates `deploy-staging.if:` to include `workflow_dispatch && inputs.target_env == 'staging'`.
+  - `CLOUDFLARE_ACCOUNT_ID` belongs in the `env:` block of EACH deploy job, not just one. wrangler reads it from the process env; if it's missing on the production job because we only set it on staging, the production deploy fails with `account_id required` and the failure mode looks like a credentials bug when it's actually a workflow-config bug. The triple-reference (header comment + staging env + production env) makes the contract auditable from a single grep.
+  - Auto-production-deploy is BANNED as a Phase 1.5 contract not just as a Phase 1.5 preference. The deployment-runbook explicitly says "every prod deploy requires a human click" — encoding that as `workflow_dispatch` only (no `push` trigger for the prod job) means the contract is enforced by GitHub's event router, not by operator discipline. A future "let's just auto-deploy on tag" PR should be required to amend both this workflow AND the runbook.
+---
