@@ -4,15 +4,23 @@ export interface Env {
   MEDIA: R2Bucket;
 
   APP_ENV: string;
+  ADMIN_HOST: string;
   ADMIN_BASE_URL: string;
+  ADMIN_BASE_PATH: string;
   CACHE_API_ENABLED: string;
+  HTML_CACHE_TTL_SECONDS: string;
   OPENAI_TEXT_MODEL: string;
   OPENAI_IMAGE_MODEL: string;
+  SITE_PROVISIONING_DRY_RUN: string;
+  SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: string;
 
   OPENAI_API_KEY?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
   DEV_BYPASS_AUTH?: string;
+  CLOUDFLARE_PROVISIONING_API_TOKEN?: string;
+  CLOUDFLARE_CACHE_API_TOKEN?: string;
+  ALLOWED_CF_SERVICE_TOKEN_IDS?: string;
 }
 
 export function parseBoolean(value: string | undefined | null): boolean {
@@ -27,4 +35,20 @@ export function parseNumber(value: string | undefined | null, fallback = 0): num
   if (trimmed === "") return fallback;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function getAdminHost(env: Env): string {
+  return env.ADMIN_HOST;
+}
+
+export function getAdminBaseUrl(env: Env): string {
+  return env.ADMIN_BASE_URL;
+}
+
+export function isDryRunProvisioning(env: Env): boolean {
+  return parseBoolean(env.SITE_PROVISIONING_DRY_RUN);
+}
+
+export function isRouteMutationAllowed(env: Env): boolean {
+  return parseBoolean(env.SITE_PROVISIONING_ALLOW_ROUTE_MUTATION);
 }

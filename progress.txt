@@ -240,3 +240,39 @@
   - When an AC writes `grep '.io'` it is almost always intended as a literal-dot check; the `.` is BRE-wildcard which catches `production`/`version`/`sion` words and makes the AC unsatisfiable in a real wrangler.toml. Treat the parenthetical ("no .io domain references") as the binding intent.
   - Wrangler does not merge [vars] from top-level into [env.<name>.vars]; each env block must repeat every key. Forgot to also re-declare ADMIN_HOST in env blocks would leave staging/production with only top-level "localhost" — staging/production deploys would silently behave like local dev.
 ---
+
+## 2026-05-10 - T2 (api/src/env.ts — Phase 1.5 Env typing + 4 helpers; api/test/admin-auth.test.ts baseEnv updated)
+- Extended `Env` interface in `api/src/env.ts` with required Phase 1.5 string vars: `ADMIN_HOST`, `ADMIN_BASE_PATH`, `HTML_CACHE_TTL_SECONDS`, `SITE_PROVISIONING_DRY_RUN`, `SITE_PROVISIONING_ALLOW_ROUTE_MUTATION`. Existing string vars preserved (APP_ENV / ADMIN_BASE_URL / CACHE_API_ENABLED / OPENAI_TEXT_MODEL / OPENAI_IMAGE_MODEL).
+- Added optional secret fields: `CLOUDFLARE_PROVISIONING_API_TOKEN?`, `CLOUDFLARE_CACHE_API_TOKEN?`, `ALLOWED_CF_SERVICE_TOKEN_IDS?` (joined to existing `OPENAI_API_KEY?`, `CF_ACCESS_TEAM_DOMAIN?`, `CF_ACCESS_AUD?`, `DEV_BYPASS_AUTH?`). All secrets remain `string | undefined` so missing-secret cases are typed and middleware can branch on presence.
+- Added 4 typed helpers as required by the story title:
+  - `getAdminHost(env): string` — returns `env.ADMIN_HOST` (no fallback; wrangler.toml is canonical and always defines it).
+  - `getAdminBaseUrl(env): string` — returns `env.ADMIN_BASE_URL`.
+  - `isDryRunProvisioning(env): boolean` — `parseBoolean(env.SITE_PROVISIONING_DRY_RUN)`.
+  - `isRouteMutationAllowed(env): boolean` — `parseBoolean(env.SITE_PROVISIONING_ALLOW_ROUTE_MUTATION)`.
+- Existing `parseBoolean` and `parseNumber` helpers preserved verbatim.
+- Updated `api/test/admin-auth.test.ts` `baseEnv: Env` literal to include the 5 new required fields (ADMIN_HOST/ADMIN_BASE_PATH/HTML_CACHE_TTL_SECONDS/SITE_PROVISIONING_DRY_RUN/SITE_PROVISIONING_ALLOW_ROUTE_MUTATION). Without this update `npx tsc --noEmit` failed with TS2739 ("Type ... is missing the following properties from type 'Env'").
+- **Self-check results:**
+  - File sizes: api/src/env.ts 54 lines (limit: 200 for TS) — PASS; api/test/admin-auth.test.ts 54 lines — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches in env.ts — PASS (TOKEN appears only as part of identifier names like `CLOUDFLARE_PROVISIONING_API_TOKEN`, never as an assigned value `TOKEN=...`)
+  - Error handling: N/A (pure type + parsing module)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS
+  - Acceptance grep ACs:
+    - AC1 `grep -c 'getAdminHost' api/src/env.ts` = 1 (>=1) — PASS
+    - AC2 `grep -c 'isDryRunProvisioning' api/src/env.ts` = 1 (>=1) — PASS
+    - AC3 `grep -c 'isRouteMutationAllowed' api/src/env.ts` = 1 (>=1) — PASS
+    - AC4 `grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/src/env.ts` = 1 (>=1) — PASS
+    - AC5 `grep -c 'CLOUDFLARE_CACHE_API_TOKEN' api/src/env.ts` = 1 (>=1) — PASS
+    - AC6 `grep -c 'ALLOWED_CF_SERVICE_TOKEN_IDS' api/src/env.ts` = 1 (>=1) — PASS
+    - AC7 `cd api && npx tsc --noEmit` exit 0 — PASS
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 3 files / 8 tests passing, exit 0
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+- **Source story id covered this iteration:** T2
+- **Learnings for future iterations:**
+  - Adding required (non-optional) fields to the typed `Env` interface is a breaking change for every test or call-site that constructs an `Env` literal. Always grep for `Env =` / `as Env` after extending the interface and update the literals in the same iteration so `npx tsc --noEmit` stays green.
+  - When AC text says `>= 1` for a grep count, a single function definition line `export function NAME(env: Env)` is sufficient — there is no need to padding the file with extra references.
+  - Helpers like `isDryRunProvisioning` should default-deny: `parseBoolean` returns `false` for missing/unset values, so a misconfigured staging env will NOT trip into "live" provisioning mode. This is the safer failure mode given the no-touch contract.
+---
