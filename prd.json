@@ -148,7 +148,7 @@
         "grep -c 'wrangler deploy' docs/deployment-runbook.md >= 1 (runbook documents deploy command for user reference)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T9",
