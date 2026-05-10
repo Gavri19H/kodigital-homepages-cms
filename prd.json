@@ -263,7 +263,7 @@
         "BEHAVIORAL: GIVEN legacy-ref-allowlist.test.ts runs the verify script WHEN api/src/safety/protected-domains.ts contains 'theiwise.com' THEN script exits 0 AND when a random temp file contains 'theiwise.com' THEN script exits 1"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     }
   ]
 }

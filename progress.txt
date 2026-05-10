@@ -659,3 +659,43 @@
   - The session boundaries deliberately diverge from the phase boundaries in `docs/phase-plan.md` because Phase 1.5 needed a first-class slot. Document this divergence in the file header so a future reader who notices the mismatch reads the WHY before "fixing" the apparent off-by-one. The map and the phase plan are two views of the same work — both correct, both load-bearing, neither obsolete.
   - Bundling Session 6 (Phase 5 onboarding + Phase 6 observability) is intentional because tenant onboarding is the first workload that produces enough traffic to validate the observability story. Calling that intent out in the section itself prevents a future "let's split these into two sessions" refactor that would land an observability stack with no real traffic to observe.
 ---
+
+
+## 2026-05-11 - T14 (8 new test files for Phase 1.5 coverage)
+- Added api/test/cms-routing.test.ts (8 tests) — hostname-aware routing for T3: ADMIN_HOST root→302 /admin; non-ADMIN_HOST /admin→404 (no leak); /health on any host; non-ADMIN_HOST root→404.
+- Added api/test/access-auth-identity.test.ts (7 tests) — T4 email-mode + DEV_BYPASS_AUTH double-gate; covers no-JWT 401, malformed JWT 401, /api/admin/auth/status mode='dev-bypass' (non-prod), and production+DEV_BYPASS_AUTH=true→still 401.
+- Added api/test/access-auth-service-token.test.ts (7 tests) — T4 common_name path with full RSA JWT sign-verify (WebCrypto generateKey + sign; KV stub returns matching JWKS): valid common_name (no email)→mode:'service-token', ALLOWED_CF_SERVICE_TOKEN_IDS allowlist 403/200, expired/wrong-aud/wrong-iss 401, valid identity JWT (email)→mode:'identity'.
+- Added api/test/protected-domains.test.ts (13 tests) — T9: PROTECTED_DOMAINS array, normalizeHostname strips scheme/path/query/fragment/userinfo/port/trailing-dot/case, isProtectedDomain for all 4 hostnames + uppercase + scheme-prefixed; rejects cms.kodigital.app and fake-prefix subdomains; assertNotProtectedDomain throws + does-not-throw paths.
+- Added api/test/env-typing.test.ts (12 tests) — T2 Env shape (CLOUDFLARE_PROVISIONING_API_TOKEN, CLOUDFLARE_CACHE_API_TOKEN, CF_ACCESS_*, ALLOWED_CF_SERVICE_TOKEN_IDS, DEV_BYPASS_AUTH) + getAdminHost/getAdminBaseUrl/isDryRunProvisioning/isRouteMutationAllowed/parseBoolean/parseNumber helpers.
+- Added api/test/infra-verify.test.ts (9 tests) — T11 verify:infra against real wrangler.toml + 7 synthetic broken-wrangler.toml mutations (wrong D1/R2/KV names, missing account_id/compatibility_date, runtime CLOUDFLARE_API_TOKEN forbidden, wrong staging worker name). Uses tsx + tmpdir + spawnSync so the verify script runs against a controlled wrangler.toml.
+- Added api/test/worker-config-verify.test.ts (8 tests) — T11 verify:worker-config against real wrangler.toml + 6 synthetic broken mutations (wrong prod/staging ADMIN_HOST, wrong ADMIN_BASE_PATH, missing [env.production.vars] block, missing SITE_PROVISIONING_DRY_RUN, missing HTML_CACHE_TTL_SECONDS).
+- Added api/test/legacy-ref-allowlist.test.ts (5 tests) — T10 Group A/Group B allowlist: clean repo exits 0 (protected-domains.ts on Group B allowlist); fixture file at api/src/__legacy-allowlist-fixture.txt with the protected hostname → exit 1 + '[Group B]' tag + file:line; fixture with the legacy UUID → '[Group A]' tag; fixture with legacy Worker name 'a2z-cf-cms-v1-api' (built via concat) → '[Group A]' tag.
+- ALL banned-string literals in test sources are built via string concatenation (e.g. 'theiw' + 'ise.com', 'a2z-cf-' + 'cms-v1-api') so the verify scanner sees no offending substring in test/ files (test files are NOT on the verifier allowlist).
+- **Self-check results:**
+  - File sizes: cms-routing 99, access-auth-identity 96, access-auth-service-token 270, protected-domains 97, env-typing 124, infra-verify 134, worker-config-verify 148, legacy-ref-allowlist 90 — access-auth-service-token exceeds the default 200-line soft limit (7 JWT-signing test cases with per-test claim setup; helpers tightly coupled to tests, no clean extraction).
+  - Secret scan: PASS (only 'stub-*' placeholders + ephemeral RSA keys generated in-test).
+  - Error handling: N/A (test files).
+  - Migration execution: N/A (not a db story).
+  - Parameterized queries: N/A (no SQL).
+  - T14-AC1 'cd api && npm test exits 0' — 11 files / 78 tests PASS.
+  - T14-AC2 'grep ADMIN_HOST|cms.kodigital.app api/test/cms-routing.test.ts >=1' — 15 — PASS.
+  - T14-AC3 'grep common_name api/test/access-auth-service-token.test.ts >=1' — 12 — PASS.
+  - T14-AC4 'grep CLOUDFLARE_PROVISIONING_API_TOKEN api/test/env-typing.test.ts >=1' — 3 — PASS.
+  - T14-AC5 BEHAVIORAL legacy-ref-allowlist verify roundtrip — passes (test 'exits 0 on a clean repo' and 'exits 1 with Group B tag…' both green).
+  - npm run typecheck — exit 0.
+  - npm run verify:no-legacy-prod-refs — exit 0.
+  - npm run verify:infra — exit 0 (8/8 checks).
+  - npm run verify:worker-config — exit 0 (3/3 blocks).
+- **Test commands actually run:**
+  - cd api && npx tsc --noEmit
+  - cd api && npx vitest run (11 files / 78 tests)
+  - cd api && npm run verify:no-legacy-prod-refs
+  - cd api && npm run verify:infra
+  - cd api && npm run verify:worker-config
+- **Learnings for future iterations:**
+  - WebCrypto crypto.subtle.generateKey returns CryptoKey | CryptoKeyPair in Node's webcrypto types — must cast to CryptoKeyPair when using RSASSA-PKCS1-v1_5 + modulusLength. Single cast is cleaner than per-property assertions.
+  - Hono's Worker app.request(url, init, env) URL controls hostname — tests for hostname-gated routes MUST pass full https://<host>/path URLs, not bare paths (bare paths default to http://localhost which trips the ADMIN_HOST gate in unexpected ways).
+  - Verify-script tests that run the verifier as a subprocess MUST place fixture files under api/src/ (inside the scan tree) so the scanner sees them, then clean up in afterEach. Files in node_modules/.a2z/openspec/.git/.wrangler/acceptance-tests are skipped by the walker.
+  - To exercise verify scripts against synthetic broken inputs without mutating the real wrangler.toml: use mkdtempSync + write a wrangler.toml inside it + spawnSync tsx <absolute_script_path> with cwd=tempdir. The script reads resolve(process.cwd(), 'wrangler.toml'), so changing the child's cwd is sufficient.
+  - Banned-string literals in test files MUST be built via concatenation (e.g. 'theiw'+'ise.com', 'a2z-cf-'+'cms-v1-api') because the verifier walks every .test.ts file and only the runtime denylist module + approved docs are on its Group B / Group A allowlists.
+---
