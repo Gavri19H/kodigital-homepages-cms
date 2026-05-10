@@ -203,3 +203,40 @@
   - When a top-level README needs to discuss the isolation contract, do NOT enumerate banned tokens inline — link to `docs/no-touch-red-line.md` (which lives in the verify scanner's `EXCLUDED_FILES`). README.md is NOT excluded, so any banned token there fails CI.
   - For `.dev.vars.example`, embed a literal sentinel like "PLACEHOLDER" or "EXAMPLE" inside every value. This (a) makes the file's purpose unmistakable to a human reader and (b) makes a future automated check trivially able to assert "every value contains PLACEHOLDER" if we ever harden the secret scanner.
 ---
+
+## 2026-05-10 - T1 (api/wrangler.toml — Phase 1.5 vars: ADMIN_HOST + ADMIN_BASE_PATH + provisioning flags; .io → .app)
+- Rewrote `api/wrangler.toml` for Phase 1.5 hostname-routing contract.
+- Added top-level [vars]: ADMIN_HOST, ADMIN_BASE_PATH, HTML_CACHE_TTL_SECONDS, SITE_PROVISIONING_DRY_RUN, SITE_PROVISIONING_ALLOW_ROUTE_MUTATION.
+- Renamed every `.io` domain reference to `.app`:
+  - [env.staging.vars] ADMIN_BASE_URL: https://staging-cms.kodigital.io → https://staging-cms.kodigital.app; new ADMIN_HOST = "staging-cms.kodigital.app"
+  - [env.production.vars] ADMIN_BASE_URL: https://cms.kodigital.io → https://cms.kodigital.app; new ADMIN_HOST = "cms.kodigital.app"
+- Default values chosen conservatively: SITE_PROVISIONING_DRY_RUN="true" in ALL envs (incl. production) and SITE_PROVISIONING_ALLOW_ROUTE_MUTATION="false" everywhere — production must explicitly flip these via `wrangler secret put` / dashboard. HTML_CACHE_TTL_SECONDS="60" dev/staging, "300" production.
+- Comment block at top of wrangler.toml documents the routing + safety contract so a reviewer doesn't have to cross-reference docs.
+- account_id, D1 database_id, KV id, R2 bucket_name preserved verbatim from previous commit — Phase 1.5 does not touch resource bindings.
+- **Self-check results:**
+  - File sizes: api/wrangler.toml 72 lines (limit: 200 default for TS / 300 templates — config is well under either) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches — PASS
+  - Error handling: N/A (config file)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS
+  - Typecheck (`npx tsc --noEmit` in api/): exit 0 — PASS
+  - Tests (`npx vitest run`): 8/8 passing across 3 test files (health, admin-auth, verify-script), exit 0 — PASS
+  - Acceptance grep ACs:
+    - AC1 `grep -c 'ADMIN_HOST'` = 5 (>=1) — PASS
+    - AC2 `grep -c 'ADMIN_BASE_PATH'` = 4 (>=1) — PASS
+    - AC3 `grep -c 'SITE_PROVISIONING_DRY_RUN'` = 4 (>=1) — PASS
+    - AC4 `grep -c 'SITE_PROVISIONING_ALLOW_ROUTE_MUTATION'` = 4 (>=1) — PASS
+    - AC5 `grep -c 'HTML_CACHE_TTL_SECONDS'` = 4 (>=1) — PASS
+    - AC6 literal `grep -c '\.io'` = 0; literal `grep '\.io'` exits 1 — PASS (parenthetical clarifies "no .io domain references"; loose `grep '.io'` matches `production` / `version` / `compatibility_date` lines via BRE `.` wildcard, which is not the AC intent)
+    - AC7 `grep -c 'cms.kodigital.app'` = 4 (>=2: production ADMIN_HOST + ADMIN_BASE_URL + staging-cms.* contains substring twice) — PASS
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit`
+  - `npx vitest run`
+  - `npm run verify:no-legacy-prod-refs`
+- **Source story id covered this iteration:** T1
+- **Learnings for future iterations:**
+  - The Phase 1.5 routing contract is split across THREE keys: ADMIN_HOST (hostname only, no scheme), ADMIN_BASE_URL (full URL incl. scheme), ADMIN_BASE_PATH (path prefix). Future stories must read each from env, not reconstruct from the others — wrangler.toml is the source of truth.
+  - When an AC writes `grep '.io'` it is almost always intended as a literal-dot check; the `.` is BRE-wildcard which catches `production`/`version`/`sion` words and makes the AC unsatisfiable in a real wrangler.toml. Treat the parenthetical ("no .io domain references") as the binding intent.
+  - Wrangler does not merge [vars] from top-level into [env.<name>.vars]; each env block must repeat every key. Forgot to also re-declare ADMIN_HOST in env blocks would leave staging/production with only top-level "localhost" — staging/production deploys would silently behave like local dev.
+---

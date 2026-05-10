@@ -1,233 +1,269 @@
 {
-  "changeId": "homepage-project-phase-0-2026-05-07",
-  "mainGoal": "Phase 0 scaffold for kodigital-homepages-cms passes typecheck + tests + verify:no-legacy-prod-refs + can serve /health locally via wrangler dev — without touching any TheIWise production resource.",
-  "qualityChecks": [
-    {
-      "name": "tests-or-skip-empty",
-      "command": "cd api && npx vitest run --passWithNoTests"
-    }
-  ],
+  "changeId": "kodigital-homepages-cms-phase1point5-2026-05-10",
+  "mainGoal": "Phase 1.5 complete when `npm run typecheck`, `npm test`, `npm run verify:no-legacy-prod-refs`, `npm run verify:infra`, and `npm run verify:worker-config` ALL exit 0; the Worker enforces cms.kodigital.app/admin hostname routing + Cloudflare Access JWT validation (identity OR service-token mode) + protected-domain denylist; all secrets contracts and setup docs are committed; zero deploy attempted; zero TheIWise resource touched.",
   "stories": [
     {
       "id": "T1",
-      "title": "api/package.json — Worker-ready TypeScript package config",
+      "title": "Wrangler config audit — add all Phase 1.5 vars, rename ADMIN_BASE_URL .io to .app, add ADMIN_HOST + ADMIN_BASE_PATH + provisioning flags per staging/production envs",
       "category": "config",
       "targetFiles": [
-        "api/package.json",
-        "api/tsconfig.json",
-        "api/vitest.config.ts"
+        "api/wrangler.toml"
       ],
       "acceptanceCriteria": [
-        "grep -c '\"hono\"' api/package.json",
-        "grep -c '\"wrangler\"' api/package.json",
-        "grep -c '\"vitest\"' api/package.json",
-        "grep -c '\"typescript\"' api/package.json",
-        "grep -c '\"dev\"' api/package.json",
-        "grep -c '\"test\"' api/package.json",
-        "grep -c '\"typecheck\"' api/package.json",
-        "grep -c '\"verify:no-legacy-prod-refs\"' api/package.json",
-        "grep -c '\"smoke:local\"' api/package.json",
-        "grep -c '\"db:migrate:local\"' api/package.json",
-        "grep -c '\"db:migrate:remote\"' api/package.json",
-        "grep -c '\"deploy:staging\"' api/package.json",
-        "grep -c '\"deploy:production\"' api/package.json",
-        "cd api && npm install --dry-run exits 0"
+        "grep -c 'ADMIN_HOST' api/wrangler.toml >= 1",
+        "grep -c 'ADMIN_BASE_PATH' api/wrangler.toml >= 1",
+        "grep -c 'SITE_PROVISIONING_DRY_RUN' api/wrangler.toml >= 1",
+        "grep -c 'SITE_PROVISIONING_ALLOW_ROUTE_MUTATION' api/wrangler.toml >= 1",
+        "grep -c 'HTML_CACHE_TTL_SECONDS' api/wrangler.toml >= 1",
+        "grep '.io' api/wrangler.toml exits non-zero (no .io domain references remain in active config)",
+        "grep -c 'cms.kodigital.app' api/wrangler.toml >= 2 (ADMIN_HOST + ADMIN_BASE_URL both reference .app domain)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T2",
-      "title": "api/wrangler.toml — new placeholder bindings only",
-      "category": "config",
-      "targetFiles": [
-        "api/wrangler.toml"
-      ],
-      "acceptanceCriteria": [
-        "grep -c 'name = \"kodigital-homepages-cms-worker\"' api/wrangler.toml",
-        "grep -c 'main = \"src/index.ts\"' api/wrangler.toml",
-        "grep -c 'compatibility_date = \"2026-05-06\"' api/wrangler.toml",
-        "grep -c 'APP_ENV' api/wrangler.toml",
-        "grep -c 'ADMIN_BASE_URL' api/wrangler.toml",
-        "grep -c 'CACHE_API_ENABLED' api/wrangler.toml",
-        "grep -c 'OPENAI_TEXT_MODEL' api/wrangler.toml",
-        "grep -c 'OPENAI_IMAGE_MODEL' api/wrangler.toml",
-        "grep -c 'database_name = \"kodigital-homepages-cms-db\"' api/wrangler.toml",
-        "grep -c 'binding = \"CACHE\"' api/wrangler.toml",
-        "grep -c 'bucket_name = \"kodigital-homepages-cms-media\"' api/wrangler.toml",
-        "grep -c '\\[env\\.staging\\]' api/wrangler.toml",
-        "grep -c '\\[env\\.production\\]' api/wrangler.toml",
-        "grep -c 'a2z-cf-cms-v1' api/wrangler.toml",
-        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/wrangler.toml"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T3",
-      "title": "api/src/env.ts — typed Env interface + parse helpers",
+      "title": "Env typing — extend Env interface with all Phase 1.5 vars and 4 helpers: getAdminHost, getAdminBaseUrl, isDryRunProvisioning, isRouteMutationAllowed",
       "category": "api",
       "targetFiles": [
         "api/src/env.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'DB: D1Database' api/src/env.ts",
-        "grep -c 'CACHE: KVNamespace' api/src/env.ts",
-        "grep -c 'MEDIA: R2Bucket' api/src/env.ts",
-        "grep -c 'OPENAI_API_KEY' api/src/env.ts",
-        "grep -c 'DEV_BYPASS_AUTH' api/src/env.ts",
-        "grep -c 'CF_ACCESS_TEAM_DOMAIN' api/src/env.ts",
-        "grep -c 'parseBoolean' api/src/env.ts",
-        "grep -c 'parseNumber' api/src/env.ts",
-        "BEHAVIORAL: GIVEN env.ts is imported, WHEN parseBoolean(\"true\") is called, THEN returns true; WHEN parseBoolean(undefined) is called, THEN returns false. Verified by vitest unit test in T6.",
-        "cd api && npx tsc --noEmit exits 0"
+        "grep -c 'getAdminHost' api/src/env.ts >= 1",
+        "grep -c 'isDryRunProvisioning' api/src/env.ts >= 1",
+        "grep -c 'isRouteMutationAllowed' api/src/env.ts >= 1",
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/src/env.ts >= 1",
+        "grep -c 'CLOUDFLARE_CACHE_API_TOKEN' api/src/env.ts >= 1",
+        "grep -c 'ALLOWED_CF_SERVICE_TOKEN_IDS' api/src/env.ts >= 1",
+        "cd api && npx tsc --noEmit exits 0 (all new Env fields are valid TypeScript)"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
+    },
+    {
+      "id": "T3",
+      "title": "Worker routing for cms.kodigital.app — hostname-aware: ADMIN_HOST root → 302 /admin; ADMIN_HOST /admin* and /api/admin* → admin handlers; ADMIN_HOST other → 404; non-ADMIN_HOST /admin → 404 (D3)",
+      "category": "api",
+      "targetFiles": [
+        "api/src/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path == '/' WHEN Worker handles request THEN response is 302 redirect to ADMIN_BASE_PATH ('/admin')",
+        "BEHAVIORAL: GIVEN hostname != ADMIN_HOST AND path == '/admin' WHEN Worker handles request THEN response status is 404 (not a redirect to CMS admin) — D3 policy: no admin host leak to public content domains",
+        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path starts with '/admin' WHEN authenticated request arrives THEN response is not 404 and not a redirect to cloudflareaccess.com in dev bypass mode",
+        "grep -c 'ADMIN_HOST' api/src/index.ts >= 1 (routing uses env var not hardcoded hostname)",
+        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path is not '/admin*' and not '/api/admin*' and not '/' and not '/health' WHEN Worker handles request THEN response status is 404"
+      ],
+      "passes": false,
+      "state": "planned"
     },
     {
       "id": "T4",
-      "title": "api/src/index.ts — Hono app with /health, /admin, accessAuth middleware",
+      "title": "Cloudflare Access auth contract — JWT signature via JWKS-in-KV (24h TTL), exp/nbf/iat (typeof===number) + iss + aud validation; identity (email) vs service-token (common_name + optional ALLOWED_CF_SERVICE_TOKEN_IDS) modes; DEV_BYPASS_AUTH double-gate (APP_ENV !== 'production'); /api/admin/auth/status route; Web Crypto only",
       "category": "api",
       "targetFiles": [
-        "api/src/index.ts",
         "api/src/auth/access-auth.ts"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN wrangler dev running locally, WHEN curl http://localhost:8787/health, THEN HTTP 200 with JSON body containing ok:true and app:kodigital-homepages-cms",
-        "BEHAVIORAL: GIVEN DEV_BYPASS_AUTH is NOT set to true, WHEN GET /admin without cf-access-jwt-assertion header AND without CF_Authorization cookie, THEN HTTP 401 with JSON error message",
-        "BEHAVIORAL: GIVEN DEV_BYPASS_AUTH=true is set in env, WHEN GET /admin, THEN HTTP 200",
-        "BEHAVIORAL: GIVEN any unmatched route, WHEN GET /nonexistent, THEN HTTP 404 with non-empty body",
-        "grep -c 'accessAuth' api/src/index.ts",
-        "grep -c 'GET.*health' api/src/index.ts",
-        "grep -E 'verify\\(.*JWT' api/src/index.ts | grep -v -E '//|TODO' | wc -l == 0",
-        "cd api && npx tsc --noEmit exits 0"
+        "BEHAVIORAL: GIVEN APP_ENV=production AND DEV_BYPASS_AUTH=true WHEN request arrives at /admin without CF Access JWT THEN response is 401 NOT 200 — proving double-gate prevents bypass in production",
+        "BEHAVIORAL: GIVEN APP_ENV=local AND DEV_BYPASS_AUTH=true WHEN request arrives at /admin THEN response is 200 — local dev bypass works",
+        "BEHAVIORAL: GIVEN valid CF Access JWT with email claim WHEN request arrives at /api/admin/auth/status THEN response JSON contains {authenticated:true, mode:'identity', email:<value>} and does NOT contain secrets",
+        "BEHAVIORAL: GIVEN CF Access JWT with common_name (service token) but no email WHEN auth middleware runs THEN request is allowed (authenticated) without requiring email field",
+        "BEHAVIORAL: GIVEN ALLOWED_CF_SERVICE_TOKEN_IDS is set AND JWT common_name is NOT in the allowlist WHEN service-token auth runs THEN response is 403",
+        "grep -c 'JWKS\\|jwks\\|JsonWebKey' api/src/auth/access-auth.ts >= 1 (JWKS-based verification present)",
+        "grep -c 'crypto.subtle' api/src/auth/access-auth.ts >= 1 (Web Crypto only — no Node crypto)",
+        "grep -c 'require.*crypto\\|from.*node:crypto' api/src/auth/access-auth.ts == 0 (no Node crypto import)"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T5",
-      "title": "api/scripts/verify/assert-no-legacy-prod-refs.ts — banned-string scanner",
+      "title": "Create docs/cloudflare-access-service-token-setup.md with click-level instructions for creating KODIGITAL_CMS_SMOKE_TESTS service token and attaching to Access policy",
+      "category": "infra",
+      "targetFiles": [
+        "docs/cloudflare-access-service-token-setup.md"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'KODIGITAL_CMS_SMOKE_TESTS' docs/cloudflare-access-service-token-setup.md >= 1",
+        "grep -c 'CF_ACCESS_CLIENT_ID' docs/cloudflare-access-service-token-setup.md >= 1",
+        "grep -c 'CF_ACCESS_CLIENT_SECRET' docs/cloudflare-access-service-token-setup.md >= 1",
+        "grep -c 'cms.kodigital.app' docs/cloudflare-access-service-token-setup.md >= 1 (curl example present)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T6",
+      "title": "Create docs/cloudflare-access-setup.md with click-level instructions for creating Access application, copying AUD tag, and setting CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD",
+      "category": "infra",
+      "targetFiles": [
+        "docs/cloudflare-access-setup.md"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'CF_ACCESS_AUD' docs/cloudflare-access-setup.md >= 1",
+        "grep -c 'CF_ACCESS_TEAM_DOMAIN' docs/cloudflare-access-setup.md >= 1",
+        "grep -c 'kodigital2.cloudflareaccess.com' docs/cloudflare-access-setup.md >= 1 (documents the known team domain)",
+        "grep -c '302' docs/cloudflare-access-setup.md >= 1 (documents that unauthenticated 302 redirect is expected behavior)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T7",
+      "title": "Secrets contracts — extend docs/secrets-manifest.md; create docs/github-secrets-setup.md, docs/cloudflare-worker-secrets-setup.md, docs/local-dev-vars.md; update .dev.vars.example (CLOUDFLARE_PROVISIONING_API_TOKEN + CLOUDFLARE_CACHE_API_TOKEN as PASTE_ placeholders, remove CLOUDFLARE_API_TOKEN)",
+      "category": "infra",
+      "targetFiles": [
+        "docs/secrets-manifest.md",
+        "docs/github-secrets-setup.md",
+        "docs/cloudflare-worker-secrets-setup.md",
+        "docs/local-dev-vars.md",
+        ".dev.vars.example"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' .dev.vars.example >= 1",
+        "grep -c 'CLOUDFLARE_API_TOKEN' .dev.vars.example == 0 (CLOUDFLARE_API_TOKEN removed from Worker runtime — belongs to GitHub Actions only)",
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' docs/secrets-manifest.md >= 1",
+        "grep -c 'CLOUDFLARE_CACHE_API_TOKEN' docs/secrets-manifest.md >= 1",
+        "grep -rn 'CLOUDFLARE_API_TOKEN' docs/cloudflare-worker-secrets-setup.md | grep -v 'GitHub Actions' | wc -l == 0 (cloudflare-worker-secrets-setup.md does not list CLOUDFLARE_API_TOKEN as a Worker runtime secret)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T8",
+      "title": "Manual Cloudflare resource setup docs — create docs/cloudflare-worker-setup.md, docs/cloudflare-resources-setup.md, docs/cms-domain-setup.md, docs/deployment-runbook.md",
+      "category": "infra",
+      "targetFiles": [
+        "docs/cloudflare-worker-setup.md",
+        "docs/cloudflare-resources-setup.md",
+        "docs/cms-domain-setup.md",
+        "docs/deployment-runbook.md"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'kodigital-homepages-cms-db' docs/cloudflare-resources-setup.md >= 1 (correct D1 DB name)",
+        "grep -c 'cms.kodigital.app' docs/cms-domain-setup.md >= 1",
+        "grep -c 'verify:infra' docs/deployment-runbook.md >= 1 (runbook includes infra verification step)",
+        "grep -c 'verify:worker-config' docs/deployment-runbook.md >= 1",
+        "grep -c 'wrangler deploy' docs/deployment-runbook.md >= 1 (runbook documents deploy command for user reference)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T9",
+      "title": "Create api/src/safety/protected-domains.ts — exports PROTECTED_DOMAINS, isProtectedDomain, assertNotProtectedDomain, normalizeHostname (lowercase, strip scheme/path/port/trailing-dot, block exact 4 TheIWise hostnames)",
+      "category": "api",
+      "targetFiles": [
+        "api/src/safety/protected-domains.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'PROTECTED_DOMAINS' api/src/safety/protected-domains.ts >= 1 (exported constant present)",
+        "grep -c 'assertNotProtectedDomain' api/src/safety/protected-domains.ts >= 1",
+        "grep -c 'normalizeHostname' api/src/safety/protected-domains.ts >= 1",
+        "BEHAVIORAL: GIVEN input 'https://theiwise.com/some/path?q=1' WHEN normalizeHostname is called THEN result is 'theiwise.com'",
+        "BEHAVIORAL: GIVEN input 'THEIWISE.COM.' (uppercase + trailing dot) WHEN normalizeHostname is called THEN result is 'theiwise.com' AND isProtectedDomain returns true",
+        "BEHAVIORAL: GIVEN hostname is 'cms.kodigital.app' WHEN isProtectedDomain is called THEN result is false (non-TheIWise domains must not be blocked)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T10",
+      "title": "Verify-script fix — split BANNED_IDENTIFIERS into Group A (legacy resource ids incl. UUID 44c73f76-...) allowed only in approved docs + Group B (protected hostnames) also allowed in api/src/safety/protected-domains.ts; remove global account-UUID allowlist",
       "category": "script",
       "targetFiles": [
         "api/scripts/verify/assert-no-legacy-prod-refs.ts"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN banned string theiwise.com in api/src/dummy-test-fixture.txt, WHEN cd api && npm run verify:no-legacy-prod-refs, THEN exit code != 0 AND stderr names offending file (fixture removed after test)",
-        "BEHAVIORAL: GIVEN clean repo with no banned strings in active files, WHEN cd api && npm run verify:no-legacy-prod-refs, THEN exit code == 0",
-        "grep -c 'node_modules' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'a2z-cf-cms-v1-api' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'a2z-cf-cms-v1-db' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'theiwise\\.com' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'insureprimo' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'quotesRoutes' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'psychic-quiz' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'rental-booking' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'docs/source-architecture\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'docs/no-touch-red-line\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts",
-        "grep -c 'docs/reference/current-theiwise-technical-spec\\.md' api/scripts/verify/assert-no-legacy-prod-refs.ts"
+        "grep -c 'GROUP_A\\|groupA\\|group_a\\|Group A\\|legacy resource' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (two-group structure present)",
+        "grep -c '44c73f76' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (UUID present in Group A BANNED_IDENTIFIERS literal inside the verifier's own source)",
+        "grep -c 'protected-domains.ts' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (protected-domains.ts listed in Group B allowed-files)",
+        "BEHAVIORAL: GIVEN a temp file containing 'theiwise.com' at a path that is NOT in the approved allowlist WHEN verify script runs THEN exit code is 1 with the offending path in stderr",
+        "BEHAVIORAL: GIVEN api/src/safety/protected-domains.ts contains 'theiwise.com' WHEN verify script runs THEN exit code is 0 (Group B exemption applies)",
+        "cd api && npm run verify:no-legacy-prod-refs exits 0 on clean repo after T9 creates protected-domains.ts"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
-      "id": "T6",
-      "title": "api/test/ — Vitest tests for health, admin-auth, verify-script",
+      "id": "T11",
+      "title": "New verify + smoke scripts — create api/scripts/verify/{infra-contract,required-secrets,worker-config}.ts + api/scripts/smoke/cms-domain.ts; add npm scripts verify:infra, verify:required-secrets, verify:worker-config, smoke:cms-domain",
       "category": "script",
       "targetFiles": [
-        "api/test/health.test.ts",
-        "api/test/admin-auth.test.ts",
-        "api/test/verify-script.test.ts"
+        "api/scripts/verify/infra-contract.ts",
+        "api/scripts/verify/required-secrets.ts",
+        "api/scripts/verify/worker-config.ts",
+        "api/scripts/smoke/cms-domain.ts",
+        "api/package.json"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN the Vitest suite runs, WHEN cd api && npm test, THEN exit 0 AND all >= 4 test cases pass",
-        "BEHAVIORAL: GIVEN health.test.ts, WHEN /health handler called with mock request, THEN response status 200 AND body JSON has ok: true AND app: kodigital-homepages-cms",
-        "BEHAVIORAL: GIVEN admin-auth.test.ts, WHEN accessAuth receives request with no cf-access-jwt-assertion AND no CF_Authorization AND DEV_BYPASS_AUTH not true, THEN returns 401",
-        "BEHAVIORAL: GIVEN admin-auth.test.ts, WHEN accessAuth receives request AND DEV_BYPASS_AUTH is true, THEN calls next() allowing through (200)",
-        "grep -cE 'describe|test|it' api/test/health.test.ts",
-        "grep -cE 'describe|test|it' api/test/admin-auth.test.ts",
-        "grep -cE 'describe|test|it' api/test/verify-script.test.ts"
+        "grep -c '\"verify:infra\"' api/package.json >= 1",
+        "grep -c '\"verify:worker-config\"' api/package.json >= 1",
+        "grep -c '\"smoke:cms-domain\"' api/package.json >= 1",
+        "cd api && npm run verify:infra exits 0 on correct wrangler.toml",
+        "cd api && npm run verify:worker-config exits 0 on correct wrangler.toml",
+        "grep -c 'kodigital-homepages-cms-worker' api/scripts/verify/infra-contract.ts >= 1 (verifier asserts correct Worker name)",
+        "grep -c 'CLOUDFLARE_API_TOKEN' api/scripts/verify/infra-contract.ts >= 1 (verifier checks that CLOUDFLARE_API_TOKEN is NOT used as runtime provisioning token)"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
-      "id": "T7",
-      "title": "docs/ — no-touch-red-line, source-architecture, secrets-manifest, storage-cost-model, phase-plan",
-      "category": "config",
-      "targetFiles": [
-        "docs/no-touch-red-line.md",
-        "docs/source-architecture.md",
-        "docs/secrets-manifest.md",
-        "docs/storage-cost-model.md",
-        "docs/phase-plan.md"
-      ],
-      "acceptanceCriteria": [
-        "grep -c 'theiwise\\.com' docs/no-touch-red-line.md",
-        "grep -c 'a2z-cf-cms-v1-api' docs/no-touch-red-line.md",
-        "grep -c '44c73f76-6ed5-4b26-b442-6c2044326c4d' docs/no-touch-red-line.md",
-        "grep -c 'insureprimo' docs/no-touch-red-line.md",
-        "grep -c 'reusable\\|Reusable' docs/source-architecture.md",
-        "grep -c 'excluded\\|Excluded' docs/source-architecture.md",
-        "grep -c 'insureprimo\\|quotesRoutes\\|psychic-quiz\\|rental-booking' docs/source-architecture.md",
-        "grep -c 'OPENAI_API_KEY\\|CF_ACCESS_TEAM_DOMAIN\\|CLOUDFLARE_API_TOKEN' docs/secrets-manifest.md",
-        "grep -c 'Dashboard\\|\\.dev\\.vars\\|never committed' docs/secrets-manifest.md",
-        "grep -c 'D1\\|R2\\|KV' docs/storage-cost-model.md",
-        "grep -c '200.*sites\\|10.000\\|10000\\|15.*articles\\|15 starter' docs/storage-cost-model.md",
-        "grep -c 'Phase 1\\|Phase 2\\|Phase 3\\|Phase 4\\|Phase 5\\|Phase 6\\|Phase 7' docs/phase-plan.md",
-        "grep -c '\\.dev\\.vars\\|placeholder\\|never' docs/secrets-manifest.md"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T8",
-      "title": ".github/workflows/deploy.yml — CI pipeline with typecheck, test, verify, conditional deploy",
+      "id": "T12",
+      "title": "GitHub Actions update — add verify:infra + verify:worker-config to CI job; add production-deploy workflow_dispatch-only job; reference correct GitHub secrets; no old TheIWise refs; no auto-production-deploy",
       "category": "infra",
       "targetFiles": [
         ".github/workflows/deploy.yml"
       ],
       "acceptanceCriteria": [
-        "grep -c 'pull_request' .github/workflows/deploy.yml",
-        "grep -c 'push' .github/workflows/deploy.yml",
-        "grep -c 'node-version.*20\\|node-version: 20' .github/workflows/deploy.yml",
-        "grep -c 'npm ci' .github/workflows/deploy.yml",
-        "grep -c 'typecheck' .github/workflows/deploy.yml",
-        "grep -c 'npm test' .github/workflows/deploy.yml",
-        "grep -c 'verify:no-legacy-prod-refs\\|no-legacy-prod-refs' .github/workflows/deploy.yml",
-        "grep -c 'refs/heads/main\\|github.ref.*main' .github/workflows/deploy.yml",
-        "grep -c 'secrets.CLOUDFLARE_API_TOKEN\\|CLOUDFLARE_API_TOKEN' .github/workflows/deploy.yml",
-        "grep -c 'a2z-cf-cms-v1\\|44c73f76' .github/workflows/deploy.yml"
+        "grep -c 'verify:infra' .github/workflows/deploy.yml >= 1",
+        "grep -c 'verify:worker-config' .github/workflows/deploy.yml >= 1",
+        "grep -c 'workflow_dispatch' .github/workflows/deploy.yml >= 1 (production deploy is workflow_dispatch gated)",
+        "grep -c 'a2z-cf-cms-v1' .github/workflows/deploy.yml == 0 (no old TheIWise Worker refs)",
+        "grep -c 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/deploy.yml >= 1 (new GitHub secret referenced)"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
-      "id": "T9",
-      "title": "Root files — .gitignore, .env.example, .dev.vars.example, README.md",
-      "category": "config",
+      "id": "T13",
+      "title": "Create docs/session-map-v2.md — 8 sessions, Session 2 = Phase 1.5 infra/secrets/domain (current), no legacy resource identifiers in file",
+      "category": "infra",
       "targetFiles": [
-        ".gitignore",
-        ".env.example",
-        ".dev.vars.example",
-        "README.md"
+        "docs/session-map-v2.md"
       ],
       "acceptanceCriteria": [
-        "grep -c 'node_modules' .gitignore",
-        "grep -c '\\.wrangler' .gitignore",
-        "grep -c '\\.dev\\.vars' .gitignore",
-        "grep -c '\\.env' .gitignore",
-        "grep -c 'dist' .gitignore",
-        "grep -c 'coverage' .gitignore",
-        "grep -c '\\.DS_Store' .gitignore",
-        "grep -c 'OPENAI_API_KEY\\|CF_ACCESS_TEAM_DOMAIN\\|CLOUDFLARE_API_TOKEN' .dev.vars.example",
-        "grep -E '[A-Za-z0-9+/]{40,}|[0-9a-f]{32,}' .dev.vars.example",
-        "grep -c 'kodigital-homepages-cms\\|standalone CMS\\|Cloudflare Worker' README.md"
+        "grep -c 'Session 2' docs/session-map-v2.md >= 1",
+        "grep -c 'Session 7' docs/session-map-v2.md >= 1 (all 8 sessions present, 0-indexed)",
+        "grep -c 'a2z-cf-cms-v1' docs/session-map-v2.md == 0 (no old TheIWise Worker name)"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
+    },
+    {
+      "id": "T14",
+      "title": "Tests — add cms-routing.test.ts (T3), access-auth-identity.test.ts + access-auth-service-token.test.ts (T4), protected-domains.test.ts (T9), env-typing.test.ts (T2), infra-verify.test.ts + worker-config-verify.test.ts (T11), legacy-ref-allowlist.test.ts (T10); all existing tests must continue to pass",
+      "category": "api",
+      "targetFiles": [
+        "api/test/cms-routing.test.ts",
+        "api/test/access-auth-identity.test.ts",
+        "api/test/access-auth-service-token.test.ts",
+        "api/test/protected-domains.test.ts",
+        "api/test/env-typing.test.ts",
+        "api/test/infra-verify.test.ts",
+        "api/test/worker-config-verify.test.ts",
+        "api/test/legacy-ref-allowlist.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "cd api && npm test exits 0 (all test files pass including all new and existing tests)",
+        "grep -c 'ADMIN_HOST\\|cms.kodigital.app' api/test/cms-routing.test.ts >= 1 (routing test covers ADMIN_HOST)",
+        "grep -c 'common_name' api/test/access-auth-service-token.test.ts >= 1 (service token test covers common_name path)",
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/test/env-typing.test.ts >= 1 (env-typing test verifies new secret fields)",
+        "BEHAVIORAL: GIVEN legacy-ref-allowlist.test.ts runs the verify script WHEN api/src/safety/protected-domains.ts contains 'theiwise.com' THEN script exits 0 AND when a random temp file contains 'theiwise.com' THEN script exits 1"
+      ],
+      "passes": false,
+      "state": "planned"
     }
   ]
 }

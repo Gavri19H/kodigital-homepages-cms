@@ -5,14 +5,28 @@ account_id = "a05d7505b71c6cd931e436defe670509"
 
 # This worker shares the Cloudflare account with the sibling project a2z-cf-cms-v1
 # (TheIWise). All bindings below are kodigital-homepages-cms-* placeholders only —
-# this Phase 0 scaffold MUST NOT bind to or modify any TheIWise resource.
+# this Phase 1.5 scaffold MUST NOT bind to or modify any TheIWise resource.
+#
+# Phase 1.5 hostname routing contract:
+#   ADMIN_HOST          — the only public hostname that serves /admin and /api/admin
+#   ADMIN_BASE_PATH     — the URL prefix the admin SPA mounts under (always "/admin")
+#   ADMIN_BASE_URL      — fully qualified URL used by docs/scripts (scheme + ADMIN_HOST)
+# Phase 1.5 site-provisioning safety:
+#   SITE_PROVISIONING_DRY_RUN              — when "true", provisioning API logs only, no mutations
+#   SITE_PROVISIONING_ALLOW_ROUTE_MUTATION — when "false", Cloudflare route changes are blocked
+#   HTML_CACHE_TTL_SECONDS                 — TTL for rendered HTML cached in KV CACHE
 
 [vars]
 APP_ENV = "development"
+ADMIN_HOST = "localhost"
 ADMIN_BASE_URL = "http://localhost:8787"
+ADMIN_BASE_PATH = "/admin"
 CACHE_API_ENABLED = "true"
+HTML_CACHE_TTL_SECONDS = "60"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
+SITE_PROVISIONING_DRY_RUN = "true"
+SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 
 [[d1_databases]]
 binding = "DB"
@@ -32,17 +46,27 @@ name = "kodigital-homepages-cms-worker-staging"
 
 [env.staging.vars]
 APP_ENV = "staging"
-ADMIN_BASE_URL = "https://staging-cms.kodigital.io"
+ADMIN_HOST = "staging-cms.kodigital.app"
+ADMIN_BASE_URL = "https://staging-cms.kodigital.app"
+ADMIN_BASE_PATH = "/admin"
 CACHE_API_ENABLED = "true"
+HTML_CACHE_TTL_SECONDS = "60"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
+SITE_PROVISIONING_DRY_RUN = "true"
+SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 
 [env.production]
 name = "kodigital-homepages-cms-worker"
 
 [env.production.vars]
 APP_ENV = "production"
-ADMIN_BASE_URL = "https://cms.kodigital.io"
+ADMIN_HOST = "cms.kodigital.app"
+ADMIN_BASE_URL = "https://cms.kodigital.app"
+ADMIN_BASE_PATH = "/admin"
 CACHE_API_ENABLED = "true"
+HTML_CACHE_TTL_SECONDS = "300"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
+SITE_PROVISIONING_DRY_RUN = "true"
+SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
