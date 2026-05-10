@@ -13,10 +13,10 @@
  * file. Stderr names every offending file:line so CI logs are actionable.
  *
  * Allow-listed identifiers (NOT banned, intentionally referenced in this
- * repo): the Cloudflare account UUID 44c73f76-6ed5-4b26-b442-6c2044326c4d
- * is shared between this project (kodigital-homepages-cms) and the
- * sibling project a2z-cf-cms-v1, and is allowed in wrangler.toml, CI
- * workflows, docs, and this verify script.
+ * repo): the shared kodigital Cloudflare account id (declared in
+ * api/wrangler.toml as `account_id`) hosts both this project and the
+ * sibling project a2z-cf-cms-v1, and remains allowed. See
+ * docs/no-touch-red-line.md for the full boundary policy.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -31,6 +31,12 @@ const BANNED_IDENTIFIERS: readonly string[] = [
   "quotesRoutes",
   "psychic-quiz",
   "rental-booking",
+  // T13: legacy CMS identifiers from the TheIWise stack.
+  "kodigital2.cloudflareaccess.com",
+  "admin.theiwise.com",
+  "7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425",
+  "44c73f76-6ed5-4b26-b442-6c2044326c4d",
+  "111320b080274cfd8465e89400712c5d",
 ];
 
 // Directories skipped entirely (matched by name at any depth). Keeps
@@ -56,6 +62,7 @@ const EXCLUDED_FILES: readonly string[] = [
   "api/scripts/verify/assert-no-legacy-prod-refs.ts",
   "prd.json",
   "progress.txt",
+  "GUARDRAILS.md",
 ];
 
 const TEXT_EXT_RE =

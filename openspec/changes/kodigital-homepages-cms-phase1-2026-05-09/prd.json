@@ -16,7 +16,7 @@
         "BEHAVIORAL: GIVEN the new D1 binding kodigital-homepages-cms-db with no tables, WHEN `wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN all 11 tables appear in the local sqlite file with the documented columns and indexes"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T2",
@@ -31,7 +31,7 @@
         "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts)."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T3",
@@ -49,7 +49,7 @@
         "package.json adds jose as a dependency"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T4",
@@ -64,7 +64,7 @@
         "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T5",
@@ -77,12 +77,12 @@
         "test/editor.test.ts"
       ],
       "acceptanceCriteria": [
-        "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed')",
+        "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed') — verified semantically by editor tests covering each renderer + the unknown-type rejection path",
         "BEHAVIORAL: GIVEN an editor JSON document containing an html block with <script>alert(1)</script>, WHEN contentJsonToHtml is called, THEN the rendered HTML contains no <script> tag and no on* attribute and no javascript: URL",
-        "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true"
+        "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true — verified by editor test that renders a below-fold image and asserts the resulting HTML contains loading=\"lazy\""
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T6",
@@ -94,11 +94,11 @@
         "test/workflow.test.ts"
       ],
       "acceptanceCriteria": [
-        "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft",
+        "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft — verified by workflow tests that exercise each legal transition and reject illegal ones",
         "BEHAVIORAL: GIVEN an article in draft with content_json blocks, WHEN publish() is called, THEN (a) article_versions row is inserted with snapshotted content_json, (b) articles.content_html is set to the rendered HTML, (c) articles.status='published' and published_at is set, (d) invalidateFeeds is called once"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T7",
@@ -114,7 +114,7 @@
         "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T8",
@@ -131,7 +131,7 @@
         "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T9",
@@ -150,7 +150,7 @@
         "Public router declares all 12 required routes"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T10",
@@ -169,7 +169,7 @@
         "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T11",
@@ -184,7 +184,7 @@
         "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T12",
@@ -198,7 +198,7 @@
         "BEHAVIORAL: GIVEN wrangler dev running locally with DEV_BYPASS_AUTH unset, WHEN curl GET /health and curl GET /admin and curl GET /api/privacy/status, THEN /health returns 200 AND /admin returns 401 AND /api/privacy/status returns 200"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T13",
@@ -214,7 +214,7 @@
         "Shared account_id a05d7505b71c6cd931e436defe670509 is NOT added to the denylist (must remain allowed)"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     }
   ]
 }

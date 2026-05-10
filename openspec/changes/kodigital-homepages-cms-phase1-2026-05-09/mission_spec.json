@@ -1,0 +1,1652 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase1-2026-05-09",
+  "branch_name": "mission/kodigital-homepages-cms-phase1-2026-05-09",
+  "tier": "COMPLEX",
+  "created_at": "2026-05-09T00:35:00Z",
+  "main_goal": {
+    "text": "Port the reusable CMS foundation (auth, db, media, cache, editor, workflow, ai placeholders, privacy, admin, public, preview) from the legacy Hono+TS Worker into the new standalone kodigital-homepages-cms Worker, satisfying all seven Phase 1 acceptance gates with no legacy production identifiers in active code.",
+    "entity": "kodigital-homepages-cms",
+    "action": "port_phase_1_cms_foundation",
+    "metric": {
+      "name": "phase_1_acceptance_gate_count",
+      "comparator": "==",
+      "expected_value": 7
+    },
+    "forbidden_substitutes": [
+      "insureprimo",
+      "quotesRoutes",
+      "psychic-quiz",
+      "rental-booking",
+      "investing-funnels",
+      "lead-gen",
+      "theiwise.com",
+      "a2z-cf-cms-v1-api",
+      "a2z-cf-cms-v1-db",
+      "kodigital2.cloudflareaccess.com",
+      "admin.theiwise.com",
+      "44c73f76-6ed5-4b26-b442-6c2044326c4d",
+      "111320b080274cfd8465e89400712c5d",
+      "7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425"
+    ],
+    "api_surface": "Hono Cloudflare Worker",
+    "storage_surface": "D1 + KV + R2",
+    "failure_criterion": "Any of the seven Phase 1 acceptance gates failing (npm install, npm run typecheck, npm test, npm run verify:no-legacy-prod-refs, wrangler dev /health 200, /admin 401 without DEV_BYPASS_AUTH, /api/privacy/status 200), or any out-of-scope module ported (Domains UI, facelift, AI provisioning, production data migration), or any banned legacy identifier present in active source files (denylist enforced by assert-no-legacy-prod-refs.ts).",
+    "evidence_required": [
+      "cd api && npm test exits 0",
+      "cd api && npm run typecheck exits 0",
+      "cd api && npm run verify:no-legacy-prod-refs exits 0",
+      "wrangler dev smoke: GET /health -> 200, GET /admin without DEV_BYPASS_AUTH -> 401, GET /api/privacy/status -> 200"
+    ],
+    "source_of_truth_id": "SP-CICD-1"
+  },
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Initial CMS migration 0001_init_cms.sql with 11 tables and Phase-2 site_id TODO comments",
+      "category": "migration",
+      "target_files": [
+        "migrations/0001_init_cms.sql",
+        "wrangler.toml"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T1.AC1",
+          "type": "grep",
+          "criterion": "Migration creates all 11 required tables (CREATE TABLE count >= 11 covering articles, article_versions, categories, tags, article_tags, pages, media, redirects, site_settings, prompt_presets, privacy_opt_outs)",
+          "command": "grep -cE 'CREATE TABLE( IF NOT EXISTS)? (articles|article_versions|categories|tags|article_tags|pages|media|redirects|site_settings|prompt_presets|privacy_opt_outs)\\b' migrations/0001_init_cms.sql",
+          "expected": 11
+        },
+        {
+          "id": "T1.AC2",
+          "type": "grep",
+          "criterion": "Migration contains TODO Phase-2 site_id comment markers (>=1 per multi-tenant table)",
+          "command": "grep -c 'TODO Phase 2: site_id' migrations/0001_init_cms.sql",
+          "expected": 5
+        },
+        {
+          "id": "T1.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN the new D1 binding kodigital-homepages-cms-db with no tables, WHEN `wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN all 11 tables appear in the local sqlite file with the documented columns and indexes",
+          "command": "npx wrangler d1 migrations apply kodigital-homepages-cms-db --local"
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Typed D1 query helpers in api/src/db/index.ts (parameterized only)",
+      "category": "api",
+      "target_files": [
+        "src/db/index.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T2.AC1",
+          "type": "grep",
+          "criterion": "All D1 calls use prepare(...).bind(...) — zero template-literal SQL interpolation in db/index.ts",
+          "command": "grep -cE '\\.prepare\\(`[^`]*\\$\\{' src/db/index.ts",
+          "expected": 0
+        },
+        {
+          "id": "T2.AC2",
+          "type": "grep",
+          "criterion": "Helper exposes typed exports: getArticleBySlug, listArticles, getMediaById, listCategories at minimum",
+          "command": "grep -cE 'export (async )?function (getArticleBySlug|listArticles|getMediaById|listCategories)\\b' src/db/index.ts",
+          "expected": 4
+        },
+        {
+          "id": "T2.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts)."
+        }
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Replace presence-check auth with full CF Access JWKS+RS256 validation in api/src/auth/access-auth.ts",
+      "category": "api",
+      "target_files": [
+        "src/auth/access-auth.ts",
+        "package.json",
+        "test/admin-auth.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T3.AC1",
+          "type": "grep",
+          "criterion": "auth module imports jose JWKS+jwtVerify and validates exp/nbf/iss/aud/email",
+          "command": "grep -cE \"from ['\\\"]jose['\\\"]\" src/auth/access-auth.ts",
+          "expected": 1
+        },
+        {
+          "id": "T3.AC2",
+          "type": "grep",
+          "criterion": "JWKS cache key written to KV with expirationTtl 24h (86400 seconds)",
+          "command": "grep -cE 'expirationTtl:\\s*86400' src/auth/access-auth.ts",
+          "expected": 1
+        },
+        {
+          "id": "T3.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN APP_ENV=development AND DEV_BYPASS_AUTH=true, WHEN any /admin route is requested without a JWT, THEN the handler proceeds and returns the admin shell (200); GIVEN APP_ENV!=development OR DEV_BYPASS_AUTH unset, WHEN /admin is requested without a valid JWT, THEN response is 401",
+          "command": "npx vitest run test/admin-auth.test.ts"
+        },
+        {
+          "id": "T3.AC4",
+          "type": "grep",
+          "criterion": "package.json adds jose as a dependency",
+          "command": "grep -cE '\"jose\":' package.json",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "KV cache helper with feed-key invalidation + Cache API stub in api/src/cache/index.ts",
+      "category": "api",
+      "target_files": [
+        "src/cache/index.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T4.AC1",
+          "type": "grep",
+          "criterion": "Module exports cacheGet, cacheSet, cacheDel, invalidateFeeds",
+          "command": "grep -cE 'export (async )?function (cacheGet|cacheSet|cacheDel|invalidateFeeds)\\b' src/cache/index.ts",
+          "expected": 4
+        },
+        {
+          "id": "T4.AC2",
+          "type": "grep",
+          "criterion": "Cache API path gated by env.CACHE_API_ENABLED before any caches.default access",
+          "command": "grep -cE 'CACHE_API_ENABLED' src/cache/index.ts",
+          "expected": 1
+        },
+        {
+          "id": "T4.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior."
+        }
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Editor block engine + sanitizer (7 block types, hand-rolled allowlist) in api/src/editor/",
+      "category": "api",
+      "target_files": [
+        "src/editor/blocks.ts",
+        "src/editor/sanitize.ts",
+        "src/editor/index.ts",
+        "test/editor.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T5.AC1",
+          "type": "behavioral",
+          "criterion": "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed') — verified semantically by editor tests covering each renderer + the unknown-type rejection path",
+          "command": "npx vitest run test/editor.test.ts"
+        },
+        {
+          "id": "T5.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN an editor JSON document containing an html block with <script>alert(1)</script>, WHEN contentJsonToHtml is called, THEN the rendered HTML contains no <script> tag and no on* attribute and no javascript: URL",
+          "command": "npx vitest run test/editor.test.ts"
+        },
+        {
+          "id": "T5.AC3",
+          "type": "behavioral",
+          "criterion": "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true — verified by editor test that renders a below-fold image and asserts the resulting HTML contains loading=\"lazy\"",
+          "command": "npx vitest run test/editor.test.ts"
+        }
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Publish workflow state machine + version snapshot + feed invalidation in api/src/workflow/",
+      "category": "api",
+      "target_files": [
+        "src/workflow/publish.ts",
+        "src/workflow/index.ts",
+        "test/workflow.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T6.AC1",
+          "type": "behavioral",
+          "criterion": "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft — verified by workflow tests that exercise each legal transition and reject illegal ones",
+          "command": "npx vitest run test/workflow.test.ts"
+        },
+        {
+          "id": "T6.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN an article in draft with content_json blocks, WHEN publish() is called, THEN (a) article_versions row is inserted with snapshotted content_json, (b) articles.content_html is set to the rendered HTML, (c) articles.status='published' and published_at is set, (d) invalidateFeeds is called once",
+          "command": "npx vitest run test/workflow.test.ts"
+        }
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Privacy module: SHA-256(IP+UA), opt-out cookie, public unauthenticated routes in api/src/privacy/",
+      "category": "api",
+      "target_files": [
+        "src/privacy/index.ts",
+        "test/privacy.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T7.AC1",
+          "type": "grep",
+          "criterion": "Privacy module uses Web Crypto subtle.digest('SHA-256', ...) for the IP+UA hash",
+          "command": "grep -cE \"subtle\\.digest\\(['\\\"]SHA-256['\\\"]\" src/privacy/index.ts",
+          "expected": 1
+        },
+        {
+          "id": "T7.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN no ccpa_opt_out cookie set, WHEN POST /api/privacy/opt-out is called with IP=1.2.3.4 UA='ua/1', THEN response 200 sets Set-Cookie ccpa_opt_out=1 AND a privacy_opt_outs row exists keyed by sha256('1.2.3.4|ua/1')",
+          "command": "npx vitest run test/privacy.test.ts"
+        },
+        {
+          "id": "T7.AC3",
+          "type": "grep",
+          "criterion": "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared",
+          "command": "grep -cE \"['\\\"]/api/privacy/(status|opt-out|opt-in)['\\\"]\" src/privacy/index.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Media serve + upload with R2 ETag and 1y immutable Cache-Control in api/src/media/",
+      "category": "api",
+      "target_files": [
+        "src/media/serve.ts",
+        "src/media/upload.ts",
+        "src/media/index.ts",
+        "test/media.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T8.AC1",
+          "type": "grep",
+          "criterion": "GET /media/* response sets Cache-Control: public, max-age=31536000, immutable",
+          "command": "grep -cE 'public,\\s*max-age=31536000,\\s*immutable' src/media/serve.ts",
+          "expected": 1
+        },
+        {
+          "id": "T8.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata",
+          "command": "npx vitest run test/media.test.ts"
+        }
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Public router + reserved-path guard + feeds (RSS/Atom/sitemap/robots/ads) in api/src/public/",
+      "category": "api",
+      "target_files": [
+        "src/public/router.ts",
+        "src/public/reserved.ts",
+        "src/public/feeds.ts",
+        "src/public/sitemap.ts",
+        "test/reserved-path.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T9.AC1",
+          "type": "grep",
+          "criterion": "Reserved path list contains exactly admin, api, static, assets, media, preview, health (7 entries)",
+          "command": "grep -cE \"['\\\"](admin|api|static|assets|media|preview|health)['\\\"]\" src/public/reserved.ts",
+          "expected": 7
+        },
+        {
+          "id": "T9.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN no published page row with slug='admin', WHEN GET /admin is requested, THEN the request is routed to the admin handler (NOT the /:slug compatibility placeholder) — proven by response Content-Type or admin-specific marker",
+          "command": "npx vitest run test/reserved-path.test.ts"
+        },
+        {
+          "id": "T9.AC3",
+          "type": "grep",
+          "criterion": "Public router declares all 12 required routes",
+          "command": "grep -cE \"\\.(get|all)\\(['\\\"]/(article/:slug|category/:slug|category/:slug/page/:page|page/:slug|feed\\.xml|atom\\.xml|sitemap\\.xml|robots\\.txt|ads\\.txt|preview/:id|health|:slug)\" src/public/router.ts",
+          "expected": 12
+        }
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Admin router + CRUD/workflow/AI placeholder APIs in api/src/admin/",
+      "category": "api",
+      "target_files": [
+        "src/admin/router.ts",
+        "src/admin/api.ts",
+        "src/admin/workflow-api.ts",
+        "src/admin/ai-api.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T10.AC1",
+          "type": "grep",
+          "criterion": "Admin shell GETs declared for /admin, /admin/articles, /admin/pages, /admin/categories, /admin/tags, /admin/media, /admin/settings, /admin/presets",
+          "command": "grep -cE \"\\.get\\(['\\\"]/admin(|/articles|/pages|/categories|/tags|/media|/settings|/presets)['\\\"]\" src/admin/router.ts",
+          "expected": 8
+        },
+        {
+          "id": "T10.AC2",
+          "type": "grep",
+          "criterion": "AI endpoints return 501 unless OPENAI_API_KEY is set",
+          "command": "grep -cE 'OPENAI_API_KEY' src/admin/ai-api.ts",
+          "expected": 1
+        },
+        {
+          "id": "T10.AC3",
+          "type": "grep",
+          "criterion": "Admin auth-status route declared at /api/admin/auth/status",
+          "command": "grep -cE \"['\\\"]/api/admin/auth/status['\\\"]\" src/admin/router.ts",
+          "expected": 1
+        },
+        {
+          "id": "T10.AC4",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset."
+        }
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Preview route with HMAC-signed short-lived tokens in api/src/preview/",
+      "category": "api",
+      "target_files": [
+        "src/preview/index.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T11.AC1",
+          "type": "grep",
+          "criterion": "Preview module uses Web Crypto HMAC (subtle.sign with HMAC) for token signing — no jose, no full JWT",
+          "command": "grep -cE \"subtle\\.(sign|verify)\\(\\s*['\\\"]?HMAC\" src/preview/index.ts",
+          "expected": 2
+        },
+        {
+          "id": "T11.AC2",
+          "type": "grep",
+          "criterion": "Token payload encodes articleId, versionId, exp",
+          "command": "grep -cE 'articleId|versionId' src/preview/index.ts",
+          "expected": 2
+        },
+        {
+          "id": "T11.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401."
+        }
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Wire all routers into api/src/index.ts with reserved-path guard before /:slug",
+      "category": "api",
+      "target_files": [
+        "src/index.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T12.AC1",
+          "type": "grep",
+          "criterion": "index.ts mounts all sub-routers (admin, public, privacy, media, preview)",
+          "command": "grep -cE 'app\\.route\\(' src/index.ts",
+          "expected": 5
+        },
+        {
+          "id": "T12.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN wrangler dev running locally with DEV_BYPASS_AUTH unset, WHEN curl GET /health and curl GET /admin and curl GET /api/privacy/status, THEN /health returns 200 AND /admin returns 401 AND /api/privacy/status returns 200",
+          "command": "npx vitest run test/health.test.ts test/admin-auth.test.ts test/privacy.test.ts"
+        }
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Extend assert-no-legacy-prod-refs.ts denylist with 5 legacy CMS identifiers",
+      "category": "script",
+      "target_files": [
+        "scripts/verify/assert-no-legacy-prod-refs.ts",
+        "test/verify-script.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T13.AC1",
+          "type": "grep",
+          "criterion": "Denylist additions present: kodigital2.cloudflareaccess.com, admin.theiwise.com, legacy CF_ACCESS_AUD, legacy D1 id, legacy KV id",
+          "command": "grep -cE 'kodigital2\\.cloudflareaccess\\.com|admin\\.theiwise\\.com|7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425|44c73f76-6ed5-4b26-b442-6c2044326c4d|111320b080274cfd8465e89400712c5d' scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected": 5
+        },
+        {
+          "id": "T13.AC2",
+          "type": "exit_code",
+          "criterion": "Verify script exits 0 against the current worktree (no banned identifiers in active code)",
+          "command": "npm run verify:no-legacy-prod-refs",
+          "expected": 0
+        },
+        {
+          "id": "T13.AC3",
+          "type": "grep",
+          "criterion": "Shared account_id a05d7505b71c6cd931e436defe670509 is NOT added to the denylist (must remain allowed)",
+          "command": "grep -c 'a05d7505b71c6cd931e436defe670509' scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected": 0
+        }
+      ]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "auth/db/media/cache/editor/workflow/ai-placeholder/privacy/admin/public/preview modules",
+      "0001_init_cms.sql migration with 11 tables and TODO Phase-2 site_id markers",
+      "Extension of verify denylist with 5 legacy CMS identifiers",
+      "Six new vitest files plus admin-auth.test.ts extension"
+    ],
+    "out_of_scope": [
+      "Domains UI",
+      "Facelift design implementation",
+      "Full AI provisioning (only 501 placeholders)",
+      "Production data migration",
+      "Multi-site site_id columns (TODO comments only)",
+      "Scheduled-publish runner (placeholder API only)",
+      "Full-text search",
+      "Image variants",
+      "Public rate-limit"
+    ]
+  },
+  "risk": {
+    "production_data_risk": false,
+    "auth_required": [
+      "Cloudflare Access for /admin",
+      "Cloudflare Access for /api/admin/*"
+    ],
+    "mutating_actions": [
+      "wrangler d1 migrations apply kodigital-homepages-cms-db --local (local sqlite only)"
+    ]
+  },
+  "infra_prerequisites": [
+    {
+      "name": "D1 binding kodigital-homepages-cms-db exists in api/wrangler.toml",
+      "verification_command": "grep -c 'kodigital-homepages-cms-db' api/wrangler.toml",
+      "owner": "agent",
+      "status": "verified"
+    },
+    {
+      "name": "KV binding CACHE exists in api/wrangler.toml",
+      "verification_command": "grep -c 'binding = \"CACHE\"' api/wrangler.toml",
+      "owner": "agent",
+      "status": "verified"
+    },
+    {
+      "name": "R2 binding MEDIA exists in api/wrangler.toml",
+      "verification_command": "grep -c 'binding = \"MEDIA\"' api/wrangler.toml",
+      "owner": "agent",
+      "status": "verified"
+    },
+    {
+      "name": "CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD env keys provisioned (dev .dev.vars or staging Dashboard)",
+      "verification_command": "grep -cE 'CF_ACCESS_TEAM_DOMAIN|CF_ACCESS_AUD' api/wrangler.toml",
+      "owner": "user",
+      "status": "pending"
+    }
+  ],
+  "source_specs": [
+    {
+      "source_id": "SP-CICD-1",
+      "source_type": "test",
+      "canonical_path": "api/",
+      "entity": "phase_1_acceptance",
+      "metric": "all_gates_pass"
+    },
+    {
+      "source_id": "ac-grep-t1-t1-ac1",
+      "source_type": "file",
+      "canonical_path": "migrations/0001_init_cms.sql",
+      "entity": "T1",
+      "metric": "T1.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t1-t1-ac3",
+      "source_type": "test",
+      "canonical_path": "npx wrangler d1 migrations apply kodigital-homepages-cms-db --local",
+      "entity": "T1",
+      "metric": "T1.AC3",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t2-t2-ac1",
+      "source_type": "file",
+      "canonical_path": "src/db/index.ts",
+      "entity": "T2",
+      "metric": "T2.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t2-t2-ac3",
+      "source_type": "test",
+      "canonical_path": "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts).",
+      "entity": "T2",
+      "metric": "T2.AC3",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t3-t3-ac1",
+      "source_type": "file",
+      "canonical_path": "src/auth/access-auth.ts",
+      "entity": "T3",
+      "metric": "T3.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t3-t3-ac3",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/admin-auth.test.ts",
+      "entity": "T3",
+      "metric": "T3.AC3",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t3-t3-ac4",
+      "source_type": "file",
+      "canonical_path": "package.json",
+      "entity": "T3",
+      "metric": "T3.AC4",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-grep-t4-t4-ac1",
+      "source_type": "file",
+      "canonical_path": "src/cache/index.ts",
+      "entity": "T4",
+      "metric": "T4.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t4-t4-ac3",
+      "source_type": "test",
+      "canonical_path": "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior.",
+      "entity": "T4",
+      "metric": "T4.AC3",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-behavioral-t5-t5-ac1",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/editor.test.ts",
+      "entity": "T5",
+      "metric": "T5.AC1",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-behavioral-t6-t6-ac1",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/workflow.test.ts",
+      "entity": "T6",
+      "metric": "T6.AC1",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t7-t7-ac1",
+      "source_type": "file",
+      "canonical_path": "src/privacy/index.ts",
+      "entity": "T7",
+      "metric": "T7.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t7-t7-ac2",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/privacy.test.ts",
+      "entity": "T7",
+      "metric": "T7.AC2",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t8-t8-ac1",
+      "source_type": "file",
+      "canonical_path": "src/media/serve.ts",
+      "entity": "T8",
+      "metric": "T8.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t8-t8-ac2",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/media.test.ts",
+      "entity": "T8",
+      "metric": "T8.AC2",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t9-t9-ac1",
+      "source_type": "file",
+      "canonical_path": "src/public/reserved.ts",
+      "entity": "T9",
+      "metric": "T9.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t9-t9-ac2",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/reserved-path.test.ts",
+      "entity": "T9",
+      "metric": "T9.AC2",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t9-t9-ac3",
+      "source_type": "file",
+      "canonical_path": "src/public/router.ts",
+      "entity": "T9",
+      "metric": "T9.AC3",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-grep-t10-t10-ac1",
+      "source_type": "file",
+      "canonical_path": "src/admin/router.ts",
+      "entity": "T10",
+      "metric": "T10.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-grep-t10-t10-ac2",
+      "source_type": "file",
+      "canonical_path": "src/admin/ai-api.ts",
+      "entity": "T10",
+      "metric": "T10.AC2",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t10-t10-ac4",
+      "source_type": "test",
+      "canonical_path": "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset.",
+      "entity": "T10",
+      "metric": "T10.AC4",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t11-t11-ac1",
+      "source_type": "file",
+      "canonical_path": "src/preview/index.ts",
+      "entity": "T11",
+      "metric": "T11.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t11-t11-ac3",
+      "source_type": "test",
+      "canonical_path": "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401.",
+      "entity": "T11",
+      "metric": "T11.AC3",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t12-t12-ac1",
+      "source_type": "file",
+      "canonical_path": "src/index.ts",
+      "entity": "T12",
+      "metric": "T12.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-behavioral-t12-t12-ac2",
+      "source_type": "test",
+      "canonical_path": "npx vitest run test/health.test.ts test/admin-auth.test.ts test/privacy.test.ts",
+      "entity": "T12",
+      "metric": "T12.AC2",
+      "method": "behavioral_test",
+      "parser_name": "parse_test_output",
+      "parser_version": "1.0.0",
+      "value_path": "$.passed_assertions"
+    },
+    {
+      "source_id": "ac-grep-t13-t13-ac1",
+      "source_type": "file",
+      "canonical_path": "scripts/verify/assert-no-legacy-prod-refs.ts",
+      "entity": "T13",
+      "metric": "T13.AC1",
+      "method": "grep",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    {
+      "source_id": "ac-exit_code-t13-t13-ac2",
+      "source_type": "test",
+      "canonical_path": "npm run verify:no-legacy-prod-refs",
+      "entity": "T13",
+      "metric": "T13.AC2",
+      "method": "exit_code",
+      "parser_name": "test_exit_code",
+      "parser_version": "1.0.0",
+      "value_path": "$.exit_code"
+    }
+  ],
+  "required_claims": [
+    {
+      "required_claim_id": "RC-001",
+      "claim_type": "maingoal_met",
+      "entity": "kodigital-homepages-cms",
+      "action": "port_phase_1_cms_foundation",
+      "metric_name": "phase_1_acceptance_gate_count",
+      "comparator": "==",
+      "expected_value": 7,
+      "required_source_id": "SP-CICD-1",
+      "forbidden_source_ids": [
+        "insureprimo",
+        "quotesRoutes",
+        "psychic-quiz",
+        "rental-booking",
+        "investing-funnels",
+        "lead-gen",
+        "theiwise.com",
+        "a2z-cf-cms-v1-api",
+        "a2z-cf-cms-v1-db",
+        "kodigital2.cloudflareaccess.com",
+        "admin.theiwise.com",
+        "44c73f76-6ed5-4b26-b442-6c2044326c4d",
+        "111320b080274cfd8465e89400712c5d",
+        "7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425"
+      ],
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code"
+      ]
+    },
+    {
+      "required_claim_id": "RC-002",
+      "claim_type": "ac_satisfied",
+      "entity": "T1",
+      "action": "Migration creates all 11 required tables (CREATE TABLE count >= 11 covering articles, article_versions, categories, tags, article_tags, pages, media, redirects, site_settings, prompt_presets, privacy_opt_outs)",
+      "required_source_id": "ac-grep-t1-t1-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T1.AC1"
+      ],
+      "linked_story_ids": [
+        "T1"
+      ],
+      "expected_value": 11,
+      "metric_name": "T1.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-003",
+      "claim_type": "ac_satisfied",
+      "entity": "T1",
+      "action": "Migration contains TODO Phase-2 site_id comment markers (>=1 per multi-tenant table)",
+      "required_source_id": "ac-grep-t1-t1-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T1.AC2"
+      ],
+      "linked_story_ids": [
+        "T1"
+      ],
+      "expected_value": 5,
+      "metric_name": "T1.AC2",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-004",
+      "claim_type": "ac_satisfied",
+      "entity": "T1",
+      "action": "BEHAVIORAL: GIVEN the new D1 binding kodigital-homepages-cms-db with no tables, WHEN `wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN all 11 tables appear in the local sqlite file with the documented columns and indexes",
+      "required_source_id": "ac-behavioral-t1-t1-ac3",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T1.AC3"
+      ],
+      "linked_story_ids": [
+        "T1"
+      ]
+    },
+    {
+      "required_claim_id": "RC-005",
+      "claim_type": "ac_satisfied",
+      "entity": "T2",
+      "action": "All D1 calls use prepare(...).bind(...) — zero template-literal SQL interpolation in db/index.ts",
+      "required_source_id": "ac-grep-t2-t2-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T2.AC1"
+      ],
+      "linked_story_ids": [
+        "T2"
+      ],
+      "expected_value": 0,
+      "metric_name": "T2.AC1",
+      "comparator": "=="
+    },
+    {
+      "required_claim_id": "RC-006",
+      "claim_type": "ac_satisfied",
+      "entity": "T2",
+      "action": "Helper exposes typed exports: getArticleBySlug, listArticles, getMediaById, listCategories at minimum",
+      "required_source_id": "ac-grep-t2-t2-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T2.AC2"
+      ],
+      "linked_story_ids": [
+        "T2"
+      ],
+      "expected_value": 4,
+      "metric_name": "T2.AC2",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-007",
+      "claim_type": "ac_satisfied",
+      "entity": "T2",
+      "action": "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts).",
+      "required_source_id": "ac-behavioral-t2-t2-ac3",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T2.AC3"
+      ],
+      "linked_story_ids": [
+        "T2"
+      ]
+    },
+    {
+      "required_claim_id": "RC-008",
+      "claim_type": "ac_satisfied",
+      "entity": "T3",
+      "action": "auth module imports jose JWKS+jwtVerify and validates exp/nbf/iss/aud/email",
+      "required_source_id": "ac-grep-t3-t3-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T3.AC1"
+      ],
+      "linked_story_ids": [
+        "T3"
+      ],
+      "expected_value": 1,
+      "metric_name": "T3.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-009",
+      "claim_type": "ac_satisfied",
+      "entity": "T3",
+      "action": "JWKS cache key written to KV with expirationTtl 24h (86400 seconds)",
+      "required_source_id": "ac-grep-t3-t3-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T3.AC2"
+      ],
+      "linked_story_ids": [
+        "T3"
+      ],
+      "expected_value": 1,
+      "metric_name": "T3.AC2",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-010",
+      "claim_type": "ac_satisfied",
+      "entity": "T3",
+      "action": "BEHAVIORAL: GIVEN APP_ENV=development AND DEV_BYPASS_AUTH=true, WHEN any /admin route is requested without a JWT, THEN the handler proceeds and returns the admin shell (200); GIVEN APP_ENV!=development OR DEV_BYPASS_AUTH unset, WHEN /admin is requested without a valid JWT, THEN response is 401",
+      "required_source_id": "ac-behavioral-t3-t3-ac3",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T3.AC3"
+      ],
+      "linked_story_ids": [
+        "T3"
+      ]
+    },
+    {
+      "required_claim_id": "RC-011",
+      "claim_type": "ac_satisfied",
+      "entity": "T3",
+      "action": "package.json adds jose as a dependency",
+      "required_source_id": "ac-grep-t3-t3-ac4",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T3.AC4"
+      ],
+      "linked_story_ids": [
+        "T3"
+      ],
+      "expected_value": 1,
+      "metric_name": "T3.AC4",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-012",
+      "claim_type": "ac_satisfied",
+      "entity": "T4",
+      "action": "Module exports cacheGet, cacheSet, cacheDel, invalidateFeeds",
+      "required_source_id": "ac-grep-t4-t4-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T4.AC1"
+      ],
+      "linked_story_ids": [
+        "T4"
+      ],
+      "expected_value": 4,
+      "metric_name": "T4.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-013",
+      "claim_type": "ac_satisfied",
+      "entity": "T4",
+      "action": "Cache API path gated by env.CACHE_API_ENABLED before any caches.default access",
+      "required_source_id": "ac-grep-t4-t4-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T4.AC2"
+      ],
+      "linked_story_ids": [
+        "T4"
+      ],
+      "expected_value": 1,
+      "metric_name": "T4.AC2",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-014",
+      "claim_type": "ac_satisfied",
+      "entity": "T4",
+      "action": "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior.",
+      "required_source_id": "ac-behavioral-t4-t4-ac3",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T4.AC3"
+      ],
+      "linked_story_ids": [
+        "T4"
+      ]
+    },
+    {
+      "required_claim_id": "RC-015",
+      "claim_type": "ac_satisfied",
+      "entity": "T5",
+      "action": "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed') — verified semantically by editor tests covering each renderer + the unknown-type rejection path",
+      "required_source_id": "ac-behavioral-t5-t5-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T5.AC1"
+      ],
+      "linked_story_ids": [
+        "T5"
+      ]
+    },
+    {
+      "required_claim_id": "RC-016",
+      "claim_type": "ac_satisfied",
+      "entity": "T5",
+      "action": "BEHAVIORAL: GIVEN an editor JSON document containing an html block with <script>alert(1)</script>, WHEN contentJsonToHtml is called, THEN the rendered HTML contains no <script> tag and no on* attribute and no javascript: URL",
+      "required_source_id": "ac-behavioral-t5-t5-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T5.AC2"
+      ],
+      "linked_story_ids": [
+        "T5"
+      ]
+    },
+    {
+      "required_claim_id": "RC-017",
+      "claim_type": "ac_satisfied",
+      "entity": "T5",
+      "action": "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true — verified by editor test that renders a below-fold image and asserts the resulting HTML contains loading=\"lazy\"",
+      "required_source_id": "ac-behavioral-t5-t5-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T5.AC3"
+      ],
+      "linked_story_ids": [
+        "T5"
+      ]
+    },
+    {
+      "required_claim_id": "RC-018",
+      "claim_type": "ac_satisfied",
+      "entity": "T6",
+      "action": "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft — verified by workflow tests that exercise each legal transition and reject illegal ones",
+      "required_source_id": "ac-behavioral-t6-t6-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T6.AC1"
+      ],
+      "linked_story_ids": [
+        "T6"
+      ]
+    },
+    {
+      "required_claim_id": "RC-019",
+      "claim_type": "ac_satisfied",
+      "entity": "T6",
+      "action": "BEHAVIORAL: GIVEN an article in draft with content_json blocks, WHEN publish() is called, THEN (a) article_versions row is inserted with snapshotted content_json, (b) articles.content_html is set to the rendered HTML, (c) articles.status='published' and published_at is set, (d) invalidateFeeds is called once",
+      "required_source_id": "ac-behavioral-t6-t6-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T6.AC2"
+      ],
+      "linked_story_ids": [
+        "T6"
+      ]
+    },
+    {
+      "required_claim_id": "RC-020",
+      "claim_type": "ac_satisfied",
+      "entity": "T7",
+      "action": "Privacy module uses Web Crypto subtle.digest('SHA-256', ...) for the IP+UA hash",
+      "required_source_id": "ac-grep-t7-t7-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T7.AC1"
+      ],
+      "linked_story_ids": [
+        "T7"
+      ],
+      "expected_value": 1,
+      "metric_name": "T7.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-021",
+      "claim_type": "ac_satisfied",
+      "entity": "T7",
+      "action": "BEHAVIORAL: GIVEN no ccpa_opt_out cookie set, WHEN POST /api/privacy/opt-out is called with IP=1.2.3.4 UA='ua/1', THEN response 200 sets Set-Cookie ccpa_opt_out=1 AND a privacy_opt_outs row exists keyed by sha256('1.2.3.4|ua/1')",
+      "required_source_id": "ac-behavioral-t7-t7-ac2",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T7.AC2"
+      ],
+      "linked_story_ids": [
+        "T7"
+      ]
+    },
+    {
+      "required_claim_id": "RC-022",
+      "claim_type": "ac_satisfied",
+      "entity": "T7",
+      "action": "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared",
+      "required_source_id": "ac-grep-t7-t7-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T7.AC3"
+      ],
+      "linked_story_ids": [
+        "T7"
+      ],
+      "expected_value": 3,
+      "metric_name": "T7.AC3",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-023",
+      "claim_type": "ac_satisfied",
+      "entity": "T8",
+      "action": "GET /media/* response sets Cache-Control: public, max-age=31536000, immutable",
+      "required_source_id": "ac-grep-t8-t8-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T8.AC1"
+      ],
+      "linked_story_ids": [
+        "T8"
+      ],
+      "expected_value": 1,
+      "metric_name": "T8.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-024",
+      "claim_type": "ac_satisfied",
+      "entity": "T8",
+      "action": "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata",
+      "required_source_id": "ac-behavioral-t8-t8-ac2",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T8.AC2"
+      ],
+      "linked_story_ids": [
+        "T8"
+      ]
+    },
+    {
+      "required_claim_id": "RC-025",
+      "claim_type": "ac_satisfied",
+      "entity": "T9",
+      "action": "Reserved path list contains exactly admin, api, static, assets, media, preview, health (7 entries)",
+      "required_source_id": "ac-grep-t9-t9-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T9.AC1"
+      ],
+      "linked_story_ids": [
+        "T9"
+      ],
+      "expected_value": 7,
+      "metric_name": "T9.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-026",
+      "claim_type": "ac_satisfied",
+      "entity": "T9",
+      "action": "BEHAVIORAL: GIVEN no published page row with slug='admin', WHEN GET /admin is requested, THEN the request is routed to the admin handler (NOT the /:slug compatibility placeholder) — proven by response Content-Type or admin-specific marker",
+      "required_source_id": "ac-behavioral-t9-t9-ac2",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T9.AC2"
+      ],
+      "linked_story_ids": [
+        "T9"
+      ]
+    },
+    {
+      "required_claim_id": "RC-027",
+      "claim_type": "ac_satisfied",
+      "entity": "T9",
+      "action": "Public router declares all 12 required routes",
+      "required_source_id": "ac-grep-t9-t9-ac3",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T9.AC3"
+      ],
+      "linked_story_ids": [
+        "T9"
+      ],
+      "expected_value": 12,
+      "metric_name": "T9.AC3",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-028",
+      "claim_type": "ac_satisfied",
+      "entity": "T10",
+      "action": "Admin shell GETs declared for /admin, /admin/articles, /admin/pages, /admin/categories, /admin/tags, /admin/media, /admin/settings, /admin/presets",
+      "required_source_id": "ac-grep-t10-t10-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T10.AC1"
+      ],
+      "linked_story_ids": [
+        "T10"
+      ],
+      "expected_value": 8,
+      "metric_name": "T10.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-029",
+      "claim_type": "ac_satisfied",
+      "entity": "T10",
+      "action": "AI endpoints return 501 unless OPENAI_API_KEY is set",
+      "required_source_id": "ac-grep-t10-t10-ac2",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T10.AC2"
+      ],
+      "linked_story_ids": [
+        "T10"
+      ],
+      "expected_value": 1,
+      "metric_name": "T10.AC2",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-030",
+      "claim_type": "ac_satisfied",
+      "entity": "T10",
+      "action": "Admin auth-status route declared at /api/admin/auth/status",
+      "required_source_id": "ac-grep-t10-t10-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T10.AC3"
+      ],
+      "linked_story_ids": [
+        "T10"
+      ],
+      "expected_value": 1,
+      "metric_name": "T10.AC3",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-031",
+      "claim_type": "ac_satisfied",
+      "entity": "T10",
+      "action": "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset.",
+      "required_source_id": "ac-behavioral-t10-t10-ac4",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T10.AC4"
+      ],
+      "linked_story_ids": [
+        "T10"
+      ]
+    },
+    {
+      "required_claim_id": "RC-032",
+      "claim_type": "ac_satisfied",
+      "entity": "T11",
+      "action": "Preview module uses Web Crypto HMAC (subtle.sign with HMAC) for token signing — no jose, no full JWT",
+      "required_source_id": "ac-grep-t11-t11-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T11.AC1"
+      ],
+      "linked_story_ids": [
+        "T11"
+      ],
+      "expected_value": 2,
+      "metric_name": "T11.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-033",
+      "claim_type": "ac_satisfied",
+      "entity": "T11",
+      "action": "Token payload encodes articleId, versionId, exp",
+      "required_source_id": "ac-grep-t11-t11-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T11.AC2"
+      ],
+      "linked_story_ids": [
+        "T11"
+      ],
+      "expected_value": 2,
+      "metric_name": "T11.AC2",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-034",
+      "claim_type": "ac_satisfied",
+      "entity": "T11",
+      "action": "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401.",
+      "required_source_id": "ac-behavioral-t11-t11-ac3",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T11.AC3"
+      ],
+      "linked_story_ids": [
+        "T11"
+      ]
+    },
+    {
+      "required_claim_id": "RC-035",
+      "claim_type": "ac_satisfied",
+      "entity": "T12",
+      "action": "index.ts mounts all sub-routers (admin, public, privacy, media, preview)",
+      "required_source_id": "ac-grep-t12-t12-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T12.AC1"
+      ],
+      "linked_story_ids": [
+        "T12"
+      ],
+      "expected_value": 5,
+      "metric_name": "T12.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-036",
+      "claim_type": "ac_satisfied",
+      "entity": "T12",
+      "action": "BEHAVIORAL: GIVEN wrangler dev running locally with DEV_BYPASS_AUTH unset, WHEN curl GET /health and curl GET /admin and curl GET /api/privacy/status, THEN /health returns 200 AND /admin returns 401 AND /api/privacy/status returns 200",
+      "required_source_id": "ac-behavioral-t12-t12-ac2",
+      "eligible_derivation_methods": [
+        "deterministic_parser",
+        "test_exit_code",
+        "deterministic_script"
+      ],
+      "linked_ac_ids": [
+        "T12.AC2"
+      ],
+      "linked_story_ids": [
+        "T12"
+      ]
+    },
+    {
+      "required_claim_id": "RC-037",
+      "claim_type": "ac_satisfied",
+      "entity": "T13",
+      "action": "Denylist additions present: kodigital2.cloudflareaccess.com, admin.theiwise.com, legacy CF_ACCESS_AUD, legacy D1 id, legacy KV id",
+      "required_source_id": "ac-grep-t13-t13-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T13.AC1"
+      ],
+      "linked_story_ids": [
+        "T13"
+      ],
+      "expected_value": 5,
+      "metric_name": "T13.AC1",
+      "comparator": ">="
+    },
+    {
+      "required_claim_id": "RC-038",
+      "claim_type": "ac_satisfied",
+      "entity": "T13",
+      "action": "Verify script exits 0 against the current worktree (no banned identifiers in active code)",
+      "required_source_id": "ac-exit_code-t13-t13-ac2",
+      "eligible_derivation_methods": [
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T13.AC2"
+      ],
+      "linked_story_ids": [
+        "T13"
+      ],
+      "expected_value": 0,
+      "metric_name": "T13.AC2",
+      "comparator": "=="
+    },
+    {
+      "required_claim_id": "RC-039",
+      "claim_type": "ac_satisfied",
+      "entity": "T13",
+      "action": "Shared account_id a05d7505b71c6cd931e436defe670509 is NOT added to the denylist (must remain allowed)",
+      "required_source_id": "ac-grep-t13-t13-ac1",
+      "eligible_derivation_methods": [
+        "deterministic_grep_count",
+        "deterministic_parser",
+        "test_exit_code"
+      ],
+      "linked_ac_ids": [
+        "T13.AC3"
+      ],
+      "linked_story_ids": [
+        "T13"
+      ],
+      "expected_value": 0,
+      "metric_name": "T13.AC3",
+      "comparator": "=="
+    }
+  ],
+  "story_ac_map": {
+    "T1": [
+      "RC-002",
+      "RC-003",
+      "RC-004"
+    ],
+    "T2": [
+      "RC-005",
+      "RC-006",
+      "RC-007"
+    ],
+    "T3": [
+      "RC-008",
+      "RC-009",
+      "RC-010",
+      "RC-011"
+    ],
+    "T4": [
+      "RC-012",
+      "RC-013",
+      "RC-014"
+    ],
+    "T5": [
+      "RC-015",
+      "RC-016",
+      "RC-017"
+    ],
+    "T6": [
+      "RC-018",
+      "RC-019"
+    ],
+    "T7": [
+      "RC-020",
+      "RC-021",
+      "RC-022"
+    ],
+    "T8": [
+      "RC-023",
+      "RC-024"
+    ],
+    "T9": [
+      "RC-025",
+      "RC-026",
+      "RC-027"
+    ],
+    "T10": [
+      "RC-028",
+      "RC-029",
+      "RC-030",
+      "RC-031"
+    ],
+    "T11": [
+      "RC-032",
+      "RC-033",
+      "RC-034"
+    ],
+    "T12": [
+      "RC-035",
+      "RC-036"
+    ],
+    "T13": [
+      "RC-037",
+      "RC-038",
+      "RC-039"
+    ]
+  }
+}

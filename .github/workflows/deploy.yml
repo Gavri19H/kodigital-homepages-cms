@@ -2,7 +2,7 @@ name: CI / Deploy
 
 # CI runs on every pull_request targeting main and on every push to main.
 # Conditional deploy step runs only on push to refs/heads/main, after CI
-# passes. Cloudflare account 44c73f76-6ed5-4b26-b442-6c2044326c4d hosts both
+# passes. Cloudflare account a05d7505b71c6cd931e436defe670509 hosts both
 # this project (kodigital-homepages-cms) and the sibling project a2z-cf-cms-v1;
 # CLOUDFLARE_API_TOKEN is scoped to deploy permissions only (see
 # docs/secrets-manifest.md).
