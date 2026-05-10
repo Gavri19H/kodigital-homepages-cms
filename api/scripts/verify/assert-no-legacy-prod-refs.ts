@@ -50,6 +50,7 @@ const EXCLUDED_DIRS: readonly string[] = [
   "coverage",
   "build",
   "acceptance-tests",
+  "openspec",
 ];
 
 // Files (relative to repo root) that legitimately contain banned
