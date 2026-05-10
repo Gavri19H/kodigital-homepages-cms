@@ -5,35 +5,65 @@ needs, where the value lives, and how it is delivered to each
 environment. **No secret value appears in this repository.** The
 manifest names the keys only.
 
-## Secrets used by the Worker
+## Secrets used by the Worker (runtime)
 
-| Key                      | Purpose                                          | Required in     |
-| ------------------------ | ------------------------------------------------ | --------------- |
-| `OPENAI_API_KEY`         | Calls to OpenAI text/image models from `/admin`. | staging, prod   |
-| `CF_ACCESS_TEAM_DOMAIN`  | Cloudflare Access team domain for JWT issuer.    | staging, prod   |
-| `CF_ACCESS_AUD`          | Cloudflare Access application AUD claim.         | staging, prod   |
-| `CLOUDFLARE_API_TOKEN`   | Used by CI (`wrangler deploy`) — NOT by Worker.  | CI only         |
-| `DEV_BYPASS_AUTH`        | Local dev escape hatch. Set `true` in `.dev.vars`. | local only    |
+These secrets are consumed by `api/src/**` at request time and MUST be
+set as Cloudflare Worker secrets in staging and production via
+`wrangler secret put <KEY> --env staging|production`. For local
+`wrangler dev` they live in `api/.dev.vars` (gitignored). See
+`docs/cloudflare-worker-secrets-setup.md` for the click-level setup
+runbook and `docs/local-dev-vars.md` for the local-setup runbook.
 
-`OPENAI_API_KEY`, `CF_ACCESS_TEAM_DOMAIN`, and `CLOUDFLARE_API_TOKEN`
-are the three keys the project depends on operationally; they appear in
-this table and in `.dev.vars.example` as placeholder names so a new
-contributor can wire them up locally without guessing.
+| Key                                  | Purpose                                                                        | Required in       |
+| ------------------------------------ | ------------------------------------------------------------------------------ | ----------------- |
+| `OPENAI_API_KEY`                     | Calls to OpenAI text/image models from `/admin`.                               | staging, prod     |
+| `CF_ACCESS_TEAM_DOMAIN`              | Cloudflare Access team domain for JWT issuer + JWKS fetch.                     | staging, prod     |
+| `CF_ACCESS_AUD`                      | Cloudflare Access application AUD claim (per-application, 64-char hex).        | staging, prod     |
+| `CLOUDFLARE_PROVISIONING_API_TOKEN`  | Worker-runtime token used to create / update zones + routes during provisioning. | staging, prod   |
+| `CLOUDFLARE_CACHE_API_TOKEN`         | Worker-runtime token scoped to Cache Purge only — used after a publish.        | staging, prod     |
+| `ALLOWED_CF_SERVICE_TOKEN_IDS`       | Optional CSV allowlist of Access service-token names (matched on `common_name`). | optional        |
+| `DEV_BYPASS_AUTH`                    | Local dev escape hatch. Set `true` in `.dev.vars`. Double-gated on `APP_ENV != "production"`. | local only |
+
+### Phase 1.5 token-split rationale
+
+Phase 1.5 deliberately splits what used to be a single
+`CLOUDFLARE_API_TOKEN` into three distinct credentials, each scoped to
+the minimum permissions needed:
+
+1. **`CLOUDFLARE_PROVISIONING_API_TOKEN`** (Worker runtime) — scoped to
+   `Zone:Edit` + `Worker Routes:Edit` + `Account:Read`. Used by the
+   site-provisioning code path that creates a custom-domain route for a
+   newly published homepage. When `SITE_PROVISIONING_DRY_RUN=true` or
+   `SITE_PROVISIONING_ALLOW_ROUTE_MUTATION=false`, this token is held
+   but no mutation API calls are made.
+2. **`CLOUDFLARE_CACHE_API_TOKEN`** (Worker runtime) — scoped to
+   `Cache Purge` only. Used after a publish to purge rendered HTML and
+   asset URLs. Separating it from the provisioning token means a bug or
+   compromise in the cache-purge code path cannot escalate to zone or
+   route mutation.
+3. **GitHub Actions deploy token** (CI only) — scoped to
+   `Worker Scripts:Edit` on the CMS Worker. Lives as a GitHub repository
+   secret. See `docs/github-secrets-setup.md`. This token is intentionally
+   absent from `.dev.vars.example` and from the Worker `Env` type because
+   the Worker runtime does not consume it.
 
 ## Where each value lives
 
 - **Local development**: values are read from `api/.dev.vars`. This file
   is gitignored and is **never committed**. A scrubbed companion file
   `.dev.vars.example` ships in the repo with placeholder values only.
+  See `docs/local-dev-vars.md` for the step-by-step copy/paste runbook.
 - **Cloudflare staging / production**: values are stored as Worker
   Secrets in the Cloudflare Dashboard under the
-  `kodigital-homepages-cms-worker` Worker, set via
+  `kodigital-homepages-cms-worker` (production) /
+  `kodigital-homepages-cms-worker-staging` (staging) Workers, set via
   `wrangler secret put <KEY> --env staging|production`. They are NOT
   declared in `wrangler.toml` (only non-secret vars belong there).
-- **GitHub Actions (CI)**: `CLOUDFLARE_API_TOKEN` is stored as a
-  repository secret in the GitHub Settings → Secrets and Variables
-  Dashboard. `OPENAI_API_KEY` and the Access secrets are NOT exposed to
-  CI — CI only deploys; it does not exercise the Worker against OpenAI.
+- **GitHub Actions (CI)**: the deploy token is stored as a repository
+  secret. `OPENAI_API_KEY`, the Access secrets, and the runtime
+  provisioning / cache tokens are NOT exposed to CI — CI only deploys
+  the Worker; it does not exercise OpenAI, Access, or runtime
+  provisioning paths. See `docs/github-secrets-setup.md`.
 
 ## Delivery rules
 
@@ -44,16 +74,27 @@ contributor can wire them up locally without guessing.
    developer needs locally.
 4. Production secrets are rotated through the Cloudflare Dashboard;
    staging secrets are rotated via `wrangler secret put` from a trusted
-   workstation.
-5. CI workflows reference `${{ secrets.CLOUDFLARE_API_TOKEN }}` via the
-   GitHub Actions Dashboard; the token is scoped to the `kodigital`
-   account and to deploy/edit-Worker permissions only.
+   workstation. After rotation, redeploy the Worker so the new secret
+   version takes effect (`wrangler deploy --env <staging|production>`).
+5. CI workflows reference the deploy token via the GitHub Actions
+   Dashboard; the token is scoped to the `kodigital` account and to
+   Worker-script edit permissions only — it cannot mutate zones,
+   routes, or DNS.
+6. Runtime tokens (`CLOUDFLARE_PROVISIONING_API_TOKEN`,
+   `CLOUDFLARE_CACHE_API_TOKEN`) MUST be created per-environment.
+   Re-using a production token in staging makes a staging bug capable
+   of mutating production zones — treat tokens like passwords, not like
+   shared library functions.
 
 ## Adding a new secret
 
 1. Add the key to the table above with its purpose and which envs need it.
 2. Add a placeholder line to `.dev.vars.example`.
-3. Set the value in each target environment via `wrangler secret put` or
+3. Add the field to the `Env` interface in `api/src/env.ts` (typed as
+   `string` if always required, `string | undefined` if optional or
+   environment-specific).
+4. Set the value in each target environment via `wrangler secret put` or
    the Cloudflare Dashboard. Never commit the value.
-4. If the secret is consumed by CI, add it as a GitHub repository secret
-   and reference it in the workflow file.
+5. If the secret is consumed by CI, add it as a GitHub repository secret
+   and reference it in the workflow file. Document the click flow in
+   `docs/github-secrets-setup.md`.

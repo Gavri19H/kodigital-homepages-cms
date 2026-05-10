@@ -128,7 +128,7 @@
         "grep -rn 'CLOUDFLARE_API_TOKEN' docs/cloudflare-worker-secrets-setup.md | grep -v 'GitHub Actions' | wc -l == 0 (cloudflare-worker-secrets-setup.md does not list CLOUDFLARE_API_TOKEN as a Worker runtime secret)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T8",
