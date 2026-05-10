@@ -107,7 +107,7 @@
         "grep -c '302' docs/cloudflare-access-setup.md >= 1 (documents that unauthenticated 302 redirect is expected behavior)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T7",

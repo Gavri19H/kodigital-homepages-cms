@@ -380,3 +380,39 @@
   - The secret scanner's regex matches `SECRET=` literally; placeholder lines for env-var assignment in docs (`CF_ACCESS_CLIENT_SECRET="<paste here>"`) WILL trip it. The intent-correct test is whether the value is a literal `<...>` bracket placeholder (no high-entropy content). Note this in the self-check entry so a reviewer doesn't have to re-derive it.
   - Cloudflare Access policy attachment is a separate step from token creation — without an `Include: Service Token` rule the token is inert and unauthenticated requests still 302 to the SSO host. Always document both steps; missing step 2 is the most common cause of "the curl returns 302 not 200" support questions.
 ---
+
+## 2026-05-10 - T6 (docs/cloudflare-access-setup.md — Access application creation, AUD capture, CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD wiring)
+- Created `docs/cloudflare-access-setup.md` (207 lines) covering the prerequisite Access-application setup that the T5 service-token runbook depends on. Click-level Zero Trust dashboard flow:
+  - Step 1 — confirm team domain at Zero Trust → Settings; explicitly document `kodigital2.cloudflareaccess.com` (with the trailing `2` because the original `kodigital.cloudflareaccess.com` slot belongs to a sibling tenant and would silently fail JWT `iss` validation).
+  - Step 2 — Add an application → Self-hosted → application name + subdomain `cms` / `staging-cms` + domain `kodigital.app`; explain that the Worker handles path routing so Application Domain Path stays blank.
+  - Step 3 — `Allow team` policy with Include = `Emails ending in @kodigital.io` (and explicit per-user emails). Service-token rule is deferred to docs/cloudflare-access-service-token-setup.md to keep the two docs single-purpose.
+  - Step 4 — copy the 64-char Application Audience (AUD) tag from the Overview tab; explain that it is per-application (production AUD ≠ staging AUD) and must match the Worker secret exactly.
+  - Step 5 — set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` via `wrangler secret put --env <staging|production>`; also explain `api/.dev.vars` for local dev.
+  - Step 6 — browser smoke test: incognito → GET `https://cms.kodigital.app/admin` → 302 to `kodigital2.cloudflareaccess.com` → SSO → redirect back → 200; `/api/admin/auth/status` confirms identity mode.
+- Documented 302 redirect to `*.cloudflareaccess.com` as the **expected** unauthenticated entry path (not a bug) — satisfies the T6-AC4 grep AND directly addresses the T3-AC3 dev-bypass behavioral contract (the auth flow is the only legitimate path off `cms.kodigital.app`; outside of dev bypass, unauth requests SHOULD 302 to the SSO host).
+- Failure-mode table covers: no-302 (DNS not proxied / domain mismatch), 401 invalid claims (AUD or team-domain mismatch — calls out the `kodigital` vs `kodigital2` trap explicitly), 403 (identity not in `Include`), `Failed to fetch JWKS` in `wrangler tail` (TEAM_DOMAIN unset). Notes section reminds operators that recreating the Access app issues a new AUD and that JWKS rotation is invisible to the Worker because access-auth.ts re-fetches on `kid` miss.
+- Doc deliberately does NOT enumerate any banned legacy identifier; the only product hostnames mentioned are `cms.kodigital.app` and `staging-cms.kodigital.app`.
+- **Self-check results:**
+  - File size: docs/cloudflare-access-setup.md 207 lines (limit: 300 for templates) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches in changed files — PASS (no real or placeholder secrets committed; the AUD-tag and TEAM_DOMAIN values are stored via `wrangler secret put` per the doc, not pasted inline)
+  - Error handling: N/A (markdown doc)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Banned-token verify (`npm run verify:no-legacy-prod-refs`): exit 0 — PASS
+  - Typecheck (`npx tsc --noEmit`): exit 0 — PASS
+  - Tests (`npx vitest run`): 3 files / 9 tests passing (health 2, admin-auth 5, verify-script 2) — PASS
+  - Acceptance grep ACs:
+    - AC1 `grep -c 'CF_ACCESS_AUD' docs/cloudflare-access-setup.md` = 10 (>=1) — PASS
+    - AC2 `grep -c 'CF_ACCESS_TEAM_DOMAIN' docs/cloudflare-access-setup.md` = 11 (>=1) — PASS
+    - AC3 `grep -c 'kodigital2.cloudflareaccess.com' docs/cloudflare-access-setup.md` = 9 (>=1) — PASS
+    - AC4 `grep -c '302' docs/cloudflare-access-setup.md` = 7 (>=1) — PASS
+- **Test commands actually run (from `api/` worktree):**
+  - `npm run verify:no-legacy-prod-refs` → exit 0
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 3 files / 9 tests passing, exit 0
+- **Source story id covered this iteration:** T6
+- **Learnings for future iterations:**
+  - The Cloudflare team-domain trap is real: the obvious-looking `kodigital.cloudflareaccess.com` is held by a sibling tenant; this account uses `kodigital2.cloudflareaccess.com`. Document the exact value verbatim (including the trailing `2`) in operator docs — a copy/paste error here surfaces as cryptic `401 invalid claims` long after the visible login flow succeeds, which is a high-cost incident to debug live.
+  - The AUD tag is per-Access-application, so staging and production carry DIFFERENT AUDs even though they share the same team domain. Worker secrets must be set per env (`wrangler secret put CF_ACCESS_AUD --env staging` AND `--env production`) — a single shared secret will make exactly one environment work and the other fail with 401.
+  - Cloudflare Access's unauthenticated 302 redirect to `*.cloudflareaccess.com` is the contract the Worker relies on; operator docs should call it out as expected (not a bug) so support tickets like "the page redirected me away" don't get filed against the Worker code.
+---
