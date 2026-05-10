@@ -484,3 +484,36 @@
   - When a runbook depends on a script that hasn't been written yet (T8 references `verify:infra`/`verify:worker-config`/`smoke:cms-domain` introduced in T11), the runbook is still the source of truth for the *script name* — T11's ACs explicitly require these exact npm-script names, so the runbook can be authored first without rework risk. Avoid the temptation to delay user-facing docs until backing scripts exist; the script name is the contract.
   - The `*.workers.dev` lockdown is a Phase-1.5 *contract* not a hardening tip. Skipping it would leave the admin SPA reachable on a host that the Cloudflare Access application doesn't gate (Access binds to the custom domain, not the workers.dev host). Documented twice (Worker-setup Step 6 + cms-domain Step 5) so the lockdown step survives a partial doc read.
 ---
+
+## 2026-05-11 - T9 (api/src/safety/protected-domains.ts — TheIWise hostname denylist module)
+- Created `api/src/safety/protected-domains.ts` (69 lines) exporting `PROTECTED_DOMAINS` (readonly array of the 4 TheIWise hostnames `theiwise.com`, `www.theiwise.com`, `staging.theiwise.com`, `app.theiwise.com`), `normalizeHostname(input)`, `isProtectedDomain(input)`, and `assertNotProtectedDomain(input)`. The module is a runtime defense-in-depth check used at the boundary of any code path that mutates external Cloudflare resources (DNS records, Worker routes, cache-purge, etc.) so a caller-supplied hostname is rejected before any Cloudflare API call is issued.
+- `normalizeHostname` is implemented with an explicit manual strip pipeline (no `URL` constructor): scheme strip via `s.indexOf("://")`, then path/query/fragment, then userinfo (`@`), then port (`:`), then trailing-dot normalization, finally lowercase. Chosen over `new URL(...).hostname` because Workers/Vitest URL handling on degenerate inputs like `"https://"` returns the scheme as the host instead of throwing — manual stripping is byte-for-byte deterministic and Workers-portable.
+- `isProtectedDomain` returns `false` for empty/normalized-empty input (defensive default — refusing to mutate is signaled via `assertNotProtectedDomain` separately, not via `true`-on-empty).
+- `assertNotProtectedDomain` throws `Error("Refusing to operate on protected hostname: <normalized>")` so caller stack traces and Worker logs surface the actual hostname that triggered the refusal.
+- File-level header comment explicitly documents the file's verify-script Group B allowlist status (per T10's spec) so a future contributor reading the file understands why the literal `theiwise.com` is permitted to appear here and nowhere else outside docs/.
+- **Self-check results:**
+  - File size: api/src/safety/protected-domains.ts 69 lines (limit: 200 for TS) — PASS
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string`): 0 matches in changed file — PASS
+  - Error handling: PASS — `assertNotProtectedDomain` throws explicit `Error` with the offending hostname; `isProtectedDomain` returns boolean (no swallowing); `normalizeHostname` returns "" for null/undefined/empty (documented in JSDoc).
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A
+  - Acceptance ACs (T9-AC1..T9-AC6):
+    - AC1 `grep -c 'PROTECTED_DOMAINS' api/src/safety/protected-domains.ts` = 2 (>=1) — PASS
+    - AC2 `grep -c 'assertNotProtectedDomain' api/src/safety/protected-domains.ts` = 1 (>=1) — PASS
+    - AC3 `grep -c 'normalizeHostname' api/src/safety/protected-domains.ts` = 3 (>=1) — PASS
+    - AC4 BEHAVIORAL `normalizeHostname('https://theiwise.com/some/path?q=1')` → `"theiwise.com"` (verified via tsx spot-check) — PASS
+    - AC5 BEHAVIORAL `normalizeHostname('THEIWISE.COM.')` → `"theiwise.com"` AND `isProtectedDomain('THEIWISE.COM.')` → `true` — PASS
+    - AC6 BEHAVIORAL `isProtectedDomain('cms.kodigital.app')` → `false` — PASS
+  - Typecheck (`cd api && npx tsc --noEmit`): exit 0 — PASS
+  - Tests (`cd api && npx vitest run`): 8/9 passing (health 2, admin-auth 5, verify-script fixture-detection 1). 1 failing: `verify-script.test.ts > exits 0 on a clean repo` — INTENTIONAL TRANSITION STATE between T9 and T10. The new `api/src/safety/protected-domains.ts` legitimately contains `theiwise.com`, but the current `assert-no-legacy-prod-refs.ts` does NOT yet have it on its allowlist. T10's whole purpose is to add `api/src/safety/protected-domains.ts` to the verify-script's Group B `EXCLUDED_FILES`, after which this test returns to green. Per the story dependency graph (T9 → T10 → T14), this is the documented ordering — the test failure here is the *correct* behavior of the verifier given today's allowlist state.
+  - `npm run verify:no-legacy-prod-refs`: exit 1 — INTENTIONAL TRANSITION STATE (same root cause as the vitest failure above; T10 fixes both with a single allowlist update).
+- **Test commands actually run (from `api/` worktree):**
+  - `npx tsc --noEmit` → exit 0
+  - `npx vitest run` → 8/9 passing (1 failure is the intentional T9→T10 transition documented above)
+  - `npx tsx <inline-spotcheck>.mjs` → all 6 T9 BEHAVIORAL ACs pass
+- **Source story id covered this iteration:** T9
+- **Learnings for future iterations:**
+  - `normalizeHostname` should NOT use `new URL(...).hostname` for input that may be a bare hostname or degenerate URL — Workers' URL handling returns surprising values (e.g. `new URL("https://")` doesn't throw uniformly across runtimes, and even when it does, the catch-fall-through can leak the scheme into subsequent manual stripping). A pure-string strip pipeline (`s.indexOf("://")` → strip path/query/fragment → strip userinfo → strip port → strip trailing dot → lowercase) is byte-for-byte deterministic and Workers-portable. Validated against AC4 (URL with path+query), AC5 (uppercase + trailing dot), AC6 (bare hostname) and the `https://`-with-no-host degenerate case in the same iteration.
+  - Cross-story dependencies inside a single mission generate intentional transition states. T9 creates the file; T10 updates the verifier's allowlist; in between, `npm run verify:no-legacy-prod-refs` correctly exits 1 because the verifier is doing its job. Document the regression in progress.txt (not as a self-check failure but as an EXPECTED CONSEQUENCE of one-story-per-iteration ordering), AND make sure the next iteration's commit message/PR description names the failing test it intends to restore. The failure is a correctness signal, not a code bug.
+  - A "block exact 4 hostnames" contract is best implemented as an explicit `readonly string[]` (apex + the three canonical subdomain patterns: `www`, `staging`, `app`). Subdomain wildcard matching is deliberately NOT introduced here — defense-in-depth against accidental subdomain leaks lives in (a) the verify-script substring scanner and (b) the T3 hostname routing guard. Keeping `isProtectedDomain` exact-match keeps the unit-test surface small and the contract auditable.
+---

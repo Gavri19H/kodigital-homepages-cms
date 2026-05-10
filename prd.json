@@ -166,7 +166,7 @@
         "BEHAVIORAL: GIVEN hostname is 'cms.kodigital.app' WHEN isProtectedDomain is called THEN result is false (non-TheIWise domains must not be blocked)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T10",
