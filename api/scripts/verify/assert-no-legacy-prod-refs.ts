@@ -40,6 +40,7 @@ const EXCLUDED_DIRS: readonly string[] = [
   ".git",
   ".wrangler",
   ".a2z",
+  "openspec",
   "dist",
   "coverage",
   "build",
