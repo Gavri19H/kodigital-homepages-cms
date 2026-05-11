@@ -239,8 +239,8 @@
       "id": "T11",
       "title": "Implement tenant-guards module (requireSiteIdForArticleInput, assertSlugUniquePerSite, etc.)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T11"
       ],
