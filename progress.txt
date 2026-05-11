@@ -2042,3 +2042,8 @@ EVIDENCE_ROUTE_EXHAUSTED — T30 canonical runner result:
 - Learnings:
   - In acceptance-test bash scripts that pass regex to grep, use single-quoted ERE patterns with `\.` (not `\\.`) — bash single quotes pass `\\.` verbatim to grep which then treats `\\` as a literal backslash + any-char.
   - The architect-phase chmod 0555 on `acceptance-tests/` blocks file creation. T31 is the architect-sanctioned exception: chmod +w, write bundle, chmod -w restores immutability so downstream phases see the bundle as read-only contract.
+
+EVIDENCE_ROUTE_EXHAUSTED — T31 canonical runner result:
+- RC-065: FAIL — grep count parser ran against project_root (main-branch checkout) which does not contain `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/`. In-tree (worktree) the bundle has 34 .sh files, satisfying T31.AC1's `>=30` expectation; the runner's parser observed grep_count=0 because the cwd_anchor is `project_root` not `worktree_root` and the bundle is brand-new in this branch.
+- RC-066: FAIL exit_code=127 — same anchor issue: `bash acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/run_all.sh` against project_root (main checkout) hits "No such file or directory". In-tree the same command exits 0 with PASS=30 SKIP=3 FAIL=0.
+- Both failures are infrastructure-level (runner anchors at project_root, not worktree_root); re-implementation cannot move the artifact into project_root because the bundle is only on the mission branch. Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story. Reconciliation owned by reconcile_ralph_execution_prd.py.
