@@ -262,8 +262,8 @@
       "id": "T12",
       "title": "Extend db helpers to accept siteId (listArticles, getArticleBySlug, listCategories, getMediaById)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],
