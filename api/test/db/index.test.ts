@@ -57,6 +57,41 @@ function makeFakeDb(planted: {
   return { db, calls };
 }
 
+// Per-row, site-aware fake D1: prepare(sql).bind(args).first() resolves the
+// planted row whose (slug, site_id) matches the bind arguments. Lets us
+// assert that getArticleBySlug truly scopes by site_id instead of returning
+// the first slug match across tenants.
+function makePerSiteFakeDb(rows: { slug: string; site_id: string; row: ArticleRow }[]): D1Database {
+  return {
+    prepare(sql: string) {
+      let boundArgs: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          boundArgs = args;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          if (sql.includes("AND site_id = ?")) {
+            const [slug, siteId] = boundArgs as [string, string];
+            const hit = rows.find((r) => r.slug === slug && r.site_id === siteId);
+            return (hit?.row ?? null) as T | null;
+          }
+          const [slug] = boundArgs as [string];
+          const hit = rows.find((r) => r.slug === slug);
+          return (hit?.row ?? null) as T | null;
+        },
+        async all() {
+          return { results: [], success: true, meta: {} };
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
 describe("test/db prepare bind helpers", () => {
   it("getArticleBySlug routes the slug through prepare(...).bind(...) — no template-literal interpolation", async () => {
     const planted: ArticleRow = {
@@ -138,6 +173,54 @@ describe("test/db prepare bind helpers", () => {
     expect(call.sql).toContain("WHERE id = ?");
     expect(call.sql).not.toContain("${");
     expect(call.bindArgs).toEqual([7]);
+  });
+
+  it("getArticleBySlug is site-scoped (no cross-site leak)", async () => {
+    const baseRow = (id: number, site_id: string): ArticleRow => ({
+      id,
+      slug: "hello",
+      title: `Article ${id}`,
+      content_json: JSON.stringify({ site: site_id }),
+      content_html: null,
+      category_id: null,
+      status: "published",
+      published_at: 1,
+      scheduled_at: null,
+      author_name: null,
+      featured_image_id: null,
+      is_featured: 0,
+      is_trending: 0,
+      created_at: 1,
+      updated_at: 1,
+    });
+    const rowA = baseRow(1, "A");
+    const rowB = baseRow(2, "B");
+    const db = makePerSiteFakeDb([
+      { slug: "hello", site_id: "A", row: rowA },
+      { slug: "hello", site_id: "B", row: rowB },
+    ]);
+
+    const aFromA = await getArticleBySlug(db, "hello", { siteId: "A" });
+    expect(aFromA).toEqual(rowA);
+    expect(aFromA?.id).toBe(1);
+
+    const bFromB = await getArticleBySlug(db, "hello", { siteId: "B" });
+    expect(bFromB).toEqual(rowB);
+    expect(bFromB?.id).toBe(2);
+
+    // siteId omitted: fake returns the first slug match (no site filter); the
+    // helper itself does not invent a siteId, so cross-site leaks are
+    // prevented at the caller boundary (public middleware T26/T27).
+    const unscopedDb = makePerSiteFakeDb([
+      { slug: "hello", site_id: "A", row: rowA },
+      { slug: "hello", site_id: "B", row: rowB },
+    ]);
+    const unscoped = await getArticleBySlug(unscopedDb, "hello");
+    expect(unscoped).toEqual(rowA);
+
+    // siteId pointing at a site with no article for this slug must return null.
+    const emptyForC = await getArticleBySlug(db, "hello", { siteId: "C" });
+    expect(emptyForC).toBeNull();
   });
 
   it("listCategories binds limit and offset positionally via prepare(...).bind(...)", async () => {

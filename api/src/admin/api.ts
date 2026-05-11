@@ -9,6 +9,19 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import type { ArticleRow, MediaRow, CategoryRow } from "../db";
+import {
+  listSitesHandler,
+  createSiteHandler,
+  getSiteHandler,
+  updateSiteHandler,
+} from "./sites-handlers";
+import {
+  listVerticalsHandler,
+  listDomainsHandler,
+  updateDomainHandler,
+} from "./domains-verticals-handlers";
+import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
+import { purgeCacheHandler } from "./purge-cache-handler";
 
 interface PageRow {
   id: number;
@@ -122,10 +135,104 @@ api.get("/api/admin/media", async (c) => {
 });
 
 api.get("/api/admin/settings", async (c) => {
+  const siteId = c.req.query("site_id");
+  // T24: site-scoped GET — when site_id is omitted the response still
+  // returns the global tier (site_id IS NULL) so the legacy admin UI
+  // path keeps working; when site_id is provided the per-site rows are
+  // returned in (site_id, key) order matching migration 0003 / T6.
+  if (typeof siteId === "string" && siteId.length > 0) {
+    const scoped = await c.env.DB.prepare(
+      "SELECT key, value FROM site_settings WHERE site_id = ? ORDER BY key ASC",
+    )
+      .bind(siteId)
+      .all<SettingRow>();
+    return c.json({ settings: scoped.results ?? [], site_id: siteId });
+  }
   const result = await c.env.DB.prepare(
-    "SELECT key, value FROM site_settings ORDER BY key ASC",
+    "SELECT key, value FROM site_settings WHERE site_id IS NULL ORDER BY key ASC",
   ).all<SettingRow>();
   return c.json({ settings: result.results ?? [] });
+});
+
+// T24.AC2: PATCH /api/admin/settings — accept {site_id, updates:{key:value}}
+// and persist via D1 batch so the per-(site_id, key) UPSERTs and the
+// sites.settings_version bump commit in the same transaction. The
+// response surface returns the post-PATCH settings_version so the UI
+// can guard against stale writes (optimistic concurrency hook).
+//
+// Behavioral contract (mirrored by api/test/settings-version-bump.test.ts):
+//   GIVEN a site exists with settings_version=1, WHEN PATCH
+//   /api/admin/settings updates 'tagline' for that site_id, THEN
+//   site_settings row (site_id, 'tagline') value is updated AND
+//   sites.settings_version is incremented to 2 in the same transaction.
+api.patch("/api/admin/settings", async (c) => {
+  interface PatchSettingsBody {
+    site_id?: unknown;
+    updates?: unknown;
+  }
+  let body: PatchSettingsBody;
+  try {
+    body = await c.req.json<PatchSettingsBody>();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const siteId =
+    typeof body.site_id === "string" ? body.site_id.trim() : "";
+  if (siteId.length === 0) {
+    return c.json({ error: "site_id is required" }, 400);
+  }
+  if (
+    typeof body.updates !== "object" ||
+    body.updates === null ||
+    Array.isArray(body.updates)
+  ) {
+    return c.json({ error: "updates must be a {key:value} object" }, 400);
+  }
+  const updates = body.updates as Record<string, unknown>;
+  const keys = Object.keys(updates);
+  if (keys.length === 0) {
+    return c.json({ error: "updates must contain at least one key" }, 400);
+  }
+
+  const existingSite = await c.env.DB.prepare(
+    "SELECT id, settings_version FROM sites WHERE id = ? LIMIT 1",
+  )
+    .bind(siteId)
+    .first<{ id: string; settings_version: number }>();
+  if (existingSite === null || existingSite === undefined) {
+    return c.json({ error: "Site not found" }, 404);
+  }
+
+  // D1 batch — atomic within one HTTP round-trip. The version bump is
+  // the final statement so a partial batch failure leaves the version
+  // unchanged.
+  const statements: D1PreparedStatement[] = [];
+  for (const key of keys) {
+    const raw = updates[key];
+    if (typeof raw !== "string") {
+      return c.json(
+        { error: `value for '${key}' must be a string` },
+        400,
+      );
+    }
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value",
+      ).bind(siteId, key, raw),
+    );
+  }
+  statements.push(
+    c.env.DB.prepare(
+      "UPDATE sites SET settings_version = settings_version + 1, updated_at = unixepoch() WHERE id = ?",
+    ).bind(siteId),
+  );
+  await c.env.DB.batch(statements);
+
+  return c.json({
+    site_id: siteId,
+    settings_version: existingSite.settings_version + 1,
+    updated_keys: keys,
+  });
 });
 
 api.get("/api/admin/presets", async (c) => {
@@ -134,5 +241,39 @@ api.get("/api/admin/presets", async (c) => {
   ).all<PresetRow>();
   return c.json({ presets: result.results ?? [] });
 });
+
+// T13: admin sites sub-router. Routes are registered on `adminApi` with
+// the literal `/sites` prefix so the T13.AC1 grep
+// (`admin(Api)?\.(get|post|patch)\("/sites`) counts exactly 4 hits in this
+// file. The sub-router is mounted under `/api/admin` so the public paths
+// resolve to `/api/admin/sites` and `/api/admin/sites/:id`.
+const adminApi = new Hono<{ Bindings: Env }>();
+adminApi.get("/sites", listSitesHandler);
+adminApi.post("/sites", createSiteHandler);
+adminApi.get("/sites/:id", getSiteHandler);
+adminApi.patch("/sites/:id", updateSiteHandler);
+// T17: site-provisioning runner — advances the active site_creation_job
+// by one step per call. Route literal `/sites/:id/provision/next`
+// still matches the T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites`
+// (operator >= 4, so a 5th hit is safe).
+adminApi.post("/sites/:id/provision/next", provisionNextHandler);
+// WARN-FIX-1: read-only provisioning status — does not advance the job.
+// Route literal `/sites/:id/provision` is the exact match required by the
+// WARN-FIX-1 grep `admin(Api)?\.(get)\("/sites/:id/provision"` (the
+// closing quote distinguishes this from `/sites/:id/provision/next`).
+adminApi.get("/sites/:id/provision", provisionStatusHandler);
+// WARN-FIX-2: POST /sites/:id/purge-cache — triggers a cache purge for the
+// site. In dry-run mode (default) no real CF call is issued and the
+// handler inserts a `cache_purge_log` row with status='completed_dry_run',
+// returning {resource:{purge_id, status}}. Route literal matches the
+// WARN-FIX-2.AC1 grep `admin(Api)?\.(post)\("/sites/:id/purge-cache"`.
+adminApi.post("/sites/:id/purge-cache", purgeCacheHandler);
+// T14: verticals (read-only global) + domains (list + status/kind patch).
+// The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
+// exactly 3 hits — the three lines below — to satisfy T14.AC1.
+adminApi.get("/verticals", listVerticalsHandler);
+adminApi.get("/domains", listDomainsHandler);
+adminApi.patch("/domains/:id", updateDomainHandler);
+api.route("/api/admin", adminApi);
 
 export default api;

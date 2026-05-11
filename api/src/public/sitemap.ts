@@ -3,9 +3,18 @@
 // articles list that drives feed.xml/atom.xml plus the published pages
 // table; canonical absolute URLs are constructed from `baseUrl` so the
 // sitemap is portable across staging/production hosts.
+//
+// T27 (Phase 3): the caller in api/src/public/router.ts pre-filters both
+// `articles` and `pages` by `siteContext.siteId` before invoking
+// renderSitemap, so the URL set this module emits is guaranteed to be one
+// tenant's content (no cross-site leak in sitemap.xml). The same scoping
+// applies to robots.txt (per-site override stored on site_settings) — the
+// router resolves `siteContext.siteId`'s row and falls back to
+// `buildRobotsTxt(baseUrl)` only when no per-site override exists.
 
 import type { ArticleRow } from "../db";
 import { xmlEscape } from "./feeds";
+import type { PublicSiteContext } from "./middleware";
 
 export interface SitemapPageRow {
   slug: string;
@@ -55,6 +64,15 @@ export function renderSitemap(input: SitemapInput): string {
     ...pageEntries,
     "</urlset>",
   ].join("\n");
+}
+
+// T27: convenience builder — derives sitemap baseUrl from a SiteContext.
+// Equivalent to `https://${siteContext.hostname}`; the explicit helper
+// keeps the per-site URL composition rule in one place so router.ts and
+// future callers do not redefine `siteContext.siteId` → URL composition
+// per call site.
+export function sitemapBaseUrlForSite(siteContext: PublicSiteContext): string {
+  return `https://${siteContext.hostname}`;
 }
 
 export function buildRobotsTxt(baseUrl: string): string {

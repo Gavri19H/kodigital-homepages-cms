@@ -4,6 +4,13 @@
 // NO template-literal interpolation of values into SQL. Parameters are passed
 // to `.bind(...)` as positional `?` placeholders only. This keeps the module
 // SQL-injection-safe and lets the AC grep `\.prepare\(`[^`]*\$\{` stay at 0.
+//
+// Phase 3 / T12: Each public-content helper accepts an optional siteId.
+// When siteId is provided, the prepared statement appends `AND site_id = ?`
+// so queries are scoped to one tenant — no cross-site leak. Public-path
+// callers (T26/T27 wiring) MUST supply siteId; the helper preserves the
+// legacy (unscoped) shape only for Phase-1/2 internal callers during the
+// migration window.
 
 export interface ArticleRow {
   id: number;
@@ -50,20 +57,32 @@ export interface ListArticlesOptions {
   status?: string;
   limit?: number;
   offset?: number;
+  siteId?: string | null;
 }
 
 export interface ListCategoriesOptions {
   limit?: number;
   offset?: number;
+  siteId?: string | null;
+}
+
+export interface GetArticleBySlugOptions {
+  siteId?: string | null;
+}
+
+export interface GetMediaByIdOptions {
+  siteId?: string | null;
 }
 
 export async function getArticleBySlug(
   db: D1Database,
   slug: string,
+  options: GetArticleBySlugOptions = {},
 ): Promise<ArticleRow | null> {
-  const stmt = db
-    .prepare("SELECT * FROM articles WHERE slug = ? LIMIT 1")
-    .bind(slug);
+  const siteId = options.siteId ?? null;
+  const stmt = siteId !== null
+    ? db.prepare("SELECT * FROM articles WHERE slug = ? AND site_id = ? LIMIT 1").bind(slug, siteId)
+    : db.prepare("SELECT * FROM articles WHERE slug = ? LIMIT 1").bind(slug);
   const row = await stmt.first<ArticleRow>();
   return row ?? null;
 }
@@ -75,11 +94,10 @@ export async function listArticles(
   const status = options.status ?? "published";
   const limit = options.limit ?? 20;
   const offset = options.offset ?? 0;
-  const stmt = db
-    .prepare(
-      "SELECT * FROM articles WHERE status = ? ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
-    )
-    .bind(status, limit, offset);
+  const siteId = options.siteId ?? null;
+  const stmt = siteId !== null
+    ? db.prepare("SELECT * FROM articles WHERE status = ? AND site_id = ? ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?").bind(status, siteId, limit, offset)
+    : db.prepare("SELECT * FROM articles WHERE status = ? ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?").bind(status, limit, offset);
   const result = await stmt.all<ArticleRow>();
   return result.results ?? [];
 }
@@ -87,10 +105,12 @@ export async function listArticles(
 export async function getMediaById(
   db: D1Database,
   id: number,
+  options: GetMediaByIdOptions = {},
 ): Promise<MediaRow | null> {
-  const stmt = db
-    .prepare("SELECT * FROM media WHERE id = ? LIMIT 1")
-    .bind(id);
+  const siteId = options.siteId ?? null;
+  const stmt = siteId !== null
+    ? db.prepare("SELECT * FROM media WHERE id = ? AND (site_id = ? OR site_id IS NULL) LIMIT 1").bind(id, siteId)
+    : db.prepare("SELECT * FROM media WHERE id = ? LIMIT 1").bind(id);
   const row = await stmt.first<MediaRow>();
   return row ?? null;
 }
@@ -101,11 +121,10 @@ export async function listCategories(
 ): Promise<CategoryRow[]> {
   const limit = options.limit ?? 100;
   const offset = options.offset ?? 0;
-  const stmt = db
-    .prepare(
-      "SELECT * FROM categories ORDER BY display_order ASC, name ASC LIMIT ? OFFSET ?",
-    )
-    .bind(limit, offset);
+  const siteId = options.siteId ?? null;
+  const stmt = siteId !== null
+    ? db.prepare("SELECT c.*, s.id AS site_id FROM categories c INNER JOIN category_verticals cv ON cv.category_id = c.id INNER JOIN verticals v ON v.id = cv.vertical_id INNER JOIN sites s ON s.vertical_slug = v.slug WHERE s.id = ? ORDER BY c.display_order ASC, c.name ASC LIMIT ? OFFSET ?").bind(siteId, limit, offset)
+    : db.prepare("SELECT * FROM categories ORDER BY display_order ASC, name ASC LIMIT ? OFFSET ?").bind(limit, offset);
   const result = await stmt.all<CategoryRow>();
   return result.results ?? [];
 }

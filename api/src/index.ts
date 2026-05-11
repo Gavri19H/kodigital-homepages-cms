@@ -56,6 +56,14 @@ const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 // on ADMIN_HOST (cms.kodigital.app). On any other hostname those paths
 // get a flat 404 so the admin surface never leaks to public content
 // domains.
+//
+// Phase 3 T28 hardening: when the off-ADMIN_HOST /admin request 404s we
+// set Cache-Control: no-store and X-Robots-Tag: noindex, nofollow so
+// intermediaries don't cache the 404 and search engines don't index a
+// stray admin URL leaked to the public domain. The response body
+// deliberately omits the request path so a crafted URL like
+// `/admin/<ADMIN_HOST>` cannot echo the admin hostname back through
+// content sniffers.
 app.use("*", async (c, next) => {
   const adminHost = String(getAdminHost(c.env) ?? "").toLowerCase();
   const requestHost = new URL(c.req.url).hostname.toLowerCase();
@@ -66,7 +74,9 @@ app.use("*", async (c, next) => {
     path === "/api/admin" ||
     path.startsWith("/api/admin/");
   if (isAdminPath && requestHost !== adminHost) {
-    return c.json({ error: "Not Found", path }, 404);
+    c.header("Cache-Control", "no-store");
+    c.header("X-Robots-Tag", "noindex, nofollow");
+    return c.json({ error: "Not Found" }, 404);
   }
   return next();
 });

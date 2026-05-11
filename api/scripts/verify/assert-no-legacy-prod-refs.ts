@@ -56,6 +56,10 @@ const GROUP_B_BANNED: readonly string[] = [
 
 // Files (relative to repo root) that legitimately contain Group A
 // identifiers: legacy reference docs + this verifier + mission scaffold.
+// implementation_digest.{md,json} are typed-contract artifacts dropped
+// into the worktree by the architect; they enumerate the same legacy
+// identifiers as RED-LINE forbidden substitutes and therefore belong on
+// the same allowlist as prd.json / progress.txt / GUARDRAILS.md.
 const GROUP_A_ALLOWED_FILES: readonly string[] = [
   "docs/source-architecture.md",
   "docs/no-touch-red-line.md",
@@ -64,6 +68,8 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
   "prd.json",
   "progress.txt",
   "GUARDRAILS.md",
+  "implementation_digest.md",
+  "implementation_digest.json",
 ];
 
 // Files that legitimately contain Group B identifiers: everything in
@@ -81,6 +87,7 @@ const EXCLUDED_DIRS: readonly string[] = [
   ".git",
   ".wrangler",
   ".a2z",
+  ".ralph",
   "openspec",
   "dist",
   "coverage",
