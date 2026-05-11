@@ -1,269 +1,495 @@
 {
-  "changeId": "kodigital-homepages-cms-phase1point5-2026-05-10",
-  "mainGoal": "Phase 1.5 complete when `npm run typecheck`, `npm test`, `npm run verify:no-legacy-prod-refs`, `npm run verify:infra`, and `npm run verify:worker-config` ALL exit 0; the Worker enforces cms.kodigital.app/admin hostname routing + Cloudflare Access JWT validation (identity OR service-token mode) + protected-domain denylist; all secrets contracts and setup docs are committed; zero deploy attempted; zero TheIWise resource touched.",
+  "changeId": "kodigital-homepages-cms-phase3-2026-05-11",
+  "mainGoal": "Transform kodigital-homepages-cms from single-site CMS into a multi-site CMS where Part-18 of the context doc passes locally (typecheck + tests + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0), migrations apply against local D1, admin UI exposes Domains tab + New Site modal + per-site filters, admin API serves 11 sites/domains/verticals endpoints, and the 15-step provisioning runner executes individually and idempotently in dry-run mode with zero real Cloudflare API calls.",
   "stories": [
     {
       "id": "T1",
-      "title": "Wrangler config audit — add all Phase 1.5 vars, rename ADMIN_BASE_URL .io to .app, add ADMIN_HOST + ADMIN_BASE_PATH + provisioning flags per staging/production envs",
-      "category": "config",
+      "title": "Add Phase 3 multi-site core tables migration",
+      "category": "migration",
       "targetFiles": [
-        "api/wrangler.toml"
+        "api/migrations/0002_phase3_multi_site_schema.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'ADMIN_HOST' api/wrangler.toml >= 1",
-        "grep -c 'ADMIN_BASE_PATH' api/wrangler.toml >= 1",
-        "grep -c 'SITE_PROVISIONING_DRY_RUN' api/wrangler.toml >= 1",
-        "grep -c 'SITE_PROVISIONING_ALLOW_ROUTE_MUTATION' api/wrangler.toml >= 1",
-        "grep -c 'HTML_CACHE_TTL_SECONDS' api/wrangler.toml >= 1",
-        "grep '.io' api/wrangler.toml exits non-zero (no .io domain references remain in active config)",
-        "grep -c 'cms.kodigital.app' api/wrangler.toml >= 2 (ADMIN_HOST + ADMIN_BASE_URL both reference .app domain)"
+        "Migration declares all 9 new tables",
+        "BEHAVIORAL: GIVEN fresh local D1, WHEN `npx wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN sqlite_master contains tables sites, domains, verticals, category_verticals, site_categories, legal_templates, site_creation_jobs, site_creation_job_steps, ai_generations, cache_purge_log."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T2",
-      "title": "Env typing — extend Env interface with all Phase 1.5 vars and 4 helpers: getAdminHost, getAdminBaseUrl, isDryRunProvisioning, isRouteMutationAllowed",
-      "category": "api",
+      "title": "Add Phase 3 indexes for multi-site queries",
+      "category": "db",
       "targetFiles": [
-        "api/src/env.ts"
+        "api/migrations/0002_phase3_multi_site_schema.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'getAdminHost' api/src/env.ts >= 1",
-        "grep -c 'isDryRunProvisioning' api/src/env.ts >= 1",
-        "grep -c 'isRouteMutationAllowed' api/src/env.ts >= 1",
-        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/src/env.ts >= 1",
-        "grep -c 'CLOUDFLARE_CACHE_API_TOKEN' api/src/env.ts >= 1",
-        "grep -c 'ALLOWED_CF_SERVICE_TOKEN_IDS' api/src/env.ts >= 1",
-        "cd api && npx tsc --noEmit exits 0 (all new Env fields are valid TypeScript)"
+        "All required composite indexes declared",
+        "BEHAVIORAL: GIVEN migrations applied locally, WHEN querying sqlite_master for index names, THEN all 13 idx_* names exist."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T3",
-      "title": "Worker routing for cms.kodigital.app — hostname-aware: ADMIN_HOST root → 302 /admin; ADMIN_HOST /admin* and /api/admin* → admin handlers; ADMIN_HOST other → 404; non-ADMIN_HOST /admin → 404 (D3)",
-      "category": "api",
+      "title": "Add site_id and homepage fields to articles",
+      "category": "migration",
       "targetFiles": [
-        "api/src/index.ts"
+        "api/migrations/0002_phase3_multi_site_schema.sql"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path == '/' WHEN Worker handles request THEN response is 302 redirect to ADMIN_BASE_PATH ('/admin')",
-        "BEHAVIORAL: GIVEN hostname != ADMIN_HOST AND path == '/admin' WHEN Worker handles request THEN response status is 404 (not a redirect to CMS admin) — D3 policy: no admin host leak to public content domains",
-        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path starts with '/admin' WHEN authenticated request arrives THEN response is not 404 and not a redirect to cloudflareaccess.com in dev bypass mode",
-        "grep -c 'ADMIN_HOST' api/src/index.ts >= 1 (routing uses env var not hardcoded hostname)",
-        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path is not '/admin*' and not '/api/admin*' and not '/' and not '/health' WHEN Worker handles request THEN response status is 404"
+        "articles ALTER adds new columns including homepage_section default 'none'",
+        "BEHAVIORAL: GIVEN migration applied, WHEN PRAGMA table_info(articles) is queried, THEN columns site_id (NOT NULL after backfill), homepage_section (DEFAULT 'none'), homepage_rank, seo_title, seo_description, ai_generation_id are present."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T4",
-      "title": "Cloudflare Access auth contract — JWT signature via JWKS-in-KV (24h TTL), exp/nbf/iat (typeof===number) + iss + aud validation; identity (email) vs service-token (common_name + optional ALLOWED_CF_SERVICE_TOKEN_IDS) modes; DEV_BYPASS_AUTH double-gate (APP_ENV !== 'production'); /api/admin/auth/status route; Web Crypto only",
-      "category": "api",
+      "title": "Add site_id/page_type to pages and site_id to media/tags/redirects",
+      "category": "migration",
       "targetFiles": [
-        "api/src/auth/access-auth.ts"
+        "api/migrations/0002_phase3_multi_site_schema.sql"
       ],
       "acceptanceCriteria": [
-        "BEHAVIORAL: GIVEN APP_ENV=production AND DEV_BYPASS_AUTH=true WHEN request arrives at /admin without CF Access JWT THEN response is 401 NOT 200 — proving double-gate prevents bypass in production",
-        "BEHAVIORAL: GIVEN APP_ENV=local AND DEV_BYPASS_AUTH=true WHEN request arrives at /admin THEN response is 200 — local dev bypass works",
-        "BEHAVIORAL: GIVEN valid CF Access JWT with email claim WHEN request arrives at /api/admin/auth/status THEN response JSON contains {authenticated:true, mode:'identity', email:<value>} and does NOT contain secrets",
-        "BEHAVIORAL: GIVEN CF Access JWT with common_name (service token) but no email WHEN auth middleware runs THEN request is allowed (authenticated) without requiring email field",
-        "BEHAVIORAL: GIVEN ALLOWED_CF_SERVICE_TOKEN_IDS is set AND JWT common_name is NOT in the allowlist WHEN service-token auth runs THEN response is 403",
-        "grep -c 'JWKS\\|jwks\\|JsonWebKey' api/src/auth/access-auth.ts >= 1 (JWKS-based verification present)",
-        "grep -c 'crypto.subtle' api/src/auth/access-auth.ts >= 1 (Web Crypto only — no Node crypto)",
-        "grep -c 'require.*crypto\\|from.*node:crypto' api/src/auth/access-auth.ts == 0 (no Node crypto import)"
+        "ALTER statements add site_id to pages/media/tags/redirects and page_type to pages",
+        "BEHAVIORAL: GIVEN migration applied, WHEN PRAGMA table_info is queried for pages/media/tags/redirects, THEN each has site_id column; pages also has page_type defaulting to 'generic'."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T5",
-      "title": "Create docs/cloudflare-access-service-token-setup.md with click-level instructions for creating KODIGITAL_CMS_SMOKE_TESTS service token and attaching to Access policy",
-      "category": "infra",
+      "title": "Replace globally-unique slug constraints with per-site uniqueness on articles and pages",
+      "category": "migration",
       "targetFiles": [
-        "docs/cloudflare-access-service-token-setup.md"
+        "api/migrations/0002_phase3_multi_site_schema.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'KODIGITAL_CMS_SMOKE_TESTS' docs/cloudflare-access-service-token-setup.md >= 1",
-        "grep -c 'CF_ACCESS_CLIENT_ID' docs/cloudflare-access-service-token-setup.md >= 1",
-        "grep -c 'CF_ACCESS_CLIENT_SECRET' docs/cloudflare-access-service-token-setup.md >= 1",
-        "grep -c 'cms.kodigital.app' docs/cloudflare-access-service-token-setup.md >= 1 (curl example present)"
+        "Migration creates per-site unique index for articles.slug and pages.slug",
+        "BEHAVIORAL: GIVEN migration applied, WHEN inserting two articles with the same slug but different site_id, THEN both inserts succeed; WHEN inserting two articles with same slug + same site_id, THEN the second fails with UNIQUE constraint."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T6",
-      "title": "Create docs/cloudflare-access-setup.md with click-level instructions for creating Access application, copying AUD tag, and setting CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD",
-      "category": "infra",
+      "title": "Restructure site_settings to (site_id, key) UNIQUE via CREATE-INSERT-DROP-RENAME",
+      "category": "migration",
       "targetFiles": [
-        "docs/cloudflare-access-setup.md"
+        "api/migrations/0003_phase3_site_settings_restructure.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'CF_ACCESS_AUD' docs/cloudflare-access-setup.md >= 1",
-        "grep -c 'CF_ACCESS_TEAM_DOMAIN' docs/cloudflare-access-setup.md >= 1",
-        "grep -c 'kodigital2.cloudflareaccess.com' docs/cloudflare-access-setup.md >= 1 (documents the known team domain)",
-        "grep -c '302' docs/cloudflare-access-setup.md >= 1 (documents that unauthenticated 302 redirect is expected behavior)"
+        "Migration uses CREATE TABLE new -> INSERT OR IGNORE -> DROP -> RENAME pattern (D1 CHECK-constraint safety rule)",
+        "BEHAVIORAL: GIVEN pre-restructure site_settings has rows with PK key (e.g. ('siteName','TheIWise')), WHEN migration 0003 runs locally, THEN every pre-existing key survives with site_id NULL (global default) and the new UNIQUE(site_id, key) constraint is enforced."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T7",
-      "title": "Secrets contracts — extend docs/secrets-manifest.md; create docs/github-secrets-setup.md, docs/cloudflare-worker-secrets-setup.md, docs/local-dev-vars.md; update .dev.vars.example (CLOUDFLARE_PROVISIONING_API_TOKEN + CLOUDFLARE_CACHE_API_TOKEN as PASTE_ placeholders, remove CLOUDFLARE_API_TOKEN)",
-      "category": "infra",
+      "title": "Add idx_settings_site_key index on restructured site_settings",
+      "category": "db",
       "targetFiles": [
-        "docs/secrets-manifest.md",
-        "docs/github-secrets-setup.md",
-        "docs/cloudflare-worker-secrets-setup.md",
-        "docs/local-dev-vars.md",
-        ".dev.vars.example"
+        "api/migrations/0003_phase3_site_settings_restructure.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' .dev.vars.example >= 1",
-        "grep -c 'CLOUDFLARE_API_TOKEN' .dev.vars.example == 0 (CLOUDFLARE_API_TOKEN removed from Worker runtime — belongs to GitHub Actions only)",
-        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' docs/secrets-manifest.md >= 1",
-        "grep -c 'CLOUDFLARE_CACHE_API_TOKEN' docs/secrets-manifest.md >= 1",
-        "grep -rn 'CLOUDFLARE_API_TOKEN' docs/cloudflare-worker-secrets-setup.md | grep -v 'GitHub Actions' | wc -l == 0 (cloudflare-worker-secrets-setup.md does not list CLOUDFLARE_API_TOKEN as a Worker runtime secret)"
+        "idx_settings_site_key index created on (site_id, key)",
+        "BEHAVIORAL: GIVEN migrations 0002+0003 applied locally, WHEN querying sqlite_master for idx_settings_site_key, THEN one row returned and tbl_name=site_settings."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T8",
-      "title": "Manual Cloudflare resource setup docs — create docs/cloudflare-worker-setup.md, docs/cloudflare-resources-setup.md, docs/cms-domain-setup.md, docs/deployment-runbook.md",
-      "category": "infra",
+      "title": "Seed 8 verticals + multi-vertical categories + 4 legal templates",
+      "category": "migration",
       "targetFiles": [
-        "docs/cloudflare-worker-setup.md",
-        "docs/cloudflare-resources-setup.md",
-        "docs/cms-domain-setup.md",
-        "docs/deployment-runbook.md"
+        "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'kodigital-homepages-cms-db' docs/cloudflare-resources-setup.md >= 1 (correct D1 DB name)",
-        "grep -c 'cms.kodigital.app' docs/cms-domain-setup.md >= 1",
-        "grep -c 'verify:infra' docs/deployment-runbook.md >= 1 (runbook includes infra verification step)",
-        "grep -c 'verify:worker-config' docs/deployment-runbook.md >= 1",
-        "grep -c 'wrangler deploy' docs/deployment-runbook.md >= 1 (runbook documents deploy command for user reference)"
+        "Seed inserts all 8 vertical slugs",
+        "Seed inserts the 4 legal templates",
+        "BEHAVIORAL: GIVEN migration 0004 applied locally, WHEN SELECT slug FROM verticals is run, THEN exactly the 8 slugs home,finance,travel,health,parenting,food,tech,lifestyle are returned; WHEN SELECT slug FROM legal_templates is run, THEN privacy-policy, terms, do-not-sell, contact are returned."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T9",
-      "title": "Create api/src/safety/protected-domains.ts — exports PROTECTED_DOMAINS, isProtectedDomain, assertNotProtectedDomain, normalizeHostname (lowercase, strip scheme/path/port/trailing-dot, block exact 4 TheIWise hostnames)",
-      "category": "api",
+      "title": "Seed multi-vertical categories with category_verticals matrix",
+      "category": "migration",
       "targetFiles": [
-        "api/src/safety/protected-domains.ts"
+        "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql"
       ],
       "acceptanceCriteria": [
-        "grep -c 'PROTECTED_DOMAINS' api/src/safety/protected-domains.ts >= 1 (exported constant present)",
-        "grep -c 'assertNotProtectedDomain' api/src/safety/protected-domains.ts >= 1",
-        "grep -c 'normalizeHostname' api/src/safety/protected-domains.ts >= 1",
-        "BEHAVIORAL: GIVEN input 'https://theiwise.com/some/path?q=1' WHEN normalizeHostname is called THEN result is 'theiwise.com'",
-        "BEHAVIORAL: GIVEN input 'THEIWISE.COM.' (uppercase + trailing dot) WHEN normalizeHostname is called THEN result is 'theiwise.com' AND isProtectedDomain returns true",
-        "BEHAVIORAL: GIVEN hostname is 'cms.kodigital.app' WHEN isProtectedDomain is called THEN result is false (non-TheIWise domains must not be blocked)"
+        "Seed inserts >=7 category entries and links them to multiple verticals via category_verticals",
+        "BEHAVIORAL: GIVEN seed migration applied, WHEN SELECT category_id, COUNT(vertical_id) FROM category_verticals GROUP BY category_id is run, THEN at least one category has >=2 vertical mappings (e.g. Healthy Meals -> health+food+parenting)."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T10",
-      "title": "Verify-script fix — split BANNED_IDENTIFIERS into Group A (legacy resource ids incl. UUID 44c73f76-...) allowed only in approved docs + Group B (protected hostnames) also allowed in api/src/safety/protected-domains.ts; remove global account-UUID allowlist",
-      "category": "script",
+      "title": "Implement site-context module (resolveSiteContextFromRequest, isAdminHost, assertPublicSiteHostNotAdminHost)",
+      "category": "api",
       "targetFiles": [
-        "api/scripts/verify/assert-no-legacy-prod-refs.ts"
+        "api/src/site/site-context.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'GROUP_A\\|groupA\\|group_a\\|Group A\\|legacy resource' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (two-group structure present)",
-        "grep -c '44c73f76' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (UUID present in Group A BANNED_IDENTIFIERS literal inside the verifier's own source)",
-        "grep -c 'protected-domains.ts' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (protected-domains.ts listed in Group B allowed-files)",
-        "BEHAVIORAL: GIVEN a temp file containing 'theiwise.com' at a path that is NOT in the approved allowlist WHEN verify script runs THEN exit code is 1 with the offending path in stderr",
-        "BEHAVIORAL: GIVEN api/src/safety/protected-domains.ts contains 'theiwise.com' WHEN verify script runs THEN exit code is 0 (Group B exemption applies)",
-        "cd api && npm run verify:no-legacy-prod-refs exits 0 on clean repo after T9 creates protected-domains.ts"
+        "All four required exports + SiteContext type are present",
+        "BEHAVIORAL: GIVEN ADMIN_HOST='cms.kodigital.app' in env, WHEN isAdminHost('cms.kodigital.app', env) is called, THEN it returns true; WHEN isAdminHost('mysite.com', env) is called, THEN false; WHEN resolveSiteByHostname(db, 'cms.kodigital.app') is called, THEN it returns null (admin host never resolves as a public site)."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T11",
-      "title": "New verify + smoke scripts — create api/scripts/verify/{infra-contract,required-secrets,worker-config}.ts + api/scripts/smoke/cms-domain.ts; add npm scripts verify:infra, verify:required-secrets, verify:worker-config, smoke:cms-domain",
-      "category": "script",
+      "title": "Implement tenant-guards module (requireSiteIdForArticleInput, assertSlugUniquePerSite, etc.)",
+      "category": "api",
       "targetFiles": [
-        "api/scripts/verify/infra-contract.ts",
-        "api/scripts/verify/required-secrets.ts",
-        "api/scripts/verify/worker-config.ts",
-        "api/scripts/smoke/cms-domain.ts",
-        "api/package.json"
+        "api/src/site/tenant-guards.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c '\"verify:infra\"' api/package.json >= 1",
-        "grep -c '\"verify:worker-config\"' api/package.json >= 1",
-        "grep -c '\"smoke:cms-domain\"' api/package.json >= 1",
-        "cd api && npm run verify:infra exits 0 on correct wrangler.toml",
-        "cd api && npm run verify:worker-config exits 0 on correct wrangler.toml",
-        "grep -c 'kodigital-homepages-cms-worker' api/scripts/verify/infra-contract.ts >= 1 (verifier asserts correct Worker name)",
-        "grep -c 'CLOUDFLARE_API_TOKEN' api/scripts/verify/infra-contract.ts >= 1 (verifier checks that CLOUDFLARE_API_TOKEN is NOT used as runtime provisioning token)"
+        "All 8 required tenant-guard exports",
+        "BEHAVIORAL: GIVEN article input lacking site_id, WHEN requireSiteIdForArticleInput(input) is called, THEN it throws an error with message containing 'site_id'; WHEN assertTenantBoundary('site-A','site-B') is called, THEN it throws TenantBoundaryViolation."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T12",
-      "title": "GitHub Actions update — add verify:infra + verify:worker-config to CI job; add production-deploy workflow_dispatch-only job; reference correct GitHub secrets; no old TheIWise refs; no auto-production-deploy",
-      "category": "infra",
+      "title": "Extend db helpers to accept siteId (listArticles, getArticleBySlug, listCategories, getMediaById)",
+      "category": "api",
       "targetFiles": [
-        ".github/workflows/deploy.yml"
+        "api/src/db/index.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'verify:infra' .github/workflows/deploy.yml >= 1",
-        "grep -c 'verify:worker-config' .github/workflows/deploy.yml >= 1",
-        "grep -c 'workflow_dispatch' .github/workflows/deploy.yml >= 1 (production deploy is workflow_dispatch gated)",
-        "grep -c 'a2z-cf-cms-v1' .github/workflows/deploy.yml == 0 (no old TheIWise Worker refs)",
-        "grep -c 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/deploy.yml >= 1 (new GitHub secret referenced)"
+        "Each helper accepts a siteId option/argument and binds it into the prepared statement",
+        "BEHAVIORAL: GIVEN fake D1 with two articles slug='hello' in sites A and B, WHEN getArticleBySlug(db, 'hello', { siteId: 'A' }) is called, THEN only the article belonging to site A is returned; WHEN siteId is omitted on public path, the function throws or returns null (no cross-site leak)."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T13",
-      "title": "Create docs/session-map-v2.md — 8 sessions, Session 2 = Phase 1.5 infra/secrets/domain (current), no legacy resource identifiers in file",
-      "category": "infra",
+      "title": "Add admin sites endpoints: GET/POST /sites + GET/PATCH /sites/:id",
+      "category": "api",
       "targetFiles": [
-        "docs/session-map-v2.md"
+        "api/src/admin/api.ts",
+        "api/src/admin/router.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'Session 2' docs/session-map-v2.md >= 1",
-        "grep -c 'Session 7' docs/session-map-v2.md >= 1 (all 8 sessions present, 0-indexed)",
-        "grep -c 'a2z-cf-cms-v1' docs/session-map-v2.md == 0 (no old TheIWise Worker name)"
+        "Four sites endpoints registered on admin api",
+        "BEHAVIORAL: GIVEN dev bypass + valid domain 'mysite.example', WHEN POST /api/admin/sites is called with {domain,vertical_slug:'home',activity:'main'}, THEN response is 201 with {resource:{id, domain, status:'draft'}} AND a site_creation_job row was created AND assertNotProtectedDomain was called (no theiwise.com may pass)."
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T14",
-      "title": "Tests — add cms-routing.test.ts (T3), access-auth-identity.test.ts + access-auth-service-token.test.ts (T4), protected-domains.test.ts (T9), env-typing.test.ts (T2), infra-verify.test.ts + worker-config-verify.test.ts (T11), legacy-ref-allowlist.test.ts (T10); all existing tests must continue to pass",
+      "title": "Add admin verticals and domains endpoints: GET /verticals, GET /domains, PATCH /domains/:id",
       "category": "api",
       "targetFiles": [
-        "api/test/cms-routing.test.ts",
-        "api/test/access-auth-identity.test.ts",
-        "api/test/access-auth-service-token.test.ts",
-        "api/test/protected-domains.test.ts",
-        "api/test/env-typing.test.ts",
-        "api/test/infra-verify.test.ts",
-        "api/test/worker-config-verify.test.ts",
-        "api/test/legacy-ref-allowlist.test.ts"
+        "api/src/admin/api.ts"
       ],
       "acceptanceCriteria": [
-        "cd api && npm test exits 0 (all test files pass including all new and existing tests)",
-        "grep -c 'ADMIN_HOST\\|cms.kodigital.app' api/test/cms-routing.test.ts >= 1 (routing test covers ADMIN_HOST)",
-        "grep -c 'common_name' api/test/access-auth-service-token.test.ts >= 1 (service token test covers common_name path)",
-        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/test/env-typing.test.ts >= 1 (env-typing test verifies new secret fields)",
-        "BEHAVIORAL: GIVEN legacy-ref-allowlist.test.ts runs the verify script WHEN api/src/safety/protected-domains.ts contains 'theiwise.com' THEN script exits 0 AND when a random temp file contains 'theiwise.com' THEN script exits 1"
+        "Three additional endpoints",
+        "BEHAVIORAL: GIVEN seed migrations applied, WHEN GET /api/admin/verticals is called, THEN response is 200 with {resource:[{slug:'home'},{slug:'finance'},{slug:'travel'},{slug:'health'},{slug:'parenting'},{slug:'food'},{slug:'tech'},{slug:'lifestyle'}]} (8 items)."
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
+    },
+    {
+      "id": "T15",
+      "title": "Add Domains nav item to admin shell (9th explicit admin.get literal)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "Router has 9 literal admin.get('/admin... lines (preserves T10.AC1 contract)",
+        "'/admin/domains' route present and uses renderShell",
+        "BEHAVIORAL: GIVEN authenticated admin user, WHEN GET cms.kodigital.app/admin/domains is requested, THEN response is 200 HTML containing <meta data-area=\"domains\"> and a 'New Site' button trigger; nav links contain 'Domains'."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T16",
+      "title": "Build Domains admin page (list + columns + actions + New Site modal)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/router.ts",
+        "api/src/admin/views/domains.ts"
+      ],
+      "acceptanceCriteria": [
+        "Domains view contains all 9 required columns and 6 actions",
+        "BEHAVIORAL: GIVEN admin user on /admin/domains, WHEN the New Site button is clicked, THEN a modal appears with three form fields (Domain text input, Vertical select, Activity select defaulted to 'main') and a 'Create site' submit button; all inputs have <label> or aria-label; the modal supports keyboard ESC to close."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T17",
+      "title": "Build site-provisioning runner with 15 step keys",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 15 step keys present in steps registry",
+        "BEHAVIORAL: GIVEN a pending site_creation_job with status='pending', WHEN POST /api/admin/sites/:id/provision/next is called 15 times in sequence, THEN each call advances exactly one step, persists per-step input/output/status to site_creation_job_steps with attempt_count incremented, returns 200 with {current_step, status} envelope, and the 15th response returns status='completed'."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T18",
+      "title": "Enforce dry-run safety in provisioning route mutation paths",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/cloudflare-interfaces.ts"
+      ],
+      "acceptanceCriteria": [
+        "Both env helpers consulted before any CF call + uses CLOUDFLARE_PROVISIONING_API_TOKEN exclusively (no CLOUDFLARE_API_TOKEN)",
+        "No reference to CLOUDFLARE_API_TOKEN anywhere in site-provisioning",
+        "BEHAVIORAL: GIVEN SITE_PROVISIONING_DRY_RUN='true' (default), WHEN attach_domain_to_new_worker_or_mark_pending step runs, THEN no fetch() is issued to api.cloudflare.com (intercept proves zero outbound) AND the step persists status='completed_dry_run' AND a cache_purge_log row records the dry-run attempt with both env flag values."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T19",
+      "title": "Implement create_site_settings step seeding all 12 required keys per site",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 12 setting keys named",
+        "BEHAVIORAL: GIVEN a freshly-created site, WHEN the create_site_settings step completes, THEN SELECT COUNT(*) FROM site_settings WHERE site_id=? returns 12, and tagline + site_description contain deterministic stub values referencing the site name (no AI/OpenAI call was made)."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T20",
+      "title": "Implement legal-template variable substitution in render_generic_legal_pages step",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/legal-renderer.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 6 template variables substituted",
+        "BEHAVIORAL: GIVEN a global legal_templates row for 'privacy-policy' containing '{{site_name}}' and '{{domain}}', WHEN render_generic_legal_pages_with_site_variables runs for site {name:'Acme', domain:'acme.example'}, THEN the rendered HTML stored in pages.content_html contains 'Acme' and 'acme.example' and no '{{' substrings."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T21",
+      "title": "Site-aware Articles tab UX (Site field + filters + columns + editor)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/views/articles.ts",
+        "api/src/admin/views/article-editor.ts"
+      ],
+      "acceptanceCriteria": [
+        "Filters render in the toolbar markup",
+        "BEHAVIORAL: GIVEN no site selected in the article editor, WHEN the user attempts to save, THEN the form blocks submit with an aria-live='polite' status message stating 'Site is required' AND the POST is never sent. WHEN a site IS selected, THEN the category dropdown is filtered to only categories allocated to that site's vertical(s)."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T22",
+      "title": "Site-aware Pages tab UX (Site filter + Page-type filter + Site selector in About editor)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/views/pages.ts",
+        "api/src/admin/views/page-editor.ts"
+      ],
+      "acceptanceCriteria": [
+        "Filters and page-type select present",
+        "BEHAVIORAL: GIVEN an About page editor, WHEN no site_id is selected, THEN saving is blocked with a status message; legal templates (privacy-policy/terms/do-not-sell/contact) MAY save with site_id NULL (global) and the UI surfaces a 'Global template' badge."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T23",
+      "title": "Site-aware Categories tab UX (verticals multi-select)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/views/categories.ts"
+      ],
+      "acceptanceCriteria": [
+        "Verticals multi-select with the canonical 8 slugs is rendered",
+        "BEHAVIORAL: GIVEN a category editor, WHEN the user selects verticals ['home','tech'] and saves, THEN category_verticals contains both rows (category_id, vertical_id) and the public site of vertical='home' or 'tech' now sees this category in its allocated list."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T24",
+      "title": "Site-scoped Settings tab UX (required Site selector + per-site keys + settings_version bump)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/views/settings.ts",
+        "api/src/admin/api.ts"
+      ],
+      "acceptanceCriteria": [
+        "Settings view requires site selector",
+        "BEHAVIORAL: GIVEN a site exists with settings_version=1, WHEN PATCH /api/admin/settings updates 'tagline' for that site_id, THEN site_settings row (site_id, 'tagline') value is updated AND sites.settings_version is incremented to 2 in the same transaction."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T25",
+      "title": "Site filters on Media and Tags tabs",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/views/media.ts",
+        "api/src/admin/views/tags.ts"
+      ],
+      "acceptanceCriteria": [
+        "Both views render a Site filter dropdown",
+        "BEHAVIORAL: GIVEN media rows with site_id IN {A, B, NULL}, WHEN the Media tab Site filter is set to 'A', THEN only A's media + global (NULL) media are returned by GET /api/admin/media?site_id=A; explicit 'Global only' selection returns only NULL."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T26",
+      "title": "Public middleware: inject SiteContext + reject when hostname has no site",
+      "category": "api",
+      "targetFiles": [
+        "api/src/public/middleware.ts",
+        "api/src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "Middleware function exported and registered before public routes",
+        "BEHAVIORAL: GIVEN hostname='unknown-site.example' with no row in sites/domains, WHEN GET / is requested, THEN response is a safe 404 (no admin info leak, body MUST NOT contain 'cms.kodigital.app'); WHEN hostname='cms.kodigital.app' is requested via the public router, THEN it returns 404 (admin host MUST NOT resolve as public)."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T27",
+      "title": "Site-aware public routes (article/category/page/feed/sitemap/robots/ads queries scoped by site_id)",
+      "category": "api",
+      "targetFiles": [
+        "api/src/public/router.ts",
+        "api/src/public/feeds.ts",
+        "api/src/public/sitemap.ts"
+      ],
+      "acceptanceCriteria": [
+        "Public router calls site context for each handler",
+        "BEHAVIORAL: GIVEN sites A and B each with one article slug='hello', WHEN GET / on hostname-A returns the homepage feed, THEN only A's article is listed; WHEN GET /article/hello on hostname-B is requested, THEN only B's article is rendered (and A's is not visible). robots.txt/ads.txt reflect site_settings rows for that site_id."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T28",
+      "title": "Harden off-ADMIN_HOST /admin 404 with Cache-Control:no-store + X-Robots-Tag:noindex,nofollow",
+      "category": "api",
+      "targetFiles": [
+        "api/src/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "Both headers set when /admin off-ADMIN_HOST returns 404",
+        "BEHAVIORAL: GIVEN hostname='example.com' (not ADMIN_HOST), WHEN curl -i https://example.com/admin is requested, THEN status is 404, headers include 'Cache-Control: no-store' AND 'X-Robots-Tag: noindex, nofollow', AND the response body does NOT contain 'cms.kodigital.app' AND no Location redirect header is set."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T29",
+      "title": "Add site-context + tenant-boundary + dry-run + legal-template + protected-domain tests",
+      "category": "infra",
+      "targetFiles": [
+        "api/test/site-context.test.ts",
+        "api/test/tenant-guards.test.ts",
+        "api/test/site-provisioning-dry-run.test.ts",
+        "api/test/legal-template-render.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "At least 8 describe/it scopes across the four new test files cover Part-16 cases",
+        "BEHAVIORAL: GIVEN the four new test files exist, WHEN `cd api && npm test` is run, THEN exit code is 0 and at least 12 new individual test cases pass."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T30",
+      "title": "Add admin-domain + new-site flow + off-admin-host integration tests",
+      "category": "infra",
+      "targetFiles": [
+        "api/test/admin-domains.test.ts",
+        "api/test/admin-sites-create.test.ts",
+        "api/test/off-admin-host-404-headers.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Tests assert protected-domain rejection + idempotency_key + 404 headers",
+        "BEHAVIORAL: GIVEN POST /api/admin/sites with domain='theiwise.com', WHEN executed, THEN response is 400 with error referencing protected-domain rejection AND no row is inserted into sites/domains/site_creation_jobs."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T31",
+      "title": "Generate acceptance-tests bundle (one script per behavioral AC) with chmod 0444 immutability",
+      "category": "script",
+      "targetFiles": [
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/run_all.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T01_migrations_apply_locally.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T17_provisioning_runner_15_steps.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T18_dry_run_no_cf_calls.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T28_off_admin_host_headers.sh"
+      ],
+      "acceptanceCriteria": [
+        "At least one script per story (>=30 .sh files) and each has >=1 check() call",
+        "run_all.sh exits 0 in dev-server-available environments and 2 (NEEDS_RUNTIME) only for behavioral tests requiring `wrangler dev`"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T32",
+      "title": "Update progress.txt + GUARDRAILS.md + prd.json for Phase B Ralph context",
+      "category": "config",
+      "targetFiles": [
+        "progress.txt",
+        "GUARDRAILS.md",
+        "prd.json"
+      ],
+      "acceptanceCriteria": [
+        "GUARDRAILS.md re-states HARD RED LINE forbidden refs",
+        "progress.txt declares Phase 3 milestones"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T33",
+      "title": "Verify all 5 CI commands pass post-implementation",
+      "category": "script",
+      "targetFiles": [
+        "api/package.json"
+      ],
+      "acceptanceCriteria": [
+        "All 5 verify commands exit 0",
+        "package.json contains all 5 npm scripts"
+      ],
+      "passes": false,
+      "state": "planned"
     }
   ]
 }
