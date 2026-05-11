@@ -525,8 +525,8 @@
       "id": "T23",
       "title": "Site-aware Categories tab UX (verticals multi-select)",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T23"
       ],

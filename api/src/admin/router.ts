@@ -22,6 +22,7 @@ import { renderArticlesView } from "./views/articles";
 import { renderArticleEditorView } from "./views/article-editor";
 import { renderPagesView } from "./views/pages";
 import { renderPageEditorView } from "./views/page-editor";
+import { renderCategoriesView } from "./views/categories";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -63,9 +64,9 @@ admin.get("/admin/articles/:id/edit", (c) => c.html(renderArticleEditorView()));
 admin.get("/admin/pages", (c) => c.html(renderPagesView()));
 admin.get("/admin/pages/new", (c) => c.html(renderPageEditorView()));
 admin.get("/admin/pages/:id/edit", (c) => c.html(renderPageEditorView()));
-admin.get("/admin/categories", (c) =>
-  c.html(renderShell("Categories", "categories")),
-);
+admin.get("/admin/categories", (c) => c.html(renderCategoriesView()));
+admin.get("/admin/categories/new", (c) => c.html(renderCategoriesView()));
+admin.get("/admin/categories/:id/edit", (c) => c.html(renderCategoriesView()));
 admin.get("/admin/tags", (c) => c.html(renderShell("Tags", "tags")));
 admin.get("/admin/media", (c) => c.html(renderShell("Media", "media")));
 admin.get("/admin/settings", (c) => c.html(renderShell("Settings", "settings")));
