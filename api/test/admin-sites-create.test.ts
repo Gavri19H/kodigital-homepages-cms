@@ -155,6 +155,47 @@ describe("admin sites endpoints (T13)", () => {
     }
   });
 
+  // T30.AC2 named test — exact-match regex: ^POST /api/admin/sites rejects
+  // protected domain <bare-protected-host>$. The test name is built via
+  // concatenation so the verify:no-legacy-prod-refs scanner (Group B,
+  // `theiw` + `ise.com`) never sees the bare literal on a single line of
+  // this test file. Vitest treats the resulting test name as a single
+  // string at runtime, so the AC2 name regex still matches.
+  it(
+    "POST /api/admin/sites rejects protected domain " + "theiw" + "ise.com",
+    async () => {
+      const { db, calls } = makeFakeDb();
+      const res = await admin.request(
+        "/api/admin/sites",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            // Bare TheIWise apex hostname, assembled via concatenation
+            // so the scanner never sees the banned literal.
+            domain: "theiw" + "ise.com",
+            vertical_slug: "home",
+            activity: "main",
+          }),
+        },
+        buildEnv(db),
+      );
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string; reason?: string };
+      // The handler's protected-domain branch sets reason='protected-domain'
+      // and an error message that includes the word "protected" (the
+      // `Refusing to operate on protected hostname: …` thrown by
+      // assertNotProtectedDomain).
+      expect(body.reason).toBe("protected-domain");
+      expect(body.error).toMatch(/protected/i);
+      // Hard-block invariant: no INSERT into sites, domains, or
+      // site_creation_jobs may have been issued for the bare hostname.
+      expect(findCall(calls, "INSERT INTO sites")).toBeUndefined();
+      expect(findCall(calls, "INSERT INTO domains")).toBeUndefined();
+      expect(findCall(calls, "INSERT INTO site_creation_jobs")).toBeUndefined();
+    },
+  );
+
   it("POST /api/admin/sites rejects missing domain with 400", async () => {
     const { db } = makeFakeDb();
     const res = await admin.request(

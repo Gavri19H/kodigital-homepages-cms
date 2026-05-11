@@ -694,8 +694,8 @@
       "id": "T30",
       "title": "Add admin-domain + new-site flow + off-admin-host integration tests",
       "category": "infra",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T30"
       ],
