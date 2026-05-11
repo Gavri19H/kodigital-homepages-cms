@@ -193,8 +193,8 @@
       "id": "T9",
       "title": "Seed multi-vertical categories with category_verticals matrix",
       "category": "migration",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],

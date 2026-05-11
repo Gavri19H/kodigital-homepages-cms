@@ -46,3 +46,45 @@ INSERT OR IGNORE INTO legal_templates (slug, title, content_md, version) VALUES 
 INSERT OR IGNORE INTO legal_templates (slug, title, content_md, version) VALUES ('terms', 'Terms of Service', '# Terms of Service for {{site_name}}' || char(10) || char(10) || 'These terms govern your use of {{site_name}} ({{domain}}) operated from {{address}}. Effective date: {{effective_date}}.', 1);
 INSERT OR IGNORE INTO legal_templates (slug, title, content_md, version) VALUES ('do-not-sell', 'Do Not Sell My Personal Information', '# Do Not Sell My Personal Information — {{site_name}}' || char(10) || char(10) || 'Residents of California and other applicable jurisdictions may opt out of the sale of personal information collected by {{site_name}} ({{domain}}). Submit requests to {{owner_email}}. Effective date: {{effective_date}}.', 1);
 INSERT OR IGNORE INTO legal_templates (slug, title, content_md, version) VALUES ('contact', 'Contact {{site_name}}', '# Contact {{site_name}}' || char(10) || char(10) || '{{site_name}} ({{vertical}}) is reachable at {{owner_email}}. Mailing address: {{address}}. Domain: {{domain}}. Effective date: {{effective_date}}.', 1);
+
+-- ==================================================================
+-- Phase 3, T9 — seed multi-vertical categories + category_verticals
+-- ------------------------------------------------------------------
+-- 7 global categories + many-to-many matrix mapping each to one or
+-- more verticals. category_verticals rows use slug-keyed subqueries
+-- against (categories, verticals) so autoincrement IDs aren't hard
+-- coded; INSERT OR IGNORE is idempotent against the composite PK.
+-- T9.AC1 grep `INSERT (OR IGNORE )?INTO (categories|category_verticals)`
+-- must be >= 14 (we emit 23). T9.AC2: healthy-meals maps to THREE
+-- verticals (health, food, parenting) per the architect example.
+-- ==================================================================
+
+-- 3) Global categories — 7 catalog entries the New Site flow can
+--    allocate based on the site's chosen vertical(s).
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('healthy-meals', 'Healthy Meals', 1);
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('family-travel', 'Family Travel', 2);
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('personal-finance', 'Personal Finance', 3);
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('smart-home', 'Smart Home', 4);
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('quick-recipes', 'Quick Recipes', 5);
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('tech-gadgets', 'Tech Gadgets', 6);
+INSERT OR IGNORE INTO categories (slug, name, display_order) VALUES ('wellness', 'Wellness', 7);
+
+-- 4) category_verticals matrix — many-to-many. healthy-meals is the
+--    canonical 3-way example (health, food, parenting); the rest each
+--    map to two verticals so every category has >= 1 vertical.
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'healthy-meals'), (SELECT id FROM verticals WHERE slug = 'health'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'healthy-meals'), (SELECT id FROM verticals WHERE slug = 'food'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'healthy-meals'), (SELECT id FROM verticals WHERE slug = 'parenting'), 2);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'family-travel'), (SELECT id FROM verticals WHERE slug = 'travel'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'family-travel'), (SELECT id FROM verticals WHERE slug = 'parenting'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'personal-finance'), (SELECT id FROM verticals WHERE slug = 'finance'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'personal-finance'), (SELECT id FROM verticals WHERE slug = 'lifestyle'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'smart-home'), (SELECT id FROM verticals WHERE slug = 'home'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'smart-home'), (SELECT id FROM verticals WHERE slug = 'tech'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'quick-recipes'), (SELECT id FROM verticals WHERE slug = 'food'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'quick-recipes'), (SELECT id FROM verticals WHERE slug = 'lifestyle'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'tech-gadgets'), (SELECT id FROM verticals WHERE slug = 'tech'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'tech-gadgets'), (SELECT id FROM verticals WHERE slug = 'lifestyle'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'wellness'), (SELECT id FROM verticals WHERE slug = 'health'), 0);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'wellness'), (SELECT id FROM verticals WHERE slug = 'lifestyle'), 1);
+INSERT OR IGNORE INTO category_verticals (category_id, vertical_id, display_order) VALUES ((SELECT id FROM categories WHERE slug = 'wellness'), (SELECT id FROM verticals WHERE slug = 'parenting'), 2);
