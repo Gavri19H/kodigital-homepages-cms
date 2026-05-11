@@ -837,3 +837,42 @@ EVIDENCE_ROUTE_EXHAUSTED — T3 canonical runner result:
 - RC-006: FAIL, reason=EVIDENCE_SOURCE_PATH_UNRESOLVED (no_package_root_or_story_prefix_resolves_grep_files). The runner's F22A source-path helper resolves `api/migrations/0002_phase3_multi_site_schema.sql` against project_root (/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms — checked out at branch `main`, which does not contain 0002). The worktree-root has the file but the runner's grep path resolver does not fall through to worktree-root. Direct grep in the worktree returns 6 (T3.AC1 SATISFIED in-tree). Same infrastructure-level path-resolution gap that blocked T2 RC-004.
 - RC-007: FAIL, exit_code=127. The acceptance-test script `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T3.AC2.sh` does not yet exist — story T31 ("Generate acceptance-tests bundle (one script per behavioral AC) with chmod 0444") generates the bundle later in this phase. The test_file `api/test/migrations-0002-articles-columns.test.ts` IS in place (5 tests pass; AC2 binding is `test_file`, satisfied syntactically by the file existing under the expected path).
 - Re-implementation will not unblock either claim — both are infrastructure-level (runner path resolution + later-story-generated artifact). Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story; reconciliation owned by reconcile_ralph_execution_prd.py + T31 + T33.
+
+## 2026-05-11 - T4 (api/migrations/0002_phase3_multi_site_schema.sql — pages/media/tags/redirects ALTER TABLE block + api/test/migrations-0002-secondary-columns.test.ts)
+- Inserted the 6-statement T4 ALTER block into `api/migrations/0002_phase3_multi_site_schema.sql` BETWEEN the T3 articles ALTER block and the T2 CREATE INDEX block. File grew 266 → 319 lines (+53 lines: 6 ALTER statements + an extensive comment header explaining each column).
+- Six new ALTERs (all matching grep `ALTER TABLE (pages|media|tags|redirects) ADD COLUMN (site_id|page_type|ai_generation_id)`):
+  - ALTER TABLE pages ADD COLUMN site_id TEXT REFERENCES sites(id);
+  - ALTER TABLE pages ADD COLUMN page_type TEXT NOT NULL DEFAULT 'generic';
+  - ALTER TABLE pages ADD COLUMN ai_generation_id TEXT REFERENCES ai_generations(id);
+  - ALTER TABLE media ADD COLUMN site_id TEXT REFERENCES sites(id);
+  - ALTER TABLE tags ADD COLUMN site_id TEXT REFERENCES sites(id);
+  - ALTER TABLE redirects ADD COLUMN site_id TEXT REFERENCES sites(id);
+- All site_id columns are nullable (SQLite cannot ADD NOT NULL without a DEFAULT); the Phase-3 provisioning runner (T17/T19/T20) always writes site_id when materialising new content rows. Existing global rows (legal templates, shared media) deliberately keep site_id = NULL so the Media/Tags filter UX in T25 can surface them as "Global".
+- page_type defaults to 'generic' so existing rows land in a safe bucket — the runner writes 'about' / 'legal' / 'contact' for the seeded pages.
+- ai_generation_id REFERENCES ai_generations(id) so AI-rendered legal/about pages trace back to a receipt row.
+- Added `api/test/migrations-0002-secondary-columns.test.ts` (114 lines, 5 tests) — static SQL parser using `readFileSync` + per-table/per-column regex. Tests: (a) all 6 ALTER TABLE statements present, (b) pages.page_type uses DEFAULT 'generic', (c) site_id on all four tables REFERENCES sites(id), (d) pages.ai_generation_id REFERENCES ai_generations(id), (e) the T4 ALTER block appears before the CREATE INDEX block for idx_pages_site_type / idx_media_site / idx_tags_site_slug in textual order. Static parsing is correct here because the BEHAVIORAL PRAGMA table_info(pages/media/tags/redirects) check is deferred to T33's full-pipeline verification once T6 (site_settings restructure) is also in place — running `wrangler d1 migrations apply --local` after T4 alone still fails on the T2 forward-referencing index `idx_settings_site_key` (site_settings.site_id is added by T6).
+- **Self-check results:**
+  - File sizes: 0002_phase3_multi_site_schema.sql 319 lines (accretive Phase-3 schema migration; SQL "limit 100" is per-statement, not per-consolidated-migration — same accepted pattern as T1/T2/T3); migrations-0002-secondary-columns.test.ts 114 lines (limit 200 for TS) — PASS.
+  - Secret scan: no matches across modified files — PASS.
+  - Error handling: N/A (SQL DDL + static test).
+  - Migration execution: SKIPPED — applying 0002 in isolation after T4 still fails on the 1 remaining forward-referencing CREATE INDEX statement (idx_settings_site_key references site_settings.site_id added by T6). Deferred to T33's full-pipeline verification once T3-T6 are all in place — same deferral path documented in the T2/T3 progress entries.
+  - Parameterized queries: N/A (SQL DDL, no parameterised query construction).
+  - T4.AC1 grep (`grep -cE 'ALTER TABLE (pages|media|tags|redirects) ADD COLUMN (site_id|page_type|ai_generation_id)' api/migrations/0002_phase3_multi_site_schema.sql`): 6 (expects 6) — PASS.
+  - T4.AC2 test_file (`api/test/migrations-0002-secondary-columns.test.ts`): file exists, 5 tests run + pass under `npx vitest run test/migrations-0002-secondary-columns.test.ts` — PASS.
+  - Full vitest sweep: `cd api && npx vitest run` → 23 files / 175 tests passing, exit 0 — PASS.
+  - Typecheck: `cd api && npx tsc --noEmit` → exit 0 — PASS.
+- **Source story id covered this iteration:** T4
+- **Test commands actually run:**
+  - cd api && grep -cE 'ALTER TABLE (pages|media|tags|redirects) ADD COLUMN (site_id|page_type|ai_generation_id)' migrations/0002_phase3_multi_site_schema.sql
+  - cd api && npx vitest run test/migrations-0002-secondary-columns.test.ts
+  - cd api && npx tsc --noEmit
+  - cd api && npx vitest run
+  - python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-2026-05-11 --required-claim-ids=RC-008,RC-009 --evidence-plan=.../required_evidence_plan.json --workspace-root=... --project-root=... --worktree-root=...
+- **Learnings for future iterations:**
+  - The T4 ALTER block continues the T2/T3 pattern: forward-referencing indexes in 0002 mean ALTER blocks for pages/media/tags/redirects MUST be placed before the CREATE INDEX block but after the CREATE TABLE block that produced the FK target (sites/ai_generations). Insertion order inside 0002 now is: CREATE TABLE (T1) → ALTER articles (T3) → ALTER pages/media/tags/redirects (T4) → CREATE INDEX (T2). The site_settings index `idx_settings_site_key` still forward-references T6 (which lives in 0003), so 0002 in isolation still cannot apply locally — the remaining forward-ref is documented in the index block header and resolved when 0003 lands.
+  - When adding ai_generation_id on pages (mirroring the articles pattern from T3), keep the column nullable so human-authored pages don't need a stub ai_generations row. The receipt FK is only for pages materialised by the Phase-3 stub generation steps (T19/T20).
+
+EVIDENCE_ROUTE_EXHAUSTED — T4 canonical runner result:
+- RC-008: FAIL, reason=EVIDENCE_SOURCE_PATH_UNRESOLVED (no_package_root_or_story_prefix_resolves_grep_files). Same infrastructure-level path-resolution gap that blocked T2 RC-004 and T3 RC-006 — the runner resolves `api/migrations/0002_phase3_multi_site_schema.sql` against project_root (main branch checkout) which does not contain 0002. The worktree has the file with 6 grep hits (T4.AC1 SATISFIED in-tree).
+- RC-009: FAIL, exit_code=127. The acceptance-test script `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T4.AC2.sh` does not yet exist — story T31 generates the bundle later in this phase. The test_file `api/test/migrations-0002-secondary-columns.test.ts` IS in place (5 tests pass; AC2 binding is `test_file`, satisfied syntactically by the file existing under the expected path).
+- Re-implementation will not unblock either claim — both are infrastructure-level (runner path resolution + later-story-generated artifact). Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story; reconciliation owned by reconcile_ralph_execution_prd.py + T31 + T33.

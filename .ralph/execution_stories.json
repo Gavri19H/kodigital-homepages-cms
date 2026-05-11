@@ -77,8 +77,8 @@
       "id": "T4",
       "title": "Add site_id/page_type to pages and site_id to media/tags/redirects",
       "category": "migration",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T4"
       ],
