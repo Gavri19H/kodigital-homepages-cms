@@ -309,8 +309,8 @@
       "id": "T14",
       "title": "Add admin verticals and domains endpoints: GET /verticals, GET /domains, PATCH /domains/:id",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14"
       ],

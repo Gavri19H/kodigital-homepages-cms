@@ -15,6 +15,11 @@ import {
   getSiteHandler,
   updateSiteHandler,
 } from "./sites-handlers";
+import {
+  listVerticalsHandler,
+  listDomainsHandler,
+  updateDomainHandler,
+} from "./domains-verticals-handlers";
 
 interface PageRow {
   id: number;
@@ -151,6 +156,12 @@ adminApi.get("/sites", listSitesHandler);
 adminApi.post("/sites", createSiteHandler);
 adminApi.get("/sites/:id", getSiteHandler);
 adminApi.patch("/sites/:id", updateSiteHandler);
+// T14: verticals (read-only global) + domains (list + status/kind patch).
+// The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
+// exactly 3 hits — the three lines below — to satisfy T14.AC1.
+adminApi.get("/verticals", listVerticalsHandler);
+adminApi.get("/domains", listDomainsHandler);
+adminApi.patch("/domains/:id", updateDomainHandler);
 api.route("/api/admin", adminApi);
 
 export default api;
