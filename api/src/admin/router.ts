@@ -2,7 +2,9 @@
 // all share the same Cloudflare Access auth gate.
 //
 // Two route surfaces:
-//   /admin/*       — HTML shell pages (T10.AC1: 8 declared GETs).
+//   /admin/*       — HTML shell pages (T10.AC1 baseline 8 GETs +
+//                    T15.AC1 added /admin/domains → 9 literal admin.get
+//                    declarations counted by contract grep).
 //   /api/admin/*   — JSON API (CRUD + workflow + AI placeholders).
 //
 // Both surfaces are gated by `accessAuth` (CF Access JWT presence + JWKS
@@ -45,8 +47,10 @@ function renderShell(title: string, area: string): string {
 </html>`;
 }
 
-// T10.AC1: literal GET declarations for the 8 shell paths so a contract
-// grep counts them directly (do not derive paths from a constant array).
+// T10.AC1 + T15.AC1: literal GET declarations for the 9 shell paths so a
+// contract grep counts them directly (do not derive paths from a constant
+// array). T15 added the /admin/domains literal as the 9th entry — see
+// the contract-binding regex documented in implementation_digest.md.
 admin.get("/admin", (c) => c.html(renderShell("Admin", "home")));
 admin.get("/admin/articles", (c) => c.html(renderShell("Articles", "articles")));
 admin.get("/admin/pages", (c) => c.html(renderShell("Pages", "pages")));
@@ -57,6 +61,7 @@ admin.get("/admin/tags", (c) => c.html(renderShell("Tags", "tags")));
 admin.get("/admin/media", (c) => c.html(renderShell("Media", "media")));
 admin.get("/admin/settings", (c) => c.html(renderShell("Settings", "settings")));
 admin.get("/admin/presets", (c) => c.html(renderShell("Presets", "presets")));
+admin.get("/admin/domains", (c) => c.html(renderShell("Domains", "domains")));
 
 // T10.AC3: admin auth-status endpoint. Reports whether the dev-bypass is in
 // effect for this request so the UI can flag it visually.

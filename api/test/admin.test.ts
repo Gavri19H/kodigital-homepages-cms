@@ -81,7 +81,7 @@ describe("admin router — auth gate (T10.AC4)", () => {
   });
 });
 
-describe("admin router — shell GETs (T10.AC1)", () => {
+describe("admin router — shell GETs (T10.AC1 + T15.AC1)", () => {
   const SHELL_PATHS = [
     "/admin",
     "/admin/articles",
@@ -91,6 +91,7 @@ describe("admin router — shell GETs (T10.AC1)", () => {
     "/admin/media",
     "/admin/settings",
     "/admin/presets",
+    "/admin/domains",
   ];
   for (const path of SHELL_PATHS) {
     it(`GET ${path} returns 200 HTML shell with bypass`, async () => {
@@ -101,6 +102,17 @@ describe("admin router — shell GETs (T10.AC1)", () => {
       expect(text).toContain("kodigital-admin-shell");
     });
   }
+});
+
+describe("admin router — domains shell (T15.AC3)", () => {
+  it("GET /admin/domains renders shell with domains data-area", async () => {
+    const res = await admin.request("/admin/domains", {}, bypassEnv());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toMatch(/text\/html/);
+    const text = await res.text();
+    expect(text).toContain('data-area="domains"');
+    expect(text).toContain("Domains");
+  });
 });
 
 describe("admin router — auth-status (T10.AC3)", () => {
