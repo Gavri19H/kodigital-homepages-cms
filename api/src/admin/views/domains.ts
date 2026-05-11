@@ -61,7 +61,7 @@ export function renderDomainsView(): string {
 
   <section class="domains-toolbar">
     <button id="open-new-site-modal" type="button"
-            data-action="open-new-site-modal">New Site</button>
+            data-action="open-new-site-modal">Add New Site</button>
   </section>
 
   <table class="domains-list" aria-label="Domains list">
@@ -94,7 +94,7 @@ export function renderDomainsView(): string {
 
   <dialog id="new-site-modal" aria-labelledby="new-site-modal-title">
     <form method="dialog" data-action="submit-new-site">
-      <h2 id="new-site-modal-title">New Site</h2>
+      <h2 id="new-site-modal-title">Add New Site</h2>
 
       <p>
         <label for="new-site-domain">Domain</label>

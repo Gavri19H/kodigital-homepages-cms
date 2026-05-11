@@ -846,8 +846,12 @@
       ],
       "category": "ui",
       "id": "WARN-FIX-3",
-      "passes": false,
-      "state": "planned",
+      "passes": true,
+      "scoped_quality_commands": [],
+      "source_story_ids": [
+        "WARN-FIX-3"
+      ],
+      "state": "implemented",
       "targetFiles": [
         "api/src/admin/views/domains.ts"
       ],
