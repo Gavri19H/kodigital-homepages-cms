@@ -3,6 +3,36 @@
 Read these guardrails BEFORE implementing any story.
 They are category-filtered from past mission failures and production rules.
 
+## HARD RED LINE — forbidden refs (Phase B Ralph context — restated by T32)
+
+The following identifiers MUST NOT appear in any committed source file under
+`api/src/**`, admin templates, route handlers, wrangler.toml `name`/binding
+values, KV/D1/R2 binding names, npm script bodies, or freshly authored verify
+scripts. They are legacy-production references from the predecessor stack and
+are scanned by `cd api && npm run verify:no-legacy-prod-refs`. Banned tokens:
+
+- `theiwise.com` — legacy public hostname (Phase 3 public hosts are per-site).
+- `a2z-cf-cms-v1-api` — legacy Worker name (Phase 3 Worker is `kodigital-homepages-cms-api`).
+- `a2z-cf-cms-v1-db` — legacy D1 database name (Phase 3 is `kodigital-homepages-cms-db`).
+- `insureprimo` — legacy vertical/funnel (not part of Phase 3 multi-site verticals).
+- `psychic-quiz` — legacy quiz funnel (not part of Phase 3 multi-site verticals).
+- `rental-booking` — legacy funnel (not part of Phase 3 multi-site verticals).
+
+Allowed exceptions (verify script self-excludes these):
+- The Cloudflare account UUID `44c73f76-6ed5-4b26-b442-6c2044326c4d` is reused by
+  Phase 3 as `account_id` in `wrangler.toml`, CI workflow files, docs, and the
+  verify script itself — it is NOT in the banned scan set.
+- Reference docs that document the legacy stack and the no-touch contract:
+  `docs/source-architecture.md`, `docs/no-touch-red-line.md`,
+  `docs/reference/current-theiwise-technical-spec.md`.
+- This GUARDRAILS.md file restates the banned tokens (this section) and the
+  progress.txt Codebase Patterns entry lists them — both are reference-only
+  and excluded from the verify scan.
+
+If a Phase B story incidentally introduces one of the banned tokens in source,
+the verify script will fail and the story is NOT done — rename or remove the
+reference before mark-implemented.
+
 ## API Safety Rules
 - All user input must be validated at system boundary.
 - Error responses must not leak stack traces or internal paths.

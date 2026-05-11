@@ -5,6 +5,72 @@
 - Banned legacy production identifiers (must NOT appear in active code/config): `theiwise.com`, `a2z-cf-cms-v1-api`, `a2z-cf-cms-v1-db`, `insureprimo`, `quotesRoutes`, `psychic-quiz`, `rental-booking`. The Cloudflare account UUID `44c73f76-6ed5-4b26-b442-6c2044326c4d` is shared with the new project (allowed in wrangler.toml/CI/docs/verify-script as account_id), so it is NOT in the banned scan set.
 - Verify script must self-exclude and exclude legacy reference docs (docs/source-architecture.md, docs/no-touch-red-line.md, docs/reference/current-theiwise-technical-spec.md).
 
+## Phase 3 Milestones (declared by T32 for Phase B Ralph context)
+
+Phase 3 (Session 3 — multi-site core) delivers the following milestones across
+T1..T33 of `openspec/changes/kodigital-homepages-cms-phase3-2026-05-11`:
+
+- M1 — Phase 3 multi-site schema and seeds (T1..T9):
+  - 10 multi-site core tables (verticals, sites, domains, category_verticals,
+    site_categories, legal_templates, site_creation_jobs,
+    site_creation_job_steps, ai_generations, cache_purge_log) + composite
+    indexes leading with `site_id`.
+  - `site_id` + homepage fields added to articles; `site_id` + `page_type`
+    added to pages; `site_id` added to media/tags/redirects.
+  - Per-site slug uniqueness on articles + pages (replacing globally-unique
+    slug constraints).
+  - `site_settings` restructured to `(site_id, key)` UNIQUE via
+    CREATE-INSERT-DROP-RENAME with `idx_settings_site_key`.
+  - Seeds: 8 verticals + multi-vertical categories + 4 legal templates;
+    `category_verticals` matrix.
+- M2 — Phase 3 tenant boundary modules (T10..T12):
+  - `site-context` module (`resolveSiteContextFromRequest`, `isAdminHost`,
+    `assertPublicSiteHostNotAdminHost`).
+  - `tenant-guards` module (`requireSiteIdForArticleInput`,
+    `assertSlugUniquePerSite`, etc.).
+  - DB helpers extended to accept `siteId` (`listArticles`,
+    `getArticleBySlug`, `listCategories`, `getMediaById`).
+- M3 — Phase 3 admin domain (T13..T20):
+  - Admin endpoints: GET/POST `/sites`, GET/PATCH `/sites/:id`, GET
+    `/verticals`, GET `/domains`, PATCH `/domains/:id`.
+  - Domains nav item (9th explicit admin.get literal) + Domains admin page
+    (list + columns + actions + New Site modal).
+  - Site-provisioning runner with 15 step keys (`/provision/next`),
+    dry-run safety in mutation paths, `create_site_settings` step seeding
+    all 12 required keys per site, legal-template variable substitution in
+    `render_generic_legal_pages`.
+- M4 — Phase 3 site-aware admin UX (T21..T25):
+  - Site-aware Articles tab (Site field + filters + columns + editor),
+    Pages tab (Site filter + Page-type filter + Site selector in About
+    editor), Categories tab (verticals multi-select), Settings tab
+    (required Site selector + per-site keys + `settings_version` bump),
+    Media + Tags tabs (Site filters).
+- M5 — Phase 3 public middleware + routing (T26..T28):
+  - Public middleware injects `SiteContext` and rejects requests whose
+    hostname has no site.
+  - Public routes (article/category/page/feed/sitemap/robots/ads queries)
+    are scoped by `site_id`.
+  - Off-`ADMIN_HOST` `/admin` returns 404 + `Cache-Control: no-store` +
+    `X-Robots-Tag: noindex, nofollow` (admin surface is single-host).
+- M6 — Phase 3 verification surface (T29..T33):
+  - Unit tests: site-context + tenant-boundary + dry-run + legal-template
+    + protected-domain.
+  - Integration tests: admin-domain + new-site flow + off-admin-host.
+  - Acceptance-tests bundle: one script per behavioral AC under
+    `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/` (33 per-
+    story scripts + `run_all.sh`), chmod 0444 immutability contract.
+  - Phase B Ralph context update: this file + GUARDRAILS.md HARD RED LINE
+    section + (canonical) `prd.json` left untouched per D11/D15.
+  - 5 CI commands green: `typecheck`, `test`, `verify:no-legacy-prod-refs`,
+    `verify:infra`, `verify:worker-config`.
+
+Phase B (next a2z phase) MUST treat the per-site tenant boundary as the
+default: every new admin endpoint, public route, and DB read/write
+introduced by Phase B stories must accept or derive `site_id` and route
+through `requireSiteIdForArticleInput`/`assertSlugUniquePerSite`/the
+`site-context` resolver. The HARD RED LINE forbidden-refs list at the top
+of GUARDRAILS.md applies to Phase B verbatim.
+
 ## 2026-05-07 - T1 (api/package.json + tsconfig.json + vitest.config.ts)
 - Created `api/package.json` with hono dependency; devDeps wrangler, vitest, typescript, tsx, @cloudflare/workers-types, @types/node.
 - Scripts: dev, test, test:watch, typecheck, verify:no-legacy-prod-refs, smoke:local, db:migrate:local, db:migrate:remote, deploy:staging, deploy:production.
