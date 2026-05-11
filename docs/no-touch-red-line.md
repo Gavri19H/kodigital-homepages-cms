@@ -23,7 +23,6 @@ listed in the verify script's `EXCLUDED_FILES`:
 - `quotesRoutes` — TheIWise legacy route module.
 - `psychic-quiz` — TheIWise legacy lead-funnel surface.
 - `rental-booking` — TheIWise legacy booking surface.
-- `kodigital2.cloudflareaccess.com` — legacy CF Access team domain.
 - `admin.theiwise.com` — legacy TheIWise admin host.
 - `7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425` — legacy CF Access AUD claim.
 - `44c73f76-6ed5-4b26-b442-6c2044326c4d` — legacy TheIWise D1 database id.
