@@ -32,6 +32,7 @@ SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 binding = "DB"
 database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
+migrations_dir = "migrations"
 
 [[kv_namespaces]]
 binding = "CACHE"

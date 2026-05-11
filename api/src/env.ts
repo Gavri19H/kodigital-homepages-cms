@@ -18,6 +18,7 @@ export interface Env {
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
   DEV_BYPASS_AUTH?: string;
+  PREVIEW_SECRET?: string;
   CLOUDFLARE_PROVISIONING_API_TOKEN?: string;
   CLOUDFLARE_CACHE_API_TOKEN?: string;
   ALLOWED_CF_SERVICE_TOKEN_IDS?: string;

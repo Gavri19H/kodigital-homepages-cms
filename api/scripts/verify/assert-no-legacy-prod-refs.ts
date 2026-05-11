@@ -63,6 +63,7 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
   "api/scripts/verify/assert-no-legacy-prod-refs.ts",
   "prd.json",
   "progress.txt",
+  "GUARDRAILS.md",
 ];
 
 // Files that legitimately contain Group B identifiers: everything in
