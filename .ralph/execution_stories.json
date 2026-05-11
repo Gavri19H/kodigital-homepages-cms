@@ -100,8 +100,8 @@
       "id": "T5",
       "title": "Replace globally-unique slug constraints with per-site uniqueness on articles and pages",
       "category": "migration",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T5"
       ],

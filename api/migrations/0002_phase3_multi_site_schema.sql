@@ -317,3 +317,29 @@ CREATE INDEX IF NOT EXISTS idx_category_verticals_vertical ON category_verticals
 -- media + tags filtered by site_id (Media tab / Tags tab — T25).
 CREATE INDEX IF NOT EXISTS idx_media_site ON media(site_id);
 CREATE INDEX IF NOT EXISTS idx_tags_site_slug ON tags(site_id, slug);
+
+-- ==================================================================
+-- Phase 3, T5 — per-site slug uniqueness for articles and pages
+-- ------------------------------------------------------------------
+-- Replaces the Phase-1 "globally unique slug" design with per-site
+-- uniqueness so the same slug can coexist across tenants (e.g. every
+-- site can have an "about" page or a "hello-world" article). The two
+-- composite UNIQUE indexes below add the new (site_id, slug) tenant-
+-- scoped uniqueness constraint; SQLite will refuse a duplicate when
+-- (site_id, slug) collides, while allowing the same slug to repeat
+-- across different site_id values.
+--
+-- Note: the original Phase-1 column-level `slug TEXT NOT NULL UNIQUE`
+-- declarations on articles and pages create implicit SQLite auto-
+-- indexes (sqlite_autoindex_articles_1 / sqlite_autoindex_pages_1)
+-- that cannot be DROPped without a full table rebuild. Removing the
+-- column-level UNIQUE is therefore deferred to a follow-up
+-- CREATE-INSERT-DROP-RENAME migration (the same pattern T6 uses for
+-- site_settings). Until then, the per-site UNIQUE indexes declared
+-- here are additive: they enforce tenant-scoped uniqueness at the
+-- application boundary, while the table-rebuild migration removes
+-- the legacy global UNIQUE so two sites can independently hold the
+-- same slug at the SQLite layer.
+-- ==================================================================
+CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_site_slug_unique ON articles(site_id, slug);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pages_site_slug_unique ON pages(site_id, slug);
