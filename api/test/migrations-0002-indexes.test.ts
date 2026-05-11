@@ -8,6 +8,15 @@ import { describe, it, expect } from "vitest";
 // local D1 binding — the BEHAVIORAL post-migration sqlite_master check is
 // owned by T33's verification pass once the full migration set (including
 // T3/T4 column ALTERs and the T6 site_settings restructure) is in place.
+//
+// idx_settings_site_key is INTENTIONALLY excluded from 0002's required set:
+// the site_settings table is restructured (CREATE-INSERT-DROP-RENAME) in 0003
+// to add the site_id column, and idx_settings_site_key is created in 0003
+// immediately after that rename. Declaring the index in 0002 raised
+// "no such column: site_id at offset 69" on fresh D1 applies because
+// site_settings still had the legacy (key, value) shape from 0001 at that
+// point in the migration sequence. The 0003-owned index is covered by a
+// separate suite (migrations-0003-idx-settings-site-key.test.ts).
 
 const MIGRATION_PATH = resolve(
   __dirname,
@@ -24,7 +33,6 @@ const REQUIRED_INDEX_NAMES = [
   "idx_articles_site_homepage_section",
   "idx_pages_site_slug",
   "idx_pages_site_type",
-  "idx_settings_site_key",
   "idx_domains_hostname",
   "idx_site_categories_site_order",
   "idx_category_verticals_vertical",
@@ -46,7 +54,7 @@ function findCreateIndex(sql: string, name: string): string | undefined {
 }
 
 describe("0002_phase3_multi_site_schema.sql — multi-site composite indexes (T2)", () => {
-  it("declares all 13 required Phase 3 idx_* indexes", () => {
+  it("declares all 12 required Phase 3 idx_* indexes (excluding idx_settings_site_key which lives in 0003)", () => {
     const sql = readMigration();
     const missing = REQUIRED_INDEX_NAMES.filter(
       (n) => findCreateIndex(sql, n) === undefined,
