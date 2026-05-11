@@ -146,8 +146,8 @@
       "id": "T7",
       "title": "Add idx_settings_site_key index on restructured site_settings",
       "category": "db",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T7"
       ],

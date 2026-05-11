@@ -45,3 +45,21 @@ DROP TABLE site_settings;
 --    table name is `site_settings` and its schema is
 --    (id, site_id, key, value) with UNIQUE(site_id, key).
 ALTER TABLE site_settings_new RENAME TO site_settings;
+
+-- ==================================================================
+-- Phase 3, T7 — idx_settings_site_key on the restructured site_settings
+-- ------------------------------------------------------------------
+-- After the rename above, `site_settings` carries the new
+-- (id, site_id, key, value) shape with UNIQUE(site_id, key). The
+-- per-site key/value read paths (admin Settings tab, public
+-- site-context init, robots/ads-from-settings rendering) look rows up
+-- by (site_id, key), so the planner needs a composite index leading
+-- with site_id. We declare it here, immediately after the rename, so
+-- the index is bound to the NEW table — the legacy table and any
+-- indexes attached to it were dropped in step 3 above.
+--
+-- IF NOT EXISTS keeps re-applies idempotent: if a fresh local D1 has
+-- already advanced the ledger past 0003 once, re-running the
+-- migration set is a no-op for this statement.
+-- ==================================================================
+CREATE INDEX IF NOT EXISTS idx_settings_site_key ON site_settings(site_id, key);

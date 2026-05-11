@@ -961,3 +961,38 @@ EVIDENCE_ROUTE_EXHAUSTED — T6 canonical runner result:
 - RC-012: FAIL, reason=EVIDENCE_SOURCE_PATH_UNRESOLVED (no_package_root_or_story_prefix_resolves_grep_files). Same infrastructure-level path-resolution gap that blocked T2 RC-004, T3 RC-006, T4 RC-008, T5 RC-010 — the runner resolves `api/migrations/0003_phase3_site_settings_restructure.sql` against project_root (main branch checkout) which does not contain 0003. The worktree has the file with 4 grep hits (T6.AC1 SATISFIED in-tree under the AC1 grep returning 4 of 4 expected).
 - RC-013: FAIL, exit_code=127. The acceptance-test script `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T6.AC2.sh` does not yet exist — story T31 generates the bundle later in this phase. The test name `site_settings restructure preserves pre-existing keys` IS declared verbatim in `api/test/migrations-0003-site-settings-restructure.test.ts` and the test passes under `npx vitest run test/migrations-0003-site-settings-restructure.test.ts` (T6.AC2 test_name_regex `^site_settings restructure preserves pre-existing keys$` matches the literal test name; the test_bindings entry for T6.AC2 is `test_name_regex`, satisfied syntactically by the test name existing).
 - Re-implementation will not unblock either claim — both are infrastructure-level (runner path resolution + later-story-generated artifact). Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story; reconciliation owned by reconcile_ralph_execution_prd.py + T31 + T33.
+
+## 2026-05-11 - T7 (api/migrations/0003_phase3_site_settings_restructure.sql — idx_settings_site_key + api/test/migrations-0003-idx-settings-site-key.test.ts)
+- Appended T7's `CREATE INDEX IF NOT EXISTS idx_settings_site_key ON site_settings(site_id, key);` to the END of `api/migrations/0003_phase3_site_settings_restructure.sql` (after the T6 CREATE-INSERT-DROP-RENAME block). File grew 47 → 65 lines (+18 lines: 1 CREATE INDEX statement + a 17-line comment header explaining placement order).
+- Placement rationale: the index MUST land AFTER the `ALTER TABLE site_settings_new RENAME TO site_settings;` line, so the index is attached to the NEW (id, site_id, key, value) table. The legacy table and any indexes attached to it were dropped in step 3 of T6 (DROP TABLE site_settings). `IF NOT EXISTS` keeps re-applies idempotent for fresh local D1 ledgers that already advanced past 0003 once.
+- Added `api/test/migrations-0003-idx-settings-site-key.test.ts` (60 lines, 3 tests) — static SQL parser using `readFileSync` + per-index regex. Test names:
+  - `declares idx_settings_site_key on site_settings(site_id, key)` — exact match for the index declaration.
+  - `places idx_settings_site_key AFTER the T6 rename of site_settings_new` — textual ordering check via `String.search` so the index cannot accidentally precede the rename (which would attach it to the legacy table about to be dropped).
+  - `declares exactly one idx_settings_site_key statement in 0003` — count assertion guarding against accidental duplication.
+- **Self-check results:**
+  - File sizes: 0003_phase3_site_settings_restructure.sql 65 lines (limit 100 for SQL) — PASS. migrations-0003-idx-settings-site-key.test.ts 60 lines (limit 200 for TS) — PASS.
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string` on changed files): 0 matches — PASS.
+  - Error handling: N/A (SQL DDL + static parser test).
+  - Migration execution: SKIPPED — applying 0003 in isolation still requires 0002 to apply first, and 0002's `CREATE INDEX idx_settings_site_key ON site_settings(site_id, key)` cannot apply on the legacy shape (the column site_id is absent until 0003 runs). The ledger therefore cannot advance for 0002 even though both SQL files are grep-correct. The behavioral apply leg (T7.AC2 BEHAVIORAL — SELECT count(*) FROM sqlite_master WHERE name='idx_settings_site_key' → 1) is deferred to T33's full-pipeline verification once the architect's planned fix for the 0002 forward-declared index ordering lands. Same deferral path documented in T2/T3/T4/T5/T6 progress entries.
+  - Parameterized queries: N/A (SQL DDL).
+  - T7.AC1 grep (`grep -cE 'CREATE INDEX (IF NOT EXISTS )?idx_settings_site_key' api/migrations/0003_phase3_site_settings_restructure.sql`): 1 (expects 1) — PASS.
+  - T7.AC1 RC-014 grep variant (`grep -cE 'CREATE INDEX (IF NOT EXISTS )?idx_settings_site_key ON site_settings ?\(site_id, key\)' api/migrations/0003_phase3_site_settings_restructure.sql`): 1 (expects >= 1) — PASS.
+  - Full vitest sweep: `cd api && npx vitest run` → 26 files / 184 tests passing, exit 0 — PASS.
+  - Typecheck: `cd api && npx tsc --noEmit` → exit 0 — PASS.
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS.
+  - `cd api && npm run verify:infra`: exit 0 (8 checks) — PASS.
+  - `cd api && npm run verify:worker-config`: exit 0 (3 blocks) — PASS.
+- **Source story id covered this iteration:** T7
+- **Test commands actually run:**
+  - cd api && grep -cE 'CREATE INDEX (IF NOT EXISTS )?idx_settings_site_key' migrations/0003_phase3_site_settings_restructure.sql
+  - cd api && grep -cE 'CREATE INDEX (IF NOT EXISTS )?idx_settings_site_key ON site_settings ?\(site_id, key\)' migrations/0003_phase3_site_settings_restructure.sql
+  - cd api && npx vitest run test/migrations-0003-idx-settings-site-key.test.ts
+  - cd api && npx tsc --noEmit
+  - cd api && npx vitest run
+  - cd api && npm run verify:no-legacy-prod-refs
+  - cd api && npm run verify:infra
+  - cd api && npm run verify:worker-config
+  - python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-2026-05-11 --required-claim-ids=RC-014,RC-015 --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms --worktree-root=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-2026-05-11/worktree
+- **Learnings for future iterations:**
+  - When an index name is declared once in 0002 against a forward-referenced column that doesn't yet exist on the legacy table, the right home for the canonical index is the migration that creates the column (here: 0003, which CREATE-INSERT-DROP-RENAMEs site_settings into the (site_id, key) shape). The orphan declaration in 0002 is a separate fix (planned by the architect); T7's scope is bounded to declaring the index in 0003 AFTER the rename. Static parser tests can still ratchet the grep contract per story without resolving the 0002 issue.
+  - `String.search` returning the position of a regex match (or -1) is a clean way to assert textual ordering between two SQL statements in the same file, without parsing into an AST. Pair `searchIdxA < searchIdxB` checks with "exactly one occurrence" assertions to guard against accidental duplication during refactors.
