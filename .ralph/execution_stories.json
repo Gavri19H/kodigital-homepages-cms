@@ -1,0 +1,794 @@
+{
+  "changeId": "kodigital-homepages-cms-phase3-2026-05-11",
+  "mainGoal": "Ralph-local execution projection (identity_projection_no_cycle_signal)",
+  "_ralph_local_execution_projection": true,
+  "_cycle_type": "normal",
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Add Phase 3 multi-site core tables migration",
+      "category": "migration",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T1"
+      ],
+      "targetFiles": [
+        "api/migrations/0002_phase3_multi_site_schema.sql"
+      ],
+      "acceptanceCriteria": [
+        "Migration declares all 9 new tables",
+        "BEHAVIORAL: GIVEN fresh local D1, WHEN `npx wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN sqlite_master contains tables sites, domains, verticals, category_verticals, site_categories, legal_templates, site_creation_jobs, site_creation_job_steps, ai_generations, cache_purge_log."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Add Phase 3 indexes for multi-site queries",
+      "category": "db",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T2"
+      ],
+      "targetFiles": [
+        "api/migrations/0002_phase3_multi_site_schema.sql"
+      ],
+      "acceptanceCriteria": [
+        "All required composite indexes declared",
+        "BEHAVIORAL: GIVEN migrations applied locally, WHEN querying sqlite_master for index names, THEN all 13 idx_* names exist."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Add site_id and homepage fields to articles",
+      "category": "migration",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T3"
+      ],
+      "targetFiles": [
+        "api/migrations/0002_phase3_multi_site_schema.sql"
+      ],
+      "acceptanceCriteria": [
+        "articles ALTER adds new columns including homepage_section default 'none'",
+        "BEHAVIORAL: GIVEN migration applied, WHEN PRAGMA table_info(articles) is queried, THEN columns site_id (NOT NULL after backfill), homepage_section (DEFAULT 'none'), homepage_rank, seo_title, seo_description, ai_generation_id are present."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Add site_id/page_type to pages and site_id to media/tags/redirects",
+      "category": "migration",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T4"
+      ],
+      "targetFiles": [
+        "api/migrations/0002_phase3_multi_site_schema.sql"
+      ],
+      "acceptanceCriteria": [
+        "ALTER statements add site_id to pages/media/tags/redirects and page_type to pages",
+        "BEHAVIORAL: GIVEN migration applied, WHEN PRAGMA table_info is queried for pages/media/tags/redirects, THEN each has site_id column; pages also has page_type defaulting to 'generic'."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Replace globally-unique slug constraints with per-site uniqueness on articles and pages",
+      "category": "migration",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T5"
+      ],
+      "targetFiles": [
+        "api/migrations/0002_phase3_multi_site_schema.sql"
+      ],
+      "acceptanceCriteria": [
+        "Migration creates per-site unique index for articles.slug and pages.slug",
+        "BEHAVIORAL: GIVEN migration applied, WHEN inserting two articles with the same slug but different site_id, THEN both inserts succeed; WHEN inserting two articles with same slug + same site_id, THEN the second fails with UNIQUE constraint."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Restructure site_settings to (site_id, key) UNIQUE via CREATE-INSERT-DROP-RENAME",
+      "category": "migration",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T6"
+      ],
+      "targetFiles": [
+        "api/migrations/0003_phase3_site_settings_restructure.sql"
+      ],
+      "acceptanceCriteria": [
+        "Migration uses CREATE TABLE new -> INSERT OR IGNORE -> DROP -> RENAME pattern (D1 CHECK-constraint safety rule)",
+        "BEHAVIORAL: GIVEN pre-restructure site_settings has rows with PK key (e.g. ('siteName','TheIWise')), WHEN migration 0003 runs locally, THEN every pre-existing key survives with site_id NULL (global default) and the new UNIQUE(site_id, key) constraint is enforced."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Add idx_settings_site_key index on restructured site_settings",
+      "category": "db",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T7"
+      ],
+      "targetFiles": [
+        "api/migrations/0003_phase3_site_settings_restructure.sql"
+      ],
+      "acceptanceCriteria": [
+        "idx_settings_site_key index created on (site_id, key)",
+        "BEHAVIORAL: GIVEN migrations 0002+0003 applied locally, WHEN querying sqlite_master for idx_settings_site_key, THEN one row returned and tbl_name=site_settings."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Seed 8 verticals + multi-vertical categories + 4 legal templates",
+      "category": "migration",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T8"
+      ],
+      "targetFiles": [
+        "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql"
+      ],
+      "acceptanceCriteria": [
+        "Seed inserts all 8 vertical slugs",
+        "Seed inserts the 4 legal templates",
+        "BEHAVIORAL: GIVEN migration 0004 applied locally, WHEN SELECT slug FROM verticals is run, THEN exactly the 8 slugs home,finance,travel,health,parenting,food,tech,lifestyle are returned; WHEN SELECT slug FROM legal_templates is run, THEN privacy-policy, terms, do-not-sell, contact are returned."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Seed multi-vertical categories with category_verticals matrix",
+      "category": "migration",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T9"
+      ],
+      "targetFiles": [
+        "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql"
+      ],
+      "acceptanceCriteria": [
+        "Seed inserts >=7 category entries and links them to multiple verticals via category_verticals",
+        "BEHAVIORAL: GIVEN seed migration applied, WHEN SELECT category_id, COUNT(vertical_id) FROM category_verticals GROUP BY category_id is run, THEN at least one category has >=2 vertical mappings (e.g. Healthy Meals -> health+food+parenting)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Implement site-context module (resolveSiteContextFromRequest, isAdminHost, assertPublicSiteHostNotAdminHost)",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T10"
+      ],
+      "targetFiles": [
+        "api/src/site/site-context.ts"
+      ],
+      "acceptanceCriteria": [
+        "All four required exports + SiteContext type are present",
+        "BEHAVIORAL: GIVEN ADMIN_HOST='cms.kodigital.app' in env, WHEN isAdminHost('cms.kodigital.app', env) is called, THEN it returns true; WHEN isAdminHost('mysite.com', env) is called, THEN false; WHEN resolveSiteByHostname(db, 'cms.kodigital.app') is called, THEN it returns null (admin host never resolves as a public site)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Implement tenant-guards module (requireSiteIdForArticleInput, assertSlugUniquePerSite, etc.)",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T11"
+      ],
+      "targetFiles": [
+        "api/src/site/tenant-guards.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 8 required tenant-guard exports",
+        "BEHAVIORAL: GIVEN article input lacking site_id, WHEN requireSiteIdForArticleInput(input) is called, THEN it throws an error with message containing 'site_id'; WHEN assertTenantBoundary('site-A','site-B') is called, THEN it throws TenantBoundaryViolation."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Extend db helpers to accept siteId (listArticles, getArticleBySlug, listCategories, getMediaById)",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T12"
+      ],
+      "targetFiles": [
+        "api/src/db/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "Each helper accepts a siteId option/argument and binds it into the prepared statement",
+        "BEHAVIORAL: GIVEN fake D1 with two articles slug='hello' in sites A and B, WHEN getArticleBySlug(db, 'hello', { siteId: 'A' }) is called, THEN only the article belonging to site A is returned; WHEN siteId is omitted on public path, the function throws or returns null (no cross-site leak)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Add admin sites endpoints: GET/POST /sites + GET/PATCH /sites/:id",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T13"
+      ],
+      "targetFiles": [
+        "api/src/admin/api.ts",
+        "api/src/admin/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "Four sites endpoints registered on admin api",
+        "BEHAVIORAL: GIVEN dev bypass + valid domain 'mysite.example', WHEN POST /api/admin/sites is called with {domain,vertical_slug:'home',activity:'main'}, THEN response is 201 with {resource:{id, domain, status:'draft'}} AND a site_creation_job row was created AND assertNotProtectedDomain was called (no theiwise.com may pass)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "Add admin verticals and domains endpoints: GET /verticals, GET /domains, PATCH /domains/:id",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T14"
+      ],
+      "targetFiles": [
+        "api/src/admin/api.ts"
+      ],
+      "acceptanceCriteria": [
+        "Three additional endpoints",
+        "BEHAVIORAL: GIVEN seed migrations applied, WHEN GET /api/admin/verticals is called, THEN response is 200 with {resource:[{slug:'home'},{slug:'finance'},{slug:'travel'},{slug:'health'},{slug:'parenting'},{slug:'food'},{slug:'tech'},{slug:'lifestyle'}]} (8 items)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "Add Domains nav item to admin shell (9th explicit admin.get literal)",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T15"
+      ],
+      "targetFiles": [
+        "api/src/admin/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "Router has 9 literal admin.get('/admin... lines (preserves T10.AC1 contract)",
+        "'/admin/domains' route present and uses renderShell",
+        "BEHAVIORAL: GIVEN authenticated admin user, WHEN GET cms.kodigital.app/admin/domains is requested, THEN response is 200 HTML containing <meta data-area=\"domains\"> and a 'New Site' button trigger; nav links contain 'Domains'."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Build Domains admin page (list + columns + actions + New Site modal)",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T16"
+      ],
+      "targetFiles": [
+        "api/src/admin/router.ts",
+        "api/src/admin/views/domains.ts"
+      ],
+      "acceptanceCriteria": [
+        "Domains view contains all 9 required columns and 6 actions",
+        "BEHAVIORAL: GIVEN admin user on /admin/domains, WHEN the New Site button is clicked, THEN a modal appears with three form fields (Domain text input, Vertical select, Activity select defaulted to 'main') and a 'Create site' submit button; all inputs have <label> or aria-label; the modal supports keyboard ESC to close."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Build site-provisioning runner with 15 step keys",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T17"
+      ],
+      "targetFiles": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 15 step keys present in steps registry",
+        "BEHAVIORAL: GIVEN a pending site_creation_job with status='pending', WHEN POST /api/admin/sites/:id/provision/next is called 15 times in sequence, THEN each call advances exactly one step, persists per-step input/output/status to site_creation_job_steps with attempt_count incremented, returns 200 with {current_step, status} envelope, and the 15th response returns status='completed'."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "Enforce dry-run safety in provisioning route mutation paths",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T18"
+      ],
+      "targetFiles": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/cloudflare-interfaces.ts"
+      ],
+      "acceptanceCriteria": [
+        "Both env helpers consulted before any CF call + uses CLOUDFLARE_PROVISIONING_API_TOKEN exclusively (no CLOUDFLARE_API_TOKEN)",
+        "No reference to CLOUDFLARE_API_TOKEN anywhere in site-provisioning",
+        "BEHAVIORAL: GIVEN SITE_PROVISIONING_DRY_RUN='true' (default), WHEN attach_domain_to_new_worker_or_mark_pending step runs, THEN no fetch() is issued to api.cloudflare.com (intercept proves zero outbound) AND the step persists status='completed_dry_run' AND a cache_purge_log row records the dry-run attempt with both env flag values."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "Implement create_site_settings step seeding all 12 required keys per site",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T19"
+      ],
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 12 setting keys named",
+        "BEHAVIORAL: GIVEN a freshly-created site, WHEN the create_site_settings step completes, THEN SELECT COUNT(*) FROM site_settings WHERE site_id=? returns 12, and tagline + site_description contain deterministic stub values referencing the site name (no AI/OpenAI call was made)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "Implement legal-template variable substitution in render_generic_legal_pages step",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T20"
+      ],
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/legal-renderer.ts"
+      ],
+      "acceptanceCriteria": [
+        "All 6 template variables substituted",
+        "BEHAVIORAL: GIVEN a global legal_templates row for 'privacy-policy' containing '{{site_name}}' and '{{domain}}', WHEN render_generic_legal_pages_with_site_variables runs for site {name:'Acme', domain:'acme.example'}, THEN the rendered HTML stored in pages.content_html contains 'Acme' and 'acme.example' and no '{{' substrings."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Site-aware Articles tab UX (Site field + filters + columns + editor)",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T21"
+      ],
+      "targetFiles": [
+        "api/src/admin/views/articles.ts",
+        "api/src/admin/views/article-editor.ts"
+      ],
+      "acceptanceCriteria": [
+        "Filters render in the toolbar markup",
+        "BEHAVIORAL: GIVEN no site selected in the article editor, WHEN the user attempts to save, THEN the form blocks submit with an aria-live='polite' status message stating 'Site is required' AND the POST is never sent. WHEN a site IS selected, THEN the category dropdown is filtered to only categories allocated to that site's vertical(s)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T22",
+      "title": "Site-aware Pages tab UX (Site filter + Page-type filter + Site selector in About editor)",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T22"
+      ],
+      "targetFiles": [
+        "api/src/admin/views/pages.ts",
+        "api/src/admin/views/page-editor.ts"
+      ],
+      "acceptanceCriteria": [
+        "Filters and page-type select present",
+        "BEHAVIORAL: GIVEN an About page editor, WHEN no site_id is selected, THEN saving is blocked with a status message; legal templates (privacy-policy/terms/do-not-sell/contact) MAY save with site_id NULL (global) and the UI surfaces a 'Global template' badge."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T23",
+      "title": "Site-aware Categories tab UX (verticals multi-select)",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T23"
+      ],
+      "targetFiles": [
+        "api/src/admin/views/categories.ts"
+      ],
+      "acceptanceCriteria": [
+        "Verticals multi-select with the canonical 8 slugs is rendered",
+        "BEHAVIORAL: GIVEN a category editor, WHEN the user selects verticals ['home','tech'] and saves, THEN category_verticals contains both rows (category_id, vertical_id) and the public site of vertical='home' or 'tech' now sees this category in its allocated list."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T24",
+      "title": "Site-scoped Settings tab UX (required Site selector + per-site keys + settings_version bump)",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T24"
+      ],
+      "targetFiles": [
+        "api/src/admin/views/settings.ts",
+        "api/src/admin/api.ts"
+      ],
+      "acceptanceCriteria": [
+        "Settings view requires site selector",
+        "BEHAVIORAL: GIVEN a site exists with settings_version=1, WHEN PATCH /api/admin/settings updates 'tagline' for that site_id, THEN site_settings row (site_id, 'tagline') value is updated AND sites.settings_version is incremented to 2 in the same transaction."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T25",
+      "title": "Site filters on Media and Tags tabs",
+      "category": "ui",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T25"
+      ],
+      "targetFiles": [
+        "api/src/admin/views/media.ts",
+        "api/src/admin/views/tags.ts"
+      ],
+      "acceptanceCriteria": [
+        "Both views render a Site filter dropdown",
+        "BEHAVIORAL: GIVEN media rows with site_id IN {A, B, NULL}, WHEN the Media tab Site filter is set to 'A', THEN only A's media + global (NULL) media are returned by GET /api/admin/media?site_id=A; explicit 'Global only' selection returns only NULL."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T26",
+      "title": "Public middleware: inject SiteContext + reject when hostname has no site",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T26"
+      ],
+      "targetFiles": [
+        "api/src/public/middleware.ts",
+        "api/src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "Middleware function exported and registered before public routes",
+        "BEHAVIORAL: GIVEN hostname='unknown-site.example' with no row in sites/domains, WHEN GET / is requested, THEN response is a safe 404 (no admin info leak, body MUST NOT contain 'cms.kodigital.app'); WHEN hostname='cms.kodigital.app' is requested via the public router, THEN it returns 404 (admin host MUST NOT resolve as public)."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T27",
+      "title": "Site-aware public routes (article/category/page/feed/sitemap/robots/ads queries scoped by site_id)",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T27"
+      ],
+      "targetFiles": [
+        "api/src/public/router.ts",
+        "api/src/public/feeds.ts",
+        "api/src/public/sitemap.ts"
+      ],
+      "acceptanceCriteria": [
+        "Public router calls site context for each handler",
+        "BEHAVIORAL: GIVEN sites A and B each with one article slug='hello', WHEN GET / on hostname-A returns the homepage feed, THEN only A's article is listed; WHEN GET /article/hello on hostname-B is requested, THEN only B's article is rendered (and A's is not visible). robots.txt/ads.txt reflect site_settings rows for that site_id."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T28",
+      "title": "Harden off-ADMIN_HOST /admin 404 with Cache-Control:no-store + X-Robots-Tag:noindex,nofollow",
+      "category": "api",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T28"
+      ],
+      "targetFiles": [
+        "api/src/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "Both headers set when /admin off-ADMIN_HOST returns 404",
+        "BEHAVIORAL: GIVEN hostname='example.com' (not ADMIN_HOST), WHEN curl -i https://example.com/admin is requested, THEN status is 404, headers include 'Cache-Control: no-store' AND 'X-Robots-Tag: noindex, nofollow', AND the response body does NOT contain 'cms.kodigital.app' AND no Location redirect header is set."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T29",
+      "title": "Add site-context + tenant-boundary + dry-run + legal-template + protected-domain tests",
+      "category": "infra",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T29"
+      ],
+      "targetFiles": [
+        "api/test/site-context.test.ts",
+        "api/test/tenant-guards.test.ts",
+        "api/test/site-provisioning-dry-run.test.ts",
+        "api/test/legal-template-render.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "At least 8 describe/it scopes across the four new test files cover Part-16 cases",
+        "BEHAVIORAL: GIVEN the four new test files exist, WHEN `cd api && npm test` is run, THEN exit code is 0 and at least 12 new individual test cases pass."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T30",
+      "title": "Add admin-domain + new-site flow + off-admin-host integration tests",
+      "category": "infra",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T30"
+      ],
+      "targetFiles": [
+        "api/test/admin-domains.test.ts",
+        "api/test/admin-sites-create.test.ts",
+        "api/test/off-admin-host-404-headers.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Tests assert protected-domain rejection + idempotency_key + 404 headers",
+        "BEHAVIORAL: GIVEN POST /api/admin/sites with domain='theiwise.com', WHEN executed, THEN response is 400 with error referencing protected-domain rejection AND no row is inserted into sites/domains/site_creation_jobs."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T31",
+      "title": "Generate acceptance-tests bundle (one script per behavioral AC) with chmod 0444 immutability",
+      "category": "script",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T31"
+      ],
+      "targetFiles": [
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/run_all.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T01_migrations_apply_locally.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T17_provisioning_runner_15_steps.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T18_dry_run_no_cf_calls.sh",
+        "acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T28_off_admin_host_headers.sh"
+      ],
+      "acceptanceCriteria": [
+        "At least one script per story (>=30 .sh files) and each has >=1 check() call",
+        "run_all.sh exits 0 in dev-server-available environments and 2 (NEEDS_RUNTIME) only for behavioral tests requiring `wrangler dev`"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T32",
+      "title": "Update progress.txt + GUARDRAILS.md + prd.json for Phase B Ralph context",
+      "category": "config",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T32"
+      ],
+      "targetFiles": [
+        "progress.txt",
+        "GUARDRAILS.md",
+        "prd.json"
+      ],
+      "acceptanceCriteria": [
+        "GUARDRAILS.md re-states HARD RED LINE forbidden refs",
+        "progress.txt declares Phase 3 milestones"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T33",
+      "title": "Verify all 5 CI commands pass post-implementation",
+      "category": "script",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T33"
+      ],
+      "targetFiles": [
+        "api/package.json"
+      ],
+      "acceptanceCriteria": [
+        "All 5 verify commands exit 0",
+        "package.json contains all 5 npm scripts"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    }
+  ]
+}

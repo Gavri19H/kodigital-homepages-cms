@@ -171,6 +171,41 @@ CREATE TABLE IF NOT EXISTS cache_purge_log (
 );
 
 -- ==================================================================
+-- Phase 3, T3 — site-scope + homepage + SEO columns on articles
+-- ------------------------------------------------------------------
+-- Six columns are added one ALTER per line so the per-tenant + homepage
+-- read paths declared in T2's indexes (idx_articles_site_* and
+-- idx_articles_site_homepage_section) have the columns they reference
+-- by the time CREATE INDEX runs further below in the same migration.
+--
+--   * site_id            — tenant discriminator. Nullable on ADD because
+--                          SQLite cannot ADD NOT NULL without a DEFAULT;
+--                          a Phase-3 backfill (or first INSERT) populates
+--                          every existing row before site_id is enforced
+--                          NOT NULL in a follow-up phase (T17's runner
+--                          always writes site_id on every starter article).
+--   * homepage_section   — curated homepage slot ('none' = not on the
+--                          homepage). DEFAULT 'none' so existing rows
+--                          land in a safe "not curated" bucket.
+--   * homepage_rank      — within-section ordering (lower = higher).
+--                          Nullable; treated as "after ranked rows"
+--                          when ORDER BY homepage_rank ASC NULLS LAST.
+--   * seo_title          — optional per-article <title> override.
+--   * seo_description    — optional per-article <meta name=description>.
+--   * ai_generation_id   — receipts FK to ai_generations(id) for any
+--                          starter article materialised by the Phase-3
+--                          stub generation steps (T19/T20). Nullable
+--                          because human-authored articles have no AI
+--                          generation receipt.
+-- ==================================================================
+ALTER TABLE articles ADD COLUMN site_id TEXT REFERENCES sites(id);
+ALTER TABLE articles ADD COLUMN homepage_section TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE articles ADD COLUMN homepage_rank INTEGER;
+ALTER TABLE articles ADD COLUMN seo_title TEXT;
+ALTER TABLE articles ADD COLUMN seo_description TEXT;
+ALTER TABLE articles ADD COLUMN ai_generation_id TEXT REFERENCES ai_generations(id);
+
+-- ==================================================================
 -- Multi-site composite indexes (Phase 3, T2)
 -- ------------------------------------------------------------------
 -- These 13 indexes are the read-path covering set for the multi-site
