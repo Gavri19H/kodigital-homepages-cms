@@ -490,6 +490,54 @@
       ],
       "passes": false,
       "state": "implemented"
+    },
+    {
+      "id": "WARN-FIX-1",
+      "title": "Implement GET /api/admin/sites/:id/provision (provisioning status endpoint declared in interface_contract)",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/api.ts",
+        "api/test/admin-provision-status.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'admin(Api)?\\.(get)\\(\"/sites/:id/provision\"' api/src/admin/api.ts >= 1",
+        "BEHAVIORAL: GIVEN a site with one site_creation_jobs row + N site_creation_job_steps rows, WHEN GET /api/admin/sites/:id/provision is called, THEN response is 200 + {resource:{current_step:int, status:string, step_key:string}} sourced from the latest in-progress or last-completed job step.",
+        "BEHAVIORAL: GIVEN no site_creation_jobs row exists for the site_id, WHEN GET /api/admin/sites/:id/provision is called, THEN response is 404 + {error:string} (no leak of internal state)."
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "WARN-FIX-2",
+      "title": "Implement POST /api/admin/sites/:id/purge-cache endpoint (declared in interface_contract; Purge cache UI action wired)",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/api.ts",
+        "api/test/admin-purge-cache.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'admin(Api)?\\.(post)\\(\"/sites/:id/purge-cache\"' api/src/admin/api.ts >= 1",
+        "BEHAVIORAL: GIVEN SITE_PROVISIONING_DRY_RUN=true (default in tests), WHEN POST /api/admin/sites/:id/purge-cache is called, THEN no real Cloudflare API call is made AND a cache_purge_log row is inserted with status='completed_dry_run' AND response is 200 + {resource:{purge_id:string, status:'completed_dry_run'}}.",
+        "BEHAVIORAL: GIVEN site_id does not exist, WHEN POST /api/admin/sites/:id/purge-cache is called, THEN response is 404 + {error:string}.",
+        "grep -c 'cache_purge_log' api/src/admin/api.ts >= 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "WARN-FIX-3",
+      "title": "Fix CTA label in domains view to match design_contract literal 'Add New Site'",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/views/domains.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'Add New Site' api/src/admin/views/domains.ts >= 1",
+        "grep -cE '>New Site<' api/src/admin/views/domains.ts == 0",
+        "BEHAVIORAL: GIVEN renderDomainsView() output, WHEN inspected, THEN the above-fold primary CTA button label is exactly 'Add New Site' (byte-for-byte matching design_contract.cta_sequence[0].label)."
+      ],
+      "passes": false,
+      "state": "planned"
     }
   ]
 }
