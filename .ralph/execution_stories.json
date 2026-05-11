@@ -216,8 +216,8 @@
       "id": "T10",
       "title": "Implement site-context module (resolveSiteContextFromRequest, isAdminHost, assertPublicSiteHostNotAdminHost)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T10"
       ],

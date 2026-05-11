@@ -1088,3 +1088,33 @@ EVIDENCE_ROUTE_EXHAUSTED — T9 canonical runner result:
 - RC-019: FAIL, reason=EVIDENCE_SOURCE_PATH_UNRESOLVED (no_package_root_or_story_prefix_resolves_grep_files). Same infrastructure-level path-resolution gap that blocked T2 RC-004, T3 RC-006, T4 RC-008, T5 RC-010, T6 RC-012, T7 RC-014, T8 RC-016/RC-017 — the runner resolves `api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql` against project_root (main branch checkout) which does not yet contain 0004's T9 block. The worktree has the file with 23 grep hits (T9.AC1 SATISFIED in-tree under `grep -cE 'INSERT (OR IGNORE )?INTO (categories|category_verticals)' api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql` returning 23 of >=14 expected).
 - RC-020: FAIL, exit_code=127. The acceptance-test script `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T9.AC2.sh` does not yet exist — story T31 generates the bundle later in this phase. The test name `category can map to multiple verticals` IS declared verbatim in `api/test/migrations-0004-seed-categories-and-verticals-matrix.test.ts` and the test passes under `npx vitest run test/migrations-0004-seed-categories-and-verticals-matrix.test.ts` (T9.AC2 test_name_regex `^category can map to multiple verticals$` matches the literal test name; the test_bindings entry for T9.AC2 is `test_name_regex`, satisfied syntactically by the test name existing).
 - Re-implementation will not unblock either claim — both are infrastructure-level (runner path resolution + later-story-generated artifact). Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story; reconciliation owned by reconcile_ralph_execution_prd.py + T31 + T33.
+
+## 2026-05-11 - T10 (api/src/site/site-context.ts — SiteContext + tenant boundary)
+- Created `api/src/site/site-context.ts` (99 lines). Exports:
+  - `SiteContext` (interface): { site_id, hostname, vertical_slug, status }.
+  - `isAdminHost(hostname, env)`: normalizes ADMIN_HOST vs candidate via `normalizeHostname` from `safety/protected-domains.ts`; returns false when ADMIN_HOST is empty so misconfigured envs cannot accidentally match every input.
+  - `assertPublicSiteHostNotAdminHost(hostname, env)`: throws `Tenant boundary violation: admin host (<host>) MUST NOT be resolved as a public site.` when isAdminHost matches; no-op otherwise.
+  - `resolveSiteByHostname(db, hostname, env?)`: parameterized SELECT against `domains d INNER JOIN sites s ON s.id = d.site_id WHERE d.hostname = ? AND d.status = 'active' LIMIT 1`. Defense-in-depth admin-host short-circuit when env supplied (no DB call). Returns null for empty/null hostname or missing row.
+  - `resolveSiteContextFromRequest(request, db, env)`: extracts hostname from `request.url`, refuses ADMIN_HOST (returns null without touching DB), otherwise delegates to `resolveSiteByHostname`. URL-parse errors return null instead of throwing.
+- Created `api/test/site-context.test.ts` (10 tests, all PASS): admin-host true/false, case-insensitive + trailing-dot, empty ADMIN_HOST → false, assertPublicSiteHostNotAdminHost throw/no-throw, admin-host returns null with env (no DB call), admin-host returns null without env (no domains row), tenant resolves to SiteContext (case-insensitive match against normalized lower-case bind param), empty/null hostname → null, request-level admin host refuses without DB call, request-level tenant host invokes domains JOIN sites.
+- Fake D1Database in test: minimal `{ prepare → { bind → { first } } }` chain that records `(sql, binds)` calls so the "did not touch DB" assertion is verifiable; first() returns the row queued by `rowsByHostname`, else null. No production code is monkey-patched.
+- **Self-check results:**
+  - File sizes: api/src/site/site-context.ts 99 lines, api/test/site-context.test.ts 169 lines (limit: 200 for TS) — PASS
+  - Secret scan: PASS (no API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string matches)
+  - Error handling: PASS — try/catch around `new URL(request.url)` returns null instead of throwing into the middleware; assertPublicSiteHostNotAdminHost is the only intentional throw
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: PASS — single SELECT uses `.bind(normalized)` with `?` placeholder; no template-literal interpolation (`grep -n 'prepare.*\${\|prepare.*`' api/src/site/site-context.ts` = 0 matches)
+  - T10.AC1 deterministic grep: `grep -cE '^export (async )?(function|interface|type) (resolveSiteContextFromRequest|resolveSiteByHostname|assertPublicSiteHostNotAdminHost|isAdminHost|SiteContext)' api/src/site/site-context.ts` = 5 (expected >= 5) — PASS
+  - T10.AC2 BEHAVIORAL: vitest 10/10 PASS under `cd api && npx vitest run test/site-context.test.ts`
+  - Full vitest suite: 200/200 PASS (29 files) under `cd api && npx vitest run`
+  - `cd api && npx tsc --noEmit`: exit 0 — PASS
+  - `cd api && npm run verify:no-legacy-prod-refs`: OK (Group A + Group B clean) — PASS
+- **Test commands actually run:**
+  - cd api && npx vitest run test/site-context.test.ts
+  - cd api && npx vitest run
+  - cd api && npx tsc --noEmit
+  - cd api && npm run verify:no-legacy-prod-refs
+  - python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-2026-05-11 --required-claim-ids=RC-021,RC-022 --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms --worktree-root=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-2026-05-11/worktree
+- **Learnings for future iterations:**
+  - When a behavioral AC text shows a 2-arg signature (e.g. `resolveSiteByHostname(db, hostname)`) AND a security-boundary requires defense-in-depth that needs env, make the env arg OPTIONAL. The 2-arg form still passes the behavioral test naturally (admin host never appears in domains, so the SELECT returns null) AND the 3-arg form bypasses the DB entirely when the caller has access to env (faster + observable via a "calls.length === 0" assertion in tests).
+  - To test "did NOT touch the DB" cleanly, the fake D1Database wrapper must push to a `calls` array inside `bind()` (not `prepare()`), because production code may legitimately call `db.prepare(...)` and only resolve the bind/first chain conditionally. `bind()` is the last point where a call is logically committed to the DB execution path.
