@@ -18,6 +18,10 @@ import {
   ADS_TXT_DEFAULT,
   type SitemapPageRow,
 } from "./sitemap";
+import {
+  publicSiteContextMiddleware,
+  type PublicSiteVariables,
+} from "./middleware";
 
 interface PageRow {
   id: number;
@@ -92,7 +96,13 @@ async function fetchSitemapPages(db: D1Database): Promise<SitemapPageRow[]> {
   return result.results ?? [];
 }
 
-const router = new Hono<{ Bindings: Env }>();
+const router = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
+
+// T26: site-context resolution runs before every public route. Unmapped
+// hostnames (including ADMIN_HOST, which never resolves as a public
+// site) get a safe 404 with no admin-host leak; resolved tenant hosts
+// proceed with c.get("site") populated for downstream handlers (T27).
+router.use("*", publicSiteContextMiddleware);
 
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");

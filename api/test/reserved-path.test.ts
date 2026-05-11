@@ -34,6 +34,23 @@ function makeDbMock(pages: PageSeed[]) {
           return stmt;
         },
         async first<T = unknown>(): Promise<T | null> {
+          // T26: public middleware resolves SiteContext via
+          // (domains JOIN sites). Return a tenant row for "localhost"
+          // (the default Hono test hostname) so the reserved-path
+          // suite continues to exercise the public routes after the
+          // middleware lands.
+          if (sql.startsWith("SELECT s.id AS site_id")) {
+            const host = String(stmt._args[0] ?? "").toLowerCase();
+            if (host === "localhost") {
+              return {
+                site_id: "site_local",
+                hostname: "localhost",
+                vertical_slug: "home",
+                status: "active",
+              } as unknown as T | null;
+            }
+            return null;
+          }
           if (sql.startsWith("SELECT id, slug, title, content_html, status, updated_at FROM pages")) {
             const slug = stmt._args[0] as string;
             const r = rows.find((x) => x.slug === slug && x.status === "published");
@@ -60,13 +77,17 @@ function makeDbMock(pages: PageSeed[]) {
 }
 
 function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
+  // T26: ADMIN_HOST is distinct from "localhost" so the default Hono
+  // test hostname routes through publicRouter as a tenant. The
+  // makeDbMock above answers the (domains JOIN sites) SELECT for
+  // "localhost" with a fake registered site row.
   return {
     DB: db,
     CACHE: {} as KVNamespace,
     MEDIA: {} as R2Bucket,
     APP_ENV: "development",
-    ADMIN_HOST: "localhost",
-    ADMIN_BASE_URL: "http://localhost:8787",
+    ADMIN_HOST: "admin.example",
+    ADMIN_BASE_URL: "http://admin.example:8787",
     ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false",
     HTML_CACHE_TTL_SECONDS: "60",
