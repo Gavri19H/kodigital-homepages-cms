@@ -20,6 +20,8 @@ import aiApi from "./ai-api";
 import { renderDomainsView } from "./views/domains";
 import { renderArticlesView } from "./views/articles";
 import { renderArticleEditorView } from "./views/article-editor";
+import { renderPagesView } from "./views/pages";
+import { renderPageEditorView } from "./views/page-editor";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -58,7 +60,9 @@ admin.get("/admin", (c) => c.html(renderShell("Admin", "home")));
 admin.get("/admin/articles", (c) => c.html(renderArticlesView()));
 admin.get("/admin/articles/new", (c) => c.html(renderArticleEditorView()));
 admin.get("/admin/articles/:id/edit", (c) => c.html(renderArticleEditorView()));
-admin.get("/admin/pages", (c) => c.html(renderShell("Pages", "pages")));
+admin.get("/admin/pages", (c) => c.html(renderPagesView()));
+admin.get("/admin/pages/new", (c) => c.html(renderPageEditorView()));
+admin.get("/admin/pages/:id/edit", (c) => c.html(renderPageEditorView()));
 admin.get("/admin/categories", (c) =>
   c.html(renderShell("Categories", "categories")),
 );

@@ -501,8 +501,8 @@
       "id": "T22",
       "title": "Site-aware Pages tab UX (Site filter + Page-type filter + Site selector in About editor)",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T22"
       ],
