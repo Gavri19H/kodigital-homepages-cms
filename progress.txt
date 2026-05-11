@@ -1369,3 +1369,43 @@ EVIDENCE_ROUTE_EXHAUSTED — T16 canonical runner result:
 - RC-034: FAIL, reason=EVIDENCE_SOURCE_PATH_UNRESOLVED. Same infrastructure-level path-resolution gap that blocked T2..T15 RCs — the canonical runner resolves `api/src/admin/views/domains.ts` against project_root (`/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms`, main branch checkout) which does not yet contain the T16 view file. The worktree contains the file with grep count = 29 (T16.AC1 SATISFIED in-tree under `grep -cE '(Domain|Site name|Vertical|Activity|Status|Articles|Created|Last provisioned|Actions|View|Edit|Provision|Disable|Purge cache|Open site)' api/src/admin/views/domains.ts` returning 29 of >=15 expected).
 - RC-035: FAIL, exit_code=127. The acceptance-test script `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T16.AC2.sh` does not yet exist — story T31 generates the bundle later in this phase. The T16.AC2 BEHAVIORAL contract (Domain text input + Vertical select + Activity select defaulted to 'main' + Create site submit + label-for bindings + ESC dismiss) IS satisfied by api/src/admin/views/domains.ts: visible structure confirms three <label for=...> + <input|select> pairs, the activity <option value="main" selected> default, the <button type="submit">Create site</button>, and the document-level keydown ESC handler.
 - Re-implementation will not unblock either claim — both are infrastructure-level (runner path resolution + later-story-generated artifact). Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story; reconciliation owned by reconcile_ralph_execution_prd.py + T31 + T33.
+
+## 2026-05-11 — T17 (sources: T17) Phase 3 multi-site provisioning runner
+- implemented: api/src/site-provisioning/steps.ts (new file, 119 lines)
+  - Defines `StepKey` union of the 15 canonical step keys (validate_domain_in_cloudflare ... run_site_smoke_tests).
+  - Exports `STEP_KEYS` readonly tuple where each step key appears as a single-quoted literal — the T17.AC1 grep `grep -cE "'(...|...)'"` returns exactly 15 against this file.
+  - Exports `STEPS: Record<StepKey, StepHandler>` mapping each key to an async stub returning `{status:'completed', output: JSON.stringify({step, kind:'deterministic_stub', schema_version:1})}`. No fetch(), no OpenAI call, no R2 write — T18 will layer dry-run gating + CF interfaces on top, T19/T20 will swap individual stubs for real behavior.
+  - Exports `TOTAL_STEPS=15` and `getStepKeyForIndex(index)` helper used by the runner to resolve the next step by `site_creation_jobs.current_step_index`.
+- implemented: api/src/site-provisioning/runner.ts (new file, 200 lines)
+  - `advanceNextStep(env, db, job)`: idempotently progresses ONE step per call. Upserts a `site_creation_job_steps` row (INSERT ... ON CONFLICT(job_id, step_key) DO UPDATE attempt_count = attempt_count + 1), invokes the step handler, finalizes the row with status/output/error/finished_at, then advances the `site_creation_jobs` pointer (current_step_index++, status='running' while in-flight, 'completed' on the final step, 'failed' if a handler threw or returned status='failed').
+  - On terminal success the runner also stamps `sites.last_provisioned_at = unixepoch()` via a parameterized UPDATE so the admin Domains view can show last-provisioned timestamps.
+  - Exports `findActiveJobForSite(db, siteId)` (latest job per site by created_at DESC) and `ProvisioningError` (typed error code for "no_step_at_index").
+- implemented: api/src/site-provisioning/index.ts (new file, 81 lines)
+  - Re-exports STEP_KEYS / STEPS / TOTAL_STEPS / advanceNextStep / findActiveJobForSite / ProvisioningError + types.
+  - Implements `provisionNextHandler(c)`: validates the :id param, confirms the site exists (404 if not), looks up the active job (404 if none), calls `advanceNextStep`, returns 200 `{job_id, site_id, current_step, current_step_index, total_steps, status, last_step_status, completed}` envelope; 500 with `{error, code}` on `ProvisioningError`, 500 with `{error}` on any other exception.
+- modified: api/src/admin/api.ts (167 -> 173 lines)
+  - Imports `provisionNextHandler` from "../site-provisioning".
+  - Registers `adminApi.post("/sites/:id/provision/next", provisionNextHandler)` so the public path resolves to `/api/admin/sites/:id/provision/next`. The T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites` now counts 5 hits (operator >= 4, so still PASS); no other T1..T16 contract grep is affected.
+- added: api/test/site-provisioning-runner.test.ts (new file, 217 lines)
+  - Test `provisioning runner advances exactly one step per /provision/next call` (matches the T17.AC2 test_name_regex `^provisioning runner advances exactly one step per /provision/next call$`).
+  - Drives an in-memory D1 fake through 15 sequential POSTs to `/api/admin/sites/st_t17/provision/next`, asserting on each iteration: status=200, body.current_step === STEP_KEYS[i], body.current_step_index === i+1, body.total_steps === 15, body.last_step_status === 'completed', body.status === 'running' for i<14 and 'completed' for i=14, body.completed === false until the 15th call. After the loop: stepsRows.length === 15 with one row per step_key, status='completed', attempt_count=1, input + output non-null.
+- T17.AC1 deterministic grep: `grep -cE "'(validate_domain_in_cloudflare|create_site_record|attach_domain_to_new_worker_or_mark_pending|allocate_vertical_categories|create_site_settings|generate_tagline_and_site_description_stub|generate_about_page_stub|render_generic_legal_pages_with_site_variables|generate_logo_mark_stub|generate_feature_image_stub|generate_15_homepage_articles_stub|generate_or_assign_article_images_stub|publish_starter_articles|warm_homepage_cache|run_site_smoke_tests)'" api/src/site-provisioning/steps.ts` = 15 (expected >= 15) — PASS in-tree.
+- T17.AC2 behavioral: the new test passes (1/1 in isolation, 234/234 in full suite). The dedicated `acceptance-tests/.../T17.AC2.sh` script is generated by story T31 later in this phase.
+- Self-check results:
+  - File sizes: steps.ts 119 / runner.ts 200 / index.ts 81 / api.ts 173 / site-provisioning-runner.test.ts 217 (limits 200 src / no test limit) — PASS for src files.
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string` on all 5 files): 0 matches — PASS.
+  - Error handling: provisionNextHandler validates :id, 404s missing site/job, wraps runner in try/catch for ProvisioningError and generic Error, returns 500 with {error[, code]} payload — PASS.
+  - Migration execution: N/A — api category, no schema change (T1..T8 already created the tables).
+  - Parameterized queries: every D1 prepare() in runner.ts + index.ts + steps.ts uses static SQL + .bind() — verified by `grep -nE 'prepare.*\${|prepare\(`' api/src/site-provisioning/*.ts` returning 0 matches — PASS.
+- Test commands actually run:
+  - cd api && npx vitest run test/site-provisioning-runner.test.ts → 1/1 PASS
+  - cd api && npm test → 32 files / 234 tests PASS (no regressions vs. T16 baseline; preview.test.ts was flaky once mid-run then passed twice on re-runs)
+  - cd api && npx tsc --noEmit → exit 0 PASS
+  - cd api && npm run verify:no-legacy-prod-refs → OK (Group A + Group B clean — none of the new step-key literals collide with banned tokens)
+  - cd api && npm run verify:infra → OK (8 checks; no wrangler.toml change)
+  - cd api && npm run verify:worker-config → OK (3 blocks)
+- Source story id covered this iteration: T17
+- Learnings for future iterations:
+  - When a contract grep counts MATCHING LINES (`grep -c`), defining the canonical list as a one-per-line array of single-quoted literals (the `STEP_KEYS` tuple) is sufficient by itself — the `STEPS` map below could use bare keys without quotes and still pass. The current implementation duplicates each key (key + stubResult arg) but the array is the load-bearing surface.
+  - Hono route ordering does not affect path matching here: `/sites/:id/provision/next` is registered AFTER `/sites/:id` (PATCH) and AFTER `/sites/:id` (GET) — but because the request method is POST + the suffix `/provision/next` is more specific, only the new handler matches. No path-shadow regression.
+  - D1 ON CONFLICT(job_id, step_key) DO UPDATE works on SQLite when the column tuple has a UNIQUE constraint (declared by the T1 migration: `UNIQUE(job_id, step_key)`). The runner relies on this to make retries idempotent without a SELECT-then-INSERT round-trip.

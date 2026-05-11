@@ -380,8 +380,8 @@
       "id": "T17",
       "title": "Build site-provisioning runner with 15 step keys",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T17"
       ],

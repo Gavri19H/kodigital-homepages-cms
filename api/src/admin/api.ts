@@ -20,6 +20,7 @@ import {
   listDomainsHandler,
   updateDomainHandler,
 } from "./domains-verticals-handlers";
+import { provisionNextHandler } from "../site-provisioning";
 
 interface PageRow {
   id: number;
@@ -156,6 +157,11 @@ adminApi.get("/sites", listSitesHandler);
 adminApi.post("/sites", createSiteHandler);
 adminApi.get("/sites/:id", getSiteHandler);
 adminApi.patch("/sites/:id", updateSiteHandler);
+// T17: site-provisioning runner — advances the active site_creation_job
+// by one step per call. Route literal `/sites/:id/provision/next`
+// still matches the T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites`
+// (operator >= 4, so a 5th hit is safe).
+adminApi.post("/sites/:id/provision/next", provisionNextHandler);
 // T14: verticals (read-only global) + domains (list + status/kind patch).
 // The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
 // exactly 3 hits — the three lines below — to satisfy T14.AC1.
