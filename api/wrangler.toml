@@ -56,6 +56,8 @@ OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
 SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
+CF_ACCESS_TEAM_DOMAIN = "https://kodigital2.cloudflareaccess.com"
+CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -85,6 +87,16 @@ OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
 SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
+# Cloudflare Access auth context. Required by api/src/auth/access-auth.ts
+# to fetch JWKS (CF_ACCESS_TEAM_DOMAIN/cdn-cgi/access/certs) and to
+# validate the JWT audience claim against the CMS app (CF_ACCESS_AUD).
+# Neither value is sensitive: TEAM_DOMAIN is the public team URL and AUD
+# is the application ID. Sensitive credentials (CF_ACCESS_CLIENT_SECRET,
+# OPENAI_API_KEY, CLOUDFLARE_PROVISIONING_API_TOKEN, etc.) MUST stay in
+# wrangler secrets (per docs/cloudflare-worker-secrets-setup.md), never
+# in [vars].
+CF_ACCESS_TEAM_DOMAIN = "https://kodigital2.cloudflareaccess.com"
+CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
 
 # Bindings MUST be redeclared per env. Wrangler does NOT inherit
 # [[d1_databases]] / [[kv_namespaces]] / [[r2_buckets]] from the top
