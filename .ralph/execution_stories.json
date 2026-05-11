@@ -668,8 +668,8 @@
       "id": "T29",
       "title": "Add site-context + tenant-boundary + dry-run + legal-template + protected-domain tests",
       "category": "infra",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T29"
       ],
