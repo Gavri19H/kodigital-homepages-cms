@@ -18,6 +18,8 @@ import api from "./api";
 import workflowApi from "./workflow-api";
 import aiApi from "./ai-api";
 import { renderDomainsView } from "./views/domains";
+import { renderArticlesView } from "./views/articles";
+import { renderArticleEditorView } from "./views/article-editor";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -53,7 +55,9 @@ function renderShell(title: string, area: string): string {
 // array). T15 added the /admin/domains literal as the 9th entry — see
 // the contract-binding regex documented in implementation_digest.md.
 admin.get("/admin", (c) => c.html(renderShell("Admin", "home")));
-admin.get("/admin/articles", (c) => c.html(renderShell("Articles", "articles")));
+admin.get("/admin/articles", (c) => c.html(renderArticlesView()));
+admin.get("/admin/articles/new", (c) => c.html(renderArticleEditorView()));
+admin.get("/admin/articles/:id/edit", (c) => c.html(renderArticleEditorView()));
 admin.get("/admin/pages", (c) => c.html(renderShell("Pages", "pages")));
 admin.get("/admin/categories", (c) =>
   c.html(renderShell("Categories", "categories")),
