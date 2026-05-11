@@ -51,10 +51,20 @@ function makeDbMock(pages: PageSeed[]) {
             }
             return null;
           }
-          if (sql.startsWith("SELECT id, slug, title, content_html, status, updated_at FROM pages")) {
+          if (
+            sql.startsWith("SELECT id, slug, title, content_html, status, updated_at FROM pages") ||
+            sql.startsWith("SELECT id, slug, title, content_html, status, updated_at, site_id FROM pages")
+          ) {
+            // T27: site-scoped page query passes (slug, siteId). The
+            // fixture pages here are treated as global (site_id NULL) so
+            // they still resolve under the (site_id = ? OR site_id IS NULL)
+            // clause.
             const slug = stmt._args[0] as string;
             const r = rows.find((x) => x.slug === slug && x.status === "published");
-            return (r ?? null) as unknown as T | null;
+            if (r) {
+              return { ...r, site_id: null } as unknown as T | null;
+            }
+            return null;
           }
           if (sql.startsWith("SELECT * FROM articles WHERE slug")) {
             return null;

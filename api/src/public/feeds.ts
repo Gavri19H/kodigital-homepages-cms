@@ -7,13 +7,36 @@
 // All user-supplied content (title, slug, summary) is XML-escaped via
 // `xmlEscape` before interpolation. The function is hand-rolled (no
 // 3rd-party XML lib) because Workers runtime + bundle-size discipline.
+//
+// T27 (Phase 3): the caller in api/src/public/router.ts always pre-filters
+// articles by `siteContext.siteId` via `listArticles(..., { siteId })`
+// before passing them here, so the article list this module receives is
+// guaranteed to be a single tenant's published rows — no cross-site leak
+// at the serializer layer. `FeedSiteInfo.baseUrl` is the tenant's host so
+// every <link> / <id> URL is scoped to that site.
 
 import type { ArticleRow } from "../db";
+import type { PublicSiteContext } from "./middleware";
 
 export interface FeedSiteInfo {
   baseUrl: string;
   title: string;
   description: string;
+}
+
+// T27: convenience builder used by tests + alternate callers — derives a
+// FeedSiteInfo from a SiteContext (specifically `siteContext.siteId`'s
+// canonical hostname / vertical). Kept here so router.ts and any future
+// caller can construct the feed envelope from the SiteContext without
+// re-implementing the URL composition rule.
+export function feedSiteInfoFromContext(
+  siteContext: PublicSiteContext,
+): FeedSiteInfo {
+  return {
+    baseUrl: `https://${siteContext.hostname}`,
+    title: siteContext.hostname,
+    description: `Articles for ${siteContext.hostname} (site=${siteContext.siteId})`,
+  };
 }
 
 export function xmlEscape(value: string): string {

@@ -32,8 +32,17 @@ import type { Env } from "../env";
 import type { SiteContext } from "../site/site-context";
 import { resolveSiteContextFromRequest } from "../site/site-context";
 
+// PublicSiteContext: the T27 wire-into-handlers view of SiteContext.
+// Mirrors the canonical SiteContext (snake_case `site_id`) and adds a
+// camelCase `siteId` alias so T27 public handlers can scope queries via
+// `siteContext.siteId` without redeclaring the destructure in every route.
+export interface PublicSiteContext extends SiteContext {
+  siteId: string;
+}
+
 export type PublicSiteVariables = {
   site: SiteContext;
+  siteContext: PublicSiteContext;
 };
 
 export async function publicSiteContextMiddleware(
@@ -45,5 +54,6 @@ export async function publicSiteContextMiddleware(
     return c.json({ error: "Not Found" }, 404);
   }
   c.set("site", site);
+  c.set("siteContext", { ...site, siteId: site.site_id });
   await next();
 }

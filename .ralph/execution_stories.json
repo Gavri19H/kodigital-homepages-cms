@@ -620,8 +620,8 @@
       "id": "T27",
       "title": "Site-aware public routes (article/category/page/feed/sitemap/robots/ads queries scoped by site_id)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T27"
       ],
