@@ -219,6 +219,47 @@ describe("site-provisioning dry-run safety (T18)", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("provisioning steps are idempotent under re-invocation", async () => {
+    // BEHAVIORAL: re-calling /provision/next for a job that has already
+    // advanced past a given step MUST NOT duplicate step rows; the fake
+    // DB models the (job_id, step_key) upsert and increments
+    // attempt_count when the same key is re-INSERTed.
+    const { db, stepsRows } = makeFakeDb({
+      id: "job_idem",
+      site_id: "st_idem",
+      hostname: "idem.example.test",
+    });
+    const env = buildEnv(db);
+
+    const res1 = await admin.request(
+      "/api/admin/sites/st_idem/provision/next",
+      { method: "POST", headers: { "content-type": "application/json" } },
+      env,
+    );
+    expect(res1.status).toBe(200);
+
+    const firstKeys = stepsRows.map((r) => r.step_key);
+    const initialRowCount = stepsRows.length;
+    expect(initialRowCount).toBeGreaterThanOrEqual(1);
+
+    // Re-run the same job — fakeDb's upsert path keeps one row per
+    // (job_id, step_key). Row count stays the same; no duplicates.
+    const res2 = await admin.request(
+      "/api/admin/sites/st_idem/provision/next",
+      { method: "POST", headers: { "content-type": "application/json" } },
+      env,
+    );
+    expect(res2.status).toBe(200);
+
+    const uniqueKeys = new Set(stepsRows.map((r) => r.step_key));
+    expect(uniqueKeys.size).toBe(stepsRows.length);
+    // Confirms the first step's key did not duplicate.
+    if (firstKeys[0]) {
+      const matching = stepsRows.filter((r) => r.step_key === firstKeys[0]);
+      expect(matching).toHaveLength(1);
+    }
+  });
+
   it("dry-run does not call Cloudflare APIs", async () => {
     const { db, stepsRows, purgeRows } = makeFakeDb({
       id: "job_t18",

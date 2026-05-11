@@ -163,4 +163,25 @@ describe("site-context (T10)", () => {
     expect(calls.length).toBe(1);
     expect(calls[0]?.sql).toMatch(/FROM domains d INNER JOIN sites s/);
   });
+
+  it("resolves public hostname to a registered SiteContext (T29 behavioral)", async () => {
+    const env = makeEnv();
+    const row: SiteContext = {
+      site_id: "site_pub",
+      hostname: "pub.example",
+      vertical_slug: "tech",
+      status: "active",
+    };
+    const { db } = makeFakeDb({ "pub.example": row });
+    const ctx = await resolveSiteByHostname(db, "pub.example", env);
+    expect(ctx).toEqual(row);
+  });
+
+  it("cms.kodigital.app does not resolve as a public site (T29 admin-host boundary)", async () => {
+    const env = makeEnv();
+    const { db, calls } = makeFakeDb({});
+    const ctx = await resolveSiteByHostname(db, "cms.kodigital.app", env);
+    expect(ctx).toBeNull();
+    expect(calls.length).toBe(0);
+  });
 });
