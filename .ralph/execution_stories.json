@@ -572,8 +572,8 @@
       "id": "T25",
       "title": "Site filters on Media and Tags tabs",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T25"
       ],
