@@ -645,8 +645,8 @@
       "id": "T28",
       "title": "Harden off-ADMIN_HOST /admin 404 with Cache-Control:no-store + X-Robots-Tag:noindex,nofollow",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T28"
       ],
