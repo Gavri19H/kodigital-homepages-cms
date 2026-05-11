@@ -285,8 +285,8 @@
       "id": "T13",
       "title": "Add admin sites endpoints: GET/POST /sites + GET/PATCH /sites/:id",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T13"
       ],
