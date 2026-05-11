@@ -746,8 +746,8 @@
       "id": "T32",
       "title": "Update progress.txt + GUARDRAILS.md + prd.json for Phase B Ralph context",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T32"
       ],
