@@ -206,6 +206,59 @@ ALTER TABLE articles ADD COLUMN seo_description TEXT;
 ALTER TABLE articles ADD COLUMN ai_generation_id TEXT REFERENCES ai_generations(id);
 
 -- ==================================================================
+-- Phase 3, T4 — site-scope + page-type columns on pages and site-scope
+-- columns on media / tags / redirects
+-- ------------------------------------------------------------------
+-- Six ADD COLUMN statements (one per line) that turn the four
+-- remaining content tables inherited from Phase 1 into site-scoped
+-- tables. They sit BETWEEN the T3 articles ALTER block above and the
+-- T2 CREATE INDEX block below so the per-tenant indexes
+-- idx_pages_site_*, idx_media_site, and idx_tags_site_slug have the
+-- columns they reference by the time CREATE INDEX runs.
+--
+--   * pages.site_id            — tenant discriminator. Nullable on
+--                                ADD COLUMN (SQLite cannot ADD a
+--                                NOT NULL column without a DEFAULT);
+--                                Phase-3 provisioning always writes
+--                                site_id when materialising the
+--                                starter About + legal pages.
+--   * pages.page_type          — taxonomy of the page. DEFAULT
+--                                'generic' so existing rows land in a
+--                                safe bucket; the provisioning runner
+--                                writes 'about' / 'legal' / 'contact'
+--                                for the seeded set. Indexed by
+--                                idx_pages_site_type for the Pages
+--                                tab page-type filter (T22).
+--   * pages.ai_generation_id   — receipts FK to ai_generations(id) for
+--                                any AI-rendered legal/about page
+--                                produced by the Phase-3 stub
+--                                generation steps (T19/T20). Nullable
+--                                for human-authored pages.
+--   * media.site_id            — tenant discriminator for media items.
+--                                Nullable so existing rows + globally
+--                                shared assets (legal-template hero,
+--                                logos before site assignment) keep
+--                                site_id = NULL and the Media tab
+--                                filter UX renders them as "Global".
+--                                Indexed by idx_media_site.
+--   * tags.site_id             — tenant discriminator for tags.
+--                                Nullable for the same global-fallback
+--                                reason as media; idx_tags_site_slug
+--                                covers per-site slug lookups.
+--   * redirects.site_id        — tenant discriminator for hostname-
+--                                scoped redirect rules. Nullable so
+--                                a global redirect (e.g. legacy path
+--                                rewrite that applies on every site)
+--                                can persist with site_id = NULL.
+-- ==================================================================
+ALTER TABLE pages ADD COLUMN site_id TEXT REFERENCES sites(id);
+ALTER TABLE pages ADD COLUMN page_type TEXT NOT NULL DEFAULT 'generic';
+ALTER TABLE pages ADD COLUMN ai_generation_id TEXT REFERENCES ai_generations(id);
+ALTER TABLE media ADD COLUMN site_id TEXT REFERENCES sites(id);
+ALTER TABLE tags ADD COLUMN site_id TEXT REFERENCES sites(id);
+ALTER TABLE redirects ADD COLUMN site_id TEXT REFERENCES sites(id);
+
+-- ==================================================================
 -- Multi-site composite indexes (Phase 3, T2)
 -- ------------------------------------------------------------------
 -- These 13 indexes are the read-path covering set for the multi-site
