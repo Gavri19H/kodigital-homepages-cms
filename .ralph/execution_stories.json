@@ -596,8 +596,8 @@
       "id": "T26",
       "title": "Public middleware: inject SiteContext + reject when hostname has no site",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T26"
       ],
