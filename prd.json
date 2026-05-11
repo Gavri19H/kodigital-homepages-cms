@@ -505,7 +505,7 @@
         "BEHAVIORAL: GIVEN no site_creation_jobs row exists for the site_id, WHEN GET /api/admin/sites/:id/provision is called, THEN response is 404 + {error:string} (no leak of internal state)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "WARN-FIX-2",
@@ -522,7 +522,7 @@
         "grep -c 'cache_purge_log' api/src/admin/api.ts >= 1"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "WARN-FIX-3",
@@ -537,7 +537,7 @@
         "BEHAVIORAL: GIVEN renderDomainsView() output, WHEN inspected, THEN the above-fold primary CTA button label is exactly 'Add New Site' (byte-for-byte matching design_contract.cta_sequence[0].label)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     }
   ]
 }
