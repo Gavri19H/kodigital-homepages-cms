@@ -453,8 +453,8 @@
       "id": "T20",
       "title": "Implement legal-template variable substitution in render_generic_legal_pages step",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T20"
       ],

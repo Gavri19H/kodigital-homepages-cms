@@ -1,32 +1,18 @@
-// Phase 3 / T17 + T19: Provisioning step registry.
+// Phase 3 / T17+T19+T20: provisioning step registry.
 //
-// The 15 step keys below are the AUTHORITATIVE order in which a
-// site_creation_jobs row is advanced by the runner — one step per
-// POST /api/admin/sites/:id/provision/next call. T17 wired all 15 as
-// deterministic stubs; T18 layers dry-run gating + Cloudflare-interface
-// safety on top of the CF-mutation step; T19 swaps the
-// `create_site_settings` stub for the real per-site site_settings
-// seed (12 keys); T20 swaps the legal-pages stub for variable-aware
-// HTML rendering.
+// 15 step keys advance a site_creation_jobs row one step per
+// POST /api/admin/sites/:id/provision/next call. T17 wired stubs;
+// T18 added dry-run gating for CF-mutation steps; T19 swapped
+// create_site_settings for a 12-key seed; T20 swaps the legal-pages
+// stub for variable-aware rendering via legal-renderer.ts.
 //
-// Contract greps:
-//   - T17.AC1:
-//       grep -cE "'(validate_domain_in_cloudflare|...|run_site_smoke_tests)'"
-//         api/src/site-provisioning/steps.ts   # must be >= 15
-//   - T19.AC1:
-//       grep -cE "'(site_name|logo_media_id|tagline|site_description|
-//                    brand_tokens_json|robots_txt_content|ads_txt_content|
-//                    custom_head_html|custom_footer_html|
-//                    newsletter_settings_json|contact_email|privacy_email)'"
-//         api/src/site-provisioning/steps.ts   # must be >= 12
-//
-// The 15 step-key names each appear as a single-quoted literal at
-// least once (STEP_KEYS tuple). The 12 site-settings key names each
-// appear as a single-quoted literal exactly once (DEFAULT_SETTING_SEED
-// tuple inside `seedDefaultSiteSettings`). Both greps therefore count
-// every canonical key deterministically.
+// Contract greps (each canonical key appears as a single-quoted literal
+// exactly once in the registry tuple it belongs to):
+//   - T17.AC1: 15 step-key literals in STEP_KEYS
+//   - T19.AC1: 12 site-settings-key literals in DEFAULT_SETTING_SEED
 
 import type { Env } from "../env";
+import { renderLegalPagesForSite } from "./legal-renderer";
 
 export type StepKey =
   | "validate_domain_in_cloudflare"
@@ -155,6 +141,26 @@ async function seedDefaultSiteSettings(
   };
 }
 
+// T20 handler: renders the 4 global legal templates for ctx.site_id,
+// substituting the 6 documented variables and stripping any residual
+// placeholders. Idempotent under (site_id, slug) UNIQUE.
+async function renderLegalPagesStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const r = await renderLegalPagesForSite(ctx.env, ctx.db, ctx.site_id);
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "render_generic_legal_pages_with_site_variables",
+      kind: "deterministic_render",
+      schema_version: 1,
+      rendered: r.rendered,
+      slugs: r.slugs,
+      missing: r.missing,
+    }),
+  };
+}
+
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: async () =>
     stubResult("validate_domain_in_cloudflare"),
@@ -167,8 +173,7 @@ export const STEPS: Record<StepKey, StepHandler> = {
   generate_tagline_and_site_description_stub: async () =>
     stubResult("generate_tagline_and_site_description_stub"),
   generate_about_page_stub: async () => stubResult("generate_about_page_stub"),
-  render_generic_legal_pages_with_site_variables: async () =>
-    stubResult("render_generic_legal_pages_with_site_variables"),
+  render_generic_legal_pages_with_site_variables: renderLegalPagesStep,
   generate_logo_mark_stub: async () => stubResult("generate_logo_mark_stub"),
   generate_feature_image_stub: async () =>
     stubResult("generate_feature_image_stub"),
