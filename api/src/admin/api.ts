@@ -21,6 +21,7 @@ import {
   updateDomainHandler,
 } from "./domains-verticals-handlers";
 import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
+import { purgeCacheHandler } from "./purge-cache-handler";
 
 interface PageRow {
   id: number;
@@ -261,6 +262,12 @@ adminApi.post("/sites/:id/provision/next", provisionNextHandler);
 // WARN-FIX-1 grep `admin(Api)?\.(get)\("/sites/:id/provision"` (the
 // closing quote distinguishes this from `/sites/:id/provision/next`).
 adminApi.get("/sites/:id/provision", provisionStatusHandler);
+// WARN-FIX-2: POST /sites/:id/purge-cache — triggers a cache purge for the
+// site. In dry-run mode (default) no real CF call is issued and the
+// handler inserts a `cache_purge_log` row with status='completed_dry_run',
+// returning {resource:{purge_id, status}}. Route literal matches the
+// WARN-FIX-2.AC1 grep `admin(Api)?\.(post)\("/sites/:id/purge-cache"`.
+adminApi.post("/sites/:id/purge-cache", purgeCacheHandler);
 // T14: verticals (read-only global) + domains (list + status/kind patch).
 // The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
 // exactly 3 hits — the three lines below — to satisfy T14.AC1.

@@ -822,10 +822,18 @@
       ],
       "category": "api",
       "id": "WARN-FIX-2",
-      "passes": false,
-      "state": "planned",
+      "passes": true,
+      "scoped_quality_commands": [
+        "cd api && npx vitest run test/admin-purge-cache.test.ts",
+        "cd api && npx tsc --noEmit"
+      ],
+      "source_story_ids": [
+        "WARN-FIX-2"
+      ],
+      "state": "implemented",
       "targetFiles": [
         "api/src/admin/api.ts",
+        "api/src/admin/purge-cache-handler.ts",
         "api/test/admin-purge-cache.test.ts"
       ],
       "title": "Implement POST /api/admin/sites/:id/purge-cache endpoint (declared in interface_contract; Purge cache UI action wired)"
