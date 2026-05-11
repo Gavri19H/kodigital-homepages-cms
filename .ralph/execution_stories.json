@@ -123,8 +123,8 @@
       "id": "T6",
       "title": "Restructure site_settings to (site_id, key) UNIQUE via CREATE-INSERT-DROP-RENAME",
       "category": "migration",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T6"
       ],
