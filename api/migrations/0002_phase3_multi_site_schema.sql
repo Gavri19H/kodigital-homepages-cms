@@ -299,10 +299,12 @@ CREATE INDEX IF NOT EXISTS idx_articles_site_homepage_section ON articles(site_i
 CREATE INDEX IF NOT EXISTS idx_pages_site_slug ON pages(site_id, slug);
 CREATE INDEX IF NOT EXISTS idx_pages_site_type ON pages(site_id, page_type);
 
--- per-site key/value settings lookup (covers the restructured
--- site_settings table from 0003 / T6 — (site_id, key) is the new
--- composite primary lookup key for site_settings_new).
-CREATE INDEX IF NOT EXISTS idx_settings_site_key ON site_settings(site_id, key);
+-- per-site key/value settings lookup is created in 0003 AFTER the
+-- CREATE-INSERT-DROP-RENAME restructure adds the site_id column to
+-- site_settings. Declaring it here would fail with "no such column:
+-- site_id" because at this point site_settings is still the legacy
+-- (key, value) shape from 0001. The index now lives at the bottom of
+-- 0003 immediately after the new table is renamed into place.
 
 -- hostname → site_id lookup used by the public middleware (T26).
 CREATE INDEX IF NOT EXISTS idx_domains_hostname ON domains(hostname);
