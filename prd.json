@@ -198,7 +198,7 @@
         "BEHAVIORAL: GIVEN seed migrations applied, WHEN GET /api/admin/verticals is called, THEN response is 200 with {resource:[{slug:'home'},{slug:'finance'},{slug:'travel'},{slug:'health'},{slug:'parenting'},{slug:'food'},{slug:'tech'},{slug:'lifestyle'}]} (8 items)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T15",
@@ -213,7 +213,7 @@
         "BEHAVIORAL: GIVEN authenticated admin user, WHEN GET cms.kodigital.app/admin/domains is requested, THEN response is 200 HTML containing <meta data-area=\"domains\"> and a 'New Site' button trigger; nav links contain 'Domains'."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T16",
@@ -228,7 +228,7 @@
         "BEHAVIORAL: GIVEN admin user on /admin/domains, WHEN the New Site button is clicked, THEN a modal appears with three form fields (Domain text input, Vertical select, Activity select defaulted to 'main') and a 'Create site' submit button; all inputs have <label> or aria-label; the modal supports keyboard ESC to close."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T17",
@@ -244,7 +244,7 @@
         "BEHAVIORAL: GIVEN a pending site_creation_job with status='pending', WHEN POST /api/admin/sites/:id/provision/next is called 15 times in sequence, THEN each call advances exactly one step, persists per-step input/output/status to site_creation_job_steps with attempt_count incremented, returns 200 with {current_step, status} envelope, and the 15th response returns status='completed'."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T18",
@@ -260,7 +260,7 @@
         "BEHAVIORAL: GIVEN SITE_PROVISIONING_DRY_RUN='true' (default), WHEN attach_domain_to_new_worker_or_mark_pending step runs, THEN no fetch() is issued to api.cloudflare.com (intercept proves zero outbound) AND the step persists status='completed_dry_run' AND a cache_purge_log row records the dry-run attempt with both env flag values."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T19",
@@ -274,7 +274,7 @@
         "BEHAVIORAL: GIVEN a freshly-created site, WHEN the create_site_settings step completes, THEN SELECT COUNT(*) FROM site_settings WHERE site_id=? returns 12, and tagline + site_description contain deterministic stub values referencing the site name (no AI/OpenAI call was made)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T20",
@@ -289,7 +289,7 @@
         "BEHAVIORAL: GIVEN a global legal_templates row for 'privacy-policy' containing '{{site_name}}' and '{{domain}}', WHEN render_generic_legal_pages_with_site_variables runs for site {name:'Acme', domain:'acme.example'}, THEN the rendered HTML stored in pages.content_html contains 'Acme' and 'acme.example' and no '{{' substrings."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T21",
@@ -304,7 +304,7 @@
         "BEHAVIORAL: GIVEN no site selected in the article editor, WHEN the user attempts to save, THEN the form blocks submit with an aria-live='polite' status message stating 'Site is required' AND the POST is never sent. WHEN a site IS selected, THEN the category dropdown is filtered to only categories allocated to that site's vertical(s)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T22",
@@ -319,7 +319,7 @@
         "BEHAVIORAL: GIVEN an About page editor, WHEN no site_id is selected, THEN saving is blocked with a status message; legal templates (privacy-policy/terms/do-not-sell/contact) MAY save with site_id NULL (global) and the UI surfaces a 'Global template' badge."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T23",
@@ -333,7 +333,7 @@
         "BEHAVIORAL: GIVEN a category editor, WHEN the user selects verticals ['home','tech'] and saves, THEN category_verticals contains both rows (category_id, vertical_id) and the public site of vertical='home' or 'tech' now sees this category in its allocated list."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T24",
@@ -348,7 +348,7 @@
         "BEHAVIORAL: GIVEN a site exists with settings_version=1, WHEN PATCH /api/admin/settings updates 'tagline' for that site_id, THEN site_settings row (site_id, 'tagline') value is updated AND sites.settings_version is incremented to 2 in the same transaction."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T25",
@@ -363,7 +363,7 @@
         "BEHAVIORAL: GIVEN media rows with site_id IN {A, B, NULL}, WHEN the Media tab Site filter is set to 'A', THEN only A's media + global (NULL) media are returned by GET /api/admin/media?site_id=A; explicit 'Global only' selection returns only NULL."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T26",
@@ -378,7 +378,7 @@
         "BEHAVIORAL: GIVEN hostname='unknown-site.example' with no row in sites/domains, WHEN GET / is requested, THEN response is a safe 404 (no admin info leak, body MUST NOT contain 'cms.kodigital.app'); WHEN hostname='cms.kodigital.app' is requested via the public router, THEN it returns 404 (admin host MUST NOT resolve as public)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T27",
@@ -394,7 +394,7 @@
         "BEHAVIORAL: GIVEN sites A and B each with one article slug='hello', WHEN GET / on hostname-A returns the homepage feed, THEN only A's article is listed; WHEN GET /article/hello on hostname-B is requested, THEN only B's article is rendered (and A's is not visible). robots.txt/ads.txt reflect site_settings rows for that site_id."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T28",
@@ -408,7 +408,7 @@
         "BEHAVIORAL: GIVEN hostname='example.com' (not ADMIN_HOST), WHEN curl -i https://example.com/admin is requested, THEN status is 404, headers include 'Cache-Control: no-store' AND 'X-Robots-Tag: noindex, nofollow', AND the response body does NOT contain 'cms.kodigital.app' AND no Location redirect header is set."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T29",
@@ -425,7 +425,7 @@
         "BEHAVIORAL: GIVEN the four new test files exist, WHEN `cd api && npm test` is run, THEN exit code is 0 and at least 12 new individual test cases pass."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T30",
@@ -441,7 +441,7 @@
         "BEHAVIORAL: GIVEN POST /api/admin/sites with domain='theiwise.com', WHEN executed, THEN response is 400 with error referencing protected-domain rejection AND no row is inserted into sites/domains/site_creation_jobs."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T31",
@@ -459,7 +459,7 @@
         "run_all.sh exits 0 in dev-server-available environments and 2 (NEEDS_RUNTIME) only for behavioral tests requiring `wrangler dev`"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T32",
@@ -475,7 +475,7 @@
         "progress.txt declares Phase 3 milestones"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T33",
@@ -489,7 +489,7 @@
         "package.json contains all 5 npm scripts"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     }
   ]
 }
