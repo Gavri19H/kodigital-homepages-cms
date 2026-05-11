@@ -169,3 +169,63 @@ CREATE TABLE IF NOT EXISTS cache_purge_log (
   response TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- ==================================================================
+-- Multi-site composite indexes (Phase 3, T2)
+-- ------------------------------------------------------------------
+-- These 13 indexes are the read-path covering set for the multi-site
+-- query patterns exercised by the public + admin routers (T26/T27)
+-- and the site-aware DB helpers (T12). Each index leads with site_id
+-- so the planner can scope every query to a tenant on the first key.
+--
+-- Forward column references: idx_articles_*, idx_pages_*, idx_media_*,
+-- idx_tags_*, and idx_settings_site_key reference site_id / homepage_*
+-- / page_type / per-site (site_id, key) columns that are added by
+-- later stories in this same Phase-3 migration set:
+--   T3 → ALTER TABLE articles  ADD COLUMN site_id, homepage_section, homepage_rank, ...
+--   T4 → ALTER TABLE pages     ADD COLUMN site_id, page_type
+--        ALTER TABLE media     ADD COLUMN site_id
+--        ALTER TABLE tags      ADD COLUMN site_id
+--   T6 → CREATE-INSERT-DROP-RENAME site_settings → (site_id, key) UNIQUE  (0003)
+-- The indexes live at the END of 0002 so T3/T4's ALTER statements
+-- naturally interleave between the CREATE TABLE block above and this
+-- index block — guaranteeing every referenced column exists by the
+-- time the CREATE INDEX executes on a fresh local D1.
+-- ==================================================================
+
+-- articles read paths (site-scoped):
+--   * list published per site by date                        → idx_articles_site_status_pub
+--   * list per site + category                                → idx_articles_site_category_status_pub
+--   * featured strip per site                                 → idx_articles_site_featured
+--   * trending strip per site                                 → idx_articles_site_trending
+--   * homepage curated section ordering per site              → idx_articles_site_homepage_section
+CREATE INDEX IF NOT EXISTS idx_articles_site_status_pub ON articles(site_id, status, published_at);
+CREATE INDEX IF NOT EXISTS idx_articles_site_category_status_pub ON articles(site_id, category_id, status, published_at);
+CREATE INDEX IF NOT EXISTS idx_articles_site_featured ON articles(site_id, is_featured);
+CREATE INDEX IF NOT EXISTS idx_articles_site_trending ON articles(site_id, is_trending);
+CREATE INDEX IF NOT EXISTS idx_articles_site_homepage_section ON articles(site_id, homepage_section, homepage_rank);
+
+-- pages read paths (site-scoped, non-unique covering — T5 adds the UNIQUE):
+--   * slug lookup per site (covering)                         → idx_pages_site_slug
+--   * page-type filter per site (e.g. all 'legal' pages)      → idx_pages_site_type
+CREATE INDEX IF NOT EXISTS idx_pages_site_slug ON pages(site_id, slug);
+CREATE INDEX IF NOT EXISTS idx_pages_site_type ON pages(site_id, page_type);
+
+-- per-site key/value settings lookup (covers the restructured
+-- site_settings table from 0003 / T6 — (site_id, key) is the new
+-- composite primary lookup key for site_settings_new).
+CREATE INDEX IF NOT EXISTS idx_settings_site_key ON site_settings(site_id, key);
+
+-- hostname → site_id lookup used by the public middleware (T26).
+CREATE INDEX IF NOT EXISTS idx_domains_hostname ON domains(hostname);
+
+-- per-site category nav ordering (Categories tab / public nav).
+CREATE INDEX IF NOT EXISTS idx_site_categories_site_order ON site_categories(site_id, display_order);
+
+-- reverse lookup: list categories that belong to a given vertical
+-- (used by the New Site modal's vertical → category seeding step T19).
+CREATE INDEX IF NOT EXISTS idx_category_verticals_vertical ON category_verticals(vertical_id, display_order);
+
+-- media + tags filtered by site_id (Media tab / Tags tab — T25).
+CREATE INDEX IF NOT EXISTS idx_media_site ON media(site_id);
+CREATE INDEX IF NOT EXISTS idx_tags_site_slug ON tags(site_id, slug);

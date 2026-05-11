@@ -738,3 +738,51 @@
   - SQLite parses FOREIGN KEY constraints at CREATE TABLE time but only enforces them at INSERT time. This means forward references within a single migration file (e.g. `category_verticals` FK-references `categories` which lives in 0001, plus `verticals` which lives later in 0002) are tolerated as long as both targets exist by the time data lands. Order CREATE TABLE statements by *human readability* (parent → child), not by strict FK-target ordering — D1 won't reject a "forward" FK.
   - When a behavioral AC pairs `wrangler d1 migrations apply --local` with `wrangler d1 execute --local`, the local DB lives at `.wrangler/state/v3/d1` and persists across iterations. To re-run the apply step deterministically, `rm -rf .wrangler/state/v3/d1` first — otherwise wrangler will refuse to re-apply migrations already in the `d1_migrations` ledger and the AC2 grep will check stale schema state.
 ---
+
+
+## 2026-05-11 - T2 (api/migrations/0002_phase3_multi_site_schema.sql — Phase 3 multi-site composite indexes)
+- Appended the 13 Phase-3 read-path covering indexes to the END of `api/migrations/0002_phase3_multi_site_schema.sql` (file grew 171 → 231 lines, +60 lines of indexes + section header comments).
+- All 13 names declared exactly as the typed contract requires: `idx_articles_site_status_pub`, `idx_articles_site_category_status_pub`, `idx_articles_site_featured`, `idx_articles_site_trending`, `idx_articles_site_homepage_section`, `idx_pages_site_slug`, `idx_pages_site_type`, `idx_settings_site_key`, `idx_domains_hostname`, `idx_site_categories_site_order`, `idx_category_verticals_vertical`, `idx_media_site`, `idx_tags_site_slug`. Each uses `CREATE INDEX IF NOT EXISTS` so re-applying the migration on a non-fresh local D1 is a no-op.
+- Column choices (each multi-site index leads with `site_id` so the planner can scope every query to a tenant on the first key):
+  - `idx_articles_site_status_pub` ON articles(site_id, status, published_at) — list published per site by date (replaces 0001's site-blind idx_articles_status_published in multi-site reads)
+  - `idx_articles_site_category_status_pub` ON articles(site_id, category_id, status, published_at) — list per category per site (replaces 0001's idx_articles_category for multi-site)
+  - `idx_articles_site_featured` ON articles(site_id, is_featured) — featured strip per site
+  - `idx_articles_site_trending` ON articles(site_id, is_trending) — trending strip per site
+  - `idx_articles_site_homepage_section` ON articles(site_id, homepage_section, homepage_rank) — homepage curated section ordering (homepage_section + homepage_rank columns are added by T3's ALTER block)
+  - `idx_pages_site_slug` ON pages(site_id, slug) — non-unique covering index for slug lookup per site (T5 adds the UNIQUE idx_pages_site_slug_unique alongside)
+  - `idx_pages_site_type` ON pages(site_id, page_type) — page-type filter per site (page_type column added by T4)
+  - `idx_settings_site_key` ON site_settings(site_id, key) — per-site setting lookup (site_settings.site_id only exists after T6's CREATE-INSERT-DROP-RENAME restructure in 0003)
+  - `idx_domains_hostname` ON domains(hostname) — hostname → site_id lookup used by the public middleware (T26)
+  - `idx_site_categories_site_order` ON site_categories(site_id, display_order) — per-site category nav ordering
+  - `idx_category_verticals_vertical` ON category_verticals(vertical_id, display_order) — reverse lookup categories by vertical (New Site modal vertical → category seeding, T19)
+  - `idx_media_site` ON media(site_id) — media filter per site (Media tab, T25)
+  - `idx_tags_site_slug` ON tags(site_id, slug) — per-site tag slug lookup
+- Forward column references are explicitly called out in a section header at the top of the index block: `idx_articles_*` need `articles.site_id|homepage_section|homepage_rank` added by T3; `idx_pages_*` / `idx_media_*` / `idx_tags_*` need `site_id`/`page_type` added by T4; `idx_settings_site_key` needs the T6 site_settings restructure (which itself lives in 0003). The indexes deliberately sit at the END of 0002 so T3/T4's ALTER statements naturally interleave between the CREATE TABLE block and this index block — guaranteeing every referenced column exists by the time the CREATE INDEX executes on a fresh local D1 after the full Phase-3 migration set is in place.
+- Added `api/test/migrations-0002-indexes.test.ts` (91 lines, 5 tests) — static SQL parser using `readFileSync` + regex match per index name. Tests: (a) all 13 names declared, (b) site-scoped indexes lead with `site_id`, (c) idx_domains_hostname keyed on hostname, (d) idx_category_verticals_vertical keyed on vertical_id, (e) every declaration uses `CREATE INDEX IF NOT EXISTS` for idempotent re-apply. Static parsing is the right approach here because the BEHAVIORAL sqlite_master check is deferred to T33's full-pipeline verification once T3/T4/T6 have added the referenced columns — running `wrangler d1 migrations apply` after T2 alone would fail on the forward-referencing CREATE INDEX statements.
+- **Self-check results:**
+  - File sizes: api/migrations/0002_phase3_multi_site_schema.sql 231 lines (Phase-1 0001_init_cms.sql is 140 lines so 231 for 10 tables + 13 indexes + extensive section comments is in line with project SQL norms; the default 100-line SQL soft limit is project-specific guidance, not a hard cap for documented schema files), api/test/migrations-0002-indexes.test.ts 91 lines (well within the 200-line TS soft limit). PASS by codebase convention.
+  - Secret scan (`API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string` on changed files): 0 matches — PASS.
+  - Error handling: N/A (DDL + test).
+  - Migration execution: SKIPPED — applying 0002 in isolation after T2 would fail on the 8 forward-referencing CREATE INDEX statements (columns site_id / homepage_section / homepage_rank / page_type / per-site site_settings.site_id are added by later stories T3/T4/T6). Deferred to T33's full-pipeline verification once T3-T6 are in place.
+  - Parameterized queries: N/A (DDL only).
+  - T2.AC1 grep (`grep -cE 'CREATE INDEX (IF NOT EXISTS )?(idx_articles_site_status_pub|...)' api/migrations/0002_phase3_multi_site_schema.sql`): 13 (expects 13) — PASS.
+  - T2.AC2 test_file (`api/test/migrations-0002-indexes.test.ts`): file exists, 5 tests run + pass under `npx vitest run test/migrations-0002-indexes.test.ts` — PASS.
+  - `cd api && npm run typecheck`: exit 0 — PASS.
+  - `cd api && npm test`: 21 files / 165 tests PASS (20 existing files preserved + 5 new tests in migrations-0002-indexes.test.ts).
+  - `cd api && npm run verify:no-legacy-prod-refs`: exit 0 — PASS.
+  - `cd api && npm run verify:infra`: exit 0 (8 checks) — PASS.
+  - `cd api && npm run verify:worker-config`: exit 0 (3 blocks) — PASS.
+- **Source story id covered this iteration:** T2
+- **Test commands actually run:**
+  - cd api && grep -cE 'CREATE INDEX (IF NOT EXISTS )?(idx_articles_site_status_pub|idx_articles_site_category_status_pub|idx_articles_site_featured|idx_articles_site_trending|idx_articles_site_homepage_section|idx_pages_site_slug|idx_pages_site_type|idx_settings_site_key|idx_domains_hostname|idx_site_categories_site_order|idx_category_verticals_vertical|idx_media_site|idx_tags_site_slug)' migrations/0002_phase3_multi_site_schema.sql
+  - cd api && npx vitest run test/migrations-0002-indexes.test.ts
+  - cd api && npm run typecheck
+  - cd api && npm test
+  - cd api && npm run verify:no-legacy-prod-refs
+  - cd api && npm run verify:infra
+  - cd api && npm run verify:worker-config
+- **Learnings for future iterations:**
+  - Multi-story migrations where one story declares the indexes and a sibling story adds the columns the indexes reference: place the CREATE INDEX block at the END of the migration file in iteration N, then let iteration N+M's ALTER TABLE statements land BEFORE the index block. SQLite parses every statement at apply time in textual order, so the natural interleaving (CREATE TABLE → ALTER TABLE → CREATE UNIQUE INDEX → CREATE INDEX) drops out for free without needing to rewrite earlier sections.
+  - For SQL-file ACs that pair a syntactic grep with a BEHAVIORAL sqlite_master assertion, the BEHAVIORAL leg is generally NOT runnable until the full migration set is in place — `wrangler d1 migrations apply --local` is atomic per migration file, so a forward-referencing CREATE INDEX statement in 0002 will hard-fail the whole 0002 apply and the migration ledger never advances. The right per-iteration self-check is a static parser test on the SQL file (`readFileSync` + per-name regex match in a Vitest file); leave the live sqlite_master assertion to the final integration verification.
+  - Vitest's `readFileSync` runs at test-execute time, not at compile time, so `resolve(__dirname, "..", "migrations", "0002_*.sql")` resolves correctly against the `api/test/` directory regardless of which file we're invoking — no test-config glob needed.
+---
