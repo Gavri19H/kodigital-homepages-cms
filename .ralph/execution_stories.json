@@ -169,8 +169,8 @@
       "id": "T8",
       "title": "Seed 8 verticals + multi-vertical categories + 4 legal templates",
       "category": "migration",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T8"
       ],
