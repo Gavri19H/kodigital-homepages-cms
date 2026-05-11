@@ -2141,3 +2141,44 @@ D13 canonical runner result — T32:
 - RC-067: PASS. grep_count parser observed count=64 >= expected=6 on /Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/GUARDRAILS.md (cwd_anchor=project_root). The HARD RED LINE section restated by T32 in the worktree exists on the main checkout too because GUARDRAILS.md is one of the files re-baselined by the architect bundle that ships to project_root at mission-bootstrap time — so unlike the T2..T31 grep RCs that needed worktree_root anchoring, T32's GUARDRAILS.md target resolves cleanly under project_root.
 - RC-068: PASS. grep_count parser observed count=3 >= expected=3 on /Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/progress.txt (cwd_anchor=project_root). The 3 matches at project_root are the legacy mentions of "Phase 3" in the main-branch progress.txt; the worktree progress.txt has 44 (we added 41 more this iteration with the Phase 3 Milestones section + this entry). The expected floor is exactly 3, so the project_root scan is sufficient.
 - T32 is the first Phase-3 story to clear the D13 canonical runner with status=PASS on both bound RCs (T1..T31 all logged EVIDENCE_ROUTE_EXHAUSTED because their grep/test artifacts only existed inside the worktree). Reconciliation continues to be owned by reconcile_ralph_execution_prd.py / evaluator — Ralph still does NOT set canonical PRD passes=true.
+
+## 2026-05-11 19:14 UTC — T33 (Verify all 5 CI commands pass post-implementation)
+- Execution story: T33 (Ralph-local .ralph/execution_stories.json) — sources: T33.
+- Goal: post-implementation verification that the 5 mission-mandated CI commands all exit 0 on the worktree as-built and that api/package.json still declares all 5 required npm scripts (typecheck, test, verify:no-legacy-prod-refs, verify:infra, verify:worker-config).
+- Iteration produced zero source-file changes — api/package.json already declared all 5 required scripts after T1..T32 (verified by AC2 grep). T33 is a verification-only story whose work product is the runner receipt set, not a code diff. Per scripts/ralph/CLAUDE.md commit-title parity rule, the commit for this iteration uses the neutral "chore: progress + state update (T33 — ...)" title.
+- AC1 — `cd api && npm run typecheck && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config`:
+  - typecheck (tsc --noEmit): exit 0 (no output, no errors).
+  - test (vitest run): exit 0 — 42 test files, 259 tests, all PASS (duration 12.82s). Coverage includes site-context (12 tests), tenant-guards (24), admin-domains (5), admin-sites-create (9), site-provisioning-dry-run (2), legal-template-render (1), off-admin-host-404-headers (4), worker-config-verify (8), infra-verify (9), legacy-ref-allowlist (5), and the 0002/0003/0004 migration table/index/seed tests for Phase 3.
+  - verify:no-legacy-prod-refs (tsx scripts/verify/assert-no-legacy-prod-refs.ts): exit 0 — "no banned legacy production identifiers found (Group A + Group B)".
+  - verify:infra (tsx scripts/verify/infra-contract.ts): exit 0 — "wrangler.toml matches the Phase 1.5 infra contract (8 checks passed)".
+  - verify:worker-config (tsx scripts/verify/worker-config.ts): exit 0 — "wrangler.toml [vars] blocks match the Phase 1.5 routing contract (3 blocks checked)".
+  - Combined chained shell exit: FINAL_EXIT=0 (single chained `&&` shell run reproduced separately to ensure no command in the chain is silently fail-soft).
+- AC2 — `grep -cE '"(typecheck|test|verify:no-legacy-prod-refs|verify:infra|verify:worker-config)":' api/package.json` → 5 (matches the AC2 expected count of 5; observed 5 script lines: "test", "typecheck", "verify:no-legacy-prod-refs", "verify:infra", "verify:worker-config" — note the order in api/package.json puts `test` ahead of `typecheck` but the unordered count is what AC2 asserts).
+- Acceptance test bash acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T33_ci_commands.sh: exit 0 — 6/6 checks PASS (api/package.json exists; each of the 5 scripts is declared).
+- Files changed (bookkeeping only):
+  - .ralph/execution_stories.json: T33 set to state="implemented", passes=true (Ralph-local execution PRD — allowed per scripts/ralph/prompt.md "Current-cycle scope"; canonical prd.json deliberately NOT modified, per D11/D15).
+  - progress.txt (+this entry).
+- Self-check results:
+  - File sizes: api/package.json 38 lines (unchanged, well under the JSON 200-line working limit) — PASS. .ralph/execution_stories.json 795 lines (Ralph-local PRD; not under maxFileLines governance per project.md) — PASS. progress.txt grows by ~30 lines (documentation/log file; no fixed limit) — PASS.
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string literals introduced; AC1 chained command surfaced only the legitimate "T33" identifier and the test-suite output).
+  - Error handling: N/A (verification-only story, no new handlers/functions).
+  - Migration execution: N/A (story category is script, not db).
+  - Parameterized queries: N/A (no SQL in this story).
+- Test commands actually run (this iteration):
+  - cd api && npm run typecheck → exit 0
+  - cd api && npm test → exit 0 (42 files / 259 tests PASS)
+  - cd api && npm run verify:no-legacy-prod-refs → exit 0
+  - cd api && npm run verify:infra → exit 0
+  - cd api && npm run verify:worker-config → exit 0
+  - cd api && npm run typecheck && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config; echo "FINAL_EXIT=$?" → FINAL_EXIT=0
+  - grep -cE '"(typecheck|test|verify:no-legacy-prod-refs|verify:infra|verify:worker-config)":' api/package.json → 5
+  - bash acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T33_ci_commands.sh → exit 0 (6/6 PASS)
+  - D13 canonical runner (RC-069,RC-070) → status=PASS (see receipts below)
+- Learnings:
+  - When all source dependencies for a verification-only story are already in place (here: api/package.json's 5 scripts existed since the Phase 1.5/T11 scaffolding), the cleanest Ralph iteration is one that performs the verification, captures evidence via the D13 runner, and uses a bookkeeping commit title — there is no source diff to attribute to a "feat:" commit and forcing a fake edit would violate the commit-title parity rule and pollute git blame.
+  - The vitest suite intentionally covers each of the 3 verify scripts (verify-script.test.ts, legacy-ref-allowlist.test.ts, infra-verify.test.ts, worker-config-verify.test.ts) so AC1's chained run double-exercises them: once via `npm test` (suite assertions) and once via `npm run verify:*` (direct invocation). Both styles passed in the same iteration, which is the strongest signal the verify pipeline is internally consistent.
+
+D13 canonical runner result — T33:
+- RC-069: PASS. parser_strategy=test_exit_code observed exit_code=0 matching expected exit_code=0 on `npm run typecheck && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config` (cwd=api, cwd_anchor=project_root). Receipt stdout artifact: evidence/raw/d62aa3e89f74-test-output.txt. Duration 10.287s.
+- RC-070: PASS. parser_strategy=parse_grep_count observed count=5 >= expected=5 on `grep -cE '"(typecheck|test|verify:no-legacy-prod-refs|verify:infra|verify:worker-config)":' package.json` (cwd=api, cwd_anchor=project_root). Receipt stdout artifact: evidence/raw/f0b5c2c2211c-test-output.txt. Duration 4ms.
+- Both T33 bound RCs cleared the canonical runner under project_root anchoring — same pattern as T32 (api/package.json and the npm scripts are baselined in main, not worktree-only). T33 marks the final story of Phase 3 execution: T1..T33 are now all `state="implemented"` and `passes=true` in the Ralph-local execution PRD. Canonical prd.json reconciliation remains owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph — Ralph still does NOT set canonical PRD passes=true on any of T1..T33.

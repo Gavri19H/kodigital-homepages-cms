@@ -771,8 +771,8 @@
       "id": "T33",
       "title": "Verify all 5 CI commands pass post-implementation",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T33"
       ],
