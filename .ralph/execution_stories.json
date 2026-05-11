@@ -719,8 +719,8 @@
       "id": "T31",
       "title": "Generate acceptance-tests bundle (one script per behavioral AC) with chmod 0444 immutability",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T31"
       ],

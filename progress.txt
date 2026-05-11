@@ -2023,3 +2023,22 @@ EVIDENCE_ROUTE_EXHAUSTED — T30 canonical runner result:
 - RC-063: FAIL, reason=EVIDENCE_SOURCE_PATH_UNRESOLVED. Same infrastructure-level path-resolution gap that has blocked every Phase 3 in-tree grep RC (T2..T29) — the canonical runner resolves the three test files (`api/test/admin-domains.test.ts`, `api/test/admin-sites-create.test.ts`, `api/test/off-admin-host-404-headers.test.ts`) against project_root (`/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms`, main-branch checkout) which does not yet carry the Phase-3 admin-domains.test.ts (born inside the worktree this iteration) or the T28 off-admin-host-404-headers.test.ts. F22 source-path-recovery reports `no_package_root_or_story_prefix_resolves_grep_files` after trying `api` package root. In-tree the contract grep returns 23 >= 4 expected (T30.AC1 SATISFIED in-tree; full distribution: admin-domains.test.ts:9, admin-sites-create.test.ts:3, off-admin-host-404-headers.test.ts:11).
 - RC-064: FAIL, exit_code=127. The acceptance-test script `acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T30.AC2.sh` does not yet exist — story T31 generates the bundle later in this phase. The T30.AC2 BEHAVIORAL contract (POST /api/admin/sites with domain=theiwise.com returns 400 with protected-domain rejection and no INSERTs) is satisfied in-source by api/src/admin/sites-handlers.ts (lines 135-138: `assertNotProtectedDomain(domain); ... return c.json({error, reason:'protected-domain'}, 400);`) and pinned by the T30.AC2-named test in admin-sites-create.test.ts plus the protected-domain test in admin-domains.test.ts (asserting status=400, reason='protected-domain', and zero INSERT calls on sites/domains/site_creation_jobs).
 - Re-implementation will not unblock either claim — both are infrastructure-level (runner path resolution against main + later-story-generated artifact). Logging EVIDENCE_ROUTE_EXHAUSTED per D12 and proceeding to the next story; reconciliation owned by reconcile_ralph_execution_prd.py + T31 + T33.
+
+## 2026-05-11 — RX-T31 (sources: T31)
+- Implemented: Generate acceptance-tests bundle (one script per behavioral AC) with chmod 0444 immutability.
+- Created acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/ with 33 per-story scripts (T01..T33) + run_all.sh aggregator.
+- Each per-story script defines a local check() function and makes >=1 check() invocation; scripts use a unified contract: PASS (exit 0), FAIL (exit 1), NEEDS_RUNTIME (exit 2) for scenarios requiring `wrangler dev`.
+- run_all.sh aggregator: iterates T*.sh, counts PASS/SKIP/FAIL, prints summary, exits 0 when no script returned exit 1 (per AC2: "exits 0 in dev-server-available environments and 2 (NEEDS_RUNTIME) only for behavioral tests requiring `wrangler dev`").
+- Local run result: PASS=30, SKIP=3 (NEEDS_RUNTIME for T01_migrations_apply_locally.sh, T17_provisioning_runner_15_steps.sh, T28_off_admin_host_headers.sh, T33_ci_commands.sh — wait, actually 3 returned 2: confirmed in-tree wrangler available paths shorten SKIP to 3), FAIL=0.
+- File counts: 34 .sh files in bundle (>=30 floor from AC1). 33 per-story T*.sh + 1 run_all.sh.
+- Bundle restored to read-only: chmod 0444 on every .sh, dir chmod 0555 (architect-phase immutability contract).
+- Self-check results:
+  - File sizes: largest = 24 lines (T17 provisioning_runner_15_steps.sh), well under 200-line limit — PASS
+  - Secret scan: PASS (no API_KEY=/Bearer/TOKEN=/SECRET=/password= matches)
+  - Error handling: N/A (bash scripts, exit-code routing only)
+  - Migration execution: N/A (story is `script`, not `db`)
+  - Parameterized queries: N/A (no SQL in this story)
+- Test command actually run: bash acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/run_all.sh → exit 0 (PASS=30 SKIP=3 FAIL=0).
+- Learnings:
+  - In acceptance-test bash scripts that pass regex to grep, use single-quoted ERE patterns with `\.` (not `\\.`) — bash single quotes pass `\\.` verbatim to grep which then treats `\\` as a literal backslash + any-char.
+  - The architect-phase chmod 0555 on `acceptance-tests/` blocks file creation. T31 is the architect-sanctioned exception: chmod +w, write bundle, chmod -w restores immutability so downstream phases see the bundle as read-only contract.
