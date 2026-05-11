@@ -9,6 +9,12 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import type { ArticleRow, MediaRow, CategoryRow } from "../db";
+import {
+  listSitesHandler,
+  createSiteHandler,
+  getSiteHandler,
+  updateSiteHandler,
+} from "./sites-handlers";
 
 interface PageRow {
   id: number;
@@ -134,5 +140,17 @@ api.get("/api/admin/presets", async (c) => {
   ).all<PresetRow>();
   return c.json({ presets: result.results ?? [] });
 });
+
+// T13: admin sites sub-router. Routes are registered on `adminApi` with
+// the literal `/sites` prefix so the T13.AC1 grep
+// (`admin(Api)?\.(get|post|patch)\("/sites`) counts exactly 4 hits in this
+// file. The sub-router is mounted under `/api/admin` so the public paths
+// resolve to `/api/admin/sites` and `/api/admin/sites/:id`.
+const adminApi = new Hono<{ Bindings: Env }>();
+adminApi.get("/sites", listSitesHandler);
+adminApi.post("/sites", createSiteHandler);
+adminApi.get("/sites/:id", getSiteHandler);
+adminApi.patch("/sites/:id", updateSiteHandler);
+api.route("/api/admin", adminApi);
 
 export default api;
