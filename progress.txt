@@ -2182,3 +2182,27 @@ D13 canonical runner result — T33:
 - RC-069: PASS. parser_strategy=test_exit_code observed exit_code=0 matching expected exit_code=0 on `npm run typecheck && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config` (cwd=api, cwd_anchor=project_root). Receipt stdout artifact: evidence/raw/d62aa3e89f74-test-output.txt. Duration 10.287s.
 - RC-070: PASS. parser_strategy=parse_grep_count observed count=5 >= expected=5 on `grep -cE '"(typecheck|test|verify:no-legacy-prod-refs|verify:infra|verify:worker-config)":' package.json` (cwd=api, cwd_anchor=project_root). Receipt stdout artifact: evidence/raw/f0b5c2c2211c-test-output.txt. Duration 4ms.
 - Both T33 bound RCs cleared the canonical runner under project_root anchoring — same pattern as T32 (api/package.json and the npm scripts are baselined in main, not worktree-only). T33 marks the final story of Phase 3 execution: T1..T33 are now all `state="implemented"` and `passes=true` in the Ralph-local execution PRD. Canonical prd.json reconciliation remains owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph — Ralph still does NOT set canonical PRD passes=true on any of T1..T33.
+
+## 2026-05-11 22:20 — WARN-FIX-1 (sources: WARN-FIX-1)
+- Implemented: GET /api/admin/sites/:id/provision read-only provisioning status endpoint.
+  - api/src/site-provisioning/index.ts: added `provisionStatusHandler` (resolves site → latest job → latest job_step row; returns `{resource:{current_step:int, status:string, step_key:string}}`; falls back to job row when no step rows exist yet; missing site OR missing job both return 404 with a neutral "Provisioning status not available" message — no internal-state leak).
+  - api/src/admin/api.ts: imported `provisionStatusHandler` and registered `adminApi.get("/sites/:id/provision", provisionStatusHandler)` as the literal route line matched by the WARN-FIX-1.AC1 grep `admin(Api)?\.(get)\("/sites/:id/provision"`. Route literal `/sites/:id/provision` is distinguishable from `/sites/:id/provision/next` because the WARN-FIX-1 grep anchors with the closing `"` after `provision`.
+  - api/test/admin-provision-status.test.ts: 4 vitest cases — (1) 200 + latest-step row, (2) pending-job fallback to job row + empty step_key, (3) 404 when no job exists for the site, (4) 404 when the site itself does not exist.
+- Self-check results:
+  - File sizes: api/src/admin/api.ts 272 lines (within project TS limit 400, ref GUARDRAILS L-053/L-056); api/src/site-provisioning/index.ts 139 lines (within 200); api/test/admin-provision-status.test.ts 158 lines (within 200) — PASS.
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string in changed files).
+  - Error handling: PASS (404 paths return JSON with neutral error string; no thrown exceptions surface to client).
+  - Parameterized queries: PASS (both new statements — `SELECT id FROM sites WHERE id = ?` and `SELECT step_key, step_order, status FROM site_creation_job_steps WHERE job_id = ? ORDER BY step_order DESC, id DESC LIMIT 1` — use `db.prepare(<static SQL>).bind(...)`, mirrors db/index.ts).
+  - Migration execution: N/A (no schema change).
+  - Tenant boundary: PASS (handler scopes job lookup by the URL `:id` and step lookup by job_id; no cross-site leak path).
+- Test commands actually run (this iteration):
+  - cd api && npx vitest run test/admin-provision-status.test.ts → exit 0 (4/4 PASS, 245ms)
+  - cd api && npx tsc --noEmit → exit 0
+  - cd api && npm test → exit 0 (43 files / 263 tests PASS; previously 42/259 — net +1 file / +4 tests is the new WARN-FIX-1 suite)
+  - cd api && npm run verify:no-legacy-prod-refs → exit 0
+  - grep -cE 'admin(Api)?\.(get)\("/sites/:id/provision"' api/src/admin/api.ts → 1 (WARN-FIX-1.AC1)
+  - grep -cE 'admin(Api)?\.(get|post|patch)\("/sites' api/src/admin/api.ts → 6 (T13.AC1 ≥4 invariant preserved; the new GET adds the 6th hit)
+- Learnings:
+  - The WARN-FIX-1 AC1 grep `admin(Api)?\.(get)\("/sites/:id/provision"` anchors the closing `"` immediately after `provision`, which is what distinguishes it from `/sites/:id/provision/next`. When a route literal needs to be "the exact path, not a prefix of another path", the safest pattern is to keep the literal on its own `adminApi.<verb>("...", handler)` line so all such greps see the closing quote in the same source-character position.
+  - Falling back to the job row's `current_step_index` + `current_step` (with empty `step_key`) when no step rows exist yet keeps the status endpoint useful in the brief pending-window between site creation (which inserts the job at index=0, status=pending) and the first provisionNextHandler call (which inserts the first step row). The UI can poll this endpoint from the moment the New Site modal succeeds.
+  - Returning the same "Provisioning status not available" 404 body for both "site missing" AND "site exists but no job attached" satisfies the AC2 no-leak requirement without an extra side-channel (timing, header, or distinct error reason). Two 404 branches with one error string is the minimum-surface implementation.

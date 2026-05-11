@@ -20,7 +20,7 @@ import {
   listDomainsHandler,
   updateDomainHandler,
 } from "./domains-verticals-handlers";
-import { provisionNextHandler } from "../site-provisioning";
+import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
 
 interface PageRow {
   id: number;
@@ -256,6 +256,11 @@ adminApi.patch("/sites/:id", updateSiteHandler);
 // still matches the T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites`
 // (operator >= 4, so a 5th hit is safe).
 adminApi.post("/sites/:id/provision/next", provisionNextHandler);
+// WARN-FIX-1: read-only provisioning status — does not advance the job.
+// Route literal `/sites/:id/provision` is the exact match required by the
+// WARN-FIX-1 grep `admin(Api)?\.(get)\("/sites/:id/provision"` (the
+// closing quote distinguishes this from `/sites/:id/provision/next`).
+adminApi.get("/sites/:id/provision", provisionStatusHandler);
 // T14: verticals (read-only global) + domains (list + status/kind patch).
 // The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
 // exactly 3 hits — the three lines below — to satisfy T14.AC1.
