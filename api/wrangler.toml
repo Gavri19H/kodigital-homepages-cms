@@ -56,7 +56,7 @@ OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
 SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
-CF_ACCESS_TEAM_DOMAIN = "https://kodigital2.cloudflareaccess.com"
+CF_ACCESS_TEAM_DOMAIN = "kodigital2.cloudflareaccess.com"
 CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
 
 [[env.staging.d1_databases]]
@@ -95,7 +95,7 @@ SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 # OPENAI_API_KEY, CLOUDFLARE_PROVISIONING_API_TOKEN, etc.) MUST stay in
 # wrangler secrets (per docs/cloudflare-worker-secrets-setup.md), never
 # in [vars].
-CF_ACCESS_TEAM_DOMAIN = "https://kodigital2.cloudflareaccess.com"
+CF_ACCESS_TEAM_DOMAIN = "kodigital2.cloudflareaccess.com"
 CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
 
 # Bindings MUST be redeclared per env. Wrangler does NOT inherit
