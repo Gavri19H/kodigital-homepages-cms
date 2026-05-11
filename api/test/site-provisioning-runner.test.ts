@@ -180,6 +180,13 @@ describe("site-provisioning runner (T17)", () => {
       completed: boolean;
     }
 
+    // T18 layered dry-run safety on top of T17: in the default
+    // SITE_PROVISIONING_DRY_RUN='true' env, the Cloudflare-mutation step
+    // (attach_domain_to_new_worker_or_mark_pending, index 2) resolves to
+    // status='completed_dry_run' instead of 'completed'. All other steps
+    // remain deterministic-stub 'completed'. The 15-step single-advance
+    // invariant this test was written for is unchanged.
+    const okStatuses = new Set(["completed", "completed_dry_run"]);
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const res = await admin.request(
         "/api/admin/sites/st_t17/provision/next",
@@ -191,7 +198,7 @@ describe("site-provisioning runner (T17)", () => {
       expect(body.current_step).toBe(STEP_KEYS[i]);
       expect(body.current_step_index).toBe(i + 1);
       expect(body.total_steps).toBe(TOTAL_STEPS);
-      expect(body.last_step_status).toBe("completed");
+      expect(okStatuses.has(body.last_step_status)).toBe(true);
       if (i < TOTAL_STEPS - 1) {
         expect(body.status).toBe("running");
         expect(body.completed).toBe(false);
@@ -207,7 +214,7 @@ describe("site-provisioning runner (T17)", () => {
       if (!row) throw new Error(`missing step row at index ${i}`);
       expect(row.step_key).toBe(STEP_KEYS[i]);
       expect(row.step_order).toBe(i);
-      expect(row.status).toBe("completed");
+      expect(okStatuses.has(row.status)).toBe(true);
       expect(row.attempt_count).toBe(1);
       expect(row.input).not.toBeNull();
       expect(row.output).not.toBeNull();

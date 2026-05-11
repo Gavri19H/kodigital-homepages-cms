@@ -1,15 +1,11 @@
-// Phase 3 / T17: Site-provisioning runner.
+// Phase 3 / T17 + T18: Site-provisioning runner.
 //
-// Advances a site_creation_jobs row by exactly ONE step per
-// `advanceNextStep` call, persists a site_creation_job_steps receipt
-// for the executed step (input/output/status + attempt_count++), and
-// reports {current_step, status} back to the caller. T18 layers
-// SITE_PROVISIONING_DRY_RUN safety on top of this surface; today every
-// handler is a deterministic stub (see steps.ts).
-//
-// Hard rules (mirror db/index.ts): every D1 call is
-// `db.prepare(<static SQL>).bind(...)`; retries increment
-// attempt_count on the same (job_id, step_key) row.
+// Advances a site_creation_jobs row by ONE step per call, persists a
+// site_creation_job_steps receipt, and reports {current_step, status}.
+// T18 routes any Cloudflare-mutation step (e.g.
+// attach_domain_to_new_worker_or_mark_pending) through
+// cloudflare-interfaces.ts which gates dry-run + logs cache_purge_log.
+// Every D1 call uses static SQL + .bind() (mirrors db/index.ts).
 
 import type { Env } from "../env";
 import {
@@ -20,6 +16,10 @@ import {
   type StepHandlerResult,
   type StepKey,
 } from "./steps";
+import {
+  isCloudflareMutationStep,
+  runCloudflareRouteMutation,
+} from "./cloudflare-interfaces";
 
 export interface JobRow {
   id: string;
@@ -49,15 +49,11 @@ export class ProvisioningError extends Error {
   }
 }
 
-export async function findActiveJobForSite(
-  db: D1Database,
-  siteId: string,
-): Promise<JobRow | null> {
+export async function findActiveJobForSite(db: D1Database, siteId: string): Promise<JobRow | null> {
   const row = await db
     .prepare(
       "SELECT id, site_id, status, current_step_index, total_steps " +
-        "FROM site_creation_jobs WHERE site_id = ? " +
-        "ORDER BY created_at DESC, id DESC LIMIT 1",
+        "FROM site_creation_jobs WHERE site_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
     )
     .bind(siteId)
     .first<JobRow>();
@@ -65,11 +61,7 @@ export async function findActiveJobForSite(
 }
 
 async function upsertStepRow(
-  db: D1Database,
-  job_id: string,
-  step_key: StepKey,
-  step_order: number,
-  inputJson: string,
+  db: D1Database, job_id: string, step_key: StepKey, step_order: number, inputJson: string,
 ): Promise<void> {
   await db
     .prepare(
@@ -85,27 +77,35 @@ async function upsertStepRow(
 }
 
 async function finalizeStepRow(
-  db: D1Database,
-  job_id: string,
-  step_key: StepKey,
-  result: StepHandlerResult,
+  db: D1Database, job_id: string, step_key: StepKey, result: StepHandlerResult,
 ): Promise<void> {
   await db
     .prepare(
       "UPDATE site_creation_job_steps SET status = ?, output = ?, error = ?, " +
-        "finished_at = unixepoch(), updated_at = unixepoch() " +
-        "WHERE job_id = ? AND step_key = ?",
+        "finished_at = unixepoch(), updated_at = unixepoch() WHERE job_id = ? AND step_key = ?",
     )
     .bind(result.status, result.output, result.error ?? null, job_id, step_key)
     .run();
 }
 
+async function resolveSiteHostname(db: D1Database, site_id: string): Promise<string> {
+  const dom = await db
+    .prepare(
+      "SELECT domain AS hostname FROM domains WHERE site_id = ? " +
+        "ORDER BY is_primary DESC, id ASC LIMIT 1",
+    )
+    .bind(site_id)
+    .first<{ hostname: string | null }>();
+  if (dom && typeof dom.hostname === "string" && dom.hostname.length > 0) return dom.hostname;
+  const sr = await db
+    .prepare("SELECT primary_domain AS hostname FROM sites WHERE id = ? LIMIT 1")
+    .bind(site_id)
+    .first<{ hostname: string | null }>();
+  return sr && typeof sr.hostname === "string" && sr.hostname.length > 0 ? sr.hostname : "";
+}
+
 async function advanceJobPointer(
-  db: D1Database,
-  job_id: string,
-  next_index: number,
-  current_step: StepKey,
-  step_result: StepHandlerResult,
+  db: D1Database, job_id: string, next_index: number, current_step: StepKey, step_result: StepHandlerResult,
 ): Promise<string> {
   const stepFailed = step_result.status === "failed";
   const finished = next_index >= TOTAL_STEPS;
@@ -130,11 +130,7 @@ async function advanceJobPointer(
   return nextStatus;
 }
 
-export async function advanceNextStep(
-  env: Env,
-  db: D1Database,
-  job: JobRow,
-): Promise<AdvanceResult> {
+export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Promise<AdvanceResult> {
   if (job.status === "completed" || job.status === "failed") {
     return {
       job_id: job.id,
@@ -150,43 +146,28 @@ export async function advanceNextStep(
   const index = job.current_step_index;
   const step_key = getStepKeyForIndex(index);
   if (step_key === null) {
-    throw new ProvisioningError(
-      "no_step_at_index",
-      `No provisioning step registered for index ${index}`,
-    );
+    throw new ProvisioningError("no_step_at_index", `No provisioning step registered for index ${index}`);
   }
-  const inputJson = JSON.stringify({
-    job_id: job.id,
-    site_id: job.site_id,
-    step_order: index,
-    step_key,
-  });
+  const inputJson = JSON.stringify({ job_id: job.id, site_id: job.site_id, step_order: index, step_key });
   await upsertStepRow(db, job.id, step_key, index, inputJson);
   let result: StepHandlerResult;
   try {
-    result = await STEPS[step_key]({
-      env,
-      db,
-      job_id: job.id,
-      site_id: job.site_id,
-      step_order: index,
-    });
+    if (isCloudflareMutationStep(step_key)) {
+      const hostname = await resolveSiteHostname(db, job.site_id);
+      const m = await runCloudflareRouteMutation(
+        { env, db },
+        { site_id: job.site_id, hostname, action: step_key, payload: { job_id: job.id, step_order: index } },
+      );
+      result = { status: m.status, output: m.output, error: m.error };
+    } else {
+      result = await STEPS[step_key]({ env, db, job_id: job.id, site_id: job.site_id, step_order: index });
+    }
   } catch (err) {
-    result = {
-      status: "failed",
-      output: "",
-      error: err instanceof Error ? err.message : String(err),
-    };
+    result = { status: "failed", output: "", error: err instanceof Error ? err.message : String(err) };
   }
   await finalizeStepRow(db, job.id, step_key, result);
   const next_index = result.status === "failed" ? index : index + 1;
-  const finalStatus = await advanceJobPointer(
-    db,
-    job.id,
-    next_index,
-    step_key,
-    result,
-  );
+  const finalStatus = await advanceJobPointer(db, job.id, next_index, step_key, result);
   return {
     job_id: job.id,
     site_id: job.site_id,
