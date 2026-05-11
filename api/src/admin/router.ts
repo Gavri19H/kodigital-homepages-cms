@@ -17,6 +17,7 @@ import { parseBoolean, type Env } from "../env";
 import api from "./api";
 import workflowApi from "./workflow-api";
 import aiApi from "./ai-api";
+import { renderDomainsView } from "./views/domains";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -61,7 +62,7 @@ admin.get("/admin/tags", (c) => c.html(renderShell("Tags", "tags")));
 admin.get("/admin/media", (c) => c.html(renderShell("Media", "media")));
 admin.get("/admin/settings", (c) => c.html(renderShell("Settings", "settings")));
 admin.get("/admin/presets", (c) => c.html(renderShell("Presets", "presets")));
-admin.get("/admin/domains", (c) => c.html(renderShell("Domains", "domains")));
+admin.get("/admin/domains", (c) => c.html(renderDomainsView()));
 
 // T10.AC3: admin auth-status endpoint. Reports whether the dev-bypass is in
 // effect for this request so the UI can flag it visually.
