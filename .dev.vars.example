@@ -7,23 +7,52 @@
 #
 # All values in THIS file are placeholders that look like the right
 # shape but are not real credentials. See docs/secrets-manifest.md
-# for the canonical list of keys and where each value lives.
+# for the canonical list of keys and where each value lives, and
+# docs/local-dev-vars.md for the end-to-end local-setup runbook.
+#
+# Phase 1.5 note: the Worker runtime does NOT consume a single
+# shared Cloudflare token. Site provisioning (creating zones / routes)
+# uses CLOUDFLARE_PROVISIONING_API_TOKEN, and cache purges use
+# CLOUDFLARE_CACHE_API_TOKEN. The legacy CI-only deploy token lives
+# in GitHub Actions secrets (see docs/github-secrets-setup.md); it is
+# not a Worker runtime secret and is intentionally absent here.
 
 # OpenAI key used by /admin to call text/image models in staging/prod.
 # Real keys start with "sk-" and are issued at platform.openai.com.
 OPENAI_API_KEY=sk-EXAMPLEPLACEHOLDERREPLACEMEABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
 
 # Cloudflare Access team domain (e.g. yourteam.cloudflareaccess.com).
+# See docs/cloudflare-access-setup.md for the exact team-domain trap
+# (kodigital2.cloudflareaccess.com — note the trailing 2).
 CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com
 
-# Cloudflare Access AUD claim (application-specific, hex-ish string).
+# Cloudflare Access AUD claim (application-specific, 64-char hex).
+# Captured from Zero Trust → Access → Applications → Overview tab.
 CF_ACCESS_AUD=PLACEHOLDER0123456789abcdef0123456789abcdef0123456789abcd
 
-# Cloudflare API token used by CI (`wrangler deploy`). NOT consumed by
-# the Worker itself — kept here only to document the local shape; in CI
-# this value lives in GitHub Actions Secrets.
-CLOUDFLARE_API_TOKEN=PLACEHOLDERtoken000000000000000000000000000000
+# Cloudflare API token scoped to Zones:Edit / Workers Routes:Edit /
+# Account:Read. Used by the Worker at runtime to create / update
+# Cloudflare resources during site provisioning (e.g. creating a
+# custom-domain route for a newly published homepage). Distinct from
+# the GitHub Actions deploy token. Set via `wrangler secret put` in
+# staging/production; pasted here locally for `wrangler dev` only.
+CLOUDFLARE_PROVISIONING_API_TOKEN=PASTE_CLOUDFLARE_PROVISIONING_TOKEN_FROM_DASHBOARD
 
-# Local-dev escape hatch: when `true`, accessAuth lets /admin through
-# without a Cloudflare Access JWT. NEVER set this in staging or prod.
+# Cloudflare API token scoped to Cache Purge only. Used by the Worker
+# at runtime to purge rendered HTML / asset URLs after a publish.
+# Separated from the provisioning token so cache-purge code paths
+# cannot escalate to zone/route mutation.
+CLOUDFLARE_CACHE_API_TOKEN=PASTE_CLOUDFLARE_CACHE_PURGE_TOKEN_FROM_DASHBOARD
+
+# Optional: comma-separated allowlist of Cloudflare Access service
+# token names (matched against the JWT common_name claim). When set,
+# only listed tokens may access /api/admin/* in service-token mode.
+# Empty / unset = all valid service tokens are accepted.
+ALLOWED_CF_SERVICE_TOKEN_IDS=KODIGITAL_CMS_SMOKE_TESTS
+
+# Local-dev escape hatch: when `true` AND APP_ENV != "production",
+# accessAuth lets /admin through without a Cloudflare Access JWT.
+# Double-gated in api/src/auth/access-auth.ts so a misconfigured
+# production deploy with DEV_BYPASS_AUTH=true STILL enforces auth.
+# NEVER set this in staging or production.
 DEV_BYPASS_AUTH=true

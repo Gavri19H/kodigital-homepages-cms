@@ -1,217 +1,266 @@
 {
-  "changeId": "kodigital-homepages-cms-phase1-2026-05-09",
-  "mainGoal": "Port the reusable CMS foundation (auth, db, media, cache, editor, workflow, ai placeholders, privacy, admin, public, preview) from the legacy Hono+TS Worker into the new standalone kodigital-homepages-cms Worker, satisfying all seven Phase 1 acceptance gates with no legacy production identifiers in active code.",
+  "changeId": "kodigital-homepages-cms-phase1point5-2026-05-10",
+  "mainGoal": "Phase 1.5 complete when `npm run typecheck`, `npm test`, `npm run verify:no-legacy-prod-refs`, `npm run verify:infra`, and `npm run verify:worker-config` ALL exit 0; the Worker enforces cms.kodigital.app/admin hostname routing + Cloudflare Access JWT validation (identity OR service-token mode) + protected-domain denylist; all secrets contracts and setup docs are committed; zero deploy attempted; zero TheIWise resource touched.",
   "stories": [
     {
       "id": "T1",
-      "title": "Initial CMS migration 0001_init_cms.sql with 11 tables and Phase-2 site_id TODO comments",
-      "category": "migration",
+      "title": "Wrangler config audit — add all Phase 1.5 vars, rename ADMIN_BASE_URL .io to .app, add ADMIN_HOST + ADMIN_BASE_PATH + provisioning flags per staging/production envs",
+      "category": "config",
       "targetFiles": [
-        "migrations/0001_init_cms.sql",
-        "wrangler.toml"
+        "api/wrangler.toml"
       ],
       "acceptanceCriteria": [
-        "Migration creates all 11 required tables (CREATE TABLE count >= 11 covering articles, article_versions, categories, tags, article_tags, pages, media, redirects, site_settings, prompt_presets, privacy_opt_outs)",
-        "Migration contains TODO Phase-2 site_id comment markers (>=1 per multi-tenant table)",
-        "BEHAVIORAL: GIVEN the new D1 binding kodigital-homepages-cms-db with no tables, WHEN `wrangler d1 migrations apply kodigital-homepages-cms-db --local` runs, THEN all 11 tables appear in the local sqlite file with the documented columns and indexes"
+        "grep -c 'ADMIN_HOST' api/wrangler.toml >= 1",
+        "grep -c 'ADMIN_BASE_PATH' api/wrangler.toml >= 1",
+        "grep -c 'SITE_PROVISIONING_DRY_RUN' api/wrangler.toml >= 1",
+        "grep -c 'SITE_PROVISIONING_ALLOW_ROUTE_MUTATION' api/wrangler.toml >= 1",
+        "grep -c 'HTML_CACHE_TTL_SECONDS' api/wrangler.toml >= 1",
+        "grep '.io' api/wrangler.toml exits non-zero (no .io domain references remain in active config)",
+        "grep -c 'cms.kodigital.app' api/wrangler.toml >= 2 (ADMIN_HOST + ADMIN_BASE_URL both reference .app domain)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T2",
-      "title": "Typed D1 query helpers in api/src/db/index.ts (parameterized only)",
+      "title": "Env typing — extend Env interface with all Phase 1.5 vars and 4 helpers: getAdminHost, getAdminBaseUrl, isDryRunProvisioning, isRouteMutationAllowed",
       "category": "api",
       "targetFiles": [
-        "src/db/index.ts"
+        "api/src/env.ts"
       ],
       "acceptanceCriteria": [
-        "All D1 calls use prepare(...).bind(...) — zero template-literal SQL interpolation in db/index.ts",
-        "Helper exposes typed exports: getArticleBySlug, listArticles, getMediaById, listCategories at minimum",
-        "BEHAVIORAL: GIVEN the new D1 helpers, WHEN getArticleBySlug(\"test\") is called with a planted slug, THEN the row returns via prepare(...).bind(...) parameter binding (no template-literal interpolation anywhere in db/index.ts)."
+        "grep -c 'getAdminHost' api/src/env.ts >= 1",
+        "grep -c 'isDryRunProvisioning' api/src/env.ts >= 1",
+        "grep -c 'isRouteMutationAllowed' api/src/env.ts >= 1",
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/src/env.ts >= 1",
+        "grep -c 'CLOUDFLARE_CACHE_API_TOKEN' api/src/env.ts >= 1",
+        "grep -c 'ALLOWED_CF_SERVICE_TOKEN_IDS' api/src/env.ts >= 1",
+        "cd api && npx tsc --noEmit exits 0 (all new Env fields are valid TypeScript)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T3",
-      "title": "Replace presence-check auth with full CF Access JWKS+RS256 validation in api/src/auth/access-auth.ts",
+      "title": "Worker routing for cms.kodigital.app — hostname-aware: ADMIN_HOST root → 302 /admin; ADMIN_HOST /admin* and /api/admin* → admin handlers; ADMIN_HOST other → 404; non-ADMIN_HOST /admin → 404 (D3)",
       "category": "api",
       "targetFiles": [
-        "src/auth/access-auth.ts",
-        "package.json",
-        "test/admin-auth.test.ts"
+        "api/src/index.ts"
       ],
       "acceptanceCriteria": [
-        "auth module imports jose JWKS+jwtVerify and validates exp/nbf/iss/aud/email",
-        "JWKS cache key written to KV with expirationTtl 24h (86400 seconds)",
-        "BEHAVIORAL: GIVEN APP_ENV=development AND DEV_BYPASS_AUTH=true, WHEN any /admin route is requested without a JWT, THEN the handler proceeds and returns the admin shell (200); GIVEN APP_ENV!=development OR DEV_BYPASS_AUTH unset, WHEN /admin is requested without a valid JWT, THEN response is 401",
-        "package.json adds jose as a dependency"
+        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path == '/' WHEN Worker handles request THEN response is 302 redirect to ADMIN_BASE_PATH ('/admin')",
+        "BEHAVIORAL: GIVEN hostname != ADMIN_HOST AND path == '/admin' WHEN Worker handles request THEN response status is 404 (not a redirect to CMS admin) — D3 policy: no admin host leak to public content domains",
+        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path starts with '/admin' WHEN authenticated request arrives THEN response is not 404 and not a redirect to cloudflareaccess.com in dev bypass mode",
+        "grep -c 'ADMIN_HOST' api/src/index.ts >= 1 (routing uses env var not hardcoded hostname)",
+        "BEHAVIORAL: GIVEN hostname == ADMIN_HOST AND path is not '/admin*' and not '/api/admin*' and not '/' and not '/health' WHEN Worker handles request THEN response status is 404"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T4",
-      "title": "KV cache helper with feed-key invalidation + Cache API stub in api/src/cache/index.ts",
+      "title": "Cloudflare Access auth contract — JWT signature via JWKS-in-KV (24h TTL), exp/nbf/iat (typeof===number) + iss + aud validation; identity (email) vs service-token (common_name + optional ALLOWED_CF_SERVICE_TOKEN_IDS) modes; DEV_BYPASS_AUTH double-gate (APP_ENV !== 'production'); /api/admin/auth/status route; Web Crypto only",
       "category": "api",
       "targetFiles": [
-        "src/cache/index.ts"
+        "api/src/auth/access-auth.ts"
       ],
       "acceptanceCriteria": [
-        "Module exports cacheGet, cacheSet, cacheDel, invalidateFeeds",
-        "Cache API path gated by env.CACHE_API_ENABLED before any caches.default access",
-        "BEHAVIORAL: GIVEN cacheSet(\"feed:rss\", body) followed by invalidateFeeds(), WHEN cacheGet(\"feed:rss\") is called, THEN it returns null (the invalidation deleted the key) — confirms KV roundtrip + invalidation behavior."
+        "BEHAVIORAL: GIVEN APP_ENV=production AND DEV_BYPASS_AUTH=true WHEN request arrives at /admin without CF Access JWT THEN response is 401 NOT 200 — proving double-gate prevents bypass in production",
+        "BEHAVIORAL: GIVEN APP_ENV=local AND DEV_BYPASS_AUTH=true WHEN request arrives at /admin THEN response is 200 — local dev bypass works",
+        "BEHAVIORAL: GIVEN valid CF Access JWT with email claim WHEN request arrives at /api/admin/auth/status THEN response JSON contains {authenticated:true, mode:'identity', email:<value>} and does NOT contain secrets",
+        "BEHAVIORAL: GIVEN CF Access JWT with common_name (service token) but no email WHEN auth middleware runs THEN request is allowed (authenticated) without requiring email field",
+        "BEHAVIORAL: GIVEN ALLOWED_CF_SERVICE_TOKEN_IDS is set AND JWT common_name is NOT in the allowlist WHEN service-token auth runs THEN response is 403",
+        "grep -c 'JWKS\\|jwks\\|JsonWebKey' api/src/auth/access-auth.ts >= 1 (JWKS-based verification present)",
+        "grep -c 'crypto.subtle' api/src/auth/access-auth.ts >= 1 (Web Crypto only — no Node crypto)",
+        "grep -c 'require.*crypto\\|from.*node:crypto' api/src/auth/access-auth.ts == 0 (no Node crypto import)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T5",
-      "title": "Editor block engine + sanitizer (7 block types, hand-rolled allowlist) in api/src/editor/",
-      "category": "api",
+      "title": "Create docs/cloudflare-access-service-token-setup.md with click-level instructions for creating KODIGITAL_CMS_SMOKE_TESTS service token and attaching to Access policy",
+      "category": "infra",
       "targetFiles": [
-        "src/editor/blocks.ts",
-        "src/editor/sanitize.ts",
-        "src/editor/index.ts",
-        "test/editor.test.ts"
+        "docs/cloudflare-access-service-token-setup.md"
       ],
       "acceptanceCriteria": [
-        "blocks.ts handles exactly 7 block types: paragraph, heading, list, quote, image, divider, html (and rejects 'embed')",
-        "BEHAVIORAL: GIVEN an editor JSON document containing an html block with <script>alert(1)</script>, WHEN contentJsonToHtml is called, THEN the rendered HTML contains no <script> tag and no on* attribute and no javascript: URL",
-        "Image blocks default to loading=\"lazy\" unless data.aboveTheFold is true"
+        "grep -c 'KODIGITAL_CMS_SMOKE_TESTS' docs/cloudflare-access-service-token-setup.md >= 1",
+        "grep -c 'CF_ACCESS_CLIENT_ID' docs/cloudflare-access-service-token-setup.md >= 1",
+        "grep -c 'CF_ACCESS_CLIENT_SECRET' docs/cloudflare-access-service-token-setup.md >= 1",
+        "grep -c 'cms.kodigital.app' docs/cloudflare-access-service-token-setup.md >= 1 (curl example present)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T6",
-      "title": "Publish workflow state machine + version snapshot + feed invalidation in api/src/workflow/",
-      "category": "api",
+      "title": "Create docs/cloudflare-access-setup.md with click-level instructions for creating Access application, copying AUD tag, and setting CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD",
+      "category": "infra",
       "targetFiles": [
-        "src/workflow/publish.ts",
-        "src/workflow/index.ts",
-        "test/workflow.test.ts"
+        "docs/cloudflare-access-setup.md"
       ],
       "acceptanceCriteria": [
-        "State transition table enumerates the legal pairs: draft->published, draft->scheduled, scheduled->published, scheduled->draft, published->archived, published->draft",
-        "BEHAVIORAL: GIVEN an article in draft with content_json blocks, WHEN publish() is called, THEN (a) article_versions row is inserted with snapshotted content_json, (b) articles.content_html is set to the rendered HTML, (c) articles.status='published' and published_at is set, (d) invalidateFeeds is called once"
+        "grep -c 'CF_ACCESS_AUD' docs/cloudflare-access-setup.md >= 1",
+        "grep -c 'CF_ACCESS_TEAM_DOMAIN' docs/cloudflare-access-setup.md >= 1",
+        "grep -c 'kodigital2.cloudflareaccess.com' docs/cloudflare-access-setup.md >= 1 (documents the known team domain)",
+        "grep -c '302' docs/cloudflare-access-setup.md >= 1 (documents that unauthenticated 302 redirect is expected behavior)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T7",
-      "title": "Privacy module: SHA-256(IP+UA), opt-out cookie, public unauthenticated routes in api/src/privacy/",
-      "category": "api",
+      "title": "Secrets contracts — extend docs/secrets-manifest.md; create docs/github-secrets-setup.md, docs/cloudflare-worker-secrets-setup.md, docs/local-dev-vars.md; update .dev.vars.example (CLOUDFLARE_PROVISIONING_API_TOKEN + CLOUDFLARE_CACHE_API_TOKEN as PASTE_ placeholders, remove CLOUDFLARE_API_TOKEN)",
+      "category": "infra",
       "targetFiles": [
-        "src/privacy/index.ts",
-        "test/privacy.test.ts"
+        "docs/secrets-manifest.md",
+        "docs/github-secrets-setup.md",
+        "docs/cloudflare-worker-secrets-setup.md",
+        "docs/local-dev-vars.md",
+        ".dev.vars.example"
       ],
       "acceptanceCriteria": [
-        "Privacy module uses Web Crypto subtle.digest('SHA-256', ...) for the IP+UA hash",
-        "BEHAVIORAL: GIVEN no ccpa_opt_out cookie set, WHEN POST /api/privacy/opt-out is called with IP=1.2.3.4 UA='ua/1', THEN response 200 sets Set-Cookie ccpa_opt_out=1 AND a privacy_opt_outs row exists keyed by sha256('1.2.3.4|ua/1')",
-        "All three privacy routes (/api/privacy/status, /api/privacy/opt-out, /api/privacy/opt-in) declared"
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' .dev.vars.example >= 1",
+        "grep -c 'CLOUDFLARE_API_TOKEN' .dev.vars.example == 0 (CLOUDFLARE_API_TOKEN removed from Worker runtime — belongs to GitHub Actions only)",
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' docs/secrets-manifest.md >= 1",
+        "grep -c 'CLOUDFLARE_CACHE_API_TOKEN' docs/secrets-manifest.md >= 1",
+        "grep -rn 'CLOUDFLARE_API_TOKEN' docs/cloudflare-worker-secrets-setup.md | grep -v 'GitHub Actions' | wc -l == 0 (cloudflare-worker-secrets-setup.md does not list CLOUDFLARE_API_TOKEN as a Worker runtime secret)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T8",
-      "title": "Media serve + upload with R2 ETag and 1y immutable Cache-Control in api/src/media/",
-      "category": "api",
+      "title": "Manual Cloudflare resource setup docs — create docs/cloudflare-worker-setup.md, docs/cloudflare-resources-setup.md, docs/cms-domain-setup.md, docs/deployment-runbook.md",
+      "category": "infra",
       "targetFiles": [
-        "src/media/serve.ts",
-        "src/media/upload.ts",
-        "src/media/index.ts",
-        "test/media.test.ts"
+        "docs/cloudflare-worker-setup.md",
+        "docs/cloudflare-resources-setup.md",
+        "docs/cms-domain-setup.md",
+        "docs/deployment-runbook.md"
       ],
       "acceptanceCriteria": [
-        "GET /media/* response sets Cache-Control: public, max-age=31536000, immutable",
-        "BEHAVIORAL: GIVEN a mocked R2 binding returning httpEtag='abc123' for key foo.png, WHEN GET /media/foo.png is called, THEN response 200 has ETag header == 'abc123' AND Cache-Control: public, max-age=31536000, immutable AND Content-Type matches the R2 metadata"
+        "grep -c 'kodigital-homepages-cms-db' docs/cloudflare-resources-setup.md >= 1 (correct D1 DB name)",
+        "grep -c 'cms.kodigital.app' docs/cms-domain-setup.md >= 1",
+        "grep -c 'verify:infra' docs/deployment-runbook.md >= 1 (runbook includes infra verification step)",
+        "grep -c 'verify:worker-config' docs/deployment-runbook.md >= 1",
+        "grep -c 'wrangler deploy' docs/deployment-runbook.md >= 1 (runbook documents deploy command for user reference)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T9",
-      "title": "Public router + reserved-path guard + feeds (RSS/Atom/sitemap/robots/ads) in api/src/public/",
+      "title": "Create api/src/safety/protected-domains.ts — exports PROTECTED_DOMAINS, isProtectedDomain, assertNotProtectedDomain, normalizeHostname (lowercase, strip scheme/path/port/trailing-dot, block exact 4 TheIWise hostnames)",
       "category": "api",
       "targetFiles": [
-        "src/public/router.ts",
-        "src/public/reserved.ts",
-        "src/public/feeds.ts",
-        "src/public/sitemap.ts",
-        "test/reserved-path.test.ts"
+        "api/src/safety/protected-domains.ts"
       ],
       "acceptanceCriteria": [
-        "Reserved path list contains exactly admin, api, static, assets, media, preview, health (7 entries)",
-        "BEHAVIORAL: GIVEN no published page row with slug='admin', WHEN GET /admin is requested, THEN the request is routed to the admin handler (NOT the /:slug compatibility placeholder) — proven by response Content-Type or admin-specific marker",
-        "Public router declares all 12 required routes"
+        "grep -c 'PROTECTED_DOMAINS' api/src/safety/protected-domains.ts >= 1 (exported constant present)",
+        "grep -c 'assertNotProtectedDomain' api/src/safety/protected-domains.ts >= 1",
+        "grep -c 'normalizeHostname' api/src/safety/protected-domains.ts >= 1",
+        "BEHAVIORAL: GIVEN input 'https://theiwise.com/some/path?q=1' WHEN normalizeHostname is called THEN result is 'theiwise.com'",
+        "BEHAVIORAL: GIVEN input 'THEIWISE.COM.' (uppercase + trailing dot) WHEN normalizeHostname is called THEN result is 'theiwise.com' AND isProtectedDomain returns true",
+        "BEHAVIORAL: GIVEN hostname is 'cms.kodigital.app' WHEN isProtectedDomain is called THEN result is false (non-TheIWise domains must not be blocked)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T10",
-      "title": "Admin router + CRUD/workflow/AI placeholder APIs in api/src/admin/",
-      "category": "api",
+      "title": "Verify-script fix — split BANNED_IDENTIFIERS into Group A (legacy resource ids incl. UUID 44c73f76-...) allowed only in approved docs + Group B (protected hostnames) also allowed in api/src/safety/protected-domains.ts; remove global account-UUID allowlist",
+      "category": "script",
       "targetFiles": [
-        "src/admin/router.ts",
-        "src/admin/api.ts",
-        "src/admin/workflow-api.ts",
-        "src/admin/ai-api.ts"
+        "api/scripts/verify/assert-no-legacy-prod-refs.ts"
       ],
       "acceptanceCriteria": [
-        "Admin shell GETs declared for /admin, /admin/articles, /admin/pages, /admin/categories, /admin/tags, /admin/media, /admin/settings, /admin/presets",
-        "AI endpoints return 501 unless OPENAI_API_KEY is set",
-        "Admin auth-status route declared at /api/admin/auth/status",
-        "BEHAVIORAL: GIVEN admin router mounted, WHEN GET /api/admin/articles is called without CF Access JWT, THEN response is 401; WITH DEV_BYPASS_AUTH=true, response is 200 with an empty list payload; AND POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY is unset."
+        "grep -c 'GROUP_A\\|groupA\\|group_a\\|Group A\\|legacy resource' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (two-group structure present)",
+        "grep -c '44c73f76' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (UUID present in Group A BANNED_IDENTIFIERS literal inside the verifier's own source)",
+        "grep -c 'protected-domains.ts' api/scripts/verify/assert-no-legacy-prod-refs.ts >= 1 (protected-domains.ts listed in Group B allowed-files)",
+        "BEHAVIORAL: GIVEN a temp file containing 'theiwise.com' at a path that is NOT in the approved allowlist WHEN verify script runs THEN exit code is 1 with the offending path in stderr",
+        "BEHAVIORAL: GIVEN api/src/safety/protected-domains.ts contains 'theiwise.com' WHEN verify script runs THEN exit code is 0 (Group B exemption applies)",
+        "cd api && npm run verify:no-legacy-prod-refs exits 0 on clean repo after T9 creates protected-domains.ts"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T11",
-      "title": "Preview route with HMAC-signed short-lived tokens in api/src/preview/",
-      "category": "api",
+      "title": "New verify + smoke scripts — create api/scripts/verify/{infra-contract,required-secrets,worker-config}.ts + api/scripts/smoke/cms-domain.ts; add npm scripts verify:infra, verify:required-secrets, verify:worker-config, smoke:cms-domain",
+      "category": "script",
       "targetFiles": [
-        "src/preview/index.ts"
+        "api/scripts/verify/infra-contract.ts",
+        "api/scripts/verify/required-secrets.ts",
+        "api/scripts/verify/worker-config.ts",
+        "api/scripts/smoke/cms-domain.ts",
+        "api/package.json"
       ],
       "acceptanceCriteria": [
-        "Preview module uses Web Crypto HMAC (subtle.sign with HMAC) for token signing — no jose, no full JWT",
-        "Token payload encodes articleId, versionId, exp",
-        "BEHAVIORAL: GIVEN preview HMAC secret PREVIEW_SECRET set, WHEN GET /preview/<articleId> is called with a valid signed token (matching articleId+versionId+exp), THEN response is 200 rendering the draft content; WITH a tampered or expired token, response is 401."
+        "grep -c '\"verify:infra\"' api/package.json >= 1",
+        "grep -c '\"verify:worker-config\"' api/package.json >= 1",
+        "grep -c '\"smoke:cms-domain\"' api/package.json >= 1",
+        "cd api && npm run verify:infra exits 0 on correct wrangler.toml",
+        "cd api && npm run verify:worker-config exits 0 on correct wrangler.toml",
+        "grep -c 'kodigital-homepages-cms-worker' api/scripts/verify/infra-contract.ts >= 1 (verifier asserts correct Worker name)",
+        "grep -c 'CLOUDFLARE_API_TOKEN' api/scripts/verify/infra-contract.ts >= 1 (verifier checks that CLOUDFLARE_API_TOKEN is NOT used as runtime provisioning token)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T12",
-      "title": "Wire all routers into api/src/index.ts with reserved-path guard before /:slug",
-      "category": "api",
+      "title": "GitHub Actions update — add verify:infra + verify:worker-config to CI job; add production-deploy workflow_dispatch-only job; reference correct GitHub secrets; no old TheIWise refs; no auto-production-deploy",
+      "category": "infra",
       "targetFiles": [
-        "src/index.ts"
+        ".github/workflows/deploy.yml"
       ],
       "acceptanceCriteria": [
-        "index.ts mounts all sub-routers (admin, public, privacy, media, preview)",
-        "BEHAVIORAL: GIVEN wrangler dev running locally with DEV_BYPASS_AUTH unset, WHEN curl GET /health and curl GET /admin and curl GET /api/privacy/status, THEN /health returns 200 AND /admin returns 401 AND /api/privacy/status returns 200"
+        "grep -c 'verify:infra' .github/workflows/deploy.yml >= 1",
+        "grep -c 'verify:worker-config' .github/workflows/deploy.yml >= 1",
+        "grep -c 'workflow_dispatch' .github/workflows/deploy.yml >= 1 (production deploy is workflow_dispatch gated)",
+        "grep -c 'a2z-cf-cms-v1' .github/workflows/deploy.yml == 0 (no old TheIWise Worker refs)",
+        "grep -c 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/deploy.yml >= 1 (new GitHub secret referenced)"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T13",
-      "title": "Extend assert-no-legacy-prod-refs.ts denylist with 5 legacy CMS identifiers",
-      "category": "script",
+      "title": "Create docs/session-map-v2.md — 8 sessions, Session 2 = Phase 1.5 infra/secrets/domain (current), no legacy resource identifiers in file",
+      "category": "infra",
       "targetFiles": [
-        "scripts/verify/assert-no-legacy-prod-refs.ts",
-        "test/verify-script.test.ts"
+        "docs/session-map-v2.md"
       ],
       "acceptanceCriteria": [
-        "Denylist additions present: kodigital2.cloudflareaccess.com, admin.theiwise.com, legacy CF_ACCESS_AUD, legacy D1 id, legacy KV id",
-        "Verify script exits 0 against the current worktree (no banned identifiers in active code)",
-        "Shared account_id a05d7505b71c6cd931e436defe670509 is NOT added to the denylist (must remain allowed)"
+        "grep -c 'Session 2' docs/session-map-v2.md >= 1",
+        "grep -c 'Session 7' docs/session-map-v2.md >= 1 (all 8 sessions present, 0-indexed)",
+        "grep -c 'a2z-cf-cms-v1' docs/session-map-v2.md == 0 (no old TheIWise Worker name)"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T14",
+      "title": "Tests — add cms-routing.test.ts (T3), access-auth-identity.test.ts + access-auth-service-token.test.ts (T4), protected-domains.test.ts (T9), env-typing.test.ts (T2), infra-verify.test.ts + worker-config-verify.test.ts (T11), legacy-ref-allowlist.test.ts (T10); all existing tests must continue to pass",
+      "category": "api",
+      "targetFiles": [
+        "api/test/cms-routing.test.ts",
+        "api/test/access-auth-identity.test.ts",
+        "api/test/access-auth-service-token.test.ts",
+        "api/test/protected-domains.test.ts",
+        "api/test/env-typing.test.ts",
+        "api/test/infra-verify.test.ts",
+        "api/test/worker-config-verify.test.ts",
+        "api/test/legacy-ref-allowlist.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "cd api && npm test exits 0 (all test files pass including all new and existing tests)",
+        "grep -c 'ADMIN_HOST\\|cms.kodigital.app' api/test/cms-routing.test.ts >= 1 (routing test covers ADMIN_HOST)",
+        "grep -c 'common_name' api/test/access-auth-service-token.test.ts >= 1 (service token test covers common_name path)",
+        "grep -c 'CLOUDFLARE_PROVISIONING_API_TOKEN' api/test/env-typing.test.ts >= 1 (env-typing test verifies new secret fields)",
+        "BEHAVIORAL: GIVEN legacy-ref-allowlist.test.ts runs the verify script WHEN api/src/safety/protected-domains.ts contains 'theiwise.com' THEN script exits 0 AND when a random temp file contains 'theiwise.com' THEN script exits 1"
       ],
       "passes": false,
       "state": "implemented"

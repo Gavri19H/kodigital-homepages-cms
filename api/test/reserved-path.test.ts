@@ -65,11 +65,16 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
     CACHE: {} as KVNamespace,
     MEDIA: {} as R2Bucket,
     APP_ENV: "development",
+    ADMIN_HOST: "localhost",
     ADMIN_BASE_URL: "http://localhost:8787",
+    ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false",
+    HTML_CACHE_TTL_SECONDS: "60",
     OPENAI_TEXT_MODEL: "",
     OPENAI_IMAGE_MODEL: "",
     DEV_BYPASS_AUTH: "true",
+    SITE_PROVISIONING_DRY_RUN: "true",
+    SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     ...overrides,
   };
 }

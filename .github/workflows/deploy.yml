@@ -1,17 +1,41 @@
 name: CI / Deploy
 
 # CI runs on every pull_request targeting main and on every push to main.
-# Conditional deploy step runs only on push to refs/heads/main, after CI
-# passes. Cloudflare account a05d7505b71c6cd931e436defe670509 hosts both
-# this project (kodigital-homepages-cms) and the sibling project a2z-cf-cms-v1;
-# CLOUDFLARE_API_TOKEN is scoped to deploy permissions only (see
-# docs/secrets-manifest.md).
+# Staging deploy: optional, runs on push to main when the repo variable
+# ENABLE_STAGING_DEPLOY is the literal string 'true'.
+# Production deploy: workflow_dispatch ONLY — the operator must trigger
+# the workflow manually from the Actions tab (or `gh workflow run`) after
+# staging smoke passes. Auto-production-deploy is intentionally absent;
+# every prod deploy requires a human click. See
+# docs/deployment-runbook.md "Flight — Production".
+#
+# Cloudflare deploy credentials are GitHub Actions secrets (NOT Worker
+# runtime secrets — see docs/secrets-manifest.md for the per-surface
+# secret contract):
+#   - CLOUDFLARE_API_TOKEN   : scoped to Workers Scripts:Edit on this
+#                              project's Workers; set per
+#                              docs/github-secrets-setup.md.
+#   - CLOUDFLARE_ACCOUNT_ID  : kodigital Cloudflare account id; passed
+#                              to wrangler at deploy time.
+# The Worker runtime uses DIFFERENT tokens
+# (CLOUDFLARE_PROVISIONING_API_TOKEN, CLOUDFLARE_CACHE_API_TOKEN) set
+# via `wrangler secret put` — see
+# docs/cloudflare-worker-secrets-setup.md.
 
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Deploy target environment (production only — staging is push-driven)'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
 
 jobs:
   ci:
@@ -43,14 +67,20 @@ jobs:
       - name: Verify no legacy production references
         run: npm run verify:no-legacy-prod-refs
 
+      - name: Verify infra contract (wrangler.toml names match Phase 1.5 contract)
+        run: npm run verify:infra
+
+      - name: Verify worker config ([vars] routing contract per env)
+        run: npm run verify:worker-config
+
   deploy-staging:
     name: Deploy to staging
     needs: ci
     # Deployment is OFF by default. To enable, set the repo variable
     # ENABLE_STAGING_DEPLOY to the literal string 'true'
     # (Settings -> Secrets and variables -> Actions -> Variables).
-    # Until that flag is flipped, this job is skipped on every push to main,
-    # so a merge to main cannot accidentally deploy.
+    # Until that flag is flipped, this job is skipped on every push to
+    # main, so a merge to main cannot accidentally deploy.
     if: >-
       github.event_name == 'push'
       && github.ref == 'refs/heads/main'
@@ -61,6 +91,7 @@ jobs:
         working-directory: api
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,3 +108,37 @@ jobs:
 
       - name: Deploy to staging
         run: npm run deploy:staging
+
+  deploy-production:
+    name: Deploy to production
+    needs: ci
+    # Production deploy NEVER runs on push or pull_request. It requires
+    # an explicit workflow_dispatch trigger from the Actions UI (or
+    # `gh workflow run`) AFTER staging smoke has passed. See
+    # docs/deployment-runbook.md "Flight — Production".
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && inputs.target_env == 'production'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to production
+        run: npm run deploy:production
