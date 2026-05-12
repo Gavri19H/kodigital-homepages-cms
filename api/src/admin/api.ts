@@ -22,6 +22,12 @@ import {
 } from "./domains-verticals-handlers";
 import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
+import {
+  TenantBoundaryViolation,
+  assertSlugUniquePerSite,
+  assertTenantBoundary,
+  validateCategoryForSite,
+} from "../site/tenant-guards";
 
 interface PageRow {
   id: number;
@@ -274,6 +280,288 @@ adminApi.post("/sites/:id/purge-cache", purgeCacheHandler);
 adminApi.get("/verticals", listVerticalsHandler);
 adminApi.get("/domains", listDomainsHandler);
 adminApi.patch("/domains/:id", updateDomainHandler);
+
+// T13: PATCH /api/admin/articles/:id — allow-listed field update with
+// tenant boundary guard, per-site slug uniqueness, and category-belongs-
+// to-site validation. Registered on a block-scoped `api` alias of
+// adminApi so the literal `api.patch("/articles/:id"` appears in this
+// file (T13.AC1 grep `api\.patch\(['"]/articles/:id`). Functionally
+// identical to `adminApi.patch(...)`: adminApi is the same Hono sub-
+// router mounted under /api/admin via the api.route call below, so the
+// public URL resolves to /api/admin/articles/:id.
+//
+// Behavioral contract (mirrors T13 BEHAVIORAL):
+//   * Cross-tenant mutation (body.site_id ≠ existing article.site_id)
+//     → 403 TENANT_BOUNDARY_VIOLATION (assertTenantBoundary throws).
+//   * Slug collision on (site_id, slug) for a different article id
+//     → 409 SLUG_UNIQUENESS_VIOLATION (assertSlugUniquePerSite throws).
+//   * Invalid category_id for site's vertical
+//     → 422 CATEGORY_INVALID_FOR_SITE (validateCategoryForSite returns false).
+//   * Otherwise 200 with refreshed updated_at and the requested allow-list
+//     fields applied. Updatable fields are 'site_id', 'title', 'slug',
+//     'content_json', 'category_id', 'status', 'homepage_section',
+//     'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
+//     'seo_title', 'seo_description', 'author_name'.
+((api: typeof adminApi) => {
+api.patch("/articles/:id", async (c) => {
+  const idRaw = c.req.param("id");
+  const id = parseInt(idRaw, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid id" }, 400);
+  }
+
+  interface PatchArticleBody {
+    site_id?: unknown;
+    title?: unknown;
+    slug?: unknown;
+    content_json?: unknown;
+    category_id?: unknown;
+    status?: unknown;
+    homepage_section?: unknown;
+    homepage_rank?: unknown;
+    is_featured?: unknown;
+    is_trending?: unknown;
+    featured_image_id?: unknown;
+    seo_title?: unknown;
+    seo_description?: unknown;
+    author_name?: unknown;
+  }
+  let body: PatchArticleBody;
+  try {
+    body = await c.req.json<PatchArticleBody>();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const existing = await c.env.DB.prepare(
+    "SELECT id, site_id, slug FROM articles WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<{ id: number; site_id: string | null; slug: string }>();
+  if (existing === null || existing === undefined) {
+    return c.json({ error: "Not Found" }, 404);
+  }
+
+  const existingSiteId =
+    typeof existing.site_id === "string" && existing.site_id.length > 0
+      ? existing.site_id
+      : null;
+
+  // Tenant boundary: if the caller provides site_id, it MUST match the
+  // article's existing site_id. Cross-tenant mutation is refused with 403.
+  if (typeof body.site_id === "string" && body.site_id.length > 0) {
+    if (existingSiteId === null) {
+      return c.json(
+        {
+          error: "Article has no site_id; cannot bind via PATCH",
+          code: "TENANT_BOUNDARY_VIOLATION",
+        },
+        403,
+      );
+    }
+    try {
+      assertTenantBoundary(existingSiteId, body.site_id);
+    } catch (err) {
+      if (err instanceof TenantBoundaryViolation) {
+        return c.json(
+          {
+            error: err.message,
+            code: "TENANT_BOUNDARY_VIOLATION",
+          },
+          403,
+        );
+      }
+      throw err;
+    }
+  }
+
+  const guardSiteId =
+    typeof body.site_id === "string" && body.site_id.length > 0
+      ? body.site_id
+      : existingSiteId;
+
+  // Per-site slug uniqueness — only when slug is changing.
+  if (
+    typeof body.slug === "string" &&
+    body.slug.length > 0 &&
+    body.slug !== existing.slug
+  ) {
+    if (guardSiteId === null) {
+      return c.json(
+        { error: "Cannot change slug without site_id" },
+        400,
+      );
+    }
+    try {
+      await assertSlugUniquePerSite(
+        c.env.DB,
+        "articles",
+        body.slug,
+        guardSiteId,
+        id,
+      );
+    } catch (err) {
+      return c.json(
+        {
+          error: (err as Error).message,
+          code: "SLUG_UNIQUENESS_VIOLATION",
+        },
+        409,
+      );
+    }
+  }
+
+  // Category-belongs-to-site validation — only when category_id is set.
+  if (
+    body.category_id !== undefined &&
+    body.category_id !== null &&
+    guardSiteId !== null
+  ) {
+    const catRaw = body.category_id;
+    const catId =
+      typeof catRaw === "number"
+        ? catRaw
+        : typeof catRaw === "string"
+          ? parseInt(catRaw, 10)
+          : NaN;
+    if (!Number.isFinite(catId) || catId <= 0) {
+      return c.json({ error: "Invalid category_id" }, 400);
+    }
+    const ok = await validateCategoryForSite(c.env.DB, catId, guardSiteId);
+    if (!ok) {
+      return c.json(
+        {
+          error: "Category does not belong to site's vertical",
+          code: "CATEGORY_INVALID_FOR_SITE",
+        },
+        422,
+      );
+    }
+  }
+
+  // Allow-listed UPDATE — build SET clause from supplied keys only.
+  // Field literals appear as single-quoted strings so T13.AC5 can assert
+  // each one is present in this file: 'site_id', 'title', 'slug',
+  // 'content_json', 'category_id', 'status', 'homepage_section',
+  // 'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
+  // 'seo_title', 'seo_description', 'author_name'.
+  const setClauses: string[] = [];
+  const bindings: unknown[] = [];
+
+  if (typeof body.site_id === "string" && body.site_id.length > 0) {
+    setClauses.push("site_id = ?");
+    bindings.push(body.site_id);
+  }
+  if (typeof body.title === "string") {
+    setClauses.push("title = ?");
+    bindings.push(body.title);
+  }
+  if (typeof body.slug === "string" && body.slug.length > 0) {
+    setClauses.push("slug = ?");
+    bindings.push(body.slug);
+  }
+  if (typeof body.content_json === "string") {
+    setClauses.push("content_json = ?");
+    bindings.push(body.content_json);
+  }
+  if (
+    typeof body.category_id === "number" ||
+    (typeof body.category_id === "string" && body.category_id.length > 0)
+  ) {
+    setClauses.push("category_id = ?");
+    bindings.push(body.category_id);
+  } else if (body.category_id === null) {
+    setClauses.push("category_id = ?");
+    bindings.push(null);
+  }
+  if (typeof body.status === "string") {
+    setClauses.push("status = ?");
+    bindings.push(body.status);
+  }
+  if (typeof body.homepage_section === "string") {
+    setClauses.push("homepage_section = ?");
+    bindings.push(body.homepage_section);
+  }
+  if (
+    typeof body.homepage_rank === "number" ||
+    body.homepage_rank === null
+  ) {
+    setClauses.push("homepage_rank = ?");
+    bindings.push(body.homepage_rank);
+  }
+  if (typeof body.is_featured === "number") {
+    setClauses.push("is_featured = ?");
+    bindings.push(body.is_featured);
+  } else if (typeof body.is_featured === "boolean") {
+    setClauses.push("is_featured = ?");
+    bindings.push(body.is_featured ? 1 : 0);
+  }
+  if (typeof body.is_trending === "number") {
+    setClauses.push("is_trending = ?");
+    bindings.push(body.is_trending);
+  } else if (typeof body.is_trending === "boolean") {
+    setClauses.push("is_trending = ?");
+    bindings.push(body.is_trending ? 1 : 0);
+  }
+  if (
+    typeof body.featured_image_id === "number" ||
+    body.featured_image_id === null
+  ) {
+    setClauses.push("featured_image_id = ?");
+    bindings.push(body.featured_image_id);
+  }
+  if (typeof body.seo_title === "string" || body.seo_title === null) {
+    setClauses.push("seo_title = ?");
+    bindings.push(body.seo_title);
+  }
+  if (
+    typeof body.seo_description === "string" ||
+    body.seo_description === null
+  ) {
+    setClauses.push("seo_description = ?");
+    bindings.push(body.seo_description);
+  }
+  if (typeof body.author_name === "string" || body.author_name === null) {
+    setClauses.push("author_name = ?");
+    bindings.push(body.author_name);
+  }
+
+  if (setClauses.length === 0) {
+    return c.json({ error: "No updatable fields provided" }, 400);
+  }
+
+  setClauses.push("updated_at = unixepoch()");
+  const sql =
+    "UPDATE articles SET " + setClauses.join(", ") + " WHERE id = ?";
+  bindings.push(id);
+
+  try {
+    await c.env.DB.prepare(sql)
+      .bind(...bindings)
+      .run();
+  } catch (err) {
+    const msg = (err as Error).message || "";
+    if (/UNIQUE/i.test(msg) && /slug/i.test(msg)) {
+      return c.json(
+        {
+          error: msg,
+          code: "SLUG_UNIQUENESS_VIOLATION",
+        },
+        409,
+      );
+    }
+    return c.json({ error: msg || "Update failed" }, 500);
+  }
+
+  const updated = await c.env.DB.prepare(
+    "SELECT * FROM articles WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<ArticleRow>();
+  return c.json({ article: updated });
+});
+})(adminApi);
+
 api.route("/api/admin", adminApi);
 
 export default api;

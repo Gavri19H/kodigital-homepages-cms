@@ -105,12 +105,12 @@ describe("admin router — shell GETs (T10.AC1 + T15.AC1)", () => {
 });
 
 describe("admin router — domains shell (T15.AC3)", () => {
-  it("GET /admin/domains renders shell with domains data-area", async () => {
+  it("GET /admin/domains renders admin shell with admin data-area", async () => {
     const res = await admin.request("/admin/domains", {}, bypassEnv());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type") ?? "").toMatch(/text\/html/);
     const text = await res.text();
-    expect(text).toContain('data-area="domains"');
+    expect(text).toContain('data-area="admin"');
     expect(text).toContain("Domains");
   });
 });

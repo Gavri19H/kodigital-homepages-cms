@@ -141,6 +141,76 @@ async function seedDefaultSiteSettings(
   };
 }
 
+// T15 handler: insert the per-site About page as a real pages row, NOT
+// a stub. The handler is idempotent — re-invoking it for the same
+// site_id leaves the existing row untouched because the INSERT OR IGNORE
+// statement collides with the (site_id, slug) UNIQUE index declared in
+// migration 0002 / 0005 / 0006.
+//
+// Schema invariants this writes (per migrations 0001 + 0002):
+//   - pages.site_id      = ctx.site_id
+//   - pages.slug         = 'about'
+//   - pages.page_type    = 'about'
+//   - pages.status       = 'published'
+//   - pages.show_in_footer = 1
+//   - pages.content_json = JSON block document (parseable, version + blocks)
+//   - pages.content_html = HTML string starting with '<'
+//
+// Returned `output` JSON carries `about_page_slug` so downstream auditors
+// can correlate the step receipt with the row it produced. We avoid
+// emitting `about_page_id` because pages.id is INTEGER AUTOINCREMENT and
+// is not assigned until the INSERT succeeds — under the idempotent
+// re-invocation path the INSERT is ignored and we have no fresh id; the
+// slug is stable across both branches.
+async function generateAboutPageStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const site = await ctx.db
+    .prepare("SELECT name, domain FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ name: string | null; domain: string | null }>();
+  const name = site && typeof site.name === "string" && site.name.length > 0
+    ? site.name
+    : ctx.site_id;
+  const title = `About ${name}`;
+  const intro = `${name} is a publication dedicated to clear, trustworthy reporting.`;
+  const mission = `Our editorial team works to bring readers timely, accurate stories every day.`;
+  const contentDoc = {
+    version: 1,
+    blocks: [
+      { type: "heading", data: { text: title, level: 1 } },
+      { type: "paragraph", data: { text: intro } },
+      { type: "paragraph", data: { text: mission } },
+    ],
+  };
+  const contentJson = JSON.stringify(contentDoc);
+  const contentHtml =
+    `<h1>${title}</h1>` +
+    `<p>${intro}</p>` +
+    `<p>${mission}</p>`;
+  // INSERT OR IGNORE INTO pages — collision on (site_id, slug)='about'
+  // makes the second invocation a no-op, satisfying the BEHAVIORAL
+  // "still exactly 1 row" idempotency contract.
+  await ctx.db
+    .prepare(
+      "INSERT OR IGNORE INTO pages " +
+        "(site_id, slug, title, content_json, content_html, status, template, show_in_footer, page_type) " +
+        "VALUES (?, 'about', ?, ?, ?, 'published', 'default', 1, 'about')",
+    )
+    .bind(ctx.site_id, title, contentJson, contentHtml)
+    .run();
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "generate_about_page_stub",
+      kind: "deterministic_about_page",
+      schema_version: 1,
+      about_page_slug: "about",
+      site_id: ctx.site_id,
+    }),
+  };
+}
+
 // T20 handler: renders the 4 global legal templates for ctx.site_id,
 // substituting the 6 documented variables and stripping any residual
 // placeholders. Idempotent under (site_id, slug) UNIQUE.
@@ -172,7 +242,7 @@ export const STEPS: Record<StepKey, StepHandler> = {
   create_site_settings: seedDefaultSiteSettings,
   generate_tagline_and_site_description_stub: async () =>
     stubResult("generate_tagline_and_site_description_stub"),
-  generate_about_page_stub: async () => stubResult("generate_about_page_stub"),
+  generate_about_page_stub: generateAboutPageStep,
   render_generic_legal_pages_with_site_variables: renderLegalPagesStep,
   generate_logo_mark_stub: async () => stubResult("generate_logo_mark_stub"),
   generate_feature_image_stub: async () =>

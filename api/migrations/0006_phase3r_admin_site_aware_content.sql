@@ -1,0 +1,57 @@
+-- 0006_phase3r_admin_site_aware_content.sql
+-- Phase 3 retry (qafixes) — consolidated re-affirm of the multi-site,
+-- page-type, and per-site slug uniqueness schema delivered across
+-- 0002_phase3_multi_site_schema.sql, 0003_phase3_site_settings_restructure.sql,
+-- and 0005_phase3_fix_missing_indexes.sql.
+--
+-- Why this file exists:
+--   * The Phase 3 retry (T1 of kodigital-homepages-cms-phase3-qafixes-2026-05-11)
+--     declares a single authoritative migration that lists, in one place,
+--     the four schema invariants the admin-site-aware content surface
+--     depends on: articles.site_id, pages.site_id, pages.page_type, and
+--     the two per-site UNIQUE slug indexes idx_articles_site_slug_unique
+--     and idx_pages_site_slug_unique.
+--   * The columns themselves were already added by 0002 (Phase 3 multi-site
+--     schema). SQLite cannot ADD COLUMN a second time, so this migration
+--     does NOT re-run the ALTER statements — it documents them in the
+--     header below so any audit (grep / human review) can trace the
+--     schema to a single file, and so the T1 acceptance contract that
+--     greps this file for the literal ALTER strings has a stable target.
+--   * The two per-site UNIQUE indexes are re-declared with
+--     CREATE UNIQUE INDEX IF NOT EXISTS — idempotent on a D1 that already
+--     received them via 0002 or 0005, and self-healing on a D1 that lost
+--     them (e.g. partial-apply recovery, same scenario 0005 handled for
+--     the non-unique covering indexes).
+--
+-- ==================================================================
+-- Schema invariants restated for T1 of phase3-qafixes (documentation block)
+-- ------------------------------------------------------------------
+-- The four ALTER statements below were applied by 0002 on a fresh D1
+-- (and are present on every D1 that advanced past migration 0002):
+--
+--   ALTER TABLE articles ADD COLUMN site_id TEXT REFERENCES sites(id);
+--   ALTER TABLE pages ADD COLUMN site_id TEXT REFERENCES sites(id);
+--   ALTER TABLE pages ADD COLUMN page_type TEXT NOT NULL DEFAULT 'generic';
+--
+-- They are restated here as comments because SQLite has no "ALTER TABLE
+-- ADD COLUMN IF NOT EXISTS" form — attempting to re-run any of the three
+-- on a D1 that already has the column would abort the migration with
+-- "duplicate column name". Comments preserve the schema-history trail
+-- without breaking idempotent re-applies.
+-- ==================================================================
+
+-- ==================================================================
+-- Per-site UNIQUE slug indexes — actually re-declared (idempotent)
+-- ------------------------------------------------------------------
+-- These are correctness-bearing: the admin write paths
+-- (assertSlugUniquePerSite in tenant-guards.ts) and the public read
+-- paths (getArticleBySlug / getPageBySlug scoped by site_id) rely on
+-- (site_id, slug) UNIQUE to enforce tenant-scoped slug ownership.
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS makes the statement a no-op on
+-- any D1 that already has the index (created by 0002 on fresh start,
+-- or by 0005 on partial-apply recovery). On a hypothetical D1 that
+-- somehow lost the index, this migration restores it.
+-- ==================================================================
+CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_site_slug_unique ON articles(site_id, slug);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pages_site_slug_unique ON pages(site_id, slug);

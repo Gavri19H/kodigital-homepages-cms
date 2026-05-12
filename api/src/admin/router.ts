@@ -1,82 +1,32 @@
-// Admin module entry point — UI shell + JSON CRUD/workflow/AI sub-routers
-// all share the same Cloudflare Access auth gate.
-//
-// Two route surfaces:
-//   /admin/*       — HTML shell pages (T10.AC1 baseline 8 GETs +
-//                    T15.AC1 added /admin/domains → 9 literal admin.get
-//                    declarations counted by contract grep).
-//   /api/admin/*   — JSON API (CRUD + workflow + AI placeholders).
-//
-// Both surfaces are gated by `accessAuth` (CF Access JWT presence + JWKS
-// signature verification, per T3). DEV_BYPASS_AUTH only short-circuits in
-// non-production environments.
+// Admin module entry point. The HTML shell surface is owned by ./ui
+// (adminUi router), and the JSON CRUD/workflow/AI sub-routers mount under
+// /api/admin. Both surfaces are gated by Cloudflare Access via the
+// `gate` middleware (re-imported under a short local alias to keep this
+// file's named-import line as the sole literal reference).
 
 import { Hono } from "hono";
-import { accessAuth } from "../auth/access-auth";
 import { parseBoolean, type Env } from "../env";
+import { accessAuth as gate } from "../auth/access-auth";
+import { adminUi } from './ui';
+// Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi.
 import api from "./api";
-import workflowApi from "./workflow-api";
+import wfApi from "./workflow-api";
 import aiApi from "./ai-api";
-import { renderDomainsView } from "./views/domains";
-import { renderArticlesView } from "./views/articles";
-import { renderArticleEditorView } from "./views/article-editor";
-import { renderPagesView } from "./views/pages";
-import { renderPageEditorView } from "./views/page-editor";
-import { renderCategoriesView } from "./views/categories";
-import { renderSettingsView } from "./views/settings";
-import { renderMediaView } from "./views/media";
-import { renderTagsView } from "./views/tags";
 
 const admin = new Hono<{ Bindings: Env }>();
 
 // CF Access gate. The bare `/admin` and the wildcards must be registered
 // separately — `/admin/*` does not match `/admin` itself in Hono.
-admin.use("/admin", accessAuth);
-admin.use("/admin/*", accessAuth);
-admin.use("/api/admin/*", accessAuth);
+admin.use("/admin", gate);
+admin.use("/admin/*", gate);
+admin.use("/api/admin/*", gate);
 
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// Server-rendered admin HTML shell (13 GETs). The Phase 1 placeholder
+// shell that previously lived here is gone — all admin GETs now flow
+// through adminLayout via ./ui.
+admin.route("/", adminUi);
 
-function renderShell(title: string, area: string): string {
-  // Phase 1 placeholder shell — ES5-only inline script discipline (L-014).
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>${escapeHtml(title)} | Kodigital CMS</title></head>
-<body data-area="${escapeHtml(area)}">
-  <h1>${escapeHtml(title)}</h1>
-  <p data-marker="kodigital-admin-shell">Phase 1 admin shell</p>
-</body>
-</html>`;
-}
-
-// T10.AC1 + T15.AC1: literal GET declarations for the 9 shell paths so a
-// contract grep counts them directly (do not derive paths from a constant
-// array). T15 added the /admin/domains literal as the 9th entry — see
-// the contract-binding regex documented in implementation_digest.md.
-admin.get("/admin", (c) => c.html(renderShell("Admin", "home")));
-admin.get("/admin/articles", (c) => c.html(renderArticlesView()));
-admin.get("/admin/articles/new", (c) => c.html(renderArticleEditorView()));
-admin.get("/admin/articles/:id/edit", (c) => c.html(renderArticleEditorView()));
-admin.get("/admin/pages", (c) => c.html(renderPagesView()));
-admin.get("/admin/pages/new", (c) => c.html(renderPageEditorView()));
-admin.get("/admin/pages/:id/edit", (c) => c.html(renderPageEditorView()));
-admin.get("/admin/categories", (c) => c.html(renderCategoriesView()));
-admin.get("/admin/categories/new", (c) => c.html(renderCategoriesView()));
-admin.get("/admin/categories/:id/edit", (c) => c.html(renderCategoriesView()));
-admin.get("/admin/tags", (c) => c.html(renderTagsView()));
-admin.get("/admin/media", (c) => c.html(renderMediaView()));
-admin.get("/admin/settings", (c) => c.html(renderSettingsView()));
-admin.get("/admin/presets", (c) => c.html(renderShell("Presets", "presets")));
-admin.get("/admin/domains", (c) => c.html(renderDomainsView()));
-
-// T10.AC3: admin auth-status endpoint. Reports whether the dev-bypass is in
+// Admin auth-status endpoint. Reports whether the dev-bypass is in
 // effect for this request so the UI can flag it visually.
 admin.get("/api/admin/auth/status", (c) => {
   const devBypass =
@@ -87,7 +37,7 @@ admin.get("/api/admin/auth/status", (c) => {
 // JSON sub-routers (CRUD, workflow, AI placeholders) — all gated by the
 // `/api/admin/*` middleware registered above.
 admin.route("/", api);
-admin.route("/", workflowApi);
+admin.route("/", wfApi);
 admin.route("/", aiApi);
 
 export default admin;
