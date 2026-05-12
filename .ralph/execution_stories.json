@@ -511,8 +511,8 @@
       "id": "T20",
       "title": "Playwright spec admin-routing-security -- public content host /admin returns 404, no cms.kodigital.app leak, no-store + noindex",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T20"
       ],

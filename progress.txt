@@ -3472,3 +3472,74 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T19 RC-094,RC-095,RC-096,RC-097,RC-098
 ---
+
+## 2026-05-12 — T20 (sources: T20)
+- Story: Playwright spec admin-routing-security — assert off-admin-host
+  GET /admin returns 404 with Cache-Control: no-store + X-Robots-Tag:
+  noindex, nofollow AND body does NOT echo cms.kodigital.app. Mirrors
+  the api/src/index.ts gate at lines 67-82 (Phase 1.5 D3 hostname
+  contract + Phase 3 T28 hardening).
+- Files changed:
+  - api/test-ui/admin-routing-security.spec.ts (NEW, 69 lines)
+    * imports test+expect from '@playwright/test'
+    * test.use({extraHTTPHeaders:{Host:'public.example.test'}}) at top
+      so APIRequestContext sends Host header for a public content
+      domain (TCP still hits 127.0.0.1:8787; Worker's
+      new URL(c.req.url).hostname reads the Host header and trips the
+      hostname-gate's off-admin-host branch).
+    * test 1: request.get('/admin') asserts status===404,
+      cache-control includes 'no-store', x-robots-tag includes
+      'noindex' AND 'nofollow', body does NOT contain
+      'cms.kodigital.app' (no admin-hostname leak to public domain).
+    * test 2: request.get('/api/admin/sites') replays the same
+      contract for the API surface so /api/admin/* is also gated.
+- Self-check results:
+  - File size: 69 lines (TS default cap 200) — PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string)
+  - Error handling: N/A (Playwright spec; assertions encode failure modes)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0 — PASS
+- Local AC greps (from <wt>/api):
+  * T20-AC1 `grep -c 'extraHTTPHeaders' test-ui/admin-routing-security.spec.ts` → 2 (expect >=1) PASS
+  * T20-AC2 `grep -cE 'toBe\(404\)|toEqual\(404\)' test-ui/admin-routing-security.spec.ts` → 2 (expect >=1) PASS
+  * T20-AC3 `grep -c 'cms.kodigital.app' test-ui/admin-routing-security.spec.ts` → 6 (expect >=1) PASS
+  * T20-AC4 `grep -ci 'no-store' test-ui/admin-routing-security.spec.ts` → 5 (expect >=1) PASS
+  * T20-AC5 `test -f api/test-ui/admin-routing-security.spec.ts` → exists PASS
+- D13 canonical runner: ran
+  `python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py
+   --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11
+   --required-claim-ids=RC-099,RC-100,RC-101,RC-102
+   --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL overall, exit=0.
+  * RC-102 (parser=test_exit_code, cwd_anchor=worktree_root) PASS —
+    `for s in 'no-store' 'noindex' 'x-robots-tag'; do grep -qi "$s"
+    api/test-ui/admin-routing-security.spec.ts || ... ; done; echo OK`
+    exited 0 from the worktree root, matched expected exit_code=0.
+  * RC-099, RC-100, RC-101 (parser=parse_grep_count) FAIL with
+    reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED —
+    f22_source_path_recovery resolves cwd="api" against
+    `--project-root=/Users/guyhaikov/a2z-workspaces` (workspace root)
+    instead of the worktree root, so the runner looks for
+    `api/test-ui/admin-routing-security.spec.ts` under
+    `/Users/guyhaikov/a2z-workspaces/api/...` which doesn't exist.
+    `tried_pkg_roots: []`, `tried_story_prefixes: []` (recovery
+    exhausted). Same architect-owned runner-resolver mismatch hit on
+    T10..T19.
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): failure mode is
+  evidence-routing infra (project_root vs worktree_root resolution
+  for parse_grep_count cwd anchors), not implementation —
+  RC-102 PASSED via the cwd_anchor=worktree_root path, and manual
+  grep counts prove all four AC contracts hold from <wt>/api.
+  Re-implementing the source cannot change the runner's
+  project-root resolution for the grep-anchored RCs.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T20 RC-099,RC-100,RC-101 (RC-102 PASS)
+---
