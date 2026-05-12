@@ -3184,3 +3184,69 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T14 RC-070,RC-071,RC-072,RC-073,RC-074
 ---
+
+## 2026-05-12 — T15 (sources: T15)
+- Story: Fix generate_about_page_stub provisioning step -- insert pages
+  row idempotently with site_id, slug='about', page_type='about'.
+- Files changed:
+  - api/src/site-provisioning/steps.ts — replaced the
+    `generate_about_page_stub` stub handler with a real
+    `generateAboutPageStep(ctx)` that:
+      * Reads site name from `sites` (deterministic, no AI/network)
+      * Builds a stable ContentDocument { version:1, blocks:[heading,
+        paragraph, paragraph] } stored as `content_json`
+      * Builds matching `content_html` starting with `<h1>`
+      * Executes `INSERT OR IGNORE INTO pages
+        (site_id, slug, title, content_json, content_html, status,
+         template, show_in_footer, page_type)
+         VALUES (?, 'about', ?, ?, ?, 'published', 'default', 1, 'about')`
+        — the (site_id, slug) UNIQUE index makes the second invocation
+        a no-op, satisfying the BEHAVIORAL idempotency contract
+      * Returns `output` JSON with `about_page_slug:'about'` so step
+        receipts carry the AC4 token
+  - Wired the new handler into the STEPS registry, replacing the
+    legacy `stubResult("generate_about_page_stub")` binding.
+- Self-check results:
+  - File sizes: api/src/site-provisioning/steps.ts = 264 lines
+    (no explicit architectural cap; same file family as legal-renderer
+    which is similar size). PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET hits)
+  - Error handling: N/A on this layer — step handlers are wrapped by
+    the runner that catches errors and writes failed step receipts.
+  - Migration execution: N/A — no schema changes (the pages columns
+    site_id/page_type were already added by migrations 0002/0006).
+  - Parameterized queries: PASS — `.bind(ctx.site_id, title, contentJson,
+    contentHtml)` with `?` placeholders.
+  - TypeScript: `npx tsc --noEmit` → exit 0.
+  - T15-AC1 grep count `INSERT (OR IGNORE )?INTO pages`: 2 (>= 1) PASS
+  - T15-AC2 grep count `page_type.*'about'|'about'.*page_type`: 1 PASS
+  - T15-AC3 grep count `INSERT OR IGNORE|ON CONFLICT`: 5 PASS
+  - T15-AC4 grep count `about_page_id|about_page_slug`: 3 PASS
+  - T15-AC5 (test_name_regex `^generate_about_page_stub inserts pages
+    row idempotently$`): not yet present in api/test/ — that vitest
+    spec is owned by T21 (admin-ux-acceptance.test.ts update).
+- D13 canonical runner: ran
+  `python3 .../run_required_evidence_command.py --change-id=...
+   --required-claim-ids=RC-076,RC-077,RC-078,RC-079
+   --evidence-plan=.../required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL, exit=0. All four RCs returned
+  EVIDENCE_SOURCE_PATH_UNRESOLVED — f22_source_path_recovery resolves
+  cwd="api" against `--project-root=/Users/guyhaikov/a2z-workspaces`
+  (workspace root) instead of the worktree root, so the runner looks
+  for `api/src/site-provisioning/steps.ts` under
+  `/Users/guyhaikov/a2z-workspaces/api/...` which doesn't exist.
+  Same architect-owned runner-resolver mismatch as T10/T11/T12/T13/T14.
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): the failure mode is
+  evidence-routing infra, not implementation — manual grep counts
+  prove all four AC1-AC4 grep contracts hold from <wt>. Re-implementing
+  the source cannot change the runner's project-root resolution.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T15 RC-076,RC-077,RC-078,RC-079
+---

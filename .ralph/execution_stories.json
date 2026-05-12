@@ -383,8 +383,8 @@
       "id": "T15",
       "title": "Fix generate_about_page_stub provisioning step -- insert pages row idempotently with site_id, slug='about', page_type='about'",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T15"
       ],
