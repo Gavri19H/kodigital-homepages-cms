@@ -2614,3 +2614,79 @@ D13 canonical runner result — T1:
   + adminLayout import on all 5 new files: 1/1/1/1/1
   + TheIWise leak across all 5 new files: 0/0/0/0/0 (BEHAVIORAL parity)
 - Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true (only `.ralph/execution_stories.json` was flipped to state="implemented" + passes=true on the Ralph-local execution PRD).
+
+## 2026-05-12 - T8 (api/src/editor/editor-scripts.ts + api/src/editor/index.ts + admin templates wiring)
+- Created `api/src/editor/editor-scripts.ts` (200 lines): exports
+  `editorScripts(): string` returning an IIFE bootstrap. The IIFE defines a
+  `BlockEditor` constructor (ES5 prototype style, no class/let/const/arrow
+  inside the inline script string) that mounts on every
+  `textarea[name="content_json"]` it finds. Toolbar exposes 6 block-type
+  buttons (paragraph/heading/list/quote/image/divider); each
+  `.editor-block` element wraps a textarea/input plus a remove button and
+  syncs `JSON.stringify({version,blocks:[{type,data}]})` back to the
+  hidden textarea on every input — preserving the existing form-submit
+  pipeline. Also exports `editorStyles` for future inclusion.
+- Updated `api/src/editor/index.ts`: added `export function createEditor():
+  string` factory (satisfies AC1 alternative) + re-exports of
+  `editorScripts` / `editorStyles`. Kept existing blocks + sanitize public
+  surface intact.
+- Wired editor into both form templates per the story title:
+  - `api/src/admin/templates/articles.ts`: import editorScripts, prepend
+    `editorScripts()` to `ARTICLE_FORM_SCRIPT` via the layout `scripts`
+    slot.
+  - `api/src/admin/templates/pages.ts`: same wiring (since the page form
+    also has a `textarea[name="content_json"]`).
+- Files changed (T8-source): api/src/editor/editor-scripts.ts (new, 200L),
+  api/src/editor/index.ts (14→27L), api/src/admin/templates/articles.ts
+  (371→372L), api/src/admin/templates/pages.ts (371→372L).
+- Self-check results:
+  - File sizes: editor-scripts.ts 200/200, index.ts 27/200, articles.ts
+    372 (pre-existing 371 from T5; +1 import line), pages.ts 372
+    (pre-existing 371 from T6; +1 import line) — PASS for new files;
+    template files already over default 200 since T2/T5/T6 ports per
+    Codebase Patterns and stable.
+  - Secret scan: no matches across all 4 files — PASS
+  - Error handling: editor IIFE wraps `new BlockEditor()` in try/catch and
+    short-circuits if `textarea[name="content_json"]` is absent — PASS
+  - Migration execution: N/A (UI story)
+  - Parameterized queries: N/A (no SQL)
+  - AC greps from worktree root: T8-AC1=1, T8-AC2=1, T8-AC3=OK, T8-AC4=2 — PASS
+  - cd api && npx tsc --noEmit → exit 0 — PASS
+- Source story ids covered: T8
+- Tests run: cd api && npx tsc --noEmit (exit 0); per-AC grep verifications
+  above; canonical D13 runner (see EVIDENCE_ROUTE_EXHAUSTED block below).
+- Scoped quality commands: T8 has `scoped_quality_commands: []` in
+  `.ralph/execution_stories.json`; per scripts/ralph/prompt.md the
+  per-iteration wrapper QCMD is OPT-IN (default OFF), so no fallback
+  test command was run.
+- Learnings:
+  - The block editor's IIFE intentionally uses prototype-style
+    constructor + `var` (ES5-only inside the script string) so it works
+    when injected verbatim into the admin form HTML; the surrounding
+    TypeScript module on the server side is unrestricted. The constructor
+    is exposed on `window.BlockEditor` after mount so future Playwright
+    specs can interrogate state directly (`await page.evaluate(() =>
+    window.BlockEditor)`).
+  - `editorScripts()` mounts on any matching textarea and is idempotent
+    (uses `data-editor-mounted="1"`), so injecting it twice (e.g. from
+    both layout-level scripts and a form-level script) won't double-mount.
+  - The same `editorScripts()` IIFE is reused on the page form template
+    by design — the page form also has `<textarea name="content_json">`,
+    so wiring it there means the legacy editor is available wherever
+    content_json is editable.
+
+## 2026-05-12 - T8 D13 canonical runner — EVIDENCE_ROUTE_EXHAUSTED
+- python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 --required-claim-ids=RC-041,RC-042,RC-043,RC-044 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/worktree → overall status=FAIL
+  - RC-041 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (cwd=api anchored at worktree-root resolves to <wt>/api; grep -E 'class BlockEditor|export function createEditor' api/src/editor/index.ts then looks for <wt>/api/api/src/editor/index.ts which does not exist)
+  - RC-042 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (same double-api prefix; f22_source_path_recovery reported missing 'api/src/editor/editor-scripts.ts' from cwd <wt>/api)
+  - RC-043 status=PASS (cwd=. → <wt>; the for-loop test_exit_code command ran from worktree root and confirmed all 6 block-type tokens present in api/src/editor/editor-scripts.ts; exit_code=0)
+  - RC-044 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (same double-api prefix; missing 'api/src/admin/templates/articles.ts' from cwd <wt>/api)
+- Root cause is the architect-owned evidence-plan path-resolution bug already logged on T1..T7 RCs: claims with `cwd: "api"` and `evidence_command` strings carrying the absolute-style leading `api/` prefix double-anchor when the runner joins them. f22 recovery (`tried_pkg_roots`, `tried_story_prefixes`) returns empty so the missing-file recovery does not kick in. The evidence_plan + implementation_digest fix the canonical file paths (api/src/editor/index.ts, api/src/editor/editor-scripts.ts, api/src/admin/templates/articles.ts), so Ralph cannot resolve the mismatch from this side — it requires either patching `cwd` in the evidence plan to `.` or stripping the `api/` prefix from each `evidence_command`.
+- Per D12 retry policy (max 2 retries per story; then log EVIDENCE_ROUTE_EXHAUSTED and move on): EVIDENCE_ROUTE_EXHAUSTED logged for RC-041, RC-042, RC-044. RC-043 already PASS via the canonical runner. RC-045 is deferred-to-ship (T8-AC5 references `api/test-ui/admin-ux-parity.spec.ts`, which is T18's target file, not T8's).
+- Manual grep verification from the worktree root (the correct cwd anchor for these targets) PASSes ALL 4 T8 grep ACs:
+    $ grep -E 'class BlockEditor|export function createEditor' api/src/editor/index.ts | wc -l → 1 (>=1) (T8-AC1 / RC-041)
+    $ grep -c 'export function editorScripts' api/src/editor/editor-scripts.ts → 1 (==1) (T8-AC2 / RC-042)
+    $ for b in 'paragraph' 'heading' 'list' 'quote' 'image' 'divider'; do grep -q "$b" api/src/editor/editor-scripts.ts || exit 1; done; echo OK → OK (T8-AC3 / RC-043)
+    $ grep -c 'editorScripts' api/src/admin/templates/articles.ts → 2 (>=1) (T8-AC4 / RC-044)
+- Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true (only `.ralph/execution_stories.json` was flipped to state="implemented" + passes=true on the Ralph-local execution PRD).
+---
