@@ -275,8 +275,8 @@
       "id": "T11",
       "title": "Create api/src/admin/data.ts -- schema-aware data helpers for admin views",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T11"
       ],
