@@ -6,92 +6,34 @@
   "stories": [
     {
       "id": "RX1",
-      "title": "Add bare-id GET routes /admin/articles/:id and /admin/pages/:id in api/src/admin/ui.ts",
-      "category": "api",
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "WARN-FIX-1"
-      ],
-      "targetFiles": [],
-      "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-1-AC1",
-          "description": "grep -c \"adminUi.get('/admin/articles/:id'\" api/src/admin/ui.ts >= 1 (bare :id route present, not just :id/edit)"
-        },
-        {
-          "id": "WARN-FIX-1-AC2",
-          "description": "grep -c \"adminUi.get('/admin/pages/:id'\" api/src/admin/ui.ts >= 1"
-        },
-        {
-          "id": "WARN-FIX-1-AC3",
-          "description": "FUNCTIONAL: cd api && npx tsc --noEmit exits 0"
-        }
-      ],
-      "scoped_quality_commands": [],
-      "forbidden_red_lines": [
-        "MUST NOT set canonical PRD passes=true",
-        "MUST NOT edit parent context stories outside this execution story",
-        "MUST NOT run unrelated funnel tests when scope says otherwise"
-      ]
-    },
-    {
-      "id": "RX2",
-      "title": "Fix api/test/admin.test.ts data-area regression so cd api && npm test exits 0",
-      "category": "script",
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "WARN-FIX-2"
-      ],
-      "targetFiles": [],
-      "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-2-AC1",
-          "description": "grep -c 'data-area=\"admin\"' api/test/admin.test.ts >= 1 (assertion updated to global contract)"
-        },
-        {
-          "id": "WARN-FIX-2-AC2",
-          "description": "grep -c 'data-area=\"domains\"' api/test/admin.test.ts == 0 (stale assertion removed)"
-        },
-        {
-          "id": "WARN-FIX-2-AC3",
-          "description": "FUNCTIONAL: cd api && npm test (vitest run) exits 0; no test files failed; no new tests regressed"
-        }
-      ],
-      "scoped_quality_commands": [],
-      "forbidden_red_lines": [
-        "MUST NOT set canonical PRD passes=true",
-        "MUST NOT edit parent context stories outside this execution story",
-        "MUST NOT run unrelated funnel tests when scope says otherwise"
-      ]
-    },
-    {
-      "id": "RX3",
-      "title": "Align Domains Create-Site modal POST body field name with interface_contract canonical 'name'",
+      "title": "Rename T7 site-filter selects to AC-canonical name=\"site\" + name=\"verticals\" in categories/tags/media templates",
       "category": "ui",
       "state": "implemented",
       "passes": true,
       "source_story_ids": [
-        "WARN-FIX-3"
+        "WARN-FIX-4"
       ],
       "targetFiles": [],
       "acceptanceCriteria": [
         {
-          "id": "WARN-FIX-3-AC1",
-          "description": "grep -c 'site_name' api/src/admin/templates/domains.ts == 0 (legacy wire key removed)"
+          "id": "WARN-FIX-4-AC1",
+          "description": "grep -q 'export function categoriesListPage' api/src/admin/templates/categories.ts && grep -q 'name=\"site\"' api/src/admin/templates/categories.ts && grep -q 'name=\"verticals\"' api/src/admin/templates/categories.ts && echo OK exits 0"
         },
         {
-          "id": "WARN-FIX-3-AC2",
-          "description": "grep -cE '\"name\"\\s*:' api/src/admin/templates/domains.ts >= 1 (canonical 'name' field present in JSON body construction)"
+          "id": "WARN-FIX-4-AC2",
+          "description": "grep -q 'export function tagsListPage' api/src/admin/templates/tags.ts && grep -q 'name=\"site\"' api/src/admin/templates/tags.ts && grep -q 'Global' api/src/admin/templates/tags.ts && echo OK exits 0"
         },
         {
-          "id": "WARN-FIX-3-AC3",
+          "id": "WARN-FIX-4-AC3",
+          "description": "grep -q 'export function mediaListPage' api/src/admin/templates/media.ts && grep -q 'name=\"site\"' api/src/admin/templates/media.ts && grep -q 'Global' api/src/admin/templates/media.ts && echo OK exits 0"
+        },
+        {
+          "id": "WARN-FIX-4-AC4",
           "description": "FUNCTIONAL: cd api && npx tsc --noEmit exits 0"
         },
         {
-          "id": "WARN-FIX-3-AC4",
-          "description": "FUNCTIONAL: cd api && npm test exits 0 (no domains spec regression)"
+          "id": "WARN-FIX-4-AC5",
+          "description": "FUNCTIONAL: cd api && npm test exits 0; no test files failed; 270/270 tests passed"
         }
       ],
       "scoped_quality_commands": [],
