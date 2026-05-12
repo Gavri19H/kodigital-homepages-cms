@@ -3671,3 +3671,54 @@ D13 canonical runner result — T1:
   current-cycle scope exception per scripts/ralph/prompt.md). Canonical
   prd.json was NOT touched.
 ---
+
+## 2026-05-12 — RX2 (sources: WARN-FIX-2) [warn_fix cycle]
+- Story: Fix the lingering data-area="domains" assertion in
+  api/test/admin.test.ts. Phase 3 routed /admin/domains through the new
+  global admin layout (api/src/admin/templates/layout.ts:79 — <body
+  data-area="admin">) instead of the legacy per-area view
+  (api/src/admin/views/domains.ts:51 — <body data-area="domains">). The
+  Vitest spec still encoded the legacy per-page contract and was the only
+  failure in the full suite (1 failed | 269 passed before this fix).
+- Files changed:
+  - api/test/admin.test.ts: line 108 description "renders shell with
+    domains data-area" -> "renders admin shell with admin data-area";
+    line 113 assertion `expect(text).toContain('data-area="domains"')`
+    -> `expect(text).toContain('data-area="admin"')`. Surrounding
+    expect(text).toContain("Domains") (page title) is preserved so the
+    test still distinguishes /admin/domains from other shell pages.
+    File size unchanged at 200 lines.
+- Scope of fix (D11 root-cause): the rendered HTML at /admin/domains
+  ships <body data-area="admin"> from api/src/admin/templates/layout.ts.
+  No source-side admin templates or routers were touched -- the
+  global-contract migration was already complete on the implementation
+  side and the only stale layer was this single test assertion.
+- Self-check results:
+  - File size: 200 lines (limit: 200 for TS) -- PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string)
+  - Error handling: N/A (vitest spec)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - TypeScript: `cd api && npx tsc --noEmit` -> exit 0 -- PASS
+  - Vitest (FULL suite): `cd api && npm test` -> 46 files, 270 tests,
+    0 failures, exit 0 -- PASS (was 1 failed | 269 passed before fix)
+- Local AC verification (WARN-FIX-2):
+  * AC1 `grep -c 'data-area="admin"' api/test/admin.test.ts` -> 1
+    (expect >=1) PASS
+  * AC2 `grep -c 'data-area="domains"' api/test/admin.test.ts` -> 0
+    (expect == 0) PASS
+  * AC3 FUNCTIONAL `cd api && npm test` -> exit 0 with 270/270 tests
+    passing across 46 spec files -- PASS
+- Scoped quality commands: execution story declares
+  scoped_quality_commands=[]; no D13 sidecar entry for WARN-FIX-* in
+  required_evidence_plan.json (verified via grep -c 'WARN-FIX\|RX1\|RX2\|RX3'
+  -> 0 matches). Per scripts/ralph/prompt.md current-cycle scope T7,
+  wrapper-level QCMD is OPT-IN and was not invoked. Iteration's quality
+  gate is the three AC checks above plus the full npm test run (exit 0),
+  all PASS.
+- Ralph-local execution PRD (.ralph/execution_stories.json) RX2 flipped
+  to state="implemented" + passes=true (basename does NOT end with
+  prd.json, so block_prd_self_cert.py hook does not match -- current-cycle
+  scope exception per scripts/ralph/prompt.md). Canonical prd.json was
+  NOT touched.
+---

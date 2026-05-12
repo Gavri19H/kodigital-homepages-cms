@@ -39,8 +39,8 @@
       "id": "RX2",
       "title": "Fix api/test/admin.test.ts data-area regression so cd api && npm test exits 0",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "WARN-FIX-2"
       ],
