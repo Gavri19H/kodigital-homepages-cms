@@ -91,7 +91,7 @@ async function finalizeStepRow(
 async function resolveSiteHostname(db: D1Database, site_id: string): Promise<string> {
   const dom = await db
     .prepare(
-      "SELECT domain AS hostname FROM domains WHERE site_id = ? " +
+      "SELECT hostname FROM domains WHERE site_id = ? " +
         "ORDER BY is_primary DESC, id ASC LIMIT 1",
     )
     .bind(site_id)
