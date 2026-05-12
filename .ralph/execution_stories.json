@@ -302,8 +302,8 @@
       "id": "T12",
       "title": "Modify api/src/admin/router.ts -- mount adminUi for /admin routes, remove renderShell from active /admin paths, preserve accessAuth + sub-routers",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],
