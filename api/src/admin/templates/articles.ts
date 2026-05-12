@@ -5,6 +5,7 @@
 // /api/admin/articles/:id. Form posts JSON via fetch().
 
 import { adminLayout } from "./layout";
+import { editorScripts } from "../../editor/editor-scripts";
 
 export interface SiteOption {
   id: string;
@@ -366,6 +367,6 @@ export function articleFormPage(
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
-    scripts: ARTICLE_FORM_SCRIPT,
+    scripts: editorScripts() + ARTICLE_FORM_SCRIPT,
   });
 }

@@ -11,6 +11,7 @@
 // /api/admin/pages/:id. Inline submit script is ES5-only.
 
 import { adminLayout } from "./layout";
+import { editorScripts } from "../../editor/editor-scripts";
 
 export interface SiteOption {
   id: string;
@@ -366,6 +367,6 @@ export function pageFormPage(
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
-    scripts: PAGE_FORM_SCRIPT,
+    scripts: editorScripts() + PAGE_FORM_SCRIPT,
   });
 }
