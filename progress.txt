@@ -2762,3 +2762,75 @@ D13 canonical runner result — T1:
   (only `.ralph/execution_stories.json` was flipped to
   state="implemented" + passes=true on the Ralph-local execution PRD).
 ---
+
+## 2026-05-12 - T10 (sources: T10) — Create api/src/admin/ui.ts admin UI router (13 GET routes via templates barrel)
+- Implemented: api/src/admin/ui.ts (149 lines).
+  Exports `const adminUi = new Hono<{Bindings:Env;Variables:AccessAuthVariables}>()`
+  and registers exactly 13 GET routes:
+    /admin, /admin/domains, /admin/articles, /admin/articles/new,
+    /admin/articles/:id/edit, /admin/pages, /admin/pages/new,
+    /admin/pages/:id/edit, /admin/categories, /admin/tags,
+    /admin/media, /admin/presets, /admin/settings.
+  Imports the 11 page renderers + adminLayout from the templates
+  barrel (single-quoted `from './templates'` to satisfy AC4 grep).
+  Identity email is pulled off `c.get('access')` (access-auth
+  AccessContext, mode='identity'); placeholder empty arrays / zero
+  stats are passed to each renderer because T11 (data.ts) has not
+  landed yet — T11 will replace the literals with schema-aware D1
+  queries. accessAuth is NOT registered here: ui.ts is mounted by
+  router.ts under the existing `/admin*` accessAuth gate (T12).
+- Files changed:
+  - api/src/admin/ui.ts (NEW)
+  - .ralph/execution_stories.json (T10 state→implemented, passes→true
+    on Ralph-local execution PRD only)
+- Self-check results:
+  - File size: 149 lines (limit 200 for .ts) — PASS
+  - Secret scan grep on api/src/admin/ui.ts — no matches — PASS
+  - Error handling: N/A (renderers return strings; no thrown paths)
+  - Migration execution: N/A (category=api)
+  - Parameterized queries: N/A (no SQL — T11 owns DB calls)
+  - AC greps:
+      T10-AC1 grep -cE 'export (const|default) adminUi' api/src/admin/ui.ts → 1 (==1) PASS
+      T10-AC2 grep -c "adminUi.get('/admin/domains'" api/src/admin/ui.ts → 1 (==1) PASS
+      T10-AC3 grep -cE '/admin/articles/:id/edit' api/src/admin/ui.ts → 1 (==1) PASS
+      T10-AC4 grep -c "from './templates'" api/src/admin/ui.ts → 1 (==1) PASS
+      adminUi.get( count → 13 (matches "all 13 GET routes wired")
+  - cd api && ./node_modules/.bin/tsc --noEmit -p tsconfig.json → exit 0 PASS
+- Source story ids covered: T10
+- Test commands actually run (this iteration):
+  - grep -cE 'export (const|default) adminUi' api/src/admin/ui.ts → 1
+  - grep -c "adminUi.get('/admin/domains'" api/src/admin/ui.ts → 1
+  - grep -cE '/admin/articles/:id/edit' api/src/admin/ui.ts → 1
+  - grep -c "from './templates'" api/src/admin/ui.ts → 1
+  - grep -c "adminUi.get(" api/src/admin/ui.ts → 13
+  - cd api && ./node_modules/.bin/tsc --noEmit -p tsconfig.json → exit 0
+- Scoped quality commands: T10 has `scoped_quality_commands: []` in
+  `.ralph/execution_stories.json`; per scripts/ralph/prompt.md the
+  per-iteration wrapper QCMD is OPT-IN (default OFF), so no fallback
+  wrapper-level test command was run. The worktree-wide tsc gate plus
+  the 4 syntactic grep ACs gate this router-file story.
+- Learnings:
+  - The templates barrel only re-exports rendering FUNCTIONS by
+    design (see T9 progress notes), so types like DashboardStats /
+    PageFormValues / SettingsValueMap are NOT available from
+    `'./templates'`. ui.ts compiles purely against the structural
+    shapes declared on each render function's parameters — passing
+    plain object literals (e.g. {id, title:'', slug:''}) is
+    sufficient and avoids dragging the collision-prone per-module
+    interfaces (each module redeclares its own local SiteOption,
+    etc.) through the import face.
+  - The behavioral AC (curl /admin contains 'class="admin-layout"'
+    + 'class="admin-sidebar"' AND not 'Phase 1 admin shell') is gated
+    on T12 mounting adminUi over the legacy renderShell. ui.ts in
+    isolation will not flip that behavior — T12 is the integration
+    point. Phase 1 admin shell string lives only in router.ts and
+    is removed there in T12.
+  - The grep AC contract is strict-count (`==`), not floor (`>=`).
+    Initial draft included `export default adminUi;` after the
+    `export const adminUi` declaration, which made AC1 grep count
+    return 2 → FAIL. Resolution: keep `export const` only. Similarly,
+    referencing the literal path `/admin/articles/:id/edit` in a
+    nearby comment made AC3 grep count 2 → FAIL; rewrote the comment
+    to describe the path without quoting it. Future stories with
+    grep-counted ACs (T11, T12, T13, T14) MUST audit for stray
+    duplicate tokens in comments and string literals.

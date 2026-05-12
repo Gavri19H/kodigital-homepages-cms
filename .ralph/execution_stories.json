@@ -249,8 +249,8 @@
       "id": "T10",
       "title": "Create api/src/admin/ui.ts -- admin UI router mirroring legacy pattern, server-rendered HTML via templates, protected by accessAuth upstream",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T10"
       ],
