@@ -6,7 +6,7 @@
   "stories": [
     {
       "id": "T1",
-      "title": "Add migration 0005 \u2014 site_id columns + page_type + homepage fields + per-site unique slug indexes",
+      "title": "Add migration 0005 — site_id columns + page_type + homepage fields + per-site unique slug indexes",
       "category": "migration",
       "state": "implemented",
       "passes": true,
@@ -35,8 +35,8 @@
       "id": "T2",
       "title": "Port legacy admin layout template -- adminLayout with KoDigital CMS brand and 9-entry nav (Domains added, Psychic Quiz removed)",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T2"
       ],

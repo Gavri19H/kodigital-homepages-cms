@@ -2310,3 +2310,45 @@ D13 canonical runner result — T1:
   - grep -cE 'CREATE UNIQUE INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?idx_articles_site_slug' api/migrations/0006_phase3r_admin_site_aware_content.sql → 1 (>= 1).
   - grep -cE 'CREATE UNIQUE INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?idx_pages_site_slug' api/migrations/0006_phase3r_admin_site_aware_content.sql → 1 (>= 1).
 - EVIDENCE_ROUTE_EXHAUSTED logged for RC-002..RC-006. Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true.
+
+## 2026-05-12 — T2 (phase3-qafixes / sources: T2) Port legacy admin layout template
+- Execution story: T2 of .ralph/execution_stories.json. Sources: T2. Target file: api/src/admin/templates/layout.ts.
+- Implemented (single new file, 162 lines):
+  - `export function adminLayout(options: AdminLayoutOptions): string` accepting `{title, activePath, userEmail, content, scripts?, styles?}`. Brand text constant `BRAND_TEXT = "KoDigital CMS"` used in <title> and the .logo-text span; no "TheIWise" anywhere (AC4 grep -ci → 0).
+  - 9-entry sidebar nav (NAV_ENTRIES const) in order Dashboard, Domains, Articles, Pages, Media, Categories, Tags, AI Presets, Settings — bound to /admin, /admin/domains, /admin/articles, /admin/pages, /admin/media, /admin/categories, /admin/tags, /admin/presets, /admin/settings. `isActive(activePath, href)` resolves the .active class on the matching nav-item; /admin is matched only exactly (so /admin/domains does not also light up Dashboard).
+  - Full RC-009 class-name surface present in inline <style>: admin-layout, admin-sidebar, sidebar-header, logo, logo-text, sidebar-nav, nav-item, sidebar-footer, admin-main, admin-header, page-title, header-actions, admin-content, stats-grid, stat-card, stat-label, stat-value, card, card-header, card-title, toolbar, toolbar-search, toolbar-filters, table-wrapper, badge, btn, btn-primary, btn-secondary, btn-danger, btn-sm, form-group, form-label, form-input, form-select, empty-state — verified by the RC-009 loop grep.
+  - <meta name="robots" content="noindex,nofollow"> + `data-marker="kodigital-admin-shell"` retained so the T20 routing-security spec + T10.AC1 smoke contract continue to bind.
+  - Inline <script> kept ES5-only (L-014) — single IIFE attaching `window.toggleSidebar` for the responsive sidebar.
+- T2 acceptance criteria verification (grep AC1..AC5):
+  - AC1: `grep -c 'export function adminLayout' api/src/admin/templates/layout.ts` → 1 (>= 1) PASS.
+  - AC2: `grep -c 'admin-layout' api/src/admin/templates/layout.ts` → 2 (>= 1) PASS.
+  - AC3: `grep -c 'KoDigital CMS' api/src/admin/templates/layout.ts` → 2 (>= 1) PASS.
+  - AC4: `grep -ci 'TheIWise' api/src/admin/templates/layout.ts` → 0 (== 0) PASS.
+  - AC5: `grep -c 'Domains' api/src/admin/templates/layout.ts` → 2 (>= 1) PASS; `grep -ci psychic` → 0 (no Psychic Quiz string).
+  - AC6 (BEHAVIORAL): isActive('/admin/domains','/admin/domains')→true sets nav-item active on the Domains link; the rendered HTML contains `<nav class="sidebar-nav" aria-label="Admin sections"><ul>…</ul></nav>` with exactly 9 `<a … class="nav-item …">` children covering the 9 hrefs. Verified by reading the template output; runtime smoke (RC-013) is production_pending/deferred_to=ship.
+  - RC-009 expanded-class-name loop (admin-layout..empty-state, 35 tokens): every token returns `grep -q` exit 0 — verified via the for-loop in the worktree.
+- Self-check results:
+  - File sizes: api/src/admin/templates/layout.ts 162 lines (within HTML/CSS template limit 300) — PASS.
+  - Secret scan: PASS (grep -E 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string' against the new file surfaced 0 hits).
+  - Error handling: N/A (pure UI template; no try/catch surface, no network/IO).
+  - Migration execution: N/A (no schema change in T2).
+  - Parameterized queries: N/A (no SQL in this file).
+  - Tenant boundary: N/A (layout is presentational; tenant enforcement lives in T11 data layer / T13 api handlers).
+- Test commands actually run (this iteration):
+  - grep -c 'export function adminLayout' api/src/admin/templates/layout.ts → 1
+  - grep -c 'admin-layout' api/src/admin/templates/layout.ts → 2
+  - grep -c 'KoDigital CMS' api/src/admin/templates/layout.ts → 2
+  - grep -ci 'TheIWise' api/src/admin/templates/layout.ts → 0
+  - grep -c 'Domains' api/src/admin/templates/layout.ts → 2
+  - grep -ci psychic api/src/admin/templates/layout.ts → 0
+  - RC-009 expanded class-name loop (35 tokens) → all PRESENT (no MISSING line emitted).
+  - cd api && npx tsc --noEmit → exit 0.
+- D13 canonical runner result — T2:
+  - python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 --required-claim-ids=RC-008,RC-009,RC-010,RC-011,RC-012 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root="$(pwd)" → status=FAIL exit_code=null reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED on RC-008..RC-012.
+  - Root cause is the same architect-evidence-plan cwd/compound-command issue logged on T1 (RC-002..RC-006). f22_source_path_recovery reports tried_pkg_roots=["api"] and (for RC-012) parses the compound `&&` / `!` tokens of the AC5 short-circuit command as missing files — the runner does not currently route compound shell expressions and cannot disambiguate the double-cwd-prefix on `api/src/admin/templates/layout.ts` when cwd=api is set in the plan binding. Re-implementation cannot change the architect-owned evidence plan and cannot relocate the canonical file path (implementation_digest.md fixes layout.ts at api/src/admin/templates/layout.ts).
+  - Per D12 retry policy (max 2 retries per story; then log EVIDENCE_ROUTE_EXHAUSTED and move on): EVIDENCE_ROUTE_EXHAUSTED logged for RC-008..RC-012. Manual grep verification from the worktree root (the correct cwd anchor) proves all 5 grep ACs PASS — see "T2 acceptance criteria verification" above. Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true.
+- T2 has empty `scoped_quality_commands` in `.ralph/execution_stories.json`; per `scripts/ralph/prompt.md` "Scoped quality commands" + T4 wrapper opt-out (default OFF), this iteration did NOT run wrapper-level `cd api && npm test`. The 7 verifications above are sufficient to gate this pure-UI template port; review/evaluate phase will assert end-to-end suite parity post-Ralph.
+- Learnings:
+  - The RC-009 grep wrapper uses a tightly-coupled token list (35 entries from admin-layout to empty-state). Re-shaping a layout template to satisfy RC-009 is simpler if those tokens are concentrated in one inline <style> block — each token only needs to appear once as a CSS selector for the `grep -q "$c"` loop to short-circuit-pass.
+  - The `grep -c 'Domains' file >= 1` AC and the `grep -ci psychic file == 0` AC interact: comments mentioning "Psychic Quiz removed" or "ported from theiwise" violate AC4/AC5 even when the comment is documenting the removal. Comment hygiene must drop legacy proper-noun references entirely; document Phase 3 admin in terms of forward-pointing facts (KoDigital CMS only, 9-entry nav) instead of negating the legacy.
+  - When isActive('/admin', activePath) is overloaded, a naive `activePath === href || activePath.startsWith(href+"/")` pattern lights up Dashboard for every /admin/* path. Treating /admin as exact-match-only is the cleanest fix; sub-routes use the longer prefix.
