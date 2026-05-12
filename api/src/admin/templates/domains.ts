@@ -13,7 +13,7 @@ import { adminLayout } from "./layout";
 export interface DomainEntry {
   id?: string;
   domain: string;
-  site_name?: string;
+  name?: string;
   vertical?: string;
   activity?: string;
   status?: string;
@@ -43,7 +43,7 @@ function escapeHtml(input: string | number | undefined | null): string {
 
 function renderRow(d: DomainEntry): string {
   var domain = escapeHtml(d.domain);
-  var siteName = escapeHtml(d.site_name);
+  var siteName = escapeHtml(d.name);
   var vertical = escapeHtml(d.vertical);
   var activity = escapeHtml(d.activity || "main");
   var status = escapeHtml(d.status || "active");
@@ -118,7 +118,7 @@ function renderModal(verticalOptions: string): string {
     + '</div>'
     + '<div class="form-group">'
     + '<label for="new-site-site-name" class="form-label">Site name</label>'
-    + '<input id="new-site-site-name" name="site_name" type="text" class="form-input" required />'
+    + '<input id="new-site-site-name" name="name" type="text" class="form-input" required />'
     + '</div>'
     + '<div class="form-group">'
     + '<label for="new-site-vertical" class="form-label">Vertical</label>'
@@ -162,7 +162,7 @@ var MODAL_SCRIPT = '(function(){'
   + 'var tr=document.createElement("tr");'
   + 'tr.setAttribute("data-domain",d.domain||"");'
   + 'tr.setAttribute("data-site-id",d.id||"");'
-  + 'tr.innerHTML="<td>"+escapeText(d.domain)+"</td><td>"+escapeText(d.site_name)+"</td><td>"+escapeText(d.vertical_slug)+"</td><td>"+escapeText(d.activity||"main")+"</td><td>provisioning</td><td>0</td><td>"+escapeText(d.created)+"</td><td></td><td></td>";'
+  + 'tr.innerHTML="<td>"+escapeText(d.domain)+"</td><td>"+escapeText(d.name)+"</td><td>"+escapeText(d.vertical_slug)+"</td><td>"+escapeText(d.activity||"main")+"</td><td>provisioning</td><td>0</td><td>"+escapeText(d.created)+"</td><td></td><td></td>";'
   + 'tbody.appendChild(tr);'
   + '}'
   + 'function startProvisioningPanel(siteId,domain){'
@@ -202,7 +202,7 @@ var MODAL_SCRIPT = '(function(){'
   + 'e.preventDefault();'
   + 'clearError();'
   + 'var fd=new FormData(form);'
-  + 'var body={domain:fd.get("domain"),site_name:fd.get("site_name"),vertical_slug:fd.get("vertical_slug"),activity:fd.get("activity")};'
+  + 'var body={domain:fd.get("domain"),"name":fd.get("name"),vertical_slug:fd.get("vertical_slug"),activity:fd.get("activity")};'
   + 'fetch("/api/admin/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),credentials:"same-origin"})'
   + '.then(function(r){return r.json().then(function(j){return{ok:r.ok,status:r.status,body:j};},function(){return{ok:r.ok,status:r.status,body:null};});})'
   + '.then(function(res){'
@@ -210,7 +210,7 @@ var MODAL_SCRIPT = '(function(){'
   + 'closeModal();'
   + 'var rb=res.body||{};'
   + 'var siteId=rb.id||rb.site_id||(rb.site&&rb.site.id)||"";'
-  + 'var rowData={id:siteId,domain:body.domain,site_name:body.site_name,vertical_slug:body.vertical_slug,activity:body.activity,created:rb.created||rb.created_at||""};'
+  + 'var rowData={id:siteId,domain:body.domain,name:body.name,vertical_slug:body.vertical_slug,activity:body.activity,created:rb.created||rb.created_at||""};'
   + 'appendDomainRow(rowData);'
   + 'startProvisioningPanel(siteId,rowData.domain);'
   + '}else{showError((res.body&&(res.body.error||res.body.message))||("Error: "+res.status));}'
