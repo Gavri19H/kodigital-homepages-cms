@@ -3250,3 +3250,53 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T15 RC-076,RC-077,RC-078,RC-079
 ---
+
+## 2026-05-12 — T16 (sources: T16)
+- Story: Add @playwright/test devDep + test:ui scripts to api/package.json.
+- Files changed:
+  - api/package.json
+    * scripts: added "test:ui": "playwright test",
+      "test:ui:headed": "playwright test --headed",
+      "test:ui:report": "playwright show-report"
+    * devDependencies: added "@playwright/test": "^1.48.0"
+- Self-check results:
+  - File size: api/package.json = 42 lines (config file, no cap). PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET hits)
+  - Error handling: N/A (config-only change)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - JSON validity: PASS (python json.load parses)
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0
+- Local AC greps (from <wt>/api):
+  * T16-AC1 `grep -c '"@playwright/test"' package.json` → 1 (expect 1) PASS
+  * T16-AC2 `grep -c '"test:ui"' package.json` → 1 (expect 1) PASS
+  * T16-AC3 `grep -cE '"test:ui:headed"|"test:ui:report"' package.json` → 2 (expect 2) PASS
+- D13 canonical runner: ran
+  `python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py
+   --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11
+   --required-claim-ids=RC-081,RC-082,RC-083
+   --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL, exit=0. All three RCs returned
+  EVIDENCE_SOURCE_PATH_UNRESOLVED — same architect-owned runner-resolver
+  mismatch as T10/T11/T12/T13/T14/T15: f22_source_path_recovery resolves
+  cwd="api" against `--project-root=/Users/guyhaikov/a2z-workspaces`
+  (workspace root) instead of the worktree root, so the runner looks
+  for `api/package.json` under `/Users/guyhaikov/a2z-workspaces/api/...`
+  which doesn't exist. For RC-083 the piped evidence_command
+  `grep ... | wc -l | tr -d ' '` makes the resolver mis-parse `|`,
+  `wc`, `tr`, ` ` as candidate file paths (same path-recovery bug
+  hit on T14-RC-074).
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): failure mode is
+  evidence-routing infra, not implementation — manual grep counts
+  prove all three AC contracts hold from <wt>/api. Re-implementing
+  the source cannot change the runner's project-root resolution.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T16 RC-081,RC-082,RC-083
+---

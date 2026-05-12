@@ -409,8 +409,8 @@
       "id": "T16",
       "title": "Add @playwright/test devDep + test:ui scripts to api/package.json",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T16"
       ],
