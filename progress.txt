@@ -2395,3 +2395,50 @@ D13 canonical runner result — T1:
   - python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 --required-claim-ids=RC-014,RC-015,RC-016,RC-017 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root="$(pwd)" → status=FAIL exit_code=null reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED on RC-014 and RC-017.
   - Root cause is the same architect-evidence-plan cwd/path issue logged on T1 (RC-002..RC-006) and T2 (RC-008..RC-012). The evidence_plan rows for RC-014 and RC-017 specify cwd=api with anchor=worktree_root, but the grep target string is `api/src/admin/templates/dashboard.ts` (worktree-anchored, not api-relative) — when the runner cd's into `<worktree>/api` and runs the grep, the path resolves to `<worktree>/api/api/src/admin/templates/dashboard.ts` which does not exist (f22_source_path_recovery missing_files: ["api/src/admin/templates/dashboard.ts"]). RC-015 and RC-016 have cwd=. with the same anchor so they would resolve correctly; the FAIL on the batch is driven by RC-014 + RC-017.
   - Per D12 retry policy (max 2 retries per story; then log EVIDENCE_ROUTE_EXHAUSTED and move on): EVIDENCE_ROUTE_EXHAUSTED logged for RC-014 and RC-017. Manual grep verification from the worktree root (the correct cwd anchor for these targets) PASSes all 4 grep ACs — see "T3 acceptance criteria verification" above (T3-AC1..AC4 all ≥1). Re-implementation cannot change the architect-owned evidence plan and cannot relocate the canonical file path (implementation_digest.md fixes dashboard.ts at api/src/admin/templates/dashboard.ts). Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true.
+
+## 2026-05-12 - T4: Create domains.ts template -- 9-col table + toolbar with + New Site + Create Site modal styled with legacy form classes
+- Source story: T4 (canonical) → execution story T4 in .ralph/execution_stories.json
+- Implemented: api/src/admin/templates/domains.ts (189 lines)
+  - export interface DomainEntry / VerticalEntry / DomainsBranding
+  - export function domainsPage(domains, verticals, branding={}) -> string
+  - Wraps content in adminLayout({title:"Domains", activePath:"/admin/domains", ...})
+  - Toolbar with `<button id="open-new-site-modal" class="btn btn-primary">+ New Site</button>`
+  - 9-column table (Domain / Site name / Vertical / Activity / Status / Articles / Created / Last provisioned / Actions)
+  - Create-Site modal `<div id="new-site-modal" class="modal hidden">` with `.modal-content`, four `.form-group` rows using `.form-input` and `.form-select`, "Create site" submit, Cancel button
+  - Inline ES5 script (no const/let/arrow in entire file):
+    * `+ New Site` click → display:flex + removes `.hidden`
+    * Escape keydown → closes
+    * Cancel click → closes
+    * Backdrop click → closes
+    * Submit → POST /api/admin/sites, on ok closeModal()+reload, on err shows .alert-error
+- Files changed:
+  - api/src/admin/templates/domains.ts (NEW)
+  - .ralph/execution_stories.json (T4 state→implemented, passes→true on Ralph-local execution PRD only)
+- Self-check results:
+  - File size: 189 lines (limit 200 for TS) — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: PASS (form submit has .then/.catch, shows alert-error on non-ok / network error)
+  - Migration execution: N/A (category=ui)
+  - Parameterized queries: N/A (no SQL)
+  - Tenant boundary: N/A (presentational; tenant enforcement lives in T11 data + T13 api)
+- T4 acceptance criteria verification (from implementation_digest.md test bindings):
+  - T4-AC1: grep -c 'export function domainsPage' api/src/admin/templates/domains.ts → 1 (>=1) PASS
+  - T4-AC2: grep -c 'Last provisioned' api/src/admin/templates/domains.ts → 1 (>=1) PASS
+  - T4-AC3: grep -c 'class="modal' api/src/admin/templates/domains.ts → 4 (>=1) PASS (modal, modal-content, modal-title, modal-actions all start with `class="modal`)
+  - T4-AC4: grep -c 'Create site' api/src/admin/templates/domains.ts → 1 (>=1) PASS
+  - T4-AC5: grep -cE '(const |let |=>)' api/src/admin/templates/domains.ts → 0 (==0) PASS (ES5-style entire file: var/function only, no arrow types, no const/let)
+  - RC-020: 9 column header loop (Domain / Site name / Vertical / Activity / Status / Articles / Created / Last provisioned / Actions) → OK
+  - RC-021: modal class loop (class="modal / class="modal-content / form-group / form-input / form-select) → OK
+- Test commands actually run (this iteration):
+  - grep -c 'export function domainsPage' api/src/admin/templates/domains.ts → 1
+  - grep -c 'Last provisioned' api/src/admin/templates/domains.ts → 1
+  - grep -c 'class="modal' api/src/admin/templates/domains.ts → 4
+  - grep -c 'Create site' api/src/admin/templates/domains.ts → 1
+  - grep -cE '(const |let |=>)' api/src/admin/templates/domains.ts → 0
+  - RC-020 column header loop → OK
+  - RC-021 modal class loop → OK
+  - cd api && npx --no-install tsc --noEmit → exit 0
+- T4 has empty `scoped_quality_commands` in `.ralph/execution_stories.json`; per scoped-quality-commands rule + wrapper opt-out (default OFF), this iteration did NOT run wrapper-level `cd api && npm test`. The 8 verifications above plus the worktree-wide `tsc --noEmit` gate this pure-UI template port; review/evaluate phase asserts end-to-end suite parity post-Ralph.
+- Learnings:
+  - For files with an ES5-source grep gate (`grep -cE '(const |let |=>)' ... == 0`), TypeScript callback type annotations CAN be retained on `Array.prototype.map(function (d: T): R { ... })` — `function (d: T): R` does not contain `=>` so the gate is satisfied. Only the lambda arrow syntax `(d) => ...` and function-type aliases `(x: T) => R` need to be avoided.
+  - The legacy `api/src/admin/views/domains.ts` uses native `<dialog>` + `dialog.showModal()` semantics, but T4's behavioral AC requires the simpler "display:flex / .hidden toggle" pattern (the new admin shell). The new template intentionally drops the `<dialog>` element in favor of an absolutely-positioned `<div class="modal hidden">` whose visibility is driven by the inline script's `style.display = "flex"` + `classList.remove("hidden")`.
