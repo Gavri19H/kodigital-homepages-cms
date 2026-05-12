@@ -2690,3 +2690,75 @@ D13 canonical runner result — T1:
     $ grep -c 'editorScripts' api/src/admin/templates/articles.ts → 2 (>=1) (T8-AC4 / RC-044)
 - Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true (only `.ralph/execution_stories.json` was flipped to state="implemented" + passes=true on the Ralph-local execution PRD).
 ---
+
+## 2026-05-12 - T9 (sources: T9) — Create templates barrel index.ts re-exporting all admin templates
+- Implemented: api/src/admin/templates/index.ts (11 lines).
+  Re-exports the 13 named exports the BEHAVIORAL AC enumerates:
+    adminLayout, dashboardPage, domainsPage,
+    articlesListPage, articleFormPage,
+    pagesListPage, pageFormPage,
+    categoriesListPage, tagsListPage, mediaListPage,
+    settingsPage, presetsListPage,
+    editorScripts.
+  Each `from "./X"` is value-side only (no type re-exports) — the
+  10 template modules each export their own local interfaces
+  (SiteOption/etc.), and several of those collide by name across
+  modules; the barrel deliberately stays value-only so future T10
+  (ui.ts) imports the rendering functions without dragging
+  duplicate-named interfaces through the barrel. Direct module
+  imports remain available for callers needing types.
+- Files changed:
+  - api/src/admin/templates/index.ts (NEW)
+  - .ralph/execution_stories.json (T9 state→implemented, passes→true
+    on Ralph-local execution PRD only)
+- Self-check results:
+  - File size: 11 lines (limit 200 for .ts barrel) — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (pure re-export module)
+  - Migration execution: N/A (category=ui)
+  - Parameterized queries: N/A (no SQL)
+  - AC grep (T9-AC1 / RC-046):
+      grep -c './layout' api/src/admin/templates/index.ts → 1 (==1) PASS
+  - cd api && ./node_modules/.bin/tsc --noEmit -p tsconfig.json → exit 0 PASS
+- Source story ids covered: T9
+- Test commands actually run (this iteration):
+  - grep -c './layout' api/src/admin/templates/index.ts → 1
+  - cd api && ./node_modules/.bin/tsc --noEmit -p tsconfig.json → exit 0
+  - Secret scan grep on api/src/admin/templates/index.ts → no matches
+  - D13 canonical runner for RC-046 (see block below) → overall status=PASS
+- Scoped quality commands: T9 has `scoped_quality_commands: []` in
+  `.ralph/execution_stories.json`; per scripts/ralph/prompt.md the
+  per-iteration wrapper QCMD is OPT-IN (default OFF), so no fallback
+  wrapper-level test command was run. The worktree-wide tsc gate plus
+  the single grep AC + D13 PASS gate this barrel-file story.
+- Learnings:
+  - The 10 template modules each redeclare common interfaces
+    (`SiteOption`, etc.) — they are intentionally local-by-module to
+    keep each template self-describing. The barrel re-exports only
+    rendering FUNCTIONS to avoid `export *` collisions; callers needing
+    types should import them from the specific source module
+    (e.g. `import type { SiteOption } from "./settings"`).
+  - `editorScripts` lives outside `api/src/admin/templates/` at
+    `api/src/editor/editor-scripts.ts`, but the BEHAVIORAL AC names it
+    as one of the 13 barrel exports — so the barrel uses the relative
+    path `../../editor/editor-scripts` to surface it through the same
+    import face as the templates. This keeps T10's planned import shape
+    `import { adminLayout, ..., editorScripts } from "./templates"` valid.
+
+## 2026-05-12 - T9 D13 canonical runner — PASS
+- python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 --required-claim-ids=RC-046 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root="$(pwd)" → overall status=PASS
+  - RC-046 status=PASS (parser_strategy=test_exit_code, command exit_code=0):
+      for m in layout dashboard domains articles pages categories tags media settings presets; do
+        grep -q "./${m}" api/src/admin/templates/index.ts || { echo MISSING:$m; exit 1; };
+      done; echo OK
+- First clean D13 PASS for this mission's per-story RC since T1-RC-006
+  (T8-RC-043 also PASSed). The architect-owned cwd-resolution issue that
+  has been hitting T1..T8 grep RCs does NOT trigger here because RC-046
+  uses `cwd: "."` (worktree root) — the same resolution that worked
+  for RC-043. The relative grep target `api/src/admin/templates/index.ts`
+  resolves correctly from the worktree root anchor.
+- Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator
+  post-Ralph. Ralph still does NOT set canonical PRD passes=true
+  (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+---

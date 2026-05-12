@@ -226,8 +226,8 @@
       "id": "T9",
       "title": "Create templates barrel index.ts re-exporting all admin templates",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],
