@@ -3351,3 +3351,65 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T17 RC-084,RC-085,RC-086
 ---
+
+## 2026-05-12 — T18 (sources: T18)
+- Story: Playwright spec admin-ux-parity — all 9 admin routes render
+  adminLayout, sidebar has 9 entries, no 'Phase 1 admin shell',
+  no 'Psychic Quiz', screenshots under test-results/admin-ux-parity/.
+- Files changed:
+  - api/test-ui/admin-ux-parity.spec.ts (NEW, 69 lines)
+    * imports test+expect from '@playwright/test'
+    * ADMIN_ROUTES array enumerates all 9 sidebar routes:
+      /admin, /admin/domains, /admin/articles, /admin/pages,
+      /admin/media, /admin/categories, /admin/tags, /admin/presets,
+      /admin/settings
+    * per-route test: status 200, body does NOT contain
+      'Phase 1 admin shell', exactly one .admin-layout +
+      .admin-sidebar + .sidebar-nav, exactly 9 .sidebar-nav .nav-item
+      entries, nav text matches /Domains/ and NOT /Psychic Quiz/i,
+      screenshot saved to test-results/admin-ux-parity/<route>.png
+    * additional test for /admin asserts .stats-grid + 7 .stat-card
+- Self-check results:
+  - File size: 69 lines (TS default cap 200) — PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string)
+  - Error handling: N/A (Playwright spec)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0 — PASS
+- Local AC greps (from <wt>/api):
+  * T18-AC1 `grep -c "from '@playwright/test'" test-ui/admin-ux-parity.spec.ts` → 1 (expect >=1) PASS
+  * T18-AC2 `grep -c "'/admin/domains'" test-ui/admin-ux-parity.spec.ts` → 1 (expect >=1) PASS
+  * T18-AC3 `grep -c '.admin-layout' test-ui/admin-ux-parity.spec.ts` → 2 (expect >=1) PASS
+  * T18-AC4 `grep -c 'Phase 1 admin shell' test-ui/admin-ux-parity.spec.ts` → 2 (expect >=1) PASS
+  * T18-AC5 `grep -c 'Psychic' test-ui/admin-ux-parity.spec.ts` → 4 (expect >=1) PASS
+  * T18-AC6 `grep -c 'test-results/admin-ux-parity' test-ui/admin-ux-parity.spec.ts` → 2 (expect >=1) PASS
+  * T18-AC7 `test -f api/test-ui/admin-ux-parity.spec.ts` → exists PASS
+  * 9-route reference scan: each of the 9 admin routes appears at least
+    once in the spec body (verified one literal per route).
+- D13 canonical runner: ran
+  `python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py
+   --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11
+   --required-claim-ids=RC-087,RC-088,RC-089,RC-090,RC-091,RC-092
+   --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL, exit=0. All six RCs returned
+  EVIDENCE_SOURCE_PATH_UNRESOLVED — same architect-owned runner-resolver
+  mismatch as T10..T17: f22_source_path_recovery resolves cwd="api"
+  against `--project-root=/Users/guyhaikov/a2z-workspaces` (workspace
+  root) instead of the worktree root, so the runner looks for
+  `api/test-ui/admin-ux-parity.spec.ts` under
+  `/Users/guyhaikov/a2z-workspaces/api/...` which doesn't exist.
+  `tried_pkg_roots: []`, `tried_story_prefixes: []` (recovery exhausted).
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): failure mode is
+  evidence-routing infra, not implementation — manual grep counts
+  prove all six AC contracts hold from <wt>/api. Re-implementing
+  the source cannot change the runner's project-root resolution.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T18 RC-087,RC-088,RC-089,RC-090,RC-091,RC-092
+---
