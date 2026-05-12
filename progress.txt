@@ -2834,3 +2834,30 @@ D13 canonical runner result — T1:
     to describe the path without quoting it. Future stories with
     grep-counted ACs (T11, T12, T13, T14) MUST audit for stray
     duplicate tokens in comments and string literals.
+
+## 2026-05-12 - T10 D13 canonical runner — EVIDENCE_ROUTE_EXHAUSTED
+- python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 --required-claim-ids=RC-047,RC-048,RC-049,RC-050 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/worktree → overall status=FAIL
+  - All four RCs (RC-047, RC-048, RC-049, RC-050) reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED
+  - Same architect-owned cwd-resolution bug already logged for T1..T7 / T8 RCs:
+      cwd: "api" + evidence_command target "api/src/admin/ui.ts" double-anchors
+      to `<wt>/api/api/src/admin/ui.ts`; f22_source_path_recovery returns empty
+      tried_pkg_roots / tried_story_prefixes so the missing-file recovery does
+      not kick in.
+  - Per D12 retry policy (max 2 retries per story; then log
+    EVIDENCE_ROUTE_EXHAUSTED and move on): EVIDENCE_ROUTE_EXHAUSTED logged
+    for RC-047, RC-048, RC-049, RC-050. RC-051 is deferred-to-ship (T10-AC5
+    references api/test-ui/admin-ux-parity.spec.ts, which is T18's target
+    file — not T10's).
+- Manual grep verification from the worktree root (the correct cwd anchor
+  for these targets) PASSes ALL 4 T10 grep ACs:
+    $ grep -cE 'export (const|default) adminUi' api/src/admin/ui.ts → 1 (==1) (T10-AC1 / RC-047)
+    $ grep -c "adminUi.get('/admin/domains'" api/src/admin/ui.ts → 1 (==1) (T10-AC2 / RC-048)
+    $ grep -cE '/admin/articles/:id/edit' api/src/admin/ui.ts → 1 (==1) (T10-AC3 / RC-049)
+    $ grep -c "from './templates'" api/src/admin/ui.ts → 1 (==1) (T10-AC4 / RC-050)
+  Plus structural check:
+    $ grep -c 'adminUi.get(' api/src/admin/ui.ts → 13 (matches 'All 13 GET routes wired' AC)
+- Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator
+  post-Ralph. Ralph still does NOT set canonical PRD passes=true (only
+  `.ralph/execution_stories.json` was flipped to state="implemented" +
+  passes=true on the Ralph-local execution PRD).
+---
