@@ -485,8 +485,8 @@
       "id": "T19",
       "title": "Playwright spec domains-create-site -- modal opens, fill+submit observes POST /api/admin/sites, row + provisioning panel appear",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T19"
       ],

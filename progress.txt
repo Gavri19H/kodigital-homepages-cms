@@ -3413,3 +3413,62 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T18 RC-087,RC-088,RC-089,RC-090,RC-091,RC-092
 ---
+
+## 2026-05-12 — T19 (sources: T19)
+- Story: Playwright spec domains-create-site — modal opens, fill+submit
+  observes POST /api/admin/sites with unique qa-${Date.now()}.example.test
+  domain, asserts method/url/body. Self-contained against empty local D1:
+  injects one option into <select name="vertical_slug"> before submit so
+  HTML5 required-validation does not suppress the fetch.
+- Files changed:
+  - api/test-ui/domains-create-site.spec.ts (NEW, 82 lines)
+    * imports test+expect from '@playwright/test'
+    * navigates to /admin/domains, asserts 200, no 'Phase 1 admin shell'
+    * asserts .admin-layout + #new-site-modal locators present
+    * clicks '+ New Site' by getByRole({name:'+ New Site'}), modal becomes visible
+    * fills domain + site_name, injects+selects vertical_slug option
+    * page.waitForRequest('**/api/admin/sites') armed BEFORE submit click
+    * clicks 'Create site' by getByRole({name:'Create site'})
+    * asserts request.method()==='POST', url includes /api/admin/sites,
+      postData contains uniqueDomain AND 'vertical_slug'
+    * screenshots saved to test-results/domains-create-site/{01,02}.png
+- Self-check results:
+  - File size: 82 lines (TS default cap 200) — PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string)
+  - Error handling: N/A (Playwright spec)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0 — PASS
+- Local AC greps (from <wt>/api):
+  * T19-AC1 `grep -c "/admin/domains" test-ui/domains-create-site.spec.ts` → 8 (expect >=1) PASS
+  * T19-AC2 `grep -E "waitForRequest\([^)]*\/api\/admin\/sites" test-ui/domains-create-site.spec.ts | wc -l` → 2 (expect >=1) PASS
+  * T19-AC3 `grep -c "+ New Site\|Create site" test-ui/domains-create-site.spec.ts` → 6 (expect >=1) PASS
+  * T19-AC4 `grep -c 'example.test' test-ui/domains-create-site.spec.ts` → 1 (expect >=1) PASS
+  * T19-AC5 `test -f api/test-ui/domains-create-site.spec.ts` → exists PASS
+- D13 canonical runner: ran
+  `python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py
+   --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11
+   --required-claim-ids=RC-094,RC-095,RC-096,RC-097,RC-098
+   --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL, exit=0. All RCs with grep evidence returned
+  EVIDENCE_SOURCE_PATH_UNRESOLVED — same architect-owned runner-resolver
+  mismatch as T10..T18: f22_source_path_recovery resolves cwd="api"
+  against `--project-root=/Users/guyhaikov/a2z-workspaces` (workspace
+  root) instead of the worktree root, so the runner looks for
+  `api/test-ui/domains-create-site.spec.ts` under
+  `/Users/guyhaikov/a2z-workspaces/api/...` which doesn't exist.
+  `tried_pkg_roots: []`, `tried_story_prefixes: []` (recovery exhausted).
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): failure mode is
+  evidence-routing infra, not implementation — manual grep counts
+  prove all five AC contracts hold from <wt>/api. Re-implementing
+  the source cannot change the runner's project-root resolution.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T19 RC-094,RC-095,RC-096,RC-097,RC-098
+---
