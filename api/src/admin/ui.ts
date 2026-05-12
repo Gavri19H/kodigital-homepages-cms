@@ -80,7 +80,16 @@ adminUi.get('/admin/articles/new', (c) => {
 
 // 5/13 — Article edit form. The path-with-id form surfaces the same
 // renderer as the new form; the actual article payload is fetched by
-// T11 data helpers.
+// T11 data helpers. Both /admin/articles/:id and /admin/articles/:id/edit
+// resolve to the edit form so deep links from outside admin (e.g. from
+// public previews) land on the editor without an extra hop.
+adminUi.get('/admin/articles/:id', (c) => {
+  const id = c.req.param('id');
+  const article = { id, title: '', slug: '' };
+  return c.html(
+    articleFormPage(article, [], [], { userEmail: getUserEmail(c) }),
+  );
+});
 adminUi.get('/admin/articles/:id/edit', (c) => {
   const id = c.req.param('id');
   const article = { id, title: '', slug: '' };
@@ -100,8 +109,15 @@ adminUi.get('/admin/pages/new', (c) => {
   return c.html(pageFormPage(null, [], { userEmail: getUserEmail(c) }));
 });
 
-// 8/13 — Page edit form. Path '/admin/pages/:id/edit' surfaces the
-// same renderer as the new form; payload comes from T11 helpers.
+// 8/13 — Page edit form. Both /admin/pages/:id and
+// /admin/pages/:id/edit surface the same renderer as the new form;
+// payload comes from T11 helpers. Mirrors the articles bare-id +
+// edit pair above.
+adminUi.get('/admin/pages/:id', (c) => {
+  const id = c.req.param('id');
+  const page = { id, title: '', slug: '' };
+  return c.html(pageFormPage(page, [], { userEmail: getUserEmail(c) }));
+});
 adminUi.get('/admin/pages/:id/edit', (c) => {
   const id = c.req.param('id');
   const page = { id, title: '', slug: '' };

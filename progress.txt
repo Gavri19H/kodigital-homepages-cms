@@ -3625,3 +3625,49 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T21 RC-105,RC-106,RC-107 (RC-104+RC-108 PASS)
 ---
+
+## 2026-05-12 — RX1 (sources: WARN-FIX-1) [warn_fix cycle]
+- Story: Add bare-id GET routes /admin/articles/:id and /admin/pages/:id in
+  api/src/admin/ui.ts so admin deep-links from outside the admin shell
+  (e.g. public previews) resolve directly to the edit form without
+  funneling through the explicit '/:id/edit' suffix. Both bare-id and
+  '/:id/edit' routes now coexist with identical handler logic; route-
+  ordering safety holds (the literal '/admin/articles/new' and
+  '/admin/pages/new' are still declared before their respective ':id'
+  variants, so 'new' is not hijacked by the param route).
+- Files changed:
+  - api/src/admin/ui.ts: added adminUi.get('/admin/articles/:id', ...)
+    (line 86, before the existing '/admin/articles/:id/edit' route)
+    and adminUi.get('/admin/pages/:id', ...) (line 116, before
+    '/admin/pages/:id/edit'). Both handlers mirror the '/edit' siblings
+    — they read c.req.param('id'), build a placeholder article/page
+    object {id, title:'', slug:''}, and render via articleFormPage /
+    pageFormPage with empty supporting lists + userEmail branding.
+    File grew from 149 → 165 lines.
+- Self-check results:
+  - File size: 165 lines (limit: 200 for TS) — PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string)
+  - Error handling: N/A (Hono framework returns 404 on unmatched param;
+    handlers themselves are pure render — no I/O, no try/catch needed)
+  - Migration execution: N/A (no DB migration)
+  - Parameterized queries: N/A (no SQL)
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0 — PASS
+- Local AC verification (WARN-FIX-1):
+  * AC1 `grep -c "adminUi.get('/admin/articles/:id'" api/src/admin/ui.ts`
+    → 1 (expect >=1) PASS
+  * AC2 `grep -c "adminUi.get('/admin/pages/:id'" api/src/admin/ui.ts`
+    → 1 (expect >=1) PASS
+  * AC3 FUNCTIONAL `cd api && npx tsc --noEmit` → exit 0 PASS
+- Scoped quality commands: execution story declares
+  scoped_quality_commands=[]; no D13 sidecar entry for WARN-FIX-* in
+  required_evidence_plan.json (verified via grep -c 'WARN-FIX\|RX' →
+  0 matches). No package-level `npm test` fallback was run — per
+  hotfix-ralph-native-scope T7 contract that wrapper-level QCMD is
+  OPT-IN only when scope says so. Iteration's quality gate is the
+  three AC checks above, all PASS.
+- Ralph-local execution PRD (.ralph/execution_stories.json) RX1 flipped
+  to state="implemented" + passes=true (basename does NOT end with
+  prd.json, so block_prd_self_cert.py hook does not match — this is the
+  current-cycle scope exception per scripts/ralph/prompt.md). Canonical
+  prd.json was NOT touched.
+---

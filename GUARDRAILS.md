@@ -1,43 +1,19 @@
-# GUARDRAILS — kodigital-homepages-cms-phase1-2026-05-09
+# GUARDRAILS — kodigital-homepages-cms-phase3-qafixes-2026-05-11
 
 Read these guardrails BEFORE implementing any story.
 They are category-filtered from past mission failures and production rules.
-
-## HARD RED LINE — forbidden refs (Phase B Ralph context — restated by T32)
-
-The following identifiers MUST NOT appear in any committed source file under
-`api/src/**`, admin templates, route handlers, wrangler.toml `name`/binding
-values, KV/D1/R2 binding names, npm script bodies, or freshly authored verify
-scripts. They are legacy-production references from the predecessor stack and
-are scanned by `cd api && npm run verify:no-legacy-prod-refs`. Banned tokens:
-
-- `theiwise.com` — legacy public hostname (Phase 3 public hosts are per-site).
-- `a2z-cf-cms-v1-api` — legacy Worker name (Phase 3 Worker is `kodigital-homepages-cms-api`).
-- `a2z-cf-cms-v1-db` — legacy D1 database name (Phase 3 is `kodigital-homepages-cms-db`).
-- `insureprimo` — legacy vertical/funnel (not part of Phase 3 multi-site verticals).
-- `psychic-quiz` — legacy quiz funnel (not part of Phase 3 multi-site verticals).
-- `rental-booking` — legacy funnel (not part of Phase 3 multi-site verticals).
-
-Allowed exceptions (verify script self-excludes these):
-- The Cloudflare account UUID `44c73f76-6ed5-4b26-b442-6c2044326c4d` is reused by
-  Phase 3 as `account_id` in `wrangler.toml`, CI workflow files, docs, and the
-  verify script itself — it is NOT in the banned scan set.
-- Reference docs that document the legacy stack and the no-touch contract:
-  `docs/source-architecture.md`, `docs/no-touch-red-line.md`,
-  `docs/reference/current-theiwise-technical-spec.md`.
-- This GUARDRAILS.md file restates the banned tokens (this section) and the
-  progress.txt Codebase Patterns entry lists them — both are reference-only
-  and excluded from the verify scan.
-
-If a Phase B story incidentally introduces one of the banned tokens in source,
-the verify script will fail and the story is NOT done — rename or remove the
-reference before mark-implemented.
 
 ## API Safety Rules
 - All user input must be validated at system boundary.
 - Error responses must not leak stack traces or internal paths.
 - CORS: explicit origin whitelist, not wildcard.
 - Rate limiting: check existing middleware before adding new.
+
+## UI Safety Rules
+- Viewport check: scrollWidth <= innerWidth at 375px mobile + 1280px desktop.
+- No inline styles for layout (use CSS classes).
+- XSS: never use innerHTML with user data. Use textContent or sanitize.
+- Assets: verify URLs return 200 before referencing.
 
 ## Relevant Learnings
 
@@ -93,6 +69,14 @@ reference before mark-implemented.
 **Rule:** Inline JS regex in TypeScript template literals must double-escape: `\\d`, `\\w`, `\\s`, `\\b`. Review greps for single-backslash patterns in backtick strings.
 **Check:** Evaluate rendered regex in-browser via `functionName.toString()` — confirm backslashes present.
 
+### L-030: Polling status indicators need ARIA attributes `[UI]` `universal`
+> 2026-02-22 | occurs: 1 | via: unknown
+**Rule:** Architecture spec for polling/live-updating UI must include: `role="status"` on container, `aria-live="polite"` for non-urgent updates, `aria-hidden="true"` for decorative elements.
+**Check:** `grep -c 'role.*status\|aria-live\|aria-hidden' <component>.tsx` — matches for all live-updating indicators.
+
+
+## [DEPLOY] Deploy (2 entries)
+
 ### L-008: Deploy success ≠ correct code running `[DEPLOY]` `universal`
 > 2026-02-10 | occurs: 1 | via: unknown
 **Rule:** Finish phase MUST include `git pull origin main` before any deploy command. Post-deploy verification must include at least one behavior-specific assertion (not just HTTP 200 + keyword). Deploy instruction: `git pull origin main && cd api && npx wrangler deploy`.
@@ -146,6 +130,16 @@ reference before mark-implemented.
 
 ## [PROCESS] Pipeline (13 entries)
 
+### L-001: Context overflow risk on large missions `[PROCESS]` `universal`
+> 2026-02-08 | occurs: 1 | via: unknown
+**Rule:** Plan phase must NOT read all product files. Use review-findings.md as source of truth for fix missions. Limit to ≤10 file reads total.
+**Check:** Monitor context usage during plan phase; checkpoint when approaching overflow.
+
+### L-016: Docs-only changes without git worktree require manual finish workflow `[PROCESS]` `universal`
+> 2026-02-10 | occurs: 1 | via: unknown
+**Rule:** When no worktree exists (docs-only), finish must: verify sync to git repo, create branch from main, commit, push, PR and merge. Plan phase flags `worktree: false` in phase-status.json.
+**Check:** If `.a2z/mission-state/<change-id>/worktree` missing, confirm finish used manual branch-commit-PR workflow.
+
 ### L-024: Deferred manualQA (post-deploy) works for backend-only changes `[PROCESS]` `universal`
 > 2026-02-13 | occurs: 1 | via: unknown
 **Rule:** For missions with all backend/API stories (no UI), phase-status.json defaults manualQA to "deferred_to_post_deploy". Finish proceeds with other 3 gates. ManualQA runs post-deploy as penultimate phase.
@@ -155,6 +149,12 @@ reference before mark-implemented.
 > 2026-02-17 | occurs: 1 | via: unknown
 **Rule:** After each squash merge in multi-round fix cycle, next run phase starts with `git fetch origin main && git merge origin/main`. Finish script includes pre-push merge-from-main when branch has prior merged PRs.
 **Check:** After finish merges PR, `git log --oneline origin/main..HEAD` — if empty, synced. If not, merge main first.
+
+### L-034: Recovery loop cherry-pick workflow for squash-merged or divergent branches `[PROCESS]` `universal`
+> 2026-03-04 | occurs: 2 | via: unknown, psychic-quiz-answer-validation (ship cycle 2, 2026-04-16)
+**Rule:** When `gh pr list --head <branch> --state merged` returns results, OR when the mission branch conflicts with main due to an intervening merge from another mission → create fresh branch from `origin/main`, cherry-pick only new fix commits, PR and merge. Never rebase a squash-merged branch. Also applies to MQAFIX cycles where another mission's PR merged to main while this mission was in recovery.
+**Check:** Finish phase detects prior merged PRs OR conflicting PRs and uses cherry-pick workflow. Resulting PR has no merge conflicts.
+**Evidence (2026-04-16):** psychic-quiz-answer-validation cycle 2 — PR #196 from mission branch was CONFLICTING after insureprimo #195 merged to main during MQAFIX develop cycle. Finish subagent pivoted to cherry-pick PR #197 (branch cherry/psychic-quiz-answer-validation). Merged cleanly.
 
 ### L-035: Docs-only missions benefit from agent-team review `[PROCESS]` `universal`
 > 2026-03-04 | occurs: 1 | via: unknown
@@ -169,10 +169,20 @@ reference before mark-implemented.
 
 ## [TESTING] Testing (8 entries)
 
+### L-006: Auth gating blocks admin QA — pre-auth required `[TESTING]` `universal`
+> 2026-02-10 | occurs: 1 | via: unknown
+**Rule:** QA config must specify `auth_method`. ManualQA Step 2.5 reads `auth_type`, completes CF Access OAuth via Playwright before admin scenarios. Auth failures → BLOCKED (never SKIP). Phase 0 warns when admin_write=true and auth requires interactive login.
+**Check:** After `/a2z-manualQA` with `auth_type: cloudflare_access`, admin scenarios are PASS/FAIL/BLOCKED — never SKIP due to auth.
+
 ### L-009: ManualQA PASS requires comprehensive coverage `[TESTING]` `universal`
 > 2026-02-11 | occurs: 1 | via: unknown
 **Rule:** Coverage gate: enumerate ALL scenarios from `manualQA.md`, confirm each has section in report. Any SKIP/BLOCKED/missing → FAIL. Require ≥2 geographically distinct ZIPs. Conditional fixes need bidirectional validation (positive + negative). Every /listings test batch needs corresponding wrangler tail file. Hard Rule: "No /listings scenario is PASS without both client-side AND server-side evidence."
 **Check:** Diff scenario list in `manualQA.md` vs section headers in `manualQA-report.md`. `grep -c 'ZIP\|zip' manualQA-report.md` shows multiple ZIPs.
+
+### L-026: ManualQA on live ad networks requires click limits `[TESTING]` `project`
+> 2026-02-16 | occurs: 1 | via: unknown
+**Rule:** ManualQA plans for ad/affiliate funnels must include "max clicks" constraint (typically 2/session). Exhaustion scenarios use localStorage manipulation instead: `localStorage.setItem('insureprimo_clicked_brands', JSON.stringify([...all]))`.
+**Check:** manualQA.md includes click limit note. Exhaustion scenarios use localStorage injection.
 
 ### L-029: ManualQA must account for post-deploy cron timing `[TESTING]` `universal`
 > 2026-02-22 | occurs: 1 | via: unknown
@@ -188,6 +198,13 @@ reference before mark-implemented.
 > 2026-02-10 | occurs: 1 | via: unknown
 **Rule:** ALL post-deploy HTTP requests must append `?_cb=<timestamp>`. Playwright tests against CDN-cached endpoints must use route interception: `page.route('**/config', route => route.fetch({headers:{'Cache-Control':'no-store'}}).then(r => route.fulfill({response:r})))`. ManualQA pre-deploy must note "PRE-DEPLOY" and defer HTTP tests. Finish phase curl commands include `?_cb=$(date +%s)`.
 **Check:** Verify `cf-cache-status: MISS` or `DYNAMIC` on cache-busted requests. ManualQA report header shows deployment status.
+
+### L-010: Brand assets and visual aesthetics need real images + human review  `universal`
+> 2026-02-17 | occurs: 1 | via: unknown
+**Rule:** PRD for brand logos must specify exact image source URLs, `<img>` tags with hosted images, "must be recognizable brand logos, not placeholders." ManualQA for UI stories with images must include "aesthetic review" scenario with reference site/mockup.
+**Check:** `grep 'img.*src.*http' <template>.ts` confirms hosted image URLs. ManualQA includes visual consistency scenario.
+
+## 2026-04-01 — insureprimo-fix-px-request
 
 ### L-039: Known coding standards still violated in new adapter code `[API]` `universal`
 > 2026-04-01 | occurs: 1 | via: insureprimo-fix-px-request
@@ -255,6 +272,13 @@ reference before mark-implemented.
 
 
 ## 2026-04-01 — insureprimo-favicon
+
+### L-047: Binary asset validation requires pixel-level decompression, not just header/metadata checks `[PROCESS]` `universal`
+> 2026-04-01 | occurs: 1 | via: insureprimo-favicon
+**What happened:** A 32x32 PNG favicon had valid PNG headers (IHDR, sRGB, eXIf, IDAT, IEND chunks all present), passed `file` command validation ("PNG image data, 32 x 32"), and passed `sips` metadata checks. But the IDAT compressed pixel data was corrupt (single byte difference at position 194). Browsers rendered an empty/broken favicon. Required recovery attempt 2 with PIL pixel decompression to detect the issue.
+**Root cause:** Validation relied on metadata-level tools (`file`, `sips`, PNG chunk enumeration) which parse headers but do not decompress pixel data. Base64 encoding/decoding can silently corrupt compressed data streams without header damage.
+**Guardrail:** For any mission embedding binary assets (favicons, images, fonts) as base64: AC must include pixel/content decompression validation, not just header checks. Use `python3 -c "from PIL import Image; img=Image.open('file.png'); print(sum(1 for p in img.getdata() if any(c>0 for c in p[:3])))"` to confirm non-zero pixel count.
+**Check:** prd.json AC for base64-embedded binary assets includes decompression validation command (PIL/ImageMagick), not just `file` command.
 
 ### L-048: Claude API crashes on small PNG/ICO binary file reads — use metadata commands only `[PROCESS]` `universal`
 > 2026-04-01 | occurs: 3 | via: insureprimo-favicon
@@ -335,6 +359,13 @@ reference before mark-implemented.
 **Guardrail:** For any project with dynamic WHERE clauses across multiple endpoints, architect should specify a shared `buildWhereClause(FilterCondition[])` pattern rather than per-endpoint string concatenation. AC: `grep -c 'whereClause +=' <file>` returns 0 for all files using the builder.
 **Check:** `grep -rn 'whereClause +=' api/src/admin/` returns 0 matches. `grep -c 'buildWhereClause' api/src/admin/*.ts` >= 1 per file.
 
+### L-058: AC grep patterns must reference verified codebase values, not plan-time assumptions `[PROCESS]` `universal`
+> 2026-04-03 | occurs: 1 | via: campgen-qa-hardening
+**What happened:** T7 AC9 specified `grep -c "status !== 'completed'"` but the actual activate guard uses `status !== 'done'` (line 173 of jobs.ts). The functional behavior was correct — the AC grep pattern was wrong. ManualQA caught it because the grep returned 0 instead of >= 1, requiring investigation to distinguish spec error from code bug.
+**Root cause:** Plan phase wrote the AC from design intent ("guard checks for completed status") instead of grepping the actual codebase to verify the exact string used in the guard. The plan assumed the guard string without evidence.
+**Guardrail:** Plan phase must `grep` to verify every AC grep pattern matches at least 1 result in the current codebase before committing to prd.json. ACs that reference specific string literals (`status !== 'X'`, `throw new Error('Y')`) must be copy-pasted from actual code, not written from memory.
+**Check:** Before ExitPlanMode, run each grep-based AC against the current codebase. Any AC with 0 matches on the pre-change code (when the pattern should exist) or unprovable patterns = rewrite the AC.
+
 ### L-059: Silent catch blocks erase diagnostic trails — always add console.warn minimum `[API]` `universal`
 > 2026-04-03 | occurs: 1 | via: campgen-qa-hardening
 **What happened:** CampaignWorkflow activation path had 3+ empty `catch {}` blocks silently swallowing rate limiter, FB header recording, and usage recording errors. A campaign stuck in ACTIVATING state would have zero diagnostic trail. Same pattern in jobs.ts activation catch.
@@ -383,6 +414,16 @@ reference before mark-implemented.
 **Root cause:** The happy-path implementation assumed all workflow creations succeed. CF Workflows can fail on DO capacity limits, transient errors, or malformed params. The absence of error handling turned a partial failure into a total deadlock.
 **Guardrail:** Any loop that creates external resources (workflows, DO instances, API calls) must: (1) wrap each iteration in try/catch, (2) mark failed items with `failed` status, (3) continue to next item, (4) if ALL items fail (jobsCreated===0), roll parent state back to its pre-execution state. Acceptance criteria: `grep -c 'catch' <route-file>` >= number_of_loop_create_calls.
 **Check:** `grep -B2 -A5 'CAMPAIGN_JOB.create\|\.create(' api/src/routes/day-plans.ts` — every create call must be inside a try block.
+
+### L-066: review_status in prd.json must be updated to 'approved' after all blocker fix stories pass `[PROCESS]` `universal`
+> 2026-04-04 | occurs: 1 | via: campgen-creation-ui
+**What happened:** During finish phase, Gate 1 (review_status) showed `"blocked"` even though all 3 blocker FIX stories had `passes: true` and verify passed 12/12. The stale status required manual correction before the PR could proceed.
+**Root cause:** The review phase sets `review_status: "blocked"` when blockers are found and creates FIX stories. After run+verify complete those FIX stories, nothing updates review_status to "approved". The status is write-once during review and never reconciled.
+**Guardrail:** Verify phase should update `review_status` to `"approved"` in prd.json when: (a) all stories with `severity: "blocker"` have `passes: true`, AND (b) verify verdict is PASS. This prevents stale blocked status from blocking the finish gate.
+**Check:** After verify phase PASS: `jq '.review_status' prd.json` should return `"approved"` (not `"blocked"`).
+
+
+## 2026-04-04 — kodigital-revenue-pipeline-resilience
 
 ### L-067: TypeScript `as const` with explicit type annotation defeats narrow tuple inference `[API]` `universal`
 > 2026-04-04 | occurs: 1 | via: kodigital-revenue-pipeline-resilience
@@ -514,6 +555,13 @@ reference before mark-implemented.
 **Guardrail:** For any component that passes props to hooks with `enabled` guards: (1) Plan AC must verify the prop source is wired (not a hardcoded placeholder). (2) Review phase must grep for empty string props (`=""` or `=''`) on required interaction props. (3) AC: `grep -c 'accountId=""' <file>` = 0.
 **Check:** `grep -n '=""' <component>.tsx | grep -v 'className\|placeholder\|aria-\|type='` — 0 matches for non-styling empty string props.
 
+### L-084: New UI components must match existing ARIA patterns in the same codebase `[UI]` `universal`
+> 2026-04-06 | occurs: 1 | via: campgen-libraries
+**What happened:** 15 accessibility warnings across 10 new Dashboard components: missing `aria-label` on tables, buttons, and inputs; missing `aria-pressed` on toggle buttons; missing `focus-visible` ring styles; missing ARIA tree roles on folder hierarchy. The existing Dashboard already had correct patterns — `filter-bar.tsx` uses `aria-label` on search inputs, `schedule-builder.tsx` uses `aria-pressed` on toggles, `preview-matrix.tsx` uses `role="tree"`.
+**Root cause:** No ARIA checklist in the architect spec. New components were built from scratch without referencing existing component ARIA patterns. Code review caught it but all 15 items were post-hoc fixes.
+**Guardrail:** Architect phase must include an "ARIA Reference Components" section mapping each new component type to an existing component with correct ARIA patterns. Minimum checklist: (1) `<table>` needs `aria-label`, (2) toggle buttons need `aria-pressed`, (3) `<input>` without `<label>` needs `aria-label`, (4) delete/action buttons need `aria-label` with item context, (5) hierarchical views need `role="tree"`/`role="treeitem"`, (6) all interactive elements need `focus-visible:ring-2`.
+**Check:** `grep -c 'aria-label\|aria-pressed\|role="tree"\|focus-visible' <new-component>.tsx` >= 1 per interactive element.
+
 ### L-085: Drag-only upload zones exclude keyboard and assistive technology users `[UI]` `universal`
 > 2026-04-06 | occurs: 1 | via: campgen-libraries
 **What happened:** The upload zone only supported `onDrop`/`onDragOver`/`onDragLeave` with no `<input type="file">` or click handler fallback. Keyboard-only users, mobile users, and assistive technology users had no way to upload files.
@@ -630,6 +678,15 @@ reference before mark-implemented.
 
 ## 2026-04-07 — psychic-quiz-button-fix
 
+### L-101: Fixed-position overlays with z-index intercept clicks on content beneath them `[UI]` `universal`
+> 2026-04-07 | occurs: 1 | via: psychic-quiz-button-fix
+**What happened:** A fixed-position legal footer (`position: fixed; bottom: 0; z-index: 50`) with a gradient background intercepted pointer events on answer cards in the psychic quiz, making the last answer button unclickable. This was a P0 go-live blocker invisible to automated tests (which click by selector, bypassing hit-testing) and only caught during manual browser testing.
+**Root cause:** Plan phase did not check whether existing fixed-position elements could overlap interactive content at small viewports. The quiz already had a `padding-bottom: 60px` workaround on `.results-container` but not on `#answer-options` — the inconsistency indicated a known problem that was partially addressed.
+**Guardrail:** For any UI mission involving fixed-position overlays (footers, headers, banners, cookie bars), plan MUST verify: (1) `pointer-events: none` on the overlay with `pointer-events: auto` on interactive children, (2) defensive `padding-bottom`/`padding-top` on ALL content containers matching the overlay height. ManualQA MUST use `elementFromPoint()` at the boundary to prove click targets are correct — Playwright's selector-based clicks bypass hit-testing and will not catch this class of bug.
+**Check:** `grep -c 'pointer-events' <styles-file>` for any file containing `position: fixed`. If fixed overlay exists without pointer-events:none, flag as WARNING.
+
+## 2026-04-07 — kodigital-ch-mv-scalability
+
 ### L-102: ManualQA must verify deployed code via `git show origin/main:` not local filesystem `[PROCESS]` `universal`
 > 2026-04-07 | occurs: 1 | via: kodigital-ch-mv-scalability
 **What happened:** During manualQA, reading the local `sync-dispatcher.ts` showed NONE of the mission's changes (no MV_TIMEOUTS, no MV_DEPENDENCIES, no skippedMVs, no parallelization). Initial conclusion: changes not deployed. Investigation revealed: local `main` was 3 commits behind `origin/main` because the workspace submodule reference hadn't been updated. `git show origin/main:api/src/do/sync-dispatcher.ts` correctly showed all deployed changes. `gh pr view 143` confirmed merge at 2026-04-06T22:05:06Z.
@@ -675,6 +732,13 @@ reference before mark-implemented.
 **Root cause:** `useEffect`-based redirects are asynchronous by design. The component renders its children first, then the effect checks the role and redirects. There's no synchronous gate preventing the initial render.
 **Guardrail:** Client-side RBAC MUST use a synchronous guard pattern: check role BEFORE rendering children. If `role === "viewer"` and path is unauthorized, return a spinner/null instead of `{children}`. Never rely on `useEffect` alone for access control rendering. Architect AC: `grep -c 'if.*viewer.*return\|if.*role.*return' <layout>.tsx` >= 1 (synchronous guard).
 **Check:** `grep -B2 -A2 'useEffect.*redirect\|useEffect.*router.replace' <layout>.tsx` — if found without a preceding synchronous return guard, flag as BLOCKER.
+
+### L-108: Form accessibility requires htmlFor/id, required, aria-describedby, focus-visible beyond generic ARIA `[UI]` `universal`
+> 2026-04-07 | occurs: 1 | via: campgen-phase4-frontend
+**What happened:** 26+ form labels across 4 form section components used `<label>` without `htmlFor`/`id` association. Required fields had visual `*` markers but no `required` attribute. Error states showed red borders but no error text or `aria-describedby`. Inputs lacked `focus-visible:ring-*` classes making focus invisible on dark themes. These 4 issues affected every form field in the Manual Builder.
+**Root cause:** L-084 covers interactive component ARIA (tables, toggles, trees) but not form-specific accessibility. Developers added visual cues (asterisks, red borders) without programmatic equivalents. No form-specific AC checklist existed.
+**Guardrail:** Architect phase: any story adding form inputs MUST include the 4-point form accessibility checklist: (1) every `<label>` has `htmlFor` matching input `id`, (2) required fields have `required` or `aria-required="true"`, (3) error states use `<span>` with `aria-describedby` linking to the input, (4) all inputs have `focus-visible:ring-2 focus-visible:ring-ring`. This extends L-084's interactive component checklist.
+**Check:** `grep -c 'htmlFor' <form-component>.tsx` >= number of labels AND `grep -c 'focus-visible:ring' <form-component>.tsx` >= 1 AND `grep -c 'aria-describedby\|aria-required\|required' <form-component>.tsx` >= 1.
 
 ### L-109: Durable Object counter/quota state must only persist for allowed operations `[API]` `universal`
 > 2026-04-07 | occurs: 1 | via: kodigital-security-rate-limiting
@@ -736,6 +800,13 @@ reference before mark-implemented.
 **Root cause:** MQAFIX-7 (increment controls) was implemented separately from MQAFIX-6 (optimistic updates for set-value). The increment path was added without matching the UX pattern already established for set-value.
 **Guardrail:** Architecture phase must identify all action paths performing similar operations and include an explicit "UX consistency" AC: all paths use the same feedback pattern (optimistic update OR invalidate — not mixed). Architect documents which pattern each path uses in a comparison table.
 **Check:** For bulk action components: count of `setQueriesData` calls should match count of distinct action handlers, or all handlers should use only `invalidateQueries`.
+
+### L-119: Architecture truth tables for multi-toggle UIs catch interaction bugs early `[UI]` `universal`
+> 2026-04-08 | occurs: 1 | via: kodigital-campaigns-tab-professional-upgrade (rollupMode × compare truth table)
+**What happened:** Architecture.md specified a 4-row truth table for rollupMode × compare: delta columns visible/hidden, checkboxes visible/hidden, bulk toolbar visible/hidden. Review verified all 4 combinations against the actual implementation (`col.hide = !compare || rollupMode`, `rowSelection={rollupMode ? undefined : "multiple"}`, `{!rollupMode && <BulkActionsToolbar>}`). All matched. Without the truth table, individual toggles would likely be tested in isolation, missing the cross-product interactions (e.g., compare ON + rollup ON should still hide delta columns).
+**Root cause:** Multi-toggle UIs have N×M state combinations where individual toggle tests miss interaction effects. Boolean expressions like `!compare || rollupMode` are easy to get wrong without explicit enumeration.
+**Guardrail:** Architect phase must produce a state combination truth table for any UI with 2+ boolean toggles affecting the same view. Each row specifies the expected visibility/behavior of every affected UI element. Review phase must verify each row against the actual boolean expression in code.
+**Check:** Architecture.md for multi-toggle UIs contains a table with 2^N rows (N = number of toggles). Review findings cite specific line numbers and boolean expressions for each row.
 
 ### L-120: Zustand persist rehydration accepts structurally invalid data without runtime validation `[UI]` `kodigital-dashboard`
 > 2026-04-08 | occurs: 1 | via: kodigital-campaigns-tab-professional-upgrade (DB+Security W1 — global-filters.ts)
@@ -941,6 +1012,15 @@ reference before mark-implemented.
 **Rule:** a2z-ship finish phase MUST verify behavioral content (grep for a NEW code marker introduced by this change) — not just HTTP 200 — at minimum 60 seconds after CI deploy completion. If the marker is missing, do NOT auto-trigger another deploy/purge — present user with options (dashboard purge, manual re-deploy, wait for TTL) via AskUserQuestion. Behavioral assertion is mandatory; HTTP-200 + `cf-cache-status: HIT age 0` does NOT prove correct code is served.
 **Check:** `MARKER="persistCurrentStep"; sleep 60; for i in 1 2 3; do COUNT=$(curl -s "$URL?_cb=verify-$(date +%s%N)" | grep -c "$MARKER"); echo "attempt $i: count=$COUNT"; [ "$COUNT" -ge 1 ] && exit 0; sleep 30; done; echo "BEHAVIORAL ASSERTION FAILED — request user purge"; exit 1`
 
+### L-147: ?_cb= query bust ignored on Cloudflare zones with query-string-stripped cache keys `[OPS]` `universal`
+> 2026-04-13 | occurs: 1 | via: insureprimo-low-performance-investigation (MQAFIX-4 ship)
+**What happened:** During CDN stale debugging, four sequential curl requests to `https://insureprimo.com/?_cb=$(date +%s%N)` (each with a unique nanosecond timestamp) ALL returned `cf-cache-status: HIT` with monotonically-increasing `age` (318, 328 after 10s sleep, etc.). The query-string cache-bust per L-007 was completely ineffective on this zone. Cloudflare's cache key for the `insureprimo.com` zone strips query parameters from the cache key, so unique `?_cb=` values map to the same cache entry. This made it impossible to verify post-deploy code presence via cache-bust curl — verification curls were measuring the SAME cached response, not origin freshness.
+**Root cause:** `L-007` assumed `?_cb=<timestamp>` always bypasses CDN cache. This is true for default-configured zones but FALSE for zones with custom Cache Rules or "ignore query string" cache key configuration (common for content sites where query strings are tracking params, not cache discriminators). insureprimo.com is configured this way.
+**Rule:** Before relying on `?_cb=` for post-deploy verification, a2z-ship finish phase MUST validate that query-bust actually bypasses the cache: 2 sequential curls with different `?_cb=` values, 5 seconds apart. If both return `cf-cache-status: HIT` AND `age2 - age1 ≈ 5`, the bust is ineffective for that zone — record `cache_bust_effective: false` and switch to behavioral content grep (L-146) or request actual purge for verification. UPDATES L-007 (which is correct as a default but not universal).
+**Check:** `R1=$(curl -sI "$URL?_cb=test-A-$(date +%s)" | grep -iE 'cf-cache-status|age:'); sleep 5; R2=$(curl -sI "$URL?_cb=test-B-$(date +%s)" | grep -iE 'cf-cache-status|age:'); A1=$(echo "$R1" | grep -oE 'age: [0-9]+' | awk '{print $2}'); A2=$(echo "$R2" | grep -oE 'age: [0-9]+' | awk '{print $2}'); DIFF=$((A2 - A1)); if [ "$DIFF" -ge 4 ] && [ "$DIFF" -le 7 ]; then echo "QUERY_BUST_INEFFECTIVE — switch to behavioral grep"; exit 1; fi`
+
+## 2026-04-13 — psychic-quiz-social-proof (MQAFIX-2 ship)
+
 ### L-148: Schema refactor moving a column between tables must port existing values, not default to NULL `[DB]` `universal`
 > 2026-04-13 | occurs: 1 | via: psychic-quiz-social-proof (MQAFIX-2 — PQ-CTA-1 P0 blocker)
 **What happened:** Quiz v1 stored redirect URL in `quiz_definitions.redirect_url` (populated by migration 0006 with `https://bargestech.go2cloud.org/aff_c?...&aff_unique1={{session_id}}`). Quiz v2's architecture moved the URL to a per-archetype column `quiz_result_templates.cta_url_template`. Migration 0017 (v2 seed) inserted all 3 v2 archetype rows with `cta_url_template=NULL` — because the author copied the INSERT structure from v1 without recognizing that this column needed the v1 value carried over. Client `/complete` endpoint (api.ts:246-277) built `redirect_url` only when `template.cta_url_template` was truthy, else returned empty string. Client CTA handler did `if (redirect_url) window.location.href = redirect_url;` — empty string is falsy, no navigation. Result: zero affiliate redirects in production across all v2 archetypes; every quiz completion returned redirect_url=''. The CTA button was visible, styled, clicked fbq("track","Lead"), but navigated nowhere. MQAFIX-2 added migration 0019 copying v1's `redirect_url` via scalar subquery: `UPDATE quiz_result_templates SET cta_url_template = (SELECT redirect_url FROM quiz_definitions WHERE slug='psychic-quiz-v1' AND version=1 AND redirect_url IS NOT NULL) WHERE quiz_id=(SELECT id FROM quiz_definitions WHERE slug='psychic-quiz' AND is_active=1) AND cta_url_template IS NULL AND (...) IS NOT NULL;`.
@@ -1004,43 +1084,89 @@ reference before mark-implemented.
 **Rule:** When normalizing URLs from external APIs, check for protocol-relative format (`//domain/path`) and prepend `https:`. Apply to all URL fields: `logo`, `logo_url`, `click_url`, `impression_url`.
 **Check:** `grep -cE "startsWith\('//')" api/src/insureprimo/adapters/mediaalpha.ts` — should be >= 1 (the protocol-relative URL fix).
 
-## 2026-05-05 — amani-to-wordpress-importer-2026-04-28 (cycle 3 ship — MQAFIX-2)
+## 2026-05-11 — kodigital-homepages-cms-phase1point5-2026-05-10
 
-### L-157: HTTP 401 from external API cannot be classified "token side" without independent verified test `[INVESTIGATION]` `universal`
+### L-155: /a2z-develop bootstrap must verify mission branch base == origin/main HEAD; ask user to rebase if stale
 
-> 2026-05-05 | occurs: 1 | via: amani-to-wordpress-importer-2026-04-28 (cycle 3 ship — user red-team correction)
-**What happened:** Cycle 3 MQA-3 returned `AMANI_HTTP_401` from `cms.amani.media`. I observed: (a) Worker logs showed 401, (b) direct `curl -i 'https://cms.amani.media/api/articles/<id>'` (no auth header) also returned 401. Based on these two observations alone, my next AskUserQuestion framed the situation as "the new token is being rejected by cms.amani.media" with options labeled "Provide credentials (Recommended)" implying the token itself was at fault. User correctly called this out: an unauthenticated 401 only proves the endpoint enforces auth — it does NOT prove the Worker's rotated token is wrong, mis-formatted, or wrong-scoped. The actual cause turned out to be that the user's *first* rotation hadn't propagated to the Worker secret yet; after a clean second rotation + `wrangler secret put`, the same Worker code at the same sha produced PASS for 4/4 names. My framing pre-emptively blamed the user's credential while the alternative (Worker secret hadn't picked up the rotation, env binding stale, propagation delay) was equally consistent with the observations.
-**Root cause:** A single failing HTTP status code from an upstream service is consistent with many causes: (1) wrong token, (2) wrong header format, (3) wrong scope/permissions, (4) clock-skew on signed tokens, (5) Worker secret not propagated, (6) Worker reading wrong env binding, (7) upstream temporary outage, (8) IP/geofencing. Each requires DIFFERENT remediation. Classifying "token side" without an independent test (user-side curl with the rotated token / wrangler tail decoding the actual header value the Worker sent / fetching from a different network) is an assumption that hides 7 of the 8 causes.
-**Rule:** a2z-ship orchestrator + manualqa-executor MUST NOT classify an upstream HTTP 401/403 as "token side" / "invalid token" / "wrong scope" / "credential issue" in user-facing prose unless backed by either (a) an independent test by user with the rotated token using the SAME url+method+headers (provided verbatim by orchestrator) returning a different status code, OR (b) wrangler tail header-decode showing the Authorization header value the Worker actually sent compared to what the upstream expects. Until such evidence exists, the only neutral classification is `UPSTREAM_AUTH_REJECTION_CAUSE_UNKNOWN`. Never default-blame the user-rotated credential.
-**Check:** `python3 -c "import json,sys,glob; bad=[]; [bad.append(p) for p in glob.glob('.a2z/mission-state/*/manualQA-evidence.json') for s in json.load(open(p)).get('scenarios',[]) if any(t in (s.get('notes','')+s.get('actual_result','')+s.get('verdict','')).lower() for t in ['token side','invalid token','wrong scope','rotated token rejected','credential side']) and 'user_verified_local_probe' not in str(s) and 'wrangler_tail_header_decoded' not in str(s)]; print('VIOLATIONS:',bad); sys.exit(1 if bad else 0)" 2>&1` — any manualQA-evidence.json with token-side classification but no independent-verification marker = FAIL.
+> 2026-05-11 | occurs: 1 | via: kodigital-homepages-cms-phase1point5-2026-05-10 (ship Phase B finish)
+**What happened:** Mission branched from local `main` at `dba3eeb`, which was 2 PRs behind `origin/main` at branch creation (Phase 1 PR #3 + verify-fix PR #4 had landed on GitHub in parallel). /a2z-develop ran 14 stories to completion + verdict PASS, then ship pushed and `gh pr merge` rejected with `GraphQL: Pull Request has merge conflicts (mergePullRequest)` on 9 files (api/src/{env,index,auth/access-auth}.ts, api/test/{admin-auth,health}.test.ts, api/scripts/verify/assert-no-legacy-prod-refs.ts, .github/workflows/deploy.yml, prd.json, progress.txt). Resolution required a 161K-token subagent dispatch + manual chmod + worktree fast-forward. Distinct from L-19/L-20 which cover post-merge sibling-mission rebase; this is the pre-develop base-staleness case.
+**Root cause:** /a2z-develop bootstrap reads local `main` as the merge base without comparing to `origin/main`. When local main lags, the mission branches from a stale base. Conflicts compound as parallel work lands.
+**Rule:** /a2z-develop bootstrap MUST execute `git fetch origin main` + assert `git rev-parse origin/main == git merge-base origin/main HEAD` (or HEAD~1 if mission HEAD is the empty initial commit). If unequal: AskUserQuestion offering (1) rebase mission branch onto origin/main now (recommended); (2) proceed knowing ship will hit conflicts. Same gate should fire in /a2z-ship bootstrap before push, with explicit pre-flight conflict simulation via `git merge-tree`.
+**Check:** `git fetch origin main 2>/dev/null && [ "$(git rev-list --count origin/main..HEAD~1)" = "0" ]` at /a2z-develop bootstrap — non-zero count = stale base, must prompt rebase.
 
-## 2026-05-05 — amani-to-wp-issues-2026-05-05 (cycle 1 ship — failed_deploy_blocked_reverted)
+### L-156: ship finish_pipeline pre-merge gate fails on chmod-locked acceptance-tests/ subdirs added by intervening main PR
 
-### L-158: Mission-branch CI passes but post-merge CI fails when origin/main has advanced `[DEPLOY]` `universal`
+> 2026-05-11 | occurs: 1 | via: kodigital-homepages-cms-phase1point5-2026-05-10 (ship Phase B finish, post-conflict-resolution worktree fast-forward)
+**What happened:** /a2z-develop chmods `acceptance-tests/` to `dr-xr-xr-x` (executable-AC immutability rule). After the conflict subagent resolved + pushed the merge commit to PR #5, the ship orchestrator needed to fast-forward the local mission worktree to match the remote merge commit. The merge commit added `acceptance-tests/kodigital-homepages-cms-phase1-2026-05-09/.gitkeep` (Phase 1's acceptance-test stub). `git merge --ff-only FETCH_HEAD` failed with `fatal: cannot create directory at 'acceptance-tests/kodigital-homepages-cms-phase1-2026-05-09': Permission denied`. The failed merge partially wrote `GUARDRAILS.md` to the worktree before aborting, leaving it untracked. Subsequent `pre_merge_gate` flagged dirty worktree. Required manual `chmod -R u+w acceptance-tests/` + `rm GUARDRAILS.md` + retry.
+**Root cause:** finish_pipeline.py's `pre_merge_gate` reads worktree status but doesn't proactively widen acceptance-tests/ perms before merge ops. /a2z-develop's immutability hook is correct for develop-time; ship-time needs the perms relaxed.
+**Rule:** ship `finish_pipeline.py` `pre_merge_gate` step (and any worktree merge/checkout step in ship) MUST `chmod -R u+w <worktree>/acceptance-tests/` BEFORE any git operation that may add/modify files under that path. After the merge, optionally restore read-only state IF ship is re-handing off to a develop cycle (not the typical case).
+**Check:** `find <worktree>/acceptance-tests/ -not -writable | head -1` at ship bootstrap — any output = locked; remediate with `chmod -R u+w` before pre_merge_gate.
 
-> 2026-05-05 | occurs: 1 | via: amani-to-wp-issues-2026-05-05 (cycle 1 ship — PR #8 reverted by PR #9)
-**What happened:** PR #8 squash-merged cleanly into main as 4fce387. The post-merge deploy CI on main then failed `import.author.spec.ts:108` (T3 author wiring AC4: "every createPost body includes author=42 — reused across all 3 names" → expected length 3, got 0). Mission-branch CI had passed all 13 test files in isolation when /a2z-develop verified. The merge with origin/main brought in PR #7's MQAFIX-2 strict article-field validation in `unwrapAmaniEnvelope`. The mission's T3 author-wiring fixtures don't satisfy the new validation contract, so 0 articles reach createPost in the merged tree (test expected 3). Deploy was blocked. PR #8 was reverted via PR #9 (squash f26d187), restoring main to the pre-PR-#8 state. Production was never updated. Total cost: 1 PR merged-then-reverted, 2 deploy CI runs, ~10 min wall time, full ship session aborted before manualQA.
-**Root cause:** Mission-branch tests pass against the mission tree at the moment /a2z-develop verifies. CI runs only AFTER the squash-merge to main. Between develop/verify (mission tree) and ship's post-merge CI, main can advance with changes that are silently incompatible with the mission's tests/fixtures (here: PR #7 added stricter validation; mission's T3 fixtures predated the change). ship's pre_merge_gate checks worktree dirt + handoff verdict + commit fidelity, NOT "would CI pass against the merged tree?". The `gh pr view --json mergeable` API marks a PR MERGEABLE based on whether the merge can be created cleanly without textual conflicts — it has no visibility into test outcomes against the merged tree. So a PR can be `mergeable=MERGEABLE` and still deploy-fail post-merge.
-**Rule:** a2z-ship finish_pipeline MUST add a new sub-step BEFORE `push` (call it `pre_merge_integration_test`) that: (1) `git -C $WORKTREE fetch origin main`, (2) computes `merge-base HEAD origin/main`, (3) if main has advanced beyond the merge-base, `git -C $WORKTREE merge origin/main --no-commit --no-ff` (mirror the strategy ship will eventually use), (4) runs `cd $WORKTREE/<api-or-test-dir> && npm test` (or whatever the project's full test command is from package.json scripts), (5) `git -C $WORKTREE merge --abort` to restore the worktree, (6) emits a typed receipt with status PASS/FAIL/CONFLICT. PASS → continue to push. FAIL → STOP with a "merge-with-main regression" MQAFIX story; do NOT push, do NOT create PR. CONFLICT during dry-merge → present to user via existing AskUserQuestion path. The dry-merge MUST use `--no-commit --no-ff` (not `-X theirs` or `-X ours`) so test failures reflect a real merge attempt; conflict resolution is a separate gate. This is upstream of the existing post-merge ci_watch (which still runs as defense-in-depth).
-**Check:** `BASE=$(git -C $WORKTREE merge-base HEAD origin/main); MAIN=$(git -C $WORKTREE rev-parse origin/main); if [ "$BASE" != "$MAIN" ]; then git -C $WORKTREE merge origin/main --no-commit --no-ff && (cd $WORKTREE/api && npm test) && RESULT=$? || RESULT=$?; git -C $WORKTREE merge --abort; [ "$RESULT" = "0" ] || { echo "MERGE_REGRESSION_DETECTED"; exit 1; }; fi`
+### L-157: ship validators have incompatible self_roast schema — split batch_result.json vs manualQA-evidence.json
 
-### L-159: Mission-authored .github/workflows/*.yml fires on its own merge — out_of_scope on intake doesn't gate it `[DEPLOY]` `universal`
+> 2026-05-11 | occurs: 1 | via: kodigital-homepages-cms-phase1point5-2026-05-10 (ship Phase D validators)
+**What happened:** `validate_manualqa_contract.py` enforces `additionalProperties: false` on `manualqa_batch_result.json` per the canonical a2z-contracts schema (top-level keys limited to: contract_version, change_id, batch_id, metadata, scenarios, overall_status, blocker_count, evidence_claim_ids, raw_artifacts). `validate_qa_review_checklist.py` reads `evidence.get('self_roast', [])` from `--evidence` and requires ≥ N pairs per route. These two validators can't both consume the same JSON file. Workaround: write `manualqa_batch_result.json` (contract-compliant, no top-level self_roast) AND `manualQA-evidence.json` (contains top-level self_roast for qa-review). Per-scenario `self_roast` arrays live in batch_result; batch-level pairs live in the evidence file.
+**Root cause:** SKILL-level schema gap — `validate_qa_review_checklist.py` was authored against a pre-canonical evidence shape; `validate_manualqa_contract.py` was added later as a stricter gate. Schemas were not reconciled.
+**Rule:** ship Phase D step 0c MUST produce BOTH files: `manualqa_batch_result.json` (canonical, per-scenario self_roast only, no top-level self_roast) AND `manualQA-evidence.json` (top-level self_roast for qa-review checklist). `render_manualqa_report.py --evidence` is the evidence file; `--batch-result` is the canonical. Future skill-improvement task: align the two validators on a single schema with top-level `self_roast` allowed.
+**Check:** `[ -f <mission-state>/manualqa_batch_result.json ] && [ -f <mission-state>/manualQA-evidence.json ] && jq '.self_roast | length' <evidence_path>` ≥ qa-review threshold (1 for deterministic_ci_artifact + READ_ONLY, 3 for browser_visual + HIGH/CRITICAL).
 
-> 2026-05-08 | occurs: 1 | via: homepage-project-phase-0-2026-05-07 (ship phase — caught pre-merge)
-**What happened:** Phase 0 scaffold mission `homepage-project-phase-0` authored `.github/workflows/deploy.yml` (T8) with `on: push: branches: [main]` and a deploy-staging job conditional on `github.ref == 'refs/heads/main'` running `wrangler deploy --env staging`. mission_intake.json's `explicit_out_of_scope` listed "Production deployment to Cloudflare (deploy:staging / deploy:production are scaffold scripts only)". develop verified PASS (pure local: typecheck + tests + verify-script). When ship would have squash-merged the mission into main on origin, the act of merging the workflow YAML into main is itself the FIRST scheduling of that workflow — and the deploy-staging step would fire, against `CLOUDFLARE_API_TOKEN` if set on the repo, ignoring the intake's exclusion. Caught by manual review of the deploy.yml during ship Phase A; user opted for "PR open, do NOT merge" path so they could decide CLOUDFLARE_API_TOKEN policy explicitly.
-**Root cause:** GitHub Actions schedules `on: push` workflows from the diff being pushed, not from the prior repo state. So a PR that introduces a new workflow file fires that workflow as soon as it's merged. mission_intake's `explicit_out_of_scope` is consumed by /a2z-develop (planning + plan-roast) but is NOT propagated into ship's pre-merge gates. ship reads prd.json, qa-report.md, develop_handoff.json — none of those carry the out-of-scope array. Pre-merge CI on the PR runs `pull_request:` triggers only, so the deploy step is invisible until merge.
-**Rule:** ship Phase B finish_pipeline MUST scan the about-to-merge diff for newly-introduced (`A`) `.github/workflows/*.yml` files. For each, parse `on:` triggers + per-job `if:` conditions + step `run:` lines. If any job conditional on `push: branches: [main]` (or equivalent) executes a deploy command (regex: `wrangler\\s+deploy|npm\\s+run\\s+deploy:|gh\\s+release\\s+create`), AND mission_intake.json's `explicit_out_of_scope` array contains a substring match for "deploy" or "Cloudflare" or "production deployment", the merge step BLOCKS with reason `WORKFLOW_SELF_FIRES_ON_MERGE_VS_OUT_OF_SCOPE`. User must either (a) explicitly widen scope (signed-off change to mission_intake), or (b) leave the PR open until secrets policy is set. Pre-existing workflow files (`M` modifications without changing the `if:` deploy conditional) are unaffected.
-**Check:** `git -C $WORKTREE diff --name-status main...mission/$CID -- '.github/workflows/*.yml' | awk '$1=="A"{print $2}' | xargs -I{} grep -l -E '(wrangler\\s+deploy|npm run deploy:|gh release create)' '{}'` returns non-empty AND `python3 -c "import json,sys; oos=' '.join(json.load(open('$MS/mission_intake.json')).get('explicit_out_of_scope',[])).lower(); sys.exit(0 if any(k in oos for k in ('deploy','cloudflare','production deployment')) else 1)"` exits 0 → BLOCK merge, surface user choice via AskUserQuestion.
+### L-158: CSP `default-src 'none'` on CF Access-protected worker blocks in-browser `fetch()` from manualQA
 
-## [PROCESS] Pipeline contract gaps
+> 2026-05-11 | occurs: 1 | via: campaign-generator-fix-1-2026-05-10 (ship Phase D manualQA, 2 batches)
+**What happened:** ManualQA-executor subagent dispatched a Playwright session against `https://campgen-api.kodigital.app`. After completing CF Access SSO (~45s), the agent attempted `browser_evaluate(fetch('/api/v1/...'))` to hit endpoints with the auth cookie. The worker's `content-security-policy: default-src 'none'` header blocks ALL in-page network requests — no `connect-src` exception. The first batch wasted ~30K tokens discovering this constraint before pivoting to: `browser_navigate` for GET (read `document.body.innerText` + `browser_network_requests` for status); for POST/PUT, extract `CF_AppSession` via `browser_evaluate(document.cookie)` then shell `curl` with explicit `Cookie:` header. Both batches succeeded after the pivot.
+**Root cause:** The worker enforces strict CSP for defense-in-depth. CSP is a production security feature, NOT a bug. The manualQA subagent prompt did not anticipate it.
+**Rule:** Phase D.pre orchestrator MUST probe production CSP before dispatch: `curl -sI <deploy_url> | grep -i 'content-security-policy'`. If `default-src 'none'` (or absent `connect-src`), the subagent prompt MUST include the cookie+curl fallback pattern under "Browser route" notes. Future ship Phase D risk-assessment should annotate CSP-restricted endpoints so subagents pivot proactively. Treat CSP-strict as a production-architecture fact, not a defect.
+**Check:** `curl -sI <deploy_url> | awk -F': *' 'tolower($1)=="content-security-policy" {print $2}' | grep -q "default-src 'none'"` — exit 0 = strict CSP; add `cookie+curl fallback` paragraph to manualQA subagent prompt automatically.
 
-### L-160: develop_handoff.production_pending_rc_ids ignores mission_intake.explicit_out_of_scope `[PROCESS]` `universal`
+### L-159: Upstream auth/access gates rejecting test biz block wire-level manualQA observation of downstream domain-error tokens
 
-> 2026-05-08 | occurs: 1 | via: homepage-project-phase-0-2026-05-07 (ship handoff produced 23 production_pending RCs for an intake-out-of-scope deploy)
-**What happened:** finalize_develop emitted `develop_handoff.json` with 23 `production_pending_rc_ids` and `production_check_hints` like "deferred to ship-phase runtime/deploy verification" for behavioral ACs (RC-041, RC-042, RC-043, RC-044, RC-049, RC-050, RC-063, RC-064, RC-065, RC-066). mission_intake.json explicitly excluded "Production deployment to Cloudflare" from scope. The handoff did not surface this contradiction — ship would have dutifully tried to verify the deferred RCs against a deploy that mission_intake said would never happen. The mismatch was caught by ship Phase A bootstrap when the conductor cross-read mission_intake.notes manually.
-**Root cause:** `finalize_develop._build_handoff` constructs `production_pending_rc_ids` from `required_evidence_plan.entries[].route == "production_pending"` (set either by spec authoring or by `build_required_evidence_plan.py --classify-production-pending=`). The build path doesn't consult mission_intake.json. So an RC with route=production_pending is reported as ship-deferred regardless of whether the mission's scope ever permits the production check. ship's `validate_develop_ship_handoff.py` rebuilds the same shape from required_claims_count without scope cross-reference. Result: a Phase 0 scaffold mission that explicitly forbids deploy still emits a handoff that asks ship to deploy-verify.
-**Rule:** finalize_develop._build_handoff MUST read `mission_intake.explicit_out_of_scope` (when present) and emit a separate typed array `out_of_scope_pending_rc_ids[]` for any production_pending RC whose `production_check_hints[rc]` references an out-of-scope capability (substring match: "deploy", "Cloudflare", "production deployment"). These RCs are NOT included in `production_pending_rc_ids`. The handoff schema gains `out_of_scope_pending_rc_ids[]: list<string>` + `out_of_scope_rationale: dict<rc_id, str>` (the matching out_of_scope clause). ship Phase A reads `out_of_scope_pending_rc_ids[]` and routes those to `manualQA-skipped` with the rationale, NOT to deploy-verification or browser QA. validate_develop_ship_handoff.py mirrors the categorization. Mission_intake authors who change scope mid-flow re-run finalize_develop to refresh the categorization.
-**Check:** `python3 -c "import json,sys; h=json.load(open('$MS/develop_handoff.json')); ms_path=os.path.join(os.path.dirname('$MS'),'mission_intake.json'); ms=json.load(open(ms_path)) if os.path.exists(ms_path) else {}; oos=' '.join(ms.get('explicit_out_of_scope',[])).lower(); leak=[r for r,h2 in h.get('production_check_hints',{}).items() if any(k in h2.lower() for k in ('deploy','cloudflare','production deploy')) and any(k in oos for k in ('deploy','cloudflare','production deploy'))]; sys.exit(1 if leak else 0)"` — non-zero exit means handoff contains production_pending RCs whose hints reference out-of-scope capabilities; finalize_develop needs to re-categorize.
+> 2026-05-11 | occurs: 1 | via: campaign-generator-fix-1-2026-05-10 (ship Phase D MQA-3 mainGoal verification)
+**What happened:** Mission mainGoal was: "POST /campaigns/validate returns `valid:false` with `PAGE_ID_DOMAIN_MISMATCH` for preset 23 (page_id='3')". The fix code (preflight in `api/src/lib/campaign-preflight.ts`) is correct (vitest `campaign-preflight.test.ts` + `campaigns.test.ts` GREEN at deploy sha 59f8f65f8b). However, the production route `api/src/routes/campaigns.ts:24-32` runs `validateCampaignInputs` (FORBIDDEN_ACCOUNTS check against DASHBOARD_DB.fb_accounts) BEFORE preflight. Test businesses available to the subagent had 0 fb_accounts in DASHBOARD_DB. DASHBOARD_DB is READ-ONLY cross-bind from this worker, so QA cannot seed. Result: all 30+ probed business_ids returned FORBIDDEN_ACCOUNTS before preflight ever ran — `PAGE_ID_DOMAIN_MISMATCH` token never reached the wire. MQA-3 verdict: INCONCLUSIVE. Cost: ~189K subagent tokens + 1 manualQA cycle of pivots + user decision round.
+**Root cause:** Architectural: auth gate runs before domain gate. Plan-time: manualQA scenario design assumed downstream code path was reachable in test environment; plan did not include an env-prep step to seed DASHBOARD_DB or note the cross-bind read-only constraint.
+**Rule:** When `/a2z-plan` (and `/a2z-architect` review) drafts a manualQA scenario for a NEW or CHANGED downstream error code, planner MUST: (1) grep the route file for upstream gate functions before the validator under test; (2) if any upstream gate consumes a READ-ONLY cross-bind table, scenario plan MUST include an ops_execution_owner step to either seed that table for a test biz OR explicitly mark wire-observation as UNVERIFIABLE-pre-deploy + accept unit-test evidence. /a2z-ship Phase D.pre risk-assessment MUST surface this gap to the user via AskUserQuestion BEFORE dispatch, not discover it mid-execution.
+**Check:** For any manualQA scenario claiming wire-observation of a route's error code, grep the route file: `awk '/^export.*function.*POST/,/^}$/' api/src/routes/<route>.ts | grep -B1 -A1 -E 'validateCampaignInputs|requireAccess|forbiddenAccounts|preflight'` — confirm preflight runs BEFORE any auth gate consuming cross-bind tables, OR plan an env-prep step.
+
+## 2026-05-11 — section-h-memory-consolidation (8 entries migrated from memory/)
+
+### L-160: Bridge / promotion scripts use claim-level rejection, not global exit on supersession `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: kodigital-homepages-cms-phase1 (skill-fix F3)
+**Rule:** When a bridge / promotion script processes multiple claims and one is properly superseded by stronger current-plan deterministic proof, record a per-claim rejection reason and continue iterating remaining claims. One stale claim MUST NOT block other valid promotions. All-superseded → exit 0 (no-op-needed bridge run), not failure.
+**Check:** `grep -nE "STALE_OR_WEAKER_EVIDENCE_SUPERSEDED|claims_rejected_no_backing" .claude/skills/a2z-develop/scripts/promote_evaluator_result_claims.py` — per-claim rejection reasons live in the per-claim layer.
+
+### L-161: Nested-project runner cwd resolution gap — runner uses --project-root for mission-state but not for command cwd `[PROCESS]` `kodigital`
+> 2026-04-27 | occurs: 1 | via: dashboard-d1-fixes-2026-04-20 (BUG#10)
+**Rule:** For nested-project missions (workspace/project-subdir/api), `run_required_evidence_command.py:369` resolves `cwd` against workspace root; `--project-root` is forwarded to mission-state-dir resolver but NOT consulted for command cwd. Compounding: `build_required_evidence_plan.py` maps grep-type ACs from `mission_draft.json` to generic `npm test`, dropping the literal command. Two fixes: (1) plan generator emits per-AC literal command + `parser_strategy="deterministic_grep_count"`; (2) runner resolves cwd against `--project-root` when supplied.
+**Check:** `grep -n 'isabs.cwd' .claude/skills/a2z-develop/scripts/run_required_evidence_command.py` — line 369 is the workspace-only resolution path.
+
+### L-162: New behavior modes stay local unless schema/registry edits in allowlist `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: kodigital-homepages-cms-phase1 (F2)
+**Rule:** When a plan introduces a new behavior mode / strategy / classification, prefer Option A (local-only — new mode owned entirely by the new orchestrator; NOT in canonical typed artifacts; NOT in canonical enums; no schema/parser-registry changes). Option B (extend canonical) requires explicit schema+registry allowlist + contract tests + plan-level justification.
+**Check:** `git diff origin/main...HEAD -- .claude/skills/a2z-contracts/schemas/` — non-zero only if Option B explicitly chosen.
+
+### L-163: Forbidden-write ACs path-scoped, not global function bans `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: kodigital-homepages-cms-phase1 (F1)
+**Rule:** "No manual JSON edit of audit artifacts" must be enforced via explicit protected-path allowlist, not by banning `json.dump`/`open()` globally. Protected paths: `required_evidence_plan.json`, `mission_spec.json`, `evaluator_result.json`, `verdict_output.json`, `evidence/evidence.jsonl`, `evidence/manifest.json`, `develop_journey_receipts.jsonl`. Allowed direct writes: orchestrator's own typed receipt paths.
+**Check:** tmpdir fixture replay sha256 + mtime of protected paths before/after orchestrator runs; only canonical writer subprocesses observed.
+
+### L-164: PR ancestor preflight before branching when plan claims "X already merged" `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: kodigital-homepages-cms-phase1 (F4)
+**Rule:** Whenever a plan's branching strategy depends on a prior PR being merged, the plan MUST include preflight verification BEFORE creating the new worktree: `gh pr view <N>` + `git fetch origin --prune` + `git merge-base --is-ancestor <prior-PR-head-SHA> origin/main`. If the prior PR's head SHA is NOT an ancestor of `origin/main`, abort — do not branch from a stale base.
+**Check:** `grep -c "PR.*_HEAD_IN_MAIN" <plan-file>` >= 1.
+
+### L-165: Pre-verdict proof-graph reconciliation gate fail-closed on skill-owned failure `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: A2Z-develop F4+F9 RED LINE
+**Rule:** Mandatory pre-verdict gate (`proof_graph_reconcile.py`) sits between `auto_evidence_from_receipts` and `evidence_validate.py` in `finalize_develop.py`. Helper-missing OR exit-1 → fail closed (do NOT run evidence_validate / verdict; misleading verdicts on unreconciled ledger). Only exit 0/2/3 permit downstream truth-machine execution. Use `proof_graph_passed: bool` gate flag to wrap evidence_validate + verdict steps.
+**Check:** `grep -n "proof_graph_passed" .claude/skills/a2z-develop/scripts/finalize_develop.py` — gate flag present and wraps step 2/3 invocations.
+
+### L-166: Readiness checks split around repair gate — pre-route HARD GATE, pre-evidence DIAGNOSTIC, post-evidence HARD GATE `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: A2Z-develop F8
+**Rule:** When a canonical reconciliation gate sits between artifact-refresh and truth machine, readiness checks split into three stages: (1) `pre_reconcile_route_readiness` HARD GATE — `validate_evidence_route_readiness.py` (malformed routes can't be ledger-fixed); (2) `pre_reconcile_evidence_readiness_diagnostic` DIAGNOSTIC ONLY — `check_evidence_readiness.py` (likely failure mode IS the stale-ledger drift the reconciler exists to repair); (3) `post_reconcile_evidence_readiness_gate` HARD GATE — re-run after supersede + canonical-producer dispatch.
+**Check:** `producer_actions_run[].stage` enum contains `pre_reconcile_route_readiness`, `pre_reconcile_evidence_readiness_diagnostic`, `post_reconcile_evidence_readiness_gate`.
+
+### L-167: Verify canonical-producer CLI shape (argparse) before subprocess-invoking from new code `[PROCESS]` `universal`
+> 2026-05-09 | occurs: 1 | via: A2Z-develop F7 RED LINE
+**Rule:** Before specifying any `subprocess.run([sys.executable, "<canonical_producer>.py", ...])` in a new script, read the target producer's `argparse.add_argument(...)` block and copy EXACT flag names. Examples of inconsistent conventions: `maingoal_compile.py` uses `--input`/`--output` (NOT `--change-id`/`--draft`); `build_required_evidence_plan.py` uses `--change-id` + many; `validate_all_contracts.py` uses `--change-id`/`--workspace`; `check_evidence_readiness.py` uses `--change-id`/`--project-root`. Plan AC must AST-grep each subprocess call's argv for exact flag literals.
+**Check:** plan-time `grep -n "argparse\|add_argument" <producer>.py` for every invoked producer + AST-grep AC + typed-failure-path test per invocation.
 
 ## Culture Guardrails
 
