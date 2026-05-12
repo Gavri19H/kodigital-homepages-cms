@@ -8,8 +8,8 @@ import { Hono } from "hono";
 import { parseBoolean, type Env } from "../env";
 import { accessAuth as gate } from "../auth/access-auth";
 import { adminUi } from './ui';
+// Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi.
 import api from "./api";
-// workflowApi sub-router (POST /api/admin/articles/:id/publish, etc).
 import wfApi from "./workflow-api";
 import aiApi from "./ai-api";
 
