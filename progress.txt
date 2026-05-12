@@ -2352,3 +2352,42 @@ D13 canonical runner result — T1:
   - The RC-009 grep wrapper uses a tightly-coupled token list (35 entries from admin-layout to empty-state). Re-shaping a layout template to satisfy RC-009 is simpler if those tokens are concentrated in one inline <style> block — each token only needs to appear once as a CSS selector for the `grep -q "$c"` loop to short-circuit-pass.
   - The `grep -c 'Domains' file >= 1` AC and the `grep -ci psychic file == 0` AC interact: comments mentioning "Psychic Quiz removed" or "ported from theiwise" violate AC4/AC5 even when the comment is documenting the removal. Comment hygiene must drop legacy proper-noun references entirely; document Phase 3 admin in terms of forward-pointing facts (KoDigital CMS only, 9-entry nav) instead of negating the legacy.
   - When isActive('/admin', activePath) is overloaded, a naive `activePath === href || activePath.startsWith(href+"/")` pattern lights up Dashboard for every /admin/* path. Treating /admin as exact-match-only is the cleanest fix; sub-routes use the longer prefix.
+
+## 2026-05-12 19:35 — T3 (sources: T3) — Port dashboardPage template
+- Implemented: api/src/admin/templates/dashboard.ts (107 lines, well under 200-line JS/TS soft cap).
+  - export `dashboardPage(stats, recentArticles, branding={})` wrapping content in `adminLayout({title:'Dashboard', activePath:'/admin', userEmail})`.
+  - Renders a 7-card stats-grid with labels Sites, Total Articles, Published, Drafts, Pages, Media Files, Categories — each card emits `<div class="stat-value">${value}</div>` so the behavioral AC `<div class="stat-value">2</div>` for stats.sites=2 lights up.
+  - Renders Recent Articles card (table with Title/Site/Status/Updated columns) — emits `<td>${escapeHtml(title)}</td>` so the behavioral AC table row text 'A' lights up.
+  - Renders Quick Actions card with `+ New Site` primary button linking to /admin/domains (T3-AC4) plus New Article / New Page / Upload Media secondary buttons.
+- Implemented test: api/test/admin-dashboard-template.test.ts (26 lines).
+  - Single `it("dashboardPage renders stats-grid with sites stat", ...)` so the full vitest test name matches the typed-contract regex `^dashboardPage renders stats-grid with sites stat$` exactly (no describe wrapper — vitest would prefix the test name with `<describe> > ` otherwise).
+  - Asserts: `class="stats-grid"`, `<div class="stat-value">2</div>`, 'Recent Articles', 'Quick Actions', '+ New Site', and `<td>A</td>` row under Recent Articles.
+- T3 acceptance criteria verification (run from worktree root, the correct cwd anchor):
+  - T3-AC1 — `grep -c 'export function dashboardPage' api/src/admin/templates/dashboard.ts` → 1 (≥1 PASS)
+  - T3-AC2 — `grep -c 'Total Articles' api/src/admin/templates/dashboard.ts` → 1 (≥1 PASS)
+  - T3-AC3 — `grep -c 'Recent Articles' api/src/admin/templates/dashboard.ts` → 2 (≥1 PASS)
+  - T3-AC4 — `grep -c '+ New Site' api/src/admin/templates/dashboard.ts` → 2 (≥1 PASS)
+  - T3-AC5 — `npx vitest run test/admin-dashboard-template.test.ts` → 1 passed, 0 failed (PASS).
+  - RC-015 expanded label loop (Sites, Total Articles, Published, Drafts, Pages, Media Files, Categories) → all PRESENT (no MISSING line emitted).
+  - RC-016 — `grep -q 'Recent Articles' && grep -q 'Quick Actions'` → PASS.
+  - `cd api && npm run typecheck` (tsc --noEmit) → exit 0.
+- Self-check results:
+  - File sizes: api/src/admin/templates/dashboard.ts = 107 lines (limit: 200) → PASS; api/test/admin-dashboard-template.test.ts = 26 lines (limit: 200) → PASS.
+  - Secret scan: PASS (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'` → no matches).
+  - Error handling: N/A (presentational template; no IO).
+  - Migration execution: N/A (category=ui).
+  - Parameterized queries: N/A (no SQL).
+  - Tenant boundary: N/A (presentational; tenant enforcement lives in T11 data layer).
+- Test commands actually run (this iteration):
+  - grep -c 'export function dashboardPage' api/src/admin/templates/dashboard.ts → 1
+  - grep -c 'Total Articles' api/src/admin/templates/dashboard.ts → 1
+  - grep -c 'Recent Articles' api/src/admin/templates/dashboard.ts → 2
+  - grep -c '+ New Site' api/src/admin/templates/dashboard.ts → 2
+  - RC-015 expanded label loop → OK (all 7 stat labels present)
+  - RC-016 short-circuit grep (Recent Articles && Quick Actions) → OK
+  - cd api && npx vitest run test/admin-dashboard-template.test.ts → 1 passed
+  - cd api && npm run typecheck → exit 0
+- T3 has empty `scoped_quality_commands` in `.ralph/execution_stories.json`; per `scripts/ralph/prompt.md` Scoped quality commands rule + T4 wrapper opt-out (default OFF), this iteration did NOT run wrapper-level `cd api && npm test`. The 8 verifications above gate this pure-UI template port; review/evaluate phase asserts end-to-end suite parity post-Ralph.
+- Learnings:
+  - Vitest test names default to `<describe> > <it>` when wrapped in `describe()`. To satisfy a `test_name_regex` that does NOT include a `>` separator (e.g. `^dashboardPage renders stats-grid with sites stat$`), drop the describe wrapper and put the full natural-language name inside the `it()` argument. The vitest_text parser_strategy matches against the full reported test name.
+  - The stats-grid behavioral AC pins the markup to `<div class="stat-value">${value}</div>`. Templates that pre-format numeric values (e.g. as `2 sites` or `2,000`) BEFORE rendering would break the AC. The template should emit the bare integer inside the .stat-value div and let any humanization happen via CSS / data attributes if needed.
