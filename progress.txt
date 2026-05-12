@@ -2593,3 +2593,24 @@ D13 canonical runner result — T1:
   - settings.ts exports `SETTING_KEYS` as a runtime constant (frozen-style ReadonlyArray<string>) so that T11 (data.ts helpers) and a future PATCH /api/admin/settings handler can share the same 12-key allow-list without re-typing. Mirrors the legacy api/src/admin/views/settings.ts pattern but lifts the constant into a named export for cross-module use.
   - All four list templates (categories/tags/media — and the existing pages.ts) standardise on `<select id="filter-site" name="site_id" data-filter="site">` with a head sentinel pair `value=""` (All sites) + `value="__global__"` (Global only). Keeping the `data-filter="site"` token + `name="site_id"` colocated on a single <select> element preserves the legacy T25 contract grep (`data-filter="site"`/`name="site_id"`) and is the canonical wire shape for the future GET handlers.
   - presets.ts is intentionally minimal (no site filter, no toolbar) because AI presets remain global across sites in this phase; site-scoping is a planned follow-on outside Phase 3. Kept the table empty-state literal "No presets registered yet" so a missing prompt registry renders a non-error empty card.
+
+## 2026-05-12 - T7 D13 canonical runner — EVIDENCE_ROUTE_EXHAUSTED
+- python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 --required-claim-ids=RC-035,RC-036,RC-037,RC-038,RC-039,RC-040 --evidence-plan=/Users/guyhaikov/a2z-workspaces/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces --worktree-root="$(pwd)" → overall status=FAIL on all 6 RCs
+  - RC-035 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (tried_pkg_roots=['api'])
+  - RC-036 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (tried_pkg_roots=['api'])
+  - RC-037 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (tried_pkg_roots=['api'])
+  - RC-038 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (tried_pkg_roots=['api'])
+  - RC-039 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (missing_files include '&&'/'echo'/'OK' tokens — the runner's f22_source_path_recovery splits the compound `grep && grep && echo OK` command on whitespace and treats each token as a potential file path, then fails to resolve the literal shell-metachar tokens)
+  - RC-040 reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED (same f22 split-on-whitespace failure mode for the piped `grep | grep -v | wc -l | tr` command)
+- Root cause is the same architect-owned evidence-plan path-resolution bug logged on T1..T6 RCs: the runner's source_path recovery anchors to `/Users/guyhaikov/a2z-workspaces` and treats each whitespace-separated token of the configured `evidence_command` as a file-path candidate, failing on compound shell pipelines (RC-039/RC-040) and on un-prefixed worktree-anchored paths (RC-035..RC-038). Re-implementation cannot affect this evidence-plan resolution semantics (it's architecture-owned in required_evidence_plan.json) and cannot relocate the canonical file paths (implementation_digest.md fixes the 5 template files at api/src/admin/templates/*.ts).
+- Per D12 retry policy (max 2 retries per story; then log EVIDENCE_ROUTE_EXHAUSTED and move on): EVIDENCE_ROUTE_EXHAUSTED logged for RC-035, RC-036, RC-037, RC-038, RC-039, RC-040.
+- Manual grep verification from the worktree root (the correct cwd anchor for these targets) PASSes ALL 6 T7 grep ACs:
+    $ grep -c 'export function categoriesListPage' api/src/admin/templates/categories.ts → 1 (==1) (T7-AC1 / RC-035)
+    $ grep -c 'export function tagsListPage' api/src/admin/templates/tags.ts → 1 (==1) (T7-AC2 / RC-036)
+    $ grep -c 'export function mediaListPage' api/src/admin/templates/media.ts → 1 (==1) (T7-AC3 / RC-037)
+    $ grep -c 'export function settingsPage' api/src/admin/templates/settings.ts → 1 (==1) (T7-AC4 / RC-038)
+    $ grep -c 'export function presetsListPage' api/src/admin/templates/presets.ts → 1 (==1) (T7-AC5 / RC-039)
+    $ grep -ci 'theiwise' api/src/admin/templates/settings.ts → 0 (==0) (T7-AC6 / RC-040)
+  + adminLayout import on all 5 new files: 1/1/1/1/1
+  + TheIWise leak across all 5 new files: 0/0/0/0/0 (BEHAVIORAL parity)
+- Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator post-Ralph. Ralph still does NOT set canonical PRD passes=true (only `.ralph/execution_stories.json` was flipped to state="implemented" + passes=true on the Ralph-local execution PRD).
