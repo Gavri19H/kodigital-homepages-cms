@@ -3300,3 +3300,54 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T16 RC-081,RC-082,RC-083
 ---
+
+## 2026-05-12 — T17 (sources: T17)
+- Story: Create playwright.config.ts — webServer npm run dev port 8787,
+  baseURL http://127.0.0.1:8787, projects chromium, testDir test-ui.
+- Files changed:
+  - api/playwright.config.ts (NEW, 32 lines)
+    * defineConfig({...}) with full Playwright config tree
+    * testDir: './test-ui'
+    * use.baseURL: 'http://127.0.0.1:8787'
+    * projects: [{name:'chromium', use: devices['Desktop Chrome']}]
+    * webServer: {command:'npm run dev', port:8787,
+      url:'http://127.0.0.1:8787', reuseExistingServer:!CI,
+      env:{DEV_BYPASS_AUTH:'true'}}
+- Self-check results:
+  - File size: api/playwright.config.ts = 32 lines (TS default cap 200). PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET hits)
+  - Error handling: N/A (config file)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0 PASS
+- Local AC greps (from <wt>/api):
+  * T17-AC1 `grep -c 'defineConfig' playwright.config.ts` → 2 (expect >=1) PASS
+  * T17-AC2 `grep -c 'npm run dev' playwright.config.ts` → 1 (expect >=1) PASS
+  * T17-AC3 `grep -c 'test-ui' playwright.config.ts` → 1 (expect >=1) PASS
+- D13 canonical runner: ran
+  `python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py
+   --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11
+   --required-claim-ids=RC-084,RC-085,RC-086
+   --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL, exit=0. All three RCs returned
+  EVIDENCE_SOURCE_PATH_UNRESOLVED — same architect-owned runner-resolver
+  mismatch as T10/T11/T12/T13/T14/T15/T16: f22_source_path_recovery
+  resolves cwd="api" against `--project-root=/Users/guyhaikov/a2z-workspaces`
+  (workspace root) instead of the worktree root, so the runner looks for
+  `api/playwright.config.ts` under `/Users/guyhaikov/a2z-workspaces/api/...`
+  which doesn't exist. `tried_pkg_roots: []` and `tried_story_prefixes:
+  []` (recovery exhausted with zero candidates).
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): failure mode is
+  evidence-routing infra, not implementation — manual grep counts
+  prove all three AC contracts hold from <wt>/api. Re-implementing
+  the source cannot change the runner's project-root resolution.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T17 RC-084,RC-085,RC-086
+---

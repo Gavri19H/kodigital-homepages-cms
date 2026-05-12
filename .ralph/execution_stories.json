@@ -433,8 +433,8 @@
       "id": "T17",
       "title": "Create playwright.config.ts -- webServer npm run dev port 8787, baseURL http://127.0.0.1:8787, projects chromium",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T17"
       ],
