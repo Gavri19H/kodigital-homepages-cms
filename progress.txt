@@ -3543,3 +3543,85 @@ D13 canonical runner result — T1:
   state="implemented" + passes=true on the Ralph-local execution PRD).
 - EVIDENCE_ROUTE_EXHAUSTED: T20 RC-099,RC-100,RC-101 (RC-102 PASS)
 ---
+
+## 2026-05-12 — T21 (sources: T21)
+- Story: Update Vitest acceptance suite — assert /admin renders adminLayout
+  shell (admin-layout + admin-sidebar + stats-grid + sidebar-nav) with NO
+  'Phase 1 admin shell' marker, PATCH /api/admin/articles/:id route is
+  registered (handler returns 200|404 not "route absent"), and
+  generate_about_page_stub site-provisioning step inserts a pages row
+  keyed (site_id, slug='about', page_type='about') idempotently.
+- Files changed:
+  - api/test/admin-ux-acceptance.test.ts (NEW, 237 lines)
+    * imports describe/it/expect from 'vitest', admin from
+      '../src/admin/router', STEPS from '../src/site-provisioning'
+    * test 1 (T21-AC1+AC2): admin.request('/admin', {}, bypassEnv())
+      asserts status===200, body contains 'admin-layout',
+      'admin-sidebar', 'stats-grid', 'sidebar-nav' AND does NOT contain
+      'Phase 1 admin shell'.
+    * test 2 (T21-AC3): admin.request('/api/admin/articles/999',
+      {method:'PATCH', body:JSON.stringify({title:'updated'})}) asserts
+      status ∈ [200, 404] (route registered → handler runs; default
+      Hono "no route" would surface differently) and response body
+      parses as JSON (proves our handler ran, not the 404 leaf).
+    * test 3 (T21-AC4): STEPS.generate_about_page_stub({...}) inserts
+      exactly 1 row into pages with (site_id, slug='about',
+      page_type='about', status='published', show_in_footer=1),
+      content_json parses, content_html starts with '<', step receipt
+      output.step==='generate_about_page_stub' AND
+      output.about_page_slug==='about'; idempotent — second call still
+      yields exactly 1 row.
+- Self-check results:
+  - File size: 237 lines (test file; precedent admin-domains.test.ts=273) — PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string)
+  - Error handling: N/A (vitest spec; assertions encode failure modes)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - TypeScript: `cd api && npx tsc --noEmit` → exit 0 — PASS
+  - Vitest: `cd api && npx vitest run test/admin-ux-acceptance.test.ts --reporter=verbose` → 3 passed (0 failed), exit 0 — PASS
+- Local AC greps (from <wt>):
+  * T21-AC1 admin-sidebar/stats-grid/admin-layout: all 3 present PASS
+  * T21-AC2 `grep -c 'Phase 1 admin shell' api/test/admin-ux-acceptance.test.ts` → 6 (expect >=1) PASS
+  * T21-AC3 `grep -cE 'PATCH.*/api/admin/articles/' api/test/admin-ux-acceptance.test.ts` → 5 (expect >=1) PASS
+  * T21-AC4 `grep -cE 'generate_about_page_stub|about_page_id|page_type.*about' api/test/admin-ux-acceptance.test.ts` → 11 (expect >=1) PASS
+  * T21-AC5 vitest exits 0 with 3 passing tests PASS
+- D13 canonical runner: ran
+  `python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py
+   --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11
+   --required-claim-ids=RC-104,RC-105,RC-106,RC-107,RC-108
+   --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json
+   --workspace-root=/Users/guyhaikov/a2z-workspaces
+   --project-root=/Users/guyhaikov/a2z-workspaces
+   --worktree-root="$WORKDIR"`.
+  Result: status=FAIL overall, exit=0.
+  * RC-104 (parser=test_exit_code, cwd_anchor=worktree_root) PASS —
+    `for s in 'admin-sidebar' 'stats-grid' 'admin-layout'; do grep -q "$s"
+    api/test/admin-ux-acceptance.test.ts || ...; done; echo OK`
+    exited 0 from worktree root.
+  * RC-108 (parser=test_exit_code, cwd=api, cwd_anchor=worktree_root) PASS —
+    `npx vitest run test/admin-ux-acceptance.test.ts --reporter=verbose`
+    exited 0 from <wt>/api with 3 passing tests.
+  * RC-105, RC-106, RC-107 (parser=parse_grep_count) FAIL with
+    reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED — f22_source_path_recovery
+    correctly resolved original_cwd to <wt>/api but the deterministic_grep_count
+    derivation re-anchors `api/test/admin-ux-acceptance.test.ts` (as it
+    appears verbatim in the evidence_command) relative to that cwd,
+    yielding <wt>/api/api/test/admin-ux-acceptance.test.ts which doesn't
+    exist. `tried_pkg_roots: []`, `tried_story_prefixes: []` (recovery
+    exhausted). Same architect-owned runner-resolver mismatch hit on
+    T10..T20 (parse_grep_count cwd anchor vs literal path-prefix in
+    evidence_command).
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): failure mode is
+  evidence-routing infra (parse_grep_count anchor handling for
+  literal-prefixed paths), not implementation —
+  RC-104 + RC-108 PASSED via cwd_anchor=worktree_root paths, vitest
+  actually ran and all 3 tests passed, and manual grep counts prove
+  all four T21-AC* contracts hold from <wt>. Re-implementing the
+  source cannot change the runner's parse_grep_count path resolution.
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T21 RC-105,RC-106,RC-107 (RC-104+RC-108 PASS)
+---

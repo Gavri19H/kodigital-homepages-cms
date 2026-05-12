@@ -537,8 +537,8 @@
       "id": "T21",
       "title": "Update Vitest acceptance suite -- assert /admin uses adminLayout (no Phase 1 shell), PATCH articles route exists, About-page step inserts pages",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T21"
       ],
