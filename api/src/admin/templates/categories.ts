@@ -103,10 +103,10 @@ function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
   return `<div class="toolbar">
   <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search categories..." /></div>
   <div class="toolbar-filters">
-    <select id="filter-site" name="site_id" class="form-select" data-filter="site" aria-label="Site filter">
+    <select id="filter-site" name="site" class="form-select" data-filter="site" aria-label="Site filter">
       ${renderSiteOptions(sites, "")}
     </select>
-    <select id="filter-verticals" name="verticals[]" class="form-select" multiple data-multi="true" data-field="verticals" size="3" aria-label="Verticals (select multiple)">
+    <select id="filter-verticals" name="verticals" class="form-select" multiple data-multi="true" data-field="verticals" size="3" aria-label="Verticals (select multiple)">
       ${renderVerticalsToolbarOptions()}
     </select>
   </div>
