@@ -3109,3 +3109,78 @@ D13 canonical runner result — T1:
   EVIDENCE_ROUTE_EXHAUSTED per D13 and moving on; finalize_develop /
   reconcile will resolve via canonical source-path normalization.
 - EVIDENCE_ROUTE_EXHAUSTED: T13 RC-064,RC-065,RC-066,RC-067
+
+## 2026-05-12T20:52Z — T14 (sources: T14)
+- Implemented: api/src/admin/templates/domains.ts — replaced the inline
+  modal script's post-201 `window.location.reload()` with deterministic
+  DOM updates per T14 BEHAVIORAL spec:
+    1. closeModal() — modal hides on 201 success.
+    2. appendDomainRow(rowData) — inserts a new
+       <tr data-domain="<domain>" data-site-id="<id>"> into
+       #domains-list-body (placeholder row removed if present).
+    3. startProvisioningPanel(siteId, domain) — inserts a
+       <section id="provisioning-status-panel" class="card
+       provisioning-status" data-site-id="…"> after the toolbar and
+       begins polling GET /api/admin/sites/<siteId>/provision every
+       1500ms (2500ms after a network error). Polling stops when
+       response state ∈ {completed, failed, ready}.
+- On 4xx response the modal stays open and #new-site-error
+  (.alert-error) shows res.body.error || res.body.message ||
+  ("Error: " + status). On fetch reject the same element shows
+  "Network error".
+- ES5-only preserved: only `var` and `function` in the inline
+  script; no `const`, `let`, or `=>`.
+- Self-checks:
+  * File size: api/src/admin/templates/domains.ts 238 lines (no
+    maxFileLines for T14 in prd.json or architecture; acceptable) — PASS
+  * Secret scan: PASS (no hardcoded secrets — only relative URL
+    paths and DOM ids)
+  * Error handling: PASS (POST + GET both wrap response in {ok,
+    status, body}; .catch shows network error and reschedules)
+  * Parameterized queries: N/A (no SQL in this template)
+- Local AC greps (from <wt>/api):
+  * T14-AC1 grep -cE "fetch\(['\"]/api/admin/sites['\"]"
+    src/admin/templates/domains.ts → 1
+  * T14-AC2 grep -c 'JSON.stringify'
+    src/admin/templates/domains.ts → 1
+  * T14-AC3 grep -cE 'keydown|Escape'
+    src/admin/templates/domains.ts → 2
+  * T14-AC4 grep -c '/provision'
+    src/admin/templates/domains.ts → 1
+  * T14-AC5 grep -cE '(const |let |=>)'
+    src/admin/templates/domains.ts → 0
+- Tests run:
+  * cd api && npx tsc --noEmit → clean (exit 0)
+  * cd api && npx vitest run test/admin-domains.test.ts
+    test/admin-sites-create.test.ts test/admin-provision-status.test.ts
+    test/admin-dashboard-template.test.ts → 19/19 passed
+- Canonical RC runner (worktree-rooted):
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=kodigital-homepages-cms-phase3-qafixes-2026-05-11 \
+      --required-claim-ids=RC-070,RC-071,RC-072,RC-073,RC-074 \
+      --evidence-plan=/Users/guyhaikov/Projects/kodigital/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-qafixes-2026-05-11/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces \
+      --worktree-root=<wt>
+- RC-070,RC-071,RC-072,RC-073 → FAIL with
+  EVIDENCE_SOURCE_PATH_UNRESOLVED (sidecar cwd="api" +
+  evidence_command target "api/src/admin/templates/domains.ts"
+  double-anchors to non-existent <wt>/api/api/src/admin/templates/
+  domains.ts — same architect-owned runner-resolver mismatch that hit
+  T11/T12/T13).
+- RC-074 → FAIL with EVIDENCE_SOURCE_PATH_UNRESOLVED (cwd="." with a
+  piped evidence_command — runner's f22 source-path recovery parses
+  the `| wc -l | tr -d ' '` tokens as candidate file paths and the
+  resolver bails). Implementation itself is correct (manual grep
+  count from <wt>/api is 0).
+- Per D12 retry policy (max 2 retries per story; then log
+  EVIDENCE_ROUTE_EXHAUSTED and move on): EVIDENCE_ROUTE_EXHAUSTED
+  logged for RC-070,RC-071,RC-072,RC-073,RC-074. RC-075 is the
+  Playwright-backed claim deferred-to-ship (T19 spec creates that
+  test file; finalize/reconcile owns it).
+- Reconciliation owned by reconcile_ralph_execution_prd.py /
+  evaluator post-Ralph. Ralph still does NOT set canonical PRD
+  passes=true (only `.ralph/execution_stories.json` was flipped to
+  state="implemented" + passes=true on the Ralph-local execution PRD).
+- EVIDENCE_ROUTE_EXHAUSTED: T14 RC-070,RC-071,RC-072,RC-073,RC-074
+---
