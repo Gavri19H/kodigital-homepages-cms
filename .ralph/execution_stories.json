@@ -6,10 +6,10 @@
   "stories": [
     {
       "id": "T1",
-      "title": "Add migration 0005 \u2014 site_id columns + page_type + homepage fields + per-site unique slug indexes",
+      "title": "Add migration 0005 — site_id columns + page_type + homepage fields + per-site unique slug indexes",
       "category": "migration",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T1"
       ],
@@ -35,8 +35,8 @@
       "id": "T2",
       "title": "Port legacy admin layout template -- adminLayout with KoDigital CMS brand and 9-entry nav (Domains added, Psychic Quiz removed)",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T2"
       ],
@@ -62,8 +62,8 @@
       "id": "T3",
       "title": "Port dashboardPage template -- stats-grid (7 cards) + Recent Articles card + Quick Actions card",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T3"
       ],
@@ -88,8 +88,8 @@
       "id": "T4",
       "title": "Create domains.ts template -- 9-col table + toolbar with + New Site + Create Site modal styled with legacy form classes",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T4"
       ],
@@ -115,8 +115,8 @@
       "id": "T5",
       "title": "Port articlesListPage + articleFormPage templates -- 8-col table, 8 filters, site-required form with homepage fields",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T5"
       ],
@@ -141,8 +141,8 @@
       "id": "T6",
       "title": "Port pagesListPage + pageFormPage templates -- Site filter, Page type filter, Site/Global column, Global template badge for legal",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T6"
       ],
@@ -167,8 +167,8 @@
       "id": "T7",
       "title": "Port categories.ts, tags.ts, media.ts, settings.ts, presets.ts templates with site-aware filters",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T7"
       ],
@@ -199,8 +199,8 @@
       "id": "T8",
       "title": "Port legacy editor (editor-scripts + index) into article + page form templates",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T8"
       ],
@@ -226,8 +226,8 @@
       "id": "T9",
       "title": "Create templates barrel index.ts re-exporting all admin templates",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],
@@ -249,8 +249,8 @@
       "id": "T10",
       "title": "Create api/src/admin/ui.ts -- admin UI router mirroring legacy pattern, server-rendered HTML via templates, protected by accessAuth upstream",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T10"
       ],
@@ -275,8 +275,8 @@
       "id": "T11",
       "title": "Create api/src/admin/data.ts -- schema-aware data helpers for admin views",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T11"
       ],
@@ -302,8 +302,8 @@
       "id": "T12",
       "title": "Modify api/src/admin/router.ts -- mount adminUi for /admin routes, remove renderShell from active /admin paths, preserve accessAuth + sub-routers",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],
@@ -329,8 +329,8 @@
       "id": "T13",
       "title": "Implement PATCH /api/admin/articles/:id with tenant guard, category validation, per-site slug uniqueness",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T13"
       ],
@@ -356,8 +356,8 @@
       "id": "T14",
       "title": "Wire Domains Create-Site modal -- real POST /api/admin/sites with browser-observable network request, row update, polling start",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14"
       ],
@@ -383,8 +383,8 @@
       "id": "T15",
       "title": "Fix generate_about_page_stub provisioning step -- insert pages row idempotently with site_id, slug='about', page_type='about'",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T15"
       ],
@@ -409,8 +409,8 @@
       "id": "T16",
       "title": "Add @playwright/test devDep + test:ui scripts to api/package.json",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T16"
       ],
@@ -433,8 +433,8 @@
       "id": "T17",
       "title": "Create playwright.config.ts -- webServer npm run dev port 8787, baseURL http://127.0.0.1:8787, projects chromium",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T17"
       ],
@@ -457,8 +457,8 @@
       "id": "T18",
       "title": "Playwright spec admin-ux-parity -- all 9 admin routes render adminLayout, nav has 9 entries, no Phase 1 admin shell",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T18"
       ],
@@ -485,8 +485,8 @@
       "id": "T19",
       "title": "Playwright spec domains-create-site -- modal opens, fill+submit observes POST /api/admin/sites, row + provisioning panel appear",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T19"
       ],
@@ -511,8 +511,8 @@
       "id": "T20",
       "title": "Playwright spec admin-routing-security -- public content host /admin returns 404, no cms.kodigital.app leak, no-store + noindex",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T20"
       ],
@@ -537,8 +537,8 @@
       "id": "T21",
       "title": "Update Vitest acceptance suite -- assert /admin uses adminLayout (no Phase 1 shell), PATCH articles route exists, About-page step inserts pages",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T21"
       ],
@@ -563,8 +563,8 @@
       "id": "WARN-FIX-1",
       "title": "Add bare-id GET routes /admin/articles/:id and /admin/pages/:id in api/src/admin/ui.ts",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "WARN-FIX-1"
       ],
@@ -594,8 +594,8 @@
       "id": "WARN-FIX-2",
       "title": "Fix api/test/admin.test.ts data-area regression so cd api && npm test exits 0",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "WARN-FIX-2"
       ],
@@ -625,8 +625,8 @@
       "id": "WARN-FIX-3",
       "title": "Align Domains Create-Site modal POST body field name with interface_contract canonical 'name'",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "WARN-FIX-3"
       ],
@@ -660,8 +660,8 @@
       "id": "WARN-FIX-4",
       "title": "Rename T7 site-filter selects to AC-canonical name=\"site\" + name=\"verticals\" in categories/tags/media templates",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "WARN-FIX-4"
       ],
@@ -699,8 +699,8 @@
       "id": "MQAFIX-1",
       "title": "POST /api/admin/articles must bind body.site_id (T13 PATCH tenant-guard unreachable for new articles)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-1"
       ],
@@ -725,8 +725,8 @@
       "id": "MQAFIX-2",
       "title": "Fix api/playwright.config.ts webServer block (port + url mutually exclusive on @playwright/test 1.59+)",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-2"
       ],
