@@ -497,6 +497,74 @@
       "verification": "cd api && npx tsc --noEmit && cd api && npm test",
       "rollback": "git checkout -- api/src/admin/templates/categories.ts api/src/admin/templates/tags.ts api/src/admin/templates/media.ts",
       "dependencies": []
+    },
+    {
+      "id": "MQAFIX-1",
+      "title": "POST /api/admin/articles must bind body.site_id (T13 PATCH tenant-guard unreachable for new articles)",
+      "category": "api",
+      "rootCause": "T5 verified the article form renders <select name=\"site_id\" required> but did not verify the POST handler at api/src/admin/api.ts:92 binds body.site_id. INSERT statement is 'INSERT INTO articles (slug, title, content_json, status) VALUES (...)' \u2014 site_id column missing. Result: articles created via the admin form have site_id=NULL, and T13's slug-uniqueness 409 path is unreachable for new articles. Confirmed in ship-phase manualQA MQA-5 sub-3.",
+      "targetFiles": [
+        "api/src/admin/api.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -nE 'INSERT INTO articles' api/src/admin/api.ts | grep -q 'site_id'",
+        "grep -nE 'site_id' api/src/admin/api.ts | grep -c 'POST\\|api\\.post' >= 1",
+        "BEHAVIORAL: GIVEN POST /api/admin/articles with body {site_id:'<existing-site>', slug:'mqafix1', title:'T'}, WHEN GET /api/admin/articles/<id>, THEN response.site_id == '<existing-site>'.",
+        "BEHAVIORAL: GIVEN POST /api/admin/articles with body {site_id:'<nonexistent-site>', slug:'x', title:'y'}, WHEN response received, THEN status=400 and error references unknown site.",
+        "BEHAVIORAL: GIVEN POST creates A1 with (site_id=S1, slug='dup'), WHEN POST attempts (site_id=S1, slug='dup'), THEN response=409 SLUG_UNIQUENESS_VIOLATION."
+      ],
+      "passes": false,
+      "state": "implemented",
+      "origin": "ship-phase manualQA FINDING-1 (MEDIUM)",
+      "classification": "mission_downstream"
+    },
+    {
+      "id": "MQAFIX-2",
+      "title": "Fix api/playwright.config.ts webServer block (port + url mutually exclusive on @playwright/test 1.59+)",
+      "category": "config",
+      "rootCause": "T17 created playwright.config.ts with both webServer.port=8787 and webServer.url='http://127.0.0.1:8787'. @playwright/test 1.59.x made these mutually exclusive (\"Either 'port' or 'url' should be specified in config.webServer\"). After lockfile hotfix pinned playwright to 1.59.1, the spec runner refuses to start. Confirmed in ship-phase manualQA MQA-4 (had to use local wrangler dev + curl with Host header instead of running test-ui/admin-routing-security.spec.ts).",
+      "targetFiles": [
+        "api/playwright.config.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'port:\\s*8787' api/playwright.config.ts == 0",
+        "grep -cE 'url:\\s*[\\'\"]http://127.0.0.1:8787[\\'\"]' api/playwright.config.ts >= 1",
+        "BEHAVIORAL: GIVEN api/playwright.config.ts, WHEN running `cd api && npx playwright test test-ui/admin-routing-security.spec.ts --reporter=line`, THEN webServer starts wrangler dev and the spec runs (no 'Either port or url' error).",
+        "BEHAVIORAL: All 3 specs (admin-ux-parity, domains-create-site, admin-routing-security) execute against local dev server."
+      ],
+      "passes": false,
+      "state": "implemented",
+      "origin": "ship-phase manualQA FINDING-2 (LOW)",
+      "classification": "mission_introduced"
+    },
+    {
+      "id": "MQAFIX-3",
+      "title": "Remove column-level UNIQUE on pages.slug + articles.slug (global), keep per-site (site_id, slug) UNIQUE INDEX",
+      "category": "migration",
+      "rootCause": "T15 generate_about_page_stub INSERT OR IGNORE INTO pages was designed to collide on (site_id, slug) UNIQUE INDEX idx_pages_site_slug_unique. Production schema however still carries the original 0001 column-level UNIQUE on pages.slug (and articles.slug) from the single-site era, creating an additional `sqlite_autoindex_pages_1` GLOBAL UNIQUE on slug alone. This global UNIQUE makes the second site's about-page INSERT a silent no-op (IGNORE wins), even though (site_id, slug)='(S2, about)' is genuinely unique. Confirmed in ship-phase manualQA MQA-6 (2026-05-13): runner reported step_status=completed but SELECT id, slug FROM pages WHERE site_id='st_55d1985313c048d2' AND slug='about' returned 0 rows; only id=5 from prior cycle (site_id=st_a2f4f7d32e2348c2) exists globally. Same schema posture on articles.slug per `SELECT sql FROM sqlite_master`. Contradicts T1-AC6 BEHAVIORAL ('INSERT with site_id=site_b, slug=x succeeds \u2014 per-site uniqueness, not global').",
+      "targetFiles": [
+        "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+        "api/test/migrations-0007-slug-uniqueness-recreate.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'CREATE TABLE pages_new|CREATE TABLE articles_new|DROP TABLE pages|DROP TABLE articles|ALTER TABLE pages_new RENAME|ALTER TABLE articles_new RENAME' api/migrations/0007_phase3r_drop_global_slug_unique.sql >= 4",
+        "grep -cE 'slug TEXT NOT NULL[^,]*,' api/migrations/0007_phase3r_drop_global_slug_unique.sql >= 2",
+        "grep -cE 'slug TEXT NOT NULL UNIQUE' api/migrations/0007_phase3r_drop_global_slug_unique.sql == 0",
+        "grep -cE 'CREATE UNIQUE INDEX[^;]*idx_(pages|articles)_site_slug_unique' api/migrations/0007_phase3r_drop_global_slug_unique.sql >= 2",
+        "BEHAVIORAL: GIVEN local D1 with migrations 0001-0007 applied + 2 sites, WHEN INSERT INTO pages (site_id, slug, page_type, title, content_json, content_html, status) VALUES ('S1','about','about','x','{}','<p/>','published') succeeds AND second INSERT with ('S2','about',...) also succeeds (per-site uniqueness, NOT global). THEN SELECT COUNT(*) FROM pages WHERE slug='about' = 2.",
+        "BEHAVIORAL: same per-site uniqueness verification for articles table.",
+        "BEHAVIORAL: same-site duplicate INSERT (S1,'about') still fails with UNIQUE constraint via idx_pages_site_slug_unique.",
+        "FUNCTIONAL: cd api && npm test exits 0; all existing tests still pass; new test asserts pages/articles can have same slug across different sites.",
+        "FUNCTIONAL: cd api && npx tsc --noEmit exits 0."
+      ],
+      "passes": false,
+      "state": "implemented",
+      "origin": "ship-phase manualQA FINDING (2026-05-13 cycle, recoveryAttempt=2)",
+      "classification": "mission_introduced_schema_regression",
+      "dependencies": [],
+      "notes": "Migration must follow D1-database-safety.md C-006/C-009/C-026/C-027: CREATE pages_new \u2192 INSERT INTO pages_new SELECT FROM pages \u2192 DROP TABLE pages \u2192 ALTER TABLE pages_new RENAME TO pages \u2192 recreate all indexes (including per-site UNIQUE). Same for articles. Single migration file recreates BOTH tables atomically. Existing data preserved. Must also be greppable from deploy.yml per L-008 / deploy-safety.md D1-file rule (CI deploy needs to apply this migration to production)."
     }
-  ]
+  ],
+  "recoveryAttempt": 2,
+  "ship_recovery_at": "2026-05-13T14:15:00Z"
 }
