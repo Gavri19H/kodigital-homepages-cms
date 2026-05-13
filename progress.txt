@@ -3904,3 +3904,19 @@ D13 canonical runner result — T1:
   is owned by reconcile_ralph_execution_prd.py, not Ralph).
 
 ---
+
+## 2026-05-13 - RX2 (sources: MQAFIX-2)
+- Implemented: removed `port: 8787` from webServer block in api/playwright.config.ts (Playwright 1.59+ makes port/url mutually exclusive; kept url 'http://127.0.0.1:8787').
+- Files changed:
+  - api/playwright.config.ts
+- Self-check results:
+  - AC1 (`grep -cE 'port:\s*8787' api/playwright.config.ts == 0`): PASS (output 0)
+  - AC2 (`grep -cE 'url:\s*[\'"]http://127.0.0.1:8787[\'"]' api/playwright.config.ts >= 1`): PASS (output 1)
+  - File sizes: api/playwright.config.ts 31 lines (limit 200) — PASS
+  - Secret scan: PASS (none)
+  - Error handling: N/A (config file)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+- Tests run (per execution story scoped_quality_commands == []): none required by RX2 scope. Behavioral playwright run is exercised by mission-level required_evidence / manualQA, not Ralph.
+- Learnings: Playwright 1.59.x error string is "Either 'port' or 'url' should be specified in config.webServer". Removing `port` and keeping `url` is the safer fix because `url` is the assertion that the server is actually ready, while `port` only checks for an open socket.
+---

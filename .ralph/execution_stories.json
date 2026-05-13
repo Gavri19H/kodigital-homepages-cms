@@ -34,8 +34,8 @@
       "id": "RX2",
       "title": "Fix api/playwright.config.ts webServer block (port + url mutually exclusive on @playwright/test 1.59+)",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-2"
       ],
