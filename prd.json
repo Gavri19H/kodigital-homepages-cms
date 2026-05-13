@@ -558,7 +558,7 @@
         "FUNCTIONAL: cd api && npx tsc --noEmit exits 0."
       ],
       "passes": false,
-      "state": "pending",
+      "state": "implemented",
       "origin": "ship-phase manualQA FINDING (2026-05-13 cycle, recoveryAttempt=2)",
       "classification": "mission_introduced_schema_regression",
       "dependencies": [],
