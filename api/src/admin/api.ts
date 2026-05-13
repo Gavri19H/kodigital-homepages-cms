@@ -61,9 +61,11 @@ interface PresetRow {
 }
 
 interface CreateArticleBody {
+  site_id?: string;
   slug?: string;
   title?: string;
   content_json?: string;
+  category_id?: number | string | null;
 }
 
 const api = new Hono<{ Bindings: Env }>();
@@ -89,6 +91,15 @@ api.get("/api/admin/articles/:id", async (c) => {
   return c.json({ article: row });
 });
 
+// MQAFIX-1: POST /api/admin/articles binds body.site_id so admin-form
+// creates land in the correct tenant. The handler:
+//   * 400 when site_id / slug / title missing.
+//   * 400 with "unknown site" when site_id does not resolve in `sites`.
+//   * 409 SLUG_UNIQUENESS_VIOLATION when (site_id, slug) already exists
+//     (matches the PATCH handler's contract and T13 BEHAVIORAL).
+//   * 422 CATEGORY_INVALID_FOR_SITE when category_id is supplied but does
+//     not belong to the site's vertical.
+//   * 201 with the inserted row (including site_id) on success.
 api.post("/api/admin/articles", async (c) => {
   let body: CreateArticleBody;
   try {
@@ -96,18 +107,79 @@ api.post("/api/admin/articles", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
+  const siteId = typeof body.site_id === "string" ? body.site_id.trim() : "";
   const slug = typeof body.slug === "string" ? body.slug.trim() : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const contentJson =
     typeof body.content_json === "string" ? body.content_json : "{}";
+  if (!siteId) {
+    return c.json({ error: "site_id is required" }, 400);
+  }
   if (!slug || !title) {
     return c.json({ error: "slug and title are required" }, 400);
   }
-  const row = await c.env.DB.prepare(
-    "INSERT INTO articles (slug, title, content_json, status) VALUES (?, ?, ?, 'draft') RETURNING id, slug, title, status",
+
+  const existingSite = await c.env.DB.prepare(
+    "SELECT id FROM sites WHERE id = ? LIMIT 1",
   )
-    .bind(slug, title, contentJson)
-    .first<{ id: number; slug: string; title: string; status: string }>();
+    .bind(siteId)
+    .first<{ id: string }>();
+  if (existingSite === null || existingSite === undefined) {
+    return c.json(
+      { error: `Unknown site_id: ${siteId}`, code: "UNKNOWN_SITE" },
+      400,
+    );
+  }
+
+  try {
+    await assertSlugUniquePerSite(c.env.DB, "articles", slug, siteId);
+  } catch (err) {
+    return c.json(
+      {
+        error: (err as Error).message,
+        code: "SLUG_UNIQUENESS_VIOLATION",
+      },
+      409,
+    );
+  }
+
+  let categoryId: number | null = null;
+  if (body.category_id !== undefined && body.category_id !== null) {
+    const catRaw = body.category_id;
+    const parsed =
+      typeof catRaw === "number"
+        ? catRaw
+        : typeof catRaw === "string" && catRaw.length > 0
+          ? parseInt(catRaw, 10)
+          : NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return c.json({ error: "Invalid category_id" }, 400);
+    }
+    const ok = await validateCategoryForSite(c.env.DB, parsed, siteId);
+    if (!ok) {
+      return c.json(
+        {
+          error: "Category does not belong to site's vertical",
+          code: "CATEGORY_INVALID_FOR_SITE",
+        },
+        422,
+      );
+    }
+    categoryId = parsed;
+  }
+
+  const row = await c.env.DB.prepare(
+    "INSERT INTO articles (site_id, slug, title, content_json, category_id, status) VALUES (?, ?, ?, ?, ?, 'draft') RETURNING id, site_id, slug, title, category_id, status",
+  )
+    .bind(siteId, slug, title, contentJson, categoryId)
+    .first<{
+      id: number;
+      site_id: string | null;
+      slug: string;
+      title: string;
+      category_id: number | null;
+      status: string;
+    }>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
   return c.json({ article: row }, 201);
 });

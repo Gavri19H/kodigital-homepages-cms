@@ -1,40 +1,52 @@
 {
   "changeId": "kodigital-homepages-cms-phase3-qafixes-2026-05-11",
-  "mainGoal": "Ralph-local execution projection (warn_fix_cycle)",
+  "mainGoal": "Ralph-local execution projection (mqafix_cycle)",
   "_ralph_local_execution_projection": true,
-  "_cycle_type": "warn_fix",
+  "_cycle_type": "mqafix",
   "stories": [
     {
       "id": "RX1",
-      "title": "Rename T7 site-filter selects to AC-canonical name=\"site\" + name=\"verticals\" in categories/tags/media templates",
-      "category": "ui",
+      "title": "POST /api/admin/articles must bind body.site_id (T13 PATCH tenant-guard unreachable for new articles)",
+      "category": "api",
       "state": "implemented",
       "passes": true,
       "source_story_ids": [
-        "WARN-FIX-4"
+        "MQAFIX-1"
       ],
-      "targetFiles": [],
+      "targetFiles": [
+        "api/src/admin/api.ts"
+      ],
       "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-4-AC1",
-          "description": "grep -q 'export function categoriesListPage' api/src/admin/templates/categories.ts && grep -q 'name=\"site\"' api/src/admin/templates/categories.ts && grep -q 'name=\"verticals\"' api/src/admin/templates/categories.ts && echo OK exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC2",
-          "description": "grep -q 'export function tagsListPage' api/src/admin/templates/tags.ts && grep -q 'name=\"site\"' api/src/admin/templates/tags.ts && grep -q 'Global' api/src/admin/templates/tags.ts && echo OK exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC3",
-          "description": "grep -q 'export function mediaListPage' api/src/admin/templates/media.ts && grep -q 'name=\"site\"' api/src/admin/templates/media.ts && grep -q 'Global' api/src/admin/templates/media.ts && echo OK exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC4",
-          "description": "FUNCTIONAL: cd api && npx tsc --noEmit exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC5",
-          "description": "FUNCTIONAL: cd api && npm test exits 0; no test files failed; 270/270 tests passed"
-        }
+        "grep -nE 'INSERT INTO articles' api/src/admin/api.ts | grep -q 'site_id'",
+        "grep -nE 'site_id' api/src/admin/api.ts | grep -c 'POST\\|api\\.post' >= 1",
+        "BEHAVIORAL: GIVEN POST /api/admin/articles with body {site_id:'<existing-site>', slug:'mqafix1', title:'T'}, WHEN GET /api/admin/articles/<id>, THEN response.site_id == '<existing-site>'.",
+        "BEHAVIORAL: GIVEN POST /api/admin/articles with body {site_id:'<nonexistent-site>', slug:'x', title:'y'}, WHEN response received, THEN status=400 and error references unknown site.",
+        "BEHAVIORAL: GIVEN POST creates A1 with (site_id=S1, slug='dup'), WHEN POST attempts (site_id=S1, slug='dup'), THEN response=409 SLUG_UNIQUENESS_VIOLATION."
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "RX2",
+      "title": "Fix api/playwright.config.ts webServer block (port + url mutually exclusive on @playwright/test 1.59+)",
+      "category": "config",
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "MQAFIX-2"
+      ],
+      "targetFiles": [
+        "api/playwright.config.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'port:\\s*8787' api/playwright.config.ts == 0",
+        "grep -cE 'url:\\s*[\\'\"]http://127.0.0.1:8787[\\'\"]' api/playwright.config.ts >= 1",
+        "BEHAVIORAL: GIVEN api/playwright.config.ts, WHEN running `cd api && npx playwright test test-ui/admin-routing-security.spec.ts --reporter=line`, THEN webServer starts wrangler dev and the spec runs (no 'Either port or url' error).",
+        "BEHAVIORAL: All 3 specs (admin-ux-parity, domains-create-site, admin-routing-security) execute against local dev server."
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
