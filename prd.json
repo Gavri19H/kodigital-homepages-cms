@@ -194,7 +194,7 @@
         "BEHAVIORAL: GIVEN dry-run provisioning completes, WHEN we query cache_purge_log WHERE dry_run=1, THEN COUNT(*) >= 1."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T13",

@@ -286,8 +286,8 @@
       "id": "T12",
       "title": "Add fetch interceptor test proving zero outbound api.cloudflare.com requests during dry-run provisioning + cache_purge_log dry-run row written",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],

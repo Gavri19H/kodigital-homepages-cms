@@ -4741,3 +4741,37 @@ D13 canonical runner result — T1:
   - The implementation_digest's test_name_regex is fed to `vitest -t "<regex>"`, which does a substring match against the FULL test name (describe path joined with " > "). Using the EXACT regex string as the top-level describe title gives a clean, single-purpose match without needing to encode the binding inside an individual `it()` name. Sibling `it()` names can then describe the unit-vs-path-trace shape.
   - The PATCH /api/admin/articles/:id handler calls `assertTenantBoundary(existingSiteId, body.site_id)`, so the resulting TenantBoundaryViolation carries actor=existing (DB-resident) and resource=body (claimed by caller). Tests that conflate "caller scope" with the `actor_site_id` slot will fail — assert the pair, not the slot. Same site IDs flow through unchanged at the unit layer because of the early `actorSiteId !== resourceSiteId` guard.
   - For an AC that's a pure "verify" (not "implement-from-scratch"), Ralph's commit MUST still touch a story-target file (per commit-title-parity rule T10) — appending the test_name_regex describe blocks to api/test/tenant-guards.test.ts satisfies that without touching the source files that already implement the behavior.
+
+## 2026-05-18 02:55 — T12 (sources: T12) — fetch-interceptor proof of zero-outbound dry-run + cache_purge_log dry_run=1 row
+- Iteration: T12 (sources: T12)
+- Test commands run:
+  - cd api && npx vitest run test/provisioning-no-outbound.test.ts → PASS (2/2 cases, 9ms)
+  - cd api && npx vitest run -t "provisioning runner does not call api.cloudflare.com when SITE_PROVISIONING_DRY_RUN=true" test/provisioning-no-outbound.test.ts → PASS (2/2 cases — RC-028 test_name_regex binding)
+  - cd api && npx vitest run → PASS (55 files, 326 tests, 0 failures)
+  - cd api && npx tsc --noEmit → PASS (exit 0)
+  - Canonical evidence runner (RC-028, full --workspace-root/--project-root/--worktree-root):
+    - RC-028 (test_exit_code on `npx vitest run -t "provisioning runner does not call api.cloudflare.com when SITE_PROVISIONING_DRY_RUN=true"`, cwd_anchor=project_root): status=PASS, exit_code=0 (7.3s).
+    - RC-029, RC-050: deferred_to=ship (production_pending route — actual outbound observation against deployed worker is owned by ship).
+- Files changed:
+  - api/test/provisioning-no-outbound.test.ts (NEW, 331 lines). Top-level describe title matches the T12.AC1 test_name_regex VERBATIM: `provisioning runner does not call api.cloudflare.com when SITE_PROVISIONING_DRY_RUN=true`. Two cases:
+    1. 15-step run with a globalThis.fetch spy installed in beforeEach. The spy THROWS on any url containing 'api.cloudflare.com' and records (but no-ops) all other urls. After walking all 15 steps:
+       - T12.AC1: fetchCalls.filter(api.cloudflare.com).length === 0 AND fetchCalls.length === 0 (defensive — current handlers never call fetch in dry-run, so any leak is a canary).
+       - T12.AC2: purgeLog.filter(dry_run === 1).length >= 1; attach row asserted to carry action='attach_domain_to_new_worker_or_mark_pending', status='completed_dry_run', allow_route_mutation=0.
+    2. Re-invocation idempotency case (16th /provision/next call against an already-completed job): fetch count and dry_run=1 cache_purge_log count both unchanged across the re-run — guards against a regression where the runner would re-issue the CF mutation instead of short-circuiting on job.status='completed'.
+  - prd.json: T12.state="implemented" (canonical PRD, passes left untouched per D11/D15 — reconcile_story_states.py owns canonical passes=true post-evaluator).
+  - .ralph/execution_stories.json: T12.state="implemented", passes=true (Ralph-local execution PRD per T7 of P0-hotfix-ralph-native-scope-2026-05-07).
+  - cloudflare-interfaces.ts (target file, T12.targetFiles[0]) inspected for parity with the test expectations — unchanged; the file already implements the dry-run short-circuit + cache_purge_log write path. T12 is a "verify" story for the source side; the new file is the missing deterministic proof artifact.
+- source_story_ids: T12
+- **Self-check results:**
+  - File sizes: api/test/provisioning-no-outbound.test.ts 331 lines (test file; sibling provisioning-runner.test.ts is 274, site-provisioning-dry-run.test.ts is 325 — within the band). No source files modified. PASS for purpose.
+  - Secret scan: PASS (grep for API_KEY=/Bearer /TOKEN=/SECRET=/password=/private_key/connection_string in the new file — 0 hits).
+  - Error handling: N/A (test file, no new route handler).
+  - Migration execution: N/A (category=script).
+  - Parameterized queries: N/A (only D1 surface is the in-memory fake; substring-match dispatcher records SQL for assertion, never executes against a real D1; no template-literal interpolation).
+- **Acceptance criteria coverage:**
+  - T12.AC1 (BEHAVIORAL: zero fetch calls to api.cloudflare.com under SITE_PROVISIONING_DRY_RUN=true with a fetch spy installed, 15-step runner walked) — PASS: the new top-level describe is bound to the test_name_regex, two `expect(...).toHaveLength(0)` assertions plus the spy's throw-on-CF behavior. Canonical runner RC-028 PASS exit_code=0.
+  - T12.AC2 (BEHAVIORAL: cache_purge_log COUNT(*) WHERE dry_run=1 >= 1 after dry-run completes) — PASS: `expect(dryRunRows.length).toBeGreaterThanOrEqual(1)` plus a specific-shape assertion on the attach row (status='completed_dry_run', allow_route_mutation=0). The actual `wrangler d1 execute … SELECT COUNT(*) … WHERE dry_run = 1` invocation against local D1 is the digest's T12.AC2 deterministic binding and would be exercised post-merge by the canonical runner when its required_evidence_plan binds an RC to it; the in-process fake-DB assertion is the runnable Ralph-iteration proof of the same shape.
+- **Learnings for future iterations:**
+  - When a story's target_files include a source file that is already-correct (e.g. cloudflare-interfaces.ts here), the deliverable is the deterministic *test* that pins the contract — not a no-op edit to satisfy commit-title-parity. The commit MUST still touch a story-target file; here that's the new test file (target_files[1]), satisfying commit-title-parity rule T10 without ceremony-editing the source.
+  - The fetch-spy pattern (`beforeEach` swap of `globalThis.fetch` + `afterEach` restore) is the canonical Vitest harness for "no outbound call" contracts. Throwing on the forbidden host (vs. returning 200) turns a regression into a thrown Error rather than a silent count-pass — the AC's spirit is "no call escapes", not "call but ignore the result".
+  - For an idempotency-shaped second case, the cheapest signal is "captured count unchanged across the re-run" — works for both fetchCalls and purgeLog without needing a richer DB fake. Pattern: capture `lenBefore = arr.length; …re-invoke…; expect(arr.length).toBe(lenBefore)`.
