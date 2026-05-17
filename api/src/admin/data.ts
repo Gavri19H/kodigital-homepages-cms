@@ -238,6 +238,22 @@ export interface MediaRowDto {
 
 export type SettingsValueMap = { [key: string]: string };
 
+export interface PresetRowDto {
+  id: string;
+  label: string;
+  model: string;
+  scope: string;
+  description: string;
+}
+
+interface PresetRecord {
+  id: number;
+  slug: string;
+  category: string | null;
+  is_system: number;
+  is_active: number;
+}
+
 function fmtDate(unixSeconds: number | null | undefined): string {
   if (typeof unixSeconds !== "number" || !Number.isFinite(unixSeconds)) {
     return "";
@@ -415,6 +431,33 @@ export async function getAdminArticle(
   };
 }
 
+export async function listArticlesForSite(
+  env: Env,
+  siteId: string,
+): Promise<ArticleRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT a.id, a.title, a.slug, a.site_id, a.category_id, a.status, a.homepage_section, a.is_featured, a.is_trending, a.published_at, a.updated_at, s.name AS site_name, c.name AS category_name FROM articles a LEFT JOIN sites s ON s.id = a.site_id LEFT JOIN categories c ON c.id = a.category_id WHERE a.site_id = ? ORDER BY a.updated_at DESC, a.id DESC LIMIT 500",
+  )
+    .bind(siteId)
+    .all<
+      ArticleListRecord & { site_name: string | null; category_name: string | null }
+    >();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    title: r.title,
+    slug: r.slug,
+    site: r.site_name ?? "",
+    site_id: r.site_id,
+    category: r.category_name ?? "",
+    status: r.status,
+    homepage_section: r.homepage_section,
+    is_featured: r.is_featured === 1,
+    is_trending: r.is_trending === 1,
+    published_at: r.published_at !== null ? fmtDate(r.published_at) : null,
+    updated_at: fmtDate(r.updated_at),
+  }));
+}
+
 export async function listAdminPages(env: Env): Promise<PageRowDto[]> {
   const result = await env.DB.prepare(
     "SELECT p.id, p.title, p.slug, p.site_id, p.page_type, p.status, p.show_in_footer, p.updated_at, s.name AS site_name FROM pages p LEFT JOIN sites s ON s.id = p.site_id ORDER BY p.updated_at DESC, p.id DESC LIMIT 500",
@@ -496,6 +539,19 @@ export async function listAdminMedia(env: Env): Promise<MediaRowDto[]> {
     kind: fmtKind(r.mime_type),
     size: r.size_bytes,
     uploaded_at: fmtDate(r.created_at),
+  }));
+}
+
+export async function listAdminPresets(env: Env): Promise<PresetRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT id, slug, category, is_system, is_active FROM prompt_presets WHERE is_active = 1 ORDER BY slug ASC, id ASC LIMIT 500",
+  ).all<PresetRecord>();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    label: r.slug,
+    model: "",
+    scope: r.is_system === 1 ? "system" : "user",
+    description: r.category ?? "",
   }));
 }
 

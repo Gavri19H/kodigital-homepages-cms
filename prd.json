@@ -32,7 +32,7 @@
         "BEHAVIORAL: GIVEN local D1 has at least 1 site and 1 article seeded, WHEN GET /admin/articles is requested, THEN the rendered HTML body contains an articles table row (not an 'empty-state' div) AND the data.ts:listArticlesForSite wrapper was called with the resolved site_id."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T3",

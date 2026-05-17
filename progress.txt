@@ -4273,3 +4273,117 @@ D13 canonical runner result — T1:
 - Stop condition: T2..T17 remain state="planned" passes=false;
   more iterations to follow.
 ---
+
+## 2026-05-17T22:55:00Z - T2 (sources: T2) - Wire data.ts query wrappers into ui.ts route handlers
+
+- Mission: kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15
+- Story: T2 (category=api; targetFiles=api/src/admin/ui.ts, api/src/admin/data.ts, api/test/admin-data-wiring.test.ts)
+- Source code modifications this iteration:
+  * api/src/admin/data.ts — added listArticlesForSite(env, siteId)
+    (per-site articles list, parameterized .bind() on site_id) and
+    listAdminPresets(env) (prompt_presets is_active=1 list mapped
+    to PresetRowDto { id, label=slug, model="", scope=is_system?,
+    description=category }). Added PresetRowDto + PresetRecord
+    interfaces. data.ts now: 579 lines.
+  * api/src/admin/ui.ts — rewrote all 13 admin GET routes to call
+    data.ts wrappers and pass results to the page renderer (no
+    more empty arrays). Per-route flow:
+      - GET /admin: getDashboardStats + getRecentArticles -> dashboardPage
+      - GET /admin/domains: listAdminDomains + listAdminVerticals
+        (site_name DTO mapped to DomainEntry.name per WARN-FIX-3)
+        -> domainsPage
+      - GET /admin/articles: listAdminSites + listAdminVerticals +
+        listAdminCategories + listArticlesForSite(resolved siteId)
+        -> articlesListPage. siteId resolved from ?site_id= or
+        first available site. Falls back to listAdminArticles
+        when no site exists.
+      - GET /admin/articles/new + /admin/articles/:id (both bare
+        and /edit): listAdminSites + listAdminCategories +
+        getAdminArticle for edits -> articleFormPage.
+      - GET /admin/pages + /admin/pages/new + /admin/pages/:id:
+        listAdminPages + listAdminSites + getAdminPage -> pages
+        renderers.
+      - GET /admin/categories, /admin/tags, /admin/media: list
+        helper + listAdminSites -> respective list page.
+      - GET /admin/presets: listAdminPresets -> presetsListPage.
+      - GET /admin/settings: listAdminSites + listAdminSettings
+        (resolved selectedSiteId from query or first site) ->
+        settingsPage.
+    ui.ts now: 200 lines.
+  * api/src/admin/templates/articles.ts — widened
+    ArticleListEntry.site_id and ArticleFormValues.site_id to
+    `string | null | undefined` to align with the sibling Pages /
+    Categories / Tags / Media templates and accept ArticleRowDto /
+    ArticleFormDto from data.ts. Also coerced `a.site_id ??
+    undefined` at the single renderSiteOptions call site so the
+    select-options helper keeps its `string | undefined` signature.
+  * api/test/admin-data-wiring.test.ts — NEW file. 10 vitest cases
+    (>=9 required by AC1, +1 extra for ?site_id= override). All
+    names prefixed with the typed regex
+    `^admin ui handlers pass real data to templates` so the
+    contract anchor matches. Each test mocks
+    src/admin/data via vi.mock(...), stubs the relevant wrapper
+    to return non-empty fixtures, and asserts (a) the wrapper was
+    called (with the resolved site_id for the articles route) and
+    (b) the rendered HTML body contains the seeded marker (never
+    the empty-state placeholder).
+  * api/test/admin-auth.test.ts + api/test/access-auth-identity.test.ts
+    — added a noopD1 stub to baseEnv (every prepare(...) returns a
+    chain emitting null / empty rows). Required because the
+    auth-only tests hit /admin which now calls data.ts; the stub
+    keeps these tests asserting status codes (200/401) without
+    introducing real D1 dependency.
+- Self-check results:
+  * File sizes: api/src/admin/ui.ts 200 (at default 200 limit, OK);
+    api/src/admin/data.ts 579 (data layer, no per-file override
+    in architecture.md, pre-existing 523-line baseline grew with
+    the two new wrappers); api/test/admin-data-wiring.test.ts 368
+    (test file, no hard limit); api/src/admin/templates/articles.ts
+    372 (pre-existing 371 + 1 line for `?? undefined` coercion).
+    Pass.
+  * Secret scan: PASS (grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|
+    password=|private_key|connection_string' on the 6 changed files
+    -> 0 matches).
+  * Error handling: data.ts wrappers propagate D1 errors via async
+    rejection; Hono surfaces unhandled rejections as 500. ui.ts
+    routes are async and `await` every data call -> error
+    propagation paths preserved. PASS.
+  * Migration execution: N/A (no migration touched).
+  * Parameterized queries: PASS (`grep -nE 'prepare.*\${|prepare.*`'
+    api/src/admin/data.ts` -> only matches the doc comment at line
+    3, no template-literal SQL).
+  * Acceptance tests: api/test-ui acceptance scripts for this
+    mission's T2 not authored by architect yet (not Ralph's
+    responsibility); semantic+syntactic test_name_regex enforced
+    via test names + vitest run.
+- Test commands actually run this iteration:
+  - `cd api && npx tsc --noEmit` -> exit 0 (clean typecheck).
+  - `cd api && npx vitest run test/admin-data-wiring.test.ts` ->
+    Test Files 1 passed (1); Tests 10 passed (10); exit 0.
+  - `cd api && npx vitest run` (full suite) -> 49 files / 296
+    tests / 0 failures / exit 0.
+- Acceptance criteria status:
+  * T2.AC1 (>=9 vitest cases, each asserting non-empty data) -> PASS.
+    admin-data-wiring.test.ts has 10 cases (9 routes + ?site_id=
+    override).
+  * T2.AC2 (rendered HTML row + listArticlesForSite called with
+    resolved site_id) -> PASS via the articles-route case which
+    asserts `data.listArticlesForSite` was called with
+    `expect.any(Object), "siteA"` and body contains the seeded
+    `Articles-Wiring-Probe` row (not empty-state).
+- Required-evidence-route status:
+  * RC-005 + RC-006 are per-story actionable for T2 (per
+    implementation_digest.md and required_evidence_plan.json). The
+    canonical runner invocation noted in the digest is run by
+    Phase B finalize / canonical evidence dispatcher (test
+    receipts already emitted via vitest above).
+- Ralph-local execution PRD (.ralph/execution_stories.json) -> T2
+  flipped to state="implemented", passes=true (current-cycle scope
+  exception per scripts/ralph/prompt.md T7).
+- Canonical PRD (worktree-root prd.json) -> T2 flipped to
+  state="implemented", passes remains false per D11/D15.
+  Reconciliation to verified + passes=true post-evaluator is
+  owned by reconcile_story_states.py.
+- Stop condition: T3..T17 remain state="planned" passes=false in
+  the Ralph-local execution PRD; more iterations to follow.
+---
