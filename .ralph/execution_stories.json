@@ -187,8 +187,8 @@
       "id": "T8",
       "title": "Verify PATCH /api/admin/settings bumps site_settings.settings_version and is strictly site-scoped (no global update)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T8"
       ],

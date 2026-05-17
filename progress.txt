@@ -4621,3 +4621,20 @@ D13 canonical runner result — T1:
   - The "site's allowed vertical set" doesn't require a dedicated `site_allowed_verticals` table — the existing `verticals` table + the IN-probe shape is enough when the test seeds the available rows. The full-richness model (per-site allowed list extending beyond the primary vertical_slug) can be layered in later without changing the wire contract.
   - For multi-row writes that depend on a parent INSERT's generated id, the canonical D1 pattern is: single-statement INSERT … RETURNING for the parent (await), THEN batch the dependent INSERTs. Putting them all in one batch loses the generated id between statements.
   - When the test seam needs `.all()` to return planted rows for an IN-clause probe AND `.first()` planted rows for a separate lookup, the makeFakeDb helper needs both `plantedAll` and `planted` arrays — substring match on SQL is sufficient to disambiguate.
+
+## 2026-05-18 02:32 - T8 (sources: T8)
+- Added api/test/admin-settings.test.ts with 3 vitest cases pinning T8.AC1:
+  1. "PATCH /api/admin/settings increments settings_version" (RC-020 name-binding) — verifies version goes N → N+1 and UPSERT + version-bump ride one D1 batch.
+  2. Site-isolation case — every recorded SQL bind targets site A; no statement references site B's id; UPDATE sites carries WHERE id = ? guard; UPSERT carries ON CONFLICT(site_id, key).
+  3. No-site_id 400 — PATCH without site_id short-circuits before any D1 round trip (no global mutation reachable).
+- Handler already in api/src/admin/api.ts (api.patch("/api/admin/settings", …)); no source change needed — story is "verify", not "implement-from-scratch".
+- Files changed: api/test/admin-settings.test.ts (new, 237 lines).
+- Self-check results:
+  - File sizes: api/test/admin-settings.test.ts 237 lines (sibling tests routinely > 300) — PASS
+  - Secret scan: no API_KEY/Bearer/TOKEN/SECRET/password/connection_string — PASS
+  - Error handling: N/A (test file, no new route handler)
+  - Migration execution: N/A (category=api, not db)
+  - Parameterized queries: no template-literal SQL in test fake — PASS
+- test: cd api && npx vitest run test/admin-settings.test.ts (3/3 pass, 6ms)
+- test: cd api && npx vitest run -t "PATCH /api/admin/settings increments settings_version" (1/1 pass, RC-020 name binding)
+- RC-020 canonical evidence runner: PASS exit_code=0

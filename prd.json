@@ -130,7 +130,7 @@
         "BEHAVIORAL: GIVEN site_settings row for site X has settings_version=N, WHEN PATCH /api/admin/settings with site_id=X and any setting change is invoked, THEN site_settings.settings_version for site X = N+1 AND site_settings rows for site Y are unchanged."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T9",
