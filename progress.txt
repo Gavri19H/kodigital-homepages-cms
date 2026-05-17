@@ -4531,3 +4531,32 @@ D13 canonical runner result — T1:
 - Stop condition: T5..T17 remain state="planned" passes=false in the
   Ralph-local execution PRD; more iterations to follow.
 ---
+
+## 2026-05-18 - T5 (PATCH /api/admin/articles/:id contract tests + tenant_violation field)
+- Iteration: T5 (sources: T5)
+- Test commands run:
+  - cd api && npx vitest run test/admin-articles-post-site-id.test.ts (8/8 PASS — 4 POST + 4 PATCH)
+  - cd api && npx vitest run test/admin-ux-acceptance.test.ts test/tenant-guards.test.ts test/admin-data-wiring.test.ts (37/37 PASS — no regressions)
+  - cd api && npx tsc --noEmit (PASS — clean)
+- Files changed:
+  - api/src/admin/api.ts — added `tenant_violation: true` + `actor_site_id` + `resource_site_id` fields to the two 403 PATCH responses (TENANT_BOUNDARY_VIOLATION). Existing `code` + `error` fields preserved. Per T5.AC2 BEHAVIORAL: "body contains tenant_violation field".
+  - api/test/admin-articles-post-site-id.test.ts — appended new describe block "PATCH /api/admin/articles/:id contract (T5)" with 4 vitest cases:
+    1. returns 403 with tenant_violation field on cross-tenant mutation (site A article + body.site_id=B → 403, body.tenant_violation=true, no UPDATE issued).
+    2. returns 409 SLUG_UNIQUENESS_VIOLATION when slug collides on same site (slug uniqueness probe finds another article with same (slug, site_id) → 409, no UPDATE issued).
+    3. returns 422 CATEGORY_INVALID_FOR_SITE when category_id is not allowed for the site's vertical (validateCategoryForSite query returns null → 422, no UPDATE issued).
+    4. gates UPDATE to allow-listed fields only — POST body includes attacker keys (admin_role, secret, owner_id, id, site_id_override); UPDATE SQL contains only whitelisted SET columns (title, status, updated_at) and route id in last bind.
+- **Self-check results:**
+  - File sizes: api.ts 645 lines (was 639; api surface file allowed by precedent), test file 365 lines (test file, no hard limit), tenant-guards.ts unchanged 195 — PASS
+  - Secret scan: PASS (grep for API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string — 0 hits)
+  - Error handling: PASS (all PATCH branches return JSON with proper 400/403/404/409/422 codes; try/catch around UPDATE)
+  - Migration execution: N/A (api story, no DB migration)
+  - Parameterized queries: PASS (all D1 calls use .bind() + ? placeholders; no template-literal SQL interpolation; UPDATE SET clause built from whitelist branches only)
+- **Acceptance criteria coverage:**
+  - T5.AC1 (FUNCTIONAL: file contains >= 4 vitest cases of named types) — PASS: 4 new PATCH cases (tenant boundary 403, slug duplicate 409, category vertical mismatch 422, allow-list field gating) added alongside the 4 POST cases.
+  - T5.AC2 (BEHAVIORAL: cross-tenant PATCH → 403 + tenant_violation field) — PASS: handler now sets body.tenant_violation=true; test asserts both status=403 AND body.tenant_violation===true.
+  - T5.AC3 (BEHAVIORAL: slug collision PATCH → 409) — PASS: assertSlugUniquePerSite throws → handler maps to 409 SLUG_UNIQUENESS_VIOLATION; test asserts status and code.
+- **Learnings for future iterations:**
+  - The existing PATCH /api/admin/articles/:id handler already implemented all 4 contract behaviors (T13 work) — T5's job was to bind explicit BEHAVIORAL tests to that surface and ensure the 403 body carries a tenant_violation marker beyond just `code`.
+  - makeFakeDb's `match` substring trick (e.g., "FROM category_verticals cv") works cleanly for guards that JOIN multiple tables — keeps the test focused on the handler control flow without needing a real D1.
+  - When a story's test file name names a different verb (POST) than the AC subjects (PATCH), follow the AC verbatim and extend the same file — do NOT spawn a parallel test file. The AC is the contract anchor.
+---

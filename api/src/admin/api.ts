@@ -427,6 +427,9 @@ api.patch("/articles/:id", async (c) => {
         {
           error: "Article has no site_id; cannot bind via PATCH",
           code: "TENANT_BOUNDARY_VIOLATION",
+          tenant_violation: true,
+          actor_site_id: body.site_id,
+          resource_site_id: null,
         },
         403,
       );
@@ -439,6 +442,9 @@ api.patch("/articles/:id", async (c) => {
           {
             error: err.message,
             code: "TENANT_BOUNDARY_VIOLATION",
+            tenant_violation: true,
+            actor_site_id: err.actor_site_id,
+            resource_site_id: err.resource_site_id,
           },
           403,
         );
