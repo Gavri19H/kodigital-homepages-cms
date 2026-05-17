@@ -4153,3 +4153,123 @@ D13 canonical runner result — T1:
   passes=true. Per Ralph prompt's stop condition this iteration
   closes the loop with <promise>COMPLETE</promise>.
 ---
+
+## 2026-05-18T01:38:00Z - T1 (sources: T1) - Apply migration 0007 locally + prove per-site slug UNIQUE
+
+- Mission: kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15
+- Story: T1 (category=db; targetFiles=api/migrations/0007_phase3r_drop_global_slug_unique.sql, api/package.json)
+- Source code modifications this iteration: NONE.
+  * api/migrations/0007_phase3r_drop_global_slug_unique.sql already
+    exists on disk from prior mission (MQAFIX-3 / PR #13 lineage).
+    Its 191-line CREATE-INSERT-DROP-RENAME rebuild is bit-identical
+    to the file the new mission's prd.json references.
+  * api/package.json already declares
+    `db:migrate:local: wrangler d1 migrations apply
+    kodigital-homepages-cms-db --local`.
+  * api/test/migrations-0007-slug-uniqueness-recreate.test.ts
+    (12 static-SQL assertions, exists from MQAFIX-3) was re-run
+    and remains green.
+- This iteration's deliverable is therefore the LIVE PROOF that the
+  migration applies cleanly and produces the expected per-site
+  UNIQUE / no-global-UNIQUE schema state on local D1, plus state
+  bookkeeping. No source file under T1's target_files was modified;
+  per scripts/ralph/prompt.md "Commit-title parity (T10/R10)", this
+  is a bookkeeping iteration -- the commit title uses chore: form,
+  not feat:[T1].
+- Live evidence captured this iteration (local D1, sandbox
+  .wrangler/state/v3/d1):
+  * AC1 `cd api && npm run db:migrate:local` -> exit 0.
+    Wrangler 3.114.17 applied all 7 migrations in order
+    (0001_init_cms.sql, 0002_phase3_multi_site_schema.sql,
+    0003_phase3_site_settings_restructure.sql,
+    0004_phase3_seed_verticals_and_legal_templates.sql,
+    0005_phase3_fix_missing_indexes.sql,
+    0006_phase3r_admin_site_aware_content.sql,
+    0007_phase3r_drop_global_slug_unique.sql). Each shows
+    status=Ok (green checkmark) in wrangler's summary table.
+    Re-run reports "No migrations to apply!" with exit 0
+    (idempotent).
+  * AC2 `npx wrangler d1 execute kodigital-homepages-cms-db
+    --local --json --command "SELECT name FROM sqlite_master
+    WHERE type='index' AND name='idx_articles_site_slug_unique';"`
+    -> 1 row {"name":"idx_articles_site_slug_unique"} PASS.
+    Cross-check `SELECT name FROM sqlite_master WHERE type='index'
+    AND name LIKE '%slug_global%'` -> 0 rows PASS (no legacy
+    global UNIQUE index present).
+  * AC3 PRAGMA index_list('articles') -> the only origin='u'
+    (UNIQUE-from-CREATE-INDEX) entry is
+    idx_articles_site_slug_unique. The hidden
+    sqlite_autoindex_articles_* that the legacy column-level
+    UNIQUE on slug would create is ABSENT. Behavioural proof:
+    inserted two sites (siteA/finance/main, siteB/finance/main)
+    + articles (siteA,'about-test') + (siteB,'about-test') ->
+    both succeeded (per-site slug uniqueness, not global).
+    Then INSERT (siteA,'about-test',DUP) ->
+    UNIQUE constraint failed: articles.site_id, articles.slug
+    SQLITE_CONSTRAINT (same-site duplicate rejected by composite
+    UNIQUE index on (site_id, slug)). PRAGMA index_list('pages')
+    mirrors: idx_pages_site_slug_unique unique=1 origin=c; no
+    sqlite_autoindex_pages_* present.
+  * Test commands actually run this iteration:
+    - `cd api && npm ci --no-audit --no-fund` -> +119 packages,
+      no errors (clean install -- node_modules absent at start).
+    - `cd api && npm run db:migrate:local` -> exit 0; 7
+      migrations applied.
+    - `cd api && npx wrangler d1 execute ... PRAGMA ...` (4
+      queries) -> all success=true.
+    - `cd api && npx tsc --noEmit` -> exit 0, no output.
+    - `cd api && npx vitest run
+      test/migrations-0007-slug-uniqueness-recreate.test.ts` ->
+      12/12 PASS exit 0.
+    - `cd api && npx vitest run` (full suite) -> 48 files /
+      286 tests / 0 failures / exit 0.
+    - Behavioural D1 probes (INSERT both sites then duplicate
+      slug across + duplicate within) -> all expected outcomes
+      observed.
+- Self-check results:
+  * File sizes: N/A this iteration (no source file modified;
+    bookkeeping-only changes to prd.json + .ralph/execution_stories.json
+    + progress.txt).
+  * Secret scan: N/A (no source file modified).
+  * Error handling: N/A (no handler added/changed this iteration).
+  * Migration execution: PASS -- `cd api && npm run db:migrate:local`
+    exit 0; all 7 migrations green; no remaining migrations on
+    second-run idempotency check.
+  * Parameterized queries: N/A.
+  * Acceptance tests: legacy mission's acceptance-tests/ tree
+    (kodigital-homepages-cms-phase3-2026-05-11) is dr-xr-xr-x
+    (immutable) and predates this mission; no
+    acceptance-tests/T1-syntactic.sh exists for the new mission
+    (per implementation_digest.md the file is referenced but the
+    architect has not generated this mission's acceptance-tests/
+    yet -- not Ralph's responsibility to author or modify).
+- Required-evidence-route status (per
+  .a2z/mission-state/<cid>/required_evidence_plan.json):
+  * RC-002 (T1.AC1, route=acceptance_check, evidence_command=
+    `npm run db:migrate:local`, expected_exit_code=0,
+    parser=test_exit_code) -- per-story actionable for T1; the
+    deterministic runner invocation is
+    `python3 .../run_required_evidence_command.py
+    --change-id=kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15
+    --required-claim-ids=RC-002 ...` (see implementation_digest.md
+    T1 section). The wrapper-mediated emission of the test_exit_code
+    receipt is owned by the canonical runner / phase B finalize; the
+    raw evidence command itself was just executed manually above
+    with exit 0.
+  * RC-003 (T1.AC2) and RC-004 (T1.AC3) -- evidence plan marks
+    route=production_pending, deferred_to=ship. Live local D1 PRAGMA
+    proof above is overshoot for the local develop target; the
+    canonical "production_pending" route is owned by /a2z-ship.
+- Ralph-local execution PRD
+  (.ralph/execution_stories.json, basename does NOT end with
+  prd.json) -> T1 flipped to state="implemented", passes=true
+  (current-cycle scope T7 exception per scripts/ralph/prompt.md).
+- Canonical PRD (worktree-root prd.json, protected by
+  block_prd_self_cert.py) -> T1 flipped to state="implemented",
+  passes remains false (Ralph MUST NOT set canonical PRD passes=true
+  per scripts/ralph/state_constraints.md D11/D15). Reconciliation to
+  state="verified" + passes=true is owned by
+  reconcile_story_states.py post-evaluator PASS.
+- Stop condition: T2..T17 remain state="planned" passes=false;
+  more iterations to follow.
+---
