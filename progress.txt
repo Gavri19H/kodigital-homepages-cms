@@ -4560,3 +4560,32 @@ D13 canonical runner result — T1:
   - makeFakeDb's `match` substring trick (e.g., "FROM category_verticals cv") works cleanly for guards that JOIN multiple tables — keeps the test focused on the handler control flow without needing a real D1.
   - When a story's test file name names a different verb (POST) than the AC subjects (PATCH), follow the AC verbatim and extend the same file — do NOT spawn a parallel test file. The AC is the contract anchor.
 ---
+
+## 2026-05-18 02:17 — T6: Verify Pages template renders site_id filter + page_type filter and provisioning generates About row
+- Implemented:
+  - api/src/admin/templates/pages.ts: toolbar Site filter renamed from `name="site"` → `name="site_id"` (1-line wire-name migration aligning the list-page filter with form/edit conventions and T6.AC1 contract).
+  - api/test/pages-template.test.ts: new vitest file with 4 cases — top-level `describe` name matches the required regex `pages template renders site_id filter and page_type filter`. Coverage:
+    1. T6.AC1 — toolbar exposes `<select name="site_id"`, `<select name="page_type"`, and `<option value="about"`; negative assertion ensures the legacy `<select name="site"` form no longer appears.
+    2. Page_type filter exposes all 7 canonical page types (generic, about, privacy-policy, terms, do-not-sell, contact, legal).
+    3. T6.AC2 — provisioning INSERT shape proven via CapturingDb shim: SQL contains `INSERT OR IGNORE INTO pages`, ends with `'about')`, binds site_id, and runs once.
+    4. T6.AC2 idempotency — `INSERT OR IGNORE` keyword is present so the literal SQL emitted by generateAboutPageStep cannot regress to plain INSERT or REPLACE.
+- Files changed:
+  - api/src/admin/templates/pages.ts (1 line modified)
+  - api/test/pages-template.test.ts (NEW, 104 lines)
+- source_story_ids: T6
+- Tests run:
+  - cd api && npx vitest run test/pages-template.test.ts test/page-editor-site-id.test.ts → PASS (5 tests / 2 files)
+  - cd api && npx vitest run test/admin-data-wiring.test.ts test/admin-dashboard-template.test.ts → PASS (11 tests / 2 files) — regression check for the toolbar name change.
+  - cd api && npx tsc --noEmit → PASS (exit 0)
+- **Self-check results:**
+  - File sizes: api/src/admin/templates/pages.ts 372 lines (template, pre-existing length unchanged by this story), api/test/pages-template.test.ts 104 lines (limit 200) — PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key strings in changed files)
+  - Error handling: N/A (template-rendering + test-only change; no new error paths)
+  - Migration execution: N/A (category=ui; no DB migration files added)
+  - Parameterized queries: N/A (no new D1 prepare statements; test SQL string is asserted, not executed against a real D1)
+- **Acceptance criteria coverage:**
+  - T6.AC1 (BEHAVIORAL: rendered HTML has select[name=site_id] AND select[name=page_type] with option value='about') — PASS: vitest asserts both selects and the `about` option are present, and the legacy `name="site"` form is absent.
+  - T6.AC2 (BEHAVIORAL: provisioning produces exactly 1 pages row with page_type='about' per site_id) — PASS via two layered checks: (a) capturing-DB asserts the production INSERT shape from steps.ts (`INSERT OR IGNORE INTO pages ... VALUES (?, 'about', ..., 'about')`); (b) the same SQL keyword `INSERT OR IGNORE` is asserted as an idempotency guard. Live D1 row-count proof is owned by the canonical evidence runner against the seeded local DB (RC-016 per implementation_digest; runner is invoked outside Ralph per D13).
+- **Learnings for future iterations:**
+  - When a list template and its companion form template diverge on wire-names (toolbar `name="site"` vs. form `name="site_id"`), the LIST template is the canonical filter contract — POST/GET handlers expect the wire name to align with the column name `site_id`. Default new toolbars to the column-name form even when the visible label is "Site".
+  - Vitest `describe(...)` block-name regex matching is enough to satisfy a typed `test_name_regex` binding; no need to push the regex into individual `it(...)` strings as long as the describe-name is unambiguous.

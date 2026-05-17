@@ -137,8 +137,8 @@
       "id": "T6",
       "title": "Verify Pages template renders site_id filter + page_type filter (especially page_type='about') and About editor inserts the correct pages row",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T6"
       ],
