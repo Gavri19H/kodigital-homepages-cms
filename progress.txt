@@ -4693,3 +4693,14 @@ D13 canonical runner result — T1:
 - T10.AC1 grep proof:
   - grep -n 'name="site_id"' api/src/admin/templates/tags.ts -> 1 line (51)
   - grep -n 'name="site_id"' api/src/admin/templates/media.ts -> 1 line (67)
+
+## 2026-05-18 02:43 — T10 D13 evidence-route diagnostic (informational, not Ralph-actionable)
+- Ran canonical runner: python3 .../run_required_evidence_command.py --required-claim-ids=RC-024,RC-025
+- RC-025 PASS (npx vitest -t "tags filter applies site_id filter to query" exit 0)
+- RC-024 FAIL — parse_grep_count empty stdout (UNSATISFIED). Reason: sidecar entry for RC-024 has cwd_anchor=project_root, so the grep runs against the base checkout /Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/tags.ts (0 matches on main branch) instead of the worktree (1 match on mission branch).
+- Verification:
+  - worktree grep -c 'name="site_id"' api/src/admin/templates/tags.ts -> 1 (file Ralph modified)
+  - project_root grep -c -> 0 (base checkout, no commit yet)
+- Classification: skill-owned per .claude/rules/root-cwd-discipline.md Section L1 rule 7 — "Ralph-modified canonical_paths → cwd_anchor=worktree_root MANDATORY". RC-024's canonical_path appears in T10 target_files; sidecar SHOULD have cwd_anchor=worktree_root.
+- Ralph action: NONE. evidence-honesty.md rule 6 forbids Ralph editing required_evidence_plan.json (audit artifact, canonical writers only). state_constraints.md D11 forbids self-cert. Re-implement would NOT help — worktree already has the line; the sidecar's tree pointer is the defect, not the implementation. Not consuming retry budget.
+- Routing: producer-level repair in generate_plan_bundle._default_cwd_anchor or matrix gate auto-repair (per Section L2). Phase C reconcile / blocker judge surfaces this if it persists past merge.
