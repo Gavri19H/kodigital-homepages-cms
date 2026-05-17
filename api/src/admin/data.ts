@@ -514,6 +514,26 @@ export async function listAdminCategories(
   }));
 }
 
+// T7: data-layer helper that resolves a site's allowed vertical set.
+// The HTTP handler at api.ts:POST /api/admin/categories uses an inline
+// query (no helper) so the test seam can plant rows; this wrapper is
+// exposed for future read paths (Settings → vertical pickers) that need
+// the same set without going through the create handler. Wrapper is a
+// plain bind() call — schema invariant: verticals.id is the PK that
+// category_verticals.vertical_id references.
+export async function listAllowedVerticalsForSite(
+  env: Env,
+  siteId: string,
+): Promise<number[]> {
+  if (typeof siteId !== "string" || siteId.trim().length === 0) return [];
+  const result = await env.DB.prepare(
+    "SELECT v.id AS id FROM verticals v INNER JOIN sites s ON s.vertical_slug = v.slug WHERE s.id = ? ORDER BY v.display_order ASC",
+  )
+    .bind(siteId)
+    .all<{ id: number }>();
+  return (result.results ?? []).map((r) => r.id);
+}
+
 export async function listAdminTags(env: Env): Promise<TagRowDto[]> {
   const result = await env.DB.prepare(
     "SELECT id, name, slug, site_id, article_count FROM tags ORDER BY name ASC LIMIT 500",

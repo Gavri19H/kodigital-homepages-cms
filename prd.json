@@ -116,7 +116,7 @@
         "BEHAVIORAL: GIVEN site X has allowed_verticals=[1,2,3], WHEN POST /api/admin/categories with vertical_ids=[1,4] is invoked, THEN response status is 422 and zero category_verticals rows are inserted (validate vertical IDs match site's allowed set)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T8",
