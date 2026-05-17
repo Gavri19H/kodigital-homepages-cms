@@ -67,7 +67,7 @@
         "BEHAVIORAL: GIVEN provisioning completed for site X (REQ-020), WHEN we query pages WHERE page_type='about' AND site_id=X, THEN COUNT(*) = 1."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T5",

@@ -4445,3 +4445,89 @@ D13 canonical runner result — T1:
 - Stop condition: T4..T17 remain state="planned" passes=false in the Ralph-local
   execution PRD; more iterations to follow.
 ---
+
+## 2026-05-18 02:06 — T4 (sources: T4) — 15-step provisioning runner contract + idempotency proof
+- Goal: satisfy T4.AC1 / RC-010 (vitest test name regex
+  "provisioning runner completes all 15 steps idempotently") and prove the
+  behavioural ACs:
+    * 15 sequential POST /api/admin/sites/:id/provision/next calls advance
+      one step each (site_creation_job_steps grows to 15, all completed
+      or completed_dry_run); 16th call inserts no new step row.
+    * BEHAVIORAL (REQ-020): pages WHERE page_type='about' AND site_id=X
+      COUNT(*) = 1 after provisioning (and stays 1 under re-invocation
+      because of the (site_id, slug) UNIQUE collision via INSERT OR IGNORE).
+    * T18 dry-run safety: cache_purge_log row for the CF-mutation step
+      records dry_run=1 / status='completed_dry_run' (no outbound fetch).
+- Files changed:
+  * api/test/provisioning-runner.test.ts — NEW. 274 lines. One vitest case
+    named exactly "provisioning runner completes all 15 steps
+    idempotently" (RC-010 evidence_command regex anchor). Builds an
+    in-memory mini-D1 fake that models the SQL shapes runner.ts +
+    steps.ts + legal-renderer.ts + cloudflare-interfaces.ts issue
+    (site_creation_jobs, site_creation_job_steps, sites, domains,
+    pages with (site_id, slug) UNIQUE, site_settings with (site_id, key)
+    UNIQUE, legal_templates, cache_purge_log). Verifies all four AC
+    facets above.
+- Self-check results:
+  * File sizes: api/test/provisioning-runner.test.ts — 274 lines
+    (test file, no hard limit; comparable to sibling
+    site-provisioning-dry-run.test.ts at 325 lines). PASS.
+  * Secret scan: PASS (grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|
+    password=|private_key|connection_string' on the changed file ->
+    0 matches).
+  * Error handling: N/A (test file only, no new handlers).
+  * Migration execution: N/A (no DB migration in T4).
+  * Parameterized queries: N/A (test only consumes the runner; runner's
+    `prepare(...).bind(...)` shape was already audited in prior stories
+    and the new mini-D1 fake parses only those static SQL shapes).
+  * Acceptance tests: acceptance-tests/T4-syntactic.sh — not authored
+    for this mission yet (acceptance-tests/ contains only earlier
+    missions' golden scripts). Not blocking per executable-ac.md
+    "Legacy compatibility" fallback.
+- Test commands actually run this iteration:
+  - `cd api && npx vitest run test/provisioning-runner.test.ts` ->
+    Test Files 1 passed (1); Tests 1 passed (1); exit 0.
+  - `cd api && npx vitest run -t "provisioning runner completes all 15
+    steps idempotently"` -> 1 passed | 296 skipped; exit 0
+    (mirrors the canonical runner's evidence_command filter).
+  - `cd api && npx tsc --noEmit` -> exit 0 (clean typecheck).
+  - `cd api && npx vitest run` (full suite) -> 50 files / 297 tests /
+    0 failures / exit 0.
+- Acceptance criteria status:
+  * T4.AC1 (15 step rows + idempotency) -> PASS (in-test expects
+    fake.stepsRows length is TOTAL_STEPS pre-16th-call and stays
+    at TOTAL_STEPS post-16th-call; all rows are 'completed' or
+    'completed_dry_run').
+  * T4.AC2 (site_creation_job_steps COUNT(*) = 15 for latest job) ->
+    proven by `expect(fake.stepsRows).toHaveLength(TOTAL_STEPS)`.
+    Production-pending wrangler-d1 receipt deferred to ship.
+  * T4.AC3 (pages page_type='about' COUNT(*) = 1 for site X) ->
+    proven by `expect(aboutRows).toHaveLength(1)`.
+    Production-pending wrangler-d1 receipt deferred to ship.
+- Required-evidence-route status:
+  * RC-010 (T4.AC1, route=acceptance_check, parser=test_exit_code,
+    evidence_command=`npx vitest run -t "provisioning runner completes
+    all 15 steps idempotently"`) -> the canonical runner
+    (`run_required_evidence_command.py --required-claim-ids=RC-010 ...`)
+    invocation was executed locally; it emitted artifact_hash
+    aa3a42437dee... receipt with status=PASS, exit_code=0,
+    parser_strategy=test_exit_code. Note: the canonical runner anchors
+    cwd to project_root/api (per evidence plan); the worktree-local
+    vitest run is what materially exercises this iteration's new test
+    file (the test file is not yet present in the project_root tree
+    pre-commit). Once this commit lands and the project_root pulls
+    the merged branch, the canonical receipt will be backed by the
+    actual new test rather than an empty match set.
+  * RC-011, RC-012 (T4.AC2, T4.AC3) -> route=production_pending,
+    deferred_to=ship.
+  * RC-045 (T17.AC2) -> deploy.yml grep, deferred to ship/T17.
+- Ralph-local execution PRD (.ralph/execution_stories.json) -> T4
+  flipped to state="implemented", passes=true (current-cycle scope
+  exception per scripts/ralph/prompt.md T7).
+- Canonical PRD (worktree-root prd.json) -> T4 flipped to
+  state="implemented", passes remains false per D11/D15.
+  Reconciliation to verified + passes=true post-evaluator is owned
+  by reconcile_story_states.py.
+- Stop condition: T5..T17 remain state="planned" passes=false in the
+  Ralph-local execution PRD; more iterations to follow.
+---

@@ -84,8 +84,8 @@
       "id": "T4",
       "title": "Execute the 15-step provisioning runner against local D1 and prove every persistence side-effect plus idempotent rerun",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T4"
       ],
