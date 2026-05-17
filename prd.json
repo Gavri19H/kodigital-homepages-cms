@@ -179,7 +179,7 @@
         "BEHAVIORAL: GIVEN article slug='foo' exists for site A, WHEN assertSlugUniquePerSite(site_id=A, slug='foo') is invoked, THEN it throws SlugConflict 409."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T12",

@@ -4704,3 +4704,40 @@ D13 canonical runner result — T1:
 - Classification: skill-owned per .claude/rules/root-cwd-discipline.md Section L1 rule 7 — "Ralph-modified canonical_paths → cwd_anchor=worktree_root MANDATORY". RC-024's canonical_path appears in T10 target_files; sidecar SHOULD have cwd_anchor=worktree_root.
 - Ralph action: NONE. evidence-honesty.md rule 6 forbids Ralph editing required_evidence_plan.json (audit artifact, canonical writers only). state_constraints.md D11 forbids self-cert. Re-implement would NOT help — worktree already has the line; the sidecar's tree pointer is the defect, not the implementation. Not consuming retry budget.
 - Routing: producer-level repair in generate_plan_bundle._default_cwd_anchor or matrix gate auto-repair (per Section L2). Phase C reconcile / blocker judge surfaces this if it persists past merge.
+
+## 2026-05-18 02:48 — T11 (tenant-guards test_name_regex bindings for RC-026 + RC-027)
+- Iteration: T11 (sources: T11)
+- Test commands run:
+  - cd api && npx vitest run test/tenant-guards.test.ts → PASS (28/28; +2 new cases over T29 baseline)
+  - cd api && npx vitest run test/tenant-guards.test.ts -t "assertTenantBoundary throws when site_id mismatches caller scope" → 2/28 PASS, 26 skipped (RC-026 -t binding match confirmed)
+  - cd api && npx vitest run test/tenant-guards.test.ts -t "assertSlugUniquePerSite returns 409 on duplicate slug within site" → 2/28 PASS, 26 skipped (RC-027 -t binding match confirmed)
+  - cd api && npx vitest run → PASS (54 files, 324 tests, 0 failures — full-suite regression)
+  - cd api && npx tsc --noEmit → PASS (exit 0, clean)
+  - bash acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T11_tenant_guards_module.sh → PASS (10/10 export checks)
+  - Canonical evidence runner (RC-026, RC-027):
+    - RC-026 (test_exit_code on `npx vitest run -t "assertTenantBoundary throws when site_id mismatches caller scope"`, cwd_anchor=project_root): status=PASS, exit_code=0, artifact_hash=0667b03fb3e8...
+    - RC-027 (test_exit_code on `npx vitest run -t "assertSlugUniquePerSite returns 409 on duplicate slug within site"`, cwd_anchor=project_root): status=PASS, exit_code=0, artifact_hash=8396cc33e368...
+    Both RCs the digest binds (RC-026, RC-027); RC-051 is deferred_to=ship per T11 RC plan in implementation_digest.
+- Files changed:
+  - api/test/tenant-guards.test.ts — appended two top-level describe blocks whose titles match the implementation_digest test_name_regex bindings VERBATIM:
+    1. `describe("assertTenantBoundary throws when site_id mismatches caller scope", …)` — 2 cases:
+       * unit — assertTenantBoundary("site-A","site-B") throws TenantBoundaryViolation carrying both actor + resource site ids; same-site call does NOT throw.
+       * path-trace — PATCH /api/admin/articles/10 under body.site_id="st_A" against article whose existing site_id="st_B" returns 403 with code TENANT_BOUNDARY_VIOLATION + tenant_violation=true; sorted pair of actor_site_id+resource_site_id equals ["st_A","st_B"]; UPDATE articles NEVER reaches the DB (short-circuit before SET clause).
+    2. `describe("assertSlugUniquePerSite returns 409 on duplicate slug within site", …)` — 2 cases:
+       * unit — assertSlugUniquePerSite(db,"articles","foo","site-A") rejects with /already in use/; SQL probe shape is "FROM articles WHERE slug = ? AND site_id = ?" with positional bind [foo, site-A] (parameterised, not interpolated).
+       * path-trace — PATCH /api/admin/articles/11 sets slug="foo" while planted db has slug='foo' for same site_id<>11 → response is 409, body.code is SLUG_UNIQUENESS_VIOLATION, body.error matches /already in use/, UPDATE articles NEVER reaches the DB.
+    Top-of-file imports: added `import admin from "../src/admin/router"` and `import type { Env } from "../src/env"` to wire the integration half of the path-trace through the real admin router.
+- source_story_ids: T11
+- **Self-check results:**
+  - File sizes: api/test/tenant-guards.test.ts 559 lines (was 351; +208 for the 2 new describe blocks plus a self-contained PATCH fake-db helper and Env builder; tests-file convention — sibling admin-articles-post-site-id.test.ts is 365 lines, so 559 is within the band for test files that combine unit + integration coverage). No source files modified — both AC behaviors were already implemented in api/src/site/tenant-guards.ts and the PATCH /api/admin/articles/:id handler from T5; this story binds explicit BEHAVIORAL tests against the test_name_regex contract. PASS for purpose.
+  - Secret scan: PASS (0 hits for API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string in the modified file).
+  - Error handling: N/A (test-only change; no new route handler or API function added).
+  - Migration execution: N/A (category=api, no DB migration in this story).
+  - Parameterized queries: PASS (only matches in the test file are commentary about the parameterisation invariant; the test fake `makePatchDb.prepare(sql)` records the SQL string for assertion only and never executes against a real D1; no template-literal interpolation).
+- **Acceptance criteria coverage:**
+  - T11.AC1 (BEHAVIORAL: caller scope=site A, assertTenantBoundary(row.site_id=B) throws TenantViolation; AND PATCH /api/admin/articles/<B-article> response is 403) — PASS: both halves covered by the new "assertTenantBoundary throws when site_id mismatches caller scope" describe block; unit case asserts the throw + class identity, path-trace case asserts the 403 + tenant_violation=true + code=TENANT_BOUNDARY_VIOLATION via admin.request through the actual router.
+  - T11.AC2 (BEHAVIORAL: assertSlugUniquePerSite(site_id=A, slug='foo') throws SlugConflict 409 when slug=foo exists for site A) — PASS: the function itself throws an Error (TS doesn't have a dedicated SlugConflict class; the AC's "SlugConflict 409" framing is satisfied by the HTTP mapping). Unit case asserts the throw; path-trace case asserts the 409 + code=SLUG_UNIQUENESS_VIOLATION via admin.request through the real PATCH /api/admin/articles/:id handler in api/src/admin/api.ts:634-649.
+- **Learnings for future iterations:**
+  - The implementation_digest's test_name_regex is fed to `vitest -t "<regex>"`, which does a substring match against the FULL test name (describe path joined with " > "). Using the EXACT regex string as the top-level describe title gives a clean, single-purpose match without needing to encode the binding inside an individual `it()` name. Sibling `it()` names can then describe the unit-vs-path-trace shape.
+  - The PATCH /api/admin/articles/:id handler calls `assertTenantBoundary(existingSiteId, body.site_id)`, so the resulting TenantBoundaryViolation carries actor=existing (DB-resident) and resource=body (claimed by caller). Tests that conflate "caller scope" with the `actor_site_id` slot will fail — assert the pair, not the slot. Same site IDs flow through unchanged at the unit layer because of the early `actorSiteId !== resourceSiteId` guard.
+  - For an AC that's a pure "verify" (not "implement-from-scratch"), Ralph's commit MUST still touch a story-target file (per commit-title-parity rule T10) — appending the test_name_regex describe blocks to api/test/tenant-guards.test.ts satisfies that without touching the source files that already implement the behavior.
