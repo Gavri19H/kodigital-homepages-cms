@@ -210,8 +210,8 @@
       "id": "T9",
       "title": "Verify R2 binding MEDIA in wrangler.toml + add 1 dry-run test for site-scoped Media filter (R2 actual upload = production_pending)",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],

@@ -562,6 +562,27 @@ export async function listAdminMedia(env: Env): Promise<MediaRowDto[]> {
   }));
 }
 
+export async function listMediaForSite(
+  env: Env,
+  siteId: string,
+): Promise<MediaRowDto[]> {
+  const result = await env.DB
+    .prepare(
+      "SELECT id, filename, storage_key, mime_type, size_bytes, site_id, created_at FROM media WHERE site_id = ? OR site_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 500",
+    )
+    .bind(siteId)
+    .all<MediaRecord>();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    filename: r.filename,
+    preview_url: "/media/" + r.storage_key,
+    site_id: r.site_id,
+    kind: fmtKind(r.mime_type),
+    size: r.size_bytes,
+    uploaded_at: fmtDate(r.created_at),
+  }));
+}
+
 export async function listAdminPresets(env: Env): Promise<PresetRowDto[]> {
   const result = await env.DB.prepare(
     "SELECT id, slug, category, is_system, is_active FROM prompt_presets WHERE is_active = 1 ORDER BY slug ASC, id ASC LIMIT 500",

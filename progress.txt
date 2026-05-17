@@ -4638,3 +4638,34 @@ D13 canonical runner result — T1:
 - test: cd api && npx vitest run test/admin-settings.test.ts (3/3 pass, 6ms)
 - test: cd api && npx vitest run -t "PATCH /api/admin/settings increments settings_version" (1/1 pass, RC-020 name binding)
 - RC-020 canonical evidence runner: PASS exit_code=0
+
+## 2026-05-18 02:36 - T9 (sources: T9)
+- Iteration: T9 (sources: T9) — Verify R2 binding MEDIA + site-scoped Media filter wrapper + test.
+- Test commands run:
+  - cd api && npx vitest run test/media-filter.test.ts → PASS (3/3 cases, 2ms).
+  - cd api && npx vitest run → PASS (53 files, 315 tests, 0 failures — full-suite regression).
+  - cd api && npx tsc --noEmit → PASS (exit 0).
+  - cd api && grep -n 'binding = "MEDIA"' wrangler.toml → 3 matches (lines 42, 73, 119: dev/staging/production envs); satisfies T9.AC1 `min_lines >= 1`.
+  - Canonical evidence runner (RC-021, RC-022):
+    - RC-022 (test_exit_code on `npx vitest run -t "media filter returns site-scoped and global media"`) → PASS (exit_code=0).
+    - RC-021 (parse_grep_count on `grep -n 'binding = "MEDIA"' wrangler.toml`) → UNSATISFIED at runner. Producer-side mismatch: the evidence_command shape is `grep -n` (emits matched lines like `42:binding = "MEDIA"`), but the bound parser_strategy is `parse_grep_count` (expects a single integer on stdout, as if `grep -c` or `| wc -l` had been used). The actual grep correctness is provable: the test-output.txt artifact captured by the runner shows 3 matching lines. This is the same producer-level evidence-plan defect class documented in prior iterations (T4 / T7 worktree-vs-project_root patterns) — Ralph does NOT modify required_evidence_plan.json (D15 rule; required_evidence_plan is a typed surface owned by the canonical evidence-route producer).
+- Files changed:
+  - api/src/admin/data.ts — added `listMediaForSite(env, siteId)` wrapper. SQL: `SELECT ... FROM media WHERE site_id = ? OR site_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 500`. Parameterised via `.bind(siteId)`. Returns global rows (site_id IS NULL) alongside per-site rows so the admin Media list surfaces the merged view.
+  - api/test/media-filter.test.ts — new vitest file (3 cases). Top-level describe name is `media filter returns site-scoped and global media` (matches T9.AC2 typed test_name_regex verbatim). Cases:
+    1. T9.AC2 — listMediaForSite(X) against 6 seeded rows (3 site-X + 2 global + 1 site-Y) returns 5 rows; 3 are site-X scoped, 2 are global, 0 leak from site-Y. Asserts SQL contains both `site_id = ?` and `site_id IS NULL`; asserts site_id is bound (parameterised, not interpolated).
+    2. Negative — listMediaForSite("no-such-site") still returns 2 global rows.
+    3. T9.AC3 documentation case — R2 actual upload is `production_pending` (RC-023 = deferred_production_pending per implementation_digest); this story's dry-run test binds the read-side filter only.
+- source_story_ids: T9
+- **Self-check results:**
+  - File sizes: api/src/admin/data.ts 619 lines (was 599; +20 for the listMediaForSite wrapper, well below the aggregator-file precedent set by api.ts at 793 lines), api/test/media-filter.test.ts 196 lines (test file; sibling tests routinely > 200) — PASS.
+  - Secret scan: PASS (0 hits for API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string in changed files).
+  - Error handling: N/A (read-only data wrapper; D1 errors propagate via the existing prepare().bind().all() promise chain, no try/catch needed at this layer).
+  - Migration execution: N/A (category=config; no DB migration in this story).
+  - Parameterized queries: PASS (SELECT uses `WHERE site_id = ?` with `.bind(siteId)`; no template-literal SQL interpolation).
+- **Acceptance criteria coverage:**
+  - T9.AC1 (grep `binding = "MEDIA"` in api/wrangler.toml returns >= 1 line) — PASS: 3 matches (dev/staging/production envs unchanged from base — verify-only AC). Manual proof + runner-captured test-output.txt both show 3 lines. RC-021 runner UNSATISFIED is a parser_strategy/command-shape mismatch upstream, NOT a missing binding.
+  - T9.AC2 (BEHAVIORAL: listMediaForSite(X) returns 5 rows = 3 site + 2 global) — PASS via the new vitest case; runner RC-022 confirms test_exit_code=0.
+  - T9.AC3 (FUNCTIONAL: R2 upload itself is production_pending) — PASS as defined: RC-023 is `deferred_production_pending` per implementation_digest; the dry-run test surface is established by this story; the actual upload path is exercised post-deploy.
+- **Learnings for future iterations:**
+  - The Media list contract is "per-site + global merged view" (`site_id = ? OR site_id IS NULL`). When wiring a UI handler to listMediaForSite, do NOT also pass listAdminMedia — the global-scope merge happens inside the wrapper. Replacing listAdminMedia with listMediaForSite in admin/ui.ts is left for the wiring story (T10/parity work).
+  - parse_grep_count parser strategy is wc-l-shape; `grep -n` (line-emitting) commands do NOT match its expected stdout format. When authoring evidence routes for grep-style ACs, prefer `grep -c` (returns count) or pipe to `wc -l`. This is a producer-side concern; Ralph documents it but does not patch required_evidence_plan.json.
