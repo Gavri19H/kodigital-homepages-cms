@@ -4387,3 +4387,61 @@ D13 canonical runner result — T1:
 - Stop condition: T3..T17 remain state="planned" passes=false in
   the Ralph-local execution PRD; more iterations to follow.
 ---
+
+## 2026-05-18 01:59 — T3 (sources: T3) — WARN-FIX-3 site_name -> name verification + domains-create-site spec
+- Goal: make the AC1 (spec fills `input#name`, not `input#site_name`) and AC3
+  (grep `id="name"` in api/src/admin/templates/domains.ts >= 1) machine-verifiable
+  against the current code. sites-handlers.ts already accepts `name` on POST
+  /api/admin/sites (CreateSiteBody.name + INSERT INTO sites(name,...)), so the
+  remaining gap was the template input id + the Playwright fill selector.
+- Files changed:
+  * api/src/admin/templates/domains.ts
+    - Label `for` switched from "new-site-site-name" to "name".
+    - Input id switched from "new-site-site-name" to "name"; name="name" preserved.
+    - All other markup, scripts, and ES5-only-syntax invariants untouched.
+  * api/test-ui/domains-create-site.spec.ts
+    - The form-fill step now targets `input#name` (CSS id selector required by
+      AC1). The prior `input[name="site_name"]` selector was both (a) wrong against
+      the actual template (which used name="name") and (b) outside AC1's literal
+      requirement.
+- Self-check results:
+  * File sizes:
+    - api/src/admin/templates/domains.ts — 238 lines (limit 300 HTML template / 200 TS;
+      template-string heavy renderer, in-line with prior T-stories, no new growth).
+    - api/test-ui/domains-create-site.spec.ts — 82 lines (limit 200, PASS).
+  * Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string).
+  * Error handling: N/A (no new route handlers; template + test edits only).
+  * Migration execution: N/A (no DB migration in T3).
+  * Parameterized queries: N/A (no SQL touched). sites-handlers.ts (untouched)
+    already uses `.prepare(...).bind(...)` everywhere.
+- Test commands actually run this iteration:
+  - `cd api && npx tsc --noEmit` -> exit 0 (clean typecheck).
+- Acceptance criteria status:
+  * T3.AC1 (spec fills input#name, not input#site_name) ->
+    `grep -n "input#name" api/test-ui/domains-create-site.spec.ts` returns 1 match
+    at line 47; `grep -n "input\\[name=\\\"site_name\\\"\\]|input#site_name"`
+    returns 0 matches. PASS.
+  * T3.AC2 (browser POST /api/admin/sites carries JSON {name:..., domain:...},
+    response 201, table re-renders) -> Server contract verified by
+    api/src/admin/sites-handlers.ts:createSiteHandler (returns 201 with
+    {resource:{id,domain,status:"draft"}}); modal client script
+    (MODAL_SCRIPT in domains.ts) reads `fd.get("name")` and posts JSON {name,
+    domain, vertical_slug, activity}; appendDomainRow re-renders the table.
+    Live Playwright run = production_pending / runner_command_rendered route
+    (canonical evidence dispatch); not Ralph's per-iteration responsibility.
+  * T3.AC3 (`grep -n 'id="name"' api/src/admin/templates/domains.ts` >= 1) ->
+    `grep -c 'id="name"' api/src/admin/templates/domains.ts` = 1. PASS.
+- Required-evidence-route status:
+  * RC tied to T3 (if any) is satisfied through the runner's deterministic_grep_count
+    parser strategy at canonical-evidence-dispatch time; per-story RC IDs
+    visible in implementation_digest.md. Per-iteration: AC1 + AC3 confirmed by
+    direct grep counts above.
+- Ralph-local execution PRD (.ralph/execution_stories.json) -> T3 flipped to
+  state="implemented", passes=true (current-cycle scope exception per
+  scripts/ralph/prompt.md T7).
+- Canonical PRD (worktree-root prd.json) -> T3 flipped to state="implemented",
+  passes remains false per D11/D15 (reconcile_story_states.py owns canonical
+  passes=true post-evaluator).
+- Stop condition: T4..T17 remain state="planned" passes=false in the Ralph-local
+  execution PRD; more iterations to follow.
+---

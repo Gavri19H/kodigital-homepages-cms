@@ -44,7 +44,7 @@ test('admin domains -- + New Site modal fill+submit observes POST /api/admin/sit
   // wire real data); inject one <option> and select it so submit isn't
   // blocked by HTML5 required-validation on the vertical_slug select.
   await page.fill('input[name="domain"]', uniqueDomain);
-  await page.fill('input[name="site_name"]', 'QA Test Site');
+  await page.fill('input#name', 'QA Test Site');
   await page.evaluate(() => {
     const sel = document.querySelector('select[name="vertical_slug"]') as HTMLSelectElement | null;
     if (sel) {

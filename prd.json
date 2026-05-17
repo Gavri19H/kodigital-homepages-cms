@@ -49,7 +49,7 @@
         "grep -n 'id=\"name\"' api/src/admin/templates/domains.ts returns >= 1 matching line"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T4",
