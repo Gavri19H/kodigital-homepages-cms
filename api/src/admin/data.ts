@@ -547,6 +547,30 @@ export async function listAdminTags(env: Env): Promise<TagRowDto[]> {
   }));
 }
 
+// T10: site-scoped Tags read path. The Tags admin page (templates/tags.ts)
+// emits select[name="site_id"] so the filter form submits ?site_id=<id>.
+// This wrapper drives GET /api/admin/tags?site_id=<id> and returns the
+// site's own tags only (NULL/global rows are excluded by AC: site A with
+// 3 tags + site B with 2 tags MUST yield exactly 3 rows for site_id=A).
+// Site-id is bound (parameterized) — never interpolated.
+export async function listTagsForSite(
+  env: Env,
+  siteId: string,
+): Promise<TagRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT id, name, slug, site_id, article_count FROM tags WHERE site_id = ? ORDER BY name ASC LIMIT 500",
+  )
+    .bind(siteId)
+    .all<TagRecord>();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    name: r.name,
+    slug: r.slug,
+    site_id: r.site_id,
+    article_count: r.article_count,
+  }));
+}
+
 export async function listAdminMedia(env: Env): Promise<MediaRowDto[]> {
   const result = await env.DB.prepare(
     "SELECT id, filename, storage_key, mime_type, size_bytes, site_id, created_at FROM media ORDER BY created_at DESC, id DESC LIMIT 500",

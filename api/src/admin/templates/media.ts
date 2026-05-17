@@ -64,7 +64,7 @@ function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
   return `<div class="toolbar">
   <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search media..." /></div>
   <div class="toolbar-filters">
-    <select id="filter-site" name="site" class="form-select" data-filter="site" aria-label="Site filter">
+    <select id="filter-site" name="site_id" class="form-select" data-filter="site" aria-label="Site filter">
       ${renderSiteOptions(sites, "")}
     </select>
     <select id="filter-kind" name="kind" class="form-select" data-filter="kind" aria-label="Kind filter">

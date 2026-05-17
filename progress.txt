@@ -4669,3 +4669,27 @@ D13 canonical runner result — T1:
 - **Learnings for future iterations:**
   - The Media list contract is "per-site + global merged view" (`site_id = ? OR site_id IS NULL`). When wiring a UI handler to listMediaForSite, do NOT also pass listAdminMedia — the global-scope merge happens inside the wrapper. Replacing listAdminMedia with listMediaForSite in admin/ui.ts is left for the wiring story (T10/parity work).
   - parse_grep_count parser strategy is wc-l-shape; `grep -n` (line-emitting) commands do NOT match its expected stdout format. When authoring evidence routes for grep-style ACs, prefer `grep -c` (returns count) or pipe to `wc -l`. This is a producer-side concern; Ralph documents it but does not patch required_evidence_plan.json.
+
+## 2026-05-18 02:42 — T10 (Tags+Media filter migration site->site_id)
+- iteration: T10 (sources: T10)
+- Implemented WARN-FIX-4 site_id->site field-name migration (filter forms):
+  - api/src/admin/templates/tags.ts: select name="site" -> name="site_id"
+  - api/src/admin/templates/media.ts: select name="site" -> name="site_id"
+- api/src/admin/data.ts: added listTagsForSite(env, siteId) (parameterized .bind, WHERE site_id = ?, no global merge per T10.AC2 "exactly 3 rows for site A with 3 tags + site B with 2 tags")
+- api/src/admin/api.ts: GET /api/admin/tags now reads ?site_id= and routes to the site-scoped query when present (preserves legacy unscoped path)
+- api/test/tags-media-filter.test.ts: NEW vitest suite, 5 tests
+  - top-level describe matches T10.AC2 test_name_regex: "tags filter applies site_id filter to query"
+  - cases: listTagsForSite(A)=3, listTagsForSite(B)=2, parameterized-not-interpolated (SQL injection guard), tags template renders name="site_id", media template renders name="site_id"
+- test: cd api && npx vitest run test/tags-media-filter.test.ts  -> 5/5 PASS
+- regression: cd api && npx vitest run test/admin-data-wiring.test.ts test/media-filter.test.ts test/admin.test.ts -> 33/33 PASS
+- typecheck: cd api && npx tsc --noEmit -> exit 0 (clean)
+- self-checks:
+  - File sizes: tags.ts=110 / media.ts=140 / data.ts=644 (+) / api.ts=805 (+) / tags-media-filter.test.ts=164 — PASS (no NEW file exceeds template limit; data.ts + api.ts are pre-existing large files, additions are small)
+  - Secret scan: PASS (no matches in changed files)
+  - Error handling: N/A (templates pure; data.ts/api.ts queries use Hono default error propagation, consistent with neighboring endpoints)
+  - Migration execution: N/A (category=ui, not db)
+  - Parameterized queries: PASS (.bind() used; SQL uses 'site_id = ?' placeholder; injection test asserts the value is not interpolated)
+  - Acceptance test: N/A (no acceptance-tests/T10*.sh in this worktree; digest reference is to a sibling change-id)
+- T10.AC1 grep proof:
+  - grep -n 'name="site_id"' api/src/admin/templates/tags.ts -> 1 line (51)
+  - grep -n 'name="site_id"' api/src/admin/templates/media.ts -> 1 line (67)

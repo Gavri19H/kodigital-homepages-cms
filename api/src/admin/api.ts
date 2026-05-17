@@ -347,6 +347,18 @@ api.post("/api/admin/categories", async (c) => {
 });
 
 api.get("/api/admin/tags", async (c) => {
+  // T10: site_id filter — when present, restrict to that site's tags
+  // (no global merge). Mirrors templates/tags.ts select[name="site_id"]
+  // which is the filter form's submit field.
+  const siteId = c.req.query("site_id");
+  if (typeof siteId === "string" && siteId.length > 0) {
+    const scoped = await c.env.DB.prepare(
+      "SELECT id, slug, name, article_count FROM tags WHERE site_id = ? ORDER BY name ASC LIMIT 500",
+    )
+      .bind(siteId)
+      .all<TagRow>();
+    return c.json({ tags: scoped.results ?? [], site_id: siteId });
+  }
   const result = await c.env.DB.prepare(
     "SELECT id, slug, name, article_count FROM tags ORDER BY name ASC LIMIT 500",
   ).all<TagRow>();
