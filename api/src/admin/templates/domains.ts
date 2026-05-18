@@ -7,6 +7,17 @@
 // Important contract: this file MUST NOT contain ES6 lexical
 // declarations or arrow functions in the source text (T4 ES5 check).
 // Use `var` and `function` everywhere.
+//
+// MQAFIX-5: the inline MODAL_SCRIPT below is the active runtime source
+// that the Worker serves with the /admin/domains HTML response. The
+// browser-readable mirror at `api/src/admin/static/domains-create-site.js`
+// is the canonical authoring surface for the same JS body (kept in sync
+// by hand) and is the file the MQAFIX-5 deterministic AC3 + AC4 greps
+// run against. Both copies read `body.resource.id` from the POST
+// /api/admin/sites response (server returns `{ resource: { id, ... } }`
+// — see sites-handlers.ts createSiteHandler) so the provisioning poll
+// URL contains the actual site_id and never produces the legacy
+// "//" double-slash 404.
 
 import { adminLayout } from "./layout";
 
@@ -209,8 +220,15 @@ var MODAL_SCRIPT = '(function(){'
   + 'if(res.ok){'
   + 'closeModal();'
   + 'var rb=res.body||{};'
-  + 'var siteId=rb.id||rb.site_id||(rb.site&&rb.site.id)||"";'
-  + 'var rowData={id:siteId,domain:body.domain,name:body.name,vertical_slug:body.vertical_slug,activity:body.activity,created:rb.created||rb.created_at||""};'
+  // MQAFIX-5: server returns {resource:{id,domain,status,...}} from POST
+  // /api/admin/sites (see sites-handlers.ts createSiteHandler). Read
+  // body.resource.id FIRST so the provisioning poll URL contains the
+  // freshly created site_id; the legacy fall-throughs are gone because
+  // they masked the missing field and produced a "//" double-slash poll
+  // URL that 404ed. AC4 forbids any reference to body.id / body["id"].
+  + 'var resource=(rb&&rb.resource)?rb.resource:null;'
+  + 'var siteId=(resource&&resource.id)?resource.id:"";'
+  + 'var rowData={id:siteId,domain:body.domain,name:body.name,vertical_slug:body.vertical_slug,activity:body.activity,created:(resource&&(resource.created||resource.created_at))||""};'
   + 'appendDomainRow(rowData);'
   + 'startProvisioningPanel(siteId,rowData.domain);'
   + '}else{showError((res.body&&(res.body.error||res.body.message))||("Error: "+res.status));}'

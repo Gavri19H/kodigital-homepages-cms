@@ -118,8 +118,8 @@
       "id": "RX5",
       "title": "MQA-3 side fixes: seed verticals on fresh D1 + client polling reads body.resource.id (not body.id)",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-5"
       ],
