@@ -1,0 +1,243 @@
+{
+  "contract_version": "1.0.0",
+  "plan_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "mission_spec_ref": "mission_spec.json",
+  "decisions": [
+    {
+      "point": "Migration 0007 application surface",
+      "chosen": "Apply migration 0007 to LOCAL D1 only (kodigital-cms-local) via npm run db:migrate:local; never --remote.",
+      "alternatives": [
+        "wrangler d1 migrations apply --remote (FORBIDDEN by HARD SCOPE RULE; would mutate production)",
+        "Manual SQL apply via direct wrangler d1 execute (loses migrations table tracking; non-idempotent)",
+        "Skip migration 0007 (rejected: leaves legacy global UNIQUE(slug) active; second site's 'about' page silently dropped by INSERT OR IGNORE)"
+      ],
+      "rationale": "REQ-026 requires local migration apply with proof. Remote apply is explicitly forbidden by user mission brief. Skipping reproduces the prior session failure where REQ-007/020 silently failed."
+    },
+    {
+      "point": "T2 root-cause sequencing (admin renders empty data)",
+      "chosen": "T2 (wire data.ts into ui.ts) runs FIRST among feature stories because every admin renderer story (T3, T6, T7, T8, T10) depends on real data flowing into the templates.",
+      "alternatives": [
+        "Verify each renderer story independently with mock data (rejected: doesn't fix the underlying admin pages render empty)",
+        "Defer T2 to a later cycle (rejected: every other UI story would falsely PASS against empty templates)"
+      ],
+      "rationale": "Prior Explore probe identified ui.ts handlers passing [], null to template renderers — this is the SINGLE highest-leverage fix. Without T2, T3/T6/T8/T10 PASS validators while the actual product is broken."
+    },
+    {
+      "point": "Playwright execution boundary",
+      "chosen": "Execute all 3 Playwright specs against local wrangler dev (http://127.0.0.1:8787) + Host header; produce api/test-results/ HTML report.",
+      "alternatives": [
+        "Execute against live cms.kodigital.app (FORBIDDEN by HARD SCOPE RULE; develop must not assume live changes)",
+        "Accept Playwright spec FILE PRESENCE as proof (REJECTED — exact prior failure pattern: test-results/ never existed)",
+        "grep on Playwright spec file (REJECTED by user brief: not browser proof)"
+      ],
+      "rationale": "REQ-023 demands executed Playwright with test-results artifact. Prior sessions accepted spec-file grep as proof; this mission's Q1-Q4 gates explicitly forbid that."
+    },
+    {
+      "point": "R2 / media binding strategy",
+      "chosen": "Verify MEDIA binding presence in wrangler.toml + add data.ts:listMediaForSite dry-run test. R2 upload itself = production_pending in test_contract T9.AC3.",
+      "alternatives": [
+        "Mock R2 entirely in tests (rejected: misses real binding shape)",
+        "Real R2 upload during develop (rejected: HARD SCOPE RULE forbids production R2 mutation)",
+        "Omit R2 entirely (rejected: user brief explicitly forbids silent omission)"
+      ],
+      "rationale": "User brief explicitly requires 'R2 dry-run binding proof exists for Media workflows' OR 'mark upload as production_pending in mission_goal_trace; still prove site-aware Media filter behavior locally; do not silently omit R2'."
+    },
+    {
+      "point": "Off-admin-host /admin hardening proof",
+      "chosen": "curl + Host header against local wrangler dev. Assert HTTP 404 + Cache-Control: no-store + X-Robots-Tag: noindex, nofollow + body lacks 'cms.kodigital.app' literal.",
+      "alternatives": [
+        "Test against live demo domain (FORBIDDEN; develop doesn't mutate live)",
+        "Source-grep on router.ts conditional (rejected: doesn't prove actual HTTP response)"
+      ],
+      "rationale": "REQ-024 has 4 atomic assertions; curl response parsing covers all 4 deterministically."
+    },
+    {
+      "point": "Quality-gauntlet artifact location",
+      "chosen": "openspec/changes/<cid>/quality-gauntlet/ in project root (NOT mission-state).",
+      "alternatives": [
+        ".a2z/mission-state/<cid>/quality-gauntlet/ (rejected: write-boundaries.md restricts mission-state writes; openspec/ is the canonical artifact home)",
+        "Workspace root (rejected: single-artifact-location rule)"
+      ],
+      "rationale": "Plan-writer write boundaries (write-boundaries.md) prescribe project openspec/changes/<cid>/ as the single artifact location for plan-phase artifacts."
+    },
+    {
+      "point": "Live cms.kodigital.app classification",
+      "chosen": "production_pending. develop_target = local wrangler dev. /a2z-ship owns the deploy + live-verify cycle.",
+      "alternatives": [
+        "Live + deploy in this mission (FORBIDDEN; develop != ship)",
+        "Out-of-scope (rejected: live verification IS part of the overall feature lifecycle; classifying as production_pending preserves the work item without conflating phase ownership)"
+      ],
+      "rationale": "REQ-030 demands explicit develop/ship boundary. production_pending classification is the canonical contract for ship-only work."
+    },
+    {
+      "point": "Production-deploy migration apply step (T17)",
+      "chosen": "Add a step to deploy.yml deploy-production job that runs `npm run db:migrate:remote` (= wrangler d1 migrations apply kodigital-homepages-cms-db --remote) BEFORE `npm run deploy:production`. Include comment referencing migration 0007 for traceability. Production deploy still gated by workflow_dispatch (human click) per existing deploy.yml policy.",
+      "alternatives": [
+        "Expand T1 scope to include deploy.yml edit (rejected: mixes develop-time and ship-time concerns; T1's local-apply title would hide the production change)",
+        "Full re-dispatch of plan-writer subagent for canonical reauthor_plan (rejected: ~$1-2 cost and 5-10 min wall-clock for a 1-story append is over-broad)",
+        "Suppress P9 antipattern for this mission (rejected: masks real production deploy-safety risk; deploy-safety.md D1-file rule exists exactly to catch this)"
+      ],
+      "rationale": "BJA-5V audit classified the validate_antipatterns P9 residual as non-skill-owned plan_authoring_defect with canonical action reauthor_plan. Mission brief explicitly forbids --remote at develop time; T1 covers local-apply (REQ-026). Production migration apply belongs at ship/deploy time (REQ-030 explicit develop/ship boundary). Adding T17 as a standalone ops story is the smallest correct repair: it authors the deploy.yml step in Phase A; Ralph edits the file in Phase B; production migration apply still requires human workflow_dispatch click. CLOUDFLARE_API_TOKEN scope in deploy.yml already covers Workers Scripts:Edit which permits wrangler d1 migrations apply."
+    }
+  ],
+  "implementation_steps": [
+    "Step 1: Apply migration 0007 locally (T1).",
+    "Step 2: Wire api/src/admin/data.ts query wrappers into ui.ts handlers (T2 — root cause fix for empty admin pages).",
+    "Step 3: Verify WARN-FIX-3 name field migration shipped + re-execute domains-create-site spec (T3).",
+    "Step 4: Execute 15-step provisioning runner against local D1 + assert all DB side-effects (T4).",
+    "Step 5: Run PATCH /api/admin/articles/:id contract tests (T5).",
+    "Step 6: Verify Pages template site_id + page_type filters; About page row creation (T6).",
+    "Step 7: Add or verify POST /api/admin/categories writing category_verticals rows (T7).",
+    "Step 8: Verify PATCH /api/admin/settings bumps settings_version per site (T8).",
+    "Step 9: Verify R2 MEDIA binding + add dry-run media filter test (T9).",
+    "Step 10: Verify WARN-FIX-4 site_id field name migration in tags + media templates (T10).",
+    "Step 11: Execute tenant-guards unit + integration tests (T11).",
+    "Step 12: Add fetch interceptor test proving no outbound api.cloudflare.com (T12).",
+    "Step 13: Execute admin-routing-security spec + curl proof for off-admin-host /admin (T13).",
+    "Step 14: Run verify:no-legacy-prod-refs + verify:infra + verify:worker-config (T14).",
+    "Step 15: Execute FULL Playwright suite + produce test-results/ HTML report (T15).",
+    "Step 16: Author the 6 mission-specific quality-gauntlet artifacts (T16).",
+    "Step 17: Update .github/workflows/deploy.yml deploy-production job to apply D1 migrations before wrangler deploy. Add a 'Apply D1 migrations (production)' step that runs `npm run db:migrate:remote` (or `npx wrangler d1 migrations apply kodigital-homepages-cms-db --remote`) BEFORE the 'Deploy to production' step. Include a comment line `# Apply migration 0007_phase3r_drop_global_slug_unique.sql + future migrations` for P9 grep anchor. (T17)"
+  ],
+  "files_expected_to_change": [
+    "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+    "api/package.json",
+    "api/src/admin/ui.ts",
+    "api/src/admin/data.ts",
+    "api/test/admin-data-wiring.test.ts",
+    "api/src/admin/templates/domains.ts",
+    "api/src/admin/sites-handlers.ts",
+    "api/test-ui/domains-create-site.spec.ts",
+    "api/src/site-provisioning/runner.ts",
+    "api/src/site-provisioning/steps.ts",
+    "api/src/site-provisioning/legal-renderer.ts",
+    "api/test/provisioning-runner.test.ts",
+    "api/src/admin/api.ts",
+    "api/src/site/tenant-guards.ts",
+    "api/test/admin-articles-post-site-id.test.ts",
+    "api/src/admin/templates/pages.ts",
+    "api/test/pages-template.test.ts",
+    "api/test/category-multi-vertical.test.ts",
+    "api/test/admin-settings.test.ts",
+    "api/wrangler.toml",
+    "api/test/media-filter.test.ts",
+    "api/src/admin/templates/tags.ts",
+    "api/src/admin/templates/media.ts",
+    "api/test/tags-media-filter.test.ts",
+    "api/src/site/site-context.ts",
+    "api/test/tenant-guards.test.ts",
+    "api/src/site-provisioning/cloudflare-interfaces.ts",
+    "api/test/provisioning-no-outbound.test.ts",
+    "api/src/admin/router.ts",
+    "api/test-ui/admin-routing-security.spec.ts",
+    "api/test-ui/admin-ux-parity.spec.ts",
+    "api/playwright.config.ts",
+    "api/test-results/index.html",
+    "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/mission_goal_trace.json",
+    "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/source_context_pack.json",
+    "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/live_domain_routability.json",
+    "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/wire_protocol_parity.json",
+    "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/manualqa_goal_coverage.json",
+    "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/reviewer_artifact_diff_plan.json",
+    ".github/workflows/deploy.yml"
+  ],
+  "files_forbidden_to_change": [
+    "theiwise-legacy-readonly/ (entire subtree; chmod -R a-w enforced)",
+    "api/migrations/0001_init_cms.sql (historical immutable)",
+    "api/migrations/0002_phase3_multi_site_schema.sql (historical immutable)",
+    "api/migrations/0003_phase3_site_settings_restructure.sql (historical immutable)",
+    "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql (historical immutable)",
+    "api/migrations/0005_phase3_fix_missing_indexes.sql (historical immutable)",
+    "api/migrations/0006_phase3r_admin_site_aware_content.sql (historical immutable)",
+    ".claude/skills/a2z-* (this is a PRODUCT mission, not a skill-fix mission)",
+    "production wrangler.toml [vars] entries that would touch a2z-cf-cms-v1-* / theiwise.com / 44c73f76-* / psychic-quiz"
+  ],
+  "acceptance_tests": [
+    "T1.AC1",
+    "T1.AC2",
+    "T1.AC3",
+    "T2.AC1",
+    "T2.AC2",
+    "T3.AC1",
+    "T3.AC2",
+    "T3.AC3",
+    "T4.AC1",
+    "T4.AC2",
+    "T4.AC3",
+    "T5.AC1",
+    "T5.AC2",
+    "T5.AC3",
+    "T6.AC1",
+    "T6.AC2",
+    "T7.AC1",
+    "T7.AC2",
+    "T8.AC1",
+    "T9.AC1",
+    "T9.AC2",
+    "T9.AC3",
+    "T10.AC1",
+    "T10.AC2",
+    "T11.AC1",
+    "T11.AC2",
+    "T12.AC1",
+    "T12.AC2",
+    "T13.AC1",
+    "T13.AC2",
+    "T14.AC1",
+    "T14.AC2",
+    "T14.AC3",
+    "T15.AC1",
+    "T15.AC2",
+    "T15.AC3",
+    "T16.AC1",
+    "T16.AC2",
+    "T16.AC3",
+    "T16.AC4",
+    "T16.AC5",
+    "T16.AC6"
+  ],
+  "risk_controls": [
+    "Migration 0007 applies LOCAL only; never --remote.",
+    "Provisioning runner runs with SITE_PROVISIONING_DRY_RUN=true; fetch interceptor asserts zero api.cloudflare.com calls.",
+    "Protected-domain denylist test asserts theiwise.com / www.theiwise.com / admin.theiwise.com all rejected at POST /api/admin/sites.",
+    "verify:no-legacy-prod-refs asserts no a2z-cf-cms-v1-api / 44c73f76-6ed5-4b26-b442-6c2044326c4d / psychic-quiz / theiwise.com in active config.",
+    "Playwright runs target local wrangler dev only; never live cms.kodigital.app.",
+    "All D1 mutations against kodigital-cms-local; production D1 untouched.",
+    "Quality-gauntlet artifacts live in openspec/changes/<cid>/quality-gauntlet/ (artifact location single-source rule)."
+  ],
+  "rollback_plan": "Per-story rollback: T1 = wrangler d1 execute --local --command 'PRAGMA foreign_keys=OFF;' then re-apply migrations 0001-0006 (or restore .wrangler/state from snapshot taken pre-mission). T2 = git restore api/src/admin/ui.ts api/src/admin/data.ts api/test/admin-data-wiring.test.ts. T3-T15 = git restore <target_files>. T16 = rm -rf openspec/changes/<cid>/quality-gauntlet/. Whole-mission rollback: git checkout main && git branch -D mission/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15 in the worktree; restore .wrangler/state from snapshot. NO production state ever touched, so no production rollback required.",
+  "evidence_plan": [
+    "RC-T1: parse_db_query asserts idx_articles_site_slug_unique present, idx_articles_slug_global absent.",
+    "RC-T2: vitest_text against admin-data-wiring.test.ts >= 9 cases pass.",
+    "RC-T3: parse_playwright_trace against domains-create-site.spec.ts + grep_count against templates/domains.ts.",
+    "RC-T4: parse_db_query for site_creation_job_steps COUNT=15 + pages page_type='about' COUNT=1.",
+    "RC-T5: vitest_text against admin-articles-post-site-id.test.ts tenant + slug + vertical cases.",
+    "RC-T6: parse_db_query for pages page_type='about' + vitest_text for pages-template.test.ts.",
+    "RC-T7: vitest_text against category-multi-vertical.test.ts.",
+    "RC-T8: vitest_text against admin-settings.test.ts settings_version bump.",
+    "RC-T9: parse_grep_count for MEDIA binding + vitest_text for media-filter.test.ts.",
+    "RC-T10: parse_grep_count for site_id input + vitest_text for tags-media-filter.test.ts.",
+    "RC-T11: vitest_text against tenant-guards.test.ts.",
+    "RC-T12: vitest_text against provisioning-no-outbound.test.ts + parse_db_query cache_purge_log dry_run=1.",
+    "RC-T13: parse_curl_response 404 + Cache-Control: no-store + X-Robots-Tag: noindex, nofollow + body lacks 'cms.kodigital.app'.",
+    "RC-T14: test_exit_code 0 for verify:no-legacy-prod-refs + verify:infra + verify:worker-config.",
+    "RC-T15: parse_playwright_trace + test_exit_code for api/test-results/index.html existence.",
+    "RC-T16: test_exit_code for each quality-gauntlet/*.json file presence."
+  ],
+  "call_path_expectation": "Browser -> /admin (Host:cms.kodigital.app) -> router.ts admin branch -> ui.ts route handler -> data.ts query wrapper -> D1 (kodigital-cms-local) -> rendered HTML template. Mutation path: Browser -> POST /api/admin/sites -> api.ts -> sites-handlers.ts -> tenant-guards.ts assert -> data.ts insert -> D1 commit -> site_creation_jobs row -> provisioning runner picks up job via POST /provision/next -> 15 steps execute against local D1 + fake Cloudflare interfaces (SITE_PROVISIONING_DRY_RUN=true) -> cache_purge_log dry_run row written -> 0 outbound api.cloudflare.com calls.",
+  "implementation_route": {
+    "route": "ralph_complex_tier",
+    "tier": "COMPLEX",
+    "justification": "16 stories spanning db (T1), api (T2/T5/T7/T8/T11), ui (T3/T6/T10/T15), script (T4/T12), config (T9/T14/T16), and infra (T13). Cross-layer interaction (UI -> API -> DB -> provisioning runner) demands COMPLEX tier with architect subagent hardening of acceptance-tests scripts.",
+    "required_review": "code_quality + db_schema + ui_a11y + reviewer_artifact_diff",
+    "required_verification": [
+      "vitest_npm_test_exit_0",
+      "playwright_test_results_html_present",
+      "db_query_assertions_for_T1_T4_T6_T8_T12",
+      "curl_proof_for_T13",
+      "fetch_interceptor_proof_for_T12",
+      "verify_no_legacy_prod_refs_exit_0",
+      "quality_gauntlet_six_artifacts_present"
+    ]
+  }
+}

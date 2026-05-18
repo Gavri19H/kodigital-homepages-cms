@@ -1,0 +1,933 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "branch_name": "mission/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "tier": "COMPLEX",
+  "created_at": "2026-05-16T22:48:00Z",
+  "main_goal": {
+    "text": "Make the local/develop KoDigital Homepages CMS a true multi-site CMS with a legacy-style KoDigital admin UX, where every one of the 30 REQ items has an artifact-backed proof route exercised by deterministic local commands or executed Playwright runs, and the new Q1-Q4 quality gates (mission_goal_trace, source_context_pack, wire_protocol_parity, manualqa_goal_coverage, reviewer_artifact_diff_plan) prove the prior weak-proof failures cannot reoccur.",
+    "entity": "kodigital_homepages_cms_admin",
+    "action": "verify_and_complete_multi_site_admin_recovery_locally",
+    "metric": {
+      "name": "develop_quality_gauntlet_exit_code",
+      "comparator": "==",
+      "expected_value": 0
+    },
+    "source_of_truth": {
+      "source_id": "local_develop_quality_gauntlet_megacommand",
+      "source_type": "test",
+      "method": "exit_code",
+      "canonical_path": "cd api && npm run typecheck && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config",
+      "entity": "kodigital_homepages_cms_admin",
+      "metric": "exit_code"
+    },
+    "forbidden_substitutes": [
+      "evaluator_prose_only_PASS",
+      "manualQA_PASS_with_in_scope_subassertion_failure",
+      "grep_on_spec_file_as_browser_proof",
+      "DEPLOY_AND_VERIFY_as_satisfying_proof_for_develop_REQ",
+      "production_pending_for_local_verifiable_REQ"
+    ],
+    "ui_surface": "/admin and all admin sub-routes",
+    "api_surface": "/api/admin/* served by api/src/admin/router.ts",
+    "storage_surface": "local D1 (kodigital-cms-local) + local R2 fake binding + local file system",
+    "time_window": "develop session only; live cms.kodigital.app is production_pending",
+    "fixture_or_test_data": "api/test/db/fixtures + provisioning runner seed data",
+    "failure_criterion": "Any in-scope REQ lacks browser/DB/API proof; OR ManualQA accepts PASS with in-scope sub-failure; OR evidence_source=semantic_review_only is used for REQ-006/007/008/009/010/011; OR migration 0007 is not applied locally; OR test-results/ is absent after the Playwright run; OR any 'TheIWise' / 'a2z-cf-cms-v1-*' / '44c73f76-6ed5-4b26-b442-6c2044326c4d' / 'psychic-quiz' reference appears in active runtime config.",
+    "evidence_required": [
+      "migration_0007_applied_locally_assertion",
+      "all_three_playwright_specs_executed_with_test_results_dir",
+      "PATCH_articles_tenant_403_response_observed",
+      "POST_categories_writes_category_verticals_rows",
+      "off_admin_host_/admin_returns_404_no-store_noindex",
+      "no_outbound_api_cloudflare_com_in_dry_run",
+      "16_quality_gauntlet_files_present"
+    ]
+  },
+  "scope": {
+    "in_scope": [
+      "REQ-001 multi-site D1 schema",
+      "REQ-002 site/domain/vertical data model",
+      "REQ-003 Domains CMS tab",
+      "REQ-004 New Site modal + API",
+      "REQ-005 resumable deterministic provisioning runner",
+      "REQ-006 site-aware Articles tab",
+      "REQ-007 site-aware Pages tab (About Us)",
+      "REQ-008 Categories multi-vertical allocation",
+      "REQ-009 site-scoped Settings tab",
+      "REQ-010 site-aware Media filters (filter only; upload is production_pending)",
+      "REQ-011 site-aware Tags filters",
+      "REQ-012 tenant/site-boundary validation utilities",
+      "REQ-013 dry-run-safe Cloudflare provisioning interfaces",
+      "REQ-014 legacy-style admin layout",
+      "REQ-015 no Phase 1 placeholder shell",
+      "REQ-016 full admin nav across every admin page",
+      "REQ-017 New Site modal posts real /api/admin/sites",
+      "REQ-018 newly created site row renders after creation",
+      "REQ-019 provisioning polling starts from browser UI",
+      "REQ-020 About page provisioning inserts pages row",
+      "REQ-021 PATCH /api/admin/articles/:id with tenant guard",
+      "REQ-022 Articles/Pages/Categories/Media/Tags/Settings = old admin UI + site-aware",
+      "REQ-023 Playwright browser tests prove admin UX parity",
+      "REQ-024 off-ADMIN_HOST /admin returns 404 + no-store + noindex/nofollow + no leak",
+      "REQ-025 protected-domain rejection",
+      "REQ-026 local D1 migrations apply + assert tables/indexes/constraints/seed",
+      "REQ-027 R2 dry-run binding proof (upload itself = production_pending)",
+      "REQ-028 no real Cloudflare route/DNS/cache mutation",
+      "REQ-029 no legacy production refs in active config",
+      "REQ-030 explicit develop/ship boundary classification"
+    ],
+    "out_of_scope": [
+      "wrangler deploy / wrangler d1 --remote / wrangler secret put/delete",
+      "real Cloudflare route / DNS / cache mutation",
+      "TheIWise content migration",
+      "OpenAI calls / full AI content generation",
+      "public final facelift templates beyond Phase 3/3R",
+      "R2 actual upload path (production_pending per T9.AC3)",
+      "live cms.kodigital.app verification (production_pending; /a2z-ship work)"
+    ]
+  },
+  "risk": {
+    "production_data_risk": false,
+    "auth_required": [],
+    "mutating_actions": [
+      "local D1 INSERT/UPDATE on kodigital-cms-local",
+      "local R2 fake binding INSERT (dry-run)",
+      "filesystem writes to api/test-results/ during Playwright runs",
+      "openspec/changes/<cid>/quality-gauntlet/ artifact creation"
+    ]
+  },
+  "infra_prerequisites": [
+    {
+      "name": "local D1 kodigital-cms-local binding present",
+      "verification_command": "cd api && grep -n 'kodigital-cms-local' wrangler.toml",
+      "owner": "agent"
+    },
+    {
+      "name": "local Worker running on http://127.0.0.1:8787 (wrangler dev) for Playwright + curl tests",
+      "verification_command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/_health || echo 'wrangler dev required'",
+      "owner": "agent"
+    },
+    {
+      "name": "Playwright browsers installed",
+      "verification_command": "cd api && npx playwright --version",
+      "owner": "agent"
+    },
+    {
+      "name": "ADMIN_HOST env var set to cms.kodigital.app in [vars]",
+      "verification_command": "cd api && grep -n 'ADMIN_HOST' wrangler.toml",
+      "owner": "agent"
+    },
+    {
+      "name": "SITE_PROVISIONING_DRY_RUN env var set to 'true' in [vars]",
+      "verification_command": "cd api && grep -n 'SITE_PROVISIONING_DRY_RUN' wrangler.toml",
+      "owner": "agent"
+    }
+  ],
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Apply migration 0007 locally and prove per-site slug UNIQUE replaces legacy global slug UNIQUE",
+      "category": "db",
+      "target_files": [
+        "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+        "api/package.json"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T1.AC1",
+          "type": "exit_code",
+          "criterion": "cd api && npm run db:migrate:local returns exit 0 (all 7 migrations apply)",
+          "command": "cd api && npm run db:migrate:local",
+          "expected": 0
+        },
+        {
+          "id": "T1.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN local D1 with migrations 0001-0007 applied, WHEN we query sqlite_master for index 'idx_articles_site_slug_unique', THEN exactly 1 row returned and 0 rows for legacy 'idx_articles_slug_global'.",
+          "command": "cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"SELECT name FROM sqlite_master WHERE type='index' AND name='idx_articles_site_slug_unique';\"",
+          "expected": {
+            "jsonpath": "$.results[0].name",
+            "value": "idx_articles_site_slug_unique"
+          }
+        },
+        {
+          "id": "T1.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN two sites A and B exist, WHEN we INSERT an article with slug='about' for site A then slug='about' for site B, THEN both inserts succeed (no UNIQUE violation across sites); WHEN we INSERT a second slug='about' for site A, THEN UNIQUE violation is raised.",
+          "command": "cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"PRAGMA index_list('articles');\"",
+          "expected": {
+            "jsonpath": "$.results[?(@.name=='idx_articles_slug_global')]",
+            "value": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Wire api/src/admin/data.ts query wrappers into api/src/admin/ui.ts route handlers so every admin page renders live data, not empty arrays",
+      "category": "api",
+      "target_files": [
+        "api/src/admin/ui.ts",
+        "api/src/admin/data.ts",
+        "api/test/admin-data-wiring.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T2.AC1",
+          "type": "functional",
+          "criterion": "FUNCTIONAL: api/test/admin-data-wiring.test.ts file exists and contains >=9 vitest test cases (one per admin route: dashboard, domains, articles, pages, categories, tags, media, settings, presets) each asserting the renderer received non-empty data from data.ts.",
+          "command": "cd api && npx vitest run test/admin-data-wiring.test.ts",
+          "expected": 0
+        },
+        {
+          "id": "T2.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN local D1 has at least 1 site and 1 article seeded, WHEN GET /admin/articles is requested, THEN the rendered HTML body contains an articles table row (not an 'empty-state' div) AND the data.ts:listArticlesForSite wrapper was called with the resolved site_id.",
+          "command": "cd api && npx vitest run -t \"admin ui handlers pass real data to templates\"",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Verify WARN-FIX-3 site_name->name migration shipped in domains template + sites-handler and re-execute domains-create-site spec",
+      "category": "ui",
+      "target_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/sites-handlers.ts",
+        "api/test-ui/domains-create-site.spec.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T3.AC1",
+          "type": "functional",
+          "criterion": "FUNCTIONAL: api/test-ui/domains-create-site.spec.ts file exists and contains a test step that fills input#name (not input#site_name).",
+          "command": "cd api && npx vitest run test-ui/domains-create-site.spec.ts",
+          "expected": 0
+        },
+        {
+          "id": "T3.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN /admin/domains is open in a browser, WHEN the user clicks 'New Site' and submits the form with name='Demo Site' / domain='demo-acme.example' / vertical_id=1 / activity_id=1, THEN the POST /api/admin/sites network request body parses as JSON containing the literal key 'name' (NOT 'site_name'), THE response is 201 with a JSON body containing site_id, AND the Domains table immediately re-renders with the new row.",
+          "command": "cd api && npx vitest run -t \"new site modal POSTs name field to /api/admin/sites\"",
+          "expected": 0
+        },
+        {
+          "id": "T3.AC3",
+          "type": "grep",
+          "criterion": "grep -n 'id=\"name\"' api/src/admin/templates/domains.ts returns >= 1 matching line",
+          "command": "cd api && grep -n 'id=\"name\"' src/admin/templates/domains.ts",
+          "expected": {
+            "min_lines": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Execute the 15-step provisioning runner against local D1 and prove every persistence side-effect plus idempotent rerun",
+      "category": "script",
+      "target_files": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/legal-renderer.ts",
+        "api/test/provisioning-runner.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T4.AC1",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN a newly created sites row, WHEN the test invokes POST /provision/next 15 times, THEN site_creation_jobs has 1 row and site_creation_job_steps has 15 rows all with status='completed'; AND when the test invokes POST /provision/next a 16th time, THEN no new step rows are inserted (idempotent).",
+          "command": "cd api && npx vitest run -t \"provisioning runner completes all 15 steps idempotently\"",
+          "expected": 0
+        },
+        {
+          "id": "T4.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN provisioning completed for site X, WHEN we query site_creation_job_steps for the latest job, THEN COUNT(*) = 15.",
+          "command": "cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"SELECT COUNT(*) AS c FROM site_creation_job_steps WHERE site_creation_job_id = (SELECT id FROM site_creation_jobs ORDER BY id DESC LIMIT 1);\"",
+          "expected": {
+            "jsonpath": "$.results[0].c",
+            "value": 15
+          }
+        },
+        {
+          "id": "T4.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN provisioning completed for site X (REQ-020), WHEN we query pages WHERE page_type='about' AND site_id=X, THEN COUNT(*) = 1.",
+          "command": "cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"SELECT COUNT(*) AS c FROM pages WHERE page_type='about' AND site_id = (SELECT id FROM sites ORDER BY id DESC LIMIT 1);\"",
+          "expected": {
+            "jsonpath": "$.results[0].c",
+            "value": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Re-execute PATCH /api/admin/articles/:id contract tests covering tenant boundary, per-site slug uniqueness, category vertical validation, and allow-list field gating",
+      "category": "api",
+      "target_files": [
+        "api/src/admin/api.ts",
+        "api/src/site/tenant-guards.ts",
+        "api/test/admin-articles-post-site-id.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T5.AC1",
+          "type": "functional",
+          "criterion": "FUNCTIONAL: api/test/admin-articles-post-site-id.test.ts contains >= 4 vitest cases (tenant boundary 403, slug duplicate 409, category vertical mismatch 422, allow-list field gating).",
+          "command": "cd api && npx vitest run test/admin-articles-post-site-id.test.ts",
+          "expected": 0
+        },
+        {
+          "id": "T5.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN site A owns article id=10 and site B is the caller, WHEN PATCH /api/admin/articles/10 is invoked under site B's resolved scope, THEN response status is 403 AND body contains tenant_violation field.",
+          "command": "cd api && npx vitest run -t \"PATCH /api/admin/articles/:id rejects cross-site mutation with 403\"",
+          "expected": 0
+        },
+        {
+          "id": "T5.AC3",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN article slug='foo' exists for site A, WHEN PATCH /api/admin/articles/<other-A-article> attempts to set slug='foo', THEN response status is 409.",
+          "command": "cd api && npx vitest run -t \"PATCH /api/admin/articles/:id returns 409 on per-site duplicate slug\"",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Verify Pages template renders site_id filter + page_type filter (especially page_type='about') and About editor inserts the correct pages row",
+      "category": "ui",
+      "target_files": [
+        "api/src/admin/templates/pages.ts",
+        "api/src/admin/data.ts",
+        "api/test/pages-template.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T6.AC1",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN /admin/pages is rendered, WHEN we inspect the rendered HTML, THEN there is a select[name=site_id] AND a select[name=page_type] with option value='about'.",
+          "command": "cd api && npx vitest run -t \"pages template renders site_id filter and page_type filter\"",
+          "expected": 0
+        },
+        {
+          "id": "T6.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN a site exists with no pages, WHEN provisioning runs for that site, THEN exactly 1 pages row with page_type='about' exists for that site_id.",
+          "command": "cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"SELECT page_type FROM pages WHERE page_type='about' LIMIT 1;\"",
+          "expected": {
+            "jsonpath": "$.results[0].page_type",
+            "value": "about"
+          }
+        }
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Add or verify POST /api/admin/categories with multi-vertical allocation writing category_verticals rows",
+      "category": "api",
+      "target_files": [
+        "api/src/admin/api.ts",
+        "api/src/admin/data.ts",
+        "api/test/category-multi-vertical.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T7.AC1",
+          "type": "functional",
+          "criterion": "FUNCTIONAL: api/test/category-multi-vertical.test.ts asserts POST body { site_id, name, slug, vertical_ids: [1,2,3] } causes exactly 3 category_verticals rows to be inserted.",
+          "command": "cd api && npx vitest run test/category-multi-vertical.test.ts",
+          "expected": 0
+        },
+        {
+          "id": "T7.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN site X has allowed_verticals=[1,2,3], WHEN POST /api/admin/categories with vertical_ids=[1,4] is invoked, THEN response status is 422 and zero category_verticals rows are inserted (validate vertical IDs match site's allowed set).",
+          "command": "cd api && npx vitest run -t \"POST /api/admin/categories writes category_verticals rows\"",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Verify PATCH /api/admin/settings bumps site_settings.settings_version and is strictly site-scoped (no global update)",
+      "category": "api",
+      "target_files": [
+        "api/src/admin/sites-handlers.ts",
+        "api/test/admin-settings.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T8.AC1",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN site_settings row for site X has settings_version=N, WHEN PATCH /api/admin/settings with site_id=X and any setting change is invoked, THEN site_settings.settings_version for site X = N+1 AND site_settings rows for site Y are unchanged.",
+          "command": "cd api && npx vitest run -t \"PATCH /api/admin/settings increments settings_version\"",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Verify R2 binding MEDIA in wrangler.toml + add 1 dry-run test for site-scoped Media filter (R2 actual upload = production_pending)",
+      "category": "config",
+      "target_files": [
+        "api/wrangler.toml",
+        "api/src/admin/data.ts",
+        "api/test/media-filter.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T9.AC1",
+          "type": "grep",
+          "criterion": "grep -n 'binding = \"MEDIA\"' api/wrangler.toml returns >= 1 matching line",
+          "command": "cd api && grep -n 'binding = \"MEDIA\"' wrangler.toml",
+          "expected": {
+            "min_lines": 1
+          }
+        },
+        {
+          "id": "T9.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN media rows exist for site X (3) and site_id=null (2 global), WHEN data.ts:listMediaForSite(X) is called, THEN it returns 5 rows (3 site + 2 global).",
+          "command": "cd api && npx vitest run -t \"media filter returns site-scoped and global media\"",
+          "expected": 0
+        },
+        {
+          "id": "T9.AC3",
+          "type": "functional",
+          "criterion": "FUNCTIONAL: R2 upload itself is production_pending (test_contract binding T9.AC3 = deferred_production_pending with reason)."
+        }
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Verify WARN-FIX-4 site_id->site field-name migration in tags + media template select inputs and site-aware filters operate",
+      "category": "ui",
+      "target_files": [
+        "api/src/admin/templates/tags.ts",
+        "api/src/admin/templates/media.ts",
+        "api/test/tags-media-filter.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T10.AC1",
+          "type": "grep",
+          "criterion": "grep -n 'name=\"site_id\"' api/src/admin/templates/tags.ts returns >= 1 matching line",
+          "command": "cd api && grep -n 'name=\"site_id\"' src/admin/templates/tags.ts",
+          "expected": {
+            "min_lines": 1
+          }
+        },
+        {
+          "id": "T10.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN tags exist for site A (3) and site B (2), WHEN GET /api/admin/tags?site_id=A is called, THEN exactly 3 tag rows are returned.",
+          "command": "cd api && npx vitest run -t \"tags filter applies site_id filter to query\"",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Execute tenant-guards unit + integration tests proving assertTenantBoundary / assertSlugUniquePerSite / validateCategoryForSite / resolvePageScope are path-traced through PATCH /api/admin/articles/:id",
+      "category": "api",
+      "target_files": [
+        "api/src/site/tenant-guards.ts",
+        "api/src/site/site-context.ts",
+        "api/test/tenant-guards.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T11.AC1",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN caller scope = site A, WHEN assertTenantBoundary(row.site_id=B) is invoked, THEN it throws TenantViolation; AND PATCH /api/admin/articles/<B-article> response is 403.",
+          "command": "cd api && npx vitest run -t \"assertTenantBoundary throws when site_id mismatches caller scope\"",
+          "expected": 0
+        },
+        {
+          "id": "T11.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN article slug='foo' exists for site A, WHEN assertSlugUniquePerSite(site_id=A, slug='foo') is invoked, THEN it throws SlugConflict 409.",
+          "command": "cd api && npx vitest run -t \"assertSlugUniquePerSite returns 409 on duplicate slug within site\"",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Add fetch interceptor test proving zero outbound api.cloudflare.com requests during dry-run provisioning + cache_purge_log dry-run row written",
+      "category": "script",
+      "target_files": [
+        "api/src/site-provisioning/cloudflare-interfaces.ts",
+        "api/test/provisioning-no-outbound.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T12.AC1",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN SITE_PROVISIONING_DRY_RUN=true and a fetch spy installed, WHEN the 15-step runner executes, THEN zero fetch calls targeted api.cloudflare.com.",
+          "command": "cd api && npx vitest run -t \"provisioning runner does not call api.cloudflare.com when SITE_PROVISIONING_DRY_RUN=true\"",
+          "expected": 0
+        },
+        {
+          "id": "T12.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN dry-run provisioning completes, WHEN we query cache_purge_log WHERE dry_run=1, THEN COUNT(*) >= 1.",
+          "command": "cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"SELECT COUNT(*) AS c FROM cache_purge_log WHERE dry_run = 1;\"",
+          "expected": {
+            "jsonpath": "$.results[0].c",
+            "comparator": ">=",
+            "value": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Execute admin-routing-security spec against local server + Host header asserting off-admin-host /admin returns 404 + no-store + noindex/nofollow + no leak",
+      "category": "infra",
+      "target_files": [
+        "api/src/admin/router.ts",
+        "api/test-ui/admin-routing-security.spec.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T13.AC1",
+          "type": "functional",
+          "criterion": "FUNCTIONAL: api/test-ui/admin-routing-security.spec.ts file exists and the test runs to completion with PASS status (Playwright reporter).",
+          "command": "cd api && npx vitest run test-ui/admin-routing-security.spec.ts",
+          "expected": 0
+        },
+        {
+          "id": "T13.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN wrangler dev running on http://127.0.0.1:8787 with ADMIN_HOST=cms.kodigital.app, WHEN curl -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin is invoked, THEN HTTP status = 404, response header Cache-Control = 'no-store', response header X-Robots-Tag = 'noindex, nofollow', AND response body MUST NOT contain the literal string 'cms.kodigital.app'.",
+          "command": "curl -sS -o /dev/null -w '%{http_code} %{header_cache-control} %{header_x-robots-tag}\\n' -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin",
+          "expected": {
+            "status_code": 404,
+            "headers": {
+              "Cache-Control": "no-store",
+              "X-Robots-Tag": "noindex, nofollow"
+            },
+            "body_must_not_contain": "cms.kodigital.app"
+          }
+        }
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "Run no-legacy-prod-refs + verify:infra + verify:worker-config and assert all exit 0",
+      "category": "config",
+      "target_files": [
+        "api/package.json",
+        "api/wrangler.toml",
+        "api/scripts/"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T14.AC1",
+          "type": "exit_code",
+          "criterion": "cd api && npm run verify:no-legacy-prod-refs exits 0",
+          "command": "cd api && npm run verify:no-legacy-prod-refs",
+          "expected": 0
+        },
+        {
+          "id": "T14.AC2",
+          "type": "exit_code",
+          "criterion": "cd api && npm run verify:infra exits 0",
+          "command": "cd api && npm run verify:infra",
+          "expected": 0
+        },
+        {
+          "id": "T14.AC3",
+          "type": "exit_code",
+          "criterion": "cd api && npm run verify:worker-config exits 0",
+          "command": "cd api && npm run verify:worker-config",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "Execute FULL Playwright suite (admin-ux-parity, domains-create-site, admin-routing-security) against local Worker and produce api/test-results/ with HTML report",
+      "category": "ui",
+      "target_files": [
+        "api/test-ui/admin-ux-parity.spec.ts",
+        "api/test-ui/domains-create-site.spec.ts",
+        "api/test-ui/admin-routing-security.spec.ts",
+        "api/playwright.config.ts",
+        "api/test-results/index.html"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T15.AC1",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN local Worker running on http://127.0.0.1:8787, WHEN admin-ux-parity.spec.ts runs against /admin (Host: cms.kodigital.app), THEN every one of the 9 admin routes (dashboard, domains, articles, pages, categories, tags, media, settings, presets) renders an HTML document containing classes admin-layout AND admin-sidebar AND sidebar-nav with >= 9 nav-item elements AND visible brand text matches /KoDigital CMS|Homepage CMS/ AND does NOT contain 'TheIWise' or 'Phase 1 admin shell' or 'Psychic Quiz'.",
+          "command": "cd api && npx vitest run test-ui/admin-ux-parity.spec.ts",
+          "expected": 0
+        },
+        {
+          "id": "T15.AC2",
+          "type": "behavioral",
+          "criterion": "BEHAVIORAL: GIVEN all three Playwright specs are in api/test-ui, WHEN cd api && npx playwright test runs to completion, THEN Playwright exit code is 0 AND api/test-results/index.html exists.",
+          "command": "cd api && npx playwright test --reporter=html",
+          "expected": 0
+        },
+        {
+          "id": "T15.AC3",
+          "type": "exit_code",
+          "criterion": "ls api/test-results/index.html exits 0 (HTML report file present after Playwright run)",
+          "command": "ls api/test-results/index.html",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Author the 6 mission-specific Q1-Q4 artifacts (mission_goal_trace, source_context_pack, live_domain_routability, wire_protocol_parity, manualqa_goal_coverage, reviewer_artifact_diff_plan) under openspec/changes/<cid>/quality-gauntlet/",
+      "category": "config",
+      "target_files": [
+        "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/mission_goal_trace.json",
+        "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/source_context_pack.json",
+        "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/live_domain_routability.json",
+        "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/wire_protocol_parity.json",
+        "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/manualqa_goal_coverage.json",
+        "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/reviewer_artifact_diff_plan.json"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T16.AC1",
+          "type": "exit_code",
+          "criterion": "mission_goal_trace.json exists with 1 row per REQ-001..030 (30 rows)",
+          "command": "test -f openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/mission_goal_trace.json",
+          "expected": 0
+        },
+        {
+          "id": "T16.AC2",
+          "type": "exit_code",
+          "criterion": "source_context_pack.json exists",
+          "command": "test -f openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/source_context_pack.json",
+          "expected": 0
+        },
+        {
+          "id": "T16.AC3",
+          "type": "exit_code",
+          "criterion": "live_domain_routability.json exists and declares cms.kodigital.app = production_pending; develop_target = local",
+          "command": "test -f openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/live_domain_routability.json",
+          "expected": 0
+        },
+        {
+          "id": "T16.AC4",
+          "type": "exit_code",
+          "criterion": "wire_protocol_parity.json exists and contains rows for: New Site modal->POST/sites; provisioning next; PATCH articles; settings PATCH; media/tags filters; pages provisioning; categories vertical allocation",
+          "command": "test -f openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/wire_protocol_parity.json",
+          "expected": 0
+        },
+        {
+          "id": "T16.AC5",
+          "type": "exit_code",
+          "criterion": "manualqa_goal_coverage.json exists and contains rows MQA-1..MQA-16 mapping each to in-scope REQ",
+          "command": "test -f openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/manualqa_goal_coverage.json",
+          "expected": 0
+        },
+        {
+          "id": "T16.AC6",
+          "type": "exit_code",
+          "criterion": "reviewer_artifact_diff_plan.json exists and enumerates artifact diff inputs (screenshots, DOM snapshots, DB query outputs, API traces, Playwright traces, wire_protocol_parity, manualqa_goal_coverage)",
+          "command": "test -f openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/reviewer_artifact_diff_plan.json",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Add D1 migration apply step to deploy.yml before production deploy",
+      "category": "infra",
+      "target_files": [
+        ".github/workflows/deploy.yml"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T17.AC1",
+          "type": "exit_code",
+          "criterion": "deploy.yml deploy-production job invokes wrangler d1 migrations apply for kodigital-homepages-cms-db before wrangler deploy --env production. Honors deploy-safety.md D1-file rule (every migration filename grep-able in deploy.yml).",
+          "command": "grep -q 'wrangler d1 migrations apply kodigital-homepages-cms-db' /Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.github/workflows/deploy.yml",
+          "expected": 0
+        },
+        {
+          "id": "T17.AC2",
+          "type": "exit_code",
+          "criterion": "deploy.yml references migration 0007 by filename (P9 grep anchor; per-migration traceability).",
+          "command": "grep -q '0007_phase3r_drop_global_slug_unique' /Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.github/workflows/deploy.yml",
+          "expected": 0
+        },
+        {
+          "id": "T17.AC3",
+          "type": "exit_code",
+          "criterion": "Ordering: migration apply step appears BEFORE wrangler deploy --env production in the deploy-production job (safety: schema lands before worker that reads it).",
+          "command": "awk '/deploy-production:/{p=1} p && /wrangler d1 migrations apply/{m=NR} p && /wrangler deploy --env production/{d=NR} END{exit (m>0 && d>0 && m<d) ? 0 : 1}' /Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.github/workflows/deploy.yml",
+          "expected": 0
+        }
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "MQA-1",
+      "title": "Admin shell parity: no Phase 1 shell; full legacy layout + classes + KoDigital brand",
+      "why": "REQ-014/015/022 demand legacy-style admin UX with KoDigital brand; prior sessions rendered the Phase 1 placeholder shell. This scenario proves the full legacy layout renders.",
+      "action": "Open http://127.0.0.1:8787/admin (Host: cms.kodigital.app). Inspect DOM for required class set (admin-layout, admin-sidebar, sidebar-nav, admin-main, admin-header, admin-content, stats-grid, stat-card, card, toolbar). Inspect brand text.",
+      "expected": "All required classes present. Brand text matches /KoDigital CMS|Homepage CMS/. No 'Phase 1', 'TheIWise', or 'Psychic Quiz' visible.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T15"
+      ],
+      "linked_ac_ids": [
+        "T15.AC1"
+      ]
+    },
+    {
+      "id": "MQA-2",
+      "title": "Domains tab table + actions + New Site modal visible with full nav",
+      "why": "REQ-003/016 require Domains tab with full nav across every admin page. Prior sessions rendered partial nav or missed Domains UX.",
+      "action": "Open /admin/domains. Count sidebar nav entries. Verify Domains table columns: domain, site, vertical, activity, status, articles, created, last provisioned, actions. Click 'New Site'; verify modal opens.",
+      "expected": "9 sidebar nav entries. Table renders with 9 columns. Modal renders with name/domain/vertical/activity inputs.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T3",
+        "T15"
+      ],
+      "linked_ac_ids": [
+        "T3.AC1",
+        "T15.AC1"
+      ]
+    },
+    {
+      "id": "MQA-3",
+      "title": "New Site browser flow: modal -> POST /api/admin/sites -> row appears -> polling starts",
+      "why": "REQ-004/017/018/019 require real wiring. Prior sessions had stub-only proof. This scenario observes the network request body, response, and UI state update.",
+      "action": "Open /admin/domains. Click New Site. Fill name='Demo Acme', domain='demo-acme.example', vertical=Wellness, activity=Magazine. Click Create. Observe Network tab.",
+      "expected": "POST /api/admin/sites with JSON body containing 'name' key. Response 201 with site_id. Domains table immediately shows new row. Provisioning polling panel appears.",
+      "classification": "MUTATING",
+      "risk_score": 1,
+      "linked_story_ids": [
+        "T3"
+      ],
+      "linked_ac_ids": [
+        "T3.AC2"
+      ]
+    },
+    {
+      "id": "MQA-4",
+      "title": "Provisioning 15-step completion + idempotent rerun",
+      "why": "REQ-005/019 demand resumable deterministic runner.",
+      "action": "Run provisioning-runner.test.ts: invoke POST /provision/next 15 times then a 16th time.",
+      "expected": "site_creation_jobs has 1 row; site_creation_job_steps has 15 rows; 16th call inserts no new rows.",
+      "classification": "MUTATING",
+      "risk_score": 1,
+      "linked_story_ids": [
+        "T4"
+      ],
+      "linked_ac_ids": [
+        "T4.AC1",
+        "T4.AC2"
+      ]
+    },
+    {
+      "id": "MQA-5",
+      "title": "D1 rows created for site/domain/job/steps/settings/about/legal pages/categories",
+      "why": "REQ-001/002/020/026 demand DB-level proof.",
+      "action": "After MQA-3 + MQA-4, query D1 for each table.",
+      "expected": "sites:1, domains:1, site_creation_jobs:1, site_creation_job_steps:15, site_settings:12, pages WHERE page_type='about':1, pages WHERE page_type='legal':>=2, site_categories:>=1.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T1",
+        "T4",
+        "T6"
+      ],
+      "linked_ac_ids": [
+        "T4.AC2",
+        "T4.AC3",
+        "T6.AC2"
+      ]
+    },
+    {
+      "id": "MQA-6",
+      "title": "Articles site-required editor + tenant boundary 403",
+      "why": "REQ-006/021 demand site-aware articles + tenant guard.",
+      "action": "PATCH /api/admin/articles/:id under wrong site_id scope.",
+      "expected": "Response 403 + tenant_violation in body.",
+      "classification": "MUTATING",
+      "risk_score": 1,
+      "linked_story_ids": [
+        "T5"
+      ],
+      "linked_ac_ids": [
+        "T5.AC2"
+      ]
+    },
+    {
+      "id": "MQA-7",
+      "title": "Pages / About site-aware behavior",
+      "why": "REQ-007/020 demand About page provisioning + site_id filter.",
+      "action": "Open /admin/pages. Inspect filter inputs. Run provisioning. Query DB.",
+      "expected": "select[name=site_id] + select[name=page_type] with option=about. After provisioning, pages WHERE page_type='about' AND site_id=X count = 1.",
+      "classification": "MUTATING",
+      "risk_score": 1,
+      "linked_story_ids": [
+        "T6"
+      ],
+      "linked_ac_ids": [
+        "T6.AC1",
+        "T6.AC2"
+      ]
+    },
+    {
+      "id": "MQA-8",
+      "title": "Categories multi-vertical allocation",
+      "why": "REQ-008 demands category_verticals rows per allocation.",
+      "action": "POST /api/admin/categories with vertical_ids=[1,2,3].",
+      "expected": "3 category_verticals rows. Mismatched vertical IDs -> 422.",
+      "classification": "MUTATING",
+      "risk_score": 1,
+      "linked_story_ids": [
+        "T7"
+      ],
+      "linked_ac_ids": [
+        "T7.AC1",
+        "T7.AC2"
+      ]
+    },
+    {
+      "id": "MQA-9",
+      "title": "Settings site-scoped save + version bump",
+      "why": "REQ-009 demands settings_version bump per site.",
+      "action": "PATCH /api/admin/settings with site_id=X. Re-query site_settings.",
+      "expected": "site X settings_version = previous + 1; site Y unchanged.",
+      "classification": "MUTATING",
+      "risk_score": 1,
+      "linked_story_ids": [
+        "T8"
+      ],
+      "linked_ac_ids": [
+        "T8.AC1"
+      ]
+    },
+    {
+      "id": "MQA-10",
+      "title": "Media / Tags site/global filters",
+      "why": "REQ-010/011 demand site-aware Media + Tags filters that distinguish site-scoped rows from globally-shared rows; prior sessions had placeholder list endpoints with no real filtering.",
+      "action": "GET /api/admin/media?site_id=X and GET /api/admin/tags?site_id=X.",
+      "expected": "Media returns site+global rows; Tags returns site rows only.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T9",
+        "T10"
+      ],
+      "linked_ac_ids": [
+        "T9.AC2",
+        "T10.AC2"
+      ]
+    },
+    {
+      "id": "MQA-11",
+      "title": "Cloudflare dry-run: no outbound api.cloudflare.com",
+      "why": "REQ-013/028 demand zero real Cloudflare mutation.",
+      "action": "Run provisioning with fetch interceptor.",
+      "expected": "0 fetch calls to api.cloudflare.com; cache_purge_log dry_run=1 row written.",
+      "classification": "MUTATING",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T12"
+      ],
+      "linked_ac_ids": [
+        "T12.AC1",
+        "T12.AC2"
+      ]
+    },
+    {
+      "id": "MQA-12",
+      "title": "Public-domain /admin 404 + no-store + noindex/nofollow + no cms.kodigital.app leak",
+      "why": "REQ-024 demands off-admin-host hardening.",
+      "action": "curl -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin.",
+      "expected": "HTTP 404; Cache-Control: no-store; X-Robots-Tag: noindex, nofollow; body has no 'cms.kodigital.app' literal.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T13"
+      ],
+      "linked_ac_ids": [
+        "T13.AC2"
+      ]
+    },
+    {
+      "id": "MQA-13",
+      "title": "Protected-domain rejection at POST /api/admin/sites",
+      "why": "REQ-025 demands TheIWise + protected domains rejected.",
+      "action": "POST /api/admin/sites with domain='theiwise.com'.",
+      "expected": "HTTP 400 with protected_domain_rejected reason; zero sites/domains rows inserted.",
+      "classification": "MUTATING",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T11"
+      ],
+      "linked_ac_ids": [
+        "T11.AC1"
+      ]
+    },
+    {
+      "id": "MQA-14",
+      "title": "No legacy production refs in active config",
+      "why": "REQ-029 demands an active config that contains zero references to legacy production identifiers (TheIWise hosts, the legacy a2z-cf-cms-v1 worker/db, the 44c73f76 UUID, or psychic-quiz funnel).",
+      "action": "Run npm run verify:no-legacy-prod-refs.",
+      "expected": "Exit 0. Zero matches for theiwise.com / a2z-cf-cms-v1-api / 44c73f76-6ed5-4b26-b442-6c2044326c4d / psychic-quiz in active config.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T14"
+      ],
+      "linked_ac_ids": [
+        "T14.AC1"
+      ]
+    },
+    {
+      "id": "MQA-15",
+      "title": "Live-domain status explicitly production_pending",
+      "why": "REQ-030 demands explicit develop/ship boundary.",
+      "action": "Inspect quality-gauntlet/live_domain_routability.json.",
+      "expected": "live cms.kodigital.app classification = production_pending; develop_target = local.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T16"
+      ],
+      "linked_ac_ids": [
+        "T16.AC3"
+      ]
+    },
+    {
+      "id": "MQA-16",
+      "title": "R2 / media proof or explicit production_pending classification",
+      "why": "REQ-027 demands R2 dry-run binding proof OR explicit production_pending.",
+      "action": "grep MEDIA binding in wrangler.toml; verify T9.AC3 classification.",
+      "expected": "MEDIA binding present in wrangler.toml; R2 upload classified production_pending in test_contract T9.AC3.",
+      "classification": "READ_ONLY",
+      "risk_score": 0,
+      "linked_story_ids": [
+        "T9"
+      ],
+      "linked_ac_ids": [
+        "T9.AC1",
+        "T9.AC3"
+      ]
+    }
+  ]
+}

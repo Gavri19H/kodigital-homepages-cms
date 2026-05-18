@@ -1,0 +1,63 @@
+{
+  "contract_version": "1.0.0",
+  "round": 1,
+  "timestamp": "2026-05-18T19:36:07Z",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "findings": [
+    {
+      "severity": "MAJOR",
+      "roast_type": "ship_post_manualqa_observation_protected_domain_gap",
+      "description": "MQA-13 WARNING: kodigital.app domain accepted as POST /api/admin/sites payload despite protected designation. Created leftover prod site st_45b9663541e94454. Adjacent to T11.AC1 (theiwise.com) which DID reject. Not a contract violation but a protected-domain list gap.",
+      "evidence": "manualqa_batch_result.json scenario MQA-13 metadata.revert_plan",
+      "status": "accepted_non_blocking",
+      "blocks_exit": false
+    },
+    {
+      "severity": "MAJOR",
+      "roast_type": "ship_post_manualqa_observation_workflow_dispatch_only_prod_deploy",
+      "description": "PR #18 push-event triggered CI + tests + staging deploy ONLY. Production deploy is workflow_dispatch only. Initial Batch 1 manualQA FAILed MQA-7/8/10 because production was still serving PR #16 code from 2026-05-13. User triggered workflow_dispatch at 18:55:47Z; deploy completed 18:57:09Z. Batch 1 retry then PASS all 5. Lesson: ship conductor must trigger or surface workflow_dispatch deploy explicitly.",
+      "evidence": "gh run list --workflow=deploy.yml; deploy run 26053926460 conclusion=success at 18:57:09Z",
+      "status": "accepted_non_blocking",
+      "blocks_exit": false
+    },
+    {
+      "severity": "MINOR",
+      "roast_type": "ship_post_manualqa_observation_d1_migrations_apply_first_time",
+      "description": "T17 / RC-044 / RC-046 (D1 migrations apply step in deploy.yml) was applied to production D1 for the first time during the 18:57 deploy. Step completed in 1.5s.",
+      "evidence": "gh run view 26053926460 step Apply D1 migrations 18:57:01-18:57:03 success",
+      "status": "resolved",
+      "blocks_exit": false
+    },
+    {
+      "severity": "MINOR",
+      "roast_type": "ship_post_manualqa_observation_mutations_left_in_prod",
+      "description": "Test mutations left in prod: site st_fd30908d371246d0, site st_0ec6826086354ea3 (prior cycle), site st_45b9663541e94454 (kodigital.app from MQA-13 gap), category_id=8.",
+      "evidence": "manualqa_batch_result.json scenarios MQA-3,5,8,13",
+      "status": "accepted_non_blocking",
+      "blocks_exit": false
+    }
+  ],
+  "per_story_ratings": [
+    {
+      "id": "MQAFIX-1",
+      "rating": "FIXED"
+    },
+    {
+      "id": "MQAFIX-2",
+      "rating": "FIXED"
+    },
+    {
+      "id": "MQAFIX-3",
+      "rating": "FIXED"
+    },
+    {
+      "id": "MQAFIX-4",
+      "rating": "FIXED"
+    },
+    {
+      "id": "MQAFIX-5",
+      "rating": "FIXED"
+    }
+  ],
+  "convergence": true
+}
