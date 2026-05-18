@@ -28,7 +28,7 @@ test('admin domains -- + New Site modal fill+submit observes POST /api/admin/sit
   // 1) Navigate to /admin/domains and confirm the admin shell renders.
   const response = await page.goto('/admin/domains', { waitUntil: 'domcontentloaded' });
   expect(response, 'navigation to /admin/domains returned no response').not.toBeNull();
-  expect(response!.status(), 'unexpected HTTP status for /admin/domains').toBe(200);
+  if (response) expect(response.status(), 'unexpected HTTP status for /admin/domains').toBe(200);
 
   const initialHtml = await page.content();
   expect(initialHtml, '/admin/domains still leaks the legacy Phase 1 admin shell').not.toContain('Phase 1 admin shell');
