@@ -24,7 +24,7 @@
         "AC2: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT count(*) FROM pages WHERE page_type='legal'\" >= 2",
         "AC3: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT count(*) FROM site_categories\" >= 1",
         "AC4: BEHAVIORAL: POST /api/admin/sites against production (with CF Access service token) creates a site whose provisioning runner reaches step 15 of 15 within 60 seconds; 16th call is idempotent (no new step row)",
-        "AC5: FUNCTIONAL: identify the diverging code path between dry-run and live (categories + legal seed) \u2014 single non-dry-run branch executes all seed steps"
+        "AC5: FUNCTIONAL: identify the diverging code path between dry-run and live (categories + legal seed) — single non-dry-run branch executes all seed steps"
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
@@ -35,10 +35,10 @@
     },
     {
       "id": "RX2",
-      "title": "Register POST /api/admin/categories endpoint handler (multi-vertical) \u2014 wire contract missing",
+      "title": "Register POST /api/admin/categories endpoint handler (multi-vertical) — wire contract missing",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-2"
       ],
@@ -79,7 +79,7 @@
         "AC1: grep -nE 'WHERE.*site_id|where.*site_id' api/src/admin/api.ts -- lines 201-213 (or equivalent media/tags list handler block) MUST contain WHERE site_id bind expression",
         "AC2: BEHAVIORAL test: seed media rows for site_A AND site_B AND a global (site_id IS NULL). GET /api/admin/media?site_id=<A> returns ONLY site_A + global rows (NOT site_B). GET /api/admin/tags?site_id=<A> returns ONLY site_A rows (NOT global, NOT site_B).",
         "AC3: cd api && npx vitest run test/admin-media-site-filter test/admin-tags-site-filter -- exit 0",
-        "AC4: FUNCTIONAL: confirm no SQL injection vector \u2014 site_id MUST be bound via .bind(siteId), NOT template-literal-interpolated (per .claude/rules/d1-database-safety.md)"
+        "AC4: FUNCTIONAL: confirm no SQL injection vector — site_id MUST be bound via .bind(siteId), NOT template-literal-interpolated (per .claude/rules/d1-database-safety.md)"
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
@@ -104,7 +104,7 @@
       "acceptanceCriteria": [
         "AC1: grep -nE 'name=\"site_id\"' api/src/admin/templates/pages.ts | wc -l >= 1",
         "AC2: grep -nE 'name=\"site\"' api/src/admin/templates/pages.ts | wc -l == 0 (avoid double-rendering)",
-        "AC3: BEHAVIORAL: GET /admin/pages \u2192 HTML response body contains literal substring '<select' AND 'name=\"site_id\"' together (regex test)",
+        "AC3: BEHAVIORAL: GET /admin/pages → HTML response body contains literal substring '<select' AND 'name=\"site_id\"' together (regex test)",
         "AC4: Decide canonical: delete views/pages.ts if dead OR keep + document why two templates exist"
       ],
       "scoped_quality_commands": [],
