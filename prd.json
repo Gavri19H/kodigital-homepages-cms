@@ -226,7 +226,7 @@
         "cd api && npm run verify:worker-config exits 0"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T15",

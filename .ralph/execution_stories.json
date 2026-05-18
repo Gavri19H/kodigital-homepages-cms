@@ -334,8 +334,8 @@
       "id": "T14",
       "title": "Run no-legacy-prod-refs + verify:infra + verify:worker-config and assert all exit 0",
       "category": "config",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14"
       ],
