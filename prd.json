@@ -84,7 +84,7 @@
         "BEHAVIORAL: GIVEN article slug='foo' exists for site A, WHEN PATCH /api/admin/articles/<other-A-article> attempts to set slug='foo', THEN response status is 409."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T6",
@@ -100,7 +100,7 @@
         "BEHAVIORAL: GIVEN a site exists with no pages, WHEN provisioning runs for that site, THEN exactly 1 pages row with page_type='about' exists for that site_id."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T7",
@@ -147,7 +147,7 @@
         "FUNCTIONAL: R2 upload itself is production_pending (test_contract binding T9.AC3 = deferred_production_pending with reason)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T10",
@@ -163,7 +163,7 @@
         "BEHAVIORAL: GIVEN tags exist for site A (3) and site B (2), WHEN GET /api/admin/tags?site_id=A is called, THEN exactly 3 tag rows are returned."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T11",
