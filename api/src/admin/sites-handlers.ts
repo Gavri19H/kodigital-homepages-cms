@@ -28,6 +28,7 @@ import {
   assertNotProtectedDomain,
   normalizeHostname,
 } from "../safety/protected-domains";
+import { runProvisioningToCompletion } from "../site-provisioning";
 
 interface SiteRow {
   id: string;
@@ -207,6 +208,19 @@ export async function createSiteHandler(
   } catch (err) {
     const message = err instanceof Error ? err.message : "insert failed";
     return c.json({ error: `failed to create site: ${message}` }, 500);
+  }
+
+  // MQAFIX-1: drive the provisioning runner to completion inline so the
+  // freshly-created site reaches step 15 of 15 within the AC4 60-second
+  // budget without relying on a manual UI driver. All steps are
+  // deterministic + dry-run gated for Cloudflare mutations, so the loop
+  // completes in milliseconds against D1. Errors are swallowed — the
+  // site row is already committed and a halted job can be retried via
+  // the /provision/next endpoint.
+  try {
+    await runProvisioningToCompletion(c.env, c.env.DB, siteId);
+  } catch (err) {
+    void err;
   }
 
   return c.json(

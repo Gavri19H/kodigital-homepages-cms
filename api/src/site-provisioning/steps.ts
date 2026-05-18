@@ -231,14 +231,90 @@ async function renderLegalPagesStep(
   };
 }
 
+// MQAFIX-1 handler: allocate categories to a freshly-created site based
+// on the site's vertical_slug → category_verticals matrix. Before this
+// fix the step was a deterministic stub that returned `completed`
+// without writing any rows, so production sites had 0 site_categories
+// (REQ-026 unsatisfied). The fix: walk the category_verticals matrix
+// for the site's vertical and INSERT OR IGNORE INTO site_categories
+// (site_id, category_id, display_order). The operation is idempotent
+// under the (site_id, category_id) PRIMARY KEY declared in
+// migration 0002, and the same code path runs in dry-run and live —
+// the step never makes a Cloudflare call, so there is no diverging
+// branch between dry-run and prod.
+async function allocateVerticalCategoriesStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const site = await ctx.db
+    .prepare("SELECT vertical_slug FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ vertical_slug: string | null }>();
+  const slug =
+    site && typeof site.vertical_slug === "string"
+      ? site.vertical_slug
+      : "";
+  if (slug.length === 0) {
+    return {
+      status: "completed",
+      output: JSON.stringify({
+        step: "allocate_vertical_categories",
+        kind: "deterministic_seed",
+        schema_version: 1,
+        allocated: 0,
+        vertical_slug: "",
+        reason: "no_vertical_slug_on_site",
+      }),
+    };
+  }
+  const matrix = await ctx.db
+    .prepare(
+      "SELECT category_verticals.category_id AS category_id, " +
+        "category_verticals.display_order AS display_order " +
+        "FROM category_verticals " +
+        "JOIN verticals ON category_verticals.vertical_id = verticals.id " +
+        "WHERE verticals.slug = ? " +
+        "ORDER BY category_verticals.display_order ASC, " +
+        "category_verticals.category_id ASC",
+    )
+    .bind(slug)
+    .all<{ category_id: number; display_order: number }>();
+  const rows =
+    matrix && Array.isArray(matrix.results) ? matrix.results : [];
+  let allocated = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || typeof r.category_id !== "number") continue;
+    const order =
+      typeof r.display_order === "number" ? r.display_order : i;
+    await ctx.db
+      .prepare(
+        "INSERT OR IGNORE INTO site_categories " +
+          "(site_id, category_id, display_order) VALUES (?, ?, ?)",
+      )
+      .bind(ctx.site_id, r.category_id, order)
+      .run();
+    allocated += 1;
+  }
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "allocate_vertical_categories",
+      kind: "deterministic_seed",
+      schema_version: 1,
+      allocated,
+      vertical_slug: slug,
+      total_matrix_rows: rows.length,
+    }),
+  };
+}
+
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: async () =>
     stubResult("validate_domain_in_cloudflare"),
   create_site_record: async () => stubResult("create_site_record"),
   attach_domain_to_new_worker_or_mark_pending: async () =>
     stubResult("attach_domain_to_new_worker_or_mark_pending"),
-  allocate_vertical_categories: async () =>
-    stubResult("allocate_vertical_categories"),
+  allocate_vertical_categories: allocateVerticalCategoriesStep,
   create_site_settings: seedDefaultSiteSettings,
   generate_tagline_and_site_description_stub: async () =>
     stubResult("generate_tagline_and_site_description_stub"),

@@ -301,22 +301,22 @@
         "AC2: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT count(*) FROM pages WHERE page_type='legal'\" >= 2",
         "AC3: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT count(*) FROM site_categories\" >= 1",
         "AC4: BEHAVIORAL: POST /api/admin/sites against production (with CF Access service token) creates a site whose provisioning runner reaches step 15 of 15 within 60 seconds; 16th call is idempotent (no new step row)",
-        "AC5: FUNCTIONAL: identify the diverging code path between dry-run and live (categories + legal seed) — single non-dry-run branch executes all seed steps"
+        "AC5: FUNCTIONAL: identify the diverging code path between dry-run and live (categories + legal seed) \u2014 single non-dry-run branch executes all seed steps"
       ],
       "verification": "cd api && npm test -- provisioning-runner --reporter=verbose; then wrangler d1 execute --remote SELECT count(*) FROM site_creation_job_steps WHERE site_id=<test site> = 15",
       "rollback": "Revert MQAFIX-1 commits; document gap as PRODUCT_BUG_CONFIRMED in next /a2z-ship cycle.",
       "dependencies": [],
       "severity": "P1",
-      "introduced_by": "T4 / T6 / T7 implementation (provisioning + about/legal pages + categories seed) — local wrangler-dev verified but production data path diverges",
+      "introduced_by": "T4 / T6 / T7 implementation (provisioning + about/legal pages + categories seed) \u2014 local wrangler-dev verified but production data path diverges",
       "source_findings": [
         "RF-001"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "MQAFIX-2",
-      "title": "Register POST /api/admin/categories endpoint handler (multi-vertical) — wire contract missing",
+      "title": "Register POST /api/admin/categories endpoint handler (multi-vertical) \u2014 wire contract missing",
       "category": "api",
       "rootCause": "MQA-8 evidence: live POST /api/admin/categories returns HTTP 404 on both local wrangler dev AND production. grep -L for 'adminApi.post|api.post' against '/categories' returned 0 matches in api/src/. T7.AC2 spec literal calls for the wire contract: 'POST /api/admin/categories with vertical_ids=[1,2,3] writes category_verticals rows.' The canonical T23.AC2 / T7.AC2 form-contract test (api/test/category-multi-vertical.test.ts) PASSES via vitest (1/1, multi-select name=verticals[] + 8 vertical slugs + submit-block guard), but the actual POST handler is not registered. Wire layer absent despite form + test layer met.",
       "targetFiles": [
@@ -346,7 +346,7 @@
       "id": "MQAFIX-3",
       "title": "Media + Tags list handlers must include WHERE site_id clause in SQL",
       "category": "api",
-      "rootCause": "MQA-10 source review: api/src/admin/api.ts:201-213 SELECT statements for media and tags lists do NOT bind site_id into the WHERE clause despite REQ-010/011 calling for site-aware filtering (media returns site + global rows; tags returns site rows only). Endpoints currently respond HTTP 200 with valid schemas (verified) but discrimination is unprovable in production because both tables are empty. Latent bug: when data exists for ≥2 sites, the handlers will leak cross-site rows.",
+      "rootCause": "MQA-10 source review: api/src/admin/api.ts:201-213 SELECT statements for media and tags lists do NOT bind site_id into the WHERE clause despite REQ-010/011 calling for site-aware filtering (media returns site + global rows; tags returns site rows only). Endpoints currently respond HTTP 200 with valid schemas (verified) but discrimination is unprovable in production because both tables are empty. Latent bug: when data exists for \u22652 sites, the handlers will leak cross-site rows.",
       "targetFiles": [
         "api/src/admin/api.ts",
         "api/test/admin-media-site-filter.test.ts",
@@ -356,7 +356,7 @@
         "AC1: grep -nE 'WHERE.*site_id|where.*site_id' api/src/admin/api.ts -- lines 201-213 (or equivalent media/tags list handler block) MUST contain WHERE site_id bind expression",
         "AC2: BEHAVIORAL test: seed media rows for site_A AND site_B AND a global (site_id IS NULL). GET /api/admin/media?site_id=<A> returns ONLY site_A + global rows (NOT site_B). GET /api/admin/tags?site_id=<A> returns ONLY site_A rows (NOT global, NOT site_B).",
         "AC3: cd api && npx vitest run test/admin-media-site-filter test/admin-tags-site-filter -- exit 0",
-        "AC4: FUNCTIONAL: confirm no SQL injection vector — site_id MUST be bound via .bind(siteId), NOT template-literal-interpolated (per .claude/rules/d1-database-safety.md)"
+        "AC4: FUNCTIONAL: confirm no SQL injection vector \u2014 site_id MUST be bound via .bind(siteId), NOT template-literal-interpolated (per .claude/rules/d1-database-safety.md)"
       ],
       "verification": "Seed test data + curl with site_id query param + assert response row counts; SQL audit",
       "rollback": "Remove WHERE site_id clauses (revert to current code).",
@@ -383,14 +383,14 @@
       "acceptanceCriteria": [
         "AC1: grep -nE 'name=\"site_id\"' api/src/admin/templates/pages.ts | wc -l >= 1",
         "AC2: grep -nE 'name=\"site\"' api/src/admin/templates/pages.ts | wc -l == 0 (avoid double-rendering)",
-        "AC3: BEHAVIORAL: GET /admin/pages → HTML response body contains literal substring '<select' AND 'name=\"site_id\"' together (regex test)",
+        "AC3: BEHAVIORAL: GET /admin/pages \u2192 HTML response body contains literal substring '<select' AND 'name=\"site_id\"' together (regex test)",
         "AC4: Decide canonical: delete views/pages.ts if dead OR keep + document why two templates exist"
       ],
       "verification": "Playwright spec admin-ux-parity.spec.ts updated to assert name='site_id' filter input present",
       "rollback": "Revert template change; resurface T6.AC1 spec-literal mismatch.",
       "dependencies": [],
       "severity": "P2",
-      "introduced_by": "WARN-FIX-4 migration target (site_id → site) diverged from the literal spec text in T6.AC1",
+      "introduced_by": "WARN-FIX-4 migration target (site_id \u2192 site) diverged from the literal spec text in T6.AC1",
       "source_findings": [
         "RF-004"
       ],
@@ -401,7 +401,7 @@
       "id": "MQAFIX-5",
       "title": "MQA-3 side fixes: seed verticals on fresh D1 + client polling reads body.resource.id (not body.id)",
       "category": "ui",
-      "rootCause": "Two side defects surfaced during MQA-3 PASS verdict: (a) New Site modal's vertical dropdown renders with 0 <option> elements on fresh local D1 — the GET that populates verticals returns empty rows because the verticals seed migration is not auto-run on fresh local D1 (or the seed is missing); (b) provisioning-polling client code reads body.id (undefined) to construct the poll URL — the actual server response shape is {resource: {id: 'st_xxx', ...}}. The double-undefined leads to poll URL ending in '/provision/status//' → 404. Did not block MQA-3 main verdict because the test sequence pre-populated verticals manually and observed the network POST directly, but UX-wise the flow is broken.",
+      "rootCause": "Two side defects surfaced during MQA-3 PASS verdict: (a) New Site modal's vertical dropdown renders with 0 <option> elements on fresh local D1 \u2014 the GET that populates verticals returns empty rows because the verticals seed migration is not auto-run on fresh local D1 (or the seed is missing); (b) provisioning-polling client code reads body.id (undefined) to construct the poll URL \u2014 the actual server response shape is {resource: {id: 'st_xxx', ...}}. The double-undefined leads to poll URL ending in '/provision/status//' \u2192 404. Did not block MQA-3 main verdict because the test sequence pre-populated verticals manually and observed the network POST directly, but UX-wise the flow is broken.",
       "targetFiles": [
         "api/migrations/",
         "api/src/admin/templates/domains.ts",
@@ -418,7 +418,7 @@
       "rollback": "Revert seed migration + client polling change.",
       "dependencies": [],
       "severity": "P2",
-      "introduced_by": "T3 + T2 implementation — verticals seed not part of base migrations; client/server response shape disagreement",
+      "introduced_by": "T3 + T2 implementation \u2014 verticals seed not part of base migrations; client/server response shape disagreement",
       "source_findings": [
         "RF-005"
       ],

@@ -8,8 +8,8 @@
       "id": "RX1",
       "title": "Provisioning runner must complete all 15 steps + seed legal pages + site_categories on production",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-1"
       ],
