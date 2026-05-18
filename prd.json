@@ -245,7 +245,7 @@
         "ls api/test-results/index.html exits 0 (HTML report file present after Playwright run)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T16",
