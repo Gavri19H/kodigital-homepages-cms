@@ -268,7 +268,7 @@
         "reviewer_artifact_diff_plan.json exists and enumerates artifact diff inputs (screenshots, DOM snapshots, DB query outputs, API traces, Playwright traces, wire_protocol_parity, manualqa_goal_coverage)"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T17",

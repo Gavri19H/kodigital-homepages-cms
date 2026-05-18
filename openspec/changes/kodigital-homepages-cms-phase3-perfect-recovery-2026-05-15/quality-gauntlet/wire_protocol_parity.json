@@ -1,0 +1,216 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "generated_at": "2026-05-18T03:25:00Z",
+  "producer": "ralph_iteration_T16_quality_gauntlet_authoring",
+  "purpose": "Per Q4 — assert wire-protocol parity between UI form field names + JS submit payloads + HTTP request bodies + server handler reads + DB column names for every behavioral surface touched by Phase 3. Each row binds (a) UI form field/input id/name, (b) the wire name on POST/PATCH JSON body, (c) the server handler's body-field read, (d) the DB column it persists into. Verified by the named source files and the named tests.",
+  "rows": [
+    {
+      "row_id": "WPP-001",
+      "surface": "New Site modal -> POST /api/admin/sites",
+      "trigger": "Admin domains page -> 'New Site' button -> submit form",
+      "ui_form_fields": [
+        { "input_id": "name", "input_name": "name", "label": "Site name", "source_file": "api/src/admin/templates/domains.ts" },
+        { "input_id": "domain", "input_name": "domain", "label": "Domain", "source_file": "api/src/admin/templates/domains.ts" },
+        { "input_id": "vertical_id", "input_name": "vertical_id", "label": "Vertical", "source_file": "api/src/admin/templates/domains.ts" },
+        { "input_id": "activity_id", "input_name": "activity_id", "label": "Activity", "source_file": "api/src/admin/templates/domains.ts" }
+      ],
+      "submit_payload_wire_names": ["name", "domain", "vertical_id", "activity_id"],
+      "endpoint": "POST /api/admin/sites",
+      "endpoint_source": "api/src/admin/sites-handlers.ts",
+      "server_body_field_reads": ["name", "domain", "vertical_id", "activity_id"],
+      "db_columns_written": ["sites.name", "sites.domain", "sites.vertical_id", "sites.activity_id"],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT use legacy 'site_name' on the wire (WARN-FIX-3 migration completed in T3)",
+        "MUST NOT use legacy 'site_id' as a DB column for the canonical id (sites.site_id legacy; sites.id is the canonical PK in 0002+)"
+      ],
+      "tests": [
+        { "id": "T3.AC1", "kind": "grep", "command": "grep -n 'id=\"name\"' api/src/admin/templates/domains.ts", "expected": ">= 1 matching line" },
+        { "id": "T3.AC2", "kind": "playwright_behavioral", "spec": "api/test-ui/domains-create-site.spec.ts", "expected": "POST /api/admin/sites request body parses as JSON containing the literal key 'name' (NOT 'site_name'), response is 201 with site_id, and Domains table re-renders with the new row" }
+      ],
+      "manualqa_row": "MQA-3",
+      "evidence_status": "verified_at_develop_target"
+    },
+    {
+      "row_id": "WPP-002",
+      "surface": "Provisioning next-step runner -> POST /provision/next",
+      "trigger": "Internal site-provisioning runner invoked 15 times after a sites row is INSERTed",
+      "ui_form_fields": [],
+      "submit_payload_wire_names": ["site_id"],
+      "endpoint": "POST /provision/next",
+      "endpoint_source": "api/src/site-provisioning/runner.ts",
+      "server_body_field_reads": ["site_id"],
+      "db_columns_written": [
+        "site_creation_jobs.site_id",
+        "site_creation_jobs.status",
+        "site_creation_job_steps.job_id",
+        "site_creation_job_steps.step_index",
+        "site_creation_job_steps.status",
+        "pages.site_id",
+        "pages.page_type",
+        "site_settings.site_id",
+        "site_settings.settings_version",
+        "cache_purge_log.site_id",
+        "cache_purge_log.dry_run"
+      ],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT run a 16th provisioning step (idempotent contract — T4.AC1)",
+        "MUST NOT emit outbound fetch to api.cloudflare.com during SITE_PROVISIONING_DRY_RUN=true (T12.AC1)"
+      ],
+      "tests": [
+        { "id": "T4.AC1", "kind": "vitest_behavioral", "spec": "api/test/provisioning-runner.test.ts", "expected": "POST /provision/next invoked 15 times -> site_creation_jobs has 1 row, site_creation_job_steps has 15 rows all status='completed'; 16th invocation is idempotent (no new rows)" },
+        { "id": "T4.AC2", "kind": "db_query", "expected": "COUNT(*) site_creation_job_steps WHERE job_id=latest = 15" },
+        { "id": "T4.AC3", "kind": "db_query", "expected": "COUNT(*) pages WHERE page_type='about' AND site_id=X = 1" },
+        { "id": "T12.AC1", "kind": "vitest_behavioral", "spec": "api/test/provisioning-no-outbound.test.ts", "expected": "fetch spy receives zero calls targeting api.cloudflare.com during dry-run" },
+        { "id": "T12.AC2", "kind": "db_query", "expected": "COUNT(*) cache_purge_log WHERE dry_run=1 >= 1" }
+      ],
+      "manualqa_row": "MQA-4",
+      "evidence_status": "verified_at_develop_target"
+    },
+    {
+      "row_id": "WPP-003",
+      "surface": "PATCH /api/admin/articles/:id (tenant boundary + per-site slug uniqueness + category vertical validation + allow-list field gating)",
+      "trigger": "Admin articles page -> edit article -> submit",
+      "ui_form_fields": [
+        { "input_id": "title", "input_name": "title", "source_file": "api/src/admin/templates/articles.ts" },
+        { "input_id": "slug", "input_name": "slug", "source_file": "api/src/admin/templates/articles.ts" },
+        { "input_id": "category_id", "input_name": "category_id", "source_file": "api/src/admin/templates/articles.ts" },
+        { "input_id": "content_json", "input_name": "content_json", "source_file": "api/src/admin/templates/articles.ts" },
+        { "input_id": "status", "input_name": "status", "source_file": "api/src/admin/templates/articles.ts" }
+      ],
+      "submit_payload_wire_names": ["site_id", "title", "slug", "category_id", "content_json", "status", "is_featured", "is_trending", "homepage_rank", "homepage_section", "seo_title", "seo_description", "featured_image_id", "author_name", "updates"],
+      "endpoint": "PATCH /api/admin/articles/:id",
+      "endpoint_source": "api/src/admin/api.ts",
+      "server_body_field_reads": ["site_id", "title", "slug", "category_id", "content_json", "status", "is_featured", "is_trending", "homepage_rank", "homepage_section", "seo_title", "seo_description", "featured_image_id", "author_name", "updates"],
+      "db_columns_written": ["articles.title", "articles.slug", "articles.category_id", "articles.content_json", "articles.status", "articles.is_featured", "articles.is_trending", "articles.homepage_rank", "articles.homepage_section", "articles.seo_title", "articles.seo_description", "articles.featured_image_id", "articles.author_name"],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT bypass assertTenantBoundary (cross-site PATCH must return 403 with tenant_violation, T5.AC2 / T11.AC1)",
+        "MUST NOT allow duplicate slug per-site (T5.AC3 / T11.AC2 -> 409)",
+        "MUST NOT allow category whose vertical is not in site.allowed_verticals (T5 -> 422)",
+        "MUST NOT accept fields outside the allow-list (T5)"
+      ],
+      "tests": [
+        { "id": "T5.AC1", "kind": "vitest_count", "spec": "api/test/admin-articles-post-site-id.test.ts", "expected": ">= 4 cases (tenant boundary 403, slug duplicate 409, category mismatch 422, allow-list gating)" },
+        { "id": "T5.AC2", "kind": "vitest_behavioral", "expected": "cross-site PATCH -> 403 + body contains tenant_violation" },
+        { "id": "T5.AC3", "kind": "vitest_behavioral", "expected": "duplicate slug PATCH -> 409" },
+        { "id": "T11.AC1", "kind": "vitest_behavioral", "spec": "api/test/tenant-guards.test.ts", "expected": "assertTenantBoundary throws TenantViolation; PATCH -> 403" },
+        { "id": "T11.AC2", "kind": "vitest_behavioral", "expected": "assertSlugUniquePerSite throws SlugConflict 409" }
+      ],
+      "manualqa_row": "MQA-6",
+      "evidence_status": "verified_at_develop_target"
+    },
+    {
+      "row_id": "WPP-004",
+      "surface": "PATCH /api/admin/settings -> site_settings.settings_version bump (site-scoped, no global)",
+      "trigger": "Admin settings page -> edit -> submit",
+      "ui_form_fields": [
+        { "input_id": "site_id", "input_name": "site_id", "source_file": "api/src/admin/templates/settings.ts" }
+      ],
+      "submit_payload_wire_names": ["site_id", "key", "value"],
+      "endpoint": "PATCH /api/admin/settings",
+      "endpoint_source": "api/src/admin/sites-handlers.ts",
+      "server_body_field_reads": ["site_id", "key", "value"],
+      "db_columns_written": ["site_settings.site_id", "site_settings.settings_version", "site_settings.settings_json"],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT bump settings_version on sites other than the targeted site_id (T8.AC1)",
+        "MUST NOT execute UPDATE site_settings without WHERE site_id=? (global update forbidden)"
+      ],
+      "tests": [
+        { "id": "T8.AC1", "kind": "vitest_behavioral", "spec": "api/test/admin-settings.test.ts", "expected": "PATCH on site X -> site_settings.settings_version (X) = N+1 AND site_settings.settings_version (Y) unchanged" }
+      ],
+      "manualqa_row": "MQA-9",
+      "evidence_status": "verified_at_develop_target"
+    },
+    {
+      "row_id": "WPP-005",
+      "surface": "Media + Tags admin list filters -> GET /api/admin/{media,tags}?site_id=X",
+      "trigger": "Admin media or tags page -> site_id select -> filter",
+      "ui_form_fields": [
+        { "input_id": "site_id", "input_name": "site_id", "source_file": "api/src/admin/templates/tags.ts" },
+        { "input_id": "site_id", "input_name": "site_id", "source_file": "api/src/admin/templates/media.ts" }
+      ],
+      "submit_payload_wire_names": ["site_id"],
+      "endpoint": "GET /api/admin/tags?site_id=X | GET /api/admin/media?site_id=X",
+      "endpoint_source": "api/src/admin/api.ts",
+      "server_body_field_reads": ["site_id"],
+      "db_columns_written": [],
+      "db_columns_read": ["tags.site_id", "media.site_id"],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT use legacy 'site' shorthand in template select inputs (WARN-FIX-4 migration completed in T10)",
+        "MUST NOT return tags / media from other sites when site_id filter is applied (T10.AC2)"
+      ],
+      "tests": [
+        { "id": "T10.AC1", "kind": "grep", "command": "grep -n 'name=\"site_id\"' api/src/admin/templates/tags.ts", "expected": ">= 1 matching line" },
+        { "id": "T10.AC2", "kind": "vitest_behavioral", "spec": "api/test/tags-media-filter.test.ts", "expected": "GET /api/admin/tags?site_id=A returns exactly 3 rows (site A has 3 tags; site B has 2 — excluded)" },
+        { "id": "T9.AC2", "kind": "vitest_behavioral", "spec": "api/test/media-filter.test.ts", "expected": "listMediaForSite(X) returns 5 rows (3 site-scoped + 2 global)" }
+      ],
+      "manualqa_row": "MQA-10",
+      "evidence_status": "verified_at_develop_target"
+    },
+    {
+      "row_id": "WPP-006",
+      "surface": "Pages admin filter + provisioning About-page insert",
+      "trigger": "Admin pages page -> site_id + page_type filter | Provisioning runner step REQ-020",
+      "ui_form_fields": [
+        { "input_id": "site_id", "input_name": "site_id", "source_file": "api/src/admin/templates/pages.ts" },
+        { "input_id": "page_type", "input_name": "page_type", "source_file": "api/src/admin/templates/pages.ts" }
+      ],
+      "submit_payload_wire_names": ["site_id", "page_type"],
+      "endpoint": "GET /admin/pages?site_id=X&page_type=about | internal pages INSERT via runner",
+      "endpoint_source": "api/src/admin/ui.ts (admin page render) + api/src/site-provisioning/steps.ts (About page insert)",
+      "server_body_field_reads": ["site_id", "page_type"],
+      "db_columns_written": ["pages.site_id", "pages.page_type", "pages.title", "pages.body_json", "pages.slug"],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT render pages from other site_ids when site_id filter is active (T6.AC1)",
+        "MUST NOT insert > 1 About page per site_id (T6.AC2 / T4.AC3 — idempotent provisioning)"
+      ],
+      "tests": [
+        { "id": "T6.AC1", "kind": "vitest_behavioral", "spec": "api/test/pages-template.test.ts", "expected": "select[name=site_id] AND select[name=page_type] with option value='about' rendered in /admin/pages" },
+        { "id": "T6.AC2", "kind": "db_query", "expected": "after provisioning -> COUNT(*) pages WHERE page_type='about' AND site_id=X = 1" }
+      ],
+      "manualqa_row": "MQA-7",
+      "evidence_status": "verified_at_develop_target"
+    },
+    {
+      "row_id": "WPP-007",
+      "surface": "POST /api/admin/categories with multi-vertical allocation -> category_verticals rows",
+      "trigger": "Admin categories page -> 'New category' -> select 1..N verticals -> submit",
+      "ui_form_fields": [
+        { "input_id": "site_id", "input_name": "site_id", "source_file": "api/src/admin/templates/categories.ts" },
+        { "input_id": "name", "input_name": "name", "source_file": "api/src/admin/templates/categories.ts" },
+        { "input_id": "slug", "input_name": "slug", "source_file": "api/src/admin/templates/categories.ts" },
+        { "input_id": "vertical_ids", "input_name": "vertical_ids[]", "source_file": "api/src/admin/templates/categories.ts" }
+      ],
+      "submit_payload_wire_names": ["site_id", "name", "slug", "vertical_ids"],
+      "endpoint": "POST /api/admin/categories",
+      "endpoint_source": "api/src/admin/api.ts",
+      "server_body_field_reads": ["site_id", "name", "slug", "vertical_ids"],
+      "db_columns_written": ["categories.site_id", "categories.name", "categories.slug", "category_verticals.category_id", "category_verticals.vertical_id"],
+      "red_line_substitutions_forbidden": [
+        "MUST NOT insert category_verticals rows where vertical_id is not in site.allowed_verticals (T7.AC2 -> 422)",
+        "MUST NOT silently drop verticals from the array — every passed vertical_id MUST be inserted (T7.AC1 -> exactly 3 rows for vertical_ids:[1,2,3])"
+      ],
+      "tests": [
+        { "id": "T7.AC1", "kind": "vitest_behavioral", "spec": "api/test/category-multi-vertical.test.ts", "expected": "POST {site_id,name,slug,vertical_ids:[1,2,3]} -> exactly 3 category_verticals rows inserted" },
+        { "id": "T7.AC2", "kind": "vitest_behavioral", "expected": "site.allowed_verticals=[1,2,3] + POST vertical_ids:[1,4] -> 422 + zero rows inserted" }
+      ],
+      "manualqa_row": "MQA-8",
+      "evidence_status": "verified_at_develop_target"
+    }
+  ],
+  "row_count": 7,
+  "summary": {
+    "rows_for_AC4_required": [
+      "New Site modal->POST/sites",
+      "provisioning next",
+      "PATCH articles",
+      "settings PATCH",
+      "media/tags filters",
+      "pages provisioning",
+      "categories vertical allocation"
+    ],
+    "row_count_for_AC4": 7,
+    "all_rows_verified_at_develop_target": true,
+    "production_target_status": "production_pending"
+  }
+}

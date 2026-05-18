@@ -1,0 +1,91 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "generated_at": "2026-05-18T03:25:00Z",
+  "producer": "ralph_iteration_T16_quality_gauntlet_authoring",
+  "develop_target": "local",
+  "develop_target_rationale": "Phase 3 perfect-recovery implementation is develop-only against a locally-running Worker (wrangler dev on http://127.0.0.1:8787); cms.kodigital.app is production-pending. No Cloudflare production deploy is performed by /a2z-develop. Ralph and the Phase B reviewer assert behavior at the local worker; the live cms.kodigital.app domain is reachable only after /a2z-ship runs `wrangler deploy --env production` (user-owned, deploy-safety.md).",
+  "develop_target_host": "127.0.0.1",
+  "develop_target_port": 8787,
+  "develop_target_url": "http://127.0.0.1:8787",
+  "production_target_host": "cms.kodigital.app",
+  "production_target_url": "https://cms.kodigital.app",
+  "production_status": "production_pending",
+  "production_status_reasoning": [
+    "wrangler.toml [env.production].ADMIN_HOST = 'cms.kodigital.app' is configured for production (deploy-time wiring).",
+    "DNS pointing cms.kodigital.app → Cloudflare Worker route is provisioned at the registrar / Cloudflare dashboard layer, NOT by this mission.",
+    "Domain routability check (HTTP GET https://cms.kodigital.app/health) is deferred to /a2z-ship D_MANUALQA + post-deploy verification (deploy-safety.md D4).",
+    "The mission's domain-create flow exercises the *database side* of site→domain wiring (sites + domains tables, site_id resolution by Host header), NOT external DNS / cert issuance."
+  ],
+  "domains": [
+    {
+      "domain": "cms.kodigital.app",
+      "role": "admin",
+      "status": "production_pending",
+      "develop_substitute": "127.0.0.1 (wrangler dev --var ADMIN_HOST:127.0.0.1)",
+      "develop_substitute_reasoning": "Chromium browser context refuses to set the Host request header via extraHTTPHeaders (returns net::ERR_INVALID_ARGUMENT). Develop substitutes ADMIN_HOST=127.0.0.1 so the off-admin-host gate in api/src/index.ts accepts /admin* requests against the baseURL Playwright actually sends. The production form is unchanged via wrangler.toml [env.production].ADMIN_HOST = 'cms.kodigital.app'.",
+      "verified_at": "develop_target_only",
+      "production_check_status": "deferred_to_ship",
+      "manualqa_row": "MQA-12",
+      "evidence_routes": [
+        "T13.AC2 (off-admin-host /admin returns 404 + no-store + noindex/nofollow + no leak — verified at develop_target)",
+        "T15.AC1 (admin-ux-parity across 9 routes — verified at develop_target)"
+      ]
+    },
+    {
+      "domain": "demo-acme.example",
+      "role": "tenant_site_example",
+      "status": "develop_synthetic",
+      "develop_substitute": "demo-acme.example (literal Host header asserted by curl + Playwright request fixture in T13)",
+      "develop_substitute_reasoning": "demo-acme.example is the per-mission canonical off-admin-host literal asserted by T13.AC2. It is a synthetic example domain (RFC 6761 .example TLD reserved for documentation) — no DNS resolution required. The test asserts the Host gate's NEGATIVE path (off-admin-host /admin returns 404).",
+      "verified_at": "develop_target_only",
+      "production_check_status": "n/a_synthetic",
+      "evidence_routes": [
+        "T13.AC2 (off-admin-host gate)"
+      ]
+    },
+    {
+      "domain": "kodigital.app (apex)",
+      "role": "tenant_site_canonical_example",
+      "status": "production_pending",
+      "develop_substitute": "host-header-resolved at the Worker (sites.domain column)",
+      "develop_substitute_reasoning": "Tenant sites are resolved by Host header → sites.domain WHERE deleted_at IS NULL. The kodigital.app apex is the canonical tenant homepage; the Worker resolves Host → site_id and routes per the public-tenant render path (Phase 3 in-scope but verified at the *database* level by T6 / T8 / T10 site-scoped filters, not by live DNS).",
+      "verified_at": "develop_target_only",
+      "production_check_status": "deferred_to_ship",
+      "manualqa_row": null,
+      "evidence_routes": []
+    }
+  ],
+  "develop_target_assertions": [
+    {
+      "assertion_id": "LDR-001",
+      "description": "Local wrangler dev binds to 127.0.0.1:8787",
+      "verified_by": "playwright.config.ts:webServer.url = http://127.0.0.1:8787/health",
+      "evidence_route": "T15.AC2 (Playwright full-suite run against live wrangler dev)"
+    },
+    {
+      "assertion_id": "LDR-002",
+      "description": "Admin host gate fires on local dev with ADMIN_HOST=127.0.0.1",
+      "verified_by": "api/test-ui/admin-routing-security.spec.ts:test 'off-admin-host /admin returns 404 with no-store and noindex/nofollow headers'",
+      "evidence_route": "T13.AC2"
+    },
+    {
+      "assertion_id": "LDR-003",
+      "description": "Production ADMIN_HOST string is wired at deploy time (NOT at develop time)",
+      "verified_by": "wrangler.toml [env.production].ADMIN_HOST = 'cms.kodigital.app'",
+      "evidence_route": "T14.AC3 (verify:worker-config exit 0 — wrangler.toml [vars] blocks match the Phase 1.5 routing contract)"
+    }
+  ],
+  "production_check_deferral_reasons": [
+    {
+      "reason_id": "PCD-001",
+      "rule": "deploy-safety.md MUST NOT run: wrangler deploy, wrangler secret put, wrangler secret delete. Tell user which command to run.",
+      "implication": "/a2z-develop CANNOT issue live HTTP GET https://cms.kodigital.app/health; the worker behind that domain is the prior production build, NOT the current branch."
+    },
+    {
+      "reason_id": "PCD-002",
+      "rule": "deploy-safety.md D4 — Post-deploy behavioral assertion: verify the SPECIFIC change, not just HTTP 200.",
+      "implication": "Live cms.kodigital.app verification belongs in /a2z-ship D_MANUALQA after the user runs wrangler deploy --env production; develop_target proves the change-set at 127.0.0.1, ship proves it landed at cms.kodigital.app."
+    }
+  ]
+}
