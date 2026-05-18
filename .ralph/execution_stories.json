@@ -420,8 +420,8 @@
       "id": "T17",
       "title": "Add D1 migration apply step to deploy.yml before production deploy",
       "category": "infra",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T17"
       ],

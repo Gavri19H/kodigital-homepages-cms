@@ -140,5 +140,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # D1 migrations apply BEFORE the Worker deploy.
+      # Per deploy-safety.md D1-file rule, every migration filename in
+      # api/migrations/ MUST be grep-anchored in this file so reviewers
+      # can confirm every migration is shipped before the Worker that
+      # reads its schema is deployed. Ordering invariant: schema lands
+      # FIRST, Worker SECOND. Wrangler is idempotent — already-applied
+      # migrations are skipped.
+      #
+      # Tracked migration filenames (per-migration traceability anchor):
+      #   - 0001_init_cms.sql
+      #   - 0002_phase3_multi_site_schema.sql
+      #   - 0003_phase3_site_settings_restructure.sql
+      #   - 0004_phase3_seed_verticals_and_legal_templates.sql
+      #   - 0005_phase3_fix_missing_indexes.sql
+      #   - 0006_phase3r_admin_site_aware_content.sql
+      #   - 0007_phase3r_drop_global_slug_unique.sql
+      - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
+        run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
+
       - name: Deploy to production
         run: npm run deploy:production

@@ -283,7 +283,7 @@
         "Ordering: migration apply step appears BEFORE wrangler deploy --env production in the deploy-production job (safety: schema lands before worker that reads it)."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     }
   ]
 }
