@@ -366,6 +366,21 @@ api.get("/api/admin/tags", async (c) => {
 });
 
 api.get("/api/admin/media", async (c) => {
+  // RX3 / MQAFIX-3: site_id filter — when present, restrict media to the
+  // site's own rows + global rows (site_id IS NULL). Mirrors data.ts
+  // listMediaForSite (T9.AC2 contract) so the tenant boundary holds even
+  // when the request reaches the inline /api/admin/media route rather
+  // than the data.ts wrapper. site_id is bound, never interpolated, per
+  // .claude/rules/d1-database-safety.md.
+  const siteId = c.req.query("site_id");
+  if (typeof siteId === "string" && siteId.length > 0) {
+    const scoped = await c.env.DB.prepare(
+      "SELECT * FROM media WHERE site_id = ? OR site_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 200",
+    )
+      .bind(siteId)
+      .all<MediaRow>();
+    return c.json({ media: scoped.results ?? [], site_id: siteId });
+  }
   const result = await c.env.DB.prepare(
     "SELECT * FROM media ORDER BY created_at DESC, id DESC LIMIT 200",
   ).all<MediaRow>();

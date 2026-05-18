@@ -130,6 +130,58 @@ async function advanceJobPointer(
   return nextStatus;
 }
 
+// MQAFIX-1: Drive the provisioning runner to completion for a freshly
+// created site (or a halted one). Loops `advanceNextStep` until the job
+// reaches `completed` / `failed`, runs into an unknown step index, or
+// exceeds the safety bound (TOTAL_STEPS + 1 iterations). The +1 lets
+// callers verify the 16th invocation is idempotent (returns the
+// `completed` short-circuit without writing a fresh step row). Errors
+// from the underlying runner are swallowed and reported through the
+// returned `final_status='aborted'` — the caller (sites POST handler)
+// must NOT fail the user request because background provisioning
+// hiccupped; the site row itself is already committed.
+export interface ProvisioningRunSummary {
+  steps_run: number;
+  final_status: string;
+  last_step_status: StepHandlerResult["status"] | null;
+}
+
+export async function runProvisioningToCompletion(
+  env: Env,
+  db: D1Database,
+  site_id: string,
+  max_iterations: number = TOTAL_STEPS + 1,
+): Promise<ProvisioningRunSummary> {
+  let steps_run = 0;
+  let final_status = "no_job";
+  let last_step_status: StepHandlerResult["status"] | null = null;
+  for (let i = 0; i < max_iterations; i++) {
+    const job = await findActiveJobForSite(db, site_id);
+    if (job === null) {
+      final_status = steps_run === 0 ? "no_job" : final_status;
+      break;
+    }
+    if (job.status === "completed" || job.status === "failed") {
+      final_status = job.status;
+      break;
+    }
+    try {
+      const result = await advanceNextStep(env, db, job);
+      final_status = result.status;
+      last_step_status = result.last_step_status;
+      steps_run += 1;
+      if (result.completed || result.last_step_status === "failed") {
+        break;
+      }
+    } catch (err) {
+      final_status = "aborted";
+      void err;
+      break;
+    }
+  }
+  return { steps_run, final_status, last_step_status };
+}
+
 export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Promise<AdvanceResult> {
   if (job.status === "completed" || job.status === "failed") {
     return {

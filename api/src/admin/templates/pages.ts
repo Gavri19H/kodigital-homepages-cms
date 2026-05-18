@@ -1,4 +1,5 @@
-// Admin Pages templates.
+// Admin Pages templates — CANONICAL renderer for /admin/pages.
+//
 // pagesListPage  — 7-column table + Site filter + Page-type filter; pages with
 //                  NULL site_id render with a "Global template" badge in the
 //                  Site or Global column.
@@ -9,6 +10,23 @@
 //                  "Global template" badge next to the page-type selector.
 // New mode submits POST /api/admin/pages; edit mode submits PATCH
 // /api/admin/pages/:id. Inline submit script is ES5-only.
+//
+// Two-templates split (RX4 / MQAFIX-4):
+//   - api/src/admin/templates/pages.ts (THIS FILE) is the CANONICAL renderer.
+//     api/src/admin/ui.ts mounts GET /admin/pages here via pagesListPage()
+//     and the related new/edit forms via pageFormPage(). This is the only
+//     template the application actually serves to browsers.
+//   - api/src/admin/views/pages.ts is a LEGACY peer retained ONLY for the
+//     T22 acceptance-test grep contract
+//     (acceptance-tests/.../T22_pages_tab_site_aware.sh greps the views/
+//     file for data-filter="site"/page_type/status). It is NOT imported
+//     by any application code and renders no live route.
+// The Site filter wire name is the canonical column name `site_id` (the
+// legacy short form must not appear on any select). Enforced by
+// api/test/pages-template.test.ts (T6.AC1 contract) and
+// api/test/admin-pages-list-site-id-filter.test.ts (RX4.AC3 contract).
+// Do NOT rename the Site filter select away from the canonical wire
+// name without also updating both wire contracts.
 
 import { adminLayout } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
