@@ -209,7 +209,7 @@
         "BEHAVIORAL: GIVEN wrangler dev running on http://127.0.0.1:8787 with ADMIN_HOST=cms.kodigital.app, WHEN curl -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin is invoked, THEN HTTP status = 404, response header Cache-Control = 'no-store', response header X-Robots-Tag = 'noindex, nofollow', AND response body MUST NOT contain the literal string 'cms.kodigital.app'."
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T14",

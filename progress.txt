@@ -4775,3 +4775,48 @@ D13 canonical runner result — T1:
   - When a story's target_files include a source file that is already-correct (e.g. cloudflare-interfaces.ts here), the deliverable is the deterministic *test* that pins the contract — not a no-op edit to satisfy commit-title-parity. The commit MUST still touch a story-target file; here that's the new test file (target_files[1]), satisfying commit-title-parity rule T10 without ceremony-editing the source.
   - The fetch-spy pattern (`beforeEach` swap of `globalThis.fetch` + `afterEach` restore) is the canonical Vitest harness for "no outbound call" contracts. Throwing on the forbidden host (vs. returning 200) turns a regression into a thrown Error rather than a silent count-pass — the AC's spirit is "no call escapes", not "call but ignore the result".
   - For an idempotency-shaped second case, the cheapest signal is "captured count unchanged across the re-run" — works for both fetchCalls and purgeLog without needing a richer DB fake. Pattern: capture `lenBefore = arr.length; …re-invoke…; expect(arr.length).toBe(lenBefore)`.
+
+## 2026-05-18 03:05 — T13 (sources: T13) — admin-routing-security spec executed against live wrangler dev
+- Iteration: T13 (sources: T13) — Execute admin-routing-security Playwright spec; assert off-admin-host /admin gate returns 404 + Cache-Control: no-store + X-Robots-Tag: noindex, nofollow + no leak of cms.kodigital.app.
+- Test commands run:
+  - cd api && npx vitest run test/off-admin-host-404-headers.test.ts → PASS (4/4 cases, deterministic in-process Worker harness; assertions are STRICT-EQUAL on the header literals: Cache-Control="no-store", X-Robots-Tag="noindex, nofollow"; body !contain "cms.kodigital.app"; no Location redirect).
+  - cd api && npx vitest run → PASS (55 files, 326 tests, 0 failures — full-suite regression).
+  - cd api && npx tsc --noEmit → PASS (exit 0, clean).
+  - Live Playwright run against live wrangler dev (DEV_BYPASS_AUTH=true, port 8787):
+    - Started: npx wrangler dev --port 8787 --ip 127.0.0.1 (PID 29021 family). Health probe http://127.0.0.1:8787/health → 200 within 30s.
+    - Ran: npx playwright test test-ui/admin-routing-security.spec.ts via a local config override (testDir absolute, no webServer block) because the canonical playwright.config.ts webServer.reuseExistingServer did not detect the already-running dev server and tried to spawn a fresh wrangler dev on the bound port (existing producer-side config gap, not in T13 scope). The local config file was deleted immediately after the run; only the spec file is in the commit.
+    - Result: 3/3 PASS in 350ms (chromium):
+      ✓ off-admin-host GET /admin returns 404 with no-store + noindex, nofollow headers (T13.AC2)
+      ✓ off-admin-host GET /api/admin/sites returns 404 (no admin API leak)
+      ✓ off-admin-host GET /admin/<crafted-admin-host-in-path> does not echo cms.kodigital.app in 404 body
+  - T13.AC2 verbatim curl against live server (sanity):
+    - curl -sS -i -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin →
+        HTTP/1.1 404 Not Found
+        Cache-Control: no-store
+        X-Robots-Tag: noindex, nofollow
+        body = {"error":"Not Found"}   (does NOT contain "cms.kodigital.app")
+  - Canonical evidence runner (RC-030, RC-031, full --workspace-root/--project-root/--worktree-root):
+    - RC-031 (test_exit_code on `curl -sS -o /dev/null -w '...' -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin`, cwd_anchor=project_root): status=PASS, exit_code=0, artifact_hash=ba897fdd25dd... (curl ran while wrangler dev was still up; deterministic shell-exit-code parser).
+    - RC-030 (parse_test_output on `npx vitest run test-ui/admin-routing-security.spec.ts`, cwd_anchor=project_root): status=FAIL — producer-side evidence-route defect (NOT a code defect). vitest.config.ts include = `test/**/*.test.ts`; the evidence_command points vitest at a Playwright `.spec.ts` file in `test-ui/`, which is (a) outside vitest's include glob (no test files found → vitest exits 1) AND (b) imports `@playwright/test` which is the Playwright test API, not the vitest API. The correct binding for an RC backed by a Playwright spec is `test_exit_code` on `npx playwright test test-ui/admin-routing-security.spec.ts` (parallel to the live run above), or `parse_test_output` on the vitest cousin `test/off-admin-host-404-headers.test.ts` which already asserts the same contract deterministically. Per .claude/rules/evidence-honesty.md rule 6 + state_constraints.md D11/D15, Ralph does NOT modify required_evidence_plan.json (audit artifact, canonical writers only). Same class as the prior-iteration RC-021/RC-024 producer-side patterns documented in progress.txt earlier.
+- Files changed:
+  - api/test-ui/admin-routing-security.spec.ts — tightened the Playwright spec to match T13.AC2 verbatim:
+    1. Host header literal switched from `public.example.test` → `demo-acme.example` (the exact off-admin-host name in T13.AC2 + implementation_digest evidence_command).
+    2. Header assertions tightened from `.toContain('no-store')` + `.toContain('noindex')` / `.toContain('nofollow')` to STRICT EQUAL `.toBe('no-store')` and `.toBe('noindex, nofollow')` (matches the implementation_digest's expected response_field literals for Cache_Control + X_Robots_Tag, and matches what api/src/index.ts:77-78 actually emits).
+    3. Added a third test case `off-admin-host GET /admin/<crafted-admin-host-in-path>` that requests `/admin/cms.kodigital.app` over the off-admin host. The 404 body must STILL NOT echo the admin hostname (the gate omits c.req.path on purpose per the in-source comment at api/src/index.ts:64-66). This guards against a regression where a future maintainer adds `path` to the 404 JSON body and silently re-leaks the admin host via a crafted URL.
+  - prd.json — T13.state="implemented" (canonical PRD; passes left untouched per D11/D15 — reconcile_story_states.py owns canonical passes=true post-evaluator).
+  - .ralph/execution_stories.json — T13.state="implemented", passes=true (Ralph-local execution PRD per T7 of P0-hotfix-ralph-native-scope-2026-05-07; the basename is NOT `prd.json` so block_prd_self_cert.py does not match).
+- source_story_ids: T13
+- **Self-check results:**
+  - File sizes: api/test-ui/admin-routing-security.spec.ts 95 lines (was 69; +26 for the 3rd test case + the explicit OFF_ADMIN_HOST/ADMIN_HOST_LITERAL constants + the tightened-comment header). Playwright spec files in this repo have no hard size cap; sibling admin-ux-parity.spec.ts is the cap reference. PASS for purpose. No source files modified (api/src/index.ts already implements the contract — T13 is verify-only on the source side per architecture.md).
+  - Secret scan: PASS (0 hits for API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string in the modified file).
+  - Error handling: N/A (test file, no new route handler or API function).
+  - Migration execution: N/A (category=infra; no DB migration).
+  - Parameterized queries: N/A (no D1 surface in this story).
+- **Acceptance criteria coverage:**
+  - T13.AC1 (FUNCTIONAL: api/test-ui/admin-routing-security.spec.ts file exists and the test runs to completion with PASS status, Playwright reporter) — PASS: the file exists (test-ui/admin-routing-security.spec.ts); the live Playwright run reported 3/3 PASS in 350ms with the `list` reporter; the html reporter is configured in playwright.config.ts and would be emitted in a full `cd api && npx playwright test` run (target of T15).
+  - T13.AC2 (BEHAVIORAL: GIVEN wrangler dev running on http://127.0.0.1:8787, WHEN curl -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin is invoked, THEN HTTP=404 AND Cache-Control=no-store AND X-Robots-Tag='noindex, nofollow' AND body !contains 'cms.kodigital.app') — PASS: verified via the live curl above + the Playwright spec's first test case verbatim + canonical evidence runner RC-031 (test_exit_code=0 on the AC2 evidence_command). The vitest cousin test/off-admin-host-404-headers.test.ts pins the same contract at the in-process layer (4/4 PASS).
+- **Learnings for future iterations:**
+  - Playwright's `playwright.config.ts` webServer.reuseExistingServer can fail to detect an already-running server when wrangler dev is the dev process — even with the URL probe returning 200. The workaround during a Ralph iteration is a local config override (testDir set to absolute path, NO webServer block) that the spec runs against the manually-started wrangler dev. The override file is temporary; it must not be committed. The canonical playwright.config.ts webServer block is fine for clean-room CI runs where no prior server exists.
+  - When an AC names a literal hostname (`demo-acme.example`), assert it verbatim in the spec — not as a placeholder. Mismatches between the AC literal and the spec literal create wire-protocol-parity diffs at review time even though the contract is otherwise satisfied.
+  - For a Playwright spec that mirrors a deterministic vitest cousin, prefer STRICT EQUAL header assertions (.toBe('no-store')) over substring (.toContain('no-store')). The exact-form match catches regressions like `no-store, must-revalidate` (which would silently broaden the contract) without forcing a separate negative test.
+  - Producer-side RC routing: a `parse_test_output` binding on `npx vitest run <path>` requires the path to be inside vitest.config.ts's `include` glob. When the bound test is a Playwright `.spec.ts`, the correct parser_strategy is `test_exit_code` on `npx playwright test <path>` — vitest can NOT discover or run a Playwright spec. This is the 4th instance of producer-side evidence-route mismatch documented in this mission's progress.txt; the pattern is robust (Ralph documents, does not patch the plan).
