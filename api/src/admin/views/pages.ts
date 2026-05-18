@@ -1,4 +1,19 @@
-// Phase 3 / T22: Admin Pages tab view (site-aware).
+// Phase 3 / T22: Admin Pages tab view (site-aware) — LEGACY PEER.
+//
+// IMPORTANT (RX4 / MQAFIX-4 two-templates split):
+//   This file is NOT the canonical renderer for GET /admin/pages. The
+//   live route is mounted in api/src/admin/ui.ts:130 and calls
+//   `pagesListPage` from api/src/admin/templates/pages.ts. This file
+//   is retained ONLY because the T22 acceptance test
+//   (acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/
+//   T22_pages_tab_site_aware.sh) greps this file for the
+//   data-filter="site"/page_type/status attribute literals. Deleting
+//   the file would break that acceptance contract; rewiring the
+//   acceptance test would change the test contract (which Ralph MUST
+//   NOT modify — acceptance-tests/** is read-only during /a2z-develop).
+//   The wire-name contract (Site filter named `site_id`, NOT `site`)
+//   is enforced on the canonical template in
+//   api/test/pages-template.test.ts + api/test/admin-pages-list-site-id-filter.test.ts.
 //
 // Renders /admin/pages with the multi-tenant Pages list contract: a
 // toolbar exposing three required filter controls, each tagged with a

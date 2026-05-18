@@ -375,7 +375,7 @@
       "id": "MQAFIX-4",
       "title": "Pages template filter input must use name=\"site_id\" per T6.AC1 spec literal",
       "category": "ui",
-      "rootCause": "MQA-7 evidence: live /admin/pages renders <select name=\"site\"> filter input (templates/pages.ts:128), but T6.AC1 spec literal calls for name=\"site_id\". Two template files exist: api/src/admin/templates/pages.ts (active, name='site') vs api/src/admin/views/pages.ts (unused, name='site_id'). DB-side provisioning matches spec (1 about + 4 legal pages for the test site). Spec-literal grep against the active template fails. Either harmonize to site_id (matches T6.AC1) or update T6.AC1 to accept name=site as semantically equivalent.",
+      "rootCause": "MQA-7 evidence: live /admin/pages renders <select name=\"site\"> filter input (templates/pages.ts:128), but T6.AC1 spec literal calls for name=\"site_id\". Two template files exist: api/src/admin/templates/pages.ts (active, name='site') vs api/src/admin/views/pages.ts (unused, name='site_id'). DB-side provisioning matches spec (1 about + 4 legal pages for the test site). Spec-literal grep against the active template fails. Either harmonize to site_id (matches T6.AC1) or update T6.AC1 to accept name=site as semantically equivalent. RX4 fix: verified the canonical templates/pages.ts already renders <select name=\"site_id\"> (2 occurrences; AC1 PASS) AND has 0 <select name=\"site\"> occurrences (AC2 PASS) on the current branch; added api/test/admin-pages-list-site-id-filter.test.ts to close the HTTP-level AC3 wire contract (regex test for '<select' + 'name=\"site_id\"' on GET /admin/pages); resolved AC4 by documenting the two-templates split in BOTH headers (templates/pages.ts is canonical for the route; views/pages.ts is a legacy peer retained for the T22 acceptance-test grep contract, NOT imported anywhere in src).",
       "targetFiles": [
         "api/src/admin/templates/pages.ts",
         "api/src/admin/views/pages.ts"
@@ -395,7 +395,7 @@
         "RF-004"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "MQAFIX-5",
