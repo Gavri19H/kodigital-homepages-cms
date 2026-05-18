@@ -65,8 +65,8 @@
       "id": "RX3",
       "title": "Media + Tags list handlers must include WHERE site_id clause in SQL",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "MQAFIX-3"
       ],

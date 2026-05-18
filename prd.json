@@ -346,7 +346,7 @@
       "id": "MQAFIX-3",
       "title": "Media + Tags list handlers must include WHERE site_id clause in SQL",
       "category": "api",
-      "rootCause": "MQA-10 source review: api/src/admin/api.ts:201-213 SELECT statements for media and tags lists do NOT bind site_id into the WHERE clause despite REQ-010/011 calling for site-aware filtering (media returns site + global rows; tags returns site rows only). Endpoints currently respond HTTP 200 with valid schemas (verified) but discrimination is unprovable in production because both tables are empty. Latent bug: when data exists for \u22652 sites, the handlers will leak cross-site rows.",
+      "rootCause": "MQA-10 source review: api/src/admin/api.ts:201-213 SELECT statements for media and tags lists do NOT bind site_id into the WHERE clause despite REQ-010/011 calling for site-aware filtering (media returns site + global rows; tags returns site rows only). Endpoints currently respond HTTP 200 with valid schemas (verified) but discrimination is unprovable in production because both tables are empty. Latent bug: when data exists for \u22652 sites, the handlers will leak cross-site rows. RX3 fix: tags handler already had `WHERE site_id = ?` (T10); media handler now also accepts `?site_id=<id>` and applies `WHERE site_id = ? OR site_id IS NULL` (globals join in). Two new HTTP-level contract tests (admin-media-site-filter, admin-tags-site-filter) cover the cross-tenant boundary + SQL-injection-shaped bind probe.",
       "targetFiles": [
         "api/src/admin/api.ts",
         "api/test/admin-media-site-filter.test.ts",
@@ -369,7 +369,7 @@
         "RF-003"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "MQAFIX-4",
