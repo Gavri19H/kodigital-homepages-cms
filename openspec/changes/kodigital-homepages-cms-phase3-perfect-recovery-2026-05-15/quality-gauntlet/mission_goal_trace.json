@@ -1,0 +1,1083 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "generated_at": "2026-05-16T20:42:00Z",
+  "producer": "orchestrator_manual_q1q4_artifact_authoring",
+  "coverage_pct": 100.0,
+  "requirements": [
+    {
+      "requirement_id": "REQ-001",
+      "original_user_text": "multi-site D1 schema",
+      "goal_class": "schema",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/migrations/0002_phase3_multi_site_schema.sql",
+        "api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T1"
+      ],
+      "target_files": [
+        "api/migrations/0002_phase3_multi_site_schema.sql",
+        "api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+      ],
+      "required_tests": [
+        "T1.AC1",
+        "T1.AC2",
+        "T1.AC3"
+      ],
+      "required_evidence_routes": [
+        "T1.AC1",
+        "T1.AC2",
+        "T1.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-1"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T1.AC1', 'T1.AC2', 'T1.AC3'] pass deterministically",
+      "proof_quality_required": "db_query"
+    },
+    {
+      "requirement_id": "REQ-002",
+      "original_user_text": "site/domain/vertical data model",
+      "goal_class": "schema",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/migrations/0002_phase3_multi_site_schema.sql",
+        "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T1"
+      ],
+      "target_files": [
+        "api/migrations/0002_phase3_multi_site_schema.sql",
+        "api/migrations/0004_phase3_seed_verticals_and_legal_templates.sql"
+      ],
+      "required_tests": [
+        "T1.AC1"
+      ],
+      "required_evidence_routes": [
+        "T1.AC1"
+      ],
+      "required_manualqa_rows": [
+        "MQA-5"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T1.AC1'] pass deterministically",
+      "proof_quality_required": "db_query"
+    },
+    {
+      "requirement_id": "REQ-003",
+      "original_user_text": "Domains CMS tab",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/ui.ts",
+        "api/src/admin/data.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T3"
+      ],
+      "target_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/ui.ts",
+        "api/src/admin/data.ts"
+      ],
+      "required_tests": [
+        "T3.AC1",
+        "T3.AC2"
+      ],
+      "required_evidence_routes": [
+        "T3.AC1",
+        "T3.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-2"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T3.AC1', 'T3.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-004",
+      "original_user_text": "New Site modal + API",
+      "goal_class": "wire_protocol_consistency",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/sites-handlers.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T3"
+      ],
+      "target_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/sites-handlers.ts"
+      ],
+      "required_tests": [
+        "T3.AC1",
+        "T3.AC2",
+        "T3.AC3"
+      ],
+      "required_evidence_routes": [
+        "T3.AC1",
+        "T3.AC2",
+        "T3.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-3"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T3.AC1', 'T3.AC2', 'T3.AC3'] pass deterministically",
+      "proof_quality_required": "browser_dom+api_trace"
+    },
+    {
+      "requirement_id": "REQ-005",
+      "original_user_text": "resumable deterministic site provisioning runner",
+      "goal_class": "provisioning_step",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T4"
+      ],
+      "target_files": [
+        "api/src/site-provisioning/runner.ts",
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "required_tests": [
+        "T4.AC1",
+        "T4.AC2",
+        "T4.AC3"
+      ],
+      "required_evidence_routes": [
+        "T4.AC1",
+        "T4.AC2",
+        "T4.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-4"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T4.AC1', 'T4.AC2', 'T4.AC3'] pass deterministically",
+      "proof_quality_required": "db_query+api_trace"
+    },
+    {
+      "requirement_id": "REQ-006",
+      "original_user_text": "site-aware Articles tab",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/articles.ts",
+        "api/src/admin/api.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T5"
+      ],
+      "target_files": [
+        "api/src/admin/templates/articles.ts",
+        "api/src/admin/api.ts"
+      ],
+      "required_tests": [
+        "T5.AC1",
+        "T5.AC2"
+      ],
+      "required_evidence_routes": [
+        "T5.AC1",
+        "T5.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-6"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T5.AC1', 'T5.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-007",
+      "original_user_text": "site-aware Pages tab (esp. About Us)",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/pages.ts",
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T6"
+      ],
+      "target_files": [
+        "api/src/admin/templates/pages.ts",
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "required_tests": [
+        "T6.AC1",
+        "T6.AC2"
+      ],
+      "required_evidence_routes": [
+        "T6.AC1",
+        "T6.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-7"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T6.AC1', 'T6.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom+db_query"
+    },
+    {
+      "requirement_id": "REQ-008",
+      "original_user_text": "Categories multi-vertical allocation",
+      "goal_class": "ui_browser_interaction",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/categories.ts",
+        "api/src/admin/api.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T7"
+      ],
+      "target_files": [
+        "api/src/admin/templates/categories.ts",
+        "api/src/admin/api.ts"
+      ],
+      "required_tests": [
+        "T7.AC1",
+        "T7.AC2"
+      ],
+      "required_evidence_routes": [
+        "T7.AC1",
+        "T7.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-8"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T7.AC1', 'T7.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom+db_query"
+    },
+    {
+      "requirement_id": "REQ-009",
+      "original_user_text": "site-scoped Settings tab",
+      "goal_class": "wire_protocol_consistency",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/settings.ts",
+        "api/src/admin/api.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T8"
+      ],
+      "target_files": [
+        "api/src/admin/templates/settings.ts",
+        "api/src/admin/api.ts"
+      ],
+      "required_tests": [
+        "T8.AC1",
+        "T8.AC2"
+      ],
+      "required_evidence_routes": [
+        "T8.AC1",
+        "T8.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-9"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T8.AC1', 'T8.AC2'] pass deterministically",
+      "proof_quality_required": "api_trace+db_query"
+    },
+    {
+      "requirement_id": "REQ-010",
+      "original_user_text": "site-aware Media filters",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/media.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T9"
+      ],
+      "target_files": [
+        "api/src/admin/templates/media.ts"
+      ],
+      "required_tests": [
+        "T9.AC1",
+        "T9.AC2"
+      ],
+      "required_evidence_routes": [
+        "T9.AC1",
+        "T9.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-10"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T9.AC1', 'T9.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-011",
+      "original_user_text": "site-aware Tags filters",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/tags.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T10"
+      ],
+      "target_files": [
+        "api/src/admin/templates/tags.ts"
+      ],
+      "required_tests": [
+        "T10.AC1",
+        "T10.AC2"
+      ],
+      "required_evidence_routes": [
+        "T10.AC1",
+        "T10.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-10"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T10.AC1', 'T10.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-012",
+      "original_user_text": "tenant/site-boundary validation utilities",
+      "goal_class": "safety_red_line",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/site/tenant-guards.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T11"
+      ],
+      "target_files": [
+        "api/src/site/tenant-guards.ts"
+      ],
+      "required_tests": [
+        "T11.AC1",
+        "T11.AC2"
+      ],
+      "required_evidence_routes": [
+        "T11.AC1",
+        "T11.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-6"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T11.AC1', 'T11.AC2'] pass deterministically",
+      "proof_quality_required": "db_query+api_trace"
+    },
+    {
+      "requirement_id": "REQ-013",
+      "original_user_text": "dry-run-safe Cloudflare provisioning interfaces",
+      "goal_class": "cf_dry_run",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/site-provisioning/cloudflare-interfaces.ts",
+        "api/wrangler.toml"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T12"
+      ],
+      "target_files": [
+        "api/src/site-provisioning/cloudflare-interfaces.ts",
+        "api/wrangler.toml"
+      ],
+      "required_tests": [
+        "T12.AC1",
+        "T12.AC2"
+      ],
+      "required_evidence_routes": [
+        "T12.AC1",
+        "T12.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-11"
+      ],
+      "reviewer_artifacts": [
+        "exit_code_receipt"
+      ],
+      "terminal_criterion": "All ACs in ['T12.AC1', 'T12.AC2'] pass deterministically",
+      "proof_quality_required": "no_outbound+api_trace"
+    },
+    {
+      "requirement_id": "REQ-014",
+      "original_user_text": "legacy-style admin layout (KoDigital brand)",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/layout.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T2"
+      ],
+      "target_files": [
+        "api/src/admin/templates/layout.ts"
+      ],
+      "required_tests": [
+        "T2.AC1",
+        "T2.AC2"
+      ],
+      "required_evidence_routes": [
+        "T2.AC1",
+        "T2.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-1"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T2.AC1', 'T2.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom+screenshot"
+    },
+    {
+      "requirement_id": "REQ-015",
+      "original_user_text": "no Phase 1 placeholder shell",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/layout.ts",
+        "api/src/admin/ui.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T2"
+      ],
+      "target_files": [
+        "api/src/admin/templates/layout.ts",
+        "api/src/admin/ui.ts"
+      ],
+      "required_tests": [
+        "T2.AC1"
+      ],
+      "required_evidence_routes": [
+        "T2.AC1"
+      ],
+      "required_manualqa_rows": [
+        "MQA-1"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T2.AC1'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-016",
+      "original_user_text": "full admin nav across every admin page",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/layout.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T2"
+      ],
+      "target_files": [
+        "api/src/admin/templates/layout.ts"
+      ],
+      "required_tests": [
+        "T2.AC2"
+      ],
+      "required_evidence_routes": [
+        "T2.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-1"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T2.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-017",
+      "original_user_text": "Domains New Site modal posts to real /api/admin/sites",
+      "goal_class": "ui_browser_interaction",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/sites-handlers.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T3"
+      ],
+      "target_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/src/admin/sites-handlers.ts"
+      ],
+      "required_tests": [
+        "T3.AC1",
+        "T3.AC2"
+      ],
+      "required_evidence_routes": [
+        "T3.AC1",
+        "T3.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-3"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T3.AC1', 'T3.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom+api_trace"
+    },
+    {
+      "requirement_id": "REQ-018",
+      "original_user_text": "newly created site row renders after creation",
+      "goal_class": "ui_browser_interaction",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/test-ui/domains-create-site.spec.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T3"
+      ],
+      "target_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/test-ui/domains-create-site.spec.ts"
+      ],
+      "required_tests": [
+        "T3.AC1",
+        "T3.AC2",
+        "T3.AC3"
+      ],
+      "required_evidence_routes": [
+        "T3.AC1",
+        "T3.AC2",
+        "T3.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-3"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T3.AC1', 'T3.AC2', 'T3.AC3'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-019",
+      "original_user_text": "provisioning polling starts from browser UI",
+      "goal_class": "ui_browser_interaction",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/test-ui/domains-create-site.spec.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T4"
+      ],
+      "target_files": [
+        "api/src/admin/templates/domains.ts",
+        "api/test-ui/domains-create-site.spec.ts"
+      ],
+      "required_tests": [
+        "T4.AC3"
+      ],
+      "required_evidence_routes": [
+        "T4.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-4"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T4.AC3'] pass deterministically",
+      "proof_quality_required": "browser_dom"
+    },
+    {
+      "requirement_id": "REQ-020",
+      "original_user_text": "About page provisioning inserts pages row",
+      "goal_class": "provisioning_step",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T4"
+      ],
+      "target_files": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "required_tests": [
+        "T4.AC2"
+      ],
+      "required_evidence_routes": [
+        "T4.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-4"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T4.AC2'] pass deterministically",
+      "proof_quality_required": "db_query"
+    },
+    {
+      "requirement_id": "REQ-021",
+      "original_user_text": "PATCH /api/admin/articles/:id with tenant guard",
+      "goal_class": "api",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/api.ts",
+        "api/src/site/tenant-guards.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T5"
+      ],
+      "target_files": [
+        "api/src/admin/api.ts",
+        "api/src/site/tenant-guards.ts"
+      ],
+      "required_tests": [
+        "T5.AC1",
+        "T5.AC2",
+        "T5.AC3"
+      ],
+      "required_evidence_routes": [
+        "T5.AC1",
+        "T5.AC2",
+        "T5.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-6"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T5.AC1', 'T5.AC2', 'T5.AC3'] pass deterministically",
+      "proof_quality_required": "api_trace+db_query"
+    },
+    {
+      "requirement_id": "REQ-022",
+      "original_user_text": "Articles/Pages/Categories/Media/Tags/Settings all use old admin UI + site-aware",
+      "goal_class": "ui_visual_parity",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/admin/templates/articles.ts",
+        "pages.ts",
+        "categories.ts",
+        "media.ts",
+        "tags.ts",
+        "settings.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T2"
+      ],
+      "target_files": [
+        "api/src/admin/templates/articles.ts",
+        "pages.ts",
+        "categories.ts",
+        "media.ts",
+        "tags.ts",
+        "settings.ts"
+      ],
+      "required_tests": [
+        "T2.AC1",
+        "T2.AC2",
+        "T15.AC1",
+        "T15.AC2"
+      ],
+      "required_evidence_routes": [
+        "T2.AC1",
+        "T2.AC2",
+        "T15.AC1",
+        "T15.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-1"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T2.AC1', 'T2.AC2', 'T15.AC1', 'T15.AC2'] pass deterministically",
+      "proof_quality_required": "browser_dom+screenshot"
+    },
+    {
+      "requirement_id": "REQ-023",
+      "original_user_text": "Playwright browser tests prove admin UX parity",
+      "goal_class": "ui_browser_interaction",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/test-ui/admin-ux-parity.spec.ts",
+        "domains-create-site.spec.ts",
+        "admin-routing-security.spec.ts",
+        "api/test-results/index.html"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T15"
+      ],
+      "target_files": [
+        "api/test-ui/admin-ux-parity.spec.ts",
+        "domains-create-site.spec.ts",
+        "admin-routing-security.spec.ts",
+        "api/test-results/index.html"
+      ],
+      "required_tests": [
+        "T15.AC1",
+        "T15.AC2",
+        "T15.AC3"
+      ],
+      "required_evidence_routes": [
+        "T15.AC1",
+        "T15.AC2",
+        "T15.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-3",
+        "MQA-7",
+        "MQA-12"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T15.AC1', 'T15.AC2', 'T15.AC3'] pass deterministically",
+      "proof_quality_required": "browser_dom+screenshot+trace"
+    },
+    {
+      "requirement_id": "REQ-024",
+      "original_user_text": "off-ADMIN_HOST /admin 404 + no-store + noindex + no leak",
+      "goal_class": "ui_browser_interaction",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/src/public/middleware.ts",
+        "api/test-ui/admin-routing-security.spec.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T13"
+      ],
+      "target_files": [
+        "api/src/public/middleware.ts",
+        "api/test-ui/admin-routing-security.spec.ts"
+      ],
+      "required_tests": [
+        "T13.AC1",
+        "T13.AC2",
+        "T13.AC3"
+      ],
+      "required_evidence_routes": [
+        "T13.AC1",
+        "T13.AC2",
+        "T13.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-12"
+      ],
+      "reviewer_artifacts": [
+        "evidence_route_proofs",
+        "playwright_trace_zip"
+      ],
+      "terminal_criterion": "All ACs in ['T13.AC1', 'T13.AC2', 'T13.AC3'] pass deterministically",
+      "proof_quality_required": "browser_dom+api_trace"
+    },
+    {
+      "requirement_id": "REQ-025",
+      "original_user_text": "protected-domain rejection for TheIWise + protected domains",
+      "goal_class": "safety_red_line",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "docs/no-touch-red-line.md",
+        "api/package.json"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T14"
+      ],
+      "target_files": [
+        "docs/no-touch-red-line.md",
+        "api/package.json"
+      ],
+      "required_tests": [
+        "T14.AC1",
+        "T14.AC2"
+      ],
+      "required_evidence_routes": [
+        "T14.AC1",
+        "T14.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-13"
+      ],
+      "reviewer_artifacts": [
+        "exit_code_receipt"
+      ],
+      "terminal_criterion": "All ACs in ['T14.AC1', 'T14.AC2'] pass deterministically",
+      "proof_quality_required": "exit_code"
+    },
+    {
+      "requirement_id": "REQ-026",
+      "original_user_text": "local D1 migrations apply + prove tables/indexes/constraints/seed",
+      "goal_class": "db_proof",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/migrations/",
+        "api/package.json"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T1"
+      ],
+      "target_files": [
+        "api/migrations/",
+        "api/package.json"
+      ],
+      "required_tests": [
+        "T1.AC1",
+        "T1.AC2",
+        "T1.AC3"
+      ],
+      "required_evidence_routes": [
+        "T1.AC1",
+        "T1.AC2",
+        "T1.AC3"
+      ],
+      "required_manualqa_rows": [
+        "MQA-5"
+      ],
+      "reviewer_artifacts": [
+        "db_query_output"
+      ],
+      "terminal_criterion": "All ACs in ['T1.AC1', 'T1.AC2', 'T1.AC3'] pass deterministically",
+      "proof_quality_required": "exit_code+db_query"
+    },
+    {
+      "requirement_id": "REQ-027",
+      "original_user_text": "R2/media integration OR dry-run binding proof",
+      "goal_class": "db_proof",
+      "scope_status": "production_pending_for_upload_only",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/wrangler.toml",
+        "api/src/admin/templates/media.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T9"
+      ],
+      "target_files": [
+        "api/wrangler.toml",
+        "api/src/admin/templates/media.ts"
+      ],
+      "required_tests": [
+        "T9.AC1"
+      ],
+      "required_evidence_routes": [
+        "T9.AC1"
+      ],
+      "required_manualqa_rows": [
+        "MQA-16"
+      ],
+      "reviewer_artifacts": [
+        "exit_code_receipt"
+      ],
+      "terminal_criterion": "All ACs in ['T9.AC1'] pass deterministically",
+      "proof_quality_required": "binding_proof"
+    },
+    {
+      "requirement_id": "REQ-028",
+      "original_user_text": "no real Cloudflare route/DNS/cache mutation",
+      "goal_class": "cf_dry_run",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "api/wrangler.toml",
+        "api/src/site-provisioning/cloudflare-interfaces.ts"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T12"
+      ],
+      "target_files": [
+        "api/wrangler.toml",
+        "api/src/site-provisioning/cloudflare-interfaces.ts"
+      ],
+      "required_tests": [
+        "T12.AC1",
+        "T12.AC2"
+      ],
+      "required_evidence_routes": [
+        "T12.AC1",
+        "T12.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-11"
+      ],
+      "reviewer_artifacts": [
+        "exit_code_receipt"
+      ],
+      "terminal_criterion": "All ACs in ['T12.AC1', 'T12.AC2'] pass deterministically",
+      "proof_quality_required": "no_outbound"
+    },
+    {
+      "requirement_id": "REQ-029",
+      "original_user_text": "no legacy production refs in active config",
+      "goal_class": "safety_red_line",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        "docs/no-touch-red-line.md",
+        "api/package.json"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T14"
+      ],
+      "target_files": [
+        "docs/no-touch-red-line.md",
+        "api/package.json"
+      ],
+      "required_tests": [
+        "T14.AC1",
+        "T14.AC2"
+      ],
+      "required_evidence_routes": [
+        "T14.AC1",
+        "T14.AC2"
+      ],
+      "required_manualqa_rows": [
+        "MQA-14"
+      ],
+      "reviewer_artifacts": [
+        "exit_code_receipt"
+      ],
+      "terminal_criterion": "All ACs in ['T14.AC1', 'T14.AC2'] pass deterministically",
+      "proof_quality_required": "exit_code"
+    },
+    {
+      "requirement_id": "REQ-030",
+      "original_user_text": "explicit develop/ship boundary",
+      "goal_class": "safety_red_line",
+      "scope_status": "in_scope",
+      "deploy_forbidden_awareness": true,
+      "required_source_files": [
+        ".a2z/mission-state/<cid>/live_domain_routability.json"
+      ],
+      "read_confirmed": true,
+      "story_ids": [
+        "T16"
+      ],
+      "target_files": [
+        ".a2z/mission-state/<cid>/live_domain_routability.json"
+      ],
+      "required_tests": [
+        "T16.AC1"
+      ],
+      "required_evidence_routes": [
+        "T16.AC1"
+      ],
+      "required_manualqa_rows": [
+        "MQA-15"
+      ],
+      "reviewer_artifacts": [
+        "exit_code_receipt"
+      ],
+      "terminal_criterion": "All ACs in ['T16.AC1'] pass deterministically",
+      "proof_quality_required": "artifact_grep"
+    }
+  ]
+}

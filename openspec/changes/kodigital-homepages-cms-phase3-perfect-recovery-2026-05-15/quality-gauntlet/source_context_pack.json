@@ -1,0 +1,4860 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "generated_at": "2026-05-17T21:48:57Z",
+  "blueprint_ref": ".a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/mission_context_blueprint.json",
+  "entries": [
+    {
+      "source_context_id": "SCTX-001",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "endpoint_handler",
+      "archetype": "endpoint_handler",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/api.ts",
+          "sha256": "c9f0cd9d5f9374ba3636a67f9e2c8e2b92e97b65dcb2eb3b7d97c68b213937c2",
+          "line_count": 640,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/api.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_handler",
+        "body_fields_read": [
+          "author_name",
+          "category_id",
+          "content_json",
+          "featured_image_id",
+          "homepage_rank",
+          "homepage_section",
+          "is_featured",
+          "is_trending",
+          "seo_description",
+          "seo_title",
+          "site_id",
+          "slug",
+          "status",
+          "title",
+          "updates"
+        ],
+        "db_tables_inserted": [
+          "articles",
+          "site_settings"
+        ],
+        "db_tables_selected": [
+          "articles",
+          "categories",
+          "media",
+          "pages",
+          "prompt_presets",
+          "site_settings",
+          "sites",
+          "supplied",
+          "tags"
+        ],
+        "routes_declared": [
+          "/api/admin/articles",
+          "/api/admin/articles/:id",
+          "/api/admin/categories",
+          "/api/admin/media",
+          "/api/admin/pages",
+          "/api/admin/presets",
+          "/api/admin/settings",
+          "/api/admin/tags",
+          "/articles/:id",
+          "/domains",
+          "/domains/:id",
+          "/sites",
+          "/sites/:id",
+          "/sites/:id/provision",
+          "/sites/:id/provision/next",
+          "/sites/:id/purge-cache",
+          "/verticals"
+        ]
+      },
+      "story_ids_using_it": [
+        "T5",
+        "T7"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-002",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "endpoint_handler",
+      "archetype": "endpoint_handler",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/sites-handlers.ts",
+          "sha256": "2c583445da75c64c970ef251a05bc7d8e2b5ef26cd299ec8bc0d82d2891679f1",
+          "line_count": 268,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/sites-handlers.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_handler",
+        "body_fields_read": [
+          "activity",
+          "domain",
+          "name",
+          "status",
+          "vertical_slug"
+        ],
+        "db_tables_inserted": [
+          "domains",
+          "site_creation_jobs",
+          "sites"
+        ],
+        "db_tables_selected": [
+          "domains",
+          "site_creation_jobs",
+          "sites",
+          "verticals"
+        ],
+        "routes_declared": []
+      },
+      "story_ids_using_it": [
+        "T3",
+        "T8"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-003",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "interface_contract_endpoint",
+      "archetype": "interface_contract_endpoint",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/api.ts",
+          "sha256": "c9f0cd9d5f9374ba3636a67f9e2c8e2b92e97b65dcb2eb3b7d97c68b213937c2",
+          "line_count": 640,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/api.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "interface_contract_endpoint",
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/api/admin/articles"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/articles/:id"
+          },
+          {
+            "method": "POST",
+            "path": "/api/admin/articles"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/pages"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/categories"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/tags"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/media"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/settings"
+          },
+          {
+            "method": "PATCH",
+            "path": "/api/admin/settings"
+          },
+          {
+            "method": "GET",
+            "path": "/api/admin/presets"
+          },
+          {
+            "method": "GET",
+            "path": "/sites"
+          },
+          {
+            "method": "POST",
+            "path": "/sites"
+          },
+          {
+            "method": "GET",
+            "path": "/sites/:id"
+          },
+          {
+            "method": "PATCH",
+            "path": "/sites/:id"
+          },
+          {
+            "method": "POST",
+            "path": "/sites/:id/provision/next"
+          },
+          {
+            "method": "GET",
+            "path": "/sites/:id/provision"
+          },
+          {
+            "method": "POST",
+            "path": "/sites/:id/purge-cache"
+          },
+          {
+            "method": "GET",
+            "path": "/verticals"
+          },
+          {
+            "method": "GET",
+            "path": "/domains"
+          },
+          {
+            "method": "PATCH",
+            "path": "/domains/:id"
+          },
+          {
+            "method": "PATCH",
+            "path": "/articles/:id"
+          },
+          {
+            "method": "PATCH",
+            "path": "/articles/:id"
+          }
+        ],
+        "request_body_keys": [
+          "author_name",
+          "category_id",
+          "content_json",
+          "featured_image_id",
+          "homepage_rank",
+          "homepage_section",
+          "is_featured",
+          "is_trending",
+          "seo_description",
+          "seo_title",
+          "site_id",
+          "slug",
+          "status",
+          "title",
+          "updates"
+        ],
+        "response_keys": [],
+        "error_status_codes": []
+      },
+      "story_ids_using_it": [
+        "T5",
+        "T7"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-004",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "interface_contract_endpoint",
+      "archetype": "interface_contract_endpoint",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/sites-handlers.ts",
+          "sha256": "2c583445da75c64c970ef251a05bc7d8e2b5ef26cd299ec8bc0d82d2891679f1",
+          "line_count": 268,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/sites-handlers.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "interface_contract_endpoint",
+        "routes": [],
+        "request_body_keys": [
+          "activity",
+          "domain",
+          "name",
+          "status",
+          "vertical_slug"
+        ],
+        "response_keys": [],
+        "error_status_codes": []
+      },
+      "story_ids_using_it": [
+        "T3",
+        "T8"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-005",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "provisioner_code",
+      "archetype": "provisioner_code",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/cloudflare-interfaces.ts",
+          "sha256": "8327f1802a1d48db29522493582c479c154c6516eb3f1b3c1902de3ff1ac2631",
+          "line_count": 164,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/cloudflare-interfaces.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": true,
+        "cf_endpoints_referenced": [
+          "api.cloudflare.com"
+        ]
+      },
+      "story_ids_using_it": [
+        "T12"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-006",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "provisioner_code",
+      "archetype": "provisioner_code",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/legal-renderer.ts",
+          "sha256": "602b5aaf1d0f8a6a40fb156a6d6cc628dfcf6513711879c678d26da05c80a005",
+          "line_count": 193,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/legal-renderer.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": false,
+        "cf_endpoints_referenced": []
+      },
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-007",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "provisioner_code",
+      "archetype": "provisioner_code",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/runner.ts",
+          "sha256": "f35dcc9eb91d07bd5b3d5f4a7dddb210c2b3f3dd88f02eb46d2d2d1aff221944",
+          "line_count": 182,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/runner.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": false,
+        "cf_endpoints_referenced": []
+      },
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-008",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "provisioner_code",
+      "archetype": "provisioner_code",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/steps.ts",
+          "sha256": "c682db3314b58b6b7e4e150131021a5cef71a05222a1ae95d6b5760ea963f657",
+          "line_count": 265,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/steps.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": true,
+        "cf_endpoints_referenced": []
+      },
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-009",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "dry_run_flag",
+      "archetype": "dry_run_flag",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/wrangler.toml",
+          "sha256": "26b300acd7732a3bf096db2e8b126814ad35d04d7deff5ad9f2ddca3fe8f64ac",
+          "line_count": 121,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/wrangler.toml"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "dry_run_flag",
+        "has_dry_run_flag": false,
+        "flag_tokens": [],
+        "conditional_branch_count": 0,
+        "flag_propagation_chain": []
+      },
+      "story_ids_using_it": [
+        "T9",
+        "T14"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-010",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "fetch_mock",
+      "archetype": "fetch_mock",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/test-ui/admin-routing-security.spec.ts",
+          "sha256": "72e393db95786716a16475d64b7ac1613c4441eb689babccf8f4d7ab184347e0",
+          "line_count": 70,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/test-ui/admin-routing-security.spec.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "fetch_mock",
+        "mocked_endpoints": [],
+        "mocked_response_keys": [],
+        "mock_predicates": []
+      },
+      "story_ids_using_it": [
+        "T13",
+        "T15"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-011",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "fetch_mock",
+      "archetype": "fetch_mock",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/test-ui/admin-ux-parity.spec.ts",
+          "sha256": "fba7e0acfdb90ce98eada53cef0a5e75c6dca652bdd4fdb55a315fd23426b3d3",
+          "line_count": 70,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/test-ui/admin-ux-parity.spec.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "fetch_mock",
+        "mocked_endpoints": [],
+        "mocked_response_keys": [],
+        "mock_predicates": []
+      },
+      "story_ids_using_it": [
+        "T15"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-012",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "fetch_mock",
+      "archetype": "fetch_mock",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/test-ui/domains-create-site.spec.ts",
+          "sha256": "5009a185c953115daf6e66080f9ea3cd8ed433dd56f6c9e82fd8bb3ca30e40e0",
+          "line_count": 83,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/test-ui/domains-create-site.spec.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "fetch_mock",
+        "mocked_endpoints": [],
+        "mocked_response_keys": [],
+        "mock_predicates": []
+      },
+      "story_ids_using_it": [
+        "T3",
+        "T15"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-013",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "fetch_mock",
+      "archetype": "fetch_mock",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/test/admin-articles-post-site-id.test.ts",
+          "sha256": "236ae2651a3fb16089620e5deb1a9fd34fe2b257d29cdb3061dba0b265a8c886",
+          "line_count": 201,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/test/admin-articles-post-site-id.test.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "fetch_mock",
+        "mocked_endpoints": [],
+        "mocked_response_keys": [],
+        "mock_predicates": []
+      },
+      "story_ids_using_it": [
+        "T5"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-014",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "fetch_mock",
+      "archetype": "fetch_mock",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/test/category-multi-vertical.test.ts",
+          "sha256": "20a7dd281f05fb68cf29a206eb532442b6c320e4e4fe4448f76168694ec442ae",
+          "line_count": 64,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/test/category-multi-vertical.test.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "fetch_mock",
+        "mocked_endpoints": [],
+        "mocked_response_keys": [],
+        "mock_predicates": []
+      },
+      "story_ids_using_it": [
+        "T7"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-015",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "endpoint_handler",
+      "archetype": "endpoint_handler",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/api.ts",
+          "sha256": "c9f0cd9d5f9374ba3636a67f9e2c8e2b92e97b65dcb2eb3b7d97c68b213937c2",
+          "line_count": 640,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/api.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_handler",
+        "body_fields_read": [
+          "author_name",
+          "category_id",
+          "content_json",
+          "featured_image_id",
+          "homepage_rank",
+          "homepage_section",
+          "is_featured",
+          "is_trending",
+          "seo_description",
+          "seo_title",
+          "site_id",
+          "slug",
+          "status",
+          "title",
+          "updates"
+        ],
+        "db_tables_inserted": [
+          "articles",
+          "site_settings"
+        ],
+        "db_tables_selected": [
+          "articles",
+          "categories",
+          "media",
+          "pages",
+          "prompt_presets",
+          "site_settings",
+          "sites",
+          "supplied",
+          "tags"
+        ],
+        "routes_declared": [
+          "/api/admin/articles",
+          "/api/admin/articles/:id",
+          "/api/admin/categories",
+          "/api/admin/media",
+          "/api/admin/pages",
+          "/api/admin/presets",
+          "/api/admin/settings",
+          "/api/admin/tags",
+          "/articles/:id",
+          "/domains",
+          "/domains/:id",
+          "/sites",
+          "/sites/:id",
+          "/sites/:id/provision",
+          "/sites/:id/provision/next",
+          "/sites/:id/purge-cache",
+          "/verticals"
+        ]
+      },
+      "story_ids_using_it": [
+        "T5",
+        "T7"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-016",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "endpoint_handler",
+      "archetype": "endpoint_handler",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/sites-handlers.ts",
+          "sha256": "2c583445da75c64c970ef251a05bc7d8e2b5ef26cd299ec8bc0d82d2891679f1",
+          "line_count": 268,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/sites-handlers.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_handler",
+        "body_fields_read": [
+          "activity",
+          "domain",
+          "name",
+          "status",
+          "vertical_slug"
+        ],
+        "db_tables_inserted": [
+          "domains",
+          "site_creation_jobs",
+          "sites"
+        ],
+        "db_tables_selected": [
+          "domains",
+          "site_creation_jobs",
+          "sites",
+          "verticals"
+        ],
+        "routes_declared": []
+      },
+      "story_ids_using_it": [
+        "T3",
+        "T8"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-017",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "db_table",
+      "archetype": "db_table",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "db_table",
+        "tables": [
+          {
+            "table_name": "articles_new",
+            "columns": [
+              {
+                "name": "id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": true
+              },
+              {
+                "name": "slug",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "title",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_json",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_html",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "category_id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "status",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "published_at",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "scheduled_at",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "author_name",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "featured_image_id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "is_featured",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "is_trending",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "created_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "updated_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "site_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "homepage_section",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "homepage_rank",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "seo_title",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "seo_description",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "ai_generation_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              }
+            ],
+            "primary_keys": [
+              "id"
+            ]
+          },
+          {
+            "table_name": "pages_new",
+            "columns": [
+              {
+                "name": "id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": true
+              },
+              {
+                "name": "slug",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "title",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_json",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_html",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "status",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "template",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "show_in_footer",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "created_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "updated_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "site_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "page_type",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "ai_generation_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              }
+            ],
+            "primary_keys": [
+              "id"
+            ]
+          }
+        ],
+        "indexes": [
+          {
+            "index_name": "idx_articles_status_published",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_category",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_featured",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_trending",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_status_pub",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_category_status_pub",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_featured",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_trending",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_homepage_section",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_slug_unique",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_pages_status",
+            "table": "pages"
+          },
+          {
+            "index_name": "idx_pages_site_slug",
+            "table": "pages"
+          },
+          {
+            "index_name": "idx_pages_site_type",
+            "table": "pages"
+          },
+          {
+            "index_name": "idx_pages_site_slug_unique",
+            "table": "pages"
+          }
+        ]
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-018",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "tenant_guard",
+      "archetype": "tenant_guard",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/site/tenant-guards.ts",
+          "sha256": "119ee466cf228324cec7ca68ed00756e4c9c9c5fcf10e31f8ade0e661f241097",
+          "line_count": 196,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site/tenant-guards.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "tenant_guard",
+        "tenant_param_tokens": [],
+        "where_clauses_with_tenant": [],
+        "guard_function_names": [
+          "assertTenantBoundary"
+        ],
+        "has_tenant_check": false
+      },
+      "story_ids_using_it": [
+        "T5",
+        "T11"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-019",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "tenant_guard",
+      "archetype": "tenant_guard",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/test/tenant-guards.test.ts",
+          "sha256": "0e9d5381d04341e44704e31d46a3bd1027e1e38260aba694e50e06b53e7faaf1",
+          "line_count": 352,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/test/tenant-guards.test.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "tenant_guard",
+        "tenant_param_tokens": [],
+        "where_clauses_with_tenant": [],
+        "guard_function_names": [],
+        "has_tenant_check": false
+      },
+      "story_ids_using_it": [
+        "T11"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-020",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "step_runner_code",
+      "archetype": "step_runner_code",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/cloudflare-interfaces.ts",
+          "sha256": "8327f1802a1d48db29522493582c479c154c6516eb3f1b3c1902de3ff1ac2631",
+          "line_count": 164,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/cloudflare-interfaces.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": true,
+        "cf_endpoints_referenced": [
+          "api.cloudflare.com"
+        ]
+      },
+      "story_ids_using_it": [
+        "T12"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-021",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "step_runner_code",
+      "archetype": "step_runner_code",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/legal-renderer.ts",
+          "sha256": "602b5aaf1d0f8a6a40fb156a6d6cc628dfcf6513711879c678d26da05c80a005",
+          "line_count": 193,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/legal-renderer.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": false,
+        "cf_endpoints_referenced": []
+      },
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-022",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "step_runner_code",
+      "archetype": "step_runner_code",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/runner.ts",
+          "sha256": "f35dcc9eb91d07bd5b3d5f4a7dddb210c2b3f3dd88f02eb46d2d2d1aff221944",
+          "line_count": 182,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/runner.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": false,
+        "cf_endpoints_referenced": []
+      },
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-023",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "step_runner_code",
+      "archetype": "step_runner_code",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/site-provisioning/steps.ts",
+          "sha256": "c682db3314b58b6b7e4e150131021a5cef71a05222a1ae95d6b5760ea963f657",
+          "line_count": 265,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site-provisioning/steps.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "provisioner_code",
+        "has_dry_run_flag": true,
+        "cf_endpoints_referenced": []
+      },
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-024",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "db_schema",
+      "archetype": "db_schema",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "migration_sql",
+        "tables_created": [
+          "articles_new",
+          "pages_new"
+        ],
+        "tables_altered": [
+          "DROP",
+          "articles_new",
+          "pages_new"
+        ],
+        "indexes_created": [
+          "idx_articles_category",
+          "idx_articles_featured",
+          "idx_articles_site_category_status_pub",
+          "idx_articles_site_featured",
+          "idx_articles_site_homepage_section",
+          "idx_articles_site_slug_unique",
+          "idx_articles_site_status_pub",
+          "idx_articles_site_trending",
+          "idx_articles_status_published",
+          "idx_articles_trending",
+          "idx_pages_site_slug",
+          "idx_pages_site_slug_unique",
+          "idx_pages_site_type",
+          "idx_pages_status"
+        ]
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-025",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "side_effect_table",
+      "archetype": "side_effect_table",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "side_effect_table",
+        "inserts": [
+          {
+            "table": "articles_new",
+            "columns_inserted": [
+              "id",
+              "slug",
+              "title",
+              "content_json",
+              "content_html",
+              "category_id",
+              "status",
+              "published_at",
+              "scheduled_at",
+              "author_name",
+              "featured_image_id",
+              "is_featured",
+              "is_trending",
+              "created_at",
+              "updated_at",
+              "site_id",
+              "homepage_section",
+              "homepage_rank",
+              "seo_title",
+              "seo_description",
+              "ai_generation_id"
+            ]
+          },
+          {
+            "table": "pages_new",
+            "columns_inserted": [
+              "id",
+              "slug",
+              "title",
+              "content_json",
+              "content_html",
+              "status",
+              "template",
+              "show_in_footer",
+              "created_at",
+              "updated_at",
+              "site_id",
+              "page_type",
+              "ai_generation_id"
+            ]
+          }
+        ],
+        "updates": [],
+        "tables_written": [
+          "articles_new",
+          "pages_new"
+        ]
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-026",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "migration_sql",
+      "archetype": "migration_sql",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "migration_sql",
+        "tables_created": [
+          "articles_new",
+          "pages_new"
+        ],
+        "tables_altered": [
+          "DROP",
+          "articles_new",
+          "pages_new"
+        ],
+        "indexes_created": [
+          "idx_articles_category",
+          "idx_articles_featured",
+          "idx_articles_site_category_status_pub",
+          "idx_articles_site_featured",
+          "idx_articles_site_homepage_section",
+          "idx_articles_site_slug_unique",
+          "idx_articles_site_status_pub",
+          "idx_articles_site_trending",
+          "idx_articles_status_published",
+          "idx_articles_trending",
+          "idx_pages_site_slug",
+          "idx_pages_site_slug_unique",
+          "idx_pages_site_type",
+          "idx_pages_status"
+        ]
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-027",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "table_diff",
+      "archetype": "table_diff",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "table_diff",
+        "added_columns": [],
+        "dropped_columns": [],
+        "renamed_columns": []
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-028",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_template",
+      "archetype": "form_template",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/domains.ts",
+          "sha256": "4a2eb72bd2eb1092863b3a2aed520b4534246e71a0ea2b2c1ed61f48ba826f6b",
+          "line_count": 239,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/domains.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ui_template",
+        "exports": [
+          "domainsPage"
+        ],
+        "css_class_names": [
+          "alert",
+          "alert-error",
+          "badge",
+          "btn",
+          "btn-primary",
+          "btn-secondary",
+          "btn-sm",
+          "card",
+          "domains-list",
+          "empty-state",
+          "form-group",
+          "form-input",
+          "form-label",
+          "form-select",
+          "hidden",
+          "modal",
+          "modal-actions",
+          "modal-content",
+          "modal-title",
+          "table",
+          "table-wrapper",
+          "toolbar"
+        ],
+        "negative_markers_to_forbid": []
+      },
+      "story_ids_using_it": [
+        "T3"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-029",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_template",
+      "archetype": "form_template",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/media.ts",
+          "sha256": "73912f0976cff1490bfd2cdaaffdec5cef01d92b470cc2345650889fcf604565",
+          "line_count": 141,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/media.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ui_template",
+        "exports": [
+          "mediaListPage"
+        ],
+        "css_class_names": [
+          "badge",
+          "btn",
+          "btn-primary",
+          "btn-secondary",
+          "btn-sm",
+          "card",
+          "empty-state",
+          "form-input",
+          "form-select",
+          "global-template",
+          "media-list",
+          "media-preview",
+          "media-preview-placeholder",
+          "table",
+          "table-wrapper",
+          "toolbar",
+          "toolbar-filters",
+          "toolbar-search"
+        ],
+        "negative_markers_to_forbid": []
+      },
+      "story_ids_using_it": [
+        "T10"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-030",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_template",
+      "archetype": "form_template",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/pages.ts",
+          "sha256": "49cfbe45bc5e72dc892ee6c06319e53fe6eade9870636c4cec0c98d10e5a4bba",
+          "line_count": 373,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/pages.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ui_template",
+        "exports": [
+          "pageFormPage",
+          "pagesListPage"
+        ],
+        "css_class_names": [
+          "alert",
+          "alert-error",
+          "badge",
+          "btn",
+          "btn-primary",
+          "btn-secondary",
+          "btn-sm",
+          "card",
+          "card-header",
+          "card-title",
+          "empty-state",
+          "form-actions",
+          "form-group",
+          "form-hint",
+          "form-input",
+          "form-label",
+          "form-select",
+          "form-status",
+          "form-textarea",
+          "global-template",
+          "page-form",
+          "pages-list",
+          "table",
+          "table-wrapper",
+          "toolbar",
+          "toolbar-filters",
+          "toolbar-search"
+        ],
+        "negative_markers_to_forbid": []
+      },
+      "story_ids_using_it": [
+        "T6"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-031",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_template",
+      "archetype": "form_template",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/tags.ts",
+          "sha256": "d9dc375d523aebffe56cfbc9c4e3750847d8f7637c3b8df1c3930975d42ad81c",
+          "line_count": 111,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/tags.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ui_template",
+        "exports": [
+          "tagsListPage"
+        ],
+        "css_class_names": [
+          "badge",
+          "btn",
+          "btn-primary",
+          "btn-secondary",
+          "btn-sm",
+          "card",
+          "empty-state",
+          "form-input",
+          "form-select",
+          "global-template",
+          "table",
+          "table-wrapper",
+          "tags-list",
+          "toolbar",
+          "toolbar-filters",
+          "toolbar-search"
+        ],
+        "negative_markers_to_forbid": []
+      },
+      "story_ids_using_it": [
+        "T10"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-032",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_handler",
+      "archetype": "form_handler",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/api.ts",
+          "sha256": "c9f0cd9d5f9374ba3636a67f9e2c8e2b92e97b65dcb2eb3b7d97c68b213937c2",
+          "line_count": 640,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/api.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_handler",
+        "body_fields_read": [
+          "author_name",
+          "category_id",
+          "content_json",
+          "featured_image_id",
+          "homepage_rank",
+          "homepage_section",
+          "is_featured",
+          "is_trending",
+          "seo_description",
+          "seo_title",
+          "site_id",
+          "slug",
+          "status",
+          "title",
+          "updates"
+        ],
+        "db_tables_inserted": [
+          "articles",
+          "site_settings"
+        ],
+        "db_tables_selected": [
+          "articles",
+          "categories",
+          "media",
+          "pages",
+          "prompt_presets",
+          "site_settings",
+          "sites",
+          "supplied",
+          "tags"
+        ],
+        "routes_declared": [
+          "/api/admin/articles",
+          "/api/admin/articles/:id",
+          "/api/admin/categories",
+          "/api/admin/media",
+          "/api/admin/pages",
+          "/api/admin/presets",
+          "/api/admin/settings",
+          "/api/admin/tags",
+          "/articles/:id",
+          "/domains",
+          "/domains/:id",
+          "/sites",
+          "/sites/:id",
+          "/sites/:id/provision",
+          "/sites/:id/provision/next",
+          "/sites/:id/purge-cache",
+          "/verticals"
+        ]
+      },
+      "story_ids_using_it": [
+        "T5",
+        "T7"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-033",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_handler",
+      "archetype": "form_handler",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/sites-handlers.ts",
+          "sha256": "2c583445da75c64c970ef251a05bc7d8e2b5ef26cd299ec8bc0d82d2891679f1",
+          "line_count": 268,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/sites-handlers.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_handler",
+        "body_fields_read": [
+          "activity",
+          "domain",
+          "name",
+          "status",
+          "vertical_slug"
+        ],
+        "db_tables_inserted": [
+          "domains",
+          "site_creation_jobs",
+          "sites"
+        ],
+        "db_tables_selected": [
+          "domains",
+          "site_creation_jobs",
+          "sites",
+          "verticals"
+        ],
+        "routes_declared": []
+      },
+      "story_ids_using_it": [
+        "T3",
+        "T8"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-034",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "db_table",
+      "archetype": "db_table",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "db_table",
+        "tables": [
+          {
+            "table_name": "articles_new",
+            "columns": [
+              {
+                "name": "id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": true
+              },
+              {
+                "name": "slug",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "title",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_json",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_html",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "category_id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "status",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "published_at",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "scheduled_at",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "author_name",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "featured_image_id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "is_featured",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "is_trending",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "created_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "updated_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "site_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "homepage_section",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "homepage_rank",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "seo_title",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "seo_description",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "ai_generation_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              }
+            ],
+            "primary_keys": [
+              "id"
+            ]
+          },
+          {
+            "table_name": "pages_new",
+            "columns": [
+              {
+                "name": "id",
+                "type": "INTEGER",
+                "nullable": true,
+                "is_primary_key": true
+              },
+              {
+                "name": "slug",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "title",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_json",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "content_html",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "status",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "template",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "show_in_footer",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "created_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "updated_at",
+                "type": "INTEGER",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "site_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              },
+              {
+                "name": "page_type",
+                "type": "TEXT",
+                "nullable": false,
+                "is_primary_key": false
+              },
+              {
+                "name": "ai_generation_id",
+                "type": "TEXT",
+                "nullable": true,
+                "is_primary_key": false
+              }
+            ],
+            "primary_keys": [
+              "id"
+            ]
+          }
+        ],
+        "indexes": [
+          {
+            "index_name": "idx_articles_status_published",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_category",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_featured",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_trending",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_status_pub",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_category_status_pub",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_featured",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_trending",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_homepage_section",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_articles_site_slug_unique",
+            "table": "articles"
+          },
+          {
+            "index_name": "idx_pages_status",
+            "table": "pages"
+          },
+          {
+            "index_name": "idx_pages_site_slug",
+            "table": "pages"
+          },
+          {
+            "index_name": "idx_pages_site_type",
+            "table": "pages"
+          },
+          {
+            "index_name": "idx_pages_site_slug_unique",
+            "table": "pages"
+          }
+        ]
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-035",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "legacy_ui_template_reference",
+      "archetype": "legacy_ui_template_reference",
+      "quality_level": "L5",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/layout.ts",
+          "sha256": "9851ec0d559d696b4780cd266e7cbba26bce5fee4386aca1de862587fdca32eb",
+          "line_count": 163,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/layout.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ui_template",
+        "exports": [
+          "adminLayout"
+        ],
+        "css_class_names": [
+          "${cls}",
+          "admin-content",
+          "admin-header",
+          "admin-layout",
+          "admin-main",
+          "admin-sidebar",
+          "header-actions",
+          "logo",
+          "logo-text",
+          "nav-item",
+          "page-title",
+          "sidebar-footer",
+          "sidebar-header",
+          "sidebar-nav",
+          "user-email"
+        ],
+        "negative_markers_to_forbid": [],
+        "target_diff": {
+          "sha256": "9851ec0d559d696b4780cd266e7cbba26bce5fee4386aca1de862587fdca32eb",
+          "line_count": 163,
+          "full_path": "api/src/admin/templates/layout.ts"
+        }
+      },
+      "story_ids_using_it": [],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      }
+    },
+    {
+      "source_context_id": "SCTX-036",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_field",
+      "archetype": "form_field",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/domains.ts",
+          "sha256": "4a2eb72bd2eb1092863b3a2aed520b4534246e71a0ea2b2c1ed61f48ba826f6b",
+          "line_count": 239,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/domains.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_field",
+        "fields": [
+          {
+            "field_name": "domain",
+            "field_type": "text",
+            "required": true,
+            "label": null
+          },
+          {
+            "field_name": "name",
+            "field_type": "text",
+            "required": true,
+            "label": null
+          }
+        ],
+        "required_field_names": [
+          "domain",
+          "name"
+        ]
+      },
+      "story_ids_using_it": [
+        "T3"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-037",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_field",
+      "archetype": "form_field",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/media.ts",
+          "sha256": "73912f0976cff1490bfd2cdaaffdec5cef01d92b470cc2345650889fcf604565",
+          "line_count": 141,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/media.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_field",
+        "fields": [
+          {
+            "field_name": "search",
+            "field_type": "search",
+            "required": false,
+            "label": null
+          }
+        ],
+        "required_field_names": []
+      },
+      "story_ids_using_it": [
+        "T10"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-038",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_field",
+      "archetype": "form_field",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/pages.ts",
+          "sha256": "49cfbe45bc5e72dc892ee6c06319e53fe6eade9870636c4cec0c98d10e5a4bba",
+          "line_count": 373,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/pages.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_field",
+        "fields": [
+          {
+            "field_name": "search",
+            "field_type": "search",
+            "required": false,
+            "label": null
+          },
+          {
+            "field_name": "seo_title",
+            "field_type": "text",
+            "required": false,
+            "label": null
+          },
+          {
+            "field_name": "show_in_footer",
+            "field_type": "checkbox",
+            "required": false,
+            "label": null
+          },
+          {
+            "field_name": "slug",
+            "field_type": "text",
+            "required": false,
+            "label": null
+          },
+          {
+            "field_name": "title",
+            "field_type": "text",
+            "required": true,
+            "label": null
+          }
+        ],
+        "required_field_names": [
+          "title"
+        ]
+      },
+      "story_ids_using_it": [
+        "T6"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-039",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "form_field",
+      "archetype": "form_field",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/templates/tags.ts",
+          "sha256": "d9dc375d523aebffe56cfbc9c4e3750847d8f7637c3b8df1c3930975d42ad81c",
+          "line_count": 111,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/templates/tags.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "form_field",
+        "fields": [
+          {
+            "field_name": "search",
+            "field_type": "search",
+            "required": false,
+            "label": null
+          }
+        ],
+        "required_field_names": []
+      },
+      "story_ids_using_it": [
+        "T10"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-040",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "request_field",
+      "archetype": "request_field",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/api.ts",
+          "sha256": "c9f0cd9d5f9374ba3636a67f9e2c8e2b92e97b65dcb2eb3b7d97c68b213937c2",
+          "line_count": 640,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/api.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "request_field",
+        "body_fields": [
+          "author_name",
+          "category_id",
+          "content_json",
+          "featured_image_id",
+          "homepage_rank",
+          "homepage_section",
+          "is_featured",
+          "is_trending",
+          "seo_description",
+          "seo_title",
+          "site_id",
+          "slug",
+          "status",
+          "title",
+          "updates"
+        ],
+        "query_fields": [],
+        "validator_calls": []
+      },
+      "story_ids_using_it": [
+        "T5",
+        "T7"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-041",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "request_field",
+      "archetype": "request_field",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/sites-handlers.ts",
+          "sha256": "2c583445da75c64c970ef251a05bc7d8e2b5ef26cd299ec8bc0d82d2891679f1",
+          "line_count": 268,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/sites-handlers.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "request_field",
+        "body_fields": [
+          "activity",
+          "domain",
+          "name",
+          "status",
+          "vertical_slug"
+        ],
+        "query_fields": [],
+        "validator_calls": []
+      },
+      "story_ids_using_it": [
+        "T3",
+        "T8"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-042",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "db_column",
+      "archetype": "db_column",
+      "quality_level": "L4",
+      "source_files_read": [
+        {
+          "path": "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
+          "sha256": "2963553bd68a16ed2e70c33511f9241d1312cddeba4f39e298655bc409e096b4",
+          "line_count": 192,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/migrations/0007_phase3r_drop_global_slug_unique.sql"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "db_column",
+        "columns": [
+          {
+            "table": "articles_new",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": true
+          },
+          {
+            "table": "articles_new",
+            "name": "slug",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "title",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "content_json",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "content_html",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "category_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "status",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "published_at",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "scheduled_at",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "author_name",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "featured_image_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "is_featured",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "is_trending",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "created_at",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "updated_at",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "site_id",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "homepage_section",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "homepage_rank",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "seo_title",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "seo_description",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "articles_new",
+            "name": "ai_generation_id",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "is_primary_key": true
+          },
+          {
+            "table": "pages_new",
+            "name": "slug",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "title",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "content_json",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "content_html",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "status",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "template",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "show_in_footer",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "created_at",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "updated_at",
+            "type": "INTEGER",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "site_id",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "page_type",
+            "type": "TEXT",
+            "nullable": false,
+            "is_primary_key": false
+          },
+          {
+            "table": "pages_new",
+            "name": "ai_generation_id",
+            "type": "TEXT",
+            "nullable": true,
+            "is_primary_key": false
+          }
+        ],
+        "added_columns": []
+      },
+      "story_ids_using_it": [
+        "T1"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-043",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": ".github/workflows/deploy.yml",
+          "sha256": "056bee70c5d0db56f14da87ae657fcf23eb68e048f500f3cbd48232af45ca675",
+          "line_count": 145,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.github/workflows/deploy.yml"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "name: CI / Deploy\n\n# CI runs on every pull_request targeting main and on every push to main.\n# Staging deploy: optional, runs on push to main when the repo variable\n# ENABLE_STAGING_DEPLOY is the literal string 'true'.\n# Production deploy: workflow_dispatch ONLY — the operator must trigger\n# the workflow manually from the Actions tab (or `gh workflow run`) after\n# staging smoke passes. Auto-produc"
+      },
+      "story_ids_using_it": [
+        "T17"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-044",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/package.json",
+          "sha256": "8a98b796e7c93f91ca1dfecccc1fb90b5c1d2d3e4297c55ab9e8d090beb70252",
+          "line_count": 43,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/package.json"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "{\n  \"name\": \"kodigital-homepages-cms-api\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Worker API for kodigital-homepages-cms (Phase 0 scaffold)\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"wrangler dev\",\n    \"test\": \"vitest run\",\n    \"test:watch\": \"vitest\",\n    \"test:ui\": \"playwright test\",\n    \"test:ui:headed\": \"playwright test --headed\",\n    \"test:ui:report\": \"playwright show"
+      },
+      "story_ids_using_it": [
+        "T1",
+        "T14"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-045",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/playwright.config.ts",
+          "sha256": "0ddbc40cb8799fc42abd5f8a9755b6af1bda6f2ed7c663e850f7d92006cf2101",
+          "line_count": 32,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/playwright.config.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "import { defineConfig, devices } from '@playwright/test';\n\nexport default defineConfig({\n  testDir: './test-ui',\n  fullyParallel: false,\n  forbidOnly: !!process.env.CI,\n  retries: process.env.CI ? 1 : 0,\n  workers: 1,\n  reporter: [['list'], ['html', { open: 'never' }]],\n  use: {\n    baseURL: 'http://127.0.0.1:8787',\n    trace: 'on-first-retry',\n    screenshot: 'only-on-failure',\n    video: 'retain"
+      },
+      "story_ids_using_it": [
+        "T15"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-046",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/scripts/",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T14"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-047",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/data.ts",
+          "sha256": "f26c88c3e919d9a2f230de7951e7682d3e9f906bd2d4a4207c7a80993bdcee81",
+          "line_count": 524,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/data.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "// Phase 3 / T11: schema-aware data helpers for api/src/admin/ui.ts.\n//\n// Every D1 call is `db.prepare(<static SQL>).bind(...)` — no template-\n// literal SQL. Schema invariants:\n//   * domains hostname lives on `domains.hostname`; queries MUST NOT\n//     select a column literally named `domain` from `domains`.\n//   * sites read path uses the Phase-3 column set: id, name,\n//     vertical_slug, act"
+      },
+      "story_ids_using_it": [
+        "T2",
+        "T6",
+        "T7",
+        "T9"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-048",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/router.ts",
+          "sha256": "bfaae21c35ba48a22f27c486fe2e125ce91807548d0b37f838c22b2b32650791",
+          "line_count": 44,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/router.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "// Admin module entry point. The HTML shell surface is owned by ./ui\n// (adminUi router), and the JSON CRUD/workflow/AI sub-routers mount under\n// /api/admin. Both surfaces are gated by Cloudflare Access via the\n// `gate` middleware (re-imported under a short local alias to keep this\n// file's named-import line as the sole literal reference).\n\nimport { Hono } from \"hono\";\nimport { parseBoolean, ty"
+      },
+      "story_ids_using_it": [
+        "T13"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-049",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/admin/ui.ts",
+          "sha256": "f0e6825645124dde9eaaf091cf166450065e1970864d12d1c82934748d6e15e6",
+          "line_count": 166,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/admin/ui.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "// Admin UI router. Renders the 13 server-side HTML admin shell pages via\n// the templates barrel (adminLayout + per-tab page renderers). Mounted by\n// router.ts under /admin/* and protected by accessAuth upstream — this\n// module itself does NOT register auth middleware. Schema-aware data\n// helpers (T11, api/src/admin/data.ts) will replace the placeholder\n// literals below once T11 lands; for T1"
+      },
+      "story_ids_using_it": [
+        "T2"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-050",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L2",
+      "source_files_read": [
+        {
+          "path": "api/src/site/site-context.ts",
+          "sha256": "11e1b2dace28ce4a285b1d6cef0a302ec342bc07f55dedb651ba9d7dc8517d9c",
+          "line_count": 100,
+          "scraped_at": "2026-05-17T21:48:57Z",
+          "root_used": "project_root",
+          "resolved_path": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api/src/site/site-context.ts"
+        }
+      ],
+      "extracted_contract": {
+        "kind": "ralph_target_scaffold",
+        "raw_excerpt_first_400_chars": "// Phase 3 / T10: SiteContext resolution for the public Worker.\n//\n// Public requests arrive on a tenant hostname (e.g. mysite.com). This\n// module derives the corresponding `SiteContext` (site_id + canonical\n// metadata) from the (domains JOIN sites) registry and, critically,\n// REFUSES to resolve the admin host as a public site so the admin\n// surface can never leak into public rendering.\n//\n// "
+      },
+      "story_ids_using_it": [
+        "T11"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "project_root"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[]; the file is Ralph's work product, not a source-of-truth reference. Extractor-trivial L2 is the correct Phase A baseline because the patterns the extractor looks for will be ADDED by Ralph in Phase B. Phase C's deterministic backing proves Ralph produced the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-051",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test-results/index.html",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T15"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-052",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/admin-data-wiring.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T2"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-053",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/admin-settings.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T8"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-054",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/media-filter.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T9"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-055",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/pages-template.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T6"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-056",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/provisioning-no-outbound.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T12"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-057",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/provisioning-runner.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T4"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-058",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "api/test/tags-media-filter.test.ts",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T10"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-059",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/live_domain_routability.json",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T16"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-060",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/manualqa_goal_coverage.json",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T16"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-061",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/mission_goal_trace.json",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T16"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-062",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/reviewer_artifact_diff_plan.json",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T16"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-063",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/source_context_pack.json",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T16"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    },
+    {
+      "source_context_id": "SCTX-064",
+      "requirement_ids": [
+        "R-FROM-T1",
+        "R-FROM-T2",
+        "R-FROM-T3",
+        "R-FROM-T4",
+        "R-FROM-T5",
+        "R-FROM-T6",
+        "R-FROM-T7",
+        "R-FROM-T8",
+        "R-FROM-T9",
+        "R-FROM-T10",
+        "R-FROM-T11",
+        "R-FROM-T12",
+        "R-FROM-T13",
+        "R-FROM-T14",
+        "R-FROM-T15",
+        "R-FROM-T16",
+        "R-FROM-T17"
+      ],
+      "context_type": "ralph_target_scaffold",
+      "archetype": "ralph_target_scaffold",
+      "quality_level": "L0",
+      "source_files_read": [
+        {
+          "path": "openspec/changes/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15/quality-gauntlet/wire_protocol_parity.json",
+          "sha256": null,
+          "line_count": null,
+          "scraped_at": null,
+          "root_used": "none",
+          "resolved_path": null
+        }
+      ],
+      "extracted_contract": null,
+      "story_ids_using_it": [
+        "T16"
+      ],
+      "included_in_ralph_packet": true,
+      "missing_context_repair": null,
+      "root_context": {
+        "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+        "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+        "worktree_root": null,
+        "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+        "source_file_root_used": "none"
+      },
+      "is_ralph_target_scaffold": true,
+      "ralph_target_scaffold_rationale": "path_hint is in some story's target_files[] and the file does not exist on disk yet — Ralph will CREATE this file in Phase B. The L0 SCP entry is the correct Phase A baseline: it records the path Ralph will produce, the story_ids that will exercise it, and the required quality level. Phase C's deterministic backing proves Ralph actually created the file with the expected contract."
+    }
+  ],
+  "coverage_summary": {
+    "blueprint_required_contexts": 64,
+    "satisfied": 64,
+    "missing": 0,
+    "missing_by_quality_level": {}
+  },
+  "root_context": {
+    "workspace_root": "/Users/guyhaikov/a2z-workspaces",
+    "project_root": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms",
+    "worktree_root": null,
+    "state_dir": "/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+    "source_file_root_used": null,
+    "source_file_root_breakdown": {
+      "project_root": 49,
+      "none": 15
+    }
+  }
+}

@@ -1,0 +1,249 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "generated_at": "2026-05-18T03:25:00Z",
+  "producer": "ralph_iteration_T16_quality_gauntlet_authoring",
+  "purpose": "Enumerate every artifact class the Phase B / Phase D reviewer (a2z-review + the OS team reviewer subagent) ingests when diffing the implementation against the contract. The reviewer compares the current branch's produced artifacts against the contract artifacts (wire_protocol_parity, manualqa_goal_coverage, mission_goal_trace) AND against the prior-state baselines (sibling spec files, prior screenshots). This file is the source-of-truth for 'which artifact comes from which source + which test produces it + which reviewer compares it'.",
+  "develop_target": "local",
+  "production_status": "production_pending",
+  "artifact_diff_inputs": [
+    {
+      "input_id": "ADI-001",
+      "kind": "screenshot",
+      "description": "Per-route admin UI screenshots at 375px (mobile) + 1280px (desktop) for the 9 admin routes plus the New Site modal and the article edit form",
+      "viewport_sizes": ["375x812", "1280x800"],
+      "producer_phase": "ship_manualqa",
+      "producer_tooling": "Playwright trace (auto-screenshot on PASS) + manual Playwright `page.screenshot()` calls in admin-ux-parity.spec.ts + dom-snapshot library",
+      "source_routes": [
+        "/admin/dashboard",
+        "/admin/domains",
+        "/admin/articles",
+        "/admin/pages",
+        "/admin/categories",
+        "/admin/tags",
+        "/admin/media",
+        "/admin/settings",
+        "/admin/presets"
+      ],
+      "consuming_reviewer": "ui_visual_parity_reviewer (a2z-review UI+accessibility agent)",
+      "diff_baseline": "develop_target screenshots in api/test-results/ + the prior-state Phase 1.5 baseline screenshots",
+      "diff_target_artifacts": [
+        "test-results/admin-ux-parity-dashboard-375.png",
+        "test-results/admin-ux-parity-dashboard-1280.png",
+        "test-results/admin-ux-parity-domains-{375,1280}.png",
+        "test-results/admin-ux-parity-articles-{375,1280}.png",
+        "test-results/admin-ux-parity-pages-{375,1280}.png",
+        "test-results/admin-ux-parity-categories-{375,1280}.png",
+        "test-results/admin-ux-parity-tags-{375,1280}.png",
+        "test-results/admin-ux-parity-media-{375,1280}.png",
+        "test-results/admin-ux-parity-settings-{375,1280}.png",
+        "test-results/admin-ux-parity-presets-{375,1280}.png"
+      ],
+      "reviewer_failure_modes": [
+        "scrollWidth > innerWidth at 375px (mobile overflow per E6 evidence-standards)",
+        "missing admin-layout / admin-sidebar / sidebar-nav classes",
+        "brand text missing /KoDigital CMS|Homepage CMS/",
+        "presence of banned strings: 'TheIWise', 'Phase 1 admin shell', 'Psychic Quiz'",
+        "nav-item count < 9"
+      ],
+      "linked_manualqa_rows": ["MQA-1", "MQA-2", "MQA-7", "MQA-10"]
+    },
+    {
+      "input_id": "ADI-002",
+      "kind": "dom_snapshot",
+      "description": "Outer-HTML snapshots of key admin route containers (admin-layout, admin-sidebar > sidebar-nav, articles table, domains table, modal forms, pages select filters)",
+      "producer_phase": "ship_manualqa",
+      "producer_tooling": "Playwright `page.locator(selector).evaluate(el => el.outerHTML)` calls + DOMPurify normalization",
+      "source_selectors": [
+        "main.admin-layout",
+        ".admin-sidebar .logo .logo-text",
+        ".sidebar-nav .nav-item",
+        "table#articles-table tbody",
+        "table#domains-table tbody",
+        "form#new-site-form",
+        "form#article-edit-form",
+        "select[name=site_id]",
+        "select[name=page_type]"
+      ],
+      "consuming_reviewer": "wire_protocol_parity_reviewer + ui_visual_parity_reviewer",
+      "diff_baseline": "wire_protocol_parity.json:rows[].ui_form_fields",
+      "diff_target_artifacts": [
+        "test-results/dom-admin-layout.html",
+        "test-results/dom-admin-sidebar.html",
+        "test-results/dom-articles-table.html",
+        "test-results/dom-domains-table.html",
+        "test-results/dom-new-site-form.html",
+        "test-results/dom-article-edit-form.html",
+        "test-results/dom-pages-filters.html"
+      ],
+      "reviewer_failure_modes": [
+        "DOM input id != WPP-NNN.ui_form_fields[].input_id (e.g. id='site_name' would fail WPP-001)",
+        "Missing form fields named in WPP rows",
+        "Empty-state div present where data rows should render"
+      ],
+      "linked_manualqa_rows": ["MQA-1", "MQA-3", "MQA-7"]
+    },
+    {
+      "input_id": "ADI-003",
+      "kind": "db_query_output",
+      "description": "Pre/post SELECT outputs for every behavioral AC that asserts a DB state transition (counts, single-row exists, WHERE site_id scoping, settings_version bump)",
+      "producer_phase": "develop_phase_b (Ralph) + ship_manualqa (post-deploy)",
+      "producer_tooling": "wrangler d1 execute --local --command='SELECT ... ' + vitest db assertions via env.DB",
+      "source_queries": [
+        "SELECT COUNT(*) FROM site_creation_job_steps WHERE job_id=(SELECT id FROM site_creation_jobs WHERE site_id=X ORDER BY id DESC LIMIT 1)",
+        "SELECT COUNT(*) FROM pages WHERE site_id=X AND page_type='about'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_articles_site_slug_unique'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_articles_slug_global'",
+        "SELECT settings_version FROM site_settings WHERE site_id=X (and Y)",
+        "SELECT COUNT(*) FROM category_verticals WHERE category_id=last_insert_rowid()",
+        "SELECT COUNT(*) FROM tags WHERE site_id=A",
+        "SELECT COUNT(*) FROM media WHERE site_id=X OR site_id IS NULL",
+        "SELECT COUNT(*) FROM cache_purge_log WHERE dry_run=1"
+      ],
+      "consuming_reviewer": "code_quality_reviewer + db_security_reviewer (a2z-review DB+security agent)",
+      "diff_baseline": "wire_protocol_parity.json:rows[].db_columns_written + AC behavioral expected counts",
+      "diff_target_artifacts": [
+        "evidence/raw/db_query_<RC-id>_pre.json",
+        "evidence/raw/db_query_<RC-id>_post.json"
+      ],
+      "reviewer_failure_modes": [
+        "Row count != expected (T4.AC2: 15; T6.AC2: 1; T7.AC1: 3; T9.AC2: 5; T10.AC2: 3)",
+        "Index name regression (T1.AC2: missing per-site index OR legacy global index present)",
+        "settings_version bump on wrong site_id (T8.AC1)",
+        "category_verticals row inserted with vertical_id not in site.allowed_verticals (T7.AC2)"
+      ],
+      "linked_manualqa_rows": ["MQA-4", "MQA-5", "MQA-6", "MQA-7", "MQA-8", "MQA-9", "MQA-10", "MQA-11", "MQA-16"]
+    },
+    {
+      "input_id": "ADI-004",
+      "kind": "api_trace",
+      "description": "Request/response trace for every behavioral AC that asserts HTTP semantics (status code, header set, body shape). Captured by curl with -i / Playwright request fixture / vitest fetch spy",
+      "producer_phase": "develop_phase_b (vitest + Playwright) + ship_manualqa (curl against production)",
+      "producer_tooling": "Playwright `request.post()` returning APIResponse; vitest fetch wrapper; curl -is",
+      "source_endpoints": [
+        "POST /api/admin/sites",
+        "POST /provision/next",
+        "PATCH /api/admin/articles/:id",
+        "PATCH /api/admin/settings",
+        "GET /api/admin/tags?site_id=X",
+        "GET /api/admin/media?site_id=X",
+        "POST /api/admin/categories",
+        "GET /admin (off-admin-host gate)",
+        "GET /health"
+      ],
+      "consuming_reviewer": "wire_protocol_parity_reviewer + code_quality_reviewer",
+      "diff_baseline": "wire_protocol_parity.json:rows[].endpoint + rows[].server_body_field_reads",
+      "diff_target_artifacts": [
+        "evidence/raw/api_trace_<endpoint>_<RC-id>.json (request line + req headers + req body + status + resp headers + resp body)"
+      ],
+      "reviewer_failure_modes": [
+        "Status code != expected (T3: 201 / T5.AC2: 403 / T5.AC3: 409 / T7.AC2: 422 / T13.AC2: 404)",
+        "Missing required response header (T13.AC2: Cache-Control=no-store, X-Robots-Tag='noindex, nofollow')",
+        "Response body leak (T13.AC2: body MUST NOT contain 'cms.kodigital.app')",
+        "Body field on wire != UI field name (T3.AC2: 'name' not 'site_name')",
+        "Allow-list violation: server accepted body field that should be gated (T5.AC1 case 4)"
+      ],
+      "linked_manualqa_rows": ["MQA-3", "MQA-4", "MQA-6", "MQA-8", "MQA-9", "MQA-10", "MQA-12"]
+    },
+    {
+      "input_id": "ADI-005",
+      "kind": "playwright_trace",
+      "description": "Full Playwright trace.zip (DOM snapshots + screenshots + network log + console) for each spec run. Used by the reviewer to replay the test deterministically.",
+      "producer_phase": "develop_phase_b (Ralph end-of-mission run) + ship_manualqa (release-candidate verification)",
+      "producer_tooling": "playwright.config.ts:use.trace = 'retain-on-failure' (already configured) + html reporter (configured to write to ./test-results in this mission)",
+      "source_specs": [
+        "api/test-ui/admin-ux-parity.spec.ts",
+        "api/test-ui/domains-create-site.spec.ts",
+        "api/test-ui/admin-routing-security.spec.ts"
+      ],
+      "consuming_reviewer": "ui_visual_parity_reviewer + wire_protocol_parity_reviewer",
+      "diff_baseline": "Playwright PASS/FAIL on each test; diff is replay-against-baseline for any test that's been previously green and is now red",
+      "diff_target_artifacts": [
+        "test-results/index.html (Playwright html reporter root)",
+        "test-results/trace/*.zip (per-failed-test traces)",
+        "test-results/*.png (per-test screenshots emitted by html reporter)"
+      ],
+      "reviewer_failure_modes": [
+        "Spec hard-fail (assertion miss)",
+        "Test produced no trace (config mis-configured — reuses existing reporter only)",
+        "Failed test has no diagnostic artifacts (trace + screenshot + video missing)"
+      ],
+      "linked_manualqa_rows": ["MQA-3", "MQA-12"]
+    },
+    {
+      "input_id": "ADI-006",
+      "kind": "wire_protocol_parity_table",
+      "description": "Direct ingest of openspec/changes/<cid>/quality-gauntlet/wire_protocol_parity.json itself — used by the reviewer as the OBJECT of comparison: every wire-protocol field named in this file MUST match what the implementation sends/reads",
+      "producer_phase": "develop_phase_a / plan / T16 (this artifact)",
+      "producer_tooling": "Ralph T16 quality-gauntlet authoring (this iteration)",
+      "consuming_reviewer": "wire_protocol_parity_reviewer",
+      "diff_baseline": "Implementation source files: api/src/admin/sites-handlers.ts, api/src/admin/api.ts, api/src/admin/templates/*.ts, api/src/site-provisioning/*.ts",
+      "diff_target_artifacts": [
+        "openspec/changes/<cid>/quality-gauntlet/wire_protocol_parity.json"
+      ],
+      "reviewer_failure_modes": [
+        "WPP row's ui_form_fields[].input_id does not appear in named source_file via grep",
+        "WPP row's submit_payload_wire_names does not match the form's name=\"...\" attributes",
+        "WPP row's server_body_field_reads does not match the handler's destructuring",
+        "WPP row's db_columns_written does not match the prepared INSERT/UPDATE column list",
+        "WPP row's red_line_substitutions_forbidden detected as PRESENT in implementation source"
+      ],
+      "linked_manualqa_rows": ["MQA-3", "MQA-4", "MQA-6", "MQA-7", "MQA-8", "MQA-9", "MQA-10"]
+    },
+    {
+      "input_id": "ADI-007",
+      "kind": "manualqa_goal_coverage_table",
+      "description": "Direct ingest of openspec/changes/<cid>/quality-gauntlet/manualqa_goal_coverage.json — used by the reviewer as the OBJECT of comparison: every MQA-N MUST have its named evidence route satisfied at develop_target",
+      "producer_phase": "develop_phase_a / plan / T16 (this artifact)",
+      "producer_tooling": "Ralph T16 quality-gauntlet authoring (this iteration)",
+      "consuming_reviewer": "manualqa_reviewer (a2z-ship D_MANUALQA)",
+      "diff_baseline": "Test outputs (vitest + Playwright) + db query outputs + screenshots",
+      "diff_target_artifacts": [
+        "openspec/changes/<cid>/quality-gauntlet/manualqa_goal_coverage.json"
+      ],
+      "reviewer_failure_modes": [
+        "MQA-N.primary_evidence_route names a test that does not exist",
+        "MQA-N.develop_assertion contradicts the test output",
+        "MQA-N.in_scope_reqs references a REQ-N not in mission_goal_trace.json",
+        "MQA-N.production_assertion uses 'verified' instead of 'deferred_to_ship' (deploy is user-owned, develop cannot 'verify' a live production endpoint)"
+      ],
+      "linked_manualqa_rows": ["MQA-1", "MQA-2", "MQA-3", "MQA-4", "MQA-5", "MQA-6", "MQA-7", "MQA-8", "MQA-9", "MQA-10", "MQA-11", "MQA-12", "MQA-13", "MQA-14", "MQA-15", "MQA-16"]
+    },
+    {
+      "input_id": "ADI-008",
+      "kind": "mission_goal_trace_table",
+      "description": "Direct ingest of openspec/changes/<cid>/quality-gauntlet/mission_goal_trace.json — REQ-001..030 with story_ids + manualqa_row + required_evidence_routes per requirement. Used as the OUTER coverage map.",
+      "producer_phase": "develop_phase_a / plan / orchestrator_manual_q1q4_artifact_authoring",
+      "producer_tooling": "orchestrator_manual_q1q4_artifact_authoring (pre-existing) + Ralph T16 copy into quality-gauntlet/",
+      "consuming_reviewer": "coordinator_reviewer (final assembly)",
+      "diff_baseline": "manualqa_goal_coverage.json:rows[].in_scope_reqs (every REQ must appear in at least one MQA row)",
+      "diff_target_artifacts": [
+        "openspec/changes/<cid>/quality-gauntlet/mission_goal_trace.json"
+      ],
+      "reviewer_failure_modes": [
+        "REQ-N has no manualqa_row binding (orphan requirement)",
+        "REQ-N has no story_id binding (uncovered scope)",
+        "REQ-N has no required_evidence_route (proof-gap)",
+        "MQA-N references REQ-N that is not in_scope"
+      ],
+      "linked_manualqa_rows": ["all_MQA_rows"]
+    }
+  ],
+  "diff_input_count": 8,
+  "reviewer_passes_required": [
+    "code_quality_reviewer (a2z-review code agent) -> ingests ADI-003, ADI-004, ADI-006",
+    "db_security_reviewer (a2z-review DB+security agent) -> ingests ADI-003, ADI-006",
+    "ui_visual_parity_reviewer (a2z-review UI+accessibility agent) -> ingests ADI-001, ADI-002, ADI-005",
+    "wire_protocol_parity_reviewer (extension) -> ingests ADI-002, ADI-004, ADI-006",
+    "manualqa_reviewer (a2z-ship D_MANUALQA) -> ingests ADI-005, ADI-007",
+    "coordinator_reviewer (final assembly) -> ingests ADI-008"
+  ],
+  "summary": {
+    "all_inputs_have_named_producer": true,
+    "all_inputs_have_named_reviewer": true,
+    "all_inputs_have_named_diff_baseline": true,
+    "all_inputs_link_at_least_one_manualqa_row": true,
+    "develop_target_only_inputs": ["ADI-003 (db_query)", "ADI-005 (playwright_trace)"],
+    "spans_develop_and_ship_inputs": ["ADI-001 (screenshot)", "ADI-002 (dom_snapshot)", "ADI-004 (api_trace)"]
+  }
+}

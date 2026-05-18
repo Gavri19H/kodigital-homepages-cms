@@ -28,7 +28,7 @@ export interface ArticleListEntry {
   title: string;
   slug?: string;
   site?: string;
-  site_id?: string;
+  site_id?: string | null;
   category?: string;
   status?: string;
   homepage_section?: string | null;
@@ -42,7 +42,7 @@ export interface ArticleFormValues {
   id?: string;
   title?: string;
   slug?: string;
-  site_id?: string;
+  site_id?: string | null;
   category_id?: string;
   status?: string;
   excerpt?: string;
@@ -238,7 +238,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <label for="article-site" class="form-label">Site</label>
       <select id="article-site" name="site_id" class="form-select" required>
         <option value="">Choose a site…</option>
-        ${renderSiteOptions(sites, a.site_id, false)}
+        ${renderSiteOptions(sites, a.site_id ?? undefined, false)}
       </select>
     </div>
     <div class="form-group">

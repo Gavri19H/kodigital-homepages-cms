@@ -2,8 +2,32 @@ import { describe, it, expect } from "vitest";
 import app from "../src/index";
 import type { Env } from "../src/env";
 
+// Minimal D1 stub: every prepare(...) returns a chain emitting null /
+// empty rows. Needed because admin UI route handlers (post-T2) call
+// data.ts wrappers on c.env.DB; this file only asserts auth status
+// codes, so a no-op stub is sufficient.
+const noopD1 = {
+  prepare() {
+    const stmt = {
+      bind() {
+        return stmt;
+      },
+      async first<T = unknown>(): Promise<T | null> {
+        return null;
+      },
+      async run() {
+        return { success: true, meta: {} };
+      },
+      async all<T = unknown>() {
+        return { results: [] as T[], success: true, meta: {} };
+      },
+    };
+    return stmt;
+  },
+} as unknown as D1Database;
+
 const baseEnv: Env = {
-  DB: {} as D1Database,
+  DB: noopD1,
   CACHE: {} as KVNamespace,
   MEDIA: {} as R2Bucket,
   APP_ENV: "test",

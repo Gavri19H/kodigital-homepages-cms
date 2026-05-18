@@ -125,7 +125,7 @@ function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
   return `<div class="toolbar">
   <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search pages..." /></div>
   <div class="toolbar-filters">
-    <select name="site" class="form-select" aria-label="Site filter">
+    <select name="site_id" class="form-select" aria-label="Site filter">
       ${renderSiteOptions(sites, "", true, "All sites")}
       <option value="__global__">Global only (templates)</option>
     </select>

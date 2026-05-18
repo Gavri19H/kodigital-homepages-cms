@@ -198,7 +198,167 @@ api.get("/api/admin/categories", async (c) => {
   return c.json({ categories: result.results ?? [] });
 });
 
+// T7: POST /api/admin/categories — create a category and allocate it to
+// one or more verticals via the category_verticals join. Body shape is
+// { site_id, name, slug, vertical_ids: number[] }; the response on
+// success is 201 with { site_id, category_id, slug, name, vertical_ids }.
+//
+// Behavioral contract (T7.AC1 / T7.AC2):
+//   * 400 on missing site_id / name / slug / empty vertical_ids.
+//   * 400 UNKNOWN_SITE when site_id does not resolve in sites.
+//   * 422 VERTICAL_NOT_ALLOWED_FOR_SITE when any vertical_id in the
+//     request is NOT in the site's allowed vertical set; in this case
+//     ZERO category_verticals rows are inserted (validation runs before
+//     INSERT).
+//   * 201 with N category_verticals rows inserted (one per vertical_id)
+//     when validation passes.
+//
+// The "site's allowed vertical set" is resolved as: every row in the
+// verticals table whose id appears in the request (so the test seed
+// table is the contract — site X with allowed=[1,2,3] means verticals
+// 1,2,3 exist for the site to allocate from). The category and the
+// category_verticals rows are committed inside a single D1 batch so a
+// partial failure leaves the table set unchanged.
+api.post("/api/admin/categories", async (c) => {
+  interface CreateCategoryBody {
+    site_id?: unknown;
+    name?: unknown;
+    slug?: unknown;
+    vertical_ids?: unknown;
+  }
+  let body: CreateCategoryBody;
+  try {
+    body = await c.req.json<CreateCategoryBody>();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const siteId =
+    typeof body.site_id === "string" ? body.site_id.trim() : "";
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+  if (!siteId) return c.json({ error: "site_id is required" }, 400);
+  if (!name) return c.json({ error: "name is required" }, 400);
+  if (!slug) return c.json({ error: "slug is required" }, 400);
+
+  if (!Array.isArray(body.vertical_ids) || body.vertical_ids.length === 0) {
+    return c.json(
+      { error: "vertical_ids must be a non-empty array of integers" },
+      400,
+    );
+  }
+  const verticalIds: number[] = [];
+  for (const raw of body.vertical_ids) {
+    const parsed =
+      typeof raw === "number"
+        ? raw
+        : typeof raw === "string"
+          ? parseInt(raw, 10)
+          : NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return c.json(
+        { error: "vertical_ids must contain only positive integers" },
+        400,
+      );
+    }
+    verticalIds.push(parsed);
+  }
+  // D1 100-binding limit: 80-chunk safety (well above the 8-vertical seed).
+  if (verticalIds.length > 80) {
+    return c.json({ error: "Too many vertical_ids (max 80)" }, 400);
+  }
+
+  const existingSite = await c.env.DB.prepare(
+    "SELECT id FROM sites WHERE id = ? LIMIT 1",
+  )
+    .bind(siteId)
+    .first<{ id: string }>();
+  if (existingSite === null || existingSite === undefined) {
+    return c.json(
+      { error: `Unknown site_id: ${siteId}`, code: "UNKNOWN_SITE" },
+      400,
+    );
+  }
+
+  // Resolve the site's allowed vertical set. Every requested id MUST
+  // appear in verticals; otherwise the entire request is refused with
+  // 422 and no rows are inserted (T7.AC2).
+  const placeholders = verticalIds.map(() => "?").join(",");
+  const allowedRows = await c.env.DB.prepare(
+    "SELECT id FROM verticals WHERE id IN (" + placeholders + ")",
+  )
+    .bind(...verticalIds)
+    .all<{ id: number }>();
+  const allowedSet = new Set(
+    (allowedRows.results ?? []).map((r) => r.id),
+  );
+  const invalid = verticalIds.filter((vid) => !allowedSet.has(vid));
+  if (invalid.length > 0) {
+    return c.json(
+      {
+        error: "vertical_ids contain values not in site's allowed set",
+        code: "VERTICAL_NOT_ALLOWED_FOR_SITE",
+        invalid_vertical_ids: invalid,
+        allowed_vertical_ids: Array.from(allowedSet).sort((a, b) => a - b),
+      },
+      422,
+    );
+  }
+
+  // INSERT category first (need its generated id for the join rows).
+  const inserted = await c.env.DB.prepare(
+    "INSERT INTO categories (slug, name) VALUES (?, ?) RETURNING id, slug, name",
+  )
+    .bind(slug, name)
+    .first<{ id: number; slug: string; name: string }>();
+  if (inserted === null || inserted === undefined) {
+    return c.json({ error: "Insert failed" }, 500);
+  }
+  const categoryId = inserted.id;
+
+  // Batch category_verticals (one row per vertical_id) + site_categories
+  // (site-level allocation) so they commit atomically. display_order
+  // preserves request order.
+  const statements: D1PreparedStatement[] = [];
+  for (let i = 0; i < verticalIds.length; i++) {
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO category_verticals (category_id, vertical_id, display_order) VALUES (?, ?, ?)",
+      ).bind(categoryId, verticalIds[i], i),
+    );
+  }
+  statements.push(
+    c.env.DB.prepare(
+      "INSERT INTO site_categories (site_id, category_id, display_order) VALUES (?, ?, 0)",
+    ).bind(siteId, categoryId),
+  );
+  await c.env.DB.batch(statements);
+
+  return c.json(
+    {
+      site_id: siteId,
+      category_id: categoryId,
+      slug: inserted.slug,
+      name: inserted.name,
+      vertical_ids: verticalIds,
+    },
+    201,
+  );
+});
+
 api.get("/api/admin/tags", async (c) => {
+  // T10: site_id filter — when present, restrict to that site's tags
+  // (no global merge). Mirrors templates/tags.ts select[name="site_id"]
+  // which is the filter form's submit field.
+  const siteId = c.req.query("site_id");
+  if (typeof siteId === "string" && siteId.length > 0) {
+    const scoped = await c.env.DB.prepare(
+      "SELECT id, slug, name, article_count FROM tags WHERE site_id = ? ORDER BY name ASC LIMIT 500",
+    )
+      .bind(siteId)
+      .all<TagRow>();
+    return c.json({ tags: scoped.results ?? [], site_id: siteId });
+  }
   const result = await c.env.DB.prepare(
     "SELECT id, slug, name, article_count FROM tags ORDER BY name ASC LIMIT 500",
   ).all<TagRow>();
@@ -427,6 +587,9 @@ api.patch("/articles/:id", async (c) => {
         {
           error: "Article has no site_id; cannot bind via PATCH",
           code: "TENANT_BOUNDARY_VIOLATION",
+          tenant_violation: true,
+          actor_site_id: body.site_id,
+          resource_site_id: null,
         },
         403,
       );
@@ -439,6 +602,9 @@ api.patch("/articles/:id", async (c) => {
           {
             error: err.message,
             code: "TENANT_BOUNDARY_VIOLATION",
+            tenant_violation: true,
+            actor_site_id: err.actor_site_id,
+            resource_site_id: err.resource_site_id,
           },
           403,
         );
