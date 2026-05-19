@@ -4270,3 +4270,117 @@ D13 canonical runner result — T1:
     accepts any positive count, so we don't need to hand-trim occurrences
     (verified against required_evidence_plan.json).
 ---
+
+## 2026-05-19 - T3 (sources: T3)
+- implemented: api/src/public/templates/layout.ts (182 lines)
+  - Exports renderLayout({ site, meta, body, header?, footer?, bodyClass?, extraHead? }) -> string
+    that returns the full <!DOCTYPE html>...</html> scaffold.
+  - <head> emits: charset, viewport, <title>, description, og:site_name/og:title/og:description,
+    optional og:image, optional canonical <link>, optional extra <link rel> (alternate feeds, etc.),
+    <link rel="stylesheet" href="/assets/public.css">, optional brand-tokens <style> block,
+    optional JSON-LD <script> blocks (from templates/seo.ts in T6), and extraHead pass-through.
+  - <body> emits: <a class="skip-to-content" href="#main-content">Skip to content</a>
+    first (PART 9 a11y), header slot, <main id="main-content">body</main>, footer slot,
+    <script src="/assets/public.js" defer></script>.
+  - Brand-tokens injection (PART 3 / PART 12):
+    * Accepts site.brandTokens (canonical camelCase from T8 view-model) and
+      site.brand_tokens (snake_case alias for callers that hand us the raw
+      site_settings row directly).
+    * renderBrandTokensStyle() emits ONE <style data-source="brand_tokens">:root { ... }</style>
+      block. Token names are sanitised (^[A-Za-z0-9_-]+$). Token values are stripped of <, >, ;,
+      and /* */ so a hostile setting cannot break out of the inline <style> block. Property names
+      get a `--` prefix when absent so { "tw-brand": "#1d4ed8" } -> --tw-brand: #1d4ed8;.
+    * Empty/undefined brandTokens -> NO style block (the public-css.ts defaults apply unchanged).
+  - JSON-LD escaping: any '</script' inside a JSON-LD payload is rewritten to '<\/script' so
+    a hostile payload cannot terminate the <script type="application/ld+json"> block early.
+  - HTML escaping: dedicated escapeHtmlText (for text nodes — escapes & < >) and escapeHtmlAttr
+    (for attributes — also escapes " ').
+  - No hardcoded TheIWise/theiwise.com/cms.kodigital.app/href="#" in rendered output. The two
+    occurrences of `theiwise` / `TheIWise` in the file are in a comment that documents the
+    PART 12 RED LINE; neither contains the banned substring "theiwise.com" so verify:no-legacy-prod-refs
+    still exits 0 (see Group B scanner at api/scripts/verify/assert-no-legacy-prod-refs.ts).
+- **Self-check results:**
+  - File size: 182 lines (limit: 200 JS/TS) - PASS
+  - Secret scan (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'`):
+    0 matches - PASS
+  - Error handling: N/A (pure template function — no async / no IO / no thrown errors)
+  - Migration execution: N/A (category=ui)
+  - Parameterized queries: N/A (no SQL)
+  - RED-LINE forbidden brand scan in rendered output paths: PASS clean (no banned substring
+    appears in any string-template literal that ends up in the rendered HTML body)
+  - verify:no-legacy-prod-refs: `cd api && npm run verify:no-legacy-prod-refs` -> exit 0 PASS
+  - Typecheck: `cd api && ./node_modules/.bin/tsc --noEmit` -> exit 0 PASS
+- **AC results (parse_grep_count, operator=>=, expected=1):**
+  - T3.AC1 grep -c 'skip-to-content' api/src/public/templates/layout.ts -> 1 PASS
+  - T3.AC2 grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts -> 12 PASS (>=1)
+  - T3.AC3 BEHAVIORAL: renderLayout output contains brand token inside <style> block.
+    Verified by source inspection: `renderBrandTokensStyle` emits
+    `<style data-source="brand_tokens">:root { --tw-<name>: <value>; }</style>` when
+    site.brandTokens is non-empty; emits empty string otherwise. Test_name_regex AC bound to
+    a vitest run (RC-010) — see Evidence runner notes below.
+- **Evidence runner (canonical, RC-008/RC-009/RC-010):**
+  - Command:
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=cms-new-phase5-2026-05018 \
+      --required-claim-ids=RC-008,RC-009,RC-010 \
+      --evidence-plan=<mission_state>/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+      --worktree-root=<worktree>
+  - RC-008: PASS — observed count=1 >= expected=1 (grep skip-to-content), parser_strategy=parse_grep_count.
+  - RC-009: PASS — observed count=12 >= expected=1 (grep -E brand_tokens|brandTokens), parser_strategy=parse_grep_count.
+  - RC-010: FAIL — `npx vitest run --reporter=verbose` run from worktree_root (cwd=".") exit_code=1.
+    Receipt: evidence/raw/0220cccf2b6f-test-output.txt.
+    Root cause (skill-owned, NOT story-T3 implementation defect):
+      * Plan entry RC-010 specifies `cwd: "."` with `cwd_anchor: worktree_root`.
+      * The vitest config + node_modules live at `api/`, not worktree root. The worktree root
+        has no package.json, so `npx vitest run` resolves to a global cache binary (vitest@4.1.6
+        on this machine) instead of api/node_modules/.bin/vitest (vitest@2.1.9).
+      * Running vitest 4.1.6 from worktree root bypasses api/vitest.config.ts, which sets
+        `fileParallelism: false`. The verify-script tests (api/test/verify-script.test.ts and
+        api/test/legacy-ref-allowlist.test.ts) write transient fixture files under api/src/
+        that the no-legacy-prod-refs scanner walks; without serial execution, the "clean repo
+        exits 0" assertion races against another file's transient banned-identifier fixture
+        and observes exit 1 ("expected 1 to be +0").
+      * Direct verification that T3 itself does not cause this failure: `cd api && ./node_modules/.bin/vitest run`
+        from api/ -> 48 test files / 286 tests / 0 failures, exit 0. The same suite invoked
+        from api/ with `cd api && ./node_modules/.bin/vitest run test/verify-script.test.ts`
+        -> 2/2 pass.
+      * EVIDENCE_ROUTE_EXHAUSTED (per scripts/ralph/prompt.md): the failure is in the required-
+        evidence plan's cwd routing for vitest-based RCs, not in this iteration's implementation.
+        Re-implementing layout.ts will not change the failing assertion (verify-script.test.ts is
+        unrelated to layout.ts). Reconciliation owner: required_evidence_plan / evaluator phase.
+- **Scoped quality commands:** execution story T3 declares scoped_quality_commands=[]; no story-
+  specific quality command beyond the canonical D13 runner. Wrapper-level QCMD is OPT-IN per
+  scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- **Test commands actually run:**
+  - cd api && ./node_modules/.bin/tsc --noEmit (typecheck)
+  - cd api && ./node_modules/.bin/vitest run (286/286 pass with api/ config)
+  - cd api && npm run verify:no-legacy-prod-refs (exit 0)
+  - python3 run_required_evidence_command.py --required-claim-ids=RC-008,RC-009,RC-010 (canonical runner)
+  - grep -c 'skip-to-content' api/src/public/templates/layout.ts -> 1
+  - grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts -> 12
+  - wc -l api/src/public/templates/layout.ts -> 182
+- **source_story_ids covered by this iteration:** T3.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T3 flipped to
+  state="implemented" + passes=true (basename does NOT end with prd.json so block_prd_self_cert.py
+  does not match — current-cycle scope exception per scripts/ralph/prompt.md T7). Canonical
+  openspec/changes/<cid>/prd.json (alias prd.json at worktree root) NOT modified by this
+  iteration (Ralph MUST NOT set canonical PRD passes=true per D11/D15).
+- **Learnings for future iterations:**
+  * The required_evidence_plan for vitest-bound BEHAVIORAL ACs (RC-010 style) specifies
+    `cwd: "."` with `cwd_anchor: worktree_root`, but the vitest config + node_modules live
+    in `api/`. When npx resolves to the global vitest cache (4.1.6 here), fileParallelism
+    defaults to true and api/test/verify-script.test.ts races api/test/legacy-ref-allowlist.test.ts
+    over transient banned-identifier fixtures. Future stories with test_exit_code RCs (T8/T9/T13/T14/
+    T15/T16/T17/T18/T19/T20/T21/T22) will hit the same failure mode; the implementation itself
+    will be correct. Recommend the next reconciliation phase rewire the plan's vitest cwd to
+    `api` (or rewrite the verify-script tests to be tolerant of concurrent fixtures).
+  * The layout file uses two HTML escape helpers (text vs attr) rather than one — attributes
+    need `"`/`'` escaped but the body text from JSON-LD blocks must NOT be HTML-escaped (it's
+    valid JSON inside a <script type="application/ld+json">). Keep this split if you refactor.
+  * Brand-tokens sanitiser strips ; and /* */ so the inline <style> block cannot be broken
+    out of, even if the admin allows pasting arbitrary CSS via site_settings.brand_tokens_json.
+    The validator at admin-side should still enforce a stricter shape, but the worker defends
+    in depth.
+---

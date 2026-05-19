@@ -56,8 +56,8 @@
       "id": "T3",
       "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T3"
       ],
