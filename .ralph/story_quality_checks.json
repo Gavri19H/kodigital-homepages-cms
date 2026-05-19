@@ -1,0 +1,7 @@
+{
+  "change_id": "cms-new-phase5-2026-05018",
+  "contract_version": "1.0.0",
+  "generated_at": "2026-05-19T07:23:30Z",
+  "ralph_instruction": "Before marking any story state='implemented', invoke: python3 .claude/skills/a2z-develop/scripts/run_story_quality_checks.py --change-id=<cid> --story-id=T<N>. The runner appends one row per executed check to story_execution_receipts.jsonl. Required checks must produce PASS receipts. Substituting global tests (e.g. `npm test`) is invalid unless story_test_matrix.json explicitly maps the command for THIS story+check_id with test_sufficient=true. UI/browser checks require Playwright/DOM proof \u2014 grep-on-source is not proof. Defer reasons are limited to {production_only, out_of_scope_for_local, blocked_by_user_credentials} and only permitted by mission policy.",
+  "stories": []
+}

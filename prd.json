@@ -1,372 +1,337 @@
 {
-  "changeId": "kodigital-homepages-cms-phase3-qafixes-2026-05-11",
-  "mainGoal": "Replace the Phase 1 admin placeholder shell with a ported, KoDigital-branded version of the legacy TheIWise admin UX (sidebar/header/cards/tables/forms/modals/editor) wired to the new multi-site CMS (Domains nav + Create-Site modal posting to POST /api/admin/sites, About-page provisioning inserting a real pages row, PATCH /api/admin/articles/:id with tenant guard, site-aware filters across Articles/Pages/Categories/Tags/Media/Settings), with Playwright browser tests proving the admin UI parity from /admin and that public content domains return 404 without leaking cms.kodigital.app. No deploy, no remote D1 migration, no DNS or route mutation, no TheIWise production touch.",
+  "changeId": "cms-new-phase5-2026-05018",
+  "mainGoal": "Implement generic Home + Article public templates in the standalone CMS Worker so a tenant content domain renders the approved 13-section Home and 12-section Article using per-site brand tokens via SiteContext, with no TheIWise visible brand and no cms.kodigital.app leak.",
   "stories": [
     {
       "id": "T1",
-      "title": "Add migration 0005 \u2014 site_id columns + page_type + homepage fields + per-site unique slug indexes",
-      "category": "migration",
+      "title": "Add public.css string module with all PART 3 tokens and PART 4 breakpoints",
+      "category": "ui",
       "targetFiles": [
-        "api/migrations/0006_phase3r_admin_site_aware_content.sql"
+        "src/public/assets/public-css.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'ALTER TABLE articles ADD COLUMN site_id' api/migrations/0006_phase3r_admin_site_aware_content.sql >= 1",
-        "grep -c 'ALTER TABLE pages ADD COLUMN site_id' api/migrations/0006_phase3r_admin_site_aware_content.sql >= 1",
-        "grep -c 'ALTER TABLE pages ADD COLUMN page_type' api/migrations/0006_phase3r_admin_site_aware_content.sql >= 1",
-        "grep -c 'CREATE UNIQUE INDEX.*idx_articles_site_slug' api/migrations/0006_phase3r_admin_site_aware_content.sql >= 1",
-        "grep -c 'CREATE UNIQUE INDEX.*idx_pages_site_slug' api/migrations/0006_phase3r_admin_site_aware_content.sql >= 1",
-        "BEHAVIORAL: GIVEN local D1 with migrations 0001-0005 applied, WHEN INSERT INTO articles (site_id, slug, title) VALUES ('site_a','x','A') THEN succeeds; WHEN second INSERT with (site_id='site_a', slug='x') THEN fails with UNIQUE constraint; WHEN INSERT with (site_id='site_b', slug='x') THEN succeeds (per-site uniqueness, not global)."
+        "grep -c -- '--tw-ink' api/src/public/assets/public-css.ts >= 1",
+        "grep -c '@media (max-width:1280px)' api/src/public/assets/public-css.ts >= 1",
+        "grep -c 'minmax(0, 1fr)' api/src/public/assets/public-css.ts >= 1"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T2",
-      "title": "Port legacy admin layout template -- adminLayout with KoDigital CMS brand and 9-entry nav (Domains added, Psychic Quiz removed)",
+      "title": "Add public.js string module with passive-listener reading progress + share/copy",
       "category": "ui",
       "targetFiles": [
-        "api/src/admin/templates/layout.ts"
+        "src/public/assets/public-js.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'export function adminLayout' api/src/admin/templates/layout.ts >= 1",
-        "All required class names present",
-        "Default brand text 'KoDigital CMS' present and no TheIWise",
-        "No TheIWise brand string",
-        "Nav includes Domains and excludes Psychic Quiz",
-        "BEHAVIORAL: GIVEN adminLayout({title:'X',activePath:'/admin/domains',userEmail:'u@k.io',content:'<p/>'}), WHEN rendered, THEN result includes <nav class=\"sidebar-nav\"> with exactly 9 nav-item links to /admin, /admin/domains, /admin/articles, /admin/pages, /admin/media, /admin/categories, /admin/tags, /admin/presets, /admin/settings AND the /admin/domains link has class 'active'."
+        "grep -c 'passive: true' api/src/public/assets/public-js.ts >= 1",
+        "grep -c 'navigator.share' api/src/public/assets/public-js.ts >= 1",
+        "grep -c 'reading-progress-bar' api/src/public/assets/public-js.ts >= 1"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T3",
-      "title": "Port dashboardPage template -- stats-grid (7 cards) + Recent Articles card + Quick Actions card",
+      "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection",
       "category": "ui",
       "targetFiles": [
-        "api/src/admin/templates/dashboard.ts"
+        "src/public/templates/layout.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'export function dashboardPage' api/src/admin/templates/dashboard.ts >= 1",
-        "Seven stat labels present",
-        "Recent Articles + Quick Actions cards",
-        "Quick Action + New Site link to /admin/domains",
-        "BEHAVIORAL: GIVEN dashboardPage(stats, recentArticles, branding) where stats.sites=2, stats.totalArticles=3, recentArticles=[{title:'A',site:'s1',status:'published'}], WHEN rendered, THEN result includes class 'stats-grid', '<div class=\"stat-value\">2</div>' for Sites and a table row with text 'A' under Recent Articles."
+        "grep -c 'skip-to-content' api/src/public/templates/layout.ts >= 1",
+        "grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts >= 1",
+        "BEHAVIORAL: GIVEN HomeViewModel with site.brandTokens WHEN renderLayout THEN result contains the brand token inside a <style> block"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T4",
-      "title": "Create domains.ts template -- 9-col table + toolbar with + New Site + Create Site modal styled with legacy form classes",
+      "title": "templates/components.ts exports site-aware components",
       "category": "ui",
       "targetFiles": [
-        "api/src/admin/templates/domains.ts"
+        "src/public/templates/components.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'export function domainsPage' api/src/admin/templates/domains.ts >= 1",
-        "All 9 column headers present",
-        "Modal markup uses legacy classes (.modal, .modal-content, .form-group, .form-input)",
-        "Button text 'Create site' present",
-        "ES5-only inline script (no const/let/arrow)",
-        "BEHAVIORAL: GIVEN domainsPage(domains, verticals, branding) rendered, WHEN user clicks button '+ New Site' THEN element with id 'new-site-modal' becomes display:flex (or removes .hidden); WHEN user presses Escape THEN modal closes; WHEN user clicks button 'Cancel' THEN modal closes."
+        "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' >= 8",
+        "grep -c 'data-ad-slot' >= 1",
+        "BEHAVIORAL: GIVEN CategoryChip slug=tech WHEN renderChipRail THEN result contains href=/category/tech AND no href=#"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T5",
-      "title": "Port articlesListPage + articleFormPage templates -- 8-col table, 8 filters, site-required form with homepage fields",
+      "title": "templates/icons.ts exports inline SVG icons",
       "category": "ui",
       "targetFiles": [
-        "api/src/admin/templates/articles.ts"
+        "src/public/templates/icons.ts"
       ],
       "acceptanceCriteria": [
-        "articlesListPage + articleFormPage exported",
-        "Filter names site/vertical/category/status/featured/trending/published/search all present",
-        "8 column headers present",
-        "Article form includes required site selector and homepage fields",
-        "BEHAVIORAL: GIVEN articleFormPage with no article (new mode), WHEN rendered, THEN the form contains <select name=\"site_id\" required> with options derived from sites prop and the form submits via fetch('/api/admin/articles', {method:'POST'}); WHEN editing existing article, THEN form submits via fetch('/api/admin/articles/:id', {method:'PATCH'})."
+        "5 icon exports",
+        "aria-hidden on decorative SVGs"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T6",
-      "title": "Port pagesListPage + pageFormPage templates -- Site filter, Page type filter, Site/Global column, Global template badge for legal",
+      "title": "templates/seo.ts exports JSON-LD builders + meta helpers",
       "category": "ui",
       "targetFiles": [
-        "api/src/admin/templates/pages.ts"
+        "src/public/templates/seo.ts"
       ],
       "acceptanceCriteria": [
-        "pagesListPage + pageFormPage exported",
-        "Site filter + Page type filter",
-        "Columns Title/Site or Global/Type/Status/Footer/Updated/Actions",
-        "Global template badge for null site_id rows",
-        "BEHAVIORAL: GIVEN pageFormPage({page_type:'about'}), WHEN rendered, THEN form contains a required <select name=\"site_id\" required>; GIVEN pageFormPage({page_type:'legal'}), WHEN rendered, THEN site_id selector is NOT required (legal templates allow site_id NULL)."
+        "5 seo exports",
+        "6 JSON-LD types",
+        "BEHAVIORAL: GIVEN faqs=[] WHEN buildFaqJsonLd THEN empty string"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T7",
-      "title": "Port categories.ts, tags.ts, media.ts, settings.ts, presets.ts templates with site-aware filters",
+      "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt",
       "category": "ui",
       "targetFiles": [
-        "api/src/admin/templates/categories.ts",
-        "api/src/admin/templates/tags.ts",
-        "api/src/admin/templates/media.ts",
-        "api/src/admin/templates/settings.ts",
-        "api/src/admin/templates/presets.ts"
+        "src/public/templates/format.ts"
       ],
       "acceptanceCriteria": [
-        "categoriesListPage exported + Site filter + Vertical multi-select",
-        "tagsListPage exported + Site filter + Global indicator",
-        "mediaListPage exported + Site filter + Global indicator",
-        "settingsPage exported + site_id selector + 12 editable keys",
-        "presetsListPage exported using legacy adminLayout import",
-        "Neither legacy nor new template files leak TheIWise brand",
-        "BEHAVIORAL: GIVEN no template under api/src/admin/templates/, WHEN T7 stories execute, THEN api/src/admin/templates/{categories,tags,media,settings,presets}.ts each exist AND each contains adminLayout import AND none contain literal string TheIWise"
+        "3 format exports",
+        "BEHAVIORAL: truncateExcerpt with limit=12 yields <=13 char string ending in ellipsis"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T8",
-      "title": "Port legacy editor (editor-scripts + index) into article + page form templates",
-      "category": "ui",
+      "title": "view-models/home.ts exports buildHomeViewModel(db, siteContext)",
+      "category": "api",
       "targetFiles": [
-        "api/src/editor/index.ts",
-        "api/src/editor/editor-scripts.ts"
+        "src/public/view-models/home.ts"
       ],
       "acceptanceCriteria": [
-        "Editor exports a class with BlockEditor name or createEditor factory",
-        "Editor scripts exports editorScripts() string returning IIFE",
-        "Block types paragraph/heading/list/quote/image/divider all referenced",
-        "articles template wires editorScripts() into form HTML",
-        "BEHAVIORAL: GIVEN articleFormPage rendered HTML loaded in browser, WHEN script initializes BlockEditor on textarea[name=\"content_json\"], THEN editor renders with at least one block container .editor-block and toolbar buttons for paragraph/heading/list/quote/image/divider."
+        "buildHomeViewModel exported",
+        "site-scoped WHERE",
+        ">=3 .bind() calls",
+        "BEHAVIORAL: site A and B isolation \u2014 vm.featured contains only site A's articles"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T9",
-      "title": "Create templates barrel index.ts re-exporting all admin templates",
-      "category": "ui",
+      "title": "view-models/article.ts exports buildArticleViewModel + adaptBodyBlocks",
+      "category": "api",
       "targetFiles": [
-        "api/src/admin/templates/index.ts"
+        "src/public/view-models/article.ts"
       ],
       "acceptanceCriteria": [
-        "Barrel re-exports all 10 template modules",
-        "BEHAVIORAL: GIVEN api/src/admin/templates/index.ts after T9, WHEN ui.ts imports from ./templates, THEN all 10 named exports (adminLayout, dashboardPage, domainsPage, articlesListPage, articleFormPage, pagesListPage, pageFormPage, categoriesListPage, tagsListPage, mediaListPage, settingsPage, presetsListPage, editorScripts) resolve without TypeScript errors"
+        "buildArticleViewModel exported",
+        "site_id scoped",
+        "adaptBodyBlocks present",
+        "BEHAVIORAL: content_json=null falls back to single html block from content_html",
+        "BEHAVIORAL: 2 faq blocks in content_json yield vm.faqs.length===2"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T10",
-      "title": "Create api/src/admin/ui.ts -- admin UI router mirroring legacy pattern, server-rendered HTML via templates, protected by accessAuth upstream",
-      "category": "api",
+      "title": "templates/home.ts renders 13 sections in PART 1 order",
+      "category": "ui",
       "targetFiles": [
-        "api/src/admin/ui.ts"
+        "src/public/templates/home.ts"
       ],
       "acceptanceCriteria": [
-        "ui.ts exports a Hono router named adminUi",
-        "All 13 GET routes wired",
-        "Edit-form redirects /admin/articles/:id/edit and /admin/pages/:id/edit registered",
-        "ui.ts imports adminLayout + all page renderers from ./templates",
-        "BEHAVIORAL: GIVEN wrangler dev on port 8787 with DEV_BYPASS_AUTH=true, WHEN curl http://127.0.0.1:8787/admin THEN response body contains 'class=\"admin-layout\"' AND 'class=\"admin-sidebar\"' AND does NOT contain 'Phase 1 admin shell'."
+        "renderHome exported",
+        "BEHAVIORAL: section markers appear in PART 1 order",
+        "BEHAVIORAL: site.name appears in output AND theiwise does not"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T11",
-      "title": "Create api/src/admin/data.ts -- schema-aware data helpers for admin views",
-      "category": "api",
+      "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)",
+      "category": "ui",
       "targetFiles": [
-        "api/src/admin/data.ts"
+        "src/public/templates/article.ts"
       ],
       "acceptanceCriteria": [
-        "All 14 helpers exported",
-        "Queries use hostname (not domain) for domains table",
-        "No legacy column name 'SELECT domain' from domains table",
-        "No forbidden legacy id 44c73f76-... anywhere",
-        "sites query selects only current schema columns",
-        "BEHAVIORAL: GIVEN local D1 with 2 sites + 3 articles seeded (1 published, 2 drafts), WHEN getDashboardStats(env) called, THEN returns {sites:2, totalArticles:3, published:1, drafts:2, pages:N>=0, mediaFiles:N>=0, categories:N>=0} with all keys present and integer values."
+        "renderArticle exported",
+        "BEHAVIORAL: 12 section markers appear in PART 2 order",
+        "BEHAVIORAL: article-shell minmax(0, 1fr) present",
+        "BEHAVIORAL: faqs=[] does NOT emit FAQPage JSON-LD"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T12",
-      "title": "Modify api/src/admin/router.ts -- mount adminUi for /admin routes, remove renderShell from active /admin paths, preserve accessAuth + sub-routers",
+      "title": "router.ts adds GET / handler wiring home view-model + template",
       "category": "api",
       "targetFiles": [
-        "api/src/admin/router.ts"
+        "src/public/router.ts"
       ],
       "acceptanceCriteria": [
-        "router.ts imports adminUi from ./ui",
-        "router.ts mounts adminUi via .route('/', adminUi) or similar",
-        "renderShell no longer wired to /admin or /admin/* routes",
-        "accessAuth middleware preserved",
-        "Sub-routers api/workflowApi/aiApi still mounted",
-        "BEHAVIORAL: GIVEN wrangler dev with DEV_BYPASS_AUTH=true, WHEN curl http://127.0.0.1:8787/admin THEN HTML body does NOT contain string 'Phase 1 admin shell'; WHEN curl http://127.0.0.1:8787/admin without auth bypass and Host:cms.kodigital.app THEN response is 401/403 (accessAuth still gates the route)."
+        "GET / registered",
+        "BEHAVIORAL: GET / on tenant returns 200 text/html with site-header + site-footer"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T13",
-      "title": "Implement PATCH /api/admin/articles/:id with tenant guard, category validation, per-site slug uniqueness",
+      "title": "/article/:slug uses Article template with fallback",
       "category": "api",
       "targetFiles": [
-        "api/src/admin/api.ts"
+        "src/public/router.ts"
       ],
       "acceptanceCriteria": [
-        "PATCH /articles/:id handler registered",
-        "Tenant guard assertTenantBoundary invoked",
-        "Per-site slug uniqueness via assertSlugUniquePerSite",
-        "Category validation via validateCategoryForSite",
-        "All updatable fields handled (allow-list)",
-        "BEHAVIORAL: GIVEN article id=A1 belongs to site=S1, WHEN PATCH /api/admin/articles/A1 with body {site_id:'S2', title:'new'} (cross-tenant mutation) THEN response is 403 with code 'TENANT_BOUNDARY_VIOLATION'; GIVEN article id=A1 site=S1, WHEN PATCH with body {site_id:'S1', slug:'x'} where (S1,'x') exists on another article THEN response is 409 with code 'SLUG_UNIQUENESS_VIOLATION'; GIVEN article id=A1 site=S1, WHEN PATCH with body {site_id:'S1', title:'updated'} THEN response is 200 with updated_at refreshed and title='updated'."
+        "renderArticle + buildArticleViewModel wired",
+        "catch present",
+        "BEHAVIORAL: published article -> 200 with article-shell+hero+body",
+        "BEHAVIORAL: renderArticle throws -> 200 with content_html fallback"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T14",
-      "title": "Wire Domains Create-Site modal -- real POST /api/admin/sites with browser-observable network request, row update, polling start",
-      "category": "ui",
+      "title": "/assets/public.css + /assets/public.js cacheable routes",
+      "category": "api",
       "targetFiles": [
-        "api/src/admin/templates/domains.ts"
+        "src/public/router.ts"
       ],
       "acceptanceCriteria": [
-        "Inline script fetches POST /api/admin/sites with JSON body",
-        "Body serialized as JSON.stringify with domain+vertical_slug+activity",
-        "Modal listens to keydown Escape",
-        "After 201 success, polls /api/admin/sites/:id/provision",
-        "ES5-only (no const/let/arrow)",
-        "BEHAVIORAL: GIVEN /admin/domains loaded in browser, WHEN user clicks '+ New Site' button, fills domain='qa-1234.example.test', selects vertical, clicks 'Create site' button, THEN page.waitForRequest('**/api/admin/sites', {method:'POST'}) observes the request AND on response 201 the modal closes AND a new <tr data-domain='qa-1234.example.test'> appears AND a status panel polling /api/admin/sites/:id/provision starts visible; ON server 4xx error the modal stays open and an .alert-error element displays the error message."
+        "both asset routes registered",
+        "immutable cache-control",
+        "BEHAVIORAL: GET /assets/public.css -> 200 text/css with --tw-brand",
+        "BEHAVIORAL: GET /assets/public.js -> 200 application/javascript with reading-progress-bar",
+        "BEHAVIORAL: explicit /assets/* routes win over /:slug catch-all"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T15",
-      "title": "Fix generate_about_page_stub provisioning step -- insert pages row idempotently with site_id, slug='about', page_type='about'",
+      "title": "/category/:slug + /page/:slug use site-aware layout wrapper",
       "category": "api",
       "targetFiles": [
-        "api/src/site-provisioning/steps.ts"
+        "src/public/router.ts"
       ],
       "acceptanceCriteria": [
-        "Step inserts INTO pages",
-        "Insert uses page_type='about' and slug='about'",
-        "Idempotency via INSERT OR IGNORE or ON CONFLICT",
-        "Step output includes about_page_id or about_page_slug",
-        "BEHAVIORAL: GIVEN site S1 exists (sites table) with name='Acme', vertical='psychic' and no pages row for site_id=S1, WHEN runner invokes generate_about_page_stub(S1) THEN one row appears in pages with (site_id=S1, slug='about', page_type='about', status='published', show_in_footer=1) AND content_json parses as a JSON block document AND content_html starts with '<'; WHEN runner is invoked a second time for S1 THEN pages still has exactly 1 row for (site_id=S1, slug='about') (idempotent)."
+        "renderLayout used",
+        "BEHAVIORAL: GET /category/:slug -> 200 text/html with site-header + category name",
+        "BEHAVIORAL: GET /page/:slug -> 200 text/html with site-header + page content_html"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T16",
-      "title": "Add @playwright/test devDep + test:ui scripts to api/package.json",
-      "category": "config",
+      "title": "Regression: cms.kodigital.app does not render home",
+      "category": "infra",
       "targetFiles": [
-        "api/package.json"
+        "test/public-admin-host-no-home.test.ts"
       ],
       "acceptanceCriteria": [
-        "@playwright/test in devDependencies",
-        "test:ui script defined",
-        "test:ui:headed and test:ui:report scripts defined"
+        "references cms.kodigital.app",
+        "BEHAVIORAL: Host=cms.kodigital.app GET / -> 404 no leak"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T17",
-      "title": "Create playwright.config.ts -- webServer npm run dev port 8787, baseURL http://127.0.0.1:8787, projects chromium",
-      "category": "config",
+      "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health",
+      "category": "infra",
       "targetFiles": [
-        "api/playwright.config.ts"
+        "test/public-reserved-paths.test.ts"
       ],
       "acceptanceCriteria": [
-        "defineConfig + webServer + baseURL + port 8787",
-        "webServer command runs npm run dev",
-        "testDir resolves to test-ui"
+        "BEHAVIORAL: planted admin page GET /admin -> 404 no leak",
+        "covers all reserved paths"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T18",
-      "title": "Playwright spec admin-ux-parity -- all 9 admin routes render adminLayout, nav has 9 entries, no Phase 1 admin shell",
-      "category": "script",
+      "title": "Regression: no hardcoded TheIWise brand in rendered Home + Article",
+      "category": "infra",
       "targetFiles": [
-        "api/test-ui/admin-ux-parity.spec.ts"
+        "test/public-no-theiwise-brand-render.test.ts"
       ],
       "acceptanceCriteria": [
-        "Spec imports test from @playwright/test",
-        "All 9 admin routes referenced in test bodies",
-        "Assertions on .admin-layout, .admin-sidebar, .sidebar-nav, .stats-grid",
-        "Assertion no 'Phase 1 admin shell' anywhere",
-        "Assertion nav has 9 entries and not Psychic Quiz",
-        "Screenshots stored under test-results/admin-ux-parity/",
-        "Spec passes when run via npx playwright test against local wrangler dev"
+        "BEHAVIORAL: renderHome -> no theiwise",
+        "BEHAVIORAL: renderArticle -> no theiwise",
+        "banned tokens concatenated"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T19",
-      "title": "Playwright spec domains-create-site -- modal opens, fill+submit observes POST /api/admin/sites, row + provisioning panel appear",
-      "category": "script",
+      "title": "JSON-LD presence on Home + Article",
+      "category": "infra",
       "targetFiles": [
-        "api/test-ui/domains-create-site.spec.ts"
+        "test/public-json-ld-presence.test.ts"
       ],
       "acceptanceCriteria": [
-        "Spec navigates to /admin/domains",
-        "Uses page.waitForRequest to observe POST /api/admin/sites",
-        "Clicks '+ New Site' and 'Create site' buttons by text",
-        "Uses unique domain like qa-${Date.now()}.example.test",
-        "Spec passes against local wrangler dev"
+        "BEHAVIORAL: Home contains WebSite + Organization + ItemList",
+        "BEHAVIORAL: Article with faqs contains Article + BreadcrumbList + FAQPage",
+        "BEHAVIORAL: Article with empty faqs omits FAQPage"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T20",
-      "title": "Playwright spec admin-routing-security -- public content host /admin returns 404, no cms.kodigital.app leak, no-store + noindex",
-      "category": "script",
+      "title": "Image attribute + lazy-load tests",
+      "category": "infra",
       "targetFiles": [
-        "api/test-ui/admin-routing-security.spec.ts"
+        "test/public-image-attrs.test.ts"
       ],
       "acceptanceCriteria": [
-        "Spec sets a Host header (extraHTTPHeaders) for a public content domain",
-        "Asserts response status 404 for /admin on public host",
-        "Asserts response body does NOT contain 'cms.kodigital.app'",
-        "Asserts cache-control no-store and x-robots-tag noindex,nofollow",
-        "Spec passes against local wrangler dev"
+        "BEHAVIORAL: every <img> has alt+width+height",
+        "BEHAVIORAL: below-fold images have loading=lazy"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T21",
-      "title": "Update Vitest acceptance suite -- assert /admin uses adminLayout (no Phase 1 shell), PATCH articles route exists, About-page step inserts pages",
-      "category": "script",
+      "title": "Ad-slot attribute tests",
+      "category": "infra",
       "targetFiles": [
-        "api/test/admin-ux-acceptance.test.ts"
+        "test/public-ad-slots.test.ts"
       ],
       "acceptanceCriteria": [
-        "Test asserts /admin response includes 'admin-sidebar' and 'stats-grid'",
-        "Test asserts /admin response does NOT contain 'Phase 1 admin shell'",
-        "Test asserts PATCH /api/admin/articles/:id returns 200 with valid body or 404 (not 'route absent')",
-        "Test asserts about-page step inserts pages row",
-        "Vitest passes"
+        "BEHAVIORAL: every ad-slot has data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}",
+        "BEHAVIORAL: both leaderboard + in-feed present on Home"
       ],
       "passes": false,
       "state": "implemented"
+    },
+    {
+      "id": "T22",
+      "title": "Regression: typecheck + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0",
+      "category": "infra",
+      "targetFiles": [
+        "test/verify-scripts-green.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "tsc --noEmit exit 0",
+        "verify:no-legacy-prod-refs exit 0",
+        "verify:infra exit 0",
+        "verify:worker-config exit 0"
+      ],
+      "passes": false,
+      "state": "planned"
     },
     {
       "id": "WARN-FIX-1",
@@ -564,7 +529,5 @@
       "dependencies": [],
       "notes": "Migration must follow D1-database-safety.md C-006/C-009/C-026/C-027: CREATE pages_new \u2192 INSERT INTO pages_new SELECT FROM pages \u2192 DROP TABLE pages \u2192 ALTER TABLE pages_new RENAME TO pages \u2192 recreate all indexes (including per-site UNIQUE). Same for articles. Single migration file recreates BOTH tables atomically. Existing data preserved. Must also be greppable from deploy.yml per L-008 / deploy-safety.md D1-file rule (CI deploy needs to apply this migration to production)."
     }
-  ],
-  "recoveryAttempt": 2,
-  "ship_recovery_at": "2026-05-13T14:15:00Z"
+  ]
 }

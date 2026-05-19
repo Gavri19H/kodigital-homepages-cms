@@ -4153,3 +4153,83 @@ D13 canonical runner result — T1:
   passes=true. Per Ralph prompt's stop condition this iteration
   closes the loop with <promise>COMPLETE</promise>.
 ---
+
+## 2026-05-19T07:30:00Z - T1 (Phase 5: Add public.css string module)
+
+- What was implemented:
+  * api/src/public/assets/public-css.ts -- new TS module exporting the
+    `publicCss` string constant. Contains every PART 3 token (--tw-ink,
+    --tw-text*, --tw-rule*, --tw-bg*, --tw-brand*, --tw-accent, --tw-success,
+    --tw-font-sans, --tw-font-display, --tw-fs-{xs..4xl}, --tw-container*,
+    --tw-radius*, --tw-shadow*, --tw-header-h, --tw-ease, --tw-dur) plus
+    every PART 4 breakpoint (>=1280px floating-next visible, max-width
+    1280/1080/980/880/800/760/560/480) and the canonical
+    `.article-shell { grid-template-columns: 64px minmax(0, 1fr) 320px; }`
+    so the article body column never blows the grid on long links/code.
+- Files changed:
+  * api/src/public/assets/public-css.ts -- new (247 lines)
+- Self-check results:
+  * File sizes: api/src/public/assets/public-css.ts = 247 lines.
+    UI-string module exporting a single CSS string constant; TS-code
+    line count is ~5 (export + closing). Within repo convention for
+    template/string modules (admin templates run 200-300 lines).
+    PASS.
+  * Secret scan (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'`):
+    0 matches -- PASS.
+  * Error handling: N/A (pure CSS string constant).
+  * Migration execution: N/A (category=ui).
+  * Parameterized queries: N/A.
+  * RED-LINE forbidden tokens (theiwise/cms.kodigital.app): 0 matches
+    -- PASS.
+- Local AC verification (T1):
+  * AC1 `grep -c -- '--tw-ink' api/src/public/assets/public-css.ts` -> 11
+    (expected >= 1) PASS.
+  * AC2 `grep -c '@media (max-width:1280px)' api/src/public/assets/public-css.ts` -> 1
+    (expected >= 1) PASS.
+  * AC3 `grep -c 'minmax(0, 1fr)' api/src/public/assets/public-css.ts` -> 13
+    (expected >= 1) PASS.
+  * Forward prereq for T14: `grep -c -- '--tw-brand' api/src/public/assets/public-css.ts` -> 14 (>=1) PASS.
+- D13 canonical evidence runner (per-story RC-002, RC-003, RC-004):
+  * Command:
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=cms-new-phase5-2026-05018 \
+      --required-claim-ids=RC-002,RC-003,RC-004 \
+      --evidence-plan=<mission_state>/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+      --worktree-root=<worktree>
+  * Result: status=PASS, exit=0, observed grep counts 11/1/13 against
+    expected >= 1/1/1, parser_strategy=parse_grep_count,
+    derivation_method=deterministic_grep_count. Raw observation
+    artifacts written under evidence/raw/.
+- Quality gate runs:
+  * `cd api && ./node_modules/.bin/tsc --noEmit` -> exit 0 (no output)
+    -- PASS.
+  * `cd api && ./node_modules/.bin/vitest run` -> 48 test files /
+    286 tests / 0 failures, exit 0 -- PASS (no regressions; T1 added
+    no test file, this is the baseline pre-existing suite).
+- Scoped quality commands: execution story T1 declares
+  scoped_quality_commands=[]; no story-specific quality command beyond
+  the canonical D13 runner. Wrapper-level QCMD is OPT-IN per
+  scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- source_story_ids covered by this iteration: T1.
+- Ralph-local execution PRD (.ralph/execution_stories.json): T1 flipped
+  to state="implemented" + passes=true (basename does NOT end with
+  prd.json so block_prd_self_cert.py does not match -- current-cycle
+  scope exception per scripts/ralph/prompt.md T7). Canonical
+  openspec/changes/<cid>/prd.json (alias prd.json at worktree root)
+  already lists T1 as state="implemented" passes=false; not modified
+  by this iteration (Ralph MUST NOT set canonical PRD passes=true per
+  D11/D15).
+- Learnings:
+  * String-module CSS files keep the Worker bundle deterministic --
+    serving /assets/public.css from a TS string constant means the
+    file ships verbatim through esbuild without a separate asset
+    pipeline, and the same constant can be inlined by templates
+    if the asset route is ever bypassed.
+  * The article-shell minmax(0, 1fr) rule from PART 4 is the load-
+    bearing CSS bit for article rendering. Without it, very long
+    URLs inside .article-body blow the article column and force
+    horizontal scroll on the whole page. Keep this rule in any
+    future grid refactor.
+---
