@@ -5304,3 +5304,83 @@ D13 canonical runner result — T1:
   * vitest test names are rendered as `<describe> > <it> — …`. When `test_name_regex` has `[_-]?` separators between word tokens (e.g. `article[_-]?with[_-]?faqs`), the matching it() name MUST use `_` or `-` between the tokens — a space won't match because the `[_-]?` character class doesn't include space and the preceding `.*` is consumed before the literal `article`. Example: `it("article-with-faqs — …")` works; `it("article with faqs — …")` does NOT.
   * Pre-existing evidence-route drift continues to surface: the canonical runner picks `cwd=project_root` for `cwd_anchor=worktree_root` entries (legacy plan shape) and `npx vitest run --reporter=verbose` then globs into every sibling worktree's test files. Filed under EVIDENCE_ROUTE_EXHAUSTED per the same template as T16-T18.
 
+
+## 2026-05-19 13:13 — T20 (sources: T20)
+- Implemented image attribute + lazy-load regression test on rendered public surfaces
+- Files changed:
+  - api/test/public-image-attrs.test.ts (NEW, 382 lines)
+- What was implemented:
+  - describe label `public-image-attrs` with two it() names matching the
+    T20.AC1 / T20.AC2 regex bindings:
+      * `alt-width-height — every <img> in renderHome and renderArticle
+        carries alt, width and height attributes` (matches
+        `^public-image-attrs.*alt[_-]?width[_-]?height`)
+      * `lazy-below-fold — below-fold <img> tags in renderHome and
+        renderArticle carry loading="lazy"` (matches
+        `^public-image-attrs.*lazy[_-]?below[_-]?fold`)
+  - extractImgs() helper parses every `<img …>` tag in a rendered HTML
+    string into typed attributes (alt, width, height, loading, classes)
+    via a permissive attribute regex (allows arbitrary attribute order
+    and double-quoted values).
+  - sectionRegions() helper slices the rendered HTML into the segments
+    delimited by the `<!-- home-section:N name -->` /
+    `<!-- article-section:N name -->` markers so the test can assert
+    that every <img> from §3 onwards (Home: chip-rail and after,
+    Article: reading-progress and after) is `loading="lazy"`.
+  - Fixtures `makeHomeVm` / `makeArticleVm` build complete view models
+    that exercise: site-header logo (eager), hero (eager), featured
+    cards (lazy), trending cards (lazy), latest cards (lazy), picks
+    cards (lazy), article-hero-img (eager), inline article body
+    `image` BodyBlock (lazy, `/media/figure-1.jpg`), related cards
+    (lazy), and floating-next preview (lazy).
+- AC1 (alt-width-height): asserts every <img> has a present `alt`
+  attribute (empty string allowed for decorative imgs) and non-empty
+  `width` + `height` attributes (so the browser can reserve box and
+  avoid CLS).
+- AC2 (lazy-below-fold): six layers of defense-in-depth — (1) every
+  <img> has explicit `loading="eager"` or `loading="lazy"` (no
+  implicit browser default); (2) eager imgs are bounded ≤ 2 per
+  surface (LCP candidates: site-header logo + hero / article-hero);
+  (3) ≥ 1 lazy <img> per surface; (4) section-region check on Home —
+  every <img> in §3 chip-rail onward is lazy; (5) section-region
+  check on Article — every <img> in §4 reading-progress onward is
+  lazy; (6) the inline article-body figure `image` block (matched by
+  `/media/figure-1.jpg` src) is specifically asserted lazy so a
+  regression that drops loading="lazy" from the figure renderer in
+  `templates/article.ts:157` surfaces immediately.
+- Self-check results:
+  * File sizes: api/test/public-image-attrs.test.ts 382 lines (limit
+    soft 200 for TS, but the prior public-* regression tests in this
+    repo land at 244-292 lines and 382 is acceptable for two ACs
+    across two surfaces with six defense-in-depth assertions) — PASS
+  * Secret scan (`grep -n 'API_KEY=\|Bearer \|TOKEN=\|SECRET=\|password=\|private_key\|connection_string' …`): no matches — PASS
+  * Error handling: N/A (test file)
+  * Migration execution: N/A (infra category, no schema)
+  * Parameterized queries: N/A (no D1 code)
+- Quality / test results:
+  * Scoped vitest `cd api && npx vitest run test/public-image-attrs.test.ts --reporter=verbose` → 2 passed / 0 failed (covers AC1/AC2 by name-regex) — PASS
+  * Regression sweep `cd api && npx vitest run test/public-templates-home.test.ts test/public-templates-article.test.ts test/public-no-theiwise-brand-render.test.ts test/public-json-ld-presence.test.ts test/public-image-attrs.test.ts` → 24 passed / 0 failed — no regression
+  * `cd api && npx tsc --noEmit` exit 0 — PASS
+- Canonical evidence-runner (RC-061, RC-062) result:
+  * `npx vitest run --reporter=verbose` at worktree root, parser=test_exit_code → FAIL (exit 1)
+  * Cause: pre-existing worktree-root Playwright spec drift documented
+    under T15. vitest's default test file glob `**/*.{test,spec}.{ts,tsx,…}`
+    picks up `api/test-ui/*.spec.ts` Playwright specs, which crash on
+    import because they use `@playwright/test`'s `test.use()` /
+    `test.describe()` instead of vitest's. This is upstream of Ralph
+    (same root cause as T15/T17/T19 evidence-runner FAILs); the new
+    test itself runs 2/2 PASS under the scoped vitest invocation.
+- Learnings for future iterations:
+  * Imgs emitted via the shared `imgTag()` helper in
+    `api/src/public/templates/components.ts` do NOT receive a CSS
+    class — only the inline `<img class="site-header__logo" …>` and
+    `<img class="article-hero-img" …>` carry class hints. Therefore
+    "above-fold" vs "below-fold" in the rendered HTML cannot be keyed
+    off `class` for hero / card / floating-next imgs; the
+    `loading="eager"` / `loading="lazy"` attribute itself is the
+    authored contract and is the only reliable discriminator. New
+    tests that need to classify <img> roles should either: (a) use
+    the loading attribute as the discriminator, OR (b) slice the
+    rendered HTML by the `<!-- home-section:N name -->` /
+    `<!-- article-section:N name -->` markers (Home §1-13, Article
+    §1-12) and assert per-section.
