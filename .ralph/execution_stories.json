@@ -151,8 +151,8 @@
       "id": "T7",
       "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T7"
       ],

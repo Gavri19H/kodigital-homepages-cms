@@ -4657,3 +4657,20 @@ D13 canonical runner result — T1:
     has now blocked 3 successive stories (T3 RC-010, T4 RC-013, T6 RC-018). All
     upcoming test_exit_code RCs (T8-T22) will hit the same wall until the
     evaluator phase rewires the plan or fixes the verify-script tests.
+
+## 2026-05-19 11:16 - T7
+- Implemented `api/src/public/templates/format.ts` exporting `formatDate`, `formatReadTime`, `truncateExcerpt` plus two siblings (`formatRelativeDays`, `buildDateline`) the view-models will need next iteration.
+- Files changed: api/src/public/templates/format.ts (new), api/test/public-templates-format.test.ts (new).
+- source_story_ids: T7
+- **Self-check results:**
+  - File sizes: format.ts 93 lines (limit 200), public-templates-format.test.ts 84 lines — PASS
+  - Secret scan: PASS
+  - Error handling: N/A (pure string helpers; tolerate null/undefined explicitly)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+- **Tests run:** `npx vitest run test/public-templates-format.test.ts --reporter=verbose` → 12 passed (PASS). Includes T7.AC2 binding: `public-templates-format > truncateExcerpt with limit=12 yields a string of length <=13 ending in an ellipsis`.
+- T7.AC1 deterministic grep: `grep -cE 'export function (formatDate|formatReadTime|truncateExcerpt)' api/src/public/templates/format.ts` → 3 (matches expected_value=3 for RC-019).
+- **Learnings for future iterations:**
+  - vitest verbose reporter prints full test names as `<describe> > <it>`, so AC `test_name_regex: ^public-templates-format.*truncate` is satisfied by `describe("public-templates-format", ...)` + `it("truncate...")`.
+  - `truncateExcerpt(input, limit)` adds exactly one "…" suffix on overflow — total length = limit+1. AC budget `<=13 for limit=12` requires keeping the suffix one codepoint.
+---
