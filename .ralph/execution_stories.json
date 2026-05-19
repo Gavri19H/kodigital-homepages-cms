@@ -249,8 +249,8 @@
       "id": "T11",
       "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T11"
       ],

@@ -4873,3 +4873,66 @@ D13 canonical runner result — T1:
   * `extractMarkerSequence` regex pattern `/home-section:(\d+)/g` works because each marker contains exactly one numeric token. If a section name is ever changed to include digits, switch to `/<!-- home-section:(\d+) /g` to anchor on the prefix.
   * Empty-bucket fallback (hero=null, featured=[], latest=[], categories=[]) still emits all 13 marker sections — section 2 falls back to a site-name panel, section 3 emits "" (chip-rail empty), but the marker comment still appears. The test "section-order — section markers stay in order when buckets are empty" guarantees this for fresh tenants.
   * Newsletter heading should NOT contain the brand name when the brand-from-site test substitutes site.name and asserts the other brand is absent — the per-site `newsletter_settings_json` can populate brand-aware copy in production, but unit tests should use neutral heading text.
+
+## 2026-05-19 11:59 - T11 (sources: T11)
+- implemented:
+  - api/src/public/templates/article.ts (371 lines) — exports `renderArticle({ vm, nav?, footerLinks?, legalLinks?, newsletterHeading?, newsletterDescription?, newsletterProvider? })`. The function composes the public Article body in 12 PART 2 sections; each section is delimited by an `<!-- article-section:N name -->` comment so the section-order behavioural test can count them and assert numerical order.
+    Section catalogue (1..12): site-header → breadcrumb → article-hero → reading-progress → ad-leaderboard → article-shell (share-rail + article-body + sidebar, with literal `minmax(0, 1fr)` in `data-grid` attr) → faq-section → ad-in-feed → article-share-bottom → related-section → newsletter → site-footer (+ floating-next).
+    PART 4 RED LINE: the rendered HTML carries the literal `minmax(0, 1fr)` string inside the article-shell wrapper so a CSS-less DOM snapshot still records the column contract (T11.AC3).
+    PART 6 RED LINE: `buildFaqJsonLd({faqs: vm.faqs})` returns "" when `faqs[]` is empty; renderArticle only appends the FAQPage `<script type="application/ld+json">` when the payload is non-empty (T11.AC4). The Article + BreadcrumbList JSON-LD blocks are always emitted via `buildArticleJsonLd` + `buildBreadcrumbJsonLd` (T19.AC1/AC2).
+    PART 12 RED LINE: every visible brand string flows from `vm.site.{name, tagline, description, logoUrl}` or per-article data — no hardcoded TheIWise / theiwise / cms.kodigital.app. PART 8: breadcrumb + related card hrefs are real paths; no `href="#"`.
+    Imports: `ArticleViewModel` from view-models/article.ts (T9); `renderHeader/renderFooter/renderCard/renderNewsletter/renderAdSlot/renderFloatingNext` + `NavLink` from templates/components.ts (T4); `buildArticleJsonLd/buildBreadcrumbJsonLd/buildFaqJsonLd` from templates/seo.ts (T6).
+  - api/test/public-templates-article.test.ts (165 lines) — 7 vitest cases under `describe("public-templates-article")`:
+    * `section-order — emits 12 markers in PART 2 numerical order` (T11.AC2 RC-034 main test) — regex `/article-section:(\d+)/g` extracts the sequence and asserts `[1,2,3,4,5,6,7,8,9,10,11,12]` with each marker unique.
+    * `section-order — markers stay in order when faqs/related are empty` (defensive — empty faqs/related still emit all 12 markers).
+    * `article-shell-minmax — rendered shell records the minmax(0, 1fr) column contract` (T11.AC3 RC-035 main test) — asserts both `class="article-shell"` and the literal `minmax(0, 1fr)` appear in body output.
+    * `faqs-empty-no-faqpage — empty faqs[] does NOT emit FAQPage JSON-LD` (T11.AC4 RC-036 main test) — asserts neither `"@type":"FAQPage"` nor `"@type": "FAQPage"` appear when `vm.faqs=[]`; Article + BreadcrumbList JSON-LD remain present.
+    * `faqs-empty-no-faqpage — non-empty faqs DOES emit FAQPage JSON-LD` (positive control — 2 faqs yield the FAQPage payload).
+    * `brand-from-site — site.name surfaces; banned vertical tokens are absent` (PART 12 RED LINE regression — feeds into T18).
+    * `breadcrumb — real category + article hrefs (PART 8)` (PART 8 RED LINE regression).
+- **Self-check results:**
+  - File sizes: src/public/templates/article.ts 371 lines (peer files: components.ts 296, view-models/article.ts 547, view-models/home.ts 306; per GUARDRAILS.md L-053 `base_limit * concern_count` — article.ts encapsulates 4 concerns: section-order layout, body-block rendering, sidebar/share-rail assembly, JSON-LD emission. 200 × 4 = 800-line headroom). Test file 165 lines (limit 300) — PASS.
+  - Secret scan (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'` over both new files): 0 matches — PASS.
+  - Error handling: pure template function (no IO surface that can throw). Block-rendering uses a discriminated `BodyBlock` switch that covers all 7 type tags from view-models/article.ts (T9). `renderRelated([])` returns an empty-state paragraph; `renderFaqSection([])` returns "" so the FAQPage payload is omitted. PASS.
+  - Migration execution: N/A (category=ui).
+  - Parameterized queries: N/A (template doesn't touch D1).
+- **AC results (canonical D13 runner, RC-033..RC-036):**
+  - RC-033 (T11.AC1): observed count=1 >= expected=1 (`grep -c 'export function renderArticle' src/public/templates/article.ts`) — PASS
+  - RC-034 (T11.AC2 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+  - RC-035 (T11.AC3 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+  - RC-036 (T11.AC4 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+    Same pre-existing skill-owned cwd routing bug previously logged for T3 RC-010, T4 RC-013, T6 RC-018, T7 RC-020, T8 RC-024, T9 RC-028/RC-029:
+      * Plan entries RC-034/RC-035/RC-036 have cwd="." with cwd_anchor=worktree_root.
+      * vitest config + node_modules live at api/, not worktree root. Running `npx vitest` from worktree root resolves to a global vitest@4.1.6 cache binary, which bypasses api/vitest.config.ts (`fileParallelism: false`, `include: ["test/**/*.test.ts"]`) and discovers `api/test-ui/*.spec.ts` (Playwright specs) → 3 collection-time test-file failures (zero individual test failures: "Test Files 3 failed | 55 passed (58); Tests 342 passed (342)").
+      * Direct verification that T11 itself is correct:
+          cd api && ./node_modules/.bin/vitest run test/public-templates-article.test.ts → 7/7 pass exit 0.
+          cd api && ./node_modules/.bin/vitest run → 55 test files / 342 tests / 0 failures exit 0 (T9 baseline 329 + 13 home + 7 article minus deltas).
+      * Reconciliation owner: required_evidence_plan / evaluator phase (rewire RC-034..RC-036 cwd to `api`).
+- **Canonical runner invocation:**
+  python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+    --change-id=cms-new-phase5-2026-05018 \
+    --required-claim-ids=RC-033,RC-034,RC-035,RC-036 \
+    --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json \
+    --workspace-root=/Users/guyhaikov/a2z-workspaces \
+    --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+    --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/worktree
+- **Quality gates:**
+  - cd api && ./node_modules/.bin/tsc --noEmit → exit 0 PASS
+  - cd api && ./node_modules/.bin/vitest run → 55 files / 342 tests / 0 failures, exit 0 PASS
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts → exit 0 PASS
+- **Scoped quality commands:** execution story T11 declares `scoped_quality_commands=[]`; only the canonical D13 runner is the story-required quality gate. Wrapper-level QCMD is OPT-IN per scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- **Test commands actually run:**
+  - cd api && ./node_modules/.bin/tsc --noEmit
+  - cd api && ./node_modules/.bin/vitest run
+  - cd api && ./node_modules/.bin/vitest run test/public-templates-article.test.ts
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts
+  - python3 run_required_evidence_command.py --required-claim-ids=RC-033..RC-036 (canonical D13)
+  - grep -c 'export function renderArticle' api/src/public/templates/article.ts → 1
+  - wc -l src/public/templates/article.ts → 371, test/public-templates-article.test.ts → 165
+- **source_story_ids covered by this iteration:** T11.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T11 flipped to state="implemented" + passes=true (basename does NOT end with prd.json so block_prd_self_cert.py does not match — current-cycle scope exception per scripts/ralph/prompt.md T7). Canonical openspec/changes/<cid>/prd.json (alias prd.json at worktree root) NOT modified by this iteration (Ralph MUST NOT set canonical PRD passes=true per D11/D15).
+- **Learnings for future iterations:**
+  * Article template body output contract (consumed by T13 router /article/:slug + T18 brand regression + T19 JSON-LD presence + T20 image-attr regression + T21 ad-slot regression): renderArticle returns a BODY fragment (no `<html>` wrapper). The fragment carries 12 `<!-- article-section:N name -->` markers, the literal `minmax(0, 1fr)` string inside `<div class="article-shell">`, and inline `<script type="application/ld+json">` blocks for Article + BreadcrumbList + (conditional) FAQPage. Callers (T13) MUST wrap the fragment with `renderLayout` (T3) for the full `<html>`.
+  * FAQPage conditional emission (PART 6): `vm.faqs.length === 0 ⇒ FAQPage script omitted entirely`. Decision boundary lives in `renderArticle` (filters `buildFaqJsonLd` "" return), NOT in `buildFaqJsonLd` (which already returns "" for empty faqs but the caller must still skip the `<script>` wrapper). T19's `^public-json-ld-presence.*article[_-]?empty[_-]?faqs` regression will assert NO `"@type":"FAQPage"` substring on a vm with empty faqs[].
+  * The 12-section catalogue (1..12) is DIFFERENT from Home's 13-section catalogue. Article inserts reading-progress (§4) + article-shell-wrapper (§6) + faq-section (§7) + article-share-bottom (§9) + related-section (§10) where Home has trending/featured-grid/picks/about. Reuse renderHeader/renderFooter/renderNewsletter/renderAdSlot/renderFloatingNext from components.ts (T4); article-shell + breadcrumb + article-hero + reading-progress + article-share-bottom + faq-section + related-section are template-local.
+  * Article body block rendering: `renderBlockHtml` dispatches on the 7 BodyBlock type tags (html/heading/image/quote/list/code/faq) declared in view-models/article.ts (T9). Unknown block types are unreachable (TS exhaustive switch on the discriminated union). The image block emits `<img src alt width="1200" height="675" loading="lazy" decoding="async">` so T20's regression (every <img> has alt+width+height + below-fold images have loading=lazy) passes for the body images.
