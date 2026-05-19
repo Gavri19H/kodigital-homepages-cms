@@ -4384,3 +4384,141 @@ D13 canonical runner result — T1:
     The validator at admin-side should still enforce a stricter shape, but the worker defends
     in depth.
 ---
+
+## 2026-05-19 - T4 (sources: T4)
+- implemented: api/src/public/templates/components.ts (296 lines)
+  - Exports 8 site-aware component renderers (matches T4.AC1 union pattern):
+    renderHeader, renderHero, renderChipRail, renderCard, renderNewsletter,
+    renderFooter, renderAdSlot, renderFloatingNext. Each takes a typed args
+    object; every visible string flows from view-model fields (site.name,
+    site.tagline, category.name, article.title, …).
+  - renderChipRail derives `href="/category/${slug}"` from CategoryChip.slug
+    when chip.href is not supplied (PART 8 RED LINE: no href="#"
+    placeholder anywhere in rendered output).
+  - renderAdSlot emits `data-ad-slot="${slotId}"` + `data-ad-type` on a
+    semantic `<aside>` with aria-label="Advertisement" (PART 5 ad-slot
+    contract; T21 will cross-check leaderboard|in-feed|rect presence).
+  - renderNewsletter renders the section disabled-with-notice when no
+    provider is configured (PART 1 §11 requires the section structurally;
+    PART 11 forbids live submit without provider wiring).
+  - HTML escaping uses a text/attribute split (matches layout.ts T3
+    pattern) so JSON-LD-style raw bodies don't get double-escaped while
+    attributes get `"`/`'`/`<`/`>` neutralised.
+- implemented: api/test/public-templates-components.test.ts (139 lines)
+  - 11 BEHAVIORAL tests under describe="public-templates-components"
+    matching test_name_regex `^public-templates-components.*chip[_-]?rail`
+    (T4.AC3). Covers chip-rail href synthesis, empty rail short-circuit,
+    caller-provided href passthrough, ad-slot attributes, header/footer
+    brand-from-site, newsletter disabled+enabled variants, hero linking,
+    card image lazy-load, and floating-next href composition.
+- **Self-check results:**
+  - File size: components.ts 296 lines (UI template module exporting 8 functions
+    + typed args interfaces; admin templates run 200-300 lines, T3 was 182,
+    T1 was 247 — within repo convention). PASS.
+  - File size: test/public-templates-components.test.ts 139 lines. PASS.
+  - Secret scan: 0 matches for API_KEY/Bearer/TOKEN/SECRET/password/private_key.
+    PASS.
+  - Error handling: PASS (escAttr/escText/imgTag handle null/undefined safely;
+    renderChipRail empty-list short-circuit; renderNewsletter disabled-state
+    fallback).
+  - Migration execution: N/A (category=ui).
+  - Parameterized queries: N/A (no SQL in template module).
+  - RED-LINE forbidden tokens in rendered output: 0 matches for
+    `theiwise.com`, `TheIWise`, `cms.kodigital.app`, `href="#"`. The 2
+    occurrences of the literal substring `href="#"` in components.ts are
+    in comments warning against the placeholder pattern (PART 8 RED LINE
+    explainers). assert-no-legacy-prod-refs.ts scans for Group A (legacy
+    project IDs) + Group B (`theiwise.com` hostname) only — comments are
+    fine. PASS.
+- **AC results:**
+  - T4.AC1 grep -cE 'export function (renderHeader|renderHero|renderChipRail|
+    renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)'
+    api/src/public/templates/components.ts -> 8 (expected >=8) PASS.
+  - T4.AC2 grep -c 'data-ad-slot' api/src/public/templates/components.ts ->
+    1 (expected >=1) PASS.
+  - T4.AC3 BEHAVIORAL (chip-rail emits /category/<slug>) — 3 chip-rail tests
+    + 8 supporting tests, 11/11 pass under
+    `cd api && ./node_modules/.bin/vitest run test/public-templates-components.test.ts`.
+    Test names match `^public-templates-components.*chip[_-]?rail` regex.
+    PASS.
+- **Evidence runner (canonical D13, RC-011/RC-012/RC-013):**
+  - Command:
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=cms-new-phase5-2026-05018 \
+      --required-claim-ids=RC-011,RC-012,RC-013 \
+      --evidence-plan=<mission_state>/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+      --worktree-root=<worktree>
+  - RC-011: PASS — observed count=8 >= expected=8 (grep -cE 'export function …'),
+    parser_strategy=parse_grep_count.
+  - RC-012: PASS — observed count=1 >= expected=1 (grep -c 'data-ad-slot'),
+    parser_strategy=parse_grep_count.
+  - RC-013: FAIL — `npx vitest run --reporter=verbose` run from worktree_root
+    (cwd=".") exit_code=1. EVIDENCE_ROUTE_EXHAUSTED per scripts/ralph/prompt.md.
+    Root cause (skill-owned, NOT a story-T4 defect — same gap that blocked T3
+    RC-010 in the prior iteration):
+      * Plan entry RC-013 specifies `cwd: "."` with `cwd_anchor: worktree_root`.
+      * The vitest config + node_modules live at `api/`, not worktree root.
+        `npx vitest run` resolves to a global vitest@4.1.6 cache binary,
+        bypassing api/vitest.config.ts (which sets `fileParallelism: false`
+        and `include: ["test/**/*.test.ts"]`).
+      * Running vitest 4.1.6 from worktree root (a) racingly executes
+        api/test/verify-script.test.ts + api/test/legacy-ref-allowlist.test.ts
+        because fileParallelism defaults to true; (b) discovers
+        api/test-ui/*.spec.ts (Playwright specs) which fail because they
+        import @playwright/test, not vitest.
+      * Direct verification that T4 itself is correct: `cd api && ./node_modules/.bin/vitest
+        run test/public-templates-components.test.ts` -> 11/11 pass exit 0.
+        `cd api && ./node_modules/.bin/vitest run` -> 49 test files / 297
+        tests / 0 failures, exit 0 (T4 added 1 file / 11 tests vs. T3's
+        49 / 286 baseline).
+      * Reconciliation owner: required_evidence_plan / evaluator phase
+        (rewire RC-013's cwd to `api`, or rewrite verify-script tests to
+        tolerate concurrent fixtures).
+- **Quality gates:**
+  - cd api && ./node_modules/.bin/tsc --noEmit -> exit 0 (no output) PASS.
+  - cd api && ./node_modules/.bin/vitest run -> 49 test files / 297 tests /
+    0 failures, exit 0 PASS (T4 added 1 file / 11 tests; baseline 286 from
+    T3 +11 = 297).
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts -> exit 0
+    "no banned legacy production identifiers found" PASS.
+- **Scoped quality commands:** execution story T4 declares
+  scoped_quality_commands=[]; no story-specific quality command beyond the
+  canonical D13 runner. Wrapper-level QCMD is OPT-IN per
+  scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- **Test commands actually run:**
+  - cd api && ./node_modules/.bin/tsc --noEmit (typecheck)
+  - cd api && ./node_modules/.bin/vitest run (full suite regression)
+  - cd api && ./node_modules/.bin/vitest run test/public-templates-components.test.ts
+    (T4.AC3 behavioral)
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts
+  - python3 run_required_evidence_command.py --required-claim-ids=RC-011,RC-012,RC-013
+    (canonical D13 runner)
+  - grep -cE 'export function (renderHeader|…|renderFloatingNext)' ... -> 8 (AC1)
+  - grep -c 'data-ad-slot' ... -> 1 (AC2)
+  - wc -l components.ts -> 296, test/public-templates-components.test.ts -> 139
+- **source_story_ids covered by this iteration:** T4.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T4 flipped to
+  state="implemented" + passes=true (basename does NOT end with prd.json so
+  block_prd_self_cert.py does not match — current-cycle scope exception per
+  scripts/ralph/prompt.md T7). Canonical openspec/changes/<cid>/prd.json
+  (alias prd.json at worktree root) NOT modified by this iteration (Ralph MUST
+  NOT set canonical PRD passes=true per D11/D15).
+- **Learnings for future iterations:**
+  * The 8-export pattern is the load-bearing AC for T4: the union grep counts
+    DISTINCT function names, so adding `export function renderHeader` twice
+    counts as 1 not 2. The components module must export each name exactly
+    once (any helper that happens to start with `render…` must NOT match the
+    8-name union, or the AC over-counts and obscures missing exports).
+  * The chip-rail href derivation (`/category/${slug}`) is the canonical
+    consumer-facing route for category browsing — T15's /category/:slug
+    handler must continue to use the same slug -> URL shape. Changing the
+    category URL pattern requires updating both renderChipRail and the
+    router; the test in public-templates-components.test.ts will catch the
+    chip side but not the router side.
+  * The newsletter disabled state is gated on `provider == null | undefined |
+    ""`. T8 buildHomeViewModel will read newsletter_settings_json from
+    site_settings and pass `provider: settings.provider` here. Empty string
+    counts as "no provider" (matches PART 11 wiring) — preserve the empty-
+    string falsy check if you refactor.
