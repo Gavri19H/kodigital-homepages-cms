@@ -5384,3 +5384,101 @@ D13 canonical runner result — T1:
     rendered HTML by the `<!-- home-section:N name -->` /
     `<!-- article-section:N name -->` markers (Home §1-13, Article
     §1-12) and assert per-section.
+
+## 2026-05-19 13:18 — T21 (sources: T21) — Ad-slot attribute tests
+- Implemented ad-slot attribute regression test pinning the
+  `data-ad-slot` + `data-ad-type` contract on rendered public surfaces
+  and the §6/§9 leaderboard+in-feed presence on Home.
+- Files changed:
+  - api/test/public-ad-slots.test.ts (NEW, 323 lines)
+- What was implemented:
+  - describe label `public-ad-slots` with two it() names matching the
+    T21.AC1 / T21.AC2 regex bindings:
+      * `data-attrs — every ad-slot in renderHome and renderArticle
+        carries data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}`
+        (matches `^public-ad-slots.*data[_-]?attrs`)
+      * `leaderboard-and-in-feed — renderHome emits both a leaderboard
+        ad-slot and an in-feed ad-slot` (matches
+        `^public-ad-slots.*leaderboard[_-]?and[_-]?in[_-]?feed`)
+  - extractAdSlots(html) helper parses every `<aside …>` that carries
+    the `ad-slot` class token (permissive attribute order so a
+    reorder of data-ad-slot / data-ad-type / data-ad-surface still
+    surfaces) and pulls data-ad-slot, data-ad-type, data-ad-surface,
+    aria-label into a typed `AdSlotAttrs` record. The closed set
+    ALLOWED_AD_TYPES = {leaderboard,in-feed,rect} mirrors the
+    AdSlotArgs.type union in api/src/public/templates/components.ts.
+  - Fixtures makeHomeVm / makeArticleVm exercise renderHome (which
+    emits the §6 home-leaderboard + §9 home-in-feed ad-slots) and
+    renderArticle (which emits the §5 article-leaderboard +
+    §8 article-in-feed + article-sidebar-ad rect ad-slots, three
+    total).
+- AC1 (data-attrs): for every ad-slot rendered on Home + Article,
+  asserts (a) data-ad-slot is non-empty, (b) data-ad-type is one of
+  {leaderboard,in-feed,rect}, (c) aria-label is non-empty (a11y),
+  and (d) slot ids are unique within each surface.
+- AC2 (leaderboard-and-in-feed): asserts homeTypes contains both
+  "leaderboard" and "in-feed", AND the §6/§9 section markers appear
+  in renderHome output, AND the specific slot ids `home-leaderboard`
+  + `home-in-feed` are rendered with the matching data-ad-type
+  (guards against a regression that swaps the leaderboard/in-feed
+  types between §6 and §9).
+- Self-check results:
+  * File sizes: api/test/public-ad-slots.test.ts = 323 lines — in
+    line with the established precedent for public-* regression
+    tests in this mission (public-image-attrs 382, public-templates-article
+    ~290, public-no-theiwise-brand-render 290) — PASS
+  * Secret scan (`grep -n 'API_KEY=\|Bearer \|TOKEN=\|SECRET=\|password=\|private_key\|connection_string' …`): no matches — PASS
+  * Error handling: N/A (test file, no handler logic)
+  * Migration execution: N/A (infra category, no schema change)
+  * Parameterized queries: N/A (pure rendered-output assertions, no .prepare()/SQL)
+- Quality / test results:
+  * Scoped vitest `cd api && npx vitest run test/public-ad-slots.test.ts --reporter=verbose` → 2 passed / 0 failed (covers AC1/AC2 by name-regex) — PASS
+  * Regression sweep `cd api && npx vitest run test/public-ad-slots.test.ts test/public-image-attrs.test.ts test/public-json-ld-presence.test.ts test/public-no-theiwise-brand-render.test.ts test/public-templates-home.test.ts test/public-templates-article.test.ts test/public-reserved-paths.test.ts test/public-admin-host-no-home.test.ts` → 30 passed / 0 failed (8 test files)
+  * Typecheck `cd api && npx tsc --noEmit` → exit 0 — PASS
+- Tests run this iteration:
+  * `cd api && npx vitest run test/public-ad-slots.test.ts --reporter=verbose`
+  * `cd api && npx vitest run test/public-ad-slots.test.ts test/public-image-attrs.test.ts test/public-json-ld-presence.test.ts test/public-no-theiwise-brand-render.test.ts test/public-templates-home.test.ts test/public-templates-article.test.ts test/public-reserved-paths.test.ts test/public-admin-host-no-home.test.ts`
+  * `cd api && npx tsc --noEmit`
+- source_story_ids covered by this iteration: T21.
+- Ralph-local execution PRD (.ralph/execution_stories.json): T21
+  flipped to state="implemented" + passes=true (basename does NOT
+  end with prd.json so block_prd_self_cert.py does not match —
+  current-cycle scope exception per scripts/ralph/prompt.md T7).
+  Canonical prd.json NOT modified by this iteration (Ralph MUST NOT
+  set canonical PRD passes=true per D11/D15).
+- Canonical evidence-runner (D12/D13) result for RC-063 + RC-064:
+  * `npx vitest run --reporter=verbose` at cwd=worktree_root, parser=test_exit_code → FAIL (exit 1)
+  * Cause: same pre-existing worktree-root Playwright spec drift
+    documented under T15/T16/T17/T18/T19/T20. vitest's default test
+    file glob `**/*.{test,spec}.{ts,tsx,…}` picks up
+    `api/test-ui/*.spec.ts` Playwright specs, which crash on import
+    because they use `@playwright/test`'s `test.use()` /
+    `test.describe()` instead of vitest's. This is upstream of Ralph
+    (same root cause as T15-T20 evidence-runner FAILs); the new test
+    itself runs 2/2 PASS under the scoped vitest invocation.
+  * Logging EVIDENCE_ROUTE_EXHAUSTED for RC-063 + RC-064 per
+    scripts/ralph/prompt.md and leaving the upstream cwd-anchor drift
+    for the reconciliation owner (reconcile_story_states.py /
+    orchestrator).
+- D13 invocation used:
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=cms-new-phase5-2026-05018 \
+      --required-claim-ids=RC-063,RC-064 \
+      --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+      --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/worktree
+- RC-063 (T21.AC1 test_exit_code @ worktree_root): exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+- RC-064 (T21.AC2 test_exit_code @ worktree_root): exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+- Learnings for future iterations:
+  * The AdSlotArgs.type union in api/src/public/templates/components.ts
+    pins exactly three values: "leaderboard" | "in-feed" | "rect".
+    Any new ad-slot test that needs to enumerate allowed types
+    should mirror that closed set as the ground-truth source — do
+    NOT widen it without a corresponding components.ts change.
+  * renderAdSlot emits a single `<aside class="ad-slot ad-slot--TYPE"
+    data-ad-slot="…" data-ad-type="…" data-ad-surface="…"
+    aria-label="Advertisement"></aside>` shape. Tests that grep on
+    only the literal attribute order miss reorder-class regressions;
+    keying off the `ad-slot` class token + permissive per-attribute
+    regex is the more robust shape (used by extractAdSlots() here).
