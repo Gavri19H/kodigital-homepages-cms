@@ -38,6 +38,10 @@ import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
 import { buildHomeJsonLd } from "./templates/seo";
+import { publicCss } from "./assets/public-css";
+import { publicJs } from "./assets/public-js";
+
+const PUBLIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
   const tenantBase = `https://${siteContext.hostname}`;
@@ -260,6 +264,25 @@ router.get("/preview/:id", (c) => {
 router.get("/health", (c) =>
   c.json({ ok: true, app: "kodigital-homepages-cms", scope: "public" }),
 );
+
+// T14: cacheable public asset routes. Both literal paths are registered
+// BEFORE the /:slug catch-all so they always win over any planted page
+// whose slug starts with `assets` (the catch-all also short-circuits
+// reserved heads via isReservedPath, so defense-in-depth is preserved
+// even if a future refactor moves these). Cache-Control max-age=31536000
+// + immutable matches PART 6 (PART 6.5 caching strategy) — the
+// underlying string modules are versioned by deploy, never by URL.
+router.get("/assets/public.css", (c) => {
+  c.header("Content-Type", "text/css; charset=utf-8");
+  c.header("Cache-Control", PUBLIC_ASSET_CACHE_CONTROL);
+  return c.body(publicCss);
+});
+
+router.get("/assets/public.js", (c) => {
+  c.header("Content-Type", "application/javascript; charset=utf-8");
+  c.header("Cache-Control", PUBLIC_ASSET_CACHE_CONTROL);
+  return c.body(publicJs);
+});
 
 router.get("/:slug", async (c) => {
   const slug = c.req.param("slug");

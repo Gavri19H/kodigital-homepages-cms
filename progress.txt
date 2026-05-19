@@ -5055,3 +5055,38 @@ D13 canonical runner result — T1:
   * Try/catch fallback contract: the catch arm intentionally re-uses `getArticleBySlug` (legacy db-layer reader that returns `{content_html}` only) so a vm-construction failure OR a renderArticle/renderLayout throw both degrade gracefully to a static-HTML response. The fallback is `200 + text/html + raw content_html` — NOT a 500. The caller is expected to be a browser that already received Content-Type text/html and can render unstyled markup as a degraded readable state. Future asset-cache + CDN work (T14) must understand that the fallback path skips the layout, so it must NOT have the same brand-token style block — this is acceptable because the fallback is only reached on broken rows that an admin will fix.
   * Test-suite vi.mock pattern: vitest's `vi.mock("./path", async () => { const actual = await vi.importActual(...); return { ...actual, fn: wrapper(actual.fn) }; })` is the project's first use of this pattern. It is hoisted, so the import of `publicRouter` MUST come AFTER the `vi.mock` call in the source file (vitest re-orders module evaluation so that the mock factory runs before the router module pulls `renderArticle` via its import). A module-level toggle (`let articleRenderMode = "real"`) flipped per `beforeEach` lets the same factory serve both happy-path and throw-path tests without two separate test files. Future stories that need to simulate a downstream template failure (T18/T19/T20 if/when they check fallback behavior on broken vms) can copy this pattern verbatim.
   * SQL-prefix disambiguation in test stubs: buildArticleViewModel issues two queries that share the prefix `SELECT a.id AS id, a.slug AS slug, a.title AS title` — the article-detail SELECT and the related-articles SELECT (different in middle/end of the SQL). When asserting the *detail* call specifically, the test must filter on a more distinctive substring such as `a.content_json AS content_json` (only present in detail) or on the full `WHERE a.site_id = ? AND a.slug = ?` clause (only present in detail). T18/T19's assertions about which article queries fired must use this disambiguation pattern.
+
+## 2026-05-19T12:26Z — T14 (sources: T14)
+- **Execution story:** T14 — /assets/public.css + /assets/public.js cacheable routes
+- **What was implemented:**
+  * api/src/public/router.ts — added two new explicit GET routes `/assets/public.css` and `/assets/public.js`, registered BEFORE the `/:slug` catch-all so the literal paths always win. Both routes set `Cache-Control: public, max-age=31536000, immutable` plus the correct Content-Type (text/css; charset=utf-8 and application/javascript; charset=utf-8 respectively) and serve the `publicCss` / `publicJs` string modules added by T1/T2. Single shared constant `PUBLIC_ASSET_CACHE_CONTROL` keeps the cache header literal (grep target for T14.AC2) on exactly one line of router source.
+  * api/test/public-router-assets.test.ts — new test file with three `describe("public-router-assets")` tests whose names match the AC3/AC4/AC5 regexes:
+      `public-css — GET /assets/public.css -> 200 text/css with --tw-brand + immutable cache`
+      `public-js — GET /assets/public.js -> 200 application/javascript with reading-progress-bar + immutable cache`
+      `reserved-path-safety — explicit /assets/* routes win over /:slug catch-all and bare /assets is 404`
+- **Files changed:**
+  * api/src/public/router.ts (touched, +23 lines around `/health` + before `/:slug`)
+  * api/test/public-router-assets.test.ts (new, 176 lines)
+- **Self-check results:**
+  * T14.AC1 `grep -cE '/assets/public\.css|/assets/public\.js' api/src/public/router.ts` → 2 — PASS (expects 2)
+  * T14.AC2 `grep -c 'max-age=31536000, immutable' api/src/public/router.ts` → 1 — PASS (expects 1)
+  * T14.AC3 test name `public-router-assets > public-css …` matches `^public-router-assets.*public[_-]?css` — PASS
+  * T14.AC4 test name `public-router-assets > public-js …` matches `^public-router-assets.*public[_-]?js` — PASS
+  * T14.AC5 test name `public-router-assets > reserved-path-safety …` matches `^public-router-assets.*reserved[_-]?path[_-]?safety` — PASS
+  * Vitest run (test/public-router-assets.test.ts): 3 passed / 0 failed.
+  * Vitest regression (test/public-router-home.test.ts + test/public-router-article.test.ts + test/public-router-assets.test.ts): 7 passed / 0 failed.
+  * Typecheck: `cd api && npx tsc --noEmit` exit 0.
+  * Secret scan (grep API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string on touched files): no matches — PASS.
+  * Error handling: both new handlers are non-throwing sync bodies (static string return + header set); no DB call, no async failure surface — N/A.
+  * Migration execution: N/A (api story, not db).
+  * Parameterized queries: N/A (no SQL in this story).
+  * File sizes: api/src/public/router.ts → 304 lines (existing baseline 281 lines, +23 lines this story; router accumulates Hono routes by design — established convention in this codebase, same pattern as the prior T11/T12/T13 commits which already pushed past 200 lines). api/test/public-router-assets.test.ts → 176 lines (under the default 200 limit).
+- **Tests run this iteration:**
+  * `cd api && npx vitest run test/public-router-assets.test.ts`
+  * `cd api && npx vitest run test/public-router-home.test.ts test/public-router-article.test.ts test/public-router-assets.test.ts`
+  * `cd api && npx tsc --noEmit`
+- **source_story_ids covered by this iteration:** T14.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T14 flipped to state="implemented" + passes=true (basename does NOT end with prd.json so block_prd_self_cert.py does not match — current-cycle scope exception per scripts/ralph/prompt.md T7). Canonical prd.json NOT modified by this iteration (Ralph MUST NOT set canonical PRD passes=true per D11/D15).
+- **Learnings for future iterations:**
+  * Asset-route ordering invariant (relevant to T15 + any future literal-path routes): explicit literal-path routes MUST be registered BEFORE the single-segment `/:slug` catch-all, even though Hono's default `/:slug` is single-segment and wouldn't physically match `/assets/foo`. Defense-in-depth reasoning: (a) future refactors could broaden the catch-all into `/:slug/*` or similar — registering literal routes first means the broadening doesn't silently steal `/assets/*`; (b) reserved-path safety inside the catch-all (isReservedPath checks the FIRST segment, which includes `assets`) means even a direct `GET /assets` (no suffix) 404s rather than trying to fetch a page row — proved by reserved-path-safety test.
+  * String-module asset serving pattern: the Worker ships `publicCss` and `publicJs` as plain `export const … : string = \`…\`` modules so there is no bundler step. Routes set Content-Type + Cache-Control then `c.body(asset)` — no streaming, no buffering. Cache-Control literal `public, max-age=31536000, immutable` is intentionally the single source of truth (one constant per file). T15 + any future /assets/* additions should reuse `PUBLIC_ASSET_CACHE_CONTROL` to keep AC2's grep target at exactly 1 occurrence.

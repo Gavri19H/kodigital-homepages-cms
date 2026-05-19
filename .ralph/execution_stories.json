@@ -322,8 +322,8 @@
       "id": "T14",
       "title": "/assets/public.css + /assets/public.js cacheable routes",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14"
       ],
