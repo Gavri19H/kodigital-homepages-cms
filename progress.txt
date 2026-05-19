@@ -4936,3 +4936,58 @@ D13 canonical runner result — T1:
   * FAQPage conditional emission (PART 6): `vm.faqs.length === 0 ⇒ FAQPage script omitted entirely`. Decision boundary lives in `renderArticle` (filters `buildFaqJsonLd` "" return), NOT in `buildFaqJsonLd` (which already returns "" for empty faqs but the caller must still skip the `<script>` wrapper). T19's `^public-json-ld-presence.*article[_-]?empty[_-]?faqs` regression will assert NO `"@type":"FAQPage"` substring on a vm with empty faqs[].
   * The 12-section catalogue (1..12) is DIFFERENT from Home's 13-section catalogue. Article inserts reading-progress (§4) + article-shell-wrapper (§6) + faq-section (§7) + article-share-bottom (§9) + related-section (§10) where Home has trending/featured-grid/picks/about. Reuse renderHeader/renderFooter/renderNewsletter/renderAdSlot/renderFloatingNext from components.ts (T4); article-shell + breadcrumb + article-hero + reading-progress + article-share-bottom + faq-section + related-section are template-local.
   * Article body block rendering: `renderBlockHtml` dispatches on the 7 BodyBlock type tags (html/heading/image/quote/list/code/faq) declared in view-models/article.ts (T9). Unknown block types are unreachable (TS exhaustive switch on the discriminated union). The image block emits `<img src alt width="1200" height="675" loading="lazy" decoding="async">` so T20's regression (every <img> has alt+width+height + below-fold images have loading=lazy) passes for the body images.
+
+## 2026-05-19 12:07 - T12 (sources: T12)
+- implemented:
+  - api/src/public/router.ts (245 lines, +56) — added `router.get("/", async (c) => { ... })` after the `publicSiteContextMiddleware` mount. The handler reads `c.get("siteContext")` (populated by T26), builds the home VM via `buildHomeViewModel(c.env.DB, { siteId, hostname })` (T8), composes the body via `renderHome({ vm })` (T10), assembles WebSite + Organization + ItemList JSON-LD via `buildHomeJsonLd({ site, featured })` (T6), and wraps the body in the public scaffold via `renderLayout({ site, meta: { ..., jsonLd }, body })` (T3). `c.html(html)` returns 200 text/html. New imports: `buildHomeViewModel` from `./view-models/home`, `renderHome` from `./templates/home`, `renderLayout` from `./templates/layout`, `buildHomeJsonLd` from `./templates/seo`.
+    AC1 surface: the raw substring `router.get("/",` appears verbatim exactly once in `api/src/public/router.ts` (T12.AC1 RC-037 main test).
+    PART 12 RED LINE: brand strings flow through `vm.site.{name, tagline, description, brandTokens, logoUrl}` — the handler hardcodes no TheIWise / theiwise / cms.kodigital.app substring. Per-site `site_settings.site_name` populates `vm.site.name`, which the layout emits in `<title>` and `og:site_name` and `renderHome`'s §1 site-header.
+    PART 8 RED LINE: every href that flows through this handler (chip-rail = /category/<slug>, card = /article/<slug>, footer/nav default) is a real URL — no `href="#"` produced here.
+    Ordering invariant: the T12 GET / handler is registered AFTER `router.use("*", publicSiteContextMiddleware)` and BEFORE the explicit content routes (/article/:slug, /category/:slug, /page/:slug, etc.) and BEFORE the `/:slug` catch-all. Hono first-match wins, so on a resolved tenant `GET /` hits the new handler (not the catch-all which `isReservedPath`s the empty slug → 404).
+  - api/test/public-router-home.test.ts (158 lines) — 2 vitest cases under `describe("public-router-home")`:
+    * `renders-home — GET / on tenant returns 200 text/html with site-header + site-footer` (T12.AC2 RC-038 main test) — seeds a `domains+sites` row for `tenant-a.example`, stubs `site_settings` (site_name, tagline, site_description), asserts the response is 200 + content-type=text/html, body begins with `<!DOCTYPE html>`, contains both `<!-- home-section:1 site-header -->` and `<!-- home-section:13 site-footer -->` markers from renderHome, contains the per-site `site_name` ("Tenant A News"), and contains neither `theiwise` nor `cms.kodigital.app`.
+    * `renders-home — admin host on public router still returns safe 404 (no Home rendered)` (defense-in-depth — T26 boundary still applies; the admin-host request resolves to null in the middleware and the handler never executes).
+- **Self-check results:**
+  - File sizes: src/public/router.ts 245 lines (router file is a 12-route multi-concern Hono sub-router: /, /article/:slug, /category/:slug, /category/:slug/page/:page, /page/:slug, /feed.xml, /atom.xml, /sitemap.xml, /robots.txt, /ads.txt, /preview/:id, /health, /:slug. Per GUARDRAILS.md L-053 base_limit*concern_count formula: 200 base × 12 concerns = 2400-line headroom). Test file 158 lines (limit 300) — PASS.
+  - Secret scan (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'` over both modified/new files): 0 matches — PASS.
+  - Error handling: GET / handler is pure (await buildHomeViewModel + sync renderHome/renderLayout/buildHomeJsonLd). buildHomeViewModel returns concrete empty-array defaults when settings/articles/categories are absent (T8 contract: `results ?? []`); the layout + template path emit valid HTML for empty buckets (verified by T10 "section markers stay in order when buckets are empty"). The route relies on the upstream `publicSiteContextMiddleware` to short-circuit unresolved hostnames to 404 before the handler runs, so the only async failure surface is `c.env.DB.prepare(...).bind(...).all/first()` which throws on a corrupted D1 — handled by Hono's outer error contract (Phase 1 standard). PASS.
+  - Migration execution: N/A (category=api).
+  - Parameterized queries: the route does NOT issue raw SQL; it delegates to `buildHomeViewModel`, which uses `.bind()` exclusively (verified by T8 grep `grep -c .bind` and `.prepare(<static>)`). PASS.
+- **AC results (canonical D13 runner, RC-037..RC-038):**
+  - RC-037 (T12.AC1): observed count=1 >= expected=1 (`grep -c 'router.get("/",' src/public/router.ts`) — PASS.
+  - RC-038 (T12.AC2 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+    Same pre-existing skill-owned cwd routing bug previously logged for T3 RC-010, T4 RC-013, T6 RC-018, T7 RC-020, T8 RC-024, T9 RC-028/RC-029, T10 RC-031/RC-032, T11 RC-034/RC-035/RC-036:
+      * Plan entry RC-038 has cwd="." with cwd_anchor=worktree_root.
+      * vitest config + node_modules live at api/, not worktree root. Running `npx vitest` from worktree root resolves to a global vitest@4.1.6 cache binary, which bypasses api/vitest.config.ts (`fileParallelism: false`, `include: ["test/**/*.test.ts"]`) and discovers `api/test-ui/*.spec.ts` (Playwright specs) → 3 collection-time test-file failures.
+      * Direct verification that T12 itself is correct:
+          cd api && ./node_modules/.bin/vitest run test/public-router-home.test.ts → 2/2 pass exit 0.
+          cd api && ./node_modules/.bin/vitest run → 56 test files / 344 tests / 0 failures, exit 0 (T11 baseline 342 + 2 new = 344).
+      * Reconciliation owner: required_evidence_plan / evaluator phase (rewire RC-038 cwd to `api`).
+- **Canonical runner invocation:**
+  python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+    --change-id=cms-new-phase5-2026-05018 \
+    --required-claim-ids=RC-037,RC-038 \
+    --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json \
+    --workspace-root=/Users/guyhaikov/a2z-workspaces \
+    --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+    --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/worktree
+- **Quality gates:**
+  - cd api && ./node_modules/.bin/tsc --noEmit → exit 0 PASS
+  - cd api && ./node_modules/.bin/vitest run → 56 files / 344 tests / 0 failures, exit 0 PASS
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts → exit 0 PASS (Group A + Group B clean)
+- **Scoped quality commands:** execution story T12 declares `scoped_quality_commands=[]`; only the canonical D13 runner is the story-required quality gate. Wrapper-level QCMD is OPT-IN per scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- **Test commands actually run:**
+  - cd api && ./node_modules/.bin/tsc --noEmit
+  - cd api && ./node_modules/.bin/vitest run
+  - cd api && ./node_modules/.bin/vitest run test/public-router-home.test.ts
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts
+  - python3 run_required_evidence_command.py --required-claim-ids=RC-037,RC-038 (canonical D13)
+  - grep -c 'router.get("/",' api/src/public/router.ts → 1
+  - wc -l api/src/public/router.ts → 245, api/test/public-router-home.test.ts → 158
+- **source_story_ids covered by this iteration:** T12.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T12 flipped to state="implemented" + passes=true (basename does NOT end with prd.json so block_prd_self_cert.py does not match — current-cycle scope exception per scripts/ralph/prompt.md T7). Canonical openspec/changes/<cid>/prd.json (alias prd.json at worktree root) NOT modified by this iteration (Ralph MUST NOT set canonical PRD passes=true per D11/D15).
+- **Learnings for future iterations:**
+  * Public Home composition seam (consumed by T18 brand regression + T19 JSON-LD presence + T20 image-attr regression + T21 ad-slot regression + T15 layout-wrapper reuse): the canonical GET / wire-up is `renderLayout({ site, meta: { jsonLd: buildHomeJsonLd(...) }, body: renderHome({ vm }) })`. The layout owns the `<html>` scaffold, brand-token `<style>` injection, JSON-LD `<script>` emission, skip-to-content link, and `/assets/public.{css,js}` resource refs. The home template owns the body sections (markers 1..13) including site-header (§1) and site-footer (§13). Callers downstream of T12 should not duplicate this composition — they should call the same three functions or extend via `args.nav`, `args.footerLinks`, `args.legalLinks` on renderHome.
+  * Hono route-order invariant in api/src/public/router.ts: the new `router.get("/", ...)` handler is intentionally registered BEFORE the `/:slug` catch-all so the empty-slug-equivalent root path does not get re-routed through `isReservedPath` (which would 404 it because the slug would be ""). Future router edits must preserve "/, then explicit content routes, then catch-all" order. The T26 wildcard middleware `router.use("*", publicSiteContextMiddleware)` MUST stay above all `.get()` handlers so siteContext is always populated when a handler runs.
+  * Test-stub D1 contract for public-router tests (reused from public-site-scoping.test.ts): the resolver SELECT prefix to match is `"SELECT s.id AS site_id"`, and the site-settings SELECT to match is `FROM site_settings WHERE site_id = ?`. buildHomeViewModel issues three prepared statements (articles, categories, site_settings) all via `.bind().all()`, so the stub's `.all()` must return `{results: [...], success: true, meta: {}}`-shaped objects (the literal `meta: {}` matters — `meta` is non-optional on the D1 result type).
+  * AC1 grep pattern stability: `router.get("/",` (with the comma immediately after the closing quote) matches ONLY the root handler — `router.get("/article/:slug",` does not match because the next character is `a`, not `"`. This is robust against the addition of T13/T14/T15 routes; the grep count stays at 1 unless the root handler is duplicated.

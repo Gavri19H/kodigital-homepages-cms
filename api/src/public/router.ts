@@ -32,6 +32,10 @@ import {
   fetchSitemapPages,
   fetchSiteSetting,
 } from "./queries";
+import { buildHomeViewModel } from "./view-models/home";
+import { renderHome } from "./templates/home";
+import { renderLayout } from "./templates/layout";
+import { buildHomeJsonLd } from "./templates/seo";
 
 function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
   const tenantBase = `https://${siteContext.hostname}`;
@@ -49,6 +53,57 @@ const router = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
 // site) get a safe 404 with no admin-host leak; resolved tenant hosts
 // proceed with c.get("siteContext") populated for downstream handlers (T27).
 router.use("*", publicSiteContextMiddleware);
+
+// T12: GET / on a resolved tenant returns the public Home page. The view
+// model is built from D1 (site_settings + articles + categories), the body
+// is composed by renderHome (PART 1, 13 sections), and renderLayout wraps
+// the body in the <html> scaffold (site header + footer markers come from
+// renderHome's §1 and §13 sections; layout adds the head + skip-to-content
+// link + brand-token style + JSON-LD blocks). PART 12 RED LINE: no
+// hardcoded TheIWise / cms.kodigital.app strings — every brand string
+// flows from buildHomeViewModel's site/site_settings reads.
+router.get("/", async (c) => {
+  const siteContext = c.get("siteContext");
+  const vm = await buildHomeViewModel(c.env.DB, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
+  const body = renderHome({ vm });
+  const jsonLd = buildHomeJsonLd({
+    site: {
+      name: vm.site.name,
+      hostname: vm.site.hostname,
+      tagline: vm.site.tagline,
+      description: vm.site.description,
+      logoUrl: vm.site.logoUrl,
+    },
+    featured: vm.featured.map((a) => ({
+      title: a.title,
+      slug: a.slug,
+      excerpt: a.excerpt,
+      imageUrl: a.imageUrl,
+      publishedAt: a.publishedAt,
+    })),
+  });
+  const html = renderLayout({
+    site: {
+      name: vm.site.name,
+      hostname: vm.site.hostname,
+      tagline: vm.site.tagline,
+      description: vm.site.description,
+      brandTokens: vm.site.brandTokens,
+      logoUrl: vm.site.logoUrl,
+    },
+    meta: {
+      title: vm.meta.title,
+      description: vm.meta.description,
+      canonicalUrl: vm.meta.canonicalUrl,
+      jsonLd,
+    },
+    body,
+  });
+  return c.html(html);
+});
 
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");

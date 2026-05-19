@@ -274,8 +274,8 @@
       "id": "T12",
       "title": "router.ts adds GET / handler wiring home view-model + template",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],
