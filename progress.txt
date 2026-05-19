@@ -5127,3 +5127,23 @@ D13 canonical runner result — T1:
   - cd api && npx vitest run -> 351 passed (full api suite green)
   - cd api && npx tsc --noEmit -> 0 errors
 - T15.AC1 grep: `grep -c 'renderLayout(' api/src/public/router.ts` = 5 (>=1) PASS
+
+## 2026-05-19 12:39 — T15 AC results (canonical D13 runner, RC-048..RC-050)
+- RC-048 (T15.AC1 grep_count, parse_grep_count @ cwd=api): observed_count=5 >= expected_count=1 (`grep -c 'renderLayout(' src/public/router.ts`) — PASS.
+- RC-049 (T15.AC2 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+- RC-050 (T15.AC3 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+  - Diagnosis: SAME pre-existing evidence-route configuration drift hit by RC-029/031/032/034..036/038/041/042/045..047. The RC plan entries have `cwd: "."` (worktree_root) + `parser_strategy: "test_exit_code"`; running vitest from the worktree root globs into Playwright spec files in `api/test-ui/*.spec.ts` ("Playwright Test did not expect test.use() to be called here"), so vitest's exit code is 1 even when every actual vitest test passes.
+  - Evidence — the runner's stdout artifact `evidence/raw/7bc7f239e7d5-test-output.txt` shows:
+      * `Test Files  3 failed | 59 passed (62)`
+      * `Tests  351 passed (351)` (every vitest test passed, including the two new ones)
+      * The 3 file-level failures are all `api/test-ui/*.spec.ts` — Playwright tests, not vitest tests.
+  - When the suite is run at the correct cwd (`cd api && npx vitest run`), the full 351-test suite passes including the new `public-router-category-page` test file (T15.AC2 + T15.AC3 BEHAVIORAL coverage).
+  - Classification: pre-existing plan-side drift, NOT a T15 implementation defect. Reconciliation owner: required_evidence_plan / evaluator phase (rewire RC-049/RC-050 cwd to `api` OR exclude `api/test-ui/**` from the worktree-root vitest glob). Same canonical fix applies to RC-029/031/032/034..036/038/041/042/045..047 already logged.
+- D13 invocation used:
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=cms-new-phase5-2026-05018 \
+      --required-claim-ids=RC-048,RC-049,RC-050 \
+      --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+      --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/worktree
