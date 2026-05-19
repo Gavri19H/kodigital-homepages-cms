@@ -5482,3 +5482,34 @@ D13 canonical runner result — T1:
     only the literal attribute order miss reorder-class regressions;
     keying off the `ad-slot` class token + permissive per-attribute
     regex is the more robust shape (used by extractAdSlots() here).
+
+## 2026-05-19T13:22Z - T22 (execution story T22 — sources: T22)
+- Implemented: api/test/verify-scripts-green.test.ts
+- Iteration: T22 (sources: T22)
+- vitest: cd api && npx vitest run test/verify-scripts-green.test.ts
+  * 4 tests passed (T22.AC1..AC4 — tsc-noEmit / verify:no-legacy-prod-refs /
+    verify:infra / verify:worker-config all exit 0).
+- D13 canonical runner (RC-065..RC-068):
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py       --change-id=cms-new-phase5-2026-05018       --required-claim-ids=RC-065,RC-066,RC-067,RC-068       --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json       --workspace-root=/Users/guyhaikov/a2z-workspaces       --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms       --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/worktree
+- RC-065 (T22.AC1 npx tsc --noEmit test_exit_code @ worktree_root): exit 0 — PASS.
+- RC-066 (T22.AC2 npm run verify:no-legacy-prod-refs test_exit_code @ worktree_root): exit 0 — PASS.
+- RC-067 (T22.AC3 npm run verify:infra test_exit_code @ worktree_root): exit 0 — PASS.
+- RC-068 (T22.AC4 npm run verify:worker-config test_exit_code @ worktree_root): exit 0 — PASS.
+- Self-check results:
+  * File sizes: api/test/verify-scripts-green.test.ts = 110 lines (limit 200 for TS) — PASS.
+  * Secret scan: PASS (no banned identifiers in changed file).
+  * Error handling: N/A (vitest regression test; surfaces failing stdout/stderr
+    via console.error before expect — no swallow).
+  * Migration execution: N/A (infra story).
+  * Parameterized queries: N/A (no SQL in changed file).
+- Learnings for future iterations:
+  * The four contract verify commands are deterministic, side-effect-free,
+    and safe to run in vitest spawnSync wrappers. tsc on this worker takes
+    ~1s in this environment (cached); allocate generous per-test timeouts
+    (240s) so a cold CI runner does not produce flaky FAILs.
+  * Each individual verify script is already covered by a deeper behavioral
+    suite (verify-script.test.ts, infra-verify.test.ts,
+    worker-config-verify.test.ts); verify-scripts-green.test.ts is the
+    cross-cutting "they all still pass right now" regression that the
+    ship gate reads as a single PASS/FAIL signal.
+---
