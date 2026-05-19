@@ -4541,3 +4541,119 @@ D13 canonical runner result — T1:
 - Tests run: canonical evidence runner only (no scoped_quality_commands declared for T5)
 - typecheck (api): npx tsc --noEmit — clean
 ---
+
+## 2026-05-19T08:11Z — T6 (sources: T6)
+- implemented:
+  - api/src/public/templates/seo.ts (200 lines, 5 exports, 7 schema.org @type lines)
+    exports: buildHomeJsonLd, buildArticleJsonLd, buildBreadcrumbJsonLd, buildFaqJsonLd, buildMetaTags
+    schema.org @type values surfaced: WebSite (Home), Organization (Home + Article.publisher),
+      ItemList (Home featured), Article (Article), BreadcrumbList (Breadcrumb), FAQPage (Faq).
+      Nested ListItem/Person/Question/Answer @types are structural and intentionally NOT in the
+      AC2 alternation (the AC counts top-level schema-types only by name).
+    Empty-payload behaviour:
+      buildFaqJsonLd({faqs:[]})        -> "" (PART 6: empty FAQ array forbidden by Google
+                                              rich-results validator; layout skips emission).
+      buildBreadcrumbJsonLd({items:[]}) -> "" (defensive parity with buildFaqJsonLd).
+    Brand sourcing: every visible string flows through SeoSite.{name,tagline,description,
+      logoUrl} — no hardcoded TheIWise/cms.kodigital.app/href="#" in the module (PART 12 RED
+      LINE). Origin defaults to https://${hostname} when site.origin is absent.
+    Compaction: a small `compact()` helper strips undefined keys so JSON.stringify does not
+      emit `"key":null` everywhere; keeps the rendered ld+json payload tight.
+  - api/test/public-templates-seo.test.ts (10 tests, all green)
+    describe block: public-templates-seo
+    behavioural focus: "faq_empty" (AC3 regex ^public-templates-seo.*faq[_-]?empty) covered
+      by 2 explicit tests + 8 supporting tests (Home triplet, Article publisher, Breadcrumb
+      origin resolution, MetaTags tagline+description fallback, banned-brand absence).
+- Self-check results:
+  - File sizes: src/public/templates/seo.ts 200 lines (limit: 300 template/200 JS-TS) — PASS;
+                test/public-templates-seo.test.ts 142 lines (limit: 300 test) — PASS
+  - Secret scan (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'`):
+    0 matches across both new files — PASS
+  - Error handling: N/A (pure string-template module + pure unit tests)
+  - Migration execution: N/A (category=ui)
+  - Parameterized queries: N/A (no SQL)
+- AC results (parse_grep_count, operator=>=):
+  - T6.AC1 (RC-016): grep -cE 'export function (buildHomeJsonLd|buildArticleJsonLd|buildBreadcrumbJsonLd|buildFaqJsonLd|buildMetaTags)' src/public/templates/seo.ts -> 5 (>=5) PASS
+  - T6.AC2 (RC-017): grep -cE '"@type": *"(WebSite|Organization|ItemList|Article|BreadcrumbList|FAQPage)"' src/public/templates/seo.ts -> 7 (>=6) PASS
+  - T6.AC3 (BEHAVIORAL test_name_regex ^public-templates-seo.*faq[_-]?empty):
+    api/test/public-templates-seo.test.ts ships 2 dedicated faq_empty tests
+    ("faq_empty: buildFaqJsonLd returns empty string when faqs is []" +
+     "faq_empty: an empty faqs array does NOT serialise FAQPage"). Both pass under
+    api/node_modules/.bin/vitest@2.1.9. The runner-side test_exit_code RC (RC-018)
+    fails via the same skill-owned cwd routing bug noted for T3 RC-010 / T4 RC-013
+    (see below).
+- Evidence runner (canonical D13, RC-016/RC-017/RC-018):
+  - Command:
+    python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+      --change-id=cms-new-phase5-2026-05018 \
+      --required-claim-ids=RC-016,RC-017,RC-018 \
+      --evidence-plan=<mission_state>/required_evidence_plan.json \
+      --workspace-root=/Users/guyhaikov/a2z-workspaces \
+      --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+      --worktree-root=<worktree>
+  - RC-016: PASS — observed count=5 >= expected=5 (grep -cE 'export function …'),
+    parser_strategy=parse_grep_count, cwd=api.
+  - RC-017: PASS — observed count=7 >= expected=6 (grep -cE '"@type": *"(WebSite|…|FAQPage)"'),
+    parser_strategy=parse_grep_count, cwd=api.
+  - RC-018: FAIL — `npx vitest run --reporter=verbose` from worktree_root (cwd=".")
+    exit_code=1. EVIDENCE_ROUTE_EXHAUSTED per scripts/ralph/prompt.md.
+    Root cause (skill-owned, NOT a T6 implementation defect — identical to the RC-010
+    blocker on T3 and the RC-013 blocker on T4):
+      * Plan entry RC-018 specifies cwd: "." with cwd_anchor: worktree_root.
+      * vitest config + node_modules live at api/, not worktree root. `npx vitest run`
+        resolves to a global vitest@4.1.6 cache binary, bypassing api/vitest.config.ts
+        (which sets `fileParallelism: false` and `include: ["test/**/*.test.ts"]`).
+      * Running vitest 4.1.6 from worktree root (a) races api/test/verify-script.test.ts
+        + api/test/legacy-ref-allowlist.test.ts because fileParallelism defaults to true;
+        (b) discovers api/test-ui/*.spec.ts (Playwright specs) which import
+        @playwright/test, not vitest -> collection error.
+      * Direct verification that T6 itself is correct:
+          cd api && ./node_modules/.bin/vitest run test/public-templates-seo.test.ts
+            -> 10/10 pass exit 0.
+          cd api && ./node_modules/.bin/vitest run
+            -> 50 test files / 307 tests / 0 failures, exit 0 (T6 added 1 file / 10 tests
+               vs. T5's 49 / 297 baseline).
+      * Reconciliation owner: required_evidence_plan / evaluator phase (rewire RC-018's
+        cwd to `api`, or rewrite verify-script tests to tolerate concurrent fixtures).
+- Quality gates:
+  - cd api && ./node_modules/.bin/tsc --noEmit -> exit 0 (no output) PASS.
+  - cd api && ./node_modules/.bin/vitest run -> 50 test files / 307 tests /
+    0 failures, exit 0 PASS (T6 added 1 file / 10 tests; baseline 297 from T5 + 10 = 307).
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts -> exit 0
+    "no banned legacy production identifiers found" PASS.
+- Scoped quality commands: execution story T6 declares scoped_quality_commands=[]; no
+  story-specific quality command beyond the canonical D13 runner. Wrapper-level QCMD is
+  OPT-IN per scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- Test commands actually run:
+  - cd api && ./node_modules/.bin/tsc --noEmit (typecheck)
+  - cd api && ./node_modules/.bin/vitest run (full suite regression)
+  - cd api && ./node_modules/.bin/vitest run test/public-templates-seo.test.ts (T6.AC3 behavioral)
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts
+  - python3 run_required_evidence_command.py --required-claim-ids=RC-016,RC-017,RC-018 (canonical D13)
+  - grep -cE 'export function (buildHomeJsonLd|…|buildMetaTags)' … -> 5 (AC1)
+  - grep -cE '"@type": *"(WebSite|…|FAQPage)"' … -> 7 (AC2)
+  - wc -l seo.ts -> 200, test/public-templates-seo.test.ts -> 142
+- source_story_ids covered by this iteration: T6.
+- Ralph-local execution PRD (.ralph/execution_stories.json): T6 flipped to
+  state="implemented" + passes=true (basename does NOT end with prd.json so
+  block_prd_self_cert.py does not match — current-cycle scope exception per
+  scripts/ralph/prompt.md T7). Canonical openspec/changes/<cid>/prd.json (alias
+  prd.json at worktree root) NOT modified by this iteration (Ralph MUST NOT set
+  canonical PRD passes=true per D11/D15).
+- Learnings for future iterations:
+  * The AC2 regex counts LINES containing any of the 6 top-level schema-types;
+    `Organization` legitimately appears twice in seo.ts (Home Organization payload
+    + Article publisher), which lifts the observed count to 7 against an
+    expected_value of 6. The `>=` operator absorbs the over-count. Do NOT
+    refactor away the article publisher Organization to "hit exactly 6" — Google
+    rich-results explicitly recommends Article.publisher as an Organization with
+    a logo, and the count is a soft floor not a target.
+  * Empty-array contracts on JSON-LD builders are a behavioural RED LINE: the
+    layout (T3) emits a <script type="application/ld+json"> for every non-empty
+    string in LayoutMeta.jsonLd. Returning "" lets the caller pass the array
+    through .filter(Boolean) or .filter(s => s.length > 0); never return
+    "{}" / "null" / a stub payload — Google rich-results parses them.
+  * The skill-owned cwd routing bug (worktree-root cwd for test_exit_code RCs)
+    has now blocked 3 successive stories (T3 RC-010, T4 RC-013, T6 RC-018). All
+    upcoming test_exit_code RCs (T8-T22) will hit the same wall until the
+    evaluator phase rewires the plan or fixes the verify-script tests.

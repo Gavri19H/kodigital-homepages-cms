@@ -127,8 +127,8 @@
       "id": "T6",
       "title": "templates/seo.ts exports JSON-LD builders + meta helpers",
       "category": "ui",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T6"
       ],
