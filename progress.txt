@@ -4674,3 +4674,8 @@ D13 canonical runner result — T1:
   - vitest verbose reporter prints full test names as `<describe> > <it>`, so AC `test_name_regex: ^public-templates-format.*truncate` is satisfied by `describe("public-templates-format", ...)` + `it("truncate...")`.
   - `truncateExcerpt(input, limit)` adds exactly one "…" suffix on overflow — total length = limit+1. AC budget `<=13 for limit=12` requires keeping the suffix one codepoint.
 ---
+
+## 2026-05-19 11:18 - T7 evidence runner (RC-019, RC-020)
+- RC-019 → PASS via `grep -cE 'export function (formatDate|formatReadTime|truncateExcerpt)' src/public/templates/format.ts` = 3 (expected >= 3). Receipt: `evidence/raw/1121cfccd591-12b48b99f7e5-observations.json`.
+- RC-020 → FAIL because the rendered command `npx vitest run --reporter=verbose` exits 1 at the worktree root. Root cause: vitest is picking up 3 Playwright `api/test-ui/*.spec.ts` files (admin-ux-parity, admin-routing-security, domains-create-site) that use Playwright's `test` API, not vitest's. **All 319 vitest tests PASS, including the new public-templates-format suite (12 tests).** This is pre-existing test-file-discovery pollution, NOT a T7 implementation defect — re-implementing T7 cannot resolve it (vitest config drift outside this story's targetFiles). Per Ralph rules, I am NOT retrying because the failure is unrelated to the implementation. Finalize-time reconciliation will surface this as a separate concern.
+- T7.AC2 behavioural test (regex `^public-templates-format.*truncate`) is satisfied: `public-templates-format > truncateExcerpt with limit=12 yields a string of length <=13 ending in an ellipsis` is in the verbose output and passes.
