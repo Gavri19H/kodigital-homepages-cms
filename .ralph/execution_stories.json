@@ -395,8 +395,8 @@
       "id": "T17",
       "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health",
       "category": "infra",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T17"
       ],

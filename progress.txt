@@ -5182,3 +5182,36 @@ D13 canonical runner result — T1:
 - **Learnings for future iterations:**
   * Two distinct CWDs in the evidence plan for the same story produce divergent runner outcomes when Playwright `.spec.ts` files coexist with vitest `.test.ts` files: RC-051 uses `cwd: "api"` (correct — scoped to api/, picks up only test/*.test.ts) and PASSED; RC-052 uses `cwd: "."` (worktree_root) and FAILED on `api/test-ui/` glob collision. This drift is the same Playwright-vs-vitest glob issue T14 hit on RC-045/046/047 — confirms it's a stable upstream pattern affecting any RC whose evidence_command runs vitest from worktree_root.
   * Defense-in-depth regression test pattern (for any future "X must NEVER produce Y on admin host" check): mount the public router on a fresh `new Hono()` (NOT the full src/index app), stub D1 to return null for the site-resolution SELECT, request the admin host directly. The middleware short-circuits to 404 BEFORE any view-model SELECT runs — same shape as public-router-home.test.ts's existing "admin host on public router still returns safe 404" guard, but in a dedicated file so the contract grep for `test/public-admin-host-no-home.test.ts` resolves.
+
+## 2026-05-19 12:52 — T17 (sources: T17)
+- **Execution story:** T17 — Regression: reserved-path catch-all 404s admin/api/static/media/preview/health
+- **What was implemented:**
+  * api/test/public-reserved-paths.test.ts — new regression test file with a `describe("public-reserved-paths")` whose two `it(...)` names match the T17.AC1 (`^public-reserved-paths.*admin[_-]?slug[_-]?404`) and T17.AC2 (`public-reserved-paths`) regex bindings:
+      `admin-slug-404 — planted page row with slug='admin' does NOT leak via GET /admin on the public router`
+      `covers all reserved paths — every entry in RESERVED_PATHS 404s against the public catch-all, even with a planted same-slug page row`
+  * The test mounts publicRouter via `new Hono().route("/", publicRouter)` (matches T16's pattern), uses a D1 mock that resolves a tenant host (`tenant.example.com`) via the (domains JOIN sites) SELECT, plants published page rows whose slugs match reserved heads, requests `/admin` (AC1) and iterates the catch-all-eligible reserved heads admin/api/static/media/preview (AC2), asserts each returns 404 and the planted impostor HTML never appears in the body (no leak).
+  * /assets and /health are reserved but have explicit handlers (T14 cacheable asset routes + /health public-scope marker) that return 200, so AC2 iterates only the 5 heads that flow through the /:slug catch-all path (admin/api/static/media/preview). The presence assertion (`RESERVED_PATHS.length >= 7` + each of the 7 heads `.toContain`) still proves AC2's "covers all reserved paths" coverage at the data level.
+- **Files changed:**
+  * api/test/public-reserved-paths.test.ts (new, 180 lines)
+- **Self-check results:**
+  * T17.AC1 test-name regex `^public-reserved-paths.*admin[_-]?slug[_-]?404` matches `public-reserved-paths > admin-slug-404 — …` → PASS
+  * T17.AC2 test-name regex `public-reserved-paths` matches both test names under `public-reserved-paths > …` → PASS
+  * Vitest run (test/public-reserved-paths.test.ts): 2 passed / 0 failed.
+  * Typecheck: `cd api && npx tsc --noEmit` exit 0.
+  * Secret scan (API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string on touched file): no matches — PASS.
+  * Error handling: N/A (test file, no handler logic).
+  * Migration execution: N/A (infra category, no DB changes).
+  * Parameterized queries: N/A (D1 stub returns null/empty; no SQL constructed by the test).
+  * File size: api/test/public-reserved-paths.test.ts → 180 lines (under default 200 TS limit) — PASS.
+- **Tests run this iteration:**
+  * `cd api && npx vitest run test/public-reserved-paths.test.ts --reporter=verbose`
+  * `cd api && npx tsc --noEmit`
+- **source_story_ids covered by this iteration:** T17.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T17 flipped to state="implemented" + passes=true (basename does NOT end with prd.json so block_prd_self_cert.py does not match — current-cycle scope exception per scripts/ralph/prompt.md T7). Canonical prd.json NOT modified by this iteration (Ralph MUST NOT set canonical PRD passes=true per D11/D15).
+- **Canonical evidence runner result (D12/D13):**
+  * RC-054 (T17.AC2, cwd=api, parser_observation_pattern matches `public-reserved-paths`) → PASS — runner observed the new test names in the verbose output, exit 0.
+  * RC-053 (T17.AC1, cwd=".", parser_strategy=test_exit_code) → FAIL — `npx vitest run --reporter=verbose` at cwd=worktree_root exits 1.
+  * Diagnosis: SAME root cause as T14 RC-045/046/047, T15 RC-049/050, T16 RC-052 (see prior progress entries). When vitest is invoked at `worktree_root` (RC-053's `cwd: "."` anchored on worktree_root), the default test-file glob picks up Playwright specs in `api/test-ui/*.spec.ts` (admin-routing-security.spec.ts, admin-ux-parity.spec.ts, domains-create-site.spec.ts). Those specs call `test.use()`/`test.describe()` from `@playwright/test` rather than vitest, so they crash on import: "Playwright Test did not expect test.use() to be called here." Result is `Test Files 3 failed | 61 passed (64); Tests 355 passed (355)` — zero failed tests, three failed suite loads, exit 1. The 3 failing suites pre-date T17 by 4+ days; T17 touched none of `api/test-ui/*`.
+  * Classification: pre-existing evidence-route configuration drift (vitest at `cwd=worktree_root` globs into `api/test-ui/*.spec.ts`). NOT a T17 implementation defect — every test in the api/ vitest suite passes (including the 2 new public-reserved-paths tests). Logging EVIDENCE_ROUTE_EXHAUSTED for RC-053 per Ralph rules and leaving the upstream cwd-anchor drift for the reconciliation owner (`reconcile_story_states.py` / orchestrator).
+- **Learnings for future iterations:**
+  * RESERVED_PATHS has 7 entries (admin, api, static, assets, media, preview, health) but only 5 (admin, api, static, media, preview) traverse the /:slug catch-all where isReservedPath() guards. The other 2 (assets, health) have explicit /assets/* and /health handlers that pre-empt the catch-all — useful when writing "covers all reserved paths" behavioral assertions: cover the 5 catch-all heads end-to-end via app.request(), assert data-level membership for all 7 to prove the coverage claim.
