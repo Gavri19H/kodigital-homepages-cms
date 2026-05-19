@@ -4233,3 +4233,40 @@ D13 canonical runner result — T1:
     horizontal scroll on the whole page. Keep this rule in any
     future grid refactor.
 ---
+
+## 2026-05-19 - T2 (sources: T2)
+- implemented: api/src/public/assets/public-js.ts (69 lines)
+  - Exports publicJs string module (IIFE) with:
+    - initReadingProgress(): updates .reading-progress-bar width via passive
+      scroll listener (window.addEventListener('scroll', update, { passive: true }))
+    - initShare(): handles [data-share] buttons -- prefers navigator.share
+      with navigator.clipboard.writeText fallback. Sets data-share-status
+      for transient UX state.
+    - DOMContentLoaded gate via ready() helper.
+  - Vanilla JS (string template) so the Worker can ship at /assets/public.js
+    without a bundler step (matches public-css.ts pattern from T1).
+- **Self-check results:**
+  - File size: 69 lines (limit: 200 JS/TS) - PASS
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key)
+  - Error handling: PASS (.catch on share + clipboard promises, data-share-status='error'/'unsupported' fallbacks)
+  - Migration execution: N/A (category=ui)
+  - Parameterized queries: N/A (no SQL)
+  - RED-LINE forbidden brand scan (theiwise / cms.kodigital.app / href="#"): PASS clean
+- **AC results (parse_grep_count, operator=>=, expected=1):**
+  - T2.AC1 grep -c 'passive: true' -> 1 PASS
+  - T2.AC2 grep -c 'navigator.share' -> 2 PASS (>=1)
+  - T2.AC3 grep -c 'reading-progress-bar' -> 1 PASS
+- **Evidence runner (canonical):** RC-005, RC-006, RC-007 -> status=PASS
+  - command: python3 .../run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-005,RC-006,RC-007 ...
+- **Test commands actually run:**
+  - grep -c (3x ACs, manual self-check)
+  - python3 run_required_evidence_command.py (canonical evidence runner; emits deterministic receipts)
+- **Learnings for future iterations:**
+  - public-css.ts already defines .reading-progress + .reading-progress-bar
+    selectors; public-js.ts only needs to drive the inner-bar width. Keep the
+    selector contract stable (renderArticle template T11 will mount the bar
+    container).
+  - When AC counts use `>=` and `expected_value=1`, the canonical runner
+    accepts any positive count, so we don't need to hand-trim occurrences
+    (verified against required_evidence_plan.json).
+---
