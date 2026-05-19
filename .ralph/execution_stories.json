@@ -297,8 +297,8 @@
       "id": "T13",
       "title": "/article/:slug uses Article template with fallback",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T13"
       ],

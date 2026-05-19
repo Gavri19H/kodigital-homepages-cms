@@ -33,7 +33,9 @@ import {
   fetchSiteSetting,
 } from "./queries";
 import { buildHomeViewModel } from "./view-models/home";
+import { buildArticleViewModel } from "./view-models/article";
 import { renderHome } from "./templates/home";
+import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
 import { buildHomeJsonLd } from "./templates/seo";
 
@@ -105,16 +107,50 @@ router.get("/", async (c) => {
   return c.html(html);
 });
 
+// T13: /article/:slug builds the full Article view model (T9) and renders
+// it through the public Article template (T11) wrapped in the public layout
+// (T3). When the template pipeline throws (e.g. a malformed body block
+// surface), the handler falls back to serving the raw content_html so the
+// article still loads — T13.AC4 BEHAVIORAL.
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
-  const row = await getArticleBySlug(c.env.DB, slug, {
-    siteId: siteContext.siteId,
+  const vm = await buildArticleViewModel(c.env.DB, {
+    slug,
+    siteContext: {
+      siteId: siteContext.siteId,
+      hostname: siteContext.hostname,
+    },
   });
-  if (!row || row.status !== "published") {
+  if (vm === null) {
     return c.json({ error: "Not Found" }, 404);
   }
-  return c.html(row.content_html ?? "");
+  try {
+    const body = renderArticle({ vm });
+    const html = renderLayout({
+      site: {
+        name: vm.site.name,
+        hostname: vm.site.hostname,
+        tagline: vm.site.tagline,
+        description: vm.site.description,
+        brandTokens: vm.site.brandTokens,
+        logoUrl: vm.site.logoUrl,
+      },
+      meta: {
+        title: vm.meta.title,
+        description: vm.meta.description,
+        canonicalUrl: vm.meta.canonicalUrl,
+        ogImage: vm.meta.ogImage,
+      },
+      body,
+    });
+    return c.html(html);
+  } catch {
+    const row = await getArticleBySlug(c.env.DB, slug, {
+      siteId: siteContext.siteId,
+    });
+    return c.html(row?.content_html ?? "");
+  }
 });
 
 router.get("/category/:slug", async (c) => {
