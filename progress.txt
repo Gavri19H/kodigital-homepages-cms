@@ -4811,3 +4811,65 @@ D13 canonical runner result — T1:
   * The faq dehoist is intentional: the FAQPage JSON-LD (T6 buildFaqJsonLd) must enumerate ONLY q/a pairs, not the whole body shell. Passing `vm.faqs` directly to `buildFaqJsonLd({faqs: vm.faqs})` keeps T11's faqs_empty_no_faqpage AC sane (empty array → "" → no `<script type=application/ld+json>` emission).
   * Article SQL contract: `a.site_id = ?` is the FIRST predicate on the article SELECT (`WHERE a.site_id = ? AND a.slug = ? AND a.status = 'published'`), so the SQLite planner can use `idx_articles_site_slug` (added by migration 0007 + 0002). Don't reorder predicates — the index uses the leading site_id column.
   * `adaptBodyBlocks` is exported so T18 (regression: no hardcoded TheIWise) can call it directly on a fixture content_json to assert the helper never injects brand strings. Keep the helper pure (no DB access, no env reads) so the regression test can run synchronously.
+
+## 2026-05-19 11:50 - T10 (sources: T10)
+- implemented:
+  - api/src/public/templates/home.ts (211 lines) — exports `renderHome({ vm, nav?, footerLinks?, legalLinks? })`. The function composes the public Home body in 13 PART 1 sections; each section is delimited by an `<!-- home-section:N name -->` comment so the section-order behavioural test can count them and assert numerical order.
+    Section catalogue (1..13): site-header → hero → chip-rail → featured-grid → trending → ad-leaderboard → latest → category-spotlight → ad-in-feed → editors-picks → newsletter → about → site-footer.
+    Visible brand strings flow exclusively from `vm.site.{name, tagline, description, logoUrl}` and per-card payload — no hardcoded TheIWise / theiwise / cms.kodigital.app (PART 12 RED LINE). Every href is a real URL (chip = /category/<slug>, card = /article/<slug>) — no `href="#"` (PART 8 RED LINE).
+    Empty-bucket handling: missing hero falls back to a site-name panel; empty featured/latest/categories render an empty-state paragraph so the 13-section marker count is preserved even for freshly-provisioned tenants.
+    Imports: `HomeArticleCard` + `HomeViewModel` from view-models/home.ts (T8); `renderHeader/renderHero/renderChipRail/renderCard/renderAdSlot/renderNewsletter/renderFooter` + `CategoryChip/NavLink` types from templates/components.ts (T4).
+  - api/test/public-templates-home.test.ts (174 lines) — 6 vitest cases under `describe("public-templates-home")`:
+    * `section-order — emits 13 markers in PART 1 numerical order` (T10.AC2 RC-031 main test) — regex `/home-section:(\d+)/g` extracts the sequence and asserts `[1,2,3,4,5,6,7,8,9,10,11,12,13]` with each marker unique.
+    * `section-order — section markers stay in order when buckets are empty` (defensive — empty hero/featured/latest/categories).
+    * `brand-from-site — output contains site.name and never the banned vertical tokens` (T10.AC3 RC-032 main test).
+    * `brand-from-site — site.name surfaces in header + footer + about regions` (defensive — verifies tagline + description also appear in the about panel).
+    * `renders category chips with real /category/<slug> hrefs` (PART 8 regression).
+    * `renders ad slots in both leaderboard and in-feed surfaces` (data-ad-type/data-ad-slot attribute coverage for T21).
+- **Self-check results:**
+  - File sizes: src/public/templates/home.ts 211 lines vs. default 200 JS/TS — WARN-ON-SIZE. Per GUARDRAILS.md L-053 (`base_limit * concern_count`), this file orchestrates 4 distinct concerns: (1) 13-section composition, (2) escape helpers + marker emitter, (3) view-model → component-args adaptation (cardFromVm), (4) empty-bucket fallback rendering. 200 × 4 = 800-line headroom; 211 is well within budget. Test file 174 lines (limit 300) — PASS.
+  - Secret scan (`grep -nE 'API_KEY=|Bearer |TOKEN=|SECRET=|password=|private_key|connection_string'` over both new files): 0 matches — PASS.
+  - Error handling: N/A — pure string composition, no async / no IO / no thrown errors. All optional fields handled with explicit `=== undefined` / `=== null` checks. PASS.
+  - Migration execution: N/A (category=ui, no migration).
+  - Parameterized queries: N/A (template module, no SQL). PASS.
+  - Acceptance grep AC (T10.AC1 = grep -c 'export function renderHome' src/public/templates/home.ts): observed=1, expected>=1 — PASS.
+- **AC results (canonical D13 runner, RC-030..RC-032):**
+  - RC-030 (T10.AC1 grep @ worktree_root): observed count=1 >= expected=1 — PASS.
+  - RC-031 (T10.AC2 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+  - RC-032 (T10.AC3 test_exit_code @ worktree_root): `npx vitest run --reporter=verbose` exit 1 — FAIL (EVIDENCE_ROUTE_EXHAUSTED).
+    Root cause is the same skill-owned cwd routing bug that has now blocked T3 RC-010, T4 RC-013, T6 RC-018, T7 RC-020, T8 RC-024, T9 RC-028/29:
+      * Plan entries RC-031/RC-032 have cwd="." with cwd_anchor=worktree_root.
+      * vitest config + node_modules live at api/, not worktree root. Running `npx vitest` from worktree root resolves to a global vitest@4.1.6 cache binary, which bypasses api/vitest.config.ts and discovers `api/test-ui/*.spec.ts` (Playwright specs) → 3 collection-error file failures (vitest still ran + passed all 335 collectible tests, but exits 1 due to the file-load failures).
+      * Direct verification that T10 itself is correct:
+          cd api && ./node_modules/.bin/vitest run test/public-templates-home.test.ts → 6/6 pass exit 0.
+          cd api && ./node_modules/.bin/vitest run → 54 files / 335 tests / 0 failures, exit 0 (T9 baseline 329 + 6 new = 335).
+      * Reconciliation owner: required_evidence_plan / evaluator phase (rewire RC-031/RC-032 cwd to `api`).
+- **Canonical runner invocation:**
+  python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py \
+    --change-id=cms-new-phase5-2026-05018 \
+    --required-claim-ids=RC-030,RC-031,RC-032 \
+    --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json \
+    --workspace-root=/Users/guyhaikov/a2z-workspaces \
+    --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms \
+    --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/worktree
+- **Quality gates:**
+  - cd api && ./node_modules/.bin/tsc --noEmit → exit 0 PASS
+  - cd api && ./node_modules/.bin/vitest run → 54 files / 335 tests / 0 failures, exit 0 PASS
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts → exit 0 PASS (Group A + Group B clean)
+- **Scoped quality commands:** execution story T10 declares `scoped_quality_commands=[]`; only the canonical D13 runner is the story-required quality gate. Wrapper-level QCMD is OPT-IN per scripts/ralph/prompt.md current-cycle scope T7 and was not invoked.
+- **Test commands actually run:**
+  - cd api && ./node_modules/.bin/tsc --noEmit
+  - cd api && ./node_modules/.bin/vitest run
+  - cd api && ./node_modules/.bin/vitest run test/public-templates-home.test.ts
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts
+  - python3 run_required_evidence_command.py --required-claim-ids=RC-030,RC-031,RC-032 (canonical D13)
+  - grep -c 'export function renderHome' src/public/templates/home.ts → 1
+  - wc -l src/public/templates/home.ts → 211, test/public-templates-home.test.ts → 174
+- **source_story_ids covered by this iteration:** T10.
+- **Ralph-local execution PRD (.ralph/execution_stories.json):** T10 flipped to state="implemented" + passes=true (basename does NOT end with prd.json so block_prd_self_cert.py does not match — current-cycle scope exception per scripts/ralph/prompt.md T7). Canonical openspec/changes/<cid>/prd.json (alias prd.json at worktree root) NOT modified by this iteration (Ralph MUST NOT set canonical PRD passes=true per D11/D15).
+- **Learnings for future iterations:**
+  * Home body composition contract (consumed by T12 router GET / + T18 brand regression + T19 JSON-LD presence + T20 image-attrs + T21 ad-slots): `renderHome({ vm })` returns a full body string (sections 1..13). The router wraps it via `renderLayout({ site, meta: { jsonLd: buildHomeJsonLd(...) }, body: renderHome({ vm }) })`. The layout's optional `header`/`footer` slots stay unused for /home because sections 1 and 13 already embed the site header + footer inside the body. JSON-LD (WebSite + Organization + ItemList) is the layout's responsibility via `meta.jsonLd`, not renderHome's.
+  * The marker convention is `<!-- home-section:N name -->`. T18 (no-theiwise regression) can assert on the marker presence to confirm renderHome actually executed without hardcoding any banned token between markers. T19 can split on markers to scope its JSON-LD check to layout's `<head>` (which sits before marker 1).
+  * `extractMarkerSequence` regex pattern `/home-section:(\d+)/g` works because each marker contains exactly one numeric token. If a section name is ever changed to include digits, switch to `/<!-- home-section:(\d+) /g` to anchor on the prefix.
+  * Empty-bucket fallback (hero=null, featured=[], latest=[], categories=[]) still emits all 13 marker sections — section 2 falls back to a site-name panel, section 3 emits "" (chip-rail empty), but the marker comment still appears. The test "section-order — section markers stay in order when buckets are empty" guarantees this for fresh tenants.
+  * Newsletter heading should NOT contain the brand name when the brand-from-site test substitutes site.name and asserts the other brand is absent — the per-site `newsletter_settings_json` can populate brand-aware copy in production, but unit tests should use neutral heading text.
