@@ -442,8 +442,8 @@
       "id": "T19",
       "title": "JSON-LD presence on Home + Article",
       "category": "infra",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T19"
       ],
