@@ -4522,3 +4522,22 @@ D13 canonical runner result — T1:
     site_settings and pass `provider: settings.provider` here. Empty string
     counts as "no provider" (matches PART 11 wiring) — preserve the empty-
     string falsy check if you refactor.
+
+## 2026-05-19T08:03Z — T5 (sources: T5)
+- implemented: api/src/public/templates/icons.ts (5 inline SVG icon exports)
+  - iconSearch, iconShare, iconCopy, iconArrow, iconBrandMark
+  - decorative: aria-hidden="true" + focusable="false" on every <svg>
+  - IconArgs { className?, size? } honored per-call (no shared helper that would collapse the literal aria-hidden count)
+  - PART 12 RED LINE: no vertical-brand glyph; iconBrandMark is neutral logo fallback
+- Self-check results:
+  - File sizes: src/public/templates/icons.ts 56 lines (limit: 300) — PASS
+  - Secret scan: PASS
+  - Error handling: N/A (pure string-template module)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+- Acceptance evidence (canonical runner):
+  - RC-014 (T5.AC1): grep -cE 'export function (iconSearch|iconShare|iconCopy|iconArrow|iconBrandMark)' = 5 — PASS
+  - RC-015 (T5.AC2): grep -c 'aria-hidden="true"' = 5 — PASS
+- Tests run: canonical evidence runner only (no scoped_quality_commands declared for T5)
+- typecheck (api): npx tsc --noEmit — clean
+---
