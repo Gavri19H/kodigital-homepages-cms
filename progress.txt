@@ -5109,3 +5109,21 @@ D13 canonical runner result — T1:
   * `cd api && npx tsc --noEmit` exit 0 — PASS
 - Learnings for future iterations:
   * Mixed Playwright + vitest spec globbing at worktree root: when an evidence route runs `npx vitest run` from the worktree root, vitest's default test file glob `**/*.{test,spec}.{ts,tsx,…}` will pick up Playwright `.spec.ts` files in `api/test-ui/`, which crash on import because they call `test.use()`/`test.describe()` from `@playwright/test`, not vitest. The fix is upstream of Ralph — either move Playwright specs out of the worktree-root vitest glob (e.g. rename to `.pw.ts`, or add a vitest config `exclude: ["api/test-ui/**"]`, or change cwd to `api/` for the RC's `evidence_command`). Future stories that depend on `parser_strategy=test_exit_code` at the worktree root will hit the same pre-existing failure until this drift is resolved.
+
+## 2026-05-19 12:38 — T15 (sources: T15)
+- Implemented /category/:slug + /page/:slug rewrap into renderLayout site-aware shell
+- Files changed:
+  - api/src/public/router.ts — imports renderHeader + renderFooter + fetchPublicLayoutSiteInfo; new renderCategoryBody helper; /category/:slug, /category/:slug/page/:page, /page/:slug now build site info via fetchPublicLayoutSiteInfo and return c.html(renderLayout({site, meta, body, header, footer}))
+  - api/src/public/queries.ts — new fetchPublicLayoutSiteInfo + PublicLayoutSiteInfo (loads site_settings, parses brand_tokens_json, returns layout-ready site shape)
+  - api/test/public-router-category-page.test.ts — BEHAVIORAL coverage for T15.AC2 (`category` test) and T15.AC3 (`page-slug` test): each request returns 200 text/html starting with <!DOCTYPE html>, contains <header class="site-header"…, the site_name from site_settings, and the route-specific content (category name + article anchor / page title + content_html). Both assert no `theiwise` / `cms.kodigital.app` leaks.
+- Self-check results:
+  - File sizes: router.ts=387 lines, queries.ts=168 lines, test=278 lines — PASS (router.ts within ~400 ts soft cap)
+  - Secret scan: PASS (grep for API_KEY/Bearer/TOKEN/SECRET/password/private_key/connection_string returned 0)
+  - Parameterized queries: PASS (all .prepare() use `?` placeholders + .bind(); no template-literal interpolation introduced)
+  - Error handling: N/A (no new external IO surface; the new helper inherits D1 error semantics like existing fetchSiteSetting)
+- Tests:
+  - cd api && npx vitest run test/public-router-category-page.test.ts -> 2 passed
+  - cd api && npx vitest run test/public-router-article.test.ts test/public-view-models-article.test.ts test/public-templates-home.test.ts -> all green
+  - cd api && npx vitest run -> 351 passed (full api suite green)
+  - cd api && npx tsc --noEmit -> 0 errors
+- T15.AC1 grep: `grep -c 'renderLayout(' api/src/public/router.ts` = 5 (>=1) PASS

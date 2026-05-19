@@ -31,17 +31,27 @@ import {
   fetchCategoryArticles,
   fetchSitemapPages,
   fetchSiteSetting,
+  fetchPublicLayoutSiteInfo,
 } from "./queries";
 import { buildHomeViewModel } from "./view-models/home";
 import { buildArticleViewModel } from "./view-models/article";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
+import { renderHeader, renderFooter } from "./templates/components";
 import { buildHomeJsonLd } from "./templates/seo";
 import { publicCss } from "./assets/public-css";
 import { publicJs } from "./assets/public-js";
 
 const PUBLIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+function escapeText(input: string | null | undefined): string {
+  if (input === null || input === undefined) return "";
+  return String(input)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
   const tenantBase = `https://${siteContext.hostname}`;
@@ -157,6 +167,31 @@ router.get("/article/:slug", async (c) => {
   }
 });
 
+// T15: /category/:slug renders the site-aware layout wrapper so the public
+// category landing page carries the same `<header class="site-header">`,
+// brand-token style block, and PART 12 no-hardcoded-brand discipline as
+// Home + Article. The body lists the category name + paginated article
+// links so the layout has meaningful per-tenant content above the header.
+function renderCategoryBody(
+  cat: { id: number; slug: string; name: string },
+  articles: ReadonlyArray<{ slug: string; title: string }>,
+  pageNum: number,
+): string {
+  const items =
+    articles.length === 0
+      ? '<p class="category-page__empty">No articles yet.</p>'
+      : `<ul class="category-page__list">${articles
+          .map(
+            (a) =>
+              `<li class="category-page__item"><a href="/article/${escapeText(a.slug)}">${escapeText(a.title)}</a></li>`,
+          )
+          .join("")}</ul>`;
+  return `<section class="category-page" data-category-slug="${escapeText(cat.slug)}" data-page="${pageNum}">
+  <h1 class="category-page__heading">${escapeText(cat.name)}</h1>
+  ${items}
+</section>`;
+}
+
 router.get("/category/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
@@ -168,7 +203,20 @@ router.get("/category/:slug", async (c) => {
     siteContext.siteId,
     1,
   );
-  return c.json({ category: cat, page: 1, articles });
+  const site = await fetchPublicLayoutSiteInfo(c.env.DB, siteContext);
+  const body = renderCategoryBody(cat, articles, 1);
+  const html = renderLayout({
+    site,
+    meta: {
+      title: site.name.length > 0 ? `${cat.name} — ${site.name}` : cat.name,
+      description: site.description,
+      canonicalUrl: `https://${siteContext.hostname}/category/${cat.slug}`,
+    },
+    body,
+    header: renderHeader({ site }),
+    footer: renderFooter({ site }),
+  });
+  return c.html(html);
 });
 
 router.get("/category/:slug/page/:page", async (c) => {
@@ -183,15 +231,50 @@ router.get("/category/:slug/page/:page", async (c) => {
     siteContext.siteId,
     pageNum,
   );
-  return c.json({ category: cat, page: pageNum, articles });
+  const site = await fetchPublicLayoutSiteInfo(c.env.DB, siteContext);
+  const body = renderCategoryBody(cat, articles, pageNum);
+  const html = renderLayout({
+    site,
+    meta: {
+      title: site.name.length > 0 ? `${cat.name} — ${site.name}` : cat.name,
+      description: site.description,
+      canonicalUrl: `https://${siteContext.hostname}/category/${cat.slug}/page/${pageNum}`,
+    },
+    body,
+    header: renderHeader({ site }),
+    footer: renderFooter({ site }),
+  });
+  return c.html(html);
 });
 
+// T15: /page/:slug renders the published page's content_html inside the
+// same site-aware layout wrapper as Home + Article + Category so every
+// public route carries the tenant's brand-token style + site-header +
+// footer. The raw content_html is embedded inside a `<section>` so the
+// layout's `<main>` element wraps a structural container, not bare HTML.
 router.get("/page/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
   const row = await fetchPublishedPage(c.env.DB, slug, siteContext.siteId);
   if (!row) return c.json({ error: "Not Found" }, 404);
-  return c.html(row.content_html ?? "");
+  const site = await fetchPublicLayoutSiteInfo(c.env.DB, siteContext);
+  const pageTitle = row.title.length > 0 ? row.title : slug;
+  const body = `<article class="cms-page" data-page-slug="${escapeText(row.slug)}">
+  <h1 class="cms-page__heading">${escapeText(pageTitle)}</h1>
+  <div class="cms-page__content">${row.content_html ?? ""}</div>
+</article>`;
+  const html = renderLayout({
+    site,
+    meta: {
+      title: site.name.length > 0 ? `${pageTitle} — ${site.name}` : pageTitle,
+      description: site.description,
+      canonicalUrl: `https://${siteContext.hostname}/page/${row.slug}`,
+    },
+    body,
+    header: renderHeader({ site }),
+    footer: renderFooter({ site }),
+  });
+  return c.html(html);
 });
 
 router.get("/feed.xml", async (c) => {

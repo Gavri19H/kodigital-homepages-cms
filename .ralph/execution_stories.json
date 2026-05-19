@@ -186,7 +186,7 @@
         "buildHomeViewModel exported",
         "site-scoped WHERE",
         ">=3 .bind() calls",
-        "BEHAVIORAL: site A and B isolation — vm.featured contains only site A's articles"
+        "BEHAVIORAL: site A and B isolation \u2014 vm.featured contains only site A's articles"
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
@@ -348,8 +348,8 @@
       "id": "T15",
       "title": "/category/:slug + /page/:slug use site-aware layout wrapper",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T15"
       ],
