@@ -12,7 +12,7 @@ import {
 } from "../src/public/templates/format";
 
 describe("public-templates-format", () => {
-  it("truncateExcerpt with limit=12 yields a string of length <=13 ending in an ellipsis", () => {
+  it("T7.AC2: truncateExcerpt with limit=12 yields a string of length <=13 ending in an ellipsis", () => {
     const out = truncateExcerpt(
       "This is a long form article excerpt that definitely exceeds twelve characters.",
       12,
@@ -31,7 +31,7 @@ describe("public-templates-format", () => {
     expect(truncateExcerpt(undefined, 12)).toBe("");
   });
 
-  it("truncateExcerpt clamps a negative limit to 0 and still appends the ellipsis on overflow", () => {
+  it("T7.AC2: truncateExcerpt clamps a negative limit to 0 and still appends the ellipsis on overflow", () => {
     const out = truncateExcerpt("hello world", -4);
     expect(out).toBe("…");
   });

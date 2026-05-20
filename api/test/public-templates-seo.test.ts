@@ -27,7 +27,7 @@ const SITE: SeoSite = {
 };
 
 describe("public-templates-seo", () => {
-  it("faq_empty: buildFaqJsonLd returns empty string when faqs is []", () => {
+  it("T6.AC3: faq_empty: buildFaqJsonLd returns empty string when faqs is []", () => {
     const out = buildFaqJsonLd({ faqs: [] });
     expect(out).toBe("");
   });

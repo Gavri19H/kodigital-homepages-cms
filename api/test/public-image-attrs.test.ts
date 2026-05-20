@@ -271,7 +271,7 @@ function makeArticleVm(overrides: Partial<ArticleViewModel> = {}): ArticleViewMo
 }
 
 describe("public-image-attrs", () => {
-  it("alt-width-height — every <img> in renderHome and renderArticle carries alt, width and height attributes", () => {
+  it("T20.AC1: alt-width-height — every <img> in renderHome and renderArticle carries alt, width and height attributes", () => {
     const homeHtml = renderHome({ vm: makeHomeVm() });
     const articleHtml = renderArticle({ vm: makeArticleVm() });
     const homeImgs = extractImgs(homeHtml);

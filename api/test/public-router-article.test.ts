@@ -179,7 +179,7 @@ describe("public-router-article", () => {
     articleRenderMode = "real";
   });
 
-  it("renders-article — published article -> 200 with article-shell + hero + body", async () => {
+  it("T13.AC3: renders-article — published article -> 200 with article-shell + hero + body", async () => {
     const articles: ArticleSeed[] = [
       {
         id: 1,
@@ -221,7 +221,7 @@ describe("public-router-article", () => {
     expect(body).not.toContain("cms.kodigital.app");
   });
 
-  it("fallback-on-throw — renderArticle throws -> 200 with content_html fallback", async () => {
+  it("T13.AC4: fallback-on-throw — renderArticle throws -> 200 with content_html fallback", async () => {
     articleRenderMode = "throw";
     const articles: ArticleSeed[] = [
       {

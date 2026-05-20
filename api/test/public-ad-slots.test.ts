@@ -228,7 +228,7 @@ function makeArticleVm(overrides: Partial<ArticleViewModel> = {}): ArticleViewMo
 }
 
 describe("public-ad-slots", () => {
-  it("data-attrs — every ad-slot in renderHome and renderArticle carries data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}", () => {
+  it("T21.AC1: data-attrs — every ad-slot in renderHome and renderArticle carries data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}", () => {
     const homeHtml = renderHome({ vm: makeHomeVm() });
     const articleHtml = renderArticle({ vm: makeArticleVm() });
     const homeSlots = extractAdSlots(homeHtml);
@@ -281,7 +281,7 @@ describe("public-ad-slots", () => {
     ).toBe(articleIds.length);
   });
 
-  it("leaderboard-and-in-feed — renderHome emits both a leaderboard ad-slot and an in-feed ad-slot", () => {
+  it("T21.AC2: leaderboard-and-in-feed — renderHome emits both a leaderboard ad-slot and an in-feed ad-slot", () => {
     const homeHtml = renderHome({ vm: makeHomeVm() });
     const homeSlots = extractAdSlots(homeHtml);
 

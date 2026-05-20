@@ -187,7 +187,7 @@ const tenantDomain: DomainSeed = {
 };
 
 describe("public-router-category-page", () => {
-  it("category — GET /category/:slug -> 200 text/html with site-header + category name", async () => {
+  it("T15.AC2: category — GET /category/:slug -> 200 text/html with site-header + category name", async () => {
     const categories: CategorySeed[] = [
       { id: 7, slug: "long-form", name: "Long Form" },
     ];
@@ -234,7 +234,7 @@ describe("public-router-category-page", () => {
     expect(body).not.toContain("cms.kodigital.app");
   });
 
-  it("page-slug — GET /page/:slug -> 200 text/html with site-header + page content_html", async () => {
+  it("T15.AC2: page-slug — GET /page/:slug -> 200 text/html with site-header + page content_html", async () => {
     const pages: PageSeed[] = [
       {
         id: 11,

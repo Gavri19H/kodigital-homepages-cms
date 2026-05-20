@@ -331,7 +331,7 @@
         "verify:worker-config exit 0"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "WARN-FIX-1",

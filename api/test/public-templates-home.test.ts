@@ -92,7 +92,7 @@ function extractMarkerSequence(html: string): number[] {
 }
 
 describe("public-templates-home", () => {
-  it("section-order — emits 13 markers in PART 1 numerical order", () => {
+  it("T10.AC2: section-order — emits 13 markers in PART 1 numerical order", () => {
     const html = renderHome({ vm: makeVm() });
     const seq = extractMarkerSequence(html);
     expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
@@ -108,7 +108,7 @@ describe("public-templates-home", () => {
     expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
   });
 
-  it("brand-from-site — output contains site.name and never the banned vertical tokens", () => {
+  it("T10.AC3: brand-from-site — output contains site.name and never the banned vertical tokens", () => {
     const html = renderHome({ vm: makeVm() });
 
     // site.name flows through header + footer + about

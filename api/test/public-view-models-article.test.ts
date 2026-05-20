@@ -159,7 +159,7 @@ function seedArticle(overrides: Partial<SeedArticle> & Pick<SeedArticle, "id" | 
 }
 
 describe("public-view-models-article", () => {
-  it("content_html_fallback — content_json=null yields a single html body block from content_html", async () => {
+  it("T9.AC4: content_html_fallback — content_json=null yields a single html body block from content_html", async () => {
     const row = seedArticle({
       id: 42,
       slug: "fallback-story",
@@ -229,7 +229,7 @@ describe("public-view-models-article", () => {
     expect(faqBlocks.length).toBe(2);
   });
 
-  it("faq_blocks — buildArticleViewModel with 2 faq blocks in content_json yields vm.faqs.length === 2", async () => {
+  it("T9.AC5: faq_blocks — buildArticleViewModel with 2 faq blocks in content_json yields vm.faqs.length === 2", async () => {
     const contentJson = JSON.stringify({
       blocks: [
         { type: "html", html: "<p>setup</p>" },

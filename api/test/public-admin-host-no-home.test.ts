@@ -62,7 +62,7 @@ function makeEnv(db: D1Database): Env {
 }
 
 describe("public-admin-host-no-home", () => {
-  it("no-home — Host=cms.kodigital.app GET / returns 404 with no Home markup and no admin-host leak", async () => {
+  it("T16.AC2: no-home — Host=cms.kodigital.app GET / returns 404 with no Home markup and no admin-host leak", async () => {
     const app = new Hono<{
       Bindings: Env;
       Variables: PublicSiteVariables;

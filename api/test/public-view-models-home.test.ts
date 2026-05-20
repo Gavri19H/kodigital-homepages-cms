@@ -147,7 +147,7 @@ function seedArticle(overrides: Partial<SeedArticle> & Pick<SeedArticle, "id" | 
 }
 
 describe("public-view-models-home", () => {
-  it("site_isolation — vm.featured contains only site A's articles when DB holds rows for A and B", async () => {
+  it("T8.AC4: site_isolation — vm.featured contains only site A's articles when DB holds rows for A and B", async () => {
     const articles: SeedArticle[] = [
       seedArticle({ id: 1, slug: "a-hero", site_id: "site_A", is_featured: 1, homepage_rank: 1, title: "A hero" }),
       seedArticle({ id: 2, slug: "a-featured-2", site_id: "site_A", is_featured: 1, homepage_rank: 2, title: "A featured 2" }),

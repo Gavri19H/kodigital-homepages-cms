@@ -121,7 +121,7 @@ function buildApp(): Hono<{ Bindings: Env; Variables: PublicSiteVariables }> {
 }
 
 describe("public-reserved-paths", () => {
-  it("admin-slug-404 — planted page row with slug='admin' does NOT leak via GET /admin on the public router", async () => {
+  it("T17.AC1: admin-slug-404 — planted page row with slug='admin' does NOT leak via GET /admin on the public router", async () => {
     const impostor = "<p>impostor admin content do-not-leak</p>";
     const db = makeDbMock([{ slug: "admin", content_html: impostor }]);
     const app = buildApp();

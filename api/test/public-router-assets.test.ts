@@ -87,7 +87,7 @@ const tenantDomain: DomainSeed = {
 };
 
 describe("public-router-assets", () => {
-  it("public-css — GET /assets/public.css -> 200 text/css with --tw-brand + immutable cache", async () => {
+  it("T14.AC3: public-css — GET /assets/public.css -> 200 text/css with --tw-brand + immutable cache", async () => {
     const db = makeDb([tenantDomain]);
     const app = new Hono<{
       Bindings: Env;
@@ -113,7 +113,7 @@ describe("public-router-assets", () => {
     expect(body).toContain("--tw-brand");
   });
 
-  it("public-js — GET /assets/public.js -> 200 application/javascript with reading-progress-bar + immutable cache", async () => {
+  it("T14.AC4: public-js — GET /assets/public.js -> 200 application/javascript with reading-progress-bar + immutable cache", async () => {
     const db = makeDb([tenantDomain]);
     const app = new Hono<{
       Bindings: Env;
@@ -139,7 +139,7 @@ describe("public-router-assets", () => {
     expect(body).toContain("reading-progress-bar");
   });
 
-  it("reserved-path-safety — explicit /assets/* routes win over /:slug catch-all and bare /assets is 404", async () => {
+  it("T14.AC5: reserved-path-safety — explicit /assets/* routes win over /:slug catch-all and bare /assets is 404", async () => {
     const db = makeDb([tenantDomain]);
     const app = new Hono<{
       Bindings: Env;

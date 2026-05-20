@@ -94,7 +94,7 @@ function makeEnv(db: D1Database): Env {
 }
 
 describe("public-router-home", () => {
-  it("renders-home — GET / on tenant returns 200 text/html with site-header + site-footer", async () => {
+  it("T12.AC2: renders-home — GET / on tenant returns 200 text/html with site-header + site-footer", async () => {
     const domains: DomainSeed[] = [
       {
         hostname: "tenant-a.example",

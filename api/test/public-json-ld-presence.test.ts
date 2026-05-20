@@ -189,7 +189,7 @@ function extractJsonLdTypes(html: string): string[] {
 }
 
 describe("public-json-ld-presence", () => {
-  it("home — renderLayout output contains WebSite + Organization + ItemList JSON-LD blocks", () => {
+  it("T19.AC1: home — renderLayout output contains WebSite + Organization + ItemList JSON-LD blocks", () => {
     const html = renderHomeWithJsonLd();
     const types = extractJsonLdTypes(html);
     expect(types).toContain("WebSite");
@@ -206,7 +206,7 @@ describe("public-json-ld-presence", () => {
     expect(html).toContain('"@type":"ItemList"');
   });
 
-  it("article-with-faqs — renderArticle emits Article + BreadcrumbList + FAQPage when vm.faqs is non-empty", () => {
+  it("T19.AC1: article-with-faqs — renderArticle emits Article + BreadcrumbList + FAQPage when vm.faqs is non-empty", () => {
     const faqs: FaqItem[] = [
       { question: "What is this story about?", answer: "It is about the feature." },
       { question: "Why does it matter?", answer: "Because users care." },
@@ -227,7 +227,7 @@ describe("public-json-ld-presence", () => {
     expect(html).toContain('"@type":"FAQPage"');
   });
 
-  it("article-empty-faqs — renderArticle omits FAQPage when vm.faqs is empty", () => {
+  it("T19.AC2: article-empty-faqs — renderArticle omits FAQPage when vm.faqs is empty", () => {
     const html = renderArticle({ vm: makeArticleVm({ faqs: [] }) });
     const types = extractJsonLdTypes(html);
     expect(types).toContain("Article");

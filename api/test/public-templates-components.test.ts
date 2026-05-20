@@ -40,7 +40,7 @@ describe("public-templates-components", () => {
     expect(html).toBe("");
   });
 
-  it("chip-rail respects caller-provided href when supplied", () => {
+  it("T4.AC3: chip-rail respects caller-provided href when supplied", () => {
     const chips: CategoryChip[] = [
       { slug: "tech", name: "Tech", href: "/topics/technology" },
     ];

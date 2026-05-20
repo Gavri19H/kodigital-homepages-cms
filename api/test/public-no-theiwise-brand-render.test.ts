@@ -215,7 +215,7 @@ function assertNoBannedTokens(html: string): void {
 }
 
 describe("public-no-theiwise-brand-render", () => {
-  it("home — renderHome output never contains any BANNED_TOKENS variant", () => {
+  it("T18.AC1: home — renderHome output never contains any BANNED_TOKENS variant", () => {
     const html = renderHome({ vm: makeHomeVm() });
     // Sanity: site.name does flow through (proves the assertion is not
     // a tautological "empty output never contains tokens").
@@ -223,14 +223,14 @@ describe("public-no-theiwise-brand-render", () => {
     assertNoBannedTokens(html);
   });
 
-  it("home — empty-bucket Home (no hero/featured/latest/categories) still has no banned brand", () => {
+  it("T18.AC1: home — empty-bucket Home (no hero/featured/latest/categories) still has no banned brand", () => {
     const html = renderHome({
       vm: makeHomeVm({ hero: null, featured: [], latest: [], categories: [] }),
     });
     assertNoBannedTokens(html);
   });
 
-  it("home — Home rendered with a different site.name does not regress to a banned brand", () => {
+  it("T3.AC3: home — Home rendered with a different site.name does not regress to a banned brand", () => {
     const html = renderHome({
       vm: makeHomeVm({
         site: {
@@ -253,13 +253,13 @@ describe("public-no-theiwise-brand-render", () => {
     assertNoBannedTokens(html);
   });
 
-  it("article — renderArticle output never contains any BANNED_TOKENS variant", () => {
+  it("T18.AC2: article — renderArticle output never contains any BANNED_TOKENS variant", () => {
     const html = renderArticle({ vm: makeArticleVm() });
     expect(html).toContain("Acme Daily");
     assertNoBannedTokens(html);
   });
 
-  it("article — Article with non-empty faqs still has no banned brand in JSON-LD or body", () => {
+  it("T18.AC2: article — Article with non-empty faqs still has no banned brand in JSON-LD or body", () => {
     const faqs: FaqItem[] = [
       { question: "First question?", answer: "First answer." },
       { question: "Second question?", answer: "Second answer." },

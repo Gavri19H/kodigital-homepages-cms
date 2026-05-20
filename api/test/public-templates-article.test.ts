@@ -104,7 +104,7 @@ function extractMarkerSequence(html: string): number[] {
 }
 
 describe("public-templates-article", () => {
-  it("section-order — emits 12 markers in PART 2 numerical order", () => {
+  it("T11.AC2: section-order — emits 12 markers in PART 2 numerical order", () => {
     const html = renderArticle({ vm: makeVm() });
     const seq = extractMarkerSequence(html);
     expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -120,7 +120,7 @@ describe("public-templates-article", () => {
     expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
-  it("article-shell-minmax — rendered shell records the minmax(0, 1fr) column contract", () => {
+  it("T11.AC3: article-shell-minmax — rendered shell records the minmax(0, 1fr) column contract", () => {
     const html = renderArticle({ vm: makeVm() });
     // PART 4: shell column track is recorded literally in the body so a
     // CSS-less snapshot still captures the contract.
@@ -128,7 +128,7 @@ describe("public-templates-article", () => {
     expect(html).toContain("minmax(0, 1fr)");
   });
 
-  it("faqs-empty-no-faqpage — empty faqs[] does NOT emit FAQPage JSON-LD", () => {
+  it("T11.AC4: faqs-empty-no-faqpage — empty faqs[] does NOT emit FAQPage JSON-LD", () => {
     const html = renderArticle({ vm: makeVm({ faqs: [] }) });
     // PART 6: when faqs is empty the FAQPage payload MUST be omitted.
     expect(html).not.toContain('"@type":"FAQPage"');
