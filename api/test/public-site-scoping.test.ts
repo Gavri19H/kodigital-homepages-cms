@@ -52,7 +52,44 @@ function makeDb(domains: DomainSeed[], articles: ArticleSeed[]) {
               status: "active",
             } as unknown as T;
           }
+          if (sql.startsWith("SELECT a.id AS id, a.slug AS slug, a.title AS title")) {
+            // T13: buildArticleViewModel article-detail SELECT.
+            // bind order is (siteId, slug); site-scoping is enforced by the
+            // siteId placeholder appearing before the slug placeholder.
+            const siteId = captured[0] as string;
+            const slug = captured[1] as string;
+            const a = articles.find(
+              (x) =>
+                x.slug === slug &&
+                x.site_id === siteId &&
+                x.status === "published",
+            );
+            if (!a) return null;
+            return {
+              id: a.id,
+              slug: a.slug,
+              title: a.slug,
+              content_json: null,
+              content_html: a.content_html,
+              category_id: null,
+              status: a.status,
+              published_at: null,
+              updated_at: null,
+              author_name: null,
+              featured_image_id: null,
+              is_featured: 0,
+              site_id: a.site_id,
+              category_name: null,
+              category_slug: null,
+              image_url: null,
+              image_alt: null,
+              seo_title: null,
+              seo_description: null,
+            } as unknown as T;
+          }
           if (sql.startsWith("SELECT * FROM articles WHERE slug = ? AND site_id = ?")) {
+            // Legacy getArticleBySlug — still used by /:slug catch-all and by
+            // the T13 fallback path. bind order is (slug, siteId).
             const slug = captured[0] as string;
             const siteId = captured[1] as string;
             const a = articles.find(
@@ -75,6 +112,9 @@ function makeDb(domains: DomainSeed[], articles: ArticleSeed[]) {
           return null;
         },
         async all<T = unknown>() {
+          // Site-settings read issued by buildArticleViewModel / buildHomeViewModel
+          // — empty bucket is a valid view-model state.
+          // Related-articles SELECT — empty bucket is also valid.
           return { results: [] as T[], success: true, meta: {} };
         },
         async run() {
@@ -151,21 +191,24 @@ describe("public-site-scoping (T27)", () => {
     expect(bodyB).toContain("hello from B");
     expect(bodyB).not.toContain("hello from A");
 
-    // Every article SELECT MUST be the site-scoped form. The unscoped
-    // form (`WHERE slug = ? LIMIT 1`) must never be issued from public
-    // routes after T27.
-    const articleSelects = calls.filter((c) =>
-      c.sql.startsWith("SELECT * FROM articles WHERE slug"),
+    // Every article SELECT issued by /article/:slug MUST be site-scoped.
+    // After T13, the route uses buildArticleViewModel whose detail SELECT
+    // selects `a.content_json` (the related-articles SELECT does not).
+    // Bind order on the detail SELECT is (siteId, slug). The unscoped form
+    // (`WHERE slug = ? LIMIT 1`) must never be issued from public routes.
+    const articleDetailSelects = calls.filter((c) =>
+      c.sql.includes("a.content_json AS content_json") &&
+      c.sql.includes("WHERE a.site_id = ? AND a.slug = ?"),
     );
-    expect(articleSelects.length).toBe(2);
-    expect(
-      articleSelects.every((c) =>
-        c.sql.startsWith("SELECT * FROM articles WHERE slug = ? AND site_id = ?"),
-      ),
-    ).toBe(true);
-    // Bound site_ids match the request hostname's tenant.
-    expect(articleSelects[0]?.binds).toEqual(["hello", "site_A"]);
-    expect(articleSelects[1]?.binds).toEqual(["hello", "site_B"]);
+    expect(articleDetailSelects.length).toBe(2);
+    // Bound site_ids match the request hostname's tenant (first bind is siteId).
+    expect(articleDetailSelects[0]?.binds).toEqual(["site_A", "hello"]);
+    expect(articleDetailSelects[1]?.binds).toEqual(["site_B", "hello"]);
+    // Defense: the unscoped legacy form never appears.
+    const unscopedSelects = calls.filter((c) =>
+      c.sql.startsWith("SELECT * FROM articles WHERE slug = ? LIMIT 1"),
+    );
+    expect(unscopedSelects.length).toBe(0);
   });
 
   it("unknown hostname returns 404 before any article query is issued", async () => {
@@ -179,8 +222,10 @@ describe("public-site-scoping (T27)", () => {
       makeEnv(db),
     );
     expect(res.status).toBe(404);
-    const articleSelects = calls.filter((c) =>
-      c.sql.startsWith("SELECT * FROM articles WHERE slug"),
+    const articleSelects = calls.filter(
+      (c) =>
+        c.sql.startsWith("SELECT * FROM articles WHERE slug") ||
+        c.sql.startsWith("SELECT a.id AS id, a.slug AS slug, a.title AS title"),
     );
     expect(articleSelects.length).toBe(0);
   });

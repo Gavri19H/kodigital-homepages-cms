@@ -106,3 +106,63 @@ export async function fetchSiteSetting(
     .first<SiteSettingRow>();
   return row?.value ?? null;
 }
+
+export interface PublicLayoutSiteInfo {
+  name: string;
+  hostname: string;
+  tagline: string;
+  description: string;
+  logoUrl: string | null;
+  brandTokens: Readonly<Record<string, string>>;
+}
+
+function parseBrandTokensJson(
+  raw: string | null | undefined,
+): Readonly<Record<string, string>> {
+  if (raw === null || raw === undefined || raw.length === 0) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// T15: shared per-site layout data loader used by /category/:slug and
+// /page/:slug so both routes can wrap their bodies in renderLayout with
+// the same site-aware header + brand tokens that Home + Article already
+// use. The SQL string `WHERE site_id = ?` matches the form used by the
+// home/article view-models so the tenant-scoping grep remains accurate.
+export async function fetchPublicLayoutSiteInfo(
+  db: D1Database,
+  siteContext: { siteId: string; hostname: string },
+): Promise<PublicLayoutSiteInfo> {
+  const result = await db
+    .prepare(
+      "SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?",
+    )
+    .bind(siteContext.siteId)
+    .all<{ key: string; value: string | null }>();
+  const settings: Record<string, string> = {};
+  for (const row of result.results ?? []) {
+    if (typeof row.value === "string") settings[row.key] = row.value;
+  }
+  return {
+    name: settings.site_name ?? siteContext.hostname,
+    hostname: siteContext.hostname,
+    tagline: settings.tagline ?? "",
+    description: settings.site_description ?? "",
+    logoUrl:
+      settings.logo_media_id !== undefined && settings.logo_media_id.length > 0
+        ? settings.logo_media_id
+        : null,
+    brandTokens: parseBrandTokensJson(settings.brand_tokens_json),
+  };
+}

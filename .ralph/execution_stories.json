@@ -1,111 +1,25 @@
 {
-  "changeId": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
-  "mainGoal": "Ralph-local execution projection (mqafix_cycle)",
+  "changeId": "cms-new-phase5-2026-05018",
+  "mainGoal": "Ralph-local execution projection (identity_projection_no_cycle_signal)",
   "_ralph_local_execution_projection": true,
-  "_cycle_type": "mqafix",
+  "_cycle_type": "normal",
   "stories": [
     {
-      "id": "RX1",
-      "title": "Provisioning runner must complete all 15 steps + seed legal pages + site_categories on production",
-      "category": "api",
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "MQAFIX-1"
-      ],
-      "targetFiles": [
-        ".github/workflows/deploy.yml",
-        "api/migrations/",
-        "api/src/admin/provisioning.ts",
-        "api/src/admin/sites.ts"
-      ],
-      "acceptanceCriteria": [
-        "AC1: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT site_id, count(*) AS n FROM site_creation_job_steps GROUP BY site_id HAVING n=15\" -- at least 1 site with full 15 steps post-provision",
-        "AC2: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT count(*) FROM pages WHERE page_type='legal'\" >= 2",
-        "AC3: cd api && wrangler d1 execute kodigital-homepages-cms-db --remote --json --command \"SELECT count(*) FROM site_categories\" >= 1",
-        "AC4: BEHAVIORAL: POST /api/admin/sites against production (with CF Access service token) creates a site whose provisioning runner reaches step 15 of 15 within 60 seconds; 16th call is idempotent (no new step row)",
-        "AC5: FUNCTIONAL: identify the diverging code path between dry-run and live (categories + legal seed) — single non-dry-run branch executes all seed steps"
-      ],
-      "scoped_quality_commands": [],
-      "forbidden_red_lines": [
-        "MUST NOT set canonical PRD passes=true",
-        "MUST NOT edit parent context stories outside this execution story",
-        "MUST NOT run unrelated funnel tests when scope says otherwise"
-      ]
-    },
-    {
-      "id": "RX2",
-      "title": "Register POST /api/admin/categories endpoint handler (multi-vertical) — wire contract missing",
-      "category": "api",
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "MQAFIX-2"
-      ],
-      "targetFiles": [
-        "api/src/admin/api.ts",
-        "api/src/admin/categories.ts",
-        "api/test/category-multi-vertical.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "AC1: grep -nE 'adminApi\\.post.*\\/categories|api\\.post.*\\/categories' api/src/admin/*.ts | wc -l >= 1",
-        "AC2: BEHAVIORAL: curl -X POST http://127.0.0.1:8787/api/admin/categories -H 'Host: cms.kodigital.app' -H 'Content-Type: application/json' -d '{\"site_id\":\"<sid>\",\"name\":\"general\",\"slug\":\"general\",\"vertical_ids\":[1,2,3]}' returns HTTP 201 with body containing category_id",
-        "AC3: BEHAVIORAL: after AC2, cd api && wrangler d1 execute kodigital-cms-local --local --json --command \"SELECT count(*) FROM category_verticals WHERE category_id='<from AC2>'\" returns 3",
-        "AC4: BEHAVIORAL: same POST with vertical_ids=[99] (non-existent) returns HTTP 422 + 0 new category_verticals rows",
-        "AC5: cd api && npx vitest run test/category-multi-vertical.test.ts -- exit 0 (existing form test stays green)"
-      ],
-      "scoped_quality_commands": [],
-      "forbidden_red_lines": [
-        "MUST NOT set canonical PRD passes=true",
-        "MUST NOT edit parent context stories outside this execution story",
-        "MUST NOT run unrelated funnel tests when scope says otherwise"
-      ]
-    },
-    {
-      "id": "RX3",
-      "title": "Media + Tags list handlers must include WHERE site_id clause in SQL",
-      "category": "api",
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "MQAFIX-3"
-      ],
-      "targetFiles": [
-        "api/src/admin/api.ts",
-        "api/test/admin-media-site-filter.test.ts",
-        "api/test/admin-tags-site-filter.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "AC1: grep -nE 'WHERE.*site_id|where.*site_id' api/src/admin/api.ts -- lines 201-213 (or equivalent media/tags list handler block) MUST contain WHERE site_id bind expression",
-        "AC2: BEHAVIORAL test: seed media rows for site_A AND site_B AND a global (site_id IS NULL). GET /api/admin/media?site_id=<A> returns ONLY site_A + global rows (NOT site_B). GET /api/admin/tags?site_id=<A> returns ONLY site_A rows (NOT global, NOT site_B).",
-        "AC3: cd api && npx vitest run test/admin-media-site-filter test/admin-tags-site-filter -- exit 0",
-        "AC4: FUNCTIONAL: confirm no SQL injection vector — site_id MUST be bound via .bind(siteId), NOT template-literal-interpolated (per .claude/rules/d1-database-safety.md)"
-      ],
-      "scoped_quality_commands": [],
-      "forbidden_red_lines": [
-        "MUST NOT set canonical PRD passes=true",
-        "MUST NOT edit parent context stories outside this execution story",
-        "MUST NOT run unrelated funnel tests when scope says otherwise"
-      ]
-    },
-    {
-      "id": "RX4",
-      "title": "Pages template filter input must use name=\"site_id\" per T6.AC1 spec literal",
+      "id": "T1",
+      "title": "Add public.css string module with all PART 3 tokens and PART 4 breakpoints",
       "category": "ui",
       "state": "implemented",
       "passes": true,
       "source_story_ids": [
-        "MQAFIX-4"
+        "T1"
       ],
       "targetFiles": [
-        "api/src/admin/templates/pages.ts",
-        "api/src/admin/views/pages.ts"
+        "src/public/assets/public-css.ts"
       ],
       "acceptanceCriteria": [
-        "AC1: grep -nE 'name=\"site_id\"' api/src/admin/templates/pages.ts | wc -l >= 1",
-        "AC2: grep -nE 'name=\"site\"' api/src/admin/templates/pages.ts | wc -l == 0 (avoid double-rendering)",
-        "AC3: BEHAVIORAL: GET /admin/pages → HTML response body contains literal substring '<select' AND 'name=\"site_id\"' together (regex test)",
-        "AC4: Decide canonical: delete views/pages.ts if dead OR keep + document why two templates exist"
+        "grep -c -- '--tw-ink' api/src/public/assets/public-css.ts >= 1",
+        "grep -c '@media (max-width:1280px)' api/src/public/assets/public-css.ts >= 1",
+        "grep -c 'minmax(0, 1fr)' api/src/public/assets/public-css.ts >= 1"
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
@@ -115,25 +29,502 @@
       ]
     },
     {
-      "id": "RX5",
-      "title": "MQA-3 side fixes: seed verticals on fresh D1 + client polling reads body.resource.id (not body.id)",
+      "id": "T2",
+      "title": "Add public.js string module with passive-listener reading progress + share/copy",
       "category": "ui",
       "state": "implemented",
       "passes": true,
       "source_story_ids": [
-        "MQAFIX-5"
+        "T2"
       ],
       "targetFiles": [
-        "api/migrations/",
-        "api/src/admin/static/domains-create-site.js",
-        "api/src/admin/templates/domains.ts"
+        "src/public/assets/public-js.ts"
       ],
       "acceptanceCriteria": [
-        "AC1: cd api && npm run db:migrate:local && wrangler d1 execute kodigital-cms-local --local --json --command 'SELECT count(*) FROM verticals' returns >= 1 (verticals seeded automatically)",
-        "AC2: BEHAVIORAL: Playwright opens /admin/domains, clicks New Site, asserts vertical dropdown has >= 1 <option> on a fresh local D1 (no manual pre-seed)",
-        "AC3: grep -nE 'body\\.resource\\.id' api/src/admin/static/domains-create-site.js | wc -l >= 1 (client reads resource.id)",
-        "AC4: grep -nE '\\.body\\.id|body\\[.id.\\]' api/src/admin/static/domains-create-site.js | wc -l == 0 (no longer reading .body.id)",
-        "AC5: BEHAVIORAL: After POST /api/admin/sites, client polling URL contains the actual site_id (no '//' double-slash, no 404 on poll endpoint)"
+        "grep -c 'passive: true' api/src/public/assets/public-js.ts >= 1",
+        "grep -c 'navigator.share' api/src/public/assets/public-js.ts >= 1",
+        "grep -c 'reading-progress-bar' api/src/public/assets/public-js.ts >= 1"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T3"
+      ],
+      "targetFiles": [
+        "src/public/templates/layout.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'skip-to-content' api/src/public/templates/layout.ts >= 1",
+        "grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts >= 1",
+        "BEHAVIORAL: GIVEN HomeViewModel with site.brandTokens WHEN renderLayout THEN result contains the brand token inside a <style> block"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "templates/components.ts exports site-aware components",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T4"
+      ],
+      "targetFiles": [
+        "src/public/templates/components.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' >= 8",
+        "grep -c 'data-ad-slot' >= 1",
+        "BEHAVIORAL: GIVEN CategoryChip slug=tech WHEN renderChipRail THEN result contains href=/category/tech AND no href=#"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "templates/icons.ts exports inline SVG icons",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T5"
+      ],
+      "targetFiles": [
+        "src/public/templates/icons.ts"
+      ],
+      "acceptanceCriteria": [
+        "5 icon exports",
+        "aria-hidden on decorative SVGs"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "templates/seo.ts exports JSON-LD builders + meta helpers",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T6"
+      ],
+      "targetFiles": [
+        "src/public/templates/seo.ts"
+      ],
+      "acceptanceCriteria": [
+        "5 seo exports",
+        "6 JSON-LD types",
+        "BEHAVIORAL: GIVEN faqs=[] WHEN buildFaqJsonLd THEN empty string"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T7"
+      ],
+      "targetFiles": [
+        "src/public/templates/format.ts"
+      ],
+      "acceptanceCriteria": [
+        "3 format exports",
+        "BEHAVIORAL: truncateExcerpt with limit=12 yields <=13 char string ending in ellipsis"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "view-models/home.ts exports buildHomeViewModel(db, siteContext)",
+      "category": "api",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T8"
+      ],
+      "targetFiles": [
+        "src/public/view-models/home.ts"
+      ],
+      "acceptanceCriteria": [
+        "buildHomeViewModel exported",
+        "site-scoped WHERE",
+        ">=3 .bind() calls",
+        "BEHAVIORAL: site A and B isolation — vm.featured contains only site A's articles"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "view-models/article.ts exports buildArticleViewModel + adaptBodyBlocks",
+      "category": "api",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T9"
+      ],
+      "targetFiles": [
+        "src/public/view-models/article.ts"
+      ],
+      "acceptanceCriteria": [
+        "buildArticleViewModel exported",
+        "site_id scoped",
+        "adaptBodyBlocks present",
+        "BEHAVIORAL: content_json=null falls back to single html block from content_html",
+        "BEHAVIORAL: 2 faq blocks in content_json yield vm.faqs.length===2"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "templates/home.ts renders 13 sections in PART 1 order",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T10"
+      ],
+      "targetFiles": [
+        "src/public/templates/home.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderHome exported",
+        "BEHAVIORAL: section markers appear in PART 1 order",
+        "BEHAVIORAL: site.name appears in output AND theiwise does not"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)",
+      "category": "ui",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T11"
+      ],
+      "targetFiles": [
+        "src/public/templates/article.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderArticle exported",
+        "BEHAVIORAL: 12 section markers appear in PART 2 order",
+        "BEHAVIORAL: article-shell minmax(0, 1fr) present",
+        "BEHAVIORAL: faqs=[] does NOT emit FAQPage JSON-LD"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "router.ts adds GET / handler wiring home view-model + template",
+      "category": "api",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T12"
+      ],
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "GET / registered",
+        "BEHAVIORAL: GET / on tenant returns 200 text/html with site-header + site-footer"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "/article/:slug uses Article template with fallback",
+      "category": "api",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T13"
+      ],
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderArticle + buildArticleViewModel wired",
+        "catch present",
+        "BEHAVIORAL: published article -> 200 with article-shell+hero+body",
+        "BEHAVIORAL: renderArticle throws -> 200 with content_html fallback"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "/assets/public.css + /assets/public.js cacheable routes",
+      "category": "api",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T14"
+      ],
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "both asset routes registered",
+        "immutable cache-control",
+        "BEHAVIORAL: GET /assets/public.css -> 200 text/css with --tw-brand",
+        "BEHAVIORAL: GET /assets/public.js -> 200 application/javascript with reading-progress-bar",
+        "BEHAVIORAL: explicit /assets/* routes win over /:slug catch-all"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "/category/:slug + /page/:slug use site-aware layout wrapper",
+      "category": "api",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T15"
+      ],
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderLayout used",
+        "BEHAVIORAL: GET /category/:slug -> 200 text/html with site-header + category name",
+        "BEHAVIORAL: GET /page/:slug -> 200 text/html with site-header + page content_html"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Regression: cms.kodigital.app does not render home",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T16"
+      ],
+      "targetFiles": [
+        "test/public-admin-host-no-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "references cms.kodigital.app",
+        "BEHAVIORAL: Host=cms.kodigital.app GET / -> 404 no leak"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T17"
+      ],
+      "targetFiles": [
+        "test/public-reserved-paths.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: planted admin page GET /admin -> 404 no leak",
+        "covers all reserved paths"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "Regression: no hardcoded TheIWise brand in rendered Home + Article",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T18"
+      ],
+      "targetFiles": [
+        "test/public-no-theiwise-brand-render.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: renderHome -> no theiwise",
+        "BEHAVIORAL: renderArticle -> no theiwise",
+        "banned tokens concatenated"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "JSON-LD presence on Home + Article",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T19"
+      ],
+      "targetFiles": [
+        "test/public-json-ld-presence.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: Home contains WebSite + Organization + ItemList",
+        "BEHAVIORAL: Article with faqs contains Article + BreadcrumbList + FAQPage",
+        "BEHAVIORAL: Article with empty faqs omits FAQPage"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "Image attribute + lazy-load tests",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T20"
+      ],
+      "targetFiles": [
+        "test/public-image-attrs.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: every <img> has alt+width+height",
+        "BEHAVIORAL: below-fold images have loading=lazy"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Ad-slot attribute tests",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T21"
+      ],
+      "targetFiles": [
+        "test/public-ad-slots.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: every ad-slot has data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}",
+        "BEHAVIORAL: both leaderboard + in-feed present on Home"
+      ],
+      "scoped_quality_commands": [],
+      "forbidden_red_lines": [
+        "MUST NOT set canonical PRD passes=true",
+        "MUST NOT edit parent context stories outside this execution story",
+        "MUST NOT run unrelated funnel tests when scope says otherwise"
+      ]
+    },
+    {
+      "id": "T22",
+      "title": "Regression: typecheck + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0",
+      "category": "infra",
+      "state": "implemented",
+      "passes": true,
+      "source_story_ids": [
+        "T22"
+      ],
+      "targetFiles": [
+        "test/verify-scripts-green.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "tsc --noEmit exit 0",
+        "verify:no-legacy-prod-refs exit 0",
+        "verify:infra exit 0",
+        "verify:worker-config exit 0"
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
