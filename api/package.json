@@ -16,6 +16,7 @@
     "verify:infra": "tsx scripts/verify/infra-contract.ts",
     "verify:required-secrets": "tsx scripts/verify/required-secrets.ts",
     "verify:worker-config": "tsx scripts/verify/worker-config.ts",
+    "verify:all": "npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config",
     "smoke:cms-domain": "tsx scripts/smoke/cms-domain.ts",
     "smoke:local": "curl -fsS http://localhost:8787/health",
     "db:migrate:local": "wrangler d1 migrations apply kodigital-homepages-cms-db --local",

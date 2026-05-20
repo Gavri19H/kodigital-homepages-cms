@@ -14,8 +14,11 @@ import { test, expect } from '@playwright/test';
 // so the browser's HTML5 required-validation doesn't suppress the POST.
 // This keeps the spec self-contained against an empty local D1.
 //
-// Run against a local `wrangler dev` (port 8787) with DEV_BYPASS_AUTH=true,
-// booted automatically by playwright.config.ts webServer.
+// Run against a local `wrangler dev` (port 8787) launched with
+// `--var ADMIN_HOST:127.0.0.1 --var DEV_BYPASS_AUTH:true`. Production
+// form uses Host: cms.kodigital.app (wrangler.toml [env.production]);
+// chromium refuses to override Host via extraHTTPHeaders, so dev
+// substitutes 127.0.0.1 as ADMIN_HOST and the URL hostname matches.
 
 const SCREENSHOT_DIR = 'test-results/domains-create-site';
 
@@ -25,7 +28,7 @@ test('admin domains -- + New Site modal fill+submit observes POST /api/admin/sit
   // 1) Navigate to /admin/domains and confirm the admin shell renders.
   const response = await page.goto('/admin/domains', { waitUntil: 'domcontentloaded' });
   expect(response, 'navigation to /admin/domains returned no response').not.toBeNull();
-  expect(response!.status(), 'unexpected HTTP status for /admin/domains').toBe(200);
+  if (response) expect(response.status(), 'unexpected HTTP status for /admin/domains').toBe(200);
 
   const initialHtml = await page.content();
   expect(initialHtml, '/admin/domains still leaks the legacy Phase 1 admin shell').not.toContain('Phase 1 admin shell');
@@ -44,7 +47,7 @@ test('admin domains -- + New Site modal fill+submit observes POST /api/admin/sit
   // wire real data); inject one <option> and select it so submit isn't
   // blocked by HTML5 required-validation on the vertical_slug select.
   await page.fill('input[name="domain"]', uniqueDomain);
-  await page.fill('input[name="site_name"]', 'QA Test Site');
+  await page.fill('input#name', 'QA Test Site');
   await page.evaluate(() => {
     const sel = document.querySelector('select[name="vertical_slug"]') as HTMLSelectElement | null;
     if (sel) {

@@ -32,8 +32,10 @@ import {
   advanceNextStep,
   findActiveJobForSite,
   ProvisioningError,
+  runProvisioningToCompletion,
   type AdvanceResult,
   type JobRow,
+  type ProvisioningRunSummary,
 } from "./runner";
 
 export {
@@ -43,8 +45,9 @@ export {
   advanceNextStep,
   findActiveJobForSite,
   ProvisioningError,
+  runProvisioningToCompletion,
 };
-export type { AdvanceResult, JobRow, StepKey };
+export type { AdvanceResult, JobRow, ProvisioningRunSummary, StepKey };
 
 interface LatestStepRow {
   step_key: string;

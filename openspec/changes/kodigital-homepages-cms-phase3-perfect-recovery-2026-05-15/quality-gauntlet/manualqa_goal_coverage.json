@@ -1,0 +1,195 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "kodigital-homepages-cms-phase3-perfect-recovery-2026-05-15",
+  "generated_at": "2026-05-18T03:25:00Z",
+  "producer": "ralph_iteration_T16_quality_gauntlet_authoring",
+  "purpose": "Map every MQA-N (manual-QA scenario) to its in-scope REQ-N (mission requirement) so the /a2z-ship manualQA phase can read this file and assert per-scenario coverage without traversing mission_goal_trace.json. Source of truth for AC mapping is .a2z/mission-state/<cid>/mission_goal_trace.json (30 REQ rows) which references manualqa_row per requirement.",
+  "develop_target": "local",
+  "production_status": "production_pending",
+  "rows": [
+    {
+      "manualqa_id": "MQA-1",
+      "title": "Admin dashboard + articles route render live data, not empty-state",
+      "category": "ui_visual_parity",
+      "in_scope_reqs": ["REQ-014", "REQ-015", "REQ-016", "REQ-022"],
+      "covered_stories": ["T2"],
+      "primary_evidence_route": "T2.AC1 (vitest >= 9 cases) + T2.AC2 (behavioral: rendered HTML has articles table row, not empty-state div)",
+      "develop_assertion": "data.ts:listArticlesForSite called with resolved site_id; HTML body contains articles table row",
+      "production_assertion": "deferred_to_ship — browser visit https://cms.kodigital.app/admin/articles shows live rows",
+      "reviewer_artifacts": ["screenshot_375px", "screenshot_1280px", "dom_snapshot", "api_trace"]
+    },
+    {
+      "manualqa_id": "MQA-2",
+      "title": "Domains admin tab renders site rows with the WARN-FIX-3 field-name migration applied",
+      "category": "ui_visual_parity",
+      "in_scope_reqs": ["REQ-003"],
+      "covered_stories": ["T3"],
+      "primary_evidence_route": "T3.AC1 (grep id=\"name\" >= 1) + T3.AC3 (grep parity)",
+      "develop_assertion": "/admin/domains renders sites table; New Site form uses id='name' not id='site_name'",
+      "production_assertion": "deferred_to_ship — browser visit https://cms.kodigital.app/admin/domains shows the migrated form",
+      "reviewer_artifacts": ["screenshot_375px", "screenshot_1280px", "dom_snapshot"]
+    },
+    {
+      "manualqa_id": "MQA-3",
+      "title": "New Site modal submits POST /api/admin/sites with wire field 'name' and re-renders the Domains table",
+      "category": "wire_protocol_consistency",
+      "in_scope_reqs": ["REQ-004", "REQ-017", "REQ-018", "REQ-023"],
+      "covered_stories": ["T3", "T15"],
+      "primary_evidence_route": "T3.AC2 (Playwright behavioral: POST body has 'name', response 201, table re-renders)",
+      "develop_assertion": "Playwright domains-create-site.spec.ts PASS against local wrangler dev",
+      "production_assertion": "deferred_to_ship — browser fill+submit form against https://cms.kodigital.app/admin/domains",
+      "reviewer_artifacts": ["playwright_trace", "network_trace", "screenshot_after_submit", "dom_snapshot_table"]
+    },
+    {
+      "manualqa_id": "MQA-4",
+      "title": "Site provisioning 15-step runner is idempotent + writes site_creation_job_steps + writes About page",
+      "category": "provisioning_step",
+      "in_scope_reqs": ["REQ-005", "REQ-019", "REQ-020"],
+      "covered_stories": ["T4"],
+      "primary_evidence_route": "T4.AC1 (15 steps + idempotent 16th) + T4.AC2 (COUNT(*) job_steps = 15) + T4.AC3 (COUNT(*) pages WHERE page_type='about' = 1)",
+      "develop_assertion": "vitest provisioning-runner.test.ts PASS against local D1",
+      "production_assertion": "deferred_to_ship — issue a site creation against production D1 and verify job_steps + pages rows materialize",
+      "reviewer_artifacts": ["db_query_output", "vitest_output", "trace"]
+    },
+    {
+      "manualqa_id": "MQA-5",
+      "title": "Per-site slug UNIQUE replaces legacy global slug UNIQUE (migration 0007 applied)",
+      "category": "schema",
+      "in_scope_reqs": ["REQ-001", "REQ-002", "REQ-026"],
+      "covered_stories": ["T1"],
+      "primary_evidence_route": "T1.AC1 (db:migrate:local exit 0) + T1.AC2 (sqlite_master query) + T1.AC3 (two sites + duplicate slug behavior)",
+      "develop_assertion": "Local D1 sqlite_master returns 1 row for idx_articles_site_slug_unique + 0 for legacy idx_articles_slug_global; cross-site duplicate slug succeeds; same-site duplicate slug raises UNIQUE violation",
+      "production_assertion": "deferred_to_ship — wrangler d1 migrations apply on prod DB; then sqlite_master query asserts identical state",
+      "reviewer_artifacts": ["db_query_output", "migration_file_diff"]
+    },
+    {
+      "manualqa_id": "MQA-6",
+      "title": "PATCH /api/admin/articles/:id enforces tenant boundary + per-site slug uniqueness + category vertical validation + allow-list field gating",
+      "category": "api",
+      "in_scope_reqs": ["REQ-006", "REQ-012", "REQ-021"],
+      "covered_stories": ["T5", "T11"],
+      "primary_evidence_route": "T5.AC1 (vitest >= 4 cases) + T5.AC2 (cross-site -> 403 + tenant_violation) + T5.AC3 (duplicate slug -> 409) + T11.AC1 (assertTenantBoundary throws) + T11.AC2 (assertSlugUniquePerSite throws)",
+      "develop_assertion": "vitest admin-articles-post-site-id.test.ts + tenant-guards.test.ts PASS against local D1",
+      "production_assertion": "deferred_to_ship — same vitest suite + curl probe against production API",
+      "reviewer_artifacts": ["vitest_output", "api_trace", "db_query_output_pre_post"]
+    },
+    {
+      "manualqa_id": "MQA-7",
+      "title": "Pages template renders site_id + page_type filters; About page provisioning inserts exactly 1 page",
+      "category": "ui_visual_parity",
+      "in_scope_reqs": ["REQ-007", "REQ-023"],
+      "covered_stories": ["T6", "T15"],
+      "primary_evidence_route": "T6.AC1 (HTML has select[name=site_id] + select[name=page_type] with option 'about') + T6.AC2 (db COUNT = 1)",
+      "develop_assertion": "vitest pages-template.test.ts PASS; HTML body inspection of /admin/pages",
+      "production_assertion": "deferred_to_ship — browser visit https://cms.kodigital.app/admin/pages shows the filters",
+      "reviewer_artifacts": ["dom_snapshot", "db_query_output", "screenshot"]
+    },
+    {
+      "manualqa_id": "MQA-8",
+      "title": "POST /api/admin/categories with vertical_ids:[1,2,3] writes exactly 3 category_verticals rows; invalid vertical_id returns 422",
+      "category": "ui_browser_interaction",
+      "in_scope_reqs": ["REQ-008"],
+      "covered_stories": ["T7"],
+      "primary_evidence_route": "T7.AC1 (vitest behavioral: 3 rows) + T7.AC2 (vitest behavioral: 422 + zero rows)",
+      "develop_assertion": "vitest category-multi-vertical.test.ts PASS against local D1",
+      "production_assertion": "deferred_to_ship — curl POST against production API + db query against production D1",
+      "reviewer_artifacts": ["vitest_output", "db_query_output_pre_post", "api_trace"]
+    },
+    {
+      "manualqa_id": "MQA-9",
+      "title": "PATCH /api/admin/settings bumps site_settings.settings_version for the targeted site only (no global update)",
+      "category": "wire_protocol_consistency",
+      "in_scope_reqs": ["REQ-009"],
+      "covered_stories": ["T8"],
+      "primary_evidence_route": "T8.AC1 (vitest behavioral: settings_version (X) = N+1 AND settings_version (Y) unchanged)",
+      "develop_assertion": "vitest admin-settings.test.ts PASS against local D1",
+      "production_assertion": "deferred_to_ship — same vitest probe against production API",
+      "reviewer_artifacts": ["vitest_output", "db_query_output_pre_post"]
+    },
+    {
+      "manualqa_id": "MQA-10",
+      "title": "Media + Tags admin pages render WARN-FIX-4 site_id filter and return site-scoped rows",
+      "category": "ui_visual_parity",
+      "in_scope_reqs": ["REQ-010", "REQ-011"],
+      "covered_stories": ["T9", "T10"],
+      "primary_evidence_route": "T9.AC2 (listMediaForSite(X) returns 5 rows) + T10.AC1 (grep name=\"site_id\" >= 1) + T10.AC2 (GET /api/admin/tags?site_id=A returns 3 rows)",
+      "develop_assertion": "vitest tags-media-filter.test.ts + media-filter.test.ts PASS",
+      "production_assertion": "deferred_to_ship — browser visit https://cms.kodigital.app/admin/{media,tags}",
+      "reviewer_artifacts": ["vitest_output", "screenshot", "db_query_output"]
+    },
+    {
+      "manualqa_id": "MQA-11",
+      "title": "Site provisioning dry-run emits ZERO outbound api.cloudflare.com requests + writes cache_purge_log dry_run row",
+      "category": "cf_dry_run",
+      "in_scope_reqs": ["REQ-013", "REQ-028"],
+      "covered_stories": ["T12"],
+      "primary_evidence_route": "T12.AC1 (fetch spy: 0 calls to api.cloudflare.com) + T12.AC2 (db COUNT(*) cache_purge_log WHERE dry_run=1 >= 1)",
+      "develop_assertion": "vitest provisioning-no-outbound.test.ts PASS against local D1 with SITE_PROVISIONING_DRY_RUN=true",
+      "production_assertion": "deferred_to_ship — production runs MUST have SITE_PROVISIONING_DRY_RUN=false (live cache purge). dry-run mode is develop-only; production check is symmetrical 'verify dry_run=false in prod env'",
+      "reviewer_artifacts": ["vitest_output", "fetch_spy_log", "db_query_output"]
+    },
+    {
+      "manualqa_id": "MQA-12",
+      "title": "Off-admin-host /admin returns 404 + no-store + noindex/nofollow + no cms.kodigital.app leak; admin host gate fires",
+      "category": "ui_browser_interaction",
+      "in_scope_reqs": ["REQ-023", "REQ-024"],
+      "covered_stories": ["T13", "T15"],
+      "primary_evidence_route": "T13.AC1 (Playwright admin-routing-security.spec.ts PASS) + T13.AC2 (curl -H 'Host: demo-acme.example' http://127.0.0.1:8787/admin -> 404 + no-store + noindex/nofollow + no leak)",
+      "develop_assertion": "Playwright + vitest off-admin-host-404-headers.test.ts both PASS against local wrangler dev with ADMIN_HOST=127.0.0.1",
+      "production_assertion": "deferred_to_ship — curl -H 'Host: demo-acme.example' https://cms.kodigital.app/admin (production ADMIN_HOST=cms.kodigital.app) MUST return 404 + no-store + noindex/nofollow + no leak",
+      "reviewer_artifacts": ["playwright_trace", "curl_log", "vitest_output"]
+    },
+    {
+      "manualqa_id": "MQA-13",
+      "title": "verify:no-legacy-prod-refs exits 0 (no legacy production identifiers in source)",
+      "category": "safety_red_line",
+      "in_scope_reqs": ["REQ-025"],
+      "covered_stories": ["T14"],
+      "primary_evidence_route": "T14.AC1 (npm run verify:no-legacy-prod-refs exits 0)",
+      "develop_assertion": "cd api && npm run verify:no-legacy-prod-refs -> exit 0 + 'no banned legacy production identifiers found (Group A + Group B)'",
+      "production_assertion": "n/a — script asserts source-tree state; no production probe applies",
+      "reviewer_artifacts": ["script_stdout", "exit_code"]
+    },
+    {
+      "manualqa_id": "MQA-14",
+      "title": "verify:infra + verify:worker-config exit 0 (wrangler.toml matches Phase 1.5 infra + routing contract)",
+      "category": "safety_red_line",
+      "in_scope_reqs": ["REQ-029"],
+      "covered_stories": ["T14"],
+      "primary_evidence_route": "T14.AC2 (verify:infra exits 0) + T14.AC3 (verify:worker-config exits 0)",
+      "develop_assertion": "cd api && npm run verify:infra -> exit 0 + npm run verify:worker-config -> exit 0 (wrangler.toml [vars] blocks match Phase 1.5 routing contract; 3 blocks checked)",
+      "production_assertion": "n/a — scripts assert wrangler.toml state; no production probe applies",
+      "reviewer_artifacts": ["script_stdout_x2", "exit_code", "wrangler_toml_diff"]
+    },
+    {
+      "manualqa_id": "MQA-15",
+      "title": "deploy.yml invokes wrangler d1 migrations apply before wrangler deploy --env production (per-migration filename grep-able)",
+      "category": "safety_red_line",
+      "in_scope_reqs": ["REQ-030"],
+      "covered_stories": ["T17"],
+      "primary_evidence_route": "T17.AC1 (deploy.yml deploy-production job invokes wrangler d1 migrations apply) + T17.AC2 (migration 0007 filename grep) + T17.AC3 (order: migration apply BEFORE deploy)",
+      "develop_assertion": "grep + textual ordering check on .github/workflows/deploy.yml",
+      "production_assertion": "deferred_to_ship — observed by the next /a2z-ship deploy: D1 migration step runs, then wrangler deploy; deploy-safety.md D1-file rule satisfied",
+      "reviewer_artifacts": ["deploy_yml_diff", "grep_output"]
+    },
+    {
+      "manualqa_id": "MQA-16",
+      "title": "R2 binding MEDIA present in wrangler.toml; R2 actual upload deferred to production_pending (develop_target verifies metadata only)",
+      "category": "db_proof",
+      "in_scope_reqs": ["REQ-027"],
+      "covered_stories": ["T9"],
+      "primary_evidence_route": "T9.AC1 (grep binding = \"MEDIA\" wrangler.toml >= 1) + T9.AC2 (listMediaForSite(X) returns 5 rows) + T9.AC3 (R2 upload = production_pending)",
+      "develop_assertion": "wrangler.toml has [[r2_buckets]] binding=MEDIA; vitest media-filter.test.ts PASS",
+      "production_assertion": "deferred_to_ship — issue an R2 PUT against production binding + verify retrieval (NOT executed by develop)",
+      "reviewer_artifacts": ["wrangler_toml_diff", "vitest_output", "r2_metadata_log"]
+    }
+  ],
+  "row_count": 16,
+  "summary": {
+    "reqs_covered": ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-007", "REQ-008", "REQ-009", "REQ-010", "REQ-011", "REQ-012", "REQ-013", "REQ-014", "REQ-015", "REQ-016", "REQ-017", "REQ-018", "REQ-019", "REQ-020", "REQ-021", "REQ-022", "REQ-023", "REQ-024", "REQ-025", "REQ-026", "REQ-027", "REQ-028", "REQ-029", "REQ-030"],
+    "req_coverage_count": 30,
+    "manualqa_row_count": 16,
+    "all_rows_have_develop_assertion": true,
+    "all_rows_have_production_assertion_or_n_a": true
+  }
+}

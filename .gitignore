@@ -15,6 +15,11 @@ api/.dev.vars
 # Test / coverage artifacts
 coverage/
 *.lcov
+# Playwright HTML report + per-test artifacts (T15) — generated on each
+# `cd api && npx playwright test` run; large + ephemeral, never tracked.
+api/test-results/
+api/test-artifacts/
+api/playwright-report/
 
 # Editor / OS noise
 .DS_Store

@@ -198,3 +198,168 @@ describe("POST /api/admin/articles binds body.site_id (MQAFIX-1)", () => {
     expect(insert?.binds[2]).toBe("T");
   });
 });
+
+// T5: PATCH /api/admin/articles/:id contract surface — 4 BEHAVIORAL cases
+// per prd.json T5.AC1 (tenant boundary 403, slug duplicate 409, category
+// vertical mismatch 422, allow-list field gating). The PATCH handler in
+// api/src/admin/api.ts MUST flow each mutation through tenant-guards so
+// the per-site invariants from migration 0007 (per-site UNIQUE slug),
+// migration 0001..0006 (sites/category_verticals/vertical_slug), and the
+// allow-list whitelist hold across all admin clients.
+describe("PATCH /api/admin/articles/:id contract (T5)", () => {
+  it("returns 403 with tenant_violation field on cross-tenant mutation", async () => {
+    // GIVEN article id=10 owned by site A, WHEN PATCH is invoked with
+    // body.site_id=B (site B caller scope), THEN response is 403 AND
+    // body contains a tenant_violation field. Per T5.AC2 BEHAVIORAL.
+    const { db, calls } = makeFakeDb([
+      {
+        match: "SELECT id, site_id, slug FROM articles WHERE id = ?",
+        row: { id: 10, site_id: "st_A", slug: "about-A" },
+      },
+    ]);
+    const res = await admin.request(
+      "/api/admin/articles/10",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ site_id: "st_B", title: "Hijack" }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as {
+      error: string;
+      code?: string;
+      tenant_violation?: boolean;
+      actor_site_id?: string;
+      resource_site_id?: string;
+    };
+    expect(body.tenant_violation).toBe(true);
+    expect(body.code).toBe("TENANT_BOUNDARY_VIOLATION");
+    // No UPDATE statement issued — tenant guard short-circuited before
+    // building the SET clause.
+    expect(findCall(calls, "UPDATE articles")).toBeUndefined();
+  });
+
+  it("returns 409 SLUG_UNIQUENESS_VIOLATION when slug collides on same site", async () => {
+    // GIVEN article id=11 site_id=A slug='bar', WHEN PATCH sets slug='foo'
+    // AND another article with slug='foo' AND site_id=A AND id<>11 exists,
+    // THEN response status is 409 with code SLUG_UNIQUENESS_VIOLATION.
+    // Per T5.AC3 BEHAVIORAL.
+    const { db, calls } = makeFakeDb([
+      {
+        match: "SELECT id, site_id, slug FROM articles WHERE id = ?",
+        row: { id: 11, site_id: "st_A", slug: "bar" },
+      },
+      {
+        match:
+          "SELECT id FROM articles WHERE slug = ? AND site_id = ? AND id <> ?",
+        row: { id: 99 },
+      },
+    ]);
+    const res = await admin.request(
+      "/api/admin/articles/11",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug: "foo" }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; code?: string };
+    expect(body.code).toBe("SLUG_UNIQUENESS_VIOLATION");
+    expect(findCall(calls, "UPDATE articles")).toBeUndefined();
+  });
+
+  it("returns 422 CATEGORY_INVALID_FOR_SITE when category_id is not allowed for the site's vertical", async () => {
+    // GIVEN article id=12 site_id=A and category 99 NOT mapped to A's
+    // vertical (no row in category_verticals JOIN verticals JOIN sites),
+    // WHEN PATCH sets category_id=99, THEN response status is 422 with
+    // code CATEGORY_INVALID_FOR_SITE.
+    const { db, calls } = makeFakeDb([
+      {
+        match: "SELECT id, site_id, slug FROM articles WHERE id = ?",
+        row: { id: 12, site_id: "st_A", slug: "about-A" },
+      },
+      // Slug not changing -> uniqueness probe not triggered. Category
+      // probe matches the JOIN literal in validateCategoryForSite and
+      // returns null -> handler emits 422.
+      { match: "FROM category_verticals cv", row: null },
+    ]);
+    const res = await admin.request(
+      "/api/admin/articles/12",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ category_id: 99 }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; code?: string };
+    expect(body.code).toBe("CATEGORY_INVALID_FOR_SITE");
+    expect(findCall(calls, "UPDATE articles")).toBeUndefined();
+  });
+
+  it("gates UPDATE to allow-listed fields only (ignores unknown body keys)", async () => {
+    // GIVEN article id=13 site_id=A slug='ok', WHEN PATCH body contains
+    // allow-listed { title, status } AND attacker keys { admin_role,
+    // secret, owner_id, id, site_id_override }, THEN the UPDATE SQL
+    // contains 'title = ?' AND 'status = ?' BUT MUST NOT contain
+    // 'admin_role', 'secret', 'owner_id', or any column not in the
+    // whitelist (site_id, title, slug, content_json, category_id, status,
+    // homepage_section, homepage_rank, is_featured, is_trending,
+    // featured_image_id, seo_title, seo_description, author_name).
+    const refreshedRow = {
+      id: 13,
+      site_id: "st_A",
+      slug: "ok",
+      title: "new title",
+      category_id: null,
+      status: "published",
+    };
+    const { db, calls } = makeFakeDb([
+      {
+        match: "SELECT id, site_id, slug FROM articles WHERE id = ?",
+        row: { id: 13, site_id: "st_A", slug: "ok" },
+      },
+      {
+        match: "SELECT * FROM articles WHERE id = ?",
+        row: refreshedRow,
+      },
+    ]);
+    const res = await admin.request(
+      "/api/admin/articles/13",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: "new title",
+          status: "published",
+          admin_role: "root",
+          secret: "leak",
+          owner_id: 999,
+          id: 0,
+          site_id_override: "st_B",
+        }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(200);
+    const update = findCall(calls, "UPDATE articles");
+    expect(update).toBeDefined();
+    // Allow-listed columns appear in SET clause.
+    expect(update?.sql).toContain("title = ?");
+    expect(update?.sql).toContain("status = ?");
+    // Non-whitelisted keys MUST NOT appear in the generated SQL — the
+    // handler builds setClauses only from `typeof body.<field> === ...`
+    // branches for whitelisted columns.
+    expect(update?.sql).not.toMatch(/admin_role/);
+    expect(update?.sql).not.toMatch(/secret\b/);
+    expect(update?.sql).not.toMatch(/owner_id/);
+    expect(update?.sql).not.toMatch(/site_id_override/);
+    // The trailing WHERE id = ? carries the route id (binds last).
+    expect(update?.binds[update.binds.length - 1]).toBe(13);
+  });
+});

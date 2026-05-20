@@ -238,6 +238,22 @@ export interface MediaRowDto {
 
 export type SettingsValueMap = { [key: string]: string };
 
+export interface PresetRowDto {
+  id: string;
+  label: string;
+  model: string;
+  scope: string;
+  description: string;
+}
+
+interface PresetRecord {
+  id: number;
+  slug: string;
+  category: string | null;
+  is_system: number;
+  is_active: number;
+}
+
 function fmtDate(unixSeconds: number | null | undefined): string {
   if (typeof unixSeconds !== "number" || !Number.isFinite(unixSeconds)) {
     return "";
@@ -415,6 +431,33 @@ export async function getAdminArticle(
   };
 }
 
+export async function listArticlesForSite(
+  env: Env,
+  siteId: string,
+): Promise<ArticleRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT a.id, a.title, a.slug, a.site_id, a.category_id, a.status, a.homepage_section, a.is_featured, a.is_trending, a.published_at, a.updated_at, s.name AS site_name, c.name AS category_name FROM articles a LEFT JOIN sites s ON s.id = a.site_id LEFT JOIN categories c ON c.id = a.category_id WHERE a.site_id = ? ORDER BY a.updated_at DESC, a.id DESC LIMIT 500",
+  )
+    .bind(siteId)
+    .all<
+      ArticleListRecord & { site_name: string | null; category_name: string | null }
+    >();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    title: r.title,
+    slug: r.slug,
+    site: r.site_name ?? "",
+    site_id: r.site_id,
+    category: r.category_name ?? "",
+    status: r.status,
+    homepage_section: r.homepage_section,
+    is_featured: r.is_featured === 1,
+    is_trending: r.is_trending === 1,
+    published_at: r.published_at !== null ? fmtDate(r.published_at) : null,
+    updated_at: fmtDate(r.updated_at),
+  }));
+}
+
 export async function listAdminPages(env: Env): Promise<PageRowDto[]> {
   const result = await env.DB.prepare(
     "SELECT p.id, p.title, p.slug, p.site_id, p.page_type, p.status, p.show_in_footer, p.updated_at, s.name AS site_name FROM pages p LEFT JOIN sites s ON s.id = p.site_id ORDER BY p.updated_at DESC, p.id DESC LIMIT 500",
@@ -471,10 +514,54 @@ export async function listAdminCategories(
   }));
 }
 
+// T7: data-layer helper that resolves a site's allowed vertical set.
+// The HTTP handler at api.ts:POST /api/admin/categories uses an inline
+// query (no helper) so the test seam can plant rows; this wrapper is
+// exposed for future read paths (Settings → vertical pickers) that need
+// the same set without going through the create handler. Wrapper is a
+// plain bind() call — schema invariant: verticals.id is the PK that
+// category_verticals.vertical_id references.
+export async function listAllowedVerticalsForSite(
+  env: Env,
+  siteId: string,
+): Promise<number[]> {
+  if (typeof siteId !== "string" || siteId.trim().length === 0) return [];
+  const result = await env.DB.prepare(
+    "SELECT v.id AS id FROM verticals v INNER JOIN sites s ON s.vertical_slug = v.slug WHERE s.id = ? ORDER BY v.display_order ASC",
+  )
+    .bind(siteId)
+    .all<{ id: number }>();
+  return (result.results ?? []).map((r) => r.id);
+}
+
 export async function listAdminTags(env: Env): Promise<TagRowDto[]> {
   const result = await env.DB.prepare(
     "SELECT id, name, slug, site_id, article_count FROM tags ORDER BY name ASC LIMIT 500",
   ).all<TagRecord>();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    name: r.name,
+    slug: r.slug,
+    site_id: r.site_id,
+    article_count: r.article_count,
+  }));
+}
+
+// T10: site-scoped Tags read path. The Tags admin page (templates/tags.ts)
+// emits select[name="site_id"] so the filter form submits ?site_id=<id>.
+// This wrapper drives GET /api/admin/tags?site_id=<id> and returns the
+// site's own tags only (NULL/global rows are excluded by AC: site A with
+// 3 tags + site B with 2 tags MUST yield exactly 3 rows for site_id=A).
+// Site-id is bound (parameterized) — never interpolated.
+export async function listTagsForSite(
+  env: Env,
+  siteId: string,
+): Promise<TagRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT id, name, slug, site_id, article_count FROM tags WHERE site_id = ? ORDER BY name ASC LIMIT 500",
+  )
+    .bind(siteId)
+    .all<TagRecord>();
   return (result.results ?? []).map((r) => ({
     id: String(r.id),
     name: r.name,
@@ -496,6 +583,40 @@ export async function listAdminMedia(env: Env): Promise<MediaRowDto[]> {
     kind: fmtKind(r.mime_type),
     size: r.size_bytes,
     uploaded_at: fmtDate(r.created_at),
+  }));
+}
+
+export async function listMediaForSite(
+  env: Env,
+  siteId: string,
+): Promise<MediaRowDto[]> {
+  const result = await env.DB
+    .prepare(
+      "SELECT id, filename, storage_key, mime_type, size_bytes, site_id, created_at FROM media WHERE site_id = ? OR site_id IS NULL ORDER BY created_at DESC, id DESC LIMIT 500",
+    )
+    .bind(siteId)
+    .all<MediaRecord>();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    filename: r.filename,
+    preview_url: "/media/" + r.storage_key,
+    site_id: r.site_id,
+    kind: fmtKind(r.mime_type),
+    size: r.size_bytes,
+    uploaded_at: fmtDate(r.created_at),
+  }));
+}
+
+export async function listAdminPresets(env: Env): Promise<PresetRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT id, slug, category, is_system, is_active FROM prompt_presets WHERE is_active = 1 ORDER BY slug ASC, id ASC LIMIT 500",
+  ).all<PresetRecord>();
+  return (result.results ?? []).map((r) => ({
+    id: String(r.id),
+    label: r.slug,
+    model: "",
+    scope: r.is_system === 1 ? "system" : "user",
+    description: r.category ?? "",
   }));
 }
 
