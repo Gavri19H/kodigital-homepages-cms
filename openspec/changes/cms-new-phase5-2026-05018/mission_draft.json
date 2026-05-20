@@ -1,0 +1,732 @@
+{
+  "contract_version": "1.0.0",
+  "change_id": "cms-new-phase5-2026-05018",
+  "branch_name": "mission/cms-new-phase5-2026-05018",
+  "tier": "COMPLEX",
+  "main_goal": {
+    "text": "Implement generic Home + Article public templates in the standalone CMS Worker so a tenant content domain renders the approved 13-section Home and 12-section Article using per-site brand tokens via SiteContext, with no TheIWise visible brand and no cms.kodigital.app leak.",
+    "entity": "kodigital-homepages-cms public Worker (api/src/public/)",
+    "action": "render Home + Article templates from per-site CMS data",
+    "metric": {
+      "name": "renderhome_function_exported",
+      "comparator": ">=",
+      "expected_value": 1
+    },
+    "source_of_truth": {
+      "source_id": "SP-SPEC-001",
+      "source_type": "file",
+      "method": "grep",
+      "canonical_path": "api/src/public/templates/home.ts",
+      "entity": "rendered_home_html",
+      "metric": "renderhome_function_exported",
+      "parser_name": "parse_grep_count",
+      "parser_version": "1.0.0",
+      "value_path": "$.count"
+    },
+    "forbidden_substitutes": [
+      "theiwise.com",
+      "TheIWise",
+      "theiwise",
+      "a2z-cf-cms-v1-api",
+      "a2z-cf-cms-v1-db"
+    ],
+    "ui_surface": "/, /article/:slug, /category/:slug, /page/:slug, /assets/public.css, /assets/public.js",
+    "api_surface": "Hono Worker public router",
+    "storage_surface": "D1 (sites, site_settings, articles, categories, site_categories, category_verticals, media, pages)",
+    "failure_criterion": "Any rendered output contains TheIWise/theiwise outside docs/reference allowlist; href=\"#\" present in rendered home/article; section order differs from PART 1/PART 2; .article-shell omits minmax(0, 1fr); cms.kodigital.app appears in any public-domain body; any verify:* script non-zero.",
+    "evidence_required": [
+      "vitest pass for all 22 stories",
+      "tsc --noEmit exit 0",
+      "verify:no-legacy-prod-refs exit 0",
+      "verify:infra exit 0",
+      "verify:worker-config exit 0"
+    ]
+  },
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Add public.css string module with all PART 3 tokens and PART 4 breakpoints",
+      "category": "api",
+      "target_files": [
+        "api/src/public/assets/public-css.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T1.AC1",
+          "type": "grep",
+          "criterion": "tw-ink token present in public-css.ts",
+          "command": "grep -c -- '--tw-ink' api/src/public/assets/public-css.ts",
+          "expected": 1
+        },
+        {
+          "id": "T1.AC2",
+          "type": "grep",
+          "criterion": "1280px breakpoint present in public-css.ts",
+          "command": "grep -c '@media (max-width:1280px)' api/src/public/assets/public-css.ts",
+          "expected": 1
+        },
+        {
+          "id": "T1.AC3",
+          "type": "grep",
+          "criterion": "minmax(0, 1fr) present in public-css.ts",
+          "command": "grep -c 'minmax(0, 1fr)' api/src/public/assets/public-css.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Add public.js string module with passive-listener reading progress + share/copy",
+      "category": "api",
+      "target_files": [
+        "api/src/public/assets/public-js.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T2.AC1",
+          "type": "grep",
+          "criterion": "passive listener present in public-js.ts",
+          "command": "grep -c 'passive: true' api/src/public/assets/public-js.ts",
+          "expected": 1
+        },
+        {
+          "id": "T2.AC2",
+          "type": "grep",
+          "criterion": "navigator.share present in public-js.ts",
+          "command": "grep -c 'navigator.share' api/src/public/assets/public-js.ts",
+          "expected": 1
+        },
+        {
+          "id": "T2.AC3",
+          "type": "grep",
+          "criterion": "reading-progress-bar present in public-js.ts",
+          "command": "grep -c 'reading-progress-bar' api/src/public/assets/public-js.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/layout.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T3.AC1",
+          "type": "grep",
+          "criterion": "skip-to-content link present in layout.ts",
+          "command": "grep -c 'skip-to-content' api/src/public/templates/layout.ts",
+          "expected": 1
+        },
+        {
+          "id": "T3.AC2",
+          "type": "grep",
+          "criterion": "brand_tokens or brandTokens referenced in layout.ts",
+          "command": "grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts",
+          "expected": 1
+        },
+        {
+          "id": "T3.AC3",
+          "type": "grep",
+          "criterion": "layout renders inline <style> block with brand tokens",
+          "command": "grep -cE '<style' api/src/public/templates/layout.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "templates/components.ts exports site-aware components",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/components.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T4.AC1",
+          "type": "grep",
+          "criterion": ">=8 component export functions in components.ts",
+          "command": "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' api/src/public/templates/components.ts",
+          "expected": 8
+        },
+        {
+          "id": "T4.AC2",
+          "type": "grep",
+          "criterion": "data-ad-slot attribute present in components.ts",
+          "command": "grep -c 'data-ad-slot' api/src/public/templates/components.ts",
+          "expected": 1
+        },
+        {
+          "id": "T4.AC3",
+          "type": "grep",
+          "criterion": "renderChipRail produces category hrefs (no href=# placeholder) in components.ts",
+          "command": "grep -c '/category/' api/src/public/templates/components.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "templates/icons.ts exports inline SVG icons",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/icons.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T5.AC1",
+          "type": "grep",
+          "criterion": "5 icon exports in icons.ts",
+          "command": "grep -cE 'export function (iconSearch|iconShare|iconCopy|iconArrow|iconBrandMark)' api/src/public/templates/icons.ts",
+          "expected": 5
+        },
+        {
+          "id": "T5.AC2",
+          "type": "grep",
+          "criterion": "aria-hidden on decorative SVGs in icons.ts",
+          "command": "grep -c 'aria-hidden=\"true\"' api/src/public/templates/icons.ts",
+          "expected": 5
+        }
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "templates/seo.ts exports JSON-LD builders + meta helpers",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/seo.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T6.AC1",
+          "type": "grep",
+          "criterion": "5 seo exports",
+          "command": "grep -cE 'export function (buildHomeJsonLd|buildArticleJsonLd|buildBreadcrumbJsonLd|buildFaqJsonLd|buildMetaTags)' api/src/public/templates/seo.ts",
+          "expected": 5
+        },
+        {
+          "id": "T6.AC2",
+          "type": "grep",
+          "criterion": "6 JSON-LD types referenced in seo.ts",
+          "command": "grep -cE '\"@type\": *\"(WebSite|Organization|ItemList|Article|BreadcrumbList|FAQPage)\"' api/src/public/templates/seo.ts",
+          "expected": 6
+        },
+        {
+          "id": "T6.AC3",
+          "type": "grep",
+          "criterion": "buildFaqJsonLd has empty-faqs early return in seo.ts",
+          "command": "grep -cE 'faqs\\.length\\s*===?\\s*0|!faqs\\.length|faqs\\.length\\s*<' api/src/public/templates/seo.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/format.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T7.AC1",
+          "type": "grep",
+          "criterion": "3 format exports",
+          "command": "grep -cE 'export function (formatDate|formatReadTime|truncateExcerpt)' api/src/public/templates/format.ts",
+          "expected": 3
+        },
+        {
+          "id": "T7.AC2",
+          "type": "grep",
+          "criterion": "truncateExcerpt uses ellipsis token in format.ts",
+          "command": "grep -cE 'truncateExcerpt|\\u2026|\\.\\.\\.' api/src/public/templates/format.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "view-models/home.ts exports buildHomeViewModel(db, siteContext)",
+      "category": "api",
+      "target_files": [
+        "api/src/public/view-models/home.ts",
+        "api/test/public-view-models-home.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T8.AC1",
+          "type": "grep",
+          "criterion": "buildHomeViewModel exported",
+          "command": "grep -c 'export async function buildHomeViewModel' api/src/public/view-models/home.ts",
+          "expected": 1
+        },
+        {
+          "id": "T8.AC2",
+          "type": "grep",
+          "criterion": "site-scoped WHERE in home.ts queries",
+          "command": "grep -c 'WHERE site_id = ?' api/src/public/view-models/home.ts",
+          "expected": 1
+        },
+        {
+          "id": "T8.AC3",
+          "type": "grep",
+          "criterion": ">=3 .bind() calls in home.ts",
+          "command": "grep -c '\\.bind(' api/src/public/view-models/home.ts",
+          "expected": 3
+        },
+        {
+          "id": "T8.AC4",
+          "type": "grep",
+          "criterion": "site-isolation test case in public-view-models-home.test.ts asserts only site A's articles",
+          "command": "grep -cE 'site.{1,5}A|site.{1,5}B|featured|site_id' api/test/public-view-models-home.test.ts",
+          "expected": 2
+        }
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "view-models/article.ts exports buildArticleViewModel + adaptBodyBlocks",
+      "category": "api",
+      "target_files": [
+        "api/src/public/view-models/article.ts",
+        "api/test/public-view-models-article.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T9.AC1",
+          "type": "grep",
+          "criterion": "buildArticleViewModel exported",
+          "command": "grep -c 'export async function buildArticleViewModel' api/src/public/view-models/article.ts",
+          "expected": 1
+        },
+        {
+          "id": "T9.AC2",
+          "type": "grep",
+          "criterion": "site_id scoped in article.ts",
+          "command": "grep -c 'site_id = ?' api/src/public/view-models/article.ts",
+          "expected": 1
+        },
+        {
+          "id": "T9.AC3",
+          "type": "grep",
+          "criterion": "adaptBodyBlocks present in article.ts",
+          "command": "grep -c 'adaptBodyBlocks' api/src/public/view-models/article.ts",
+          "expected": 1
+        },
+        {
+          "id": "T9.AC4",
+          "type": "grep",
+          "criterion": "content_json null-fallback + faq-block tests present in public-view-models-article.test.ts",
+          "command": "grep -cE 'content_json|content_html|faq' api/test/public-view-models-article.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "templates/home.ts renders 13 sections in PART 1 order",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/home.ts",
+        "api/test/public-templates-home.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T10.AC1",
+          "type": "grep",
+          "criterion": "renderHome exported in home.ts",
+          "command": "grep -c 'export function renderHome' api/src/public/templates/home.ts",
+          "expected": 1
+        },
+        {
+          "id": "T10.AC2",
+          "type": "grep",
+          "criterion": "13 section markers + brand-from-site assertions in public-templates-home.test.ts",
+          "command": "grep -cE 'section[_-]?order|brand[_-]?from[_-]?site|describe' api/test/public-templates-home.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)",
+      "category": "api",
+      "target_files": [
+        "api/src/public/templates/article.ts",
+        "api/test/public-templates-article.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T11.AC1",
+          "type": "grep",
+          "criterion": "renderArticle exported in article.ts",
+          "command": "grep -c 'export function renderArticle' api/src/public/templates/article.ts",
+          "expected": 1
+        },
+        {
+          "id": "T11.AC2",
+          "type": "grep",
+          "criterion": "minmax(0, 1fr) present in article.ts",
+          "command": "grep -c 'minmax(0, 1fr)' api/src/public/templates/article.ts",
+          "expected": 1
+        },
+        {
+          "id": "T11.AC3",
+          "type": "grep",
+          "criterion": "PART 2 12-section + empty-faqs FAQPage-omission cases in public-templates-article.test.ts",
+          "command": "grep -cE 'section[_-]?order|FAQPage|faqs|describe' api/test/public-templates-article.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "router.ts adds GET / handler wiring home view-model + template",
+      "category": "api",
+      "target_files": [
+        "api/src/public/router.ts",
+        "api/test/public-router-home.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T12.AC1",
+          "type": "grep",
+          "criterion": "GET / route handler registered in router.ts",
+          "command": "grep -cE 'router\\.get\\(\"/\",|app\\.get\\(\"/\",|\\.get\\(\"/\"' api/src/public/router.ts",
+          "expected": 1
+        },
+        {
+          "id": "T12.AC2",
+          "type": "grep",
+          "criterion": "GET / 200 text/html + site-header/footer asserted in public-router-home.test.ts",
+          "command": "grep -cE 'site-header|site-footer|describe|200' api/test/public-router-home.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "/article/:slug uses Article template with fallback",
+      "category": "api",
+      "target_files": [
+        "api/src/public/router.ts",
+        "api/test/public-router-article.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T13.AC1",
+          "type": "grep",
+          "criterion": "renderArticle + buildArticleViewModel wired in router.ts",
+          "command": "grep -cE 'renderArticle|buildArticleViewModel' api/src/public/router.ts",
+          "expected": 2
+        },
+        {
+          "id": "T13.AC2",
+          "type": "grep",
+          "criterion": "published-article + fallback test cases in public-router-article.test.ts",
+          "command": "grep -cE 'renders[_-]?article|fallback[_-]?on[_-]?throw|content_html|describe' api/test/public-router-article.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "/assets/public.css + /assets/public.js cacheable routes",
+      "category": "api",
+      "target_files": [
+        "api/src/public/router.ts",
+        "api/test/public-router-assets.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T14.AC1",
+          "type": "grep",
+          "criterion": "both asset routes registered in router.ts",
+          "command": "grep -cE '/assets/public\\.css|/assets/public\\.js' api/src/public/router.ts",
+          "expected": 2
+        },
+        {
+          "id": "T14.AC2",
+          "type": "grep",
+          "criterion": "immutable cache-control header set in router.ts",
+          "command": "grep -c 'max-age=31536000, immutable' api/src/public/router.ts",
+          "expected": 1
+        },
+        {
+          "id": "T14.AC3",
+          "type": "grep",
+          "criterion": "asset routes + slug catch-all precedence test cases in public-router-assets.test.ts",
+          "command": "grep -cE '/assets/public|text/css|application/javascript|describe' api/test/public-router-assets.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "/category/:slug + /page/:slug use site-aware layout wrapper",
+      "category": "api",
+      "target_files": [
+        "api/src/public/router.ts",
+        "api/test/public-router-category-page.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T15.AC1",
+          "type": "grep",
+          "criterion": "renderLayout used by router for category/page",
+          "command": "grep -c 'renderLayout(' api/src/public/router.ts",
+          "expected": 1
+        },
+        {
+          "id": "T15.AC2",
+          "type": "grep",
+          "criterion": "category + page route test cases in public-router-category-page.test.ts",
+          "command": "grep -cE '/category/|/page/|site-header|describe' api/test/public-router-category-page.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Regression: cms.kodigital.app does not render home",
+      "category": "infra",
+      "target_files": [
+        "api/test/public-admin-host-no-home.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T16.AC1",
+          "type": "grep",
+          "criterion": "references cms.kodigital.app + ADMIN_HOST in admin-host-no-home test",
+          "command": "grep -cE 'cms\\.kodigital\\.app|ADMIN_HOST' api/test/public-admin-host-no-home.test.ts",
+          "expected": 2
+        },
+        {
+          "id": "T16.AC2",
+          "type": "grep",
+          "criterion": "admin host 404 assertion + describe block in admin-host-no-home test",
+          "command": "grep -cE '404|describe|admin' api/test/public-admin-host-no-home.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health",
+      "category": "infra",
+      "target_files": [
+        "api/test/public-reserved-paths.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T17.AC1",
+          "type": "grep",
+          "criterion": "all six reserved paths covered in test file",
+          "command": "grep -cE 'admin|api|static|media|preview|health' api/test/public-reserved-paths.test.ts",
+          "expected": 6
+        },
+        {
+          "id": "T17.AC2",
+          "type": "grep",
+          "criterion": "404 + describe assertions in reserved-paths test",
+          "command": "grep -cE '404|describe' api/test/public-reserved-paths.test.ts",
+          "expected": 2
+        }
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "Regression: no hardcoded TheIWise brand in rendered Home + Article",
+      "category": "infra",
+      "target_files": [
+        "api/test/public-no-theiwise-brand-render.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T18.AC1",
+          "type": "grep",
+          "criterion": "banned tokens authored via concatenation (not literal) in test source",
+          "command": "grep -cE 'thei\" *\\+ *\"wise' api/test/public-no-theiwise-brand-render.test.ts",
+          "expected": 1
+        },
+        {
+          "id": "T18.AC2",
+          "type": "grep",
+          "criterion": "renderHome + renderArticle imports + describe in brand-render test",
+          "command": "grep -cE 'renderHome|renderArticle|describe' api/test/public-no-theiwise-brand-render.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "JSON-LD presence on Home + Article",
+      "category": "infra",
+      "target_files": [
+        "api/test/public-json-ld-presence.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T19.AC1",
+          "type": "grep",
+          "criterion": "WebSite + Organization + ItemList assertions in JSON-LD test",
+          "command": "grep -cE 'WebSite|Organization|ItemList' api/test/public-json-ld-presence.test.ts",
+          "expected": 3
+        },
+        {
+          "id": "T19.AC2",
+          "type": "grep",
+          "criterion": "Article + BreadcrumbList + FAQPage assertions in JSON-LD test",
+          "command": "grep -cE 'Article|BreadcrumbList|FAQPage' api/test/public-json-ld-presence.test.ts",
+          "expected": 3
+        },
+        {
+          "id": "T19.AC3",
+          "type": "grep",
+          "criterion": "empty-faqs FAQPage-omission assertion + describe in JSON-LD test",
+          "command": "grep -cE 'empty|faqs|describe' api/test/public-json-ld-presence.test.ts",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "Image attribute + lazy-load tests",
+      "category": "infra",
+      "target_files": [
+        "api/test/public-image-attrs.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T20.AC1",
+          "type": "grep",
+          "criterion": "image attribute assertions present in image-attrs test (alt/width/height/loading)",
+          "command": "grep -cE 'alt=|width=|height=|loading' api/test/public-image-attrs.test.ts",
+          "expected": 1
+        },
+        {
+          "id": "T20.AC2",
+          "type": "grep",
+          "criterion": "loading=lazy + describe in image-attrs test",
+          "command": "grep -cE 'loading=.{0,10}lazy|describe' api/test/public-image-attrs.test.ts",
+          "expected": 2
+        }
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Ad-slot attribute tests",
+      "category": "infra",
+      "target_files": [
+        "api/test/public-ad-slots.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T21.AC1",
+          "type": "grep",
+          "criterion": "data-ad-slot + ad-type assertions in ad-slots test",
+          "command": "grep -cE 'data-ad-slot|data-ad-type|leaderboard|in-feed' api/test/public-ad-slots.test.ts",
+          "expected": 4
+        },
+        {
+          "id": "T21.AC2",
+          "type": "grep",
+          "criterion": "describe block in ad-slots test",
+          "command": "grep -cE 'describe' api/test/public-ad-slots.test.ts",
+          "expected": 1
+        }
+      ]
+    },
+    {
+      "id": "T22",
+      "title": "Regression: typecheck + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0",
+      "category": "infra",
+      "target_files": [
+        "api/test/verify-scripts-green.test.ts",
+        "api/scripts/verify/assert-no-legacy-prod-refs.ts",
+        "api/scripts/verify/infra-contract.ts",
+        "api/scripts/verify/worker-config.ts",
+        "api/tsconfig.json",
+        "api/package.json"
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "T22.AC1",
+          "type": "exit_code",
+          "criterion": "api typecheck (tsc --noEmit -p api/tsconfig.json) succeeds against the api/ tree",
+          "command": "node api/node_modules/.bin/tsc --noEmit -p api/tsconfig.json",
+          "expected": 0
+        },
+        {
+          "id": "T22.AC2",
+          "type": "grep",
+          "criterion": "verify:no-legacy-prod-refs script declares the canonical bans (group A + group B legacy/cf tokens)",
+          "command": "grep -cE 'a2z-cf-cms-v1-api|a2z-cf-cms-v1-db|theiwise' api/scripts/verify/assert-no-legacy-prod-refs.ts",
+          "expected": 4
+        },
+        {
+          "id": "T22.AC3",
+          "type": "grep",
+          "criterion": "verify:infra script body present in api/scripts/verify/infra-contract.ts",
+          "command": "grep -cE 'infra-contract|wrangler|d1_databases|migration' api/scripts/verify/infra-contract.ts",
+          "expected": 1
+        },
+        {
+          "id": "T22.AC4",
+          "type": "grep",
+          "criterion": "verify:worker-config script body present in api/scripts/verify/worker-config.ts",
+          "command": "grep -cE 'worker-config|wrangler\\.toml|d1_databases|name' api/scripts/verify/worker-config.ts",
+          "expected": 1
+        }
+      ]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "api/src/public/templates/ subdir + view-models/ subdir",
+      "api/src/public/assets/public-css.ts + public-js.ts string modules",
+      "api/src/public/router.ts route additions (/, /assets/*) + updates (/article, /category, /page)",
+      "api/test/ regression suites for templates + view-models + router + brand-leak + JSON-LD + image attrs + ad-slots + reserved paths + verify-green"
+    ],
+    "out_of_scope": [
+      "Cloudflare deploys, DNS, route, cache mutation",
+      "AI-generated logos",
+      "KV cache layer for view-models (Session 6)",
+      "Cloudflare Images resizing (Session 6)",
+      "Real ad-provider integration",
+      "Real newsletter-provider integration",
+      "Full /category and /page template rewrites (Session 7)",
+      "New D1 migrations",
+      "wrangler.toml changes"
+    ]
+  },
+  "risk": {
+    "production_data_risk": false,
+    "auth_required": [],
+    "mutating_actions": []
+  },
+  "infra_prerequisites": [
+    {
+      "name": "api directory exists with package.json + scripts",
+      "verification_command": "test -f api/package.json",
+      "owner": "agent"
+    },
+    {
+      "name": "publicSiteContextMiddleware wired in router.ts",
+      "verification_command": "grep -c 'publicSiteContextMiddleware' api/src/public/router.ts",
+      "owner": "agent"
+    },
+    {
+      "name": "sites + site_settings + articles tables present in migrations",
+      "verification_command": "ls api/migrations/*.sql 2>/dev/null | head -1",
+      "owner": "agent"
+    },
+    {
+      "name": "Admin 404 hardening already shipped (regression baseline)",
+      "verification_command": "test -f api/test/off-admin-host-404-headers.test.ts",
+      "owner": "agent"
+    }
+  ]
+}

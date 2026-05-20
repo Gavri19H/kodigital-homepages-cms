@@ -1,0 +1,204 @@
+{
+  "contract_version": "1.0.0",
+  "plan_id": "cms-new-phase5-2026-05018",
+  "mission_spec_ref": "mission_spec.json",
+  "decisions": [
+    {
+      "point": "Where to put home + article rendering",
+      "chosen": "New subdirs api/src/public/templates/ + api/src/public/view-models/; existing router.ts wires them",
+      "alternatives": [
+        "Rename router.ts to public-router.ts (rejected: noisy diff)",
+        "Inline templates as string constants in router.ts (rejected: 2000+ line file, untestable)"
+      ],
+      "rationale": "Keeps git diff focused on additive work; spec PART 5 explicitly names templates/ + view-models/ subdirs; rename touches every import site for zero behavioral gain."
+    },
+    {
+      "point": "CSS + JS delivery",
+      "chosen": "Export CSS/JS as TypeScript string modules; serve via dedicated /assets/public.css + /assets/public.js Worker GETs with immutable Cache-Control",
+      "alternatives": [
+        "Inline <style>/<script> in templates/layout.ts (rejected: not cacheable, inflates response size)",
+        "Raw .css/.js files imported via build-time text loader (rejected: no bundler text-loader configured in this Worker)"
+      ],
+      "rationale": "PART 13 requires public JS to be cacheable; exporting from .ts avoids toolchain changes."
+    },
+    {
+      "point": "Body-block adapter for Article",
+      "chosen": "Adapter reads articles.content_json first; falls back to a synthesized html block wrapping content_html when content_json is null/empty",
+      "alternatives": [
+        "Only render content_html (rejected: design relies on typed blocks pullquote/figure/callout that cannot be derived from raw HTML)",
+        "Require migration to backfill content_json (rejected: out of scope; PART 0 forbids migrations)"
+      ],
+      "rationale": "Preserves design fidelity for typed-block articles while not breaking legacy raw-HTML articles."
+    },
+    {
+      "point": "Newsletter form behavior",
+      "chosen": "Render <input>+<button> with visually-hidden label; POST to /api/newsletter/subscribe placeholder returning 501; disabled state driven by site.newsletter_settings_json.provider",
+      "alternatives": [
+        "Hide newsletter entirely when no provider (rejected: PART 1 requires section 11 newsletter)",
+        "Real Mailchimp/Buttondown integration (rejected: explicitly out of scope)"
+      ],
+      "rationale": "Preserves required 13-section structure with accessible disabled state until Session 5+ wires a real provider."
+    },
+    {
+      "point": "Cross-site isolation enforcement",
+      "chosen": "Every view-model helper takes siteId as required positional argument; every D1 query WHERE site_id=?; tests exercise 2 sites with disjoint fixtures",
+      "alternatives": [
+        "Encode siteId in Hono context global (rejected: implicit context harder to test)",
+        "Per-tenant D1 binding (rejected: re-litigates Phase 3 multi-site schema)"
+      ],
+      "rationale": "Explicit positional argument forces every caller (and test) to pass siteId; eliminates the R4 cross-site leak class."
+    },
+    {
+      "point": "Fallback strategy for template render failure",
+      "chosen": "try/catch around renderArticle; on throw, fall back to legacy c.html(content_html ?? '')",
+      "alternatives": [
+        "Let exception bubble to a 500 (rejected: silent regression for existing RSS-reader consumers)",
+        "Render an error page (rejected: changes contract for external embeds)"
+      ],
+      "rationale": "Preserves the existing /article/:slug contract during the template rollout; logs warning for observability."
+    }
+  ],
+  "implementation_steps": [
+    "Phase B step 1: Create api/src/public/assets/public-css.ts (T1) + public-js.ts (T2) string modules.",
+    "Phase B step 2: Create api/src/public/templates/{layout,icons,format,seo,components}.ts (T3, T5, T7, T6, T4).",
+    "Phase B step 3: Create api/src/public/view-models/{home,article}.ts (T8, T9).",
+    "Phase B step 4: Create api/src/public/templates/{home,article}.ts wiring components + view-models + seo (T10, T11).",
+    "Phase B step 5: Update api/src/public/router.ts \u2014 add GET / (T12), update /article/:slug with template+fallback (T13), add /assets/public.css + /assets/public.js (T14), upgrade /category/:slug + /page/:slug to layout-wrapped (T15).",
+    "Phase B step 6: Add api/test/ regression suites T16-T22.",
+    "Phase B step 7: Run cd api && npx tsc --noEmit && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config (T22)."
+  ],
+  "files_expected_to_change": [
+    "src/public/assets/public-css.ts",
+    "src/public/assets/public-js.ts",
+    "src/public/templates/layout.ts",
+    "src/public/templates/components.ts",
+    "src/public/templates/icons.ts",
+    "src/public/templates/seo.ts",
+    "src/public/templates/format.ts",
+    "src/public/templates/home.ts",
+    "src/public/templates/article.ts",
+    "src/public/view-models/home.ts",
+    "src/public/view-models/article.ts",
+    "src/public/router.ts",
+    "test/public-templates-layout.test.ts",
+    "test/public-templates-components.test.ts",
+    "test/public-templates-seo.test.ts",
+    "test/public-templates-format.test.ts",
+    "test/public-templates-home.test.ts",
+    "test/public-templates-article.test.ts",
+    "test/public-view-models-home.test.ts",
+    "test/public-view-models-article.test.ts",
+    "test/public-router-home.test.ts",
+    "test/public-router-article.test.ts",
+    "test/public-router-assets.test.ts",
+    "test/public-router-category-page.test.ts",
+    "test/public-admin-host-no-home.test.ts",
+    "test/public-reserved-paths.test.ts",
+    "test/public-no-theiwise-brand-render.test.ts",
+    "test/public-json-ld-presence.test.ts",
+    "test/public-image-attrs.test.ts",
+    "test/public-ad-slots.test.ts",
+    "test/verify-scripts-green.test.ts"
+  ],
+  "files_forbidden_to_change": [
+    "wrangler.toml",
+    "migrations/0001_init_cms.sql",
+    "migrations/0002_phase3_multi_site_schema.sql",
+    "migrations/0003_phase3_site_settings_restructure.sql",
+    "migrations/0004_phase3_seed_verticals_and_legal_templates.sql",
+    "migrations/0005_phase3_fix_missing_indexes.sql",
+    "migrations/0006_phase3r_admin_site_aware_content.sql",
+    "migrations/0007_phase3r_drop_global_slug_unique.sql",
+    "docs/reference/theiwise-home-article-implementation-spec.pdf",
+    "docs/reference/implementation-spec-standalone.html",
+    "docs/reference/current-theiwise-technical-spec.md",
+    "docs/no-touch-red-line.md",
+    "docs/session-map-v2.md",
+    "src/safety/protected-domains.ts"
+  ],
+  "acceptance_tests": [
+    "T1.AC1",
+    "T1.AC2",
+    "T1.AC3",
+    "T2.AC1",
+    "T2.AC2",
+    "T2.AC3",
+    "T3.AC1",
+    "T3.AC2",
+    "T3.AC3",
+    "T4.AC1",
+    "T4.AC2",
+    "T4.AC3",
+    "T5.AC1",
+    "T5.AC2",
+    "T6.AC1",
+    "T6.AC2",
+    "T6.AC3",
+    "T7.AC1",
+    "T7.AC2",
+    "T8.AC1",
+    "T8.AC2",
+    "T8.AC3",
+    "T8.AC4",
+    "T9.AC1",
+    "T9.AC2",
+    "T9.AC3",
+    "T9.AC4",
+    "T9.AC5",
+    "T10.AC1",
+    "T10.AC2",
+    "T10.AC3",
+    "T11.AC1",
+    "T11.AC2",
+    "T11.AC3",
+    "T11.AC4",
+    "T12.AC1",
+    "T12.AC2",
+    "T13.AC1",
+    "T13.AC2",
+    "T13.AC3",
+    "T13.AC4",
+    "T14.AC1",
+    "T14.AC2",
+    "T14.AC3",
+    "T14.AC4",
+    "T14.AC5",
+    "T15.AC1",
+    "T15.AC2",
+    "T15.AC3",
+    "T16.AC1",
+    "T16.AC2",
+    "T17.AC1",
+    "T17.AC2",
+    "T18.AC1",
+    "T18.AC2",
+    "T18.AC3",
+    "T19.AC1",
+    "T19.AC2",
+    "T19.AC3",
+    "T20.AC1",
+    "T20.AC2",
+    "T21.AC1",
+    "T21.AC2",
+    "T22.AC1",
+    "T22.AC2",
+    "T22.AC3",
+    "T22.AC4"
+  ],
+  "risk_controls": [
+    "R1: try/catch around renderArticle with fallback to legacy content_html; explicit T13.AC4 test.",
+    "R3: T18 regression test renders Home + Article for non-TheIWise tenant and asserts brand-leak absence.",
+    "R4: Every view-model helper requires siteId as positional non-optional argument; T8.AC4 exercises 2-site isolation.",
+    "R5: Promise.all parallel D1 queries; per-query try/catch; Session 6 KV-cache target documented.",
+    "R6: T3.AC1 + T20 assert skip-to-content + aria-label + img alt/width/height presence."
+  ],
+  "rollback_plan": "Roll back per-file via `git checkout HEAD -- <path>` for each file in files_expected_to_change. The session is additive only \u2014 no migrations, no schema mutation. Reverting router.ts restores the legacy `c.html(content_html ?? '')` path for /article/:slug and removes the GET / + /assets/* + layout-wrapped /category|/page handlers. No data unwinding required.",
+  "evidence_plan": [
+    "T8/T9 view-model unit tests: deterministic_grep_count for query shape + behavioral assertion via mock D1 stub.",
+    "T10/T11 template tests: behavioral via direct call + JSDOM/string parse; deterministic_grep_count for class-name presence.",
+    "T12-T15 router tests: behavioral via Hono app.request() + Content-Type/status assertions.",
+    "T16-T21 regression tests: behavioral assertions on rendered HTML for brand-leak, JSON-LD, image attrs, ad-slot attrs, reserved paths.",
+    "T22: test_exit_code on the 4 npm scripts."
+  ],
+  "call_path_expectation": "GET / -> publicSiteContextMiddleware -> router.ts GET / handler -> buildHomeViewModel(db, siteContext) -> renderHome(vm) -> renderLayout wraps -> c.html(html). GET /article/:slug -> middleware -> handler -> try{ buildArticleViewModel(db, siteContext, slug) -> renderArticle(vm) -> renderLayout -> c.html(html) } catch { c.html(row.content_html ?? '') }. GET /assets/public.css -> handler -> import PUBLIC_CSS string -> c.body with Content-Type:text/css + Cache-Control immutable."
+}

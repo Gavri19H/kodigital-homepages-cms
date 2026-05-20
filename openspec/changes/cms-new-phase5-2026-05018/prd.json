@@ -1,0 +1,337 @@
+{
+  "changeId": "cms-new-phase5-2026-05018",
+  "mainGoal": "Implement generic Home + Article public templates in the standalone CMS Worker so a tenant content domain renders the approved 13-section Home and 12-section Article using per-site brand tokens via SiteContext, with no TheIWise visible brand and no cms.kodigital.app leak.",
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Add public.css string module with all PART 3 tokens and PART 4 breakpoints",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/assets/public-css.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c -- '--tw-ink' api/src/public/assets/public-css.ts >= 1",
+        "grep -c '@media (max-width:1280px)' api/src/public/assets/public-css.ts >= 1",
+        "grep -c 'minmax(0, 1fr)' api/src/public/assets/public-css.ts >= 1"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T2",
+      "title": "Add public.js string module with passive-listener reading progress + share/copy",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/assets/public-js.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'passive: true' api/src/public/assets/public-js.ts >= 1",
+        "grep -c 'navigator.share' api/src/public/assets/public-js.ts >= 1",
+        "grep -c 'reading-progress-bar' api/src/public/assets/public-js.ts >= 1"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T3",
+      "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/layout.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c 'skip-to-content' api/src/public/templates/layout.ts >= 1",
+        "grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts >= 1",
+        "BEHAVIORAL: GIVEN HomeViewModel with site.brandTokens WHEN renderLayout THEN result contains the brand token inside a <style> block"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T4",
+      "title": "templates/components.ts exports site-aware components",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/components.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' >= 8",
+        "grep -c 'data-ad-slot' >= 1",
+        "BEHAVIORAL: GIVEN CategoryChip slug=tech WHEN renderChipRail THEN result contains href=/category/tech AND no href=#"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T5",
+      "title": "templates/icons.ts exports inline SVG icons",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/icons.ts"
+      ],
+      "acceptanceCriteria": [
+        "5 icon exports",
+        "aria-hidden on decorative SVGs"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T6",
+      "title": "templates/seo.ts exports JSON-LD builders + meta helpers",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/seo.ts"
+      ],
+      "acceptanceCriteria": [
+        "5 seo exports",
+        "6 JSON-LD types",
+        "BEHAVIORAL: GIVEN faqs=[] WHEN buildFaqJsonLd THEN empty string"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T7",
+      "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/format.ts"
+      ],
+      "acceptanceCriteria": [
+        "3 format exports",
+        "BEHAVIORAL: truncateExcerpt with limit=12 yields <=13 char string ending in ellipsis"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T8",
+      "title": "view-models/home.ts exports buildHomeViewModel(db, siteContext)",
+      "category": "api",
+      "targetFiles": [
+        "src/public/view-models/home.ts"
+      ],
+      "acceptanceCriteria": [
+        "buildHomeViewModel exported",
+        "site-scoped WHERE",
+        ">=3 .bind() calls",
+        "BEHAVIORAL: site A and B isolation — vm.featured contains only site A's articles"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T9",
+      "title": "view-models/article.ts exports buildArticleViewModel + adaptBodyBlocks",
+      "category": "api",
+      "targetFiles": [
+        "src/public/view-models/article.ts"
+      ],
+      "acceptanceCriteria": [
+        "buildArticleViewModel exported",
+        "site_id scoped",
+        "adaptBodyBlocks present",
+        "BEHAVIORAL: content_json=null falls back to single html block from content_html",
+        "BEHAVIORAL: 2 faq blocks in content_json yield vm.faqs.length===2"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T10",
+      "title": "templates/home.ts renders 13 sections in PART 1 order",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/home.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderHome exported",
+        "BEHAVIORAL: section markers appear in PART 1 order",
+        "BEHAVIORAL: site.name appears in output AND theiwise does not"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T11",
+      "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)",
+      "category": "ui",
+      "targetFiles": [
+        "src/public/templates/article.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderArticle exported",
+        "BEHAVIORAL: 12 section markers appear in PART 2 order",
+        "BEHAVIORAL: article-shell minmax(0, 1fr) present",
+        "BEHAVIORAL: faqs=[] does NOT emit FAQPage JSON-LD"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T12",
+      "title": "router.ts adds GET / handler wiring home view-model + template",
+      "category": "api",
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "GET / registered",
+        "BEHAVIORAL: GET / on tenant returns 200 text/html with site-header + site-footer"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T13",
+      "title": "/article/:slug uses Article template with fallback",
+      "category": "api",
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderArticle + buildArticleViewModel wired",
+        "catch present",
+        "BEHAVIORAL: published article -> 200 with article-shell+hero+body",
+        "BEHAVIORAL: renderArticle throws -> 200 with content_html fallback"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T14",
+      "title": "/assets/public.css + /assets/public.js cacheable routes",
+      "category": "api",
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "both asset routes registered",
+        "immutable cache-control",
+        "BEHAVIORAL: GET /assets/public.css -> 200 text/css with --tw-brand",
+        "BEHAVIORAL: GET /assets/public.js -> 200 application/javascript with reading-progress-bar",
+        "BEHAVIORAL: explicit /assets/* routes win over /:slug catch-all"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T15",
+      "title": "/category/:slug + /page/:slug use site-aware layout wrapper",
+      "category": "api",
+      "targetFiles": [
+        "src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "renderLayout used",
+        "BEHAVIORAL: GET /category/:slug -> 200 text/html with site-header + category name",
+        "BEHAVIORAL: GET /page/:slug -> 200 text/html with site-header + page content_html"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T16",
+      "title": "Regression: cms.kodigital.app does not render home",
+      "category": "infra",
+      "targetFiles": [
+        "test/public-admin-host-no-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "references cms.kodigital.app",
+        "BEHAVIORAL: Host=cms.kodigital.app GET / -> 404 no leak"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T17",
+      "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health",
+      "category": "infra",
+      "targetFiles": [
+        "test/public-reserved-paths.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: planted admin page GET /admin -> 404 no leak",
+        "covers all reserved paths"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T18",
+      "title": "Regression: no hardcoded TheIWise brand in rendered Home + Article",
+      "category": "infra",
+      "targetFiles": [
+        "test/public-no-theiwise-brand-render.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: renderHome -> no theiwise",
+        "BEHAVIORAL: renderArticle -> no theiwise",
+        "banned tokens concatenated"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T19",
+      "title": "JSON-LD presence on Home + Article",
+      "category": "infra",
+      "targetFiles": [
+        "test/public-json-ld-presence.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: Home contains WebSite + Organization + ItemList",
+        "BEHAVIORAL: Article with faqs contains Article + BreadcrumbList + FAQPage",
+        "BEHAVIORAL: Article with empty faqs omits FAQPage"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T20",
+      "title": "Image attribute + lazy-load tests",
+      "category": "infra",
+      "targetFiles": [
+        "test/public-image-attrs.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: every <img> has alt+width+height",
+        "BEHAVIORAL: below-fold images have loading=lazy"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T21",
+      "title": "Ad-slot attribute tests",
+      "category": "infra",
+      "targetFiles": [
+        "test/public-ad-slots.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: every ad-slot has data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}",
+        "BEHAVIORAL: both leaderboard + in-feed present on Home"
+      ],
+      "passes": false,
+      "state": "implemented"
+    },
+    {
+      "id": "T22",
+      "title": "Regression: typecheck + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0",
+      "category": "infra",
+      "targetFiles": [
+        "test/verify-scripts-green.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "tsc --noEmit exit 0",
+        "verify:no-legacy-prod-refs exit 0",
+        "verify:infra exit 0",
+        "verify:worker-config exit 0"
+      ],
+      "passes": false,
+      "state": "implemented"
+    }
+  ]
+}

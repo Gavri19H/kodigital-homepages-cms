@@ -1,0 +1,2832 @@
+{
+  "change_id": "cms-new-phase5-2026-05018",
+  "contract_version": "1.0.0",
+  "created_at": "2026-05-19T07:23:30Z",
+  "digest_size_estimate_kb": 33,
+  "forbidden_red_lines": [
+    {
+      "canonical_name": null,
+      "claim": "Never render the literal string 'TheIWise' or 'theiwise' or 'theiwise.com' in any public-domain response body.",
+      "origin": "design_contract.forbidden_substitutes",
+      "reason": "Hard RED LINE per session-4 spec PART 12 + docs/no-touch-red-line.md \u2014 visible brand strings come only from per-site CMS data, never hardcoded.",
+      "source_id": "SP-USER-1"
+    },
+    {
+      "canonical_name": null,
+      "claim": "Never include the substring 'cms.kodigital.app' in any response body served from a public content domain.",
+      "origin": "design_contract.forbidden_substitutes",
+      "reason": "Tenant boundary rule: the CMS admin host MUST NOT leak from public content domains. Already enforced by publicSiteContextMiddleware; this contract forbids reintroducing leakage via template strings.",
+      "source_id": "SP-USER-1"
+    },
+    {
+      "canonical_name": null,
+      "claim": "Never use href=\"#\" in rendered Home or Article output.",
+      "origin": "design_contract.forbidden_substitutes",
+      "reason": "PART 8 forbids placeholder anchors. Disabled state must be expressed via aria-disabled + button element or accessible explanation, never a no-op href.",
+      "source_id": "SP-USER-1"
+    },
+    {
+      "canonical_name": null,
+      "claim": "theiwise.com",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "TheIWise",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "theiwise",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "a2z-cf-cms-v1-api",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    },
+    {
+      "canonical_name": null,
+      "claim": "a2z-cf-cms-v1-db",
+      "origin": "mission_spec.main_goal.forbidden_substitutes",
+      "reason": "main_goal_forbidden_substitute",
+      "source_id": null
+    }
+  ],
+  "global_design_contract": {
+    "accessibility_constraints": [
+      "skip-to-content link in layout (PART 9)",
+      "focus-visible rings on interactive elements",
+      "aria-label on icon-only buttons",
+      "no nested interactive controls inside card links",
+      "alt text + width + height on every <img>",
+      "anchored sections get scroll-margin-top: 88px",
+      "newsletter input has label even if visually hidden"
+    ],
+    "change_id": "cms-new-phase5-2026-05018",
+    "content_blocks": [
+      {
+        "block_id": "home_hero",
+        "source_id": "SP-USER-1",
+        "text_or_ref": "Hero section pulls site.tagline + site.site_name + hero search; image uses fetchpriority=high.",
+        "type": "hero"
+      },
+      {
+        "block_id": "home_featured",
+        "source_id": "SP-USER-1",
+        "text_or_ref": "Up to 3 featured articles, first card enlarged by CSS; URLs use /article/:slug.",
+        "type": "value_prop"
+      },
+      {
+        "block_id": "home_trending",
+        "source_id": "SP-USER-1",
+        "text_or_ref": "Up to 5 trending stories; pulse-dot marker; horizontal scroller below 980px.",
+        "type": "value_prop"
+      },
+      {
+        "block_id": "home_newsletter",
+        "source_id": "SP-USER-1",
+        "text_or_ref": "Newsletter input + button. Disabled with accessible state when no provider configured; POSTs to placeholder endpoint when provider key present.",
+        "type": "cta"
+      },
+      {
+        "block_id": "article_faq",
+        "source_id": "SP-USER-1",
+        "text_or_ref": "FAQ section rendered only when faqs[] non-empty; emits FAQPage JSON-LD on same condition.",
+        "type": "faq"
+      },
+      {
+        "block_id": "article_share",
+        "source_id": "SP-USER-1",
+        "text_or_ref": "Share rail + bottom share buttons. Use navigator.share with clipboard fallback; accessible disabled state otherwise.",
+        "type": "cta"
+      }
+    ],
+    "contract_version": "1.0.0",
+    "conversion_goal": "Render generic per-site Home (13 sections) and Article (12 sections) public pages whose visible brand is sourced entirely from sites/site_settings/media so that any tenant content domain serves its own brand identity (name, tagline, logo, brand_tokens) with zero TheIWise leakage and zero cms.kodigital.app leakage from public content domains.",
+    "forbidden_substitutes": [
+      {
+        "claim": "Never render the literal string 'TheIWise' or 'theiwise' or 'theiwise.com' in any public-domain response body.",
+        "reason": "Hard RED LINE per session-4 spec PART 12 + docs/no-touch-red-line.md \u2014 visible brand strings come only from per-site CMS data, never hardcoded.",
+        "source_id": "SP-USER-1"
+      },
+      {
+        "claim": "Never include the substring 'cms.kodigital.app' in any response body served from a public content domain.",
+        "reason": "Tenant boundary rule: the CMS admin host MUST NOT leak from public content domains. Already enforced by publicSiteContextMiddleware; this contract forbids reintroducing leakage via template strings.",
+        "source_id": "SP-USER-1"
+      },
+      {
+        "claim": "Never use href=\"#\" in rendered Home or Article output.",
+        "reason": "PART 8 forbids placeholder anchors. Disabled state must be expressed via aria-disabled + button element or accessible explanation, never a no-op href.",
+        "source_id": "SP-USER-1"
+      }
+    ],
+    "route": "/, /article/:slug",
+    "social_proof": [
+      {
+        "claim": "Trending pulse-dot indicator marks the trending section above the fold",
+        "evidence_kind": "badge",
+        "source_id": "SP-USER-1"
+      }
+    ],
+    "source_refs": [
+      "SP-USER-1",
+      "SP-DOCS-1"
+    ],
+    "tone_constraints": [
+      "Vertical-agnostic copy \u2014 no hardcoded TheIWise/theiwise/theiwise.com in any visible string",
+      "All visible brand copy sourced from site.site_name, site.tagline, site.site_description (PART 12)"
+    ],
+    "viewport_constraints": [
+      {
+        "max_scrollwidth_px": 380,
+        "viewport_px": 375
+      },
+      {
+        "max_scrollwidth_px": 1290,
+        "viewport_px": 1280
+      }
+    ]
+  },
+  "input_sha256": {
+    "design_contract": "7bc7bf13b767e99a4d5e6789cb53eb56c862a4dce4366832d03e4ef300745c39",
+    "evidence_route_readiness": "e48eb3eca33f28f3a7c5e7e97074fb4a8ab6587c0b5c7c35c567d14e2dc1e59d",
+    "field_contract": "763bb52a03da910388a82220196d2752e0ce065261c354e85f62589793bc270f",
+    "interface_contract": "3dff05f8803d12cc87713445b150557756f1beaa197144fcec6fdb41753f09d1",
+    "mission_spec": "44307896a7a6267bfdb5e571bf638606cd67c73f7a4efce117b26ecc8ed16127",
+    "prd": null,
+    "quality_profile": "12e71f82bb216e538c6d4f3a5cbf2c899fa9c5c7e2df000718c44ea2764a4201",
+    "required_evidence_plan": "360fd84876d9303fa032e7c80f60382a5e5292ca73b52dc10ee7f620ab0e80ce",
+    "source_pack": "5d7fb70e7ede580b33a62152f986e7aa30c2e994a7cc4b15d2c701ba2792933c",
+    "test_contract": "08eb6bc4798c329a7e4e3310b5eb368d0cc0dcbea2feae464d4bc749022ed62c"
+  },
+  "mission_global": {
+    "actionable_rc_ids": [
+      "RC-001"
+    ],
+    "deferred_rc_ids": [],
+    "evidence_routes": [
+      {
+        "action": "RUN",
+        "claim_category": "behavioral",
+        "classification": "test_receipt",
+        "cwd": "api",
+        "cwd_anchor": "worktree_root",
+        "deferred_to": null,
+        "evidence_command": "npx vitest run --reporter=verbose",
+        "expected_test_file": null,
+        "expected_test_name_regex": "test/public\\-templates\\-home\\.test\\.ts",
+        "expected_value": null,
+        "operator": null,
+        "parser_strategy": "test_exit_code",
+        "required_claim_id": "RC-001",
+        "value_path": null
+      }
+    ],
+    "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-001 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+    "skip_diagnostic_rc_ids": []
+  },
+  "mode": "field_sensitive_with_ui",
+  "quality_profiles": [
+    "api_contract",
+    "evidence_route_strict",
+    "ui_conversion"
+  ],
+  "stories": [
+    {
+      "ac_ids": [
+        "T1.AC1",
+        "T1.AC2",
+        "T1.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T1-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-002",
+        "RC-003",
+        "RC-004"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c -- '--tw-ink' src/public/assets/public-css.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-002",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c '@media (max-width:1280px)' src/public/assets/public-css.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-003",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'minmax(0, 1fr)' src/public/assets/public-css.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-004",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-002",
+        "RC-003",
+        "RC-004"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-002,RC-003,RC-004 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T1",
+      "target_files": [
+        "src/public/assets/public-css.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T1.AC1",
+          "binding_type": "command",
+          "command": "grep -c -- '--tw-ink' src/public/assets/public-css.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T1.AC2",
+          "binding_type": "command",
+          "command": "grep -c '@media (max-width:1280px)' src/public/assets/public-css.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T1.AC3",
+          "binding_type": "command",
+          "command": "grep -c 'minmax(0, 1fr)' src/public/assets/public-css.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Add public.css string module with all PART 3 tokens and PART 4 breakpoints"
+    },
+    {
+      "ac_ids": [
+        "T2.AC1",
+        "T2.AC2",
+        "T2.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T2-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-005",
+        "RC-006",
+        "RC-007"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'passive: true' src/public/assets/public-js.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-005",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'navigator.share' src/public/assets/public-js.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-006",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'reading-progress-bar' src/public/assets/public-js.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-007",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-005",
+        "RC-006",
+        "RC-007"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-005,RC-006,RC-007 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T2",
+      "target_files": [
+        "src/public/assets/public-js.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T2.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'passive: true' src/public/assets/public-js.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T2.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'navigator.share' src/public/assets/public-js.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T2.AC3",
+          "binding_type": "command",
+          "command": "grep -c 'reading-progress-bar' src/public/assets/public-js.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Add public.js string module with passive-listener reading progress + share/copy"
+    },
+    {
+      "ac_ids": [
+        "T3.AC1",
+        "T3.AC2",
+        "T3.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T3-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-008",
+        "RC-009",
+        "RC-010"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'skip-to-content' src/public/templates/layout.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-008",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'brand_tokens|brandTokens' src/public/templates/layout.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-009",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-010",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-008",
+        "RC-009",
+        "RC-010"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-008,RC-009,RC-010 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T3",
+      "target_files": [
+        "src/public/templates/layout.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T3.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'skip-to-content' src/public/templates/layout.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T3.AC2",
+          "binding_type": "command",
+          "command": "grep -cE 'brand_tokens|brandTokens' src/public/templates/layout.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T3.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-layout.*brand[_-]?tokens",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection"
+    },
+    {
+      "ac_ids": [
+        "T4.AC1",
+        "T4.AC2",
+        "T4.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T4-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-011",
+        "RC-012",
+        "RC-013"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' src/public/templates/components.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 8,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-011",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'data-ad-slot' src/public/templates/components.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-012",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-013",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-011",
+        "RC-012",
+        "RC-013"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-011,RC-012,RC-013 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T4",
+      "target_files": [
+        "src/public/templates/components.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T4.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' src/public/templates/components.ts",
+          "expected": 8,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T4.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'data-ad-slot' src/public/templates/components.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T4.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-components.*chip[_-]?rail",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/components.ts exports site-aware components"
+    },
+    {
+      "ac_ids": [
+        "T5.AC1",
+        "T5.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T5-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-014",
+        "RC-015"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'export function (iconSearch|iconShare|iconCopy|iconArrow|iconBrandMark)' src/public/templates/icons.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 5,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-014",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'aria-hidden=\"true\"' src/public/templates/icons.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 5,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-015",
+          "value_path": "count"
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-014",
+        "RC-015"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-014,RC-015 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T5",
+      "target_files": [
+        "src/public/templates/icons.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T5.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'export function (iconSearch|iconShare|iconCopy|iconArrow|iconBrandMark)' src/public/templates/icons.ts",
+          "expected": 5,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T5.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'aria-hidden=\"true\"' src/public/templates/icons.ts",
+          "expected": 5,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/icons.ts exports inline SVG icons"
+    },
+    {
+      "ac_ids": [
+        "T6.AC1",
+        "T6.AC2",
+        "T6.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T6-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-016",
+        "RC-017",
+        "RC-018"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'export function (buildHomeJsonLd|buildArticleJsonLd|buildBreadcrumbJsonLd|buildFaqJsonLd|buildMetaTags)' src/public/templates/seo.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 5,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-016",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE '\"@type\": *\"(WebSite|Organization|ItemList|Article|BreadcrumbList|FAQPage)\"' src/public/templates/seo.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 6,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-017",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-018",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-016",
+        "RC-017",
+        "RC-018"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-016,RC-017,RC-018 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T6",
+      "target_files": [
+        "src/public/templates/seo.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T6.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'export function (buildHomeJsonLd|buildArticleJsonLd|buildBreadcrumbJsonLd|buildFaqJsonLd|buildMetaTags)' src/public/templates/seo.ts",
+          "expected": 5,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T6.AC2",
+          "binding_type": "command",
+          "command": "grep -cE '\"@type\": *\"(WebSite|Organization|ItemList|Article|BreadcrumbList|FAQPage)\"' src/public/templates/seo.ts",
+          "expected": 6,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T6.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-seo.*faq[_-]?empty",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/seo.ts exports JSON-LD builders + meta helpers"
+    },
+    {
+      "ac_ids": [
+        "T7.AC1",
+        "T7.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T7-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-019",
+        "RC-020"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'export function (formatDate|formatReadTime|truncateExcerpt)' src/public/templates/format.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 3,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-019",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-020",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-019",
+        "RC-020"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-019,RC-020 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T7",
+      "target_files": [
+        "src/public/templates/format.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T7.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'export function (formatDate|formatReadTime|truncateExcerpt)' src/public/templates/format.ts",
+          "expected": 3,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T7.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-format.*truncate",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt"
+    },
+    {
+      "ac_ids": [
+        "T8.AC1",
+        "T8.AC2",
+        "T8.AC3",
+        "T8.AC4"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T8-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-021",
+        "RC-022",
+        "RC-023",
+        "RC-024"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'export async function buildHomeViewModel' src/public/view-models/home.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-021",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'WHERE site_id = ?' src/public/view-models/home.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-022",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c '\\.bind(' src/public/view-models/home.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 3,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-023",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-024",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-021",
+        "RC-022",
+        "RC-023",
+        "RC-024"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-021,RC-022,RC-023,RC-024 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T8",
+      "target_files": [
+        "src/public/view-models/home.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T8.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'export async function buildHomeViewModel' src/public/view-models/home.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T8.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'WHERE site_id = ?' src/public/view-models/home.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T8.AC3",
+          "binding_type": "command",
+          "command": "grep -c '\\.bind(' src/public/view-models/home.ts",
+          "expected": 3,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T8.AC4",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-view-models-home.*site[_-]?isolation",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "view-models/home.ts exports buildHomeViewModel(db, siteContext)"
+    },
+    {
+      "ac_ids": [
+        "T9.AC1",
+        "T9.AC2",
+        "T9.AC3",
+        "T9.AC4",
+        "T9.AC5"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T9-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-025",
+        "RC-026",
+        "RC-027",
+        "RC-028",
+        "RC-029"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'export async function buildArticleViewModel' src/public/view-models/article.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-025",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'site_id = ?' src/public/view-models/article.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-026",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'adaptBodyBlocks' src/public/view-models/article.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-027",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-028",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-029",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-025",
+        "RC-026",
+        "RC-027",
+        "RC-028",
+        "RC-029"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-025,RC-026,RC-027,RC-028,RC-029 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T9",
+      "target_files": [
+        "src/public/view-models/article.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T9.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'export async function buildArticleViewModel' src/public/view-models/article.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T9.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'site_id = ?' src/public/view-models/article.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T9.AC3",
+          "binding_type": "command",
+          "command": "grep -c 'adaptBodyBlocks' src/public/view-models/article.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T9.AC4",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-view-models-article.*content[_-]?html[_-]?fallback",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T9.AC5",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-view-models-article.*faq[_-]?blocks",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "view-models/article.ts exports buildArticleViewModel + adaptBodyBlocks"
+    },
+    {
+      "ac_ids": [
+        "T10.AC1",
+        "T10.AC2",
+        "T10.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T10-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-030",
+        "RC-031",
+        "RC-032"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'export function renderHome' src/public/templates/home.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-030",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-031",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-032",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-030",
+        "RC-031",
+        "RC-032"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-030,RC-031,RC-032 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T10",
+      "target_files": [
+        "src/public/templates/home.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T10.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'export function renderHome' src/public/templates/home.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T10.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-home.*section[_-]?order",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T10.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-home.*brand[_-]?from[_-]?site",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/home.ts renders 13 sections in PART 1 order"
+    },
+    {
+      "ac_ids": [
+        "T11.AC1",
+        "T11.AC2",
+        "T11.AC3",
+        "T11.AC4"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T11-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-033",
+        "RC-034",
+        "RC-035",
+        "RC-036"
+      ],
+      "category": "ui",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'export function renderArticle' src/public/templates/article.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-033",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-034",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-035",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-036",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-033",
+        "RC-034",
+        "RC-035",
+        "RC-036"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-033,RC-034,RC-035,RC-036 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T11",
+      "target_files": [
+        "src/public/templates/article.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T11.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'export function renderArticle' src/public/templates/article.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T11.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-article.*section[_-]?order",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T11.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-article.*article[_-]?shell[_-]?minmax",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T11.AC4",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-templates-article.*faqs[_-]?empty[_-]?no[_-]?faqpage",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)"
+    },
+    {
+      "ac_ids": [
+        "T12.AC1",
+        "T12.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T12-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-037",
+        "RC-038"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'router.get(\"/\",' src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-037",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-038",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-037",
+        "RC-038"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-037,RC-038 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T12",
+      "target_files": [
+        "src/public/router.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T12.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'router.get(\"/\",' src/public/router.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T12.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-home.*renders[_-]?home",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "router.ts adds GET / handler wiring home view-model + template"
+    },
+    {
+      "ac_ids": [
+        "T13.AC1",
+        "T13.AC2",
+        "T13.AC3",
+        "T13.AC4"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T13-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-039",
+        "RC-040",
+        "RC-041",
+        "RC-042"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE 'renderArticle|buildArticleViewModel' src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 2,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-039",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'catch' src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-040",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-041",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-042",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-039",
+        "RC-040",
+        "RC-041",
+        "RC-042"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-039,RC-040,RC-041,RC-042 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T13",
+      "target_files": [
+        "src/public/router.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T13.AC1",
+          "binding_type": "command",
+          "command": "grep -cE 'renderArticle|buildArticleViewModel' src/public/router.ts",
+          "expected": 2,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T13.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'catch' src/public/router.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T13.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-article.*renders[_-]?article",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T13.AC4",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-article.*fallback[_-]?on[_-]?throw",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "/article/:slug uses Article template with fallback"
+    },
+    {
+      "ac_ids": [
+        "T14.AC1",
+        "T14.AC2",
+        "T14.AC3",
+        "T14.AC4",
+        "T14.AC5"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T14-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-043",
+        "RC-044",
+        "RC-045",
+        "RC-046",
+        "RC-047"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -cE '/assets/public\\.css|/assets/public\\.js' src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 2,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-043",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'max-age=31536000, immutable' src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-044",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-045",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-046",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-047",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-043",
+        "RC-044",
+        "RC-045",
+        "RC-046",
+        "RC-047"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-043,RC-044,RC-045,RC-046,RC-047 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T14",
+      "target_files": [
+        "src/public/router.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T14.AC1",
+          "binding_type": "command",
+          "command": "grep -cE '/assets/public\\.css|/assets/public\\.js' src/public/router.ts",
+          "expected": 2,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T14.AC2",
+          "binding_type": "command",
+          "command": "grep -c 'max-age=31536000, immutable' src/public/router.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T14.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-assets.*public[_-]?css",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T14.AC4",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-assets.*public[_-]?js",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T14.AC5",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-assets.*reserved[_-]?path[_-]?safety",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "/assets/public.css + /assets/public.js cacheable routes"
+    },
+    {
+      "ac_ids": [
+        "T15.AC1",
+        "T15.AC2",
+        "T15.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T15-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-048",
+        "RC-049",
+        "RC-050"
+      ],
+      "category": "api",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "behavioral",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "grep -c 'renderLayout(' src/public/router.ts",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": 1,
+          "operator": ">=",
+          "parser_strategy": "parse_grep_count",
+          "required_claim_id": "RC-048",
+          "value_path": "count"
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-049",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-050",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-048",
+        "RC-049",
+        "RC-050"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-048,RC-049,RC-050 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T15",
+      "target_files": [
+        "src/public/router.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T15.AC1",
+          "binding_type": "command",
+          "command": "grep -c 'renderLayout(' src/public/router.ts",
+          "expected": 1,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "parse_grep_count",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T15.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-category-page.*category",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T15.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-router-category-page.*page[_-]?slug",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "/category/:slug + /page/:slug use site-aware layout wrapper"
+    },
+    {
+      "ac_ids": [
+        "T16.AC1",
+        "T16.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T16-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-051",
+        "RC-052"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": "public-admin-host-no-home",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-051",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-052",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-051",
+        "RC-052"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-051,RC-052 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T16",
+      "target_files": [
+        "test/public-admin-host-no-home.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T16.AC1",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "public-admin-host-no-home",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T16.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-admin-host-no-home.*no[_-]?home",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Regression: cms.kodigital.app does not render home"
+    },
+    {
+      "ac_ids": [
+        "T17.AC1",
+        "T17.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T17-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-053",
+        "RC-054"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-053",
+          "value_path": null
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": "public-reserved-paths",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-054",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-053",
+        "RC-054"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-053,RC-054 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T17",
+      "target_files": [
+        "test/public-reserved-paths.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T17.AC1",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-reserved-paths.*admin[_-]?slug[_-]?404",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T17.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "public-reserved-paths",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health"
+    },
+    {
+      "ac_ids": [
+        "T18.AC1",
+        "T18.AC2",
+        "T18.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T18-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-055",
+        "RC-056",
+        "RC-057"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-055",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-056",
+          "value_path": null
+        },
+        {
+          "action": "RUN_BEST_EFFORT",
+          "claim_category": "behavioral",
+          "classification": "planned_new_deterministic_route",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": "public-no-theiwise-brand-render",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-057",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-055",
+        "RC-056",
+        "RC-057"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-055,RC-056,RC-057 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T18",
+      "target_files": [
+        "test/public-no-theiwise-brand-render.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T18.AC1",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-no-theiwise-brand-render.*home",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T18.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-no-theiwise-brand-render.*article",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T18.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "public-no-theiwise-brand-render",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Regression: no hardcoded TheIWise brand in rendered Home + Article"
+    },
+    {
+      "ac_ids": [
+        "T19.AC1",
+        "T19.AC2",
+        "T19.AC3"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T19-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-058",
+        "RC-059",
+        "RC-060"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-058",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-059",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-060",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-058",
+        "RC-059",
+        "RC-060"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-058,RC-059,RC-060 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T19",
+      "target_files": [
+        "test/public-json-ld-presence.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T19.AC1",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-json-ld-presence.*home",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T19.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-json-ld-presence.*article[_-]?with[_-]?faqs",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T19.AC3",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-json-ld-presence.*article[_-]?empty[_-]?faqs",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "JSON-LD presence on Home + Article"
+    },
+    {
+      "ac_ids": [
+        "T20.AC1",
+        "T20.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T20-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-061",
+        "RC-062"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-061",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-062",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-061",
+        "RC-062"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-061,RC-062 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T20",
+      "target_files": [
+        "test/public-image-attrs.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T20.AC1",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-image-attrs.*alt[_-]?width[_-]?height",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T20.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-image-attrs.*lazy[_-]?below[_-]?fold",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Image attribute + lazy-load tests"
+    },
+    {
+      "ac_ids": [
+        "T21.AC1",
+        "T21.AC2"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T21-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-063",
+        "RC-064"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-063",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "test_receipt",
+          "cwd": ".",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx vitest run --reporter=verbose",
+          "expected_test_file": null,
+          "expected_test_name_regex": ".",
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-064",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-063",
+        "RC-064"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-063,RC-064 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T21",
+      "target_files": [
+        "test/public-ad-slots.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T21.AC1",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-ad-slots.*data[_-]?attrs",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T21.AC2",
+          "binding_type": "test_name_regex",
+          "command": null,
+          "expected": null,
+          "expected_test_file": null,
+          "expected_test_name_regex": "^public-ad-slots.*leaderboard[_-]?and[_-]?in[_-]?feed",
+          "field_refs": [],
+          "parser_strategy": null,
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Ad-slot attribute tests"
+    },
+    {
+      "ac_ids": [
+        "T22.AC1",
+        "T22.AC2",
+        "T22.AC3",
+        "T22.AC4"
+      ],
+      "acceptance_test_paths": [
+        "acceptance-tests/T22-syntactic.sh"
+      ],
+      "actionable_rc_ids": [
+        "RC-065",
+        "RC-066",
+        "RC-067",
+        "RC-068"
+      ],
+      "category": "infra",
+      "deferred_rc_ids": [],
+      "design_slice": null,
+      "endpoints": [],
+      "evidence_route_retry_budget": 2,
+      "evidence_routes": [
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npx tsc --noEmit",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-065",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npm run verify:no-legacy-prod-refs",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-066",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npm run verify:infra",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-067",
+          "value_path": null
+        },
+        {
+          "action": "RUN",
+          "claim_category": "ac_satisfied",
+          "classification": "deterministic_runner",
+          "cwd": "api",
+          "cwd_anchor": "worktree_root",
+          "deferred_to": null,
+          "evidence_command": "npm run verify:worker-config",
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "expected_value": null,
+          "operator": null,
+          "parser_strategy": "test_exit_code",
+          "required_claim_id": "RC-068",
+          "value_path": null
+        }
+      ],
+      "fields": [],
+      "rc_ids": [
+        "RC-065",
+        "RC-066",
+        "RC-067",
+        "RC-068"
+      ],
+      "runner_command_rendered": "python3 /Users/guyhaikov/a2z-workspaces/.claude/skills/a2z-develop/scripts/run_required_evidence_command.py --change-id=cms-new-phase5-2026-05018 --required-claim-ids=RC-065,RC-066,RC-067,RC-068 --evidence-plan=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/.a2z/mission-state/cms-new-phase5-2026-05018/required_evidence_plan.json --workspace-root=/Users/guyhaikov/a2z-workspaces --project-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms --worktree-root=\"$WORKDIR\"",
+      "skip_diagnostic_rc_ids": [],
+      "story_id": "T22",
+      "target_files": [
+        "test/verify-scripts-green.test.ts"
+      ],
+      "test_bindings": [
+        {
+          "ac_id": "T22.AC1",
+          "binding_type": "command",
+          "command": "cd api && npx tsc --noEmit",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T22.AC2",
+          "binding_type": "command",
+          "command": "cd api && npm run verify:no-legacy-prod-refs",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T22.AC3",
+          "binding_type": "command",
+          "command": "cd api && npm run verify:infra",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        },
+        {
+          "ac_id": "T22.AC4",
+          "binding_type": "command",
+          "command": "cd api && npm run verify:worker-config",
+          "expected": 0,
+          "expected_test_file": null,
+          "expected_test_name_regex": null,
+          "field_refs": [],
+          "parser_strategy": "test_exit_code",
+          "test_file_exists_at_base": null
+        }
+      ],
+      "title": "Regression: typecheck + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0"
+    }
+  ],
+  "writer": "build_implementation_digest.py"
+}
