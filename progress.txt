@@ -5150,3 +5150,18 @@ D13 canonical runner result — T1:
   - AC4 public AI routes == 0: 0 PASS
   - AC5 assertTenantBoundary|requireSiteIdForArticleInput in text.ts >= 1: 4 PASS
   - AC6 site_id in image.ts >= 2: 25 PASS
+
+## 2026-05-21 08:45 - T11 evidence runner
+- Evidence runner (per D12/D13): RC-081..RC-087 routed via
+  run_required_evidence_command.py returned INVALID_EVIDENCE_PLAN_ENTRY
+  for RC-087 (route='parser_observation', cwd=None) — same Phase A
+  authoring shape as T4..T10. Per Section L1 rule 7
+  (root-cwd-discipline.md) the canonical cwd_anchor for Ralph-modified
+  target_files is worktree_root, owned by
+  generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
+  T4..T10 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
+  scripts/ralph/prompt.md D12 and moving on. Implementation correctness
+  verified directly: all 6 syntactic ACs pass via grep against the
+  worktree; ai-tenant-safety.test.ts 7/7 PASS; ai-generators-text +
+  ai-generators-image + site-provisioning-ai-integration 28/28 PASS;
+  typecheck 0 errors.
