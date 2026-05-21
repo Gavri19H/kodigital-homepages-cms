@@ -4304,3 +4304,72 @@ D13 canonical runner result — T1:
     so the assertions catch model-id drift at the boundary
     between env and the OpenAI HTTP body.
 ---
+
+## 2026-05-21 - T2 (sources: T2)
+- Implemented Worker-compatible OpenAI client (chat.completions + images.generations).
+- Files changed:
+  - api/src/ai/openai-client.ts (new, 200 lines)
+  - api/test/ai-openai-client.test.ts (new, 13 tests)
+- AC results (all PASS):
+  - AC1 grep export function createOpenAIClient == 1
+  - AC2 grep env.OPENAI_API_KEY == 2
+  - AC3 grep redactApiKey|REDACTED == 5
+  - AC4 grep ^import .* from .node: == 0 (no node: imports — Worker safe)
+  - AC5 grep AbortController|signal: == 3
+  - BEHAVIORAL: skipped_no_api_key returned when no key; 429 retried once
+    (retries=1); sk-abc123 scrubbed to [REDACTED] in error path.
+- Self-check results:
+  - File sizes: api/src/ai/openai-client.ts 200 lines (limit 200) — PASS
+  - Secret scan: PASS (only Bearer ${apiKey} template + synthetic test
+    fixture "sk-test-real-key"; no real secrets committed)
+  - Error handling: PASS (non-OK responses throw with redacted body slice;
+    JSON parse fall-through guarded)
+  - Migration execution: N/A (api category)
+  - Parameterized queries: N/A (no D1 access in this story)
+- Test commands actually run:
+  - cd api && npx vitest run test/ai-openai-client.test.ts (13 passed)
+  - cd api && npx tsc --noEmit (clean, 0 errors)
+- Learnings:
+  * Cloudflare Workers do not expose Node http/https — building the
+    OpenAI client on `fetch` + `AbortController` keeps the surface
+    portable and lets tests inject a `fetchImpl` mock without
+    touching globalThis.fetch. AC4 (no node: imports) enforces this
+    at the grep layer too.
+  * The "skipped_no_api_key" branch is a documented top-level result
+    shape, not a thrown error. Downstream generators (T7/T8) and the
+    provisioning steps (T9) discriminate on this field, so the
+    canonical result type intentionally exposes it on BOTH the
+    success and skipped variants (one as required `true`, the other
+    as optional `false`).
+  * Retry/backoff is intentionally simple (1 retry, 250ms sleep) —
+    matches the digest's "retry once on 429" behavioral contract.
+    Wider exponential backoff would be over-design for the dry-run
+    + admin-host-only call sites in this phase.
+  * `redactSecretsFromText` runs on the *body slice* of every
+    upstream error before it reaches `new Error(...)`, so the only
+    place where the literal API key value exists in memory is the
+    Authorization header construction (line ~120). Logs/messages
+    never carry it.
+---
+
+- EVIDENCE_ROUTE_EXHAUSTED: T2 RC-009,RC-010,RC-011,RC-012,RC-013,RC-014.
+  Canonical runner exit non-zero. Two root causes (both skill-owned
+  per Section L1 / L7 / D13 in evidence-honesty.md):
+  1. RC-014: required_evidence_plan.json entry has cwd=None +
+     route='parser_observation' → "INVALID_EVIDENCE_PLAN_ENTRY for
+     non-production_pending route(s) with null cwd or evidence_command".
+  2. RC-009..RC-013: entries set cwd='api' (relative) and resolver
+     anchors against project_root rather than worktree_root, so it
+     looks for api/src/ai/openai-client.ts at
+     /Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api
+     instead of the worktree path. Reason_code:
+     EVIDENCE_SOURCE_PATH_UNRESOLVED with
+     f22_source_path_recovery.reason="no_package_root_or_story_prefix_resolves_grep_files"
+     and tried_story_prefixes=["api"].
+  These are NOT product defects — the file exists at
+  $WORKTREE/api/src/ai/openai-client.ts (200 lines) and every AC's
+  literal grep returns the expected count when run from the worktree
+  root (AC1=1, AC2=2, AC3=5, AC4=0, AC5=3). Vitest + tsc both PASS.
+  Per scripts/ralph/prompt.md D12 ("log EVIDENCE_ROUTE_EXHAUSTED and
+  move on"), Phase C / finalize_develop owns the repair (Section L1
+  rule 7 / Section L7 / matrix repair table). Ralph proceeds.

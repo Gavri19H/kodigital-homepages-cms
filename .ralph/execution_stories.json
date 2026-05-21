@@ -37,8 +37,8 @@
       "id": "T2",
       "title": "Worker-compatible OpenAI client with redaction, fallback, retry",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T2"
       ],
@@ -63,7 +63,7 @@
     },
     {
       "id": "T3",
-      "title": "Generated content types + validators (article needs \u22653 h2 + \u22653 FAQs, no TheIWise refs)",
+      "title": "Generated content types + validators (article needs ≥3 h2 + ≥3 FAQs, no TheIWise refs)",
       "category": "api",
       "state": "planned",
       "passes": false,
@@ -152,7 +152,7 @@
         "grep -li \"render.*site.name.*text\\|exact name text\" api/src/ai/prompts/logo.ts | wc -l == 0",
         "grep -li \"transparent background\\|alpha channel\" api/src/ai/prompts/logo.ts | wc -l == 0",
         "grep -c \"do not.*render.*name\\|no text rendering\\|site name.*not rendered\" api/src/ai/prompts/logo.ts >= 1",
-        "FUNCTIONAL: npx vitest run test/ai-prompts.test.ts \u2014 buildPrompt returns stable string given same input; PROMPT_VERSION matches expected slug per module"
+        "FUNCTIONAL: npx vitest run test/ai-prompts.test.ts — buildPrompt returns stable string given same input; PROMPT_VERSION matches expected slug per module"
       ],
       "scoped_quality_commands": [],
       "forbidden_red_lines": [
