@@ -228,8 +228,8 @@
       "id": "T8",
       "title": "Image generators (logo prompt+image, feature image prompt+image); R2 upload + media row; fallback placeholders",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T8"
       ],

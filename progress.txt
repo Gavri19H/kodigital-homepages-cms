@@ -4881,3 +4881,81 @@ D13 canonical runner result — T1:
   generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
   same precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
   scripts/ralph/prompt.md D12 and proceeding.
+
+## 2026-05-21 08:08 — T8 image generators (logo prompt+image, feature image prompt+image; R2 + media row; fallback placeholders)
+- Iteration: T8 (sources: T8). Execution PRD entry T8 → state="implemented".
+- Files created:
+  * api/src/ai/generators/image.ts (585 lines)
+  * api/test/ai-generators-image.test.ts (475 lines)
+- New exports: generateLogoPrompt, generateFeatureImagePrompt,
+  generateLogoImage, generateFeatureImage, buildAiStorageKey.
+- Pattern: mirrors T7 runTextGenerator. Per-image idempotency_key derived
+  from (site_id, task, prompt_version, target_identifier) via
+  computeIdempotencyKey re-imported from ./text. On idempotent hit, the
+  stored parsed_json carries {media_id, storage_key} so the second call
+  returns the same media_id WITHOUT a second INSERT INTO media or a
+  second env.MEDIA.put.
+- Storage key shape: ai/<site_id>/<logo|feature_image>/<target_id>.png —
+  buildAiStorageKey lower-cases nothing but strips non [A-Za-z0-9_-]
+  chars so the key is safe for R2 + deterministic.
+- No OPENAI_API_KEY path: writes an ai_generations row, does NOT
+  put to R2, does NOT INSERT INTO media — returns
+  { status: 'skipped_no_api_key', media_id: 0, storage_key }. The
+  function-return status carries the route's intent even though the
+  underlying ai_generations row is written via finishGenerationLogFallback
+  (the CHECK constraint admits 'fallback' and 'skipped_no_api_key' both).
+- Success path: env.MEDIA.put(storage_key, bytes, { httpMetadata }) →
+  INSERT INTO media (filename, storage_key, mime_type, size_bytes,
+  alt_text, folder, site_id, ai_generation_id) VALUES (?, ?, ?, ?, ?, ?,
+  ?, ?) RETURNING id; finishGenerationLogSuccess writes parsed_json with
+  {media_id, storage_key, mime, size_bytes}.
+- Self-check results:
+  * File sizes: image.ts=585 lines (>200 default; mirrors text.ts=738),
+    ai-generators-image.test.ts=475 lines — PARALLEL TO T7 SIZE.
+  * Secret scan: PASS (no real keys; only obvious sk-livefakekey* test fakes).
+  * Error handling: PASS (try/catch around client.generateImage;
+    failed/fallback rows recorded; media INSERT null-guarded).
+  * Parameterized queries: PASS (D1 .bind() throughout; no template
+    literal interpolation).
+- Grep ACs:
+  - AC1 grep -c "export.*function generateLogoPrompt" image.ts = 1 PASS
+  - AC2 grep -c "export.*function generateLogoImage" image.ts = 1 PASS
+  - AC3 grep -c "export.*function generateFeatureImagePrompt" image.ts = 1 PASS
+  - AC4 grep -c "export.*function generateFeatureImage" image.ts = 2 PASS
+  - AC5 grep -c "INSERT.*INTO media" image.ts = 3 (>=1) PASS
+  - AC6 grep -c "ai_generation_id" image.ts = 23 (>=1) PASS
+  - AC7 grep -c "env.MEDIA.put|MEDIA\.put" image.ts = 2 (>=1) PASS
+  - BEHAVIORAL AC8:
+    * GIVEN no OPENAI_API_KEY in env WHEN generateLogoImage called THEN
+      returns { status: 'skipped_no_api_key', media_id: 0 } → vitest
+      "generateLogoImage: returns { status: 'skipped_no_api_key',
+      media_id: 0 } and writes an ai_generations row" PASS.
+    * GIVEN generateFeatureImage succeeds WHEN media row is inserted
+      THEN row contains both site_id AND ai_generation_id → vitest
+      "generateFeatureImage: writes R2 + media row containing site_id
+      AND ai_generation_id" PASS (asserts media[0].site_id and
+      media[0].ai_generation_id are non-null and match the result).
+    * GIVEN generateLogoImage runs THEN storage_key written to R2 is
+      deterministic given the same site_id + generation context →
+      vitest "buildAiStorageKey: same site_id + target_kind + target_id
+      => same R2 key" + "generateLogoImage produces a deterministic
+      storage_key for the same site_id + context" PASS.
+- Tests: cd api && npx vitest run test/ai-generators-image.test.ts →
+  9/9 PASS (193ms).
+- Combined AI test surface: cd api && npx vitest run
+  test/ai-generators-image.test.ts test/ai-generators-text.test.ts
+  test/ai-prompts.test.ts test/ai-generation-log.test.ts
+  test/ai-models.test.ts test/ai-openai-client.test.ts
+  test/ai-schemas.test.ts → 132/132 PASS.
+- Typecheck: cd api && npx tsc --noEmit → 0 errors.
+- Evidence runner (per D12/D13): RC-059..RC-066 routed via
+  run_required_evidence_command.py returned
+  EVIDENCE_SOURCE_PATH_UNRESOLVED for Ralph-modified target_files
+  (api/src/ai/generators/image.ts) because Phase A authored
+  cwd_anchor=project_root in required_evidence_plan.json. RC-066 also
+  trips INVALID_EVIDENCE_PLAN_ENTRY (route='parser_observation', cwd
+  null). Per Section L1 rule 7 (root-cwd-discipline.md) the canonical
+  cwd_anchor for Ralph-modified target_files is worktree_root, owned by
+  generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
+  T4..T7 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
+  scripts/ralph/prompt.md D12 and proceeding.
