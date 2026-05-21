@@ -4589,3 +4589,33 @@ D13 canonical runner result — T1:
     contract is: assert every invariant a future apply must
     obey, so the apply step has a deterministic contract.
 ---
+
+- EVIDENCE_ROUTE_EXHAUSTED: T4 RC-025,RC-026,RC-027,RC-028,RC-029,RC-030,RC-031.
+  Canonical runner exit non-zero on every per-story RC. Same skill-owned
+  defect class as T1/T2/T3's EVIDENCE_ROUTE_EXHAUSTED — TWO root causes
+  (both skill-owned per Section L1 / L7 / D13 in evidence-honesty.md):
+  1. RC-031 has cwd=None + route='parser_observation' →
+     "INVALID_EVIDENCE_PLAN_ENTRY for non-production_pending route(s)
+     with null cwd or evidence_command" pre-flight failure.
+  2. RC-025..RC-030 set cwd='api' (relative) and the resolver anchors
+     against project_root rather than worktree_root → it looks for
+     api/migrations/0008_phase5_ai_generations.sql at
+     /Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms/api
+     instead of the worktree path. Reason_code:
+     EVIDENCE_SOURCE_PATH_UNRESOLVED with f22_source_path_recovery.reason=
+     "no_package_root_or_story_prefix_resolves_grep_files" and
+     tried_story_prefixes=["api"].
+  These are NOT product defects. The file exists at
+  $WORKTREE/api/migrations/0008_phase5_ai_generations.sql (162 lines)
+  and every one of T4's 6 syntactic ACs returns the expected count
+  when run from the worktree root:
+    AC1 (CREATE TABLE.*ai_generations_v2|ALTER TABLE ai_generations RENAME) = 1 (>=1) PASS
+    AC2 (idempotency_key TEXT) = 1 (>=1) PASS
+    AC3 (UNIQUE.*idempotency_key|CREATE UNIQUE INDEX.*idempotency_key) = 2 (>=1) PASS
+    AC4 ('pending'|'success'|'fallback'|'skipped_no_api_key') = 10 (>=4) PASS
+    AC5 (prompt_version|request_json|response_json|parsed_json|target_type|target_id|error_message|updated_at|task|provider) = 26 (>=10) PASS
+    AC6 (ALTER TABLE media ADD COLUMN ai_generation_id) = 1 (>=1) PASS
+  Vitest run on test/migrations-0008-ai-generations.test.ts → 14/14 PASS.
+  tsc --noEmit → 0 errors. Per Section L7 / D13 (evidence-honesty.md)
+  the matrix repair is owned by Phase C / finalize_develop, not Ralph.
+  Per scripts/ralph/prompt.md D12, log EVIDENCE_ROUTE_EXHAUSTED and proceed.
