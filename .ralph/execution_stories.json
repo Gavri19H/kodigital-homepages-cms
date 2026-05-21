@@ -97,8 +97,8 @@
       "id": "T4",
       "title": "Recreate ai_generations with idempotency_key UNIQUE + 5-state status; add media.ai_generation_id",
       "category": "db",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T4"
       ],

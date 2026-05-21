@@ -82,7 +82,7 @@
         "BEHAVIORAL: GIVEN migration 0008 has applied WHEN inserting a second row with the same idempotency_key THEN D1 raises a UNIQUE constraint violation; GIVEN migration 0008 has applied WHEN inserting a row with status='skipped_no_api_key' THEN the row is accepted; GIVEN migration 0008 has applied WHEN inserting a row with the old status='stub' THEN D1 raises a CHECK constraint violation"
       ],
       "passes": false,
-      "state": "planned"
+      "state": "implemented"
     },
     {
       "id": "T5",

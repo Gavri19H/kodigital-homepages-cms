@@ -4457,3 +4457,135 @@ D13 canonical runner result — T1:
   owned by Phase C / finalize_develop, not Ralph. Per
   scripts/ralph/prompt.md D12, log EVIDENCE_ROUTE_EXHAUSTED and
   proceed.
+
+## 2026-05-21 — T4 (sources: T4) — Recreate ai_generations + media.ai_generation_id
+- iteration: 4 — execution story T4 (sources: T4)
+- Implemented:
+  - api/migrations/0008_phase5_ai_generations.sql — 162 lines
+    - CREATE-INSERT-DROP-RENAME rebuild of `ai_generations`
+      (SQLite has no ALTER TABLE DROP CONSTRAINT, so widening the
+      status CHECK clause from 3 legacy states to 5 Phase-5 states
+      requires the same D1-safe pattern 0003 + 0007 used).
+    - New 16-column shape: id (TEXT PK), site_id, task, provider,
+      model, prompt_version, idempotency_key, request_json,
+      response_json, parsed_json, status, target_type, target_id,
+      error_message, created_at, updated_at.
+    - status CHECK constraint admits exactly
+      ('pending','success','failed','fallback','skipped_no_api_key');
+      the legacy 'stub' literal is intentionally absent.
+    - CREATE UNIQUE INDEX idx_ai_generations_idempotency_key on
+      idempotency_key — the CRUD layer (T6) uses this as the
+      idempotency lookup key.
+    - Covering indexes idx_ai_generations_{site_created,status,
+      task,target} for the admin /admin/ai-generations list page (T10).
+    - ALTER TABLE media ADD COLUMN ai_generation_id TEXT REFERENCES
+      ai_generations(id); + idx_media_ai_generation_id.
+    - INSERT-from-legacy step is loss-less for the Phase-3 'stub'
+      rows (mapped to 'success').
+  - api/test/migrations-0008-ai-generations.test.ts — 226 lines
+    - 14 vitest cases, static SQL parser pattern (mirrors
+      migrations-0007-slug-uniqueness-recreate.test.ts). Asserts:
+      - ai_generations_v2 declares the 16 Phase-5 columns
+      - idempotency_key is TEXT NOT NULL
+      - CREATE -> INSERT -> DROP -> RENAME ordering
+      - id remains TEXT PRIMARY KEY (FK refs from articles/pages resolve)
+      - CHECK (status IN ...) contains all 5 Phase-5 states
+      - CHECK clause does NOT permit the legacy 'stub' literal
+      - 'skipped_no_api_key' is present in the IN set
+      - CREATE UNIQUE INDEX on idempotency_key is AFTER the rename
+      - media gains ai_generation_id REFERENCES ai_generations(id)
+      - idx_media_ai_generation_id + 4 covering indexes on ai_generations
+- AC verification (all greps, from worktree root):
+  - AC1 grep CREATE TABLE.*ai_generations_v2|ALTER TABLE ai_generations RENAME == 1 (PASS >=1)
+  - AC2 grep idempotency_key TEXT == 1 (PASS >=1)
+  - AC3 grep UNIQUE.*idempotency_key|CREATE UNIQUE INDEX.*idempotency_key == 2 (PASS >=1)
+  - AC4 grep 'pending'|'success'|'fallback'|'skipped_no_api_key' == 10 (PASS >=4)
+  - AC5 grep prompt_version|request_json|response_json|parsed_json|target_type|target_id|error_message|updated_at|task|provider == 26 (PASS >=10)
+  - AC6 grep ALTER TABLE media ADD COLUMN ai_generation_id == 1 (PASS >=1)
+  - BEHAVIORAL ACs covered by static-SQL assertions in the test file
+    per the migrations-0007 doctrine. Live D1 behaviour will follow
+    from the asserted schema (CHECK / UNIQUE enforcement is a SQLite
+    invariant): the migration declares it, SQLite enforces it on apply.
+- Self-check results:
+  - File sizes:
+    - 0008_phase5_ai_generations.sql 162 lines (peers: 0002 347,
+      0007 191) — PASS (in-norm for CREATE-INSERT-DROP-RENAME
+      migrations in this repo).
+    - migrations-0008-ai-generations.test.ts 226 lines (peer:
+      migrations-0007 test 259) — PASS (in-norm).
+  - Secret scan (API_KEY=|Bearer |TOKEN=|SECRET=|password=|
+    private_key|connection_string on both new files) — 0 matches PASS.
+  - Error handling: N/A (SQL DDL + static SQL assertions).
+  - Migration execution: NOT RUN — Ralph cannot run
+    `wrangler d1 execute` against the local D1 in this loop
+    (wrangler dev / D1 emulator not active in the worktree, and
+    the deploy-safety rule MUST NOT run wrangler against any DB
+    binding). The required command is:
+      cd api && npx wrangler d1 migrations apply kodigital-homepages-cms-db --local
+    Ship phase / manual QA owns the live-apply verification per
+    deploy-safety.md (D1-file rule). Static schema invariants
+    (CHECK clause + UNIQUE INDEX + ADD COLUMN) are asserted by the
+    test file so a future apply step has a deterministic contract
+    to validate against.
+  - Parameterized queries: N/A (DDL migration; the body is parsed
+    SQL literals — no .bind() / no template-literal SQL).
+  - Banned-string scan
+    (theiwise|insureprimo|quotesroutes|psychic-quiz|rental-booking
+    on both new files) — 0 matches PASS.
+- Test commands actually run:
+  - cd api && ./node_modules/.bin/vitest run test/migrations-0008-ai-generations.test.ts
+    → 14/14 PASS
+  - cd api && ./node_modules/.bin/tsc --noEmit → 0 errors
+  - cd api && ./node_modules/.bin/vitest run → 334/336 PASS
+    (2 pre-existing failures from T3 in test/verify-script.test.ts +
+    test/legacy-ref-allowlist.test.ts — both are the verify:no-legacy-prod-refs
+    script flagging api/src/ai/schemas.ts:3,95,97,98 + api/test/ai-schemas.test.ts:120,123
+    where T3 placed the banned-ref pattern strings as constants for
+    its validator's banned-legacy-ref scan. Confirmed pre-existing by
+    `git stash -u` + re-run — both tests failed identically before
+    T4's two new files existed. Out of T4 scope per execution-story
+    forbidden_red_lines: "MUST NOT edit parent context stories
+    outside this execution story". T3-skill-fix follow-up owns it.)
+- Scoped quality commands: execution story T4 declares
+  scoped_quality_commands=[]; no per-iteration QCMD invoked beyond
+  the canonical runner. Iteration's quality gate is the six syntactic
+  grep ACs (all PASS from worktree root) + tsc clean + the 14 new
+  T4 vitest tests green + the rest of the suite holding 320/322
+  pre-existing-pass.
+- Ralph-local execution PRD (.ralph/execution_stories.json) T4
+  flipped to state="implemented" + passes=true (basename does NOT
+  end with prd.json, hook does not match — current-cycle scope
+  exception per scripts/ralph/prompt.md). Canonical prd.json T4
+  flipped to state="implemented" with passes=false (Ralph MUST NOT
+  set canonical PRD passes=true per D11/D15). Reconciliation to
+  verified is owned by reconcile_story_states.py post-evaluator.
+- Learnings:
+  * SQLite's CHECK constraint cannot be widened in place (no
+    ALTER TABLE DROP CONSTRAINT / no ALTER TABLE ALTER COLUMN).
+    Every migration that needs to evolve a CHECK from one
+    finite literal set to another MUST use CREATE-INSERT-DROP-
+    RENAME. The pattern in 0003 (site_settings restructure) and
+    0007 (drop global slug UNIQUE) is the canonical template
+    for this repo — copy it field-for-field.
+  * `INSERT OR IGNORE INTO ai_generations_v2 SELECT ... FROM
+    ai_generations` is safe even when the legacy table is empty
+    (every Phase-3 sites/seeds path uses `'stub'` rows that are
+    only INSERTed if generation runs — Phase 3 never ran real
+    generation). Mapping `'stub' -> 'success'` keeps the INSERT
+    loss-less if a stub row was written in an interim test.
+  * FK references from articles.ai_generation_id +
+    pages.ai_generation_id point AT ai_generations(id) BY NAME.
+    Once the rename completes, SQLite re-resolves the FK clause
+    to the rebuilt table — no FK fix-up needed on the
+    referencing tables. The new id PRIMARY KEY must stay TEXT
+    (matches the legacy 0002 shape) so the FK column type
+    matches; INTEGER would silently break the FK at any future
+    point where foreign_keys=ON is toggled.
+  * Static SQL assertion (regex parser of the migration file)
+    is the established testing surface for D1 migrations in
+    this repo (migrations-0002-*.test.ts, migrations-0007-*).
+    The live-apply leg is owned by wrangler d1 migrations
+    apply + the ship/manualQA phase. Ralph's migration-test
+    contract is: assert every invariant a future apply must
+    obey, so the apply step has a deterministic contract.
+---
