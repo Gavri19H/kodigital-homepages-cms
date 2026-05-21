@@ -5068,3 +5068,35 @@ D13 canonical runner result — T1:
   generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
   T4..T8 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
   scripts/ralph/prompt.md D12 and proceeding.
+
+## 2026-05-21 08:34 - T10
+- Implemented /admin/ai-generations list page + detail JSON.
+- adminUi: GET /admin/ai-generations (paged HTML) + /:id (detail HTML).
+- adminApi: GET /api/admin/ai-generations (list JSON paged) + /:id (detail JSON).
+- New templates: api/src/admin/templates/ai-generations-list.ts (124 lines),
+  api/src/admin/templates/ai-generation-detail.ts (121 lines). Both expose
+  `ai_generation_id` via data attr + visible column for cross-tab deep links.
+- All D1 queries prepare(<static SQL>).bind(...).
+- Test admin-ai-generations.test.ts: 7 tests, all pass — covers paged list shape,
+  detail shape, missing-row 404, off-ADMIN_HOST 404 (host gate), on-host no-JWT
+  401 (auth gate), HTML render exposing ai_generation_id.
+- source_story_ids: [T10]
+- test commands: cd api && npx vitest run test/admin-ai-generations.test.ts
+- self-checks:
+  - File sizes: ai-generations-list.ts 124 / ai-generation-detail.ts 121 (templates
+    limit 300) — PASS; api.ts 729 (was 640, added 88 for list+detail handlers) —
+    consistent with route-table file pattern (sites-handlers.ts split-out); ui.ts
+    253 (was 166, added 87 for two routes) — consistent with admin/ui.ts pattern.
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password in changed files).
+  - Error handling: PASS (404 not found, 400 invalid id).
+  - Parameterized queries: PASS (all .bind() — no template-literal SQL).
+  - Migration execution: N/A (ui category; no new migration).
+- Evidence runner result (RC-075..RC-080): EVIDENCE_ROUTE_EXHAUSTED. The plan
+  entries are anchored at project_root with stripped `api/` prefix instead of
+  worktree_root (L1 rule 7 skill-owned class: Ralph-modified canonical_paths
+  MUST use cwd_anchor=worktree_root). The actual AC greps pass against the
+  worktree where my commit landed (ui.ts:6, api.ts AC2:4, AC3:2, templates with
+  ai_generation_id, AC5:20). RC-079 passed via L10 path-rewrite; RC-075..RC-078
+  did not because the rewrite still points at project_root files that haven't
+  been merged yet. RC-080 errored: INVALID_EVIDENCE_PLAN_ENTRY (cwd=None). Both
+  are skill-owned blockers — not repaired by Ralph per L1.
