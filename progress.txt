@@ -4959,3 +4959,112 @@ D13 canonical runner result — T1:
   generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
   T4..T7 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
   scripts/ralph/prompt.md D12 and proceeding.
+
+## 2026-05-21 08:25 — T9 swap deterministic stubs for AI-or-fallback in 6 provisioning steps
+- Iteration: T9 (sources: T9). Execution PRD entry T9 → state="implemented".
+- Files modified:
+  * api/src/site-provisioning/steps.ts (264 → 663 lines): added 5 imports
+    from api/src/ai/generators/text + 4 imports from
+    api/src/ai/generators/image; wired SIX previously-stub steps to
+    AI-or-fallback generators while keeping the 15-item STEP_KEYS array
+    + StepKey type union unchanged so the runner/AC contracts stay
+    intact.
+  * api/test/admin-ux-acceptance.test.ts: makeAboutPageDb now models
+    ai_generations INSERT + UPDATE so generate_about_page_stub's AI
+    path resolves through startGenerationLog (env model also updated
+    to gpt-5.5 / gpt-image-2, the T1 canonical slugs).
+  * api/test/site-provisioning-runner.test.ts: fake D1 extended to
+    handle the new SQL surface (ai_generations CRUD, sites
+    vertical_slug query, media RETURNING id); env model slugs updated
+    to gpt-5.5 / gpt-image-2.
+- File created:
+  * api/test/site-provisioning-ai-integration.test.ts (577 lines, 7
+    BEHAVIORAL ACs).
+- Six swapped steps + their idempotency anchor:
+  * generate_tagline_and_site_description_stub → generateSiteTagline +
+    generateSiteDescription → upsertSiteSetting (INSERT ... ON CONFLICT
+    DO UPDATE WHERE value IS NULL OR value=''). Re-running preserves
+    any human override.
+  * generate_about_page_stub → generateAboutPage → INSERT OR IGNORE
+    INTO pages on (site_id, slug)='about'. Re-running keeps the row
+    count at 1.
+  * generate_logo_mark_stub → generateLogoPrompt + generateLogoImage →
+    upsertSiteSetting on 'logo_media_id' (only when media_id > 0; no
+    OPENAI_API_KEY ⇒ image generator returns media_id=0 ⇒
+    site_settings.logo_media_id stays empty as seeded by T19).
+  * generate_feature_image_stub → generateFeatureImagePrompt +
+    generateFeatureImage on (site_id, 'site-hero'). Two ai_generations
+    rows per run (idempotency_key-deduped).
+  * generate_15_homepage_articles_stub → generateStarterArticlePlan
+    (always 15 unique slugs) then per-item generateStarterArticle +
+    INSERT OR IGNORE INTO articles on (site_id, slug). Re-running is
+    a no-op under the (site_id, slug) UNIQUE index from migration
+    0007. Every article row carries an ai_generation_id back-pointer
+    to its source receipt row.
+  * generate_or_assign_article_images_stub → for each starter article
+    row, generateFeatureImage + UPDATE articles SET featured_image_id =
+    ? WHERE id = ? AND (featured_image_id IS NULL OR
+    featured_image_id = 0). Editor-picked images are not clobbered.
+- Behavioural ACs (AC8) — all asserted by
+  api/test/site-provisioning-ai-integration.test.ts:
+  * GIVEN no OPENAI_API_KEY WHEN generate_tagline_and_site_description_stub
+    runs THEN an ai_generations row exists with status in {'fallback',
+    'skipped_no_api_key'} AND site_settings.tagline is set to a
+    non-empty fallback string → vitest
+    "generate_tagline_and_site_description_stub writes ai_generations
+    row AND non-empty tagline without OPENAI_API_KEY" PASS.
+  * GIVEN step generate_15_homepage_articles_stub has run once WHEN it
+    runs again THEN no additional articles are inserted → vitest
+    "generate_15_homepage_articles_stub re-invocation does NOT add
+    additional articles" PASS (asserts insertCounts['articles'] stable
+    across iterations).
+  * GIVEN no OPENAI_API_KEY WHEN generate_15_homepage_articles_stub
+    runs THEN exactly 15 articles exist with distinct slugs all bound
+    to ctx.site_id → vitest
+    "generate_15_homepage_articles_stub inserts exactly 15 articles
+    with unique slugs bound to ctx.site_id (no API key)" PASS.
+- Grep ACs (T9.AC1..AC7) — all PASS:
+  * AC1 grep -c "import.*generateSiteTagline|import.*generateSiteDescription"
+    steps.ts = 1 (>=1) PASS
+  * AC2 grep -c "import.*generateAboutPage\b" steps.ts = 1 (>=1) PASS
+  * AC3 grep -c "import.*generateLogoImage|generateLogoPrompt" steps.ts = 3 (>=1) PASS
+  * AC4 grep -c "import.*generateFeatureImage|generateFeatureImagePrompt"
+    steps.ts = 2 (>=1) PASS
+  * AC5 grep -c "import.*generateStarterArticlePlan|generateStarterArticle\b"
+    steps.ts = 3 (>=1) PASS
+  * AC6 grep -c "<6 stub names>" steps.ts = 30 (>=12) PASS
+  * AC7 grep -c "^  '[a-z_]" steps.ts = 15 (>=15) PASS
+- Self-checks:
+  * File sizes: steps.ts=663 lines (>200 default; justified by
+    AC6's >=12 stub-name appearance requirement + the 8 step
+    handlers and helpers). ai-integration test=577 lines.
+  * Secret scan: 0 matches across both new/modified files.
+  * Error handling: every AI generator call is wrapped at the
+    generator level (T7 try/catch + finishGenerationLogFailure +
+    deterministic fallback); each step handler returns a structured
+    failure if loadSiteInfo returns null (sites row missing).
+  * Parameterized queries: PASS — every D1 prepare uses static SQL
+    + .bind(). No template literal interpolation.
+- Tests:
+  * cd api && npx vitest run test/site-provisioning-ai-integration.test.ts
+    → 7/7 PASS (211ms).
+  * cd api && npx vitest run test/site-provisioning-runner.test.ts
+    test/site-provisioning-dry-run.test.ts
+    test/site-provisioning-create-site-settings.test.ts
+    test/site-provisioning-ai-integration.test.ts
+    test/admin-ux-acceptance.test.ts → 16/16 PASS.
+  * Typecheck: cd api && npx tsc --noEmit → 0 errors.
+  * Full suite: cd api && npx vitest run → 437 passed, 2
+    pre-existing failures (verify:no-legacy-prod-refs flags the
+    BANNED_LEGACY_REFS literal list in api/src/ai/schemas.ts and
+    its rejection-assertion cases in api/test/ai-schemas.test.ts —
+    confirmed pre-existing via git stash; T3 design, not T9).
+- Evidence runner (per D12/D13): RC-067..RC-074 routed via
+  run_required_evidence_command.py returned
+  INVALID_EVIDENCE_PLAN_ENTRY for RC-074 (route='parser_observation',
+  cwd=None) — same Phase A authoring shape as T4..T8. Per Section L1
+  rule 7 (root-cwd-discipline.md) the canonical cwd_anchor for
+  Ralph-modified target_files is worktree_root, owned by
+  generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
+  T4..T8 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
+  scripts/ralph/prompt.md D12 and proceeding.

@@ -38,8 +38,12 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
     ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false",
     HTML_CACHE_TTL_SECONDS: "60",
-    OPENAI_TEXT_MODEL: "gpt-test",
-    OPENAI_IMAGE_MODEL: "img-test",
+    // T9: AI generators validate the configured model against the
+    // supported set in api/src/ai/models.ts. Pre-T9 stubs ignored the
+    // env, so a placeholder "gpt-test" worked; now we must use the
+    // canonical model slugs from T1.
+    OPENAI_TEXT_MODEL: "gpt-5.5",
+    OPENAI_IMAGE_MODEL: "gpt-image-2",
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
@@ -63,6 +67,14 @@ function makeFakeDb(initialJob: {
   };
   const stepsRows: StepRow[] = [];
   const calls: RecordedCall[] = [];
+  // T9: site-provisioning AI generators (called from the 6 swapped
+  // steps starting at index 5) touch ai_generations + site_settings +
+  // pages + articles + media. The runner test only needs them to
+  // succeed (so the runner advances); per-step assertions live in the
+  // T9 integration test (site-provisioning-ai-integration.test.ts).
+  const aiGenerations = new Map<string, { id: string; status: string; parsed_json: string | null }>();
+  let nextAiId = 1;
+  let nextMediaId = 1;
 
   const db = {
     prepare(sql: string) {
@@ -74,6 +86,17 @@ function makeFakeDb(initialJob: {
         },
         async first<T = unknown>(): Promise<T | null> {
           calls.push({ sql, binds: captured });
+          if (
+            sql.indexOf("FROM sites WHERE id = ?") >= 0 &&
+            sql.indexOf("vertical_slug") >= 0
+          ) {
+            return ({
+              id: job.site_id,
+              name: job.site_id,
+              domain: `${job.site_id}.example`,
+              vertical_slug: "general",
+            } as unknown) as T;
+          }
           if (sql.indexOf("FROM sites WHERE id = ?") >= 0) {
             return ({ id: job.site_id } as unknown) as T;
           }
@@ -87,6 +110,21 @@ function makeFakeDb(initialJob: {
               current_step_index: job.current_step_index,
               total_steps: job.total_steps,
             } as unknown) as T;
+          }
+          if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
+            const [key] = captured as [string];
+            const row = aiGenerations.get(key);
+            return (row as unknown) as T | null;
+          }
+          if (
+            sql.indexOf("INSERT INTO media") >= 0 &&
+            sql.indexOf("RETURNING id") >= 0
+          ) {
+            // T9 image generator inserts and returns the new media id.
+            // With no OPENAI_API_KEY (this test runs without one) the
+            // image generator short-circuits before this branch, so
+            // returning a synthetic id is safe.
+            return ({ id: nextMediaId++ } as unknown) as T;
           }
           return null;
         },
@@ -120,7 +158,7 @@ function makeFakeDb(initialJob: {
           } else if (
             sql.indexOf("UPDATE site_creation_job_steps") >= 0
           ) {
-            const [status, output, _error, job_id, step_key] = captured as [
+            const [status, output, errorMsg, job_id, step_key] = captured as [
               string,
               string,
               string | null,
@@ -133,6 +171,7 @@ function makeFakeDb(initialJob: {
             if (row) {
               row.status = status;
               row.output = output;
+              void errorMsg;
             }
           } else if (sql.indexOf("UPDATE site_creation_jobs SET") >= 0) {
             const [current_step, current_step_index, status] = captured as [
@@ -146,11 +185,59 @@ function makeFakeDb(initialJob: {
             job.status = status;
             // current_step used only for round-trip observation
             void current_step;
+          } else if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
+            const [id, , , , , , idempotency_key] = captured as [
+              string, string | null, string, string, string, string, string,
+            ];
+            if (!aiGenerations.has(idempotency_key)) {
+              aiGenerations.set(idempotency_key, {
+                id, status: "pending", parsed_json: null,
+              });
+              nextAiId += 1;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'fallback'") >= 0
+          ) {
+            const [parsed_json, , , , key] = captured as [
+              string, string | null, string | null, string | null, string,
+            ];
+            const row = aiGenerations.get(key);
+            if (row) {
+              row.status = "fallback";
+              row.parsed_json = parsed_json;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'success'") >= 0
+          ) {
+            const [, parsed_json, , , key] = captured as [
+              string, string, string | null, string | null, string,
+            ];
+            const row = aiGenerations.get(key);
+            if (row) {
+              row.status = "success";
+              row.parsed_json = parsed_json;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'failed'") >= 0
+          ) {
+            const [, error_message, key] = captured as [string, string, string];
+            const row = aiGenerations.get(key);
+            if (row) {
+              row.status = "failed";
+              void error_message;
+            }
           }
+          // INSERT OR IGNORE INTO site_settings / pages / articles +
+          // UPDATE site_settings / articles + INSERT INTO site_settings
+          // ON CONFLICT — these are no-op for the runner test (which
+          // only cares that each step's handler returns 'completed').
           return { success: true, meta: {} };
         },
         async all<T = unknown>() {
           calls.push({ sql, binds: captured });
+          // T9: generate_or_assign_article_images_stub queries this
+          // table; returning an empty list is fine (the step then
+          // returns 'completed' with article_count=0).
           return { results: [] as T[], success: true, meta: {} };
         },
       };

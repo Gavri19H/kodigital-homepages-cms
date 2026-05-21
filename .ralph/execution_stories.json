@@ -258,8 +258,8 @@
       "id": "T9",
       "title": "Swap deterministic stubs for AI-or-fallback in 6 provisioning steps; preserve idempotency + resumability",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],

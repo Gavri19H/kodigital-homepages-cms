@@ -1,0 +1,577 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { STEPS } from "../src/site-provisioning/steps";
+import type { Env } from "../src/env";
+import type { AiGenerationRow } from "../src/ai/generation-log";
+
+// T9 / Phase 6: provisioning steps now call the T7/T8 AI generators with
+// deterministic fallback. The behavioural ACs we assert here:
+//
+//   AC8.1 — GIVEN no OPENAI_API_KEY WHEN the
+//           generate_tagline_and_site_description_stub step runs THEN an
+//           ai_generations row exists with status='skipped_no_api_key' AND
+//           site_settings.tagline is set to a non-empty fallback string.
+//
+//   AC8.2 — GIVEN step generate_15_homepage_articles_stub has run once
+//           WHEN it runs again THEN no additional articles are inserted
+//           (idempotency via idempotency_key + (site_id, slug) UNIQUE).
+//
+//   AC8.3 — GIVEN no OPENAI_API_KEY WHEN the
+//           generate_15_homepage_articles_stub step runs THEN exactly 15
+//           articles exist in the articles table with distinct slugs all
+//           bound to ctx.site_id.
+
+interface SiteRow {
+  id: string;
+  name: string | null;
+  domain: string | null;
+  vertical_slug: string | null;
+}
+
+interface SettingsRow {
+  site_id: string;
+  key: string;
+  value: string;
+}
+
+interface PageRow {
+  site_id: string;
+  slug: string;
+  title: string;
+  content_json: string;
+  content_html: string;
+}
+
+interface ArticleRow {
+  id: number;
+  site_id: string;
+  slug: string;
+  title: string;
+  content_json: string;
+  content_html: string;
+  status: string;
+  homepage_section: string;
+  ai_generation_id: string | null;
+  featured_image_id: number | null;
+}
+
+interface MediaRow {
+  id: number;
+  site_id: string;
+  ai_generation_id: string;
+  storage_key: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  alt_text: string;
+  folder: string;
+}
+
+interface FakeStore {
+  sites: SiteRow[];
+  settings: SettingsRow[];
+  pages: PageRow[];
+  articles: ArticleRow[];
+  media: MediaRow[];
+  ai_generations: Map<string, AiGenerationRow>;
+  next_article_id: number;
+  next_media_id: number;
+  insertCounts: Record<string, number>;
+}
+
+function makeStore(site: SiteRow): FakeStore {
+  return {
+    sites: [site],
+    settings: [],
+    pages: [],
+    articles: [],
+    media: [],
+    ai_generations: new Map(),
+    next_article_id: 1,
+    next_media_id: 1,
+    insertCounts: {},
+  };
+}
+
+function makeFakeDb(store: FakeStore): D1Database {
+  return {
+    prepare(sql: string) {
+      let captured: unknown[] = [];
+      const stmt = {
+        bind(...binds: unknown[]) {
+          captured = binds;
+          return stmt;
+        },
+        async first<T>(): Promise<T | null> {
+          // SELECT from sites by id
+          if (
+            sql.indexOf("FROM sites WHERE id = ?") >= 0 &&
+            sql.indexOf("vertical_slug") >= 0
+          ) {
+            const [id] = captured as [string];
+            const row = store.sites.find((s) => s.id === id);
+            return (row ? { ...row } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM sites WHERE id = ?") >= 0) {
+            const [id] = captured as [string];
+            const row = store.sites.find((s) => s.id === id);
+            return (row ? { id: row.id, name: row.name, domain: row.domain } : null) as unknown as T | null;
+          }
+          // SELECT * from ai_generations by idempotency_key (full T6 shape)
+          if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
+            const [key] = captured as [string];
+            const row = store.ai_generations.get(key);
+            return (row ?? null) as unknown as T | null;
+          }
+          // INSERT INTO media RETURNING id (used by image generator)
+          if (sql.indexOf("INSERT INTO media") >= 0 && sql.indexOf("RETURNING id") >= 0) {
+            const [
+              filename,
+              storage_key,
+              mime_type,
+              size_bytes,
+              alt_text,
+              folder,
+              site_id,
+              ai_generation_id,
+            ] = captured as [
+              string, string, string, number, string, string, string, string,
+            ];
+            const id = store.next_media_id++;
+            store.media.push({
+              id, site_id, ai_generation_id, storage_key, filename, mime_type, size_bytes, alt_text, folder,
+            });
+            store.insertCounts["media"] = (store.insertCounts["media"] ?? 0) + 1;
+            return ({ id } as unknown) as T;
+          }
+          return null;
+        },
+        async run(): Promise<{ success: true; meta: Record<string, unknown> }> {
+          // INSERT INTO ai_generations (T6) — pending row created by startGenerationLog
+          if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
+            const [
+              id,
+              site_id,
+              task,
+              provider,
+              model,
+              prompt_version,
+              idempotency_key,
+              request_json,
+              target_type,
+              target_id,
+            ] = captured as [
+              string, string | null, string, string, string, string, string,
+              string | null, string | null, string | null,
+            ];
+            if (!store.ai_generations.has(idempotency_key)) {
+              store.ai_generations.set(idempotency_key, {
+                id, site_id, task, provider, model, prompt_version, idempotency_key,
+                request_json, response_json: null, parsed_json: null,
+                status: "pending", target_type, target_id, error_message: null,
+                created_at: 1, updated_at: 1,
+              });
+              store.insertCounts["ai_generations"] =
+                (store.insertCounts["ai_generations"] ?? 0) + 1;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'success'") >= 0
+          ) {
+            const [response_json, parsed_json, target_type, target_id, key] =
+              captured as [string, string, string | null, string | null, string];
+            const row = store.ai_generations.get(key);
+            if (row) {
+              row.status = "success";
+              row.response_json = response_json;
+              row.parsed_json = parsed_json;
+              row.target_type = target_type ?? row.target_type;
+              row.target_id = target_id ?? row.target_id;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'fallback'") >= 0
+          ) {
+            const [parsed_json, target_type, target_id, error_message, key] =
+              captured as [string, string | null, string | null, string | null, string];
+            const row = store.ai_generations.get(key);
+            if (row) {
+              row.status = "fallback";
+              row.parsed_json = parsed_json;
+              row.target_type = target_type ?? row.target_type;
+              row.target_id = target_id ?? row.target_id;
+              row.error_message = error_message;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'failed'") >= 0
+          ) {
+            const [response_json, error_message, key] = captured as [
+              string, string, string,
+            ];
+            const row = store.ai_generations.get(key);
+            if (row) {
+              row.status = "failed";
+              row.response_json = response_json;
+              row.error_message = error_message;
+            }
+          } else if (sql.indexOf("INSERT INTO site_settings") >= 0) {
+            const [site_id, key, value] = captured as [string, string, string];
+            const existing = store.settings.find(
+              (r) => r.site_id === site_id && r.key === key,
+            );
+            if (sql.indexOf("ON CONFLICT(site_id, key) DO UPDATE") >= 0) {
+              // upsert from T9 helper — UPDATE-IF-NULL semantics
+              if (!existing) {
+                store.settings.push({ site_id, key, value });
+                store.insertCounts["site_settings"] =
+                  (store.insertCounts["site_settings"] ?? 0) + 1;
+              } else if (existing.value === "" || existing.value === null) {
+                existing.value = value;
+              }
+            } else if (sql.indexOf("INSERT OR IGNORE") >= 0) {
+              if (!existing) {
+                store.settings.push({ site_id, key, value });
+                store.insertCounts["site_settings"] =
+                  (store.insertCounts["site_settings"] ?? 0) + 1;
+              }
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO pages") >= 0) {
+            const [site_id, title, contentJson, contentHtml] = captured as [
+              string, string, string, string,
+            ];
+            const existing = store.pages.find(
+              (p) => p.site_id === site_id && p.slug === "about",
+            );
+            if (!existing) {
+              store.pages.push({
+                site_id, slug: "about", title,
+                content_json: contentJson, content_html: contentHtml,
+              });
+              store.insertCounts["pages"] =
+                (store.insertCounts["pages"] ?? 0) + 1;
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO articles") >= 0) {
+            const [site_id, slug, title, contentJson, contentHtml, ai_generation_id] =
+              captured as [string, string, string, string, string, string];
+            const existing = store.articles.find(
+              (a) => a.site_id === site_id && a.slug === slug,
+            );
+            if (!existing) {
+              store.articles.push({
+                id: store.next_article_id++,
+                site_id, slug, title,
+                content_json: contentJson, content_html: contentHtml,
+                status: "published", homepage_section: "starter",
+                ai_generation_id, featured_image_id: null,
+              });
+              store.insertCounts["articles"] =
+                (store.insertCounts["articles"] ?? 0) + 1;
+            }
+          } else if (sql.indexOf("UPDATE articles SET featured_image_id") >= 0) {
+            const [media_id, article_id] = captured as [number, number];
+            const row = store.articles.find((a) => a.id === article_id);
+            if (
+              row &&
+              (row.featured_image_id === null || row.featured_image_id === 0)
+            ) {
+              row.featured_image_id = media_id;
+            }
+          }
+          return { success: true, meta: {} };
+        },
+        async all<T>(): Promise<{ results: T[]; success: true; meta: Record<string, unknown> }> {
+          if (sql.indexOf("FROM articles WHERE site_id = ? AND homepage_section = 'starter'") >= 0) {
+            const [site_id] = captured as [string];
+            const rows = store.articles
+              .filter((a) => a.site_id === site_id && a.homepage_section === "starter")
+              .map((a) => ({ id: a.id, slug: a.slug, title: a.title }));
+            return { results: rows as unknown as T[], success: true, meta: {} };
+          }
+          return { results: [] as T[], success: true, meta: {} };
+        },
+      };
+      return stmt;
+    },
+  } as unknown as D1Database;
+}
+
+function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
+  return {
+    DB: db,
+    CACHE: {} as KVNamespace,
+    MEDIA: {
+      async put() {
+        return undefined;
+      },
+    } as unknown as R2Bucket,
+    APP_ENV: "test",
+    ADMIN_HOST: "admin.example",
+    ADMIN_BASE_URL: "https://admin.example",
+    ADMIN_BASE_PATH: "/admin",
+    CACHE_API_ENABLED: "false",
+    HTML_CACHE_TTL_SECONDS: "60",
+    OPENAI_TEXT_MODEL: "gpt-5.5",
+    OPENAI_IMAGE_MODEL: "gpt-image-2",
+    SITE_PROVISIONING_DRY_RUN: "true",
+    SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
+    DEV_BYPASS_AUTH: "true",
+    ...overrides,
+  };
+}
+
+describe("T9 site-provisioning AI-or-fallback integration", () => {
+  let originalFetch: typeof globalThis.fetch;
+  let fetchCalls: string[];
+
+  beforeEach(() => {
+    fetchCalls = [];
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const url = typeof input === "string" ? input : input.toString();
+      fetchCalls.push(url);
+      throw new Error(`fetch must not be called without OPENAI_API_KEY: ${url}`);
+    }) as typeof globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("generate_tagline_and_site_description_stub writes ai_generations row AND non-empty tagline without OPENAI_API_KEY", async () => {
+    // AC8.1 — no OPENAI_API_KEY in env → an ai_generations row exists
+    // (status='skipped_no_api_key' in the function return; row carries
+    // 'fallback' or 'skipped_no_api_key' per the CHECK constraint) AND
+    // site_settings.tagline is set to a non-empty fallback.
+    const store = makeStore({
+      id: "st_t9_1",
+      name: "Acme Times",
+      domain: "acme.example",
+      vertical_slug: "personal-finance",
+    });
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_1",
+      site_id: "st_t9_1",
+      step_order: 5,
+    };
+    const result = await STEPS["generate_tagline_and_site_description_stub"](ctx);
+    expect(result.status).toBe("completed");
+    // At least one ai_generations row exists.
+    expect(store.ai_generations.size).toBeGreaterThanOrEqual(2);
+    // Look for the tagline + description rows.
+    const rows = Array.from(store.ai_generations.values());
+    const taglineRow = rows.find((r) => r.task === "site-tagline");
+    const descriptionRow = rows.find((r) => r.task === "site-description");
+    expect(taglineRow).toBeDefined();
+    expect(descriptionRow).toBeDefined();
+    // The CHECK constraint allows 'skipped_no_api_key' OR 'fallback' here.
+    // T7 writes via finishGenerationLogFallback → row.status='fallback';
+    // the function return surfaces 'skipped_no_api_key'.
+    expect(["fallback", "skipped_no_api_key"]).toContain(taglineRow?.status);
+    // site_settings.tagline must be populated with a non-empty fallback.
+    const taglineSetting = store.settings.find(
+      (s) => s.site_id === "st_t9_1" && s.key === "tagline",
+    );
+    expect(taglineSetting).toBeDefined();
+    expect((taglineSetting?.value ?? "").length).toBeGreaterThan(0);
+    // No fetch attempted (no API key).
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("generate_15_homepage_articles_stub inserts exactly 15 articles with unique slugs bound to ctx.site_id (no API key)", async () => {
+    // AC8.3 — no OPENAI_API_KEY → exactly 15 articles, distinct slugs,
+    // all rows have site_id=ctx.site_id.
+    const store = makeStore({
+      id: "st_t9_15",
+      name: "Cycling Weekly",
+      domain: "cycling.example",
+      vertical_slug: "cycling",
+    });
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_15",
+      site_id: "st_t9_15",
+      step_order: 10,
+    };
+    const result = await STEPS["generate_15_homepage_articles_stub"](ctx);
+    expect(result.status).toBe("completed");
+    expect(store.articles).toHaveLength(15);
+    const slugs = new Set(store.articles.map((a) => a.slug));
+    expect(slugs.size).toBe(15);
+    for (const article of store.articles) {
+      expect(article.site_id).toBe("st_t9_15");
+      // Every article carries its source ai_generation_id (typed
+      // receipt back-pointer for the admin editor).
+      expect(article.ai_generation_id).toBeTruthy();
+    }
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("generate_15_homepage_articles_stub re-invocation does NOT add additional articles", async () => {
+    // AC8.2 — second invocation is a no-op under (site_id, slug) UNIQUE
+    // + ai_generations idempotency_key UNIQUE.
+    const store = makeStore({
+      id: "st_t9_idem",
+      name: "Garden Notes",
+      domain: "garden.example",
+      vertical_slug: "home-gardening",
+    });
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_idem",
+      site_id: "st_t9_idem",
+      step_order: 10,
+    };
+    const first = await STEPS["generate_15_homepage_articles_stub"](ctx);
+    expect(first.status).toBe("completed");
+    const firstArticleCount = store.articles.length;
+    const firstAiGenCount = store.ai_generations.size;
+    const firstInsertArticles = store.insertCounts["articles"] ?? 0;
+    const firstInsertAi = store.insertCounts["ai_generations"] ?? 0;
+    expect(firstArticleCount).toBe(15);
+    expect(firstInsertArticles).toBe(15);
+
+    // Re-run the same step. The ai_generations idempotency check short-
+    // circuits the article generator (no duplicate ai_generations INSERT);
+    // INSERT OR IGNORE on articles guarantees no new articles row.
+    const second = await STEPS["generate_15_homepage_articles_stub"](ctx);
+    expect(second.status).toBe("completed");
+    expect(store.articles).toHaveLength(firstArticleCount);
+    expect(store.ai_generations.size).toBe(firstAiGenCount);
+    // INSERT counts MUST stay stable across the second invocation.
+    expect(store.insertCounts["articles"] ?? 0).toBe(firstInsertArticles);
+    expect(store.insertCounts["ai_generations"] ?? 0).toBe(firstInsertAi);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("generate_about_page_stub writes the About page row idempotently", async () => {
+    // Re-running the step yields exactly 1 pages row (idempotent under
+    // (site_id, slug)='about' UNIQUE).
+    const store = makeStore({
+      id: "st_t9_about",
+      name: "Hiking Today",
+      domain: "hike.example",
+      vertical_slug: "hiking",
+    });
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_about",
+      site_id: "st_t9_about",
+      step_order: 6,
+    };
+    await STEPS["generate_about_page_stub"](ctx);
+    expect(store.pages).toHaveLength(1);
+    expect(store.pages[0]?.slug).toBe("about");
+    expect((store.pages[0]?.content_html ?? "").length).toBeGreaterThan(0);
+    await STEPS["generate_about_page_stub"](ctx);
+    expect(store.pages).toHaveLength(1);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("generate_logo_mark_stub leaves site_settings.logo_media_id empty without OPENAI_API_KEY", async () => {
+    // No API key → image generator returns media_id=0 → site_settings
+    // logo_media_id is not populated (UPDATE-IF-NULL keeps the seed '').
+    const store = makeStore({
+      id: "st_t9_logo",
+      name: "Cooking Lab",
+      domain: "cook.example",
+      vertical_slug: "cooking",
+    });
+    // Pre-seed site_settings with the T19 12 keys (logo_media_id='').
+    store.settings.push({ site_id: "st_t9_logo", key: "logo_media_id", value: "" });
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_logo",
+      site_id: "st_t9_logo",
+      step_order: 8,
+    };
+    const result = await STEPS["generate_logo_mark_stub"](ctx);
+    expect(result.status).toBe("completed");
+    // No media row inserted.
+    expect(store.media).toHaveLength(0);
+    // ai_generations carries the typed receipt rows for both prompt + image.
+    const tasks = Array.from(store.ai_generations.values()).map((r) => r.task);
+    expect(tasks).toContain("logo-prompt");
+    expect(tasks).toContain("logo-image");
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("generate_feature_image_stub writes ai_generations rows without OPENAI_API_KEY (no R2 PUT, no media row)", async () => {
+    const store = makeStore({
+      id: "st_t9_fi",
+      name: "Travel Briefs",
+      domain: "travel.example",
+      vertical_slug: "travel",
+    });
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_fi",
+      site_id: "st_t9_fi",
+      step_order: 9,
+    };
+    const result = await STEPS["generate_feature_image_stub"](ctx);
+    expect(result.status).toBe("completed");
+    expect(store.media).toHaveLength(0);
+    const tasks = Array.from(store.ai_generations.values()).map((r) => r.task);
+    expect(tasks).toContain("feature-image-prompt");
+    expect(tasks).toContain("feature-image");
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("generate_or_assign_article_images_stub leaves featured_image_id unchanged when no API key", async () => {
+    // Setup: 3 starter articles already exist; without an API key the
+    // step writes ai_generations receipts but does NOT update
+    // featured_image_id (since image generator returns media_id=0).
+    const store = makeStore({
+      id: "st_t9_assign",
+      name: "Photo Weekly",
+      domain: "photo.example",
+      vertical_slug: "photography",
+    });
+    for (let i = 1; i <= 3; i += 1) {
+      store.articles.push({
+        id: i,
+        site_id: "st_t9_assign",
+        slug: `starter-${i}`,
+        title: `Starter ${i}`,
+        content_json: "{}",
+        content_html: "",
+        status: "published",
+        homepage_section: "starter",
+        ai_generation_id: null,
+        featured_image_id: null,
+      });
+    }
+    store.next_article_id = 4;
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t9_assign",
+      site_id: "st_t9_assign",
+      step_order: 11,
+    };
+    const result = await STEPS["generate_or_assign_article_images_stub"](ctx);
+    expect(result.status).toBe("completed");
+    // No media row inserted; featured_image_id still null on every article.
+    expect(store.media).toHaveLength(0);
+    for (const article of store.articles) {
+      expect(article.featured_image_id).toBeNull();
+    }
+    // ai_generations carries the typed receipt rows.
+    const featureImageRows = Array.from(store.ai_generations.values()).filter(
+      (r) => r.task === "feature-image",
+    );
+    expect(featureImageRows.length).toBe(3);
+    expect(fetchCalls).toEqual([]);
+  });
+});
