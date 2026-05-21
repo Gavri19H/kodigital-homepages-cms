@@ -4439,3 +4439,21 @@ D13 canonical runner result — T1:
     all match. The list mirrors progress.txt's "## Codebase Patterns"
     banned identifiers (minus the cf account uuid that's allowed in
     wrangler.toml/CI/docs).
+
+- EVIDENCE_ROUTE_EXHAUSTED: T3 RC-015,RC-016,RC-017,RC-018,RC-019,RC-020,RC-021,RC-022,RC-023,RC-024.
+  Canonical runner exit non-zero. Same skill-owned defect class as
+  T2's EVIDENCE_ROUTE_EXHAUSTED — RC-024's required_evidence_plan
+  entry has cwd=None + route='parser_observation' with
+  evidence_command="grep -c 'GeneratedSiteSettings|GeneratedAboutPage|
+  validateGeneratedArticle' api/src/ai/schemas.ts" → runner emits
+  "INVALID_EVIDENCE_PLAN_ENTRY for non-production_pending route(s)
+  with null cwd or evidence_command". This is NOT a product defect —
+  api/src/ai/schemas.ts exists at $WORKTREE/api/src/ai/schemas.ts
+  (197 lines) and all 9 of T3's literal greps return the expected
+  counts when run from worktree root (AC1=1, AC2=2, AC3=2, AC4=1,
+  AC5=1, AC6=1, AC7=1, AC8=1, AC9=6). Vitest run on
+  test/ai-schemas.test.ts → 10/10 PASS. tsc --noEmit → 0 errors.
+  Per Section L7 / D13 (evidence-honesty.md) the matrix repair is
+  owned by Phase C / finalize_develop, not Ralph. Per
+  scripts/ralph/prompt.md D12, log EVIDENCE_ROUTE_EXHAUSTED and
+  proceed.
