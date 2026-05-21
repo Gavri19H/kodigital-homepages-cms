@@ -106,6 +106,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Apply D1 migrations BEFORE deploy so new schema is in place when the
+      # new worker code goes live. Per deploy-safety.md D1-file rule, every
+      # migration MUST be applied via CI; without this step, tables added by
+      # migration 0008 (ai_generations, media.ai_generation_id) won't exist
+      # in the staging D1, and the AI generators will fail at first call.
+      - name: Apply D1 migrations (staging)
+        run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env staging --remote
+
       - name: Deploy to staging
         run: npm run deploy:staging
 
@@ -156,6 +164,7 @@ jobs:
       #   - 0005_phase3_fix_missing_indexes.sql
       #   - 0006_phase3r_admin_site_aware_content.sql
       #   - 0007_phase3r_drop_global_slug_unique.sql
+      #   - 0008_phase5_ai_generations.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 
