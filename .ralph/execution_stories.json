@@ -165,8 +165,8 @@
       "id": "T6",
       "title": "ai_generations CRUD with idempotency lookup + secret redaction",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T6"
       ],

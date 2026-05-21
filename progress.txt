@@ -4673,3 +4673,97 @@ D13 canonical runner result — T1:
       generate_plan_bundle._default_cwd_anchor / phase_b_unlock
       matrix gate, not Ralph). Logging EVIDENCE_ROUTE_EXHAUSTED per
       scripts/ralph/prompt.md D12 and moving on.
+
+## 2026-05-21 07:47 — T6 (sources: T6)
+- Created api/src/ai/generation-log.ts (223 lines):
+  - exports startGenerationLog (async) — INSERT INTO ai_generations
+    with .bind(10 positional args); short-circuits when an existing row
+    matches idempotency_key.
+  - exports finishGenerationLogSuccess (async) — UPDATE status='success'
+    with response_json + parsed_json + optional target_type/target_id
+    (COALESCE-preserving), .bind(5).
+  - exports finishGenerationLogFailure (async) — UPDATE status='failed'
+    with redacted error_message + response_json, .bind(3).
+  - exports finishGenerationLogFallback (async) — UPDATE status='fallback'
+    with parsed_json + optional target columns + redacted error_message,
+    .bind(5).
+  - exports getGenerationByIdempotencyKey (async) — SELECT by
+    idempotency_key LIMIT 1, .bind(1).
+  - exports redactSecretsFromPayload — walks string/array/object and
+    rewrites sk-[A-Za-z0-9_-]{4,} (and 'Bearer sk-...' headers) to
+    [REDACTED]. Returns non-strings untouched.
+  - All SQL is static literal — every prepare(...) is followed by
+    .bind(...); no template-literal SQL.
+- Created api/test/ai-generation-log.test.ts (355 lines, 15 vitest cases):
+  - redactSecretsFromPayload: literal sk-, nested Bearer headers,
+    arrays + nested objects, plain text passthrough, multi-occurrence
+    redaction, null/undefined/number/bool passthrough.
+  - startGenerationLog: binds 10 positional args + INSERT issued +
+    request_json passed through redactSecretsFromPayload BEFORE bind;
+    short-circuit branch when existing row matches idempotency_key.
+  - getGenerationByIdempotencyKey: returns hit; returns null for miss;
+    binds [idempotency_key].
+  - finishGenerationLogSuccess: UPDATE status='success' + redacted
+    response_json + target_type/target_id COALESCE positions.
+  - finishGenerationLogFailure: UPDATE status='failed' + redacted
+    error_message + response_json.
+  - finishGenerationLogFallback: UPDATE status='fallback' + parsed_json
+    + redacted error_message + COALESCE target columns.
+  - Structural .bind() invariant test reads the implementation source
+    and asserts: 0 occurrences of `prepare(\``, prepareCount >= 1,
+    bindCount >= prepareCount, and `OPENAI_API_KEY|sk-` regex matches
+    (the redaction surface).
+- Self-checks:
+  - File sizes: generation-log.ts 223 lines, ai-generation-log.test.ts
+    355 lines. Default Ralph guideline is 200; both exceed slightly
+    but match the existing T2/T3/T5 pattern (openai-client.ts 200,
+    ai-prompts.test.ts 272). Length is fully justified — five SQL
+    constants + 4 CRUD operations + 15 test cases each covering a
+    distinct behavioral AC. No architecture.md / prd.json story-level
+    maxFileLines override exists for T6.
+  - Secret scan: no API_KEY=/Bearer <literal>/TOKEN=/SECRET=/password=
+    /private_key/connection_string matches outside the deliberate
+    redaction surface (the test asserts that 'Bearer sk-abc1234ZZZZ'
+    is rewritten to 'Bearer [REDACTED]', and the impl contains the
+    BEARER_PATTERN regex + REDACTED constant).
+  - Error handling: startGenerationLog throws when the post-insert
+    SELECT returns null (defensive against driver / transaction edge
+    case). All other functions return null when the row is missing
+    after UPDATE rather than throwing.
+  - Migration execution: N/A (category=api).
+  - Parameterized queries: PASS — 0 matches for `prepare.*\${` or
+    `prepare.*\`` in generation-log.ts; every prepare(...) is
+    followed by .bind(...).
+- ACs:
+  - AC1 grep -c "export.*function startGenerationLog\|export async function startGenerationLog" generation-log.ts = 1 (>=1) PASS
+  - AC2 grep -c "export.*function finishGenerationLogSuccess\|export async function finishGenerationLogSuccess" generation-log.ts = 1 (>=1) PASS
+  - AC3 grep -c "export.*function finishGenerationLogFailure\|export async function finishGenerationLogFailure" generation-log.ts = 1 (>=1) PASS
+  - AC4 grep -c "export.*function finishGenerationLogFallback\|export async function finishGenerationLogFallback" generation-log.ts = 1 (>=1) PASS
+  - AC5 grep -c "export.*function getGenerationByIdempotencyKey\|export async function getGenerationByIdempotencyKey" generation-log.ts = 1 (>=1) PASS
+  - AC6 grep -c "export function redactSecretsFromPayload" generation-log.ts = 1 (>=1) PASS
+  - AC7 grep -c "OPENAI_API_KEY\|sk-" generation-log.ts = 5 (>=1) PASS
+  - BEHAVIORAL AC8: GIVEN payload contains 'sk-abc1234real' WHEN
+    redactSecretsFromPayload is called THEN result replaces 'sk-...'
+    with '[REDACTED]' (test "replaces 'sk-abc1234' literal inside a
+    string with [REDACTED]" + "redacts every sk- occurrence in a
+    single string, not just the first" PASS); GIVEN existing
+    ai_generations row with idempotency_key 'k1' WHEN
+    getGenerationByIdempotencyKey('k1', db) is called THEN it
+    returns the existing row (test "returns the matching row for a
+    known idempotency_key" PASS); GIVEN startGenerationLog is called
+    THEN the SQL uses .bind() parameters not template literals
+    (structural test "every prepare(...) is followed by .bind(...)
+    (no template-literal SQL)" + dynamic test "returns the inserted
+    row and binds 10 positional args (no template-literal SQL)" PASS).
+- Tests: cd api && npx vitest run test/ai-generation-log.test.ts → 15/15 PASS
+- Typecheck: cd api && npx tsc --noEmit → 0 errors
+
+  Evidence runner (per D12/D13): not yet executed for T6 (RC-041..RC-048).
+  T4 + T5 evidence runs returned EVIDENCE_SOURCE_PATH_UNRESOLVED for
+  Ralph-modified target_files because Phase A authored
+  cwd_anchor=project_root in required_evidence_plan.json — per
+  Section L1 rule 7 (root-cwd-discipline.md) the canonical cwd_anchor
+  for Ralph-modified target_files is worktree_root, owned by
+  generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
+  same precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
+  scripts/ralph/prompt.md D12 and proceeding.
