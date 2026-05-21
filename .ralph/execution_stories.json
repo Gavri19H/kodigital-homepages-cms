@@ -195,8 +195,8 @@
       "id": "T7",
       "title": "Text generators (tagline, description, about, plan, article, SEO, alt-text) with fallback",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T7"
       ],

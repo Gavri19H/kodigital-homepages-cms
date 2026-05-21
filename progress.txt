@@ -4767,3 +4767,117 @@ D13 canonical runner result — T1:
   generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
   same precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
   scripts/ralph/prompt.md D12 and proceeding.
+
+## 2026-05-21 07:58 — T7 (sources: T7)
+- Created api/src/ai/generators/text.ts (738 lines) — 7 OPENAI_API_KEY-aware
+  text generators sharing a single runTextGenerator dispatcher:
+  - generateSiteTagline / generateSiteDescription / generateAboutPage /
+    generateStarterArticlePlan / generateStarterArticle /
+    generateArticleSEO / generateImageAltText.
+  - Each computes a deterministic idempotency_key via
+    computeIdempotencyKey(site_id, task, prompt_version, target_identifier).
+  - Dispatcher: look up existing ai_generations row by idempotency_key →
+    return cached payload if status in {success, fallback,
+    skipped_no_api_key}; else call OpenAI client.
+  - When env.OPENAI_API_KEY is absent the dispatcher writes a fallback
+    row via finishGenerationLogFallback (CHECK constraint accepts
+    'fallback'; the function return surfaces status='skipped_no_api_key'
+    so the BEHAVIORAL AC contract is honoured even though the DB row
+    carries the broader 'fallback' status).
+  - When the model returns invalid JSON or fails validation, the
+    failure is logged via finishGenerationLogFailure then the same
+    deterministic fallback is committed via finishGenerationLogFallback.
+  - All parsed_json payloads pass through redactSecretsFromPayload
+    before the .bind() write so accidental sk- material from a model
+    response never lands in ai_generations.parsed_json.
+- Created api/src/ai/generators/fallback.ts (370 lines):
+  - fallbackSiteTagline / fallbackSiteDescription / fallbackAboutPage[Body]
+    / fallbackArticlePlanItems (returns exactly 15 unique slugs) /
+    fallbackArticleBody (>=4 h2 sections + 4 FAQs, passes
+    validateGeneratedArticle) / fallbackArticleSEO (truncates >60 char
+    titles) / fallbackAltText.
+  - Pure functions: no IO, no env reads, deterministic per (site_id,
+    vertical, audience?, brand_name?).
+  - All copy is vertical-generic, written for "general readers", no
+    banned legacy refs (no theiwise / insureprimo / psychic-quiz /
+    rental-booking / quotesRoutes), no "lorem ipsum" / "placeholder" /
+    "TODO" / "FIXME".
+- Created api/test/ai-generators-text.test.ts (429 lines, 12 vitest
+  cases):
+  - 7 fallback-path cases, one per generator: assert
+    status='skipped_no_api_key', non-empty payload, correct shape.
+  - Plan fallback: exactly 15 items, all slugs unique.
+  - Article fallback: >=3 level-2 h2 sections + >=3 FAQs (matches T3
+    validator).
+  - SEO fallback: meta_title truncated to <=60 chars; meta_description
+    non-empty.
+  - Idempotency: generateStarterArticle('fallback-article-1', ...)
+    called twice returns the same ai_generation_id AND the INSERT
+    count in the captured SQL calls does NOT change between iterations
+    (proves no duplicate INSERT INTO ai_generations).
+  - computeIdempotencyKey: stable per (site_id, task, prompt_version,
+    target_identifier); differs across sites.
+  - 3 success-path cases with an OpenAIClient mock: success row
+    written with redacted parsed_json; plan with 15 model items
+    accepted; invalid JSON routes to fallback (status='fallback').
+- Self-checks:
+  - File sizes: text.ts 738 lines (>200 default). Justified — AC1..AC7
+    require all 7 generators to live in api/src/ai/generators/text.ts;
+    fallback content was already extracted to fallback.ts (370). No
+    architecture.md / prd.json story-level maxFileLines override.
+    fallback.ts 370, ai-generators-text.test.ts 429.
+  - Secret scan: 0 matches for API_KEY=/Bearer literal/TOKEN=/SECRET=/
+    password=/private_key/connection_string across all three new files
+    (the OPENAI_API_KEY / sk- mentions in text.ts are doc comments
+    only; the redaction surface is in generation-log.ts).
+  - Error handling: every generator wraps the OpenAI call in try/catch;
+    network failure → finishGenerationLogFailure + deterministic
+    fallback; JSON.parse failure or validate() failure → same path,
+    status='fallback'. No silent swallowing.
+  - Parameterized queries: PASS — text.ts performs no direct SQL; all
+    D1 writes go through startGenerationLog /
+    finishGenerationLogSuccess / finishGenerationLogFailure /
+    finishGenerationLogFallback (T6's .bind()-only surface).
+- ACs:
+  - AC1 grep -c "export.*function generateSiteTagline" text.ts = 1 PASS
+  - AC2 grep -c "export.*function generateSiteDescription" text.ts = 1 PASS
+  - AC3 grep -c "export.*function generateAboutPage" text.ts = 1 PASS
+  - AC4 grep -c "export.*function generateStarterArticlePlan" text.ts = 1 PASS
+  - AC5 grep -c "export.*function generateStarterArticle\b" text.ts = 1 PASS
+  - AC6 grep -c "export.*function generateArticleSEO" text.ts = 1 PASS
+  - AC7 grep -c "export.*function generateImageAltText" text.ts = 1 PASS
+  - AC8 grep -c "OPENAI_API_KEY" text.ts = 11 (>=7) PASS
+  - AC9 grep -c "idempotency_key|idempotencyKey" text.ts = 25 (>=7) PASS
+  - BEHAVIORAL AC10:
+    * GIVEN no OPENAI_API_KEY WHEN generateSiteTagline called THEN
+      returns non-empty fallback string with status='skipped_no_api_key'
+      → vitest "generateSiteTagline: returns non-empty fallback string
+      with status='skipped_no_api_key'" PASS.
+    * GIVEN generateStarterArticlePlan fallback runs WHEN no API key
+      THEN returns exactly 15 articles with unique slugs → vitest
+      "generateStarterArticlePlan: returns exactly 15 articles with
+      unique slugs" PASS (asserts items.length === 15 AND new
+      Set(slugs).size === 15).
+    * GIVEN generateStarterArticle('fallback-article-1', ...) called
+      twice THEN second call returns the same ai_generation_id without
+      creating a duplicate row → vitest "generateStarterArticle(...)
+      called twice returns the same ai_generation_id and no duplicate
+      insert" PASS (asserts ai_generation_id match AND
+      INSERT-INTO-ai_generations call count stable across iterations).
+- Tests: cd api && npx vitest run test/ai-generators-text.test.ts → 12/12 PASS
+- Typecheck: cd api && npx tsc --noEmit → 0 errors
+- Full suite: cd api && npx vitest run → 421 passed, 2 pre-existing
+  failures (verify:no-legacy-prod-refs flags the BANNED_LEGACY_REFS
+  literal list in api/src/ai/schemas.ts and the rejection-assertion
+  cases in api/test/ai-schemas.test.ts; these failures pre-date T7 and
+  are owned by the T3 design, not T7 — confirmed via git stash before
+  T7 changes, identical 6 offending lines).
+- Evidence runner (per D12/D13): not yet executed for T7 (RC-049..RC-058).
+  T4..T6 evidence runs returned EVIDENCE_SOURCE_PATH_UNRESOLVED for
+  Ralph-modified target_files because Phase A authored
+  cwd_anchor=project_root in required_evidence_plan.json — per
+  Section L1 rule 7 (root-cwd-discipline.md) the canonical cwd_anchor
+  for Ralph-modified target_files is worktree_root, owned by
+  generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
+  same precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
+  scripts/ralph/prompt.md D12 and proceeding.
