@@ -4373,3 +4373,69 @@ D13 canonical runner result — T1:
   Per scripts/ralph/prompt.md D12 ("log EVIDENCE_ROUTE_EXHAUSTED and
   move on"), Phase C / finalize_develop owns the repair (Section L1
   rule 7 / Section L7 / matrix repair table). Ralph proceeds.
+
+## 2026-05-21 — T3 (RX3, sources: T3) — Generated content types + validators
+- iteration: 3 — execution story T3 (sources: T3)
+- Implemented:
+  - api/src/ai/schemas.ts — 197 lines (limit 200)
+    - 7 generated content types as `export type` aliases:
+      GeneratedSiteSettings, GeneratedAboutPage,
+      GeneratedStarterArticlePlan, GeneratedArticle,
+      GeneratedArticleSEO, GeneratedAltText, GeneratedImagePrompt.
+      Each carries `meta: GeneratedMeta { task, model, prompt_version,
+      status, ai_generation_id? }` + `site_id` so downstream
+      ai_generations rows + tenant guards (T11) can use them.
+    - validateGeneratedArticle(article) — returns ValidationError[].
+      Enforces ≥3 h2 sections (heading.level === 2), ≥3 FAQs, no
+      placeholder text (lorem ipsum / TODO / FIXME / placeholder),
+      no banned legacy refs (theiwise / insureprimo / quotesroutes /
+      psychic-quiz / rental-booking).
+    - assertGeneratedArticleValid throws GeneratedArticleValidationError
+      on first violation; the thrown error carries the full error list.
+  - api/test/ai-schemas.test.ts — 197 lines
+    - 10 vitest cases covering the three BEHAVIORAL conditions in T3 +
+      the type-identifier exports (compile-time presence of all 7 types)
+    - happy path, 2-h2 reject, level=3-doesn't-count-as-h2, <3 FAQ
+      reject, lorem-ipsum placeholder reject, TheIWise banned-ref
+      reject, insureprimo banned-ref reject, non-object guard,
+      missing-required-field guard.
+- AC verification (all greps, run from worktree root):
+  - AC1 export type GeneratedSiteSettings == 1
+  - AC2 export type GeneratedAboutPage == 2 (page + page block)
+  - AC3 export type GeneratedStarterArticlePlan == 2 (plan + plan item)
+  - AC4 export type GeneratedArticle\b == 1
+  - AC5 export type GeneratedArticleSEO == 1
+  - AC6 export type GeneratedAltText == 1
+  - AC7 export type GeneratedImagePrompt == 1
+  - AC8 export function validateGeneratedArticle == 1
+  - AC9 grep -c "h2\|heading.*level.*2" == 6
+  - BEHAVIORAL: 2-h2 rejected (TOO_FEW_H2_SECTIONS); lorem ipsum
+    rejected (PLACEHOLDER_TEXT); TheIWise rejected (BANNED_LEGACY_REF).
+- Self-check results:
+  - File sizes: schemas.ts 197 (limit 200), ai-schemas.test.ts 197 — PASS
+  - Secret scan: PASS (no API_KEY / Bearer / TOKEN / private_key / etc.)
+  - Error handling: PASS (validate returns [] / throws typed
+    GeneratedArticleValidationError; runtime guards for non-object
+    and missing required fields)
+  - Migration execution: N/A (api category)
+  - Parameterized queries: N/A (pure module, no D1)
+- Test commands actually run:
+  - cd api && npx vitest run test/ai-schemas.test.ts → 10/10 PASS
+  - cd api && npx tsc --noEmit → 0 errors
+- Learnings:
+  * `export type` (type alias) is preferred over `export interface`
+    when the AC grep is anchored on `export type <Name>` — both forms
+    are structurally compatible from a consumer's perspective, but
+    the grep enforces the textual form. Type aliases also collapse
+    each declaration to a single line per field, which keeps the
+    file inside the 200-line default limit.
+  * The validator returns ValidationError[] (collect-then-throw) so
+    a single call surfaces every violation; assertGeneratedArticleValid
+    is the throwing convenience over it. Downstream generators (T7)
+    can use the non-throwing form to populate ai_generations
+    error_message with the full list before falling back.
+  * Banned-legacy refs are scanned case-insensitively (lowercased
+    text + lowercase pattern) so "TheIWise" / "TheIwise" / "theiwise"
+    all match. The list mirrors progress.txt's "## Codebase Patterns"
+    banned identifiers (minus the cf account uuid that's allowed in
+    wrangler.toml/CI/docs).

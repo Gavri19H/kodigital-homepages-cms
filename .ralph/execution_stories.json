@@ -65,8 +65,8 @@
       "id": "T3",
       "title": "Generated content types + validators (article needs ≥3 h2 + ≥3 FAQs, no TheIWise refs)",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T3"
       ],
