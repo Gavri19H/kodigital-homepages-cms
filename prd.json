@@ -1,533 +1,268 @@
 {
-  "changeId": "cms-new-phase5-2026-05018",
-  "mainGoal": "Implement generic Home + Article public templates in the standalone CMS Worker so a tenant content domain renders the approved 13-section Home and 12-section Article using per-site brand tokens via SiteContext, with no TheIWise visible brand and no cms.kodigital.app leak.",
+  "changeId": "cms-new-phase6-ai-2026-05-20",
+  "mainGoal": "After Phase B implementation completes: `cd api && npx tsc --noEmit && npm test && npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config` all exit 0. The site-provisioning pipeline replaces 6 deterministic stubs with AI-or-fallback generation: tagline+description, about page, logo, feature image, 15 starter articles, article images. When OPENAI_API_KEY is absent, all 6 steps complete with status='skipped_no_api_key' or status='fallback'. The new `api/src/ai/` module ships: model registry, fetch-based client, 9 prompt modules, schemas/validators, generation log, text+image generators. Migration 0008 recreates ai_generations with idempotency_key UNIQUE + 5-state status + adds media.ai_generation_id. Admin UI gains /admin/ai-generations list + detail endpoints. All AI calls are admin-host-only, site_id-scoped, and idempotent.",
   "stories": [
     {
       "id": "T1",
-      "title": "Add public.css string module with all PART 3 tokens and PART 4 breakpoints",
-      "category": "ui",
+      "title": "AI model registry resolves gpt-5.5 + gpt-image-2 from env",
+      "category": "api",
       "targetFiles": [
-        "src/public/assets/public-css.ts"
+        "api/src/ai/models.ts",
+        "api/test/ai-models.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c -- '--tw-ink' api/src/public/assets/public-css.ts >= 1",
-        "grep -c '@media (max-width:1280px)' api/src/public/assets/public-css.ts >= 1",
-        "grep -c 'minmax(0, 1fr)' api/src/public/assets/public-css.ts >= 1"
+        "grep -c \"export function getTextModel\" api/src/ai/models.ts >= 1",
+        "grep -c \"export function getImageModel\" api/src/ai/models.ts >= 1",
+        "grep -c \"export function assertSupportedTextModel\" api/src/ai/models.ts >= 1",
+        "grep -c \"export function assertSupportedImageModel\" api/src/ai/models.ts >= 1",
+        "grep -c \"\\\"gpt-5.5\\\"\" api/src/ai/models.ts >= 1",
+        "grep -c \"\\\"gpt-image-2\\\"\" api/src/ai/models.ts >= 1",
+        "BEHAVIORAL: GIVEN env.OPENAI_TEXT_MODEL='gpt-5.5' WHEN getTextModel(env) is called THEN it returns 'gpt-5.5'; GIVEN assertSupportedTextModel('gpt-5.5') is called THEN it returns without throwing; GIVEN assertSupportedTextModel('gpt-not-real') is called THEN it throws"
       ],
       "passes": false,
       "state": "implemented"
     },
     {
       "id": "T2",
-      "title": "Add public.js string module with passive-listener reading progress + share/copy",
-      "category": "ui",
+      "title": "Worker-compatible OpenAI client with redaction, fallback, retry",
+      "category": "api",
       "targetFiles": [
-        "src/public/assets/public-js.ts"
+        "api/src/ai/openai-client.ts",
+        "api/test/ai-openai-client.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'passive: true' api/src/public/assets/public-js.ts >= 1",
-        "grep -c 'navigator.share' api/src/public/assets/public-js.ts >= 1",
-        "grep -c 'reading-progress-bar' api/src/public/assets/public-js.ts >= 1"
+        "grep -c \"export function createOpenAIClient\" api/src/ai/openai-client.ts >= 1",
+        "grep -c \"env.OPENAI_API_KEY\" api/src/ai/openai-client.ts >= 1",
+        "grep -c \"redactApiKey\\|REDACTED\" api/src/ai/openai-client.ts >= 1",
+        "grep -c \"^import .* from .node:\" api/src/ai/openai-client.ts == 0",
+        "grep -c \"AbortController\\|signal:\" api/src/ai/openai-client.ts >= 1",
+        "BEHAVIORAL: GIVEN no OPENAI_API_KEY in env WHEN client.generateText() is called THEN it returns { skipped_no_api_key: true }; GIVEN a 429 response WHEN client.generateText() retries THEN it retries once; GIVEN a prompt containing 'sk-abc123' in a log entry THEN the logged output shows '[REDACTED]' not 'sk-abc123'"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T3",
-      "title": "templates/layout.ts renders the <html> scaffold with site brand-token injection",
-      "category": "ui",
+      "title": "Generated content types + validators (article needs ≥3 h2 + ≥3 FAQs, no TheIWise refs)",
+      "category": "api",
       "targetFiles": [
-        "src/public/templates/layout.ts"
+        "api/src/ai/schemas.ts",
+        "api/test/ai-schemas.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -c 'skip-to-content' api/src/public/templates/layout.ts >= 1",
-        "grep -cE 'brand_tokens|brandTokens' api/src/public/templates/layout.ts >= 1",
-        "BEHAVIORAL: GIVEN HomeViewModel with site.brandTokens WHEN renderLayout THEN result contains the brand token inside a <style> block"
+        "grep -c \"export type GeneratedSiteSettings\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export type GeneratedAboutPage\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export type GeneratedStarterArticlePlan\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export type GeneratedArticle\\b\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export type GeneratedArticleSEO\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export type GeneratedAltText\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export type GeneratedImagePrompt\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"export function validateGeneratedArticle\" api/src/ai/schemas.ts >= 1",
+        "grep -c \"h2\\|heading.*level.*2\" api/src/ai/schemas.ts >= 1",
+        "BEHAVIORAL: GIVEN a GeneratedArticle with 2 h2 sections WHEN validateGeneratedArticle is called THEN it throws/returns error; GIVEN a GeneratedArticle with text 'lorem ipsum' in body WHEN validateGeneratedArticle is called THEN it rejects with placeholder text error; GIVEN a GeneratedArticle referencing 'TheIWise' WHEN validateGeneratedArticle is called THEN it rejects with TheIWise-ref error"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T4",
-      "title": "templates/components.ts exports site-aware components",
-      "category": "ui",
+      "title": "Recreate ai_generations with idempotency_key UNIQUE + 5-state status; add media.ai_generation_id",
+      "category": "db",
       "targetFiles": [
-        "src/public/templates/components.ts"
+        "api/migrations/0008_phase5_ai_generations.sql",
+        "api/test/migrations-0008-ai-generations.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -cE 'export function (renderHeader|renderHero|renderChipRail|renderCard|renderNewsletter|renderFooter|renderAdSlot|renderFloatingNext)' >= 8",
-        "grep -c 'data-ad-slot' >= 1",
-        "BEHAVIORAL: GIVEN CategoryChip slug=tech WHEN renderChipRail THEN result contains href=/category/tech AND no href=#"
+        "grep -c \"CREATE TABLE.*ai_generations_v2\\|ALTER TABLE ai_generations RENAME\" api/migrations/0008_phase5_ai_generations.sql >= 1",
+        "grep -c \"idempotency_key TEXT\" api/migrations/0008_phase5_ai_generations.sql >= 1",
+        "grep -c \"UNIQUE.*idempotency_key\\|CREATE UNIQUE INDEX.*idempotency_key\" api/migrations/0008_phase5_ai_generations.sql >= 1",
+        "grep -c \"'pending'\\|'success'\\|'fallback'\\|'skipped_no_api_key'\" api/migrations/0008_phase5_ai_generations.sql >= 4",
+        "grep -c \"prompt_version\\|request_json\\|response_json\\|parsed_json\\|target_type\\|target_id\\|error_message\\|updated_at\\|task\\|provider\" api/migrations/0008_phase5_ai_generations.sql >= 10",
+        "grep -c \"ALTER TABLE media ADD COLUMN ai_generation_id\" api/migrations/0008_phase5_ai_generations.sql >= 1",
+        "BEHAVIORAL: GIVEN migration 0008 has applied WHEN inserting a second row with the same idempotency_key THEN D1 raises a UNIQUE constraint violation; GIVEN migration 0008 has applied WHEN inserting a row with status='skipped_no_api_key' THEN the row is accepted; GIVEN migration 0008 has applied WHEN inserting a row with the old status='stub' THEN D1 raises a CHECK constraint violation"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T5",
-      "title": "templates/icons.ts exports inline SVG icons",
-      "category": "ui",
+      "title": "9 prompt modules each exporting PROMPT_VERSION + buildPrompt; generic vertical content; no TheIWise refs",
+      "category": "api",
       "targetFiles": [
-        "src/public/templates/icons.ts"
+        "api/src/ai/prompts/site-tagline.ts",
+        "api/src/ai/prompts/site-description.ts",
+        "api/src/ai/prompts/about-page.ts",
+        "api/src/ai/prompts/logo.ts",
+        "api/src/ai/prompts/feature-image.ts",
+        "api/src/ai/prompts/starter-article-plan.ts",
+        "api/src/ai/prompts/starter-article.ts",
+        "api/src/ai/prompts/article-seo.ts",
+        "api/src/ai/prompts/alt-text.ts",
+        "api/test/ai-prompts.test.ts"
       ],
       "acceptanceCriteria": [
-        "5 icon exports",
-        "aria-hidden on decorative SVGs"
+        "ls api/src/ai/prompts/*.ts | wc -l >= 9",
+        "grep -lc \"export const PROMPT_VERSION\" api/src/ai/prompts/*.ts | wc -l >= 9",
+        "grep -lc \"export function buildPrompt\" api/src/ai/prompts/*.ts | wc -l >= 9",
+        "grep -l \"site-tagline:v1\" api/src/ai/prompts/site-tagline.ts && grep -l \"about-page:v1\" api/src/ai/prompts/about-page.ts && grep -l \"logo:v1\" api/src/ai/prompts/logo.ts && grep -l \"starter-article:v1\" api/src/ai/prompts/starter-article.ts",
+        "grep -rli \"theiwise\\|insureprimo\\|quotesRoutes\\|psychic-quiz\\|rental-booking\" api/src/ai/prompts/ | wc -l == 0",
+        "grep -li \"render.*site.name.*text\\|exact name text\" api/src/ai/prompts/logo.ts | wc -l == 0",
+        "grep -li \"transparent background\\|alpha channel\" api/src/ai/prompts/logo.ts | wc -l == 0",
+        "grep -c \"do not.*render.*name\\|no text rendering\\|site name.*not rendered\" api/src/ai/prompts/logo.ts >= 1",
+        "FUNCTIONAL: npx vitest run test/ai-prompts.test.ts — buildPrompt returns stable string given same input; PROMPT_VERSION matches expected slug per module"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T6",
-      "title": "templates/seo.ts exports JSON-LD builders + meta helpers",
-      "category": "ui",
+      "title": "ai_generations CRUD with idempotency lookup + secret redaction",
+      "category": "api",
       "targetFiles": [
-        "src/public/templates/seo.ts"
+        "api/src/ai/generation-log.ts",
+        "api/test/ai-generation-log.test.ts"
       ],
       "acceptanceCriteria": [
-        "5 seo exports",
-        "6 JSON-LD types",
-        "BEHAVIORAL: GIVEN faqs=[] WHEN buildFaqJsonLd THEN empty string"
+        "grep -c \"export.*function startGenerationLog\\|export async function startGenerationLog\" api/src/ai/generation-log.ts >= 1",
+        "grep -c \"export.*function finishGenerationLogSuccess\\|export async function finishGenerationLogSuccess\" api/src/ai/generation-log.ts >= 1",
+        "grep -c \"export.*function finishGenerationLogFailure\\|export async function finishGenerationLogFailure\" api/src/ai/generation-log.ts >= 1",
+        "grep -c \"export.*function finishGenerationLogFallback\\|export async function finishGenerationLogFallback\" api/src/ai/generation-log.ts >= 1",
+        "grep -c \"export.*function getGenerationByIdempotencyKey\\|export async function getGenerationByIdempotencyKey\" api/src/ai/generation-log.ts >= 1",
+        "grep -c \"export function redactSecretsFromPayload\" api/src/ai/generation-log.ts >= 1",
+        "grep -c \"OPENAI_API_KEY\\|sk-\" api/src/ai/generation-log.ts >= 1",
+        "BEHAVIORAL: GIVEN a payload containing 'sk-abc123' WHEN redactSecretsFromPayload is called THEN the result replaces 'sk-abc123' with '[REDACTED]'; GIVEN an existing ai_generations row with idempotency_key 'k1' WHEN getGenerationByIdempotencyKey('k1', db) is called THEN it returns the existing row; GIVEN startGenerationLog is called THEN the SQL uses .bind() parameters not template literals"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T7",
-      "title": "templates/format.ts exports formatDate, formatReadTime, truncateExcerpt",
-      "category": "ui",
+      "title": "Text generators (tagline, description, about, plan, article, SEO, alt-text) with fallback",
+      "category": "api",
       "targetFiles": [
-        "src/public/templates/format.ts"
+        "api/src/ai/generators/text.ts",
+        "api/src/ai/generators/fallback.ts",
+        "api/test/ai-generators-text.test.ts"
       ],
       "acceptanceCriteria": [
-        "3 format exports",
-        "BEHAVIORAL: truncateExcerpt with limit=12 yields <=13 char string ending in ellipsis"
+        "grep -c \"export.*function generateSiteTagline\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"export.*function generateSiteDescription\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"export.*function generateAboutPage\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"export.*function generateStarterArticlePlan\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"export.*function generateStarterArticle\\b\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"export.*function generateArticleSEO\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"export.*function generateImageAltText\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"OPENAI_API_KEY\" api/src/ai/generators/text.ts >= 7",
+        "grep -c \"idempotency_key\\|idempotencyKey\" api/src/ai/generators/text.ts >= 7",
+        "BEHAVIORAL: GIVEN no OPENAI_API_KEY in env WHEN generateSiteTagline is called THEN it returns a non-empty fallback string with status='skipped_no_api_key'; GIVEN generateStarterArticlePlan fallback runs WHEN no API key THEN it returns exactly 15 articles with unique slugs; GIVEN generateStarterArticle('fallback-article-1', ...) is called twice THEN the second call returns the same ai_generation_id without creating a duplicate row"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T8",
-      "title": "view-models/home.ts exports buildHomeViewModel(db, siteContext)",
+      "title": "Image generators (logo prompt+image, feature image prompt+image); R2 upload + media row; fallback placeholders",
       "category": "api",
       "targetFiles": [
-        "src/public/view-models/home.ts"
+        "api/src/ai/generators/image.ts",
+        "api/test/ai-generators-image.test.ts"
       ],
       "acceptanceCriteria": [
-        "buildHomeViewModel exported",
-        "site-scoped WHERE",
-        ">=3 .bind() calls",
-        "BEHAVIORAL: site A and B isolation \u2014 vm.featured contains only site A's articles"
+        "grep -c \"export.*function generateLogoPrompt\" api/src/ai/generators/image.ts >= 1",
+        "grep -c \"export.*function generateLogoImage\" api/src/ai/generators/image.ts >= 1",
+        "grep -c \"export.*function generateFeatureImagePrompt\" api/src/ai/generators/image.ts >= 1",
+        "grep -c \"export.*function generateFeatureImage\" api/src/ai/generators/image.ts >= 1",
+        "grep -c \"INSERT.*INTO media\" api/src/ai/generators/image.ts >= 1",
+        "grep -c \"ai_generation_id\" api/src/ai/generators/image.ts >= 1",
+        "grep -c \"env.MEDIA.put\\|MEDIA\\.put\" api/src/ai/generators/image.ts >= 1",
+        "BEHAVIORAL: GIVEN no OPENAI_API_KEY in env WHEN generateLogoImage is called THEN it returns { status: 'skipped_no_api_key', media_id: <placeholder> }; GIVEN generateFeatureImage succeeds WHEN the media row is inserted THEN the row contains both site_id and ai_generation_id; GIVEN generateLogoImage runs THEN the storage_key written to R2 is deterministic given the same site_id and generation context"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T9",
-      "title": "view-models/article.ts exports buildArticleViewModel + adaptBodyBlocks",
+      "title": "Swap deterministic stubs for AI-or-fallback in 6 provisioning steps; preserve idempotency + resumability",
       "category": "api",
       "targetFiles": [
-        "src/public/view-models/article.ts"
+        "api/src/site-provisioning/steps.ts",
+        "api/test/site-provisioning-ai-integration.test.ts"
       ],
       "acceptanceCriteria": [
-        "buildArticleViewModel exported",
-        "site_id scoped",
-        "adaptBodyBlocks present",
-        "BEHAVIORAL: content_json=null falls back to single html block from content_html",
-        "BEHAVIORAL: 2 faq blocks in content_json yield vm.faqs.length===2"
+        "grep -c \"import.*generateSiteTagline\\|import.*generateSiteDescription\" api/src/site-provisioning/steps.ts >= 1",
+        "grep -c \"import.*generateAboutPage\\b\" api/src/site-provisioning/steps.ts >= 1",
+        "grep -c \"import.*generateLogoImage\\|generateLogoPrompt\" api/src/site-provisioning/steps.ts >= 1",
+        "grep -c \"import.*generateFeatureImage\\|generateFeatureImagePrompt\" api/src/site-provisioning/steps.ts >= 1",
+        "grep -c \"import.*generateStarterArticlePlan\\|generateStarterArticle\\b\" api/src/site-provisioning/steps.ts >= 1",
+        "grep -c \"generate_tagline_and_site_description_stub\\|generate_about_page_stub\\|generate_logo_mark_stub\\|generate_feature_image_stub\\|generate_15_homepage_articles_stub\\|generate_or_assign_article_images_stub\" api/src/site-provisioning/steps.ts >= 12",
+        "grep -c \"^  '[a-z_]\" api/src/site-provisioning/steps.ts >= 15",
+        "BEHAVIORAL: GIVEN no OPENAI_API_KEY WHEN provisioning step generate_tagline_and_site_description_stub runs THEN an ai_generations row exists with status='skipped_no_api_key' AND site_settings.tagline is set to a non-empty fallback; GIVEN step generate_15_homepage_articles_stub has run once WHEN it runs again THEN no additional articles are inserted (idempotency via idempotency_key); GIVEN no OPENAI_API_KEY WHEN generate_15_homepage_articles_stub runs THEN exactly 15 articles exist in articles table with distinct slugs all bound to ctx.site_id"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T10",
-      "title": "templates/home.ts renders 13 sections in PART 1 order",
+      "title": "/admin/ai-generations list page + detail JSON; provisioning job detail shows AI step output; article editor shows ai_generation_id",
       "category": "ui",
       "targetFiles": [
-        "src/public/templates/home.ts"
+        "api/src/admin/api.ts",
+        "api/src/admin/ui.ts",
+        "api/src/admin/templates/ai-generations-list.ts",
+        "api/src/admin/templates/ai-generation-detail.ts",
+        "api/test/admin-ai-generations.test.ts"
       ],
       "acceptanceCriteria": [
-        "renderHome exported",
-        "BEHAVIORAL: section markers appear in PART 1 order",
-        "BEHAVIORAL: site.name appears in output AND theiwise does not"
+        "grep -c \"GET.*\\/admin\\/ai-generations\\|/admin/ai-generations\" api/src/admin/ui.ts >= 1",
+        "grep -c \"GET.*\\/api\\/admin\\/ai-generations\\|/api/admin/ai-generations\" api/src/admin/api.ts >= 1",
+        "grep -c \"/api/admin/ai-generations/\" api/src/admin/api.ts >= 1",
+        "grep -rc \"ai_generation_id\\|aiGenerationId\" api/src/admin/templates/ >= 1",
+        "grep -c \"/api/admin/\" api/src/admin/api.ts >= 1",
+        "BEHAVIORAL: GIVEN a GET /api/admin/ai-generations request with admin host WHEN the handler runs THEN it returns a paged list with task + model + prompt_version + status + target_type + created_at + error_message; GIVEN a GET /api/admin/ai-generations request from non-admin host THEN it returns 404; GIVEN a GET /api/admin/ai-generations request without CF Access JWT THEN it returns 401 or 403"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T11",
-      "title": "templates/article.ts renders 12 sections in PART 2 order + minmax(0, 1fr)",
-      "category": "ui",
+      "title": "AI calls require site_id (except global presets); public routes cannot trigger AI; tenant-bound generation",
+      "category": "api",
       "targetFiles": [
-        "src/public/templates/article.ts"
+        "api/src/ai/openai-client.ts",
+        "api/src/ai/generators/text.ts",
+        "api/src/ai/generators/image.ts",
+        "api/src/admin/ai-api.ts",
+        "api/test/ai-tenant-safety.test.ts"
       ],
       "acceptanceCriteria": [
-        "renderArticle exported",
-        "BEHAVIORAL: 12 section markers appear in PART 2 order",
-        "BEHAVIORAL: article-shell minmax(0, 1fr) present",
-        "BEHAVIORAL: faqs=[] does NOT emit FAQPage JSON-LD"
+        "grep -c \"site_id\\|siteId\" api/src/ai/generators/text.ts >= 7",
+        "grep -c \"site_id\\|siteId\" api/src/ai/generators/image.ts >= 4",
+        "grep -c \"/api/admin/ai\" api/src/admin/ai-api.ts >= 2",
+        "grep -rln \"/api/public.*ai\\|publicAi\\|public.*generateText\" api/src/ | wc -l == 0",
+        "grep -c \"assertTenantBoundary\\|requireSiteIdForArticleInput\" api/src/ai/generators/text.ts >= 1",
+        "grep -c \"site_id\" api/src/ai/generators/image.ts >= 2",
+        "BEHAVIORAL: GIVEN generateStarterArticle is called with site_id='site-a' WHEN the generator tries to insert an article with site_id='site-b' THEN the tenant guard throws; GIVEN a POST /api/admin/ai/generate-text request from non-admin host (example.com) THEN it returns 404; GIVEN a POST /api/admin/ai/generate-text without CF Access JWT THEN it returns 401 or 403"
       ],
       "passes": false,
-      "state": "implemented"
+      "state": "planned"
     },
     {
       "id": "T12",
-      "title": "router.ts adds GET / handler wiring home view-model + template",
-      "category": "api",
-      "targetFiles": [
-        "src/public/router.ts"
-      ],
-      "acceptanceCriteria": [
-        "GET / registered",
-        "BEHAVIORAL: GET / on tenant returns 200 text/html with site-header + site-footer"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T13",
-      "title": "/article/:slug uses Article template with fallback",
-      "category": "api",
-      "targetFiles": [
-        "src/public/router.ts"
-      ],
-      "acceptanceCriteria": [
-        "renderArticle + buildArticleViewModel wired",
-        "catch present",
-        "BEHAVIORAL: published article -> 200 with article-shell+hero+body",
-        "BEHAVIORAL: renderArticle throws -> 200 with content_html fallback"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T14",
-      "title": "/assets/public.css + /assets/public.js cacheable routes",
-      "category": "api",
-      "targetFiles": [
-        "src/public/router.ts"
-      ],
-      "acceptanceCriteria": [
-        "both asset routes registered",
-        "immutable cache-control",
-        "BEHAVIORAL: GET /assets/public.css -> 200 text/css with --tw-brand",
-        "BEHAVIORAL: GET /assets/public.js -> 200 application/javascript with reading-progress-bar",
-        "BEHAVIORAL: explicit /assets/* routes win over /:slug catch-all"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T15",
-      "title": "/category/:slug + /page/:slug use site-aware layout wrapper",
-      "category": "api",
-      "targetFiles": [
-        "src/public/router.ts"
-      ],
-      "acceptanceCriteria": [
-        "renderLayout used",
-        "BEHAVIORAL: GET /category/:slug -> 200 text/html with site-header + category name",
-        "BEHAVIORAL: GET /page/:slug -> 200 text/html with site-header + page content_html"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T16",
-      "title": "Regression: cms.kodigital.app does not render home",
-      "category": "infra",
-      "targetFiles": [
-        "test/public-admin-host-no-home.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "references cms.kodigital.app",
-        "BEHAVIORAL: Host=cms.kodigital.app GET / -> 404 no leak"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T17",
-      "title": "Regression: reserved-path catch-all 404s admin/api/static/media/preview/health",
-      "category": "infra",
-      "targetFiles": [
-        "test/public-reserved-paths.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "BEHAVIORAL: planted admin page GET /admin -> 404 no leak",
-        "covers all reserved paths"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T18",
-      "title": "Regression: no hardcoded TheIWise brand in rendered Home + Article",
-      "category": "infra",
-      "targetFiles": [
-        "test/public-no-theiwise-brand-render.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "BEHAVIORAL: renderHome -> no theiwise",
-        "BEHAVIORAL: renderArticle -> no theiwise",
-        "banned tokens concatenated"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T19",
-      "title": "JSON-LD presence on Home + Article",
-      "category": "infra",
-      "targetFiles": [
-        "test/public-json-ld-presence.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "BEHAVIORAL: Home contains WebSite + Organization + ItemList",
-        "BEHAVIORAL: Article with faqs contains Article + BreadcrumbList + FAQPage",
-        "BEHAVIORAL: Article with empty faqs omits FAQPage"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T20",
-      "title": "Image attribute + lazy-load tests",
-      "category": "infra",
-      "targetFiles": [
-        "test/public-image-attrs.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "BEHAVIORAL: every <img> has alt+width+height",
-        "BEHAVIORAL: below-fold images have loading=lazy"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T21",
-      "title": "Ad-slot attribute tests",
-      "category": "infra",
-      "targetFiles": [
-        "test/public-ad-slots.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "BEHAVIORAL: every ad-slot has data-ad-slot + data-ad-type in {leaderboard,in-feed,rect}",
-        "BEHAVIORAL: both leaderboard + in-feed present on Home"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "T22",
-      "title": "Regression: typecheck + verify:no-legacy-prod-refs + verify:infra + verify:worker-config all exit 0",
-      "category": "infra",
-      "targetFiles": [
-        "test/verify-scripts-green.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "tsc --noEmit exit 0",
-        "verify:no-legacy-prod-refs exit 0",
-        "verify:infra exit 0",
-        "verify:worker-config exit 0"
-      ],
-      "passes": false,
-      "state": "implemented"
-    },
-    {
-      "id": "WARN-FIX-1",
-      "title": "Add bare-id GET routes /admin/articles/:id and /admin/pages/:id in api/src/admin/ui.ts",
-      "category": "api",
-      "target_files": [
-        "api/src/admin/ui.ts"
-      ],
-      "state": "implemented",
-      "passes": false,
-      "rootCause": "T10-AC2 evaluator blocker: ui.ts registers only /admin/articles/:id/edit and /admin/pages/:id/edit; AC explicitly requires bare /admin/articles/:id and /admin/pages/:id routes.",
-      "fix_summary": "Add adminUi.get('/admin/articles/:id', handler) and adminUi.get('/admin/pages/:id', handler) registrations. Each can redirect to its :id/edit variant or render the same template the edit path uses. Keep accessAuth + adminLayout intact.",
-      "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-1-AC1",
-          "description": "grep -c \"adminUi.get('/admin/articles/:id'\" api/src/admin/ui.ts >= 1 (bare :id route present, not just :id/edit)"
-        },
-        {
-          "id": "WARN-FIX-1-AC2",
-          "description": "grep -c \"adminUi.get('/admin/pages/:id'\" api/src/admin/ui.ts >= 1"
-        },
-        {
-          "id": "WARN-FIX-1-AC3",
-          "description": "FUNCTIONAL: cd api && npx tsc --noEmit exits 0"
-        }
-      ],
-      "verification": "cd api && npx tsc --noEmit",
-      "rollback": "git checkout -- api/src/admin/ui.ts",
-      "dependencies": []
-    },
-    {
-      "id": "WARN-FIX-2",
-      "title": "Fix api/test/admin.test.ts data-area regression so cd api && npm test exits 0",
+      "title": "Full acceptance suite passes (typecheck, npm test, verify:no-legacy-prod-refs, verify:infra, verify:worker-config)",
       "category": "script",
-      "target_files": [
-        "api/test/admin.test.ts"
-      ],
-      "state": "implemented",
-      "passes": false,
-      "rootCause": "T21-AC5 evaluator blocker: cd api && npm test exits 1 because api/test/admin.test.ts:113 asserts text.toContain('data-area=\"domains\"') against the new global adminLayout that emits a single <body data-area=\"admin\">. The new layout is the canonical post-Phase-3R contract; the legacy assertion is the regression.",
-      "fix_summary": "Update the failing assertion in api/test/admin.test.ts so it matches the new global data-area=admin contract from layout.ts:79. Confirm by running cd api && npm test (vitest run) and asserting exit 0 with no other regressions.",
-      "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-2-AC1",
-          "description": "grep -c 'data-area=\"admin\"' api/test/admin.test.ts >= 1 (assertion updated to global contract)"
-        },
-        {
-          "id": "WARN-FIX-2-AC2",
-          "description": "grep -c 'data-area=\"domains\"' api/test/admin.test.ts == 0 (stale assertion removed)"
-        },
-        {
-          "id": "WARN-FIX-2-AC3",
-          "description": "FUNCTIONAL: cd api && npm test (vitest run) exits 0; no test files failed; no new tests regressed"
-        }
-      ],
-      "verification": "cd api && npm test",
-      "rollback": "git checkout -- api/test/admin.test.ts",
-      "dependencies": []
-    },
-    {
-      "id": "WARN-FIX-3",
-      "title": "Align Domains Create-Site modal POST body field name with interface_contract canonical 'name'",
-      "category": "ui",
-      "target_files": [
-        "api/src/admin/templates/domains.ts"
-      ],
-      "state": "implemented",
-      "passes": false,
-      "rootCause": "Evaluator WARNING (T4_T14): api/src/admin/templates/domains.ts posts JSON body {domain, site_name, vertical_slug, activity} to POST /api/admin/sites. api/src/admin/sites-handlers.ts reads body.name. interface_contract.json declares request_field 'name' (no wire_name alias). User-supplied site name is silently dropped on first POST and falls back to the domain literal.",
-      "fix_summary": "Rename the modal's site-name field from 'site_name' to 'name' in api/src/admin/templates/domains.ts so the POSTed JSON key matches the interface_contract canonical request_field. Update the input element name attribute, the FormData accessor, and the JSON.stringify body shape (3 sites). Keep the legacy form-input class names. The handler in sites-handlers.ts is unchanged.",
-      "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-3-AC1",
-          "description": "grep -c 'site_name' api/src/admin/templates/domains.ts == 0 (legacy wire key removed)"
-        },
-        {
-          "id": "WARN-FIX-3-AC2",
-          "description": "grep -cE '\"name\"\\s*:' api/src/admin/templates/domains.ts >= 1 (canonical 'name' field present in JSON body construction)"
-        },
-        {
-          "id": "WARN-FIX-3-AC3",
-          "description": "FUNCTIONAL: cd api && npx tsc --noEmit exits 0"
-        },
-        {
-          "id": "WARN-FIX-3-AC4",
-          "description": "FUNCTIONAL: cd api && npm test exits 0 (no domains spec regression)"
-        }
-      ],
-      "verification": "cd api && npx tsc --noEmit && cd api && npm test",
-      "rollback": "git checkout -- api/src/admin/templates/domains.ts",
-      "dependencies": []
-    },
-    {
-      "id": "WARN-FIX-4",
-      "title": "Rename T7 site-filter selects to AC-canonical name=\"site\" + name=\"verticals\" in categories/tags/media templates",
-      "category": "ui",
-      "target_files": [
-        "api/src/admin/templates/categories.ts",
-        "api/src/admin/templates/tags.ts",
-        "api/src/admin/templates/media.ts"
-      ],
-      "state": "implemented",
-      "passes": false,
-      "rootCause": "T7-AC2/AC3/AC4 require literal name=\"site\" attribute on the toolbar site-filter <select> and name=\"verticals\" on the verticals multi-select. Ralph implemented name=\"site_id\" / name=\"verticals[]\" (schema-name-aligned but AC-literal-mismatched). RC-035/RC-036/RC-037 fail the acceptance_check grep chain because of this attribute name difference.",
-      "fix_summary": "Edit categories.ts:106 to rename name=\"site_id\" -> name=\"site\". Edit categories.ts:109 to rename name=\"verticals[]\" -> name=\"verticals\". Edit tags.ts:51 to rename name=\"site_id\" -> name=\"site\". Edit media.ts:67 to rename name=\"site_id\" -> name=\"site\". Keep id attributes and data-* attributes unchanged. tagsListPage and mediaListPage already render the `Global` badge for site_id IS NULL rows (verified at lines 66 and 90). No handler changes required.",
-      "acceptanceCriteria": [
-        {
-          "id": "WARN-FIX-4-AC1",
-          "description": "grep -q 'export function categoriesListPage' api/src/admin/templates/categories.ts && grep -q 'name=\"site\"' api/src/admin/templates/categories.ts && grep -q 'name=\"verticals\"' api/src/admin/templates/categories.ts && echo OK exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC2",
-          "description": "grep -q 'export function tagsListPage' api/src/admin/templates/tags.ts && grep -q 'name=\"site\"' api/src/admin/templates/tags.ts && grep -q 'Global' api/src/admin/templates/tags.ts && echo OK exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC3",
-          "description": "grep -q 'export function mediaListPage' api/src/admin/templates/media.ts && grep -q 'name=\"site\"' api/src/admin/templates/media.ts && grep -q 'Global' api/src/admin/templates/media.ts && echo OK exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC4",
-          "description": "FUNCTIONAL: cd api && npx tsc --noEmit exits 0"
-        },
-        {
-          "id": "WARN-FIX-4-AC5",
-          "description": "FUNCTIONAL: cd api && npm test exits 0; no test files failed; 270/270 tests passed"
-        }
-      ],
-      "verification": "cd api && npx tsc --noEmit && cd api && npm test",
-      "rollback": "git checkout -- api/src/admin/templates/categories.ts api/src/admin/templates/tags.ts api/src/admin/templates/media.ts",
-      "dependencies": []
-    },
-    {
-      "id": "MQAFIX-1",
-      "title": "POST /api/admin/articles must bind body.site_id (T13 PATCH tenant-guard unreachable for new articles)",
-      "category": "api",
-      "rootCause": "T5 verified the article form renders <select name=\"site_id\" required> but did not verify the POST handler at api/src/admin/api.ts:92 binds body.site_id. INSERT statement is 'INSERT INTO articles (slug, title, content_json, status) VALUES (...)' \u2014 site_id column missing. Result: articles created via the admin form have site_id=NULL, and T13's slug-uniqueness 409 path is unreachable for new articles. Confirmed in ship-phase manualQA MQA-5 sub-3.",
       "targetFiles": [
-        "api/src/admin/api.ts"
+        "api/test/ai-acceptance.test.ts"
       ],
       "acceptanceCriteria": [
-        "grep -nE 'INSERT INTO articles' api/src/admin/api.ts | grep -q 'site_id'",
-        "grep -nE 'site_id' api/src/admin/api.ts | grep -c 'POST\\|api\\.post' >= 1",
-        "BEHAVIORAL: GIVEN POST /api/admin/articles with body {site_id:'<existing-site>', slug:'mqafix1', title:'T'}, WHEN GET /api/admin/articles/<id>, THEN response.site_id == '<existing-site>'.",
-        "BEHAVIORAL: GIVEN POST /api/admin/articles with body {site_id:'<nonexistent-site>', slug:'x', title:'y'}, WHEN response received, THEN status=400 and error references unknown site.",
-        "BEHAVIORAL: GIVEN POST creates A1 with (site_id=S1, slug='dup'), WHEN POST attempts (site_id=S1, slug='dup'), THEN response=409 SLUG_UNIQUENESS_VIOLATION."
+        "cd api && npx tsc --noEmit exit code = 0",
+        "cd api && npm test exit code = 0",
+        "cd api && npm run verify:no-legacy-prod-refs exit code = 0",
+        "cd api && npm run verify:infra exit code = 0",
+        "cd api && npm run verify:worker-config exit code = 0",
+        "FUNCTIONAL: grep -lr \"gpt-5.5\\|gpt-image-2\\|REDACT\\|skipped_no_api_key\\|PROMPT_VERSION\\|placeholder\\|theiwise\\|idempotency\\|15.*articles\\|>= 3\\|h2\\|FAQs\\|transparent.*background\\|exact.*name.*text\\|tenant\\|public.*ai\" api/test/ai-*.test.ts | wc -l >= 5"
       ],
       "passes": false,
-      "state": "implemented",
-      "origin": "ship-phase manualQA FINDING-1 (MEDIUM)",
-      "classification": "mission_downstream"
-    },
-    {
-      "id": "MQAFIX-2",
-      "title": "Fix api/playwright.config.ts webServer block (port + url mutually exclusive on @playwright/test 1.59+)",
-      "category": "config",
-      "rootCause": "T17 created playwright.config.ts with both webServer.port=8787 and webServer.url='http://127.0.0.1:8787'. @playwright/test 1.59.x made these mutually exclusive (\"Either 'port' or 'url' should be specified in config.webServer\"). After lockfile hotfix pinned playwright to 1.59.1, the spec runner refuses to start. Confirmed in ship-phase manualQA MQA-4 (had to use local wrangler dev + curl with Host header instead of running test-ui/admin-routing-security.spec.ts).",
-      "targetFiles": [
-        "api/playwright.config.ts"
-      ],
-      "acceptanceCriteria": [
-        "grep -cE 'port:\\s*8787' api/playwright.config.ts == 0",
-        "grep -cE 'url:\\s*[\\'\"]http://127.0.0.1:8787[\\'\"]' api/playwright.config.ts >= 1",
-        "BEHAVIORAL: GIVEN api/playwright.config.ts, WHEN running `cd api && npx playwright test test-ui/admin-routing-security.spec.ts --reporter=line`, THEN webServer starts wrangler dev and the spec runs (no 'Either port or url' error).",
-        "BEHAVIORAL: All 3 specs (admin-ux-parity, domains-create-site, admin-routing-security) execute against local dev server."
-      ],
-      "passes": false,
-      "state": "implemented",
-      "origin": "ship-phase manualQA FINDING-2 (LOW)",
-      "classification": "mission_introduced"
-    },
-    {
-      "id": "MQAFIX-3",
-      "title": "Remove column-level UNIQUE on pages.slug + articles.slug (global), keep per-site (site_id, slug) UNIQUE INDEX",
-      "category": "migration",
-      "rootCause": "T15 generate_about_page_stub INSERT OR IGNORE INTO pages was designed to collide on (site_id, slug) UNIQUE INDEX idx_pages_site_slug_unique. Production schema however still carries the original 0001 column-level UNIQUE on pages.slug (and articles.slug) from the single-site era, creating an additional `sqlite_autoindex_pages_1` GLOBAL UNIQUE on slug alone. This global UNIQUE makes the second site's about-page INSERT a silent no-op (IGNORE wins), even though (site_id, slug)='(S2, about)' is genuinely unique. Confirmed in ship-phase manualQA MQA-6 (2026-05-13): runner reported step_status=completed but SELECT id, slug FROM pages WHERE site_id='st_55d1985313c048d2' AND slug='about' returned 0 rows; only id=5 from prior cycle (site_id=st_a2f4f7d32e2348c2) exists globally. Same schema posture on articles.slug per `SELECT sql FROM sqlite_master`. Contradicts T1-AC6 BEHAVIORAL ('INSERT with site_id=site_b, slug=x succeeds \u2014 per-site uniqueness, not global').",
-      "targetFiles": [
-        "api/migrations/0007_phase3r_drop_global_slug_unique.sql",
-        "api/test/migrations-0007-slug-uniqueness-recreate.test.ts"
-      ],
-      "acceptanceCriteria": [
-        "grep -cE 'CREATE TABLE pages_new|CREATE TABLE articles_new|DROP TABLE pages|DROP TABLE articles|ALTER TABLE pages_new RENAME|ALTER TABLE articles_new RENAME' api/migrations/0007_phase3r_drop_global_slug_unique.sql >= 4",
-        "grep -cE 'slug TEXT NOT NULL[^,]*,' api/migrations/0007_phase3r_drop_global_slug_unique.sql >= 2",
-        "grep -cE 'slug TEXT NOT NULL UNIQUE' api/migrations/0007_phase3r_drop_global_slug_unique.sql == 0",
-        "grep -cE 'CREATE UNIQUE INDEX[^;]*idx_(pages|articles)_site_slug_unique' api/migrations/0007_phase3r_drop_global_slug_unique.sql >= 2",
-        "BEHAVIORAL: GIVEN local D1 with migrations 0001-0007 applied + 2 sites, WHEN INSERT INTO pages (site_id, slug, page_type, title, content_json, content_html, status) VALUES ('S1','about','about','x','{}','<p/>','published') succeeds AND second INSERT with ('S2','about',...) also succeeds (per-site uniqueness, NOT global). THEN SELECT COUNT(*) FROM pages WHERE slug='about' = 2.",
-        "BEHAVIORAL: same per-site uniqueness verification for articles table.",
-        "BEHAVIORAL: same-site duplicate INSERT (S1,'about') still fails with UNIQUE constraint via idx_pages_site_slug_unique.",
-        "FUNCTIONAL: cd api && npm test exits 0; all existing tests still pass; new test asserts pages/articles can have same slug across different sites.",
-        "FUNCTIONAL: cd api && npx tsc --noEmit exits 0."
-      ],
-      "passes": false,
-      "state": "implemented",
-      "origin": "ship-phase manualQA FINDING (2026-05-13 cycle, recoveryAttempt=2)",
-      "classification": "mission_introduced_schema_regression",
-      "dependencies": [],
-      "notes": "Migration must follow D1-database-safety.md C-006/C-009/C-026/C-027: CREATE pages_new \u2192 INSERT INTO pages_new SELECT FROM pages \u2192 DROP TABLE pages \u2192 ALTER TABLE pages_new RENAME TO pages \u2192 recreate all indexes (including per-site UNIQUE). Same for articles. Single migration file recreates BOTH tables atomically. Existing data preserved. Must also be greppable from deploy.yml per L-008 / deploy-safety.md D1-file rule (CI deploy needs to apply this migration to production)."
+      "state": "planned"
     }
   ]
 }
