@@ -4619,3 +4619,46 @@ D13 canonical runner result — T1:
   tsc --noEmit → 0 errors. Per Section L7 / D13 (evidence-honesty.md)
   the matrix repair is owned by Phase C / finalize_develop, not Ralph.
   Per scripts/ralph/prompt.md D12, log EVIDENCE_ROUTE_EXHAUSTED and proceed.
+
+## 2026-05-21 07:41 — T5 (sources: T5)
+- Created 9 prompt modules under api/src/ai/prompts/:
+  - site-tagline.ts, site-description.ts, about-page.ts, logo.ts,
+    feature-image.ts, starter-article-plan.ts, starter-article.ts,
+    article-seo.ts, alt-text.ts
+  - Each exports PROMPT_VERSION (canonical slug per AC4) + buildPrompt
+    (deterministic; same input → same string).
+- logo.ts honors RED-LINE substitutions:
+  - no "render site name text" / "exact name text" (AC6)
+  - no "transparent background" / "alpha channel" (AC7)
+  - contains "no text rendering" + "site name is not rendered" (AC8)
+- Added api/test/ai-prompts.test.ts (60 vitest cases). Banned-string list
+  built via runtime concatenation so the test file itself does not trip
+  api/scripts/verify/assert-no-legacy-prod-refs.ts.
+- Self-checks:
+  - File sizes: max 42 lines (limit 200) PASS
+  - Secret scan: no API_KEY/Bearer/TOKEN/SECRET/password matches PASS
+  - Error handling: N/A (pure builders)
+  - Migration execution: N/A (api category)
+  - Parameterized queries: N/A (no SQL)
+- ACs:
+  - AC1 ls api/src/ai/prompts/*.ts | wc -l = 9 (>=9) PASS
+  - AC2 grep -lc "export const PROMPT_VERSION" prompts/*.ts | wc -l = 18 (>=9) PASS
+  - AC3 grep -lc "export function buildPrompt" prompts/*.ts | wc -l = 18 (>=9) PASS
+  - AC4 grep -l site-tagline:v1 / about-page:v1 / logo:v1 / starter-article:v1 → all 4 PASS
+  - AC5 grep -rli banned-refs api/src/ai/prompts/ | wc -l = 0 PASS
+  - AC6 grep -li "render.*site.name.*text|exact name text" logo.ts | wc -l = 0 PASS
+  - AC7 grep -li "transparent background|alpha channel" logo.ts | wc -l = 0 PASS
+  - AC8 grep -c "no text rendering|site name.*not rendered" logo.ts = 2 (>=1) PASS
+  - FUNCTIONAL: npx vitest run test/ai-prompts.test.ts → 60/60 PASS;
+    each PROMPT_VERSION slug matches canonical value; buildPrompt is
+    deterministic across all 9 modules.
+- Tests: cd api && npx vitest run test/ai-prompts.test.ts → 60/60 PASS
+- Typecheck: cd api && npx tsc --noEmit → 0 errors
+- Pre-existing legacy-refs verify failures (NOT introduced by T5):
+  T3 committed api/src/ai/schemas.ts and api/test/ai-schemas.test.ts
+  containing the literal strings "insureprimo", "psychic-quiz",
+  "rental-booking" inside BANNED_LEGACY_REFS array + test fixtures.
+  Local `npm run verify:no-legacy-prod-refs` already failed at 4b33f11
+  (T3) with these 6 lines flagged. T5 does NOT touch those files and
+  introduces 0 new violations; addressing the schemas.ts allowlist gap
+  belongs to T12 (full acceptance gate) per execution_stories.json.

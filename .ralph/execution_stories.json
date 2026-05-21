@@ -126,8 +126,8 @@
       "id": "T5",
       "title": "9 prompt modules each exporting PROMPT_VERSION + buildPrompt; generic vertical content; no TheIWise refs",
       "category": "api",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T5"
       ],
