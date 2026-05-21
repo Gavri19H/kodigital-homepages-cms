@@ -1,0 +1,73 @@
+{
+  "change_id": "cms-new-phase5-2026-05018",
+  "format": "legacy_flat",
+  "rendered_from": "manualqa_batch_result.json (canonical contract)",
+  "route": "deterministic_ci_artifact",
+  "overall_status": "PASS",
+  "mainGoal_status": "MET_BY_DETERMINISTIC_BACKING",
+  "mainGoal_evidence": "develop verdict PASS 59/59 RC + CI run 26189968357 PASS on merged main (6d9b918) + 429/429 tests + 3/3 verify scripts. All 22 PRD stories backed by deterministic_parser in evidence/evidence.jsonl.",
+  "regression_pages_checked": [],
+  "self_roast": [
+    {
+      "question": "If deterministic_ci_artifact's PASS rests on 429/429 tests + 3 verify scripts + 59/59 RC, could the contract be silently violated while tests still green?",
+      "answer": "Not for the authored AC surface. Every PRD AC is enumerated 1:1 in test_contract.json (grep_count or test_exit_code binding). Develop's truth machine already PASS-verified 59/59 RC on these bindings with deterministic_parser backing in evidence/evidence.jsonl. CI re-ran the same bindings on the merge HEAD (6d9b918). A silent disable would have lit up evidence_validate.py and refused the develop terminal. The legitimate residual risk is runtime/render correctness on the deployed tenant content domain — covered separately by the deferred production smoke obligation (production_deploy_status=PENDING_USER_WORKFLOW_DISPATCH).",
+      "finding": "Verdict is sound for the authored AC set. Runtime/render correctness on production tenant content domain is a DEFERRED check (operator-triggered deploy + post-deploy smoke), not a missed check.",
+      "severity": "INFO",
+      "action_taken": "Surfaced production deploy command in finish telemetry and reviewer_finding.json. No MQAFIX created; mainGoal has no runtime metric."
+    },
+    {
+      "question": "T16 says cms.kodigital.app GET / -> 404 no leak — is that verified at PRODUCTION, or only at unit-test level?",
+      "answer": "Verified at UNIT-TEST level only. T16 is implemented as test/public-admin-host-no-home.test.ts (vitest with Miniflare) — proves the worker code returns 404 for Host=cms.kodigital.app on the squash-merged HEAD before any deploy. PRODUCTION verification would require: (a) operator triggers gh workflow run deploy.yml + (b) curl -H 'Host: cms.kodigital.app' https://cms.kodigital.app/ — but the route is CF Access protected so anonymous curl will redirect to login, NOT return the worker's 404. The clean production smoke is: post-deploy, query a tenant content domain that IS configured to route through the worker, expect 200 + site-header in body.",
+      "finding": "T16 unit coverage is solid; production smoke requires CF Access auth OR a tenant domain.",
+      "severity": "INFO",
+      "action_taken": "Smoke obligation documented as P2 advisory in reviewer_finding.json + finish telemetry."
+    },
+    {
+      "question": "manualQA.md authored ZERO browser scenarios — does that mean the plan was bad, or that browser QA is genuinely not the right modality for this mission?",
+      "answer": "The latter. The mission's deliverable is server-side HTML rendering with a deterministic test contract (test_contract.json maps every AC to a grep / test_exit_code / test_name_regex). vitest tests render the templates with Miniflare + assert markup in-process, which is structurally stronger than browser smoke for THIS scope (server templates with no interactive client behavior beyond passive listeners). The plan correctly omitted browser scenarios; the test_contract bindings are the full evidence surface. If future stories add interactive UI (e.g., a custom newsletter widget that POSTs), browser scenarios become necessary.",
+      "finding": "Plan authoring is consistent with the scope; not a planning gap.",
+      "severity": "INFO",
+      "action_taken": "No corrective action needed. Route correctly set to deterministic_ci_artifact."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "MQA-1",
+      "scenario_id": "MQA-1",
+      "status": "PASS",
+      "classification": "READ_ONLY",
+      "why": "All 22 PRD stories verified by deterministic CI artifacts on merge commit 6d9b918: typecheck exits 0; 429/429 vitest tests pass; verify:no-legacy-prod-refs / verify:infra / verify:worker-config all exit 0. Develop verdict PASS 59/59 RC pre-merge. Server-rendered HTML mission with no interactive UI: browser QA gives zero marginal evidence beyond the deterministic test bindings already enumerated in test_contract.json.",
+      "action_performed": "Aggregate verification of CI artifacts for merge commit 6d9b918 against prd.json (22 stories) + verdict_output.json (59 RC).",
+      "expected_result": "All 22 stories pass CI (typecheck + vitest + 3 verify scripts) AND 59/59 required claims satisfied by deterministic backing in evidence/evidence.jsonl.",
+      "actual_result": "CI run 26189968357 on merged main: typecheck PASS, 429 tests PASS, 3 verify scripts PASS. Develop verdict_output.json: PASS, 59 required_claims_passed, 0 failed. Hash chain valid.",
+      "evidence_path": ".a2z/mission-state/cms-new-phase5-2026-05018/evidence/evidence.jsonl",
+      "payload_capture": "not_applicable",
+      "browser_required": false,
+      "visual_required": false,
+      "linked_ac_ids": [],
+      "linked_story_ids": [
+        "T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11",
+        "T12","T13","T14","T15","T16","T17","T18","T19","T20","T21","T22"
+      ],
+      "notes": "Production deploy is workflow_dispatch only per deploy.yml (operator-triggered). Production smoke deferred to post-deploy step. Verdict basis is deterministic CI artifact + develop verdict; not browser visual.",
+      "assumption_scan": {
+        "assumption_language_found": false,
+        "findings": []
+      }
+    }
+  ],
+  "blockers": [],
+  "blocker_count": 0,
+  "ci_evidence": {
+    "merge_commit_sha": "6d9b918cba91e9a4d692bb7e232760ab43093b43",
+    "ci_run_ids": ["26189910321", "26189968357"],
+    "ci_runs_passed": 2,
+    "tests_passed": 429,
+    "tests_failed": 0,
+    "verify_scripts_passed": 3,
+    "verify_scripts_failed": 0,
+    "typecheck_exit_code": 0
+  },
+  "production_deploy_status": "PENDING_USER_WORKFLOW_DISPATCH",
+  "production_deploy_command": "gh workflow run deploy.yml -f target_env=production"
+}

@@ -45,8 +45,8 @@ function buildEnv(db: D1Database): Env {
     ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false",
     HTML_CACHE_TTL_SECONDS: "60",
-    OPENAI_TEXT_MODEL: "gpt-test",
-    OPENAI_IMAGE_MODEL: "img-test",
+    OPENAI_TEXT_MODEL: "gpt-5.5",
+    OPENAI_IMAGE_MODEL: "gpt-image-2",
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
@@ -74,6 +74,13 @@ function makeFakeDb(initial: {
   const pages: PageRow[] = [];
   const settings: SettingRow[] = [];
   const purgeLog: PurgeLogRow[] = [];
+  // Merge-resolution: mission's AI generators read back inserted ai_generations
+  // rows via SELECT idempotency_key (see startGenerationLog in
+  // api/src/ai/generation-log.ts). The original mock returned null for those
+  // SELECTs, breaking the 15-step run when AI steps T9-T11 began calling
+  // generation-log. Track ai_generations writes here so the fallback-key
+  // path (no OPENAI_API_KEY -> 'fallback' status) can complete.
+  const aiGenerations = new Map<string, Record<string, unknown>>();
   const legalTemplates: Record<string, { title: string; content_html: string }> = {
     "privacy-policy": { title: "Privacy Policy for {{site_name}}", content_html: "<p>Privacy for {{site_name}} at {{domain}}.</p>" },
     terms: { title: "Terms for {{site_name}}", content_html: "<p>Terms for {{site_name}} at {{domain}}.</p>" },
@@ -97,6 +104,10 @@ function makeFakeDb(initial: {
           if (sql.indexOf("SELECT name, domain FROM sites WHERE id = ?") >= 0) {
             return ({ name: initial.site_name, domain: initial.domain } as unknown as T);
           }
+          // Merge-resolution: mission's loadSiteInfo selects id+name+domain+vertical_slug.
+          if (sql.indexOf("vertical_slug FROM sites WHERE id = ?") >= 0 && sql.indexOf("SELECT id") >= 0) {
+            return ({ id: initial.site_id, name: initial.site_name, domain: initial.domain, vertical_slug: "general" } as unknown as T);
+          }
           if (sql.indexOf("SELECT primary_domain AS hostname FROM sites") >= 0) {
             return ({ hostname: initial.domain } as unknown as T);
           }
@@ -116,6 +127,10 @@ function makeFakeDb(initial: {
             const [slug] = captured as [string];
             const tpl = legalTemplates[slug];
             return tpl ? ({ title: tpl.title, content_html: tpl.content_html, content_md: "" } as unknown as T) : null;
+          }
+          if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
+            const [idempotency_key] = captured as [string];
+            return (aiGenerations.get(idempotency_key) ?? null) as unknown as T | null;
           }
           return null;
         },
@@ -161,6 +176,19 @@ function makeFakeDb(initial: {
           } else if (sql.indexOf("INSERT INTO cache_purge_log") >= 0) {
             const [site_id, hostname, action, status, dry_run] = captured as [string, string, string, string, number];
             purgeLog.push({ site_id, hostname, action, status, dry_run });
+          } else if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
+            const [id, site_id, task, provider, model, prompt_version, idempotency_key, request_json, target_type, target_id] = captured as [string, string | null, string, string, string, string, string, string | null, string | null, string | null];
+            if (!aiGenerations.has(idempotency_key)) {
+              aiGenerations.set(idempotency_key, { id, site_id, task, provider, model, prompt_version, idempotency_key, request_json, response_json: null, parsed_json: null, status: "pending", target_type, target_id, error_message: null, created_at: 0, updated_at: 0 });
+            }
+          } else if (sql.indexOf("UPDATE ai_generations") >= 0) {
+            const idempotency_key = captured[captured.length - 1] as string;
+            const r = aiGenerations.get(idempotency_key);
+            if (r) {
+              if (sql.indexOf("status = 'success'") >= 0) (r as { status: string }).status = "success";
+              else if (sql.indexOf("status = 'failed'") >= 0) (r as { status: string }).status = "failed";
+              else if (sql.indexOf("status = 'fallback'") >= 0) (r as { status: string }).status = "fallback";
+            }
           }
           return { success: true, meta: {} };
         },

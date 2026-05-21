@@ -1,0 +1,203 @@
+import { describe, it, expect, vi } from "vitest";
+import type { Env } from "../src/env";
+import {
+  createOpenAIClient,
+  redactApiKey,
+  redactSecretsFromText,
+} from "../src/ai/openai-client";
+
+function makeEnv(overrides: Partial<Env> = {}): Env {
+  return {
+    DB: {} as D1Database,
+    CACHE: {} as KVNamespace,
+    MEDIA: {} as R2Bucket,
+    APP_ENV: "test",
+    ADMIN_HOST: "cms.kodigital.app",
+    ADMIN_BASE_URL: "https://cms.kodigital.app",
+    ADMIN_BASE_PATH: "/admin",
+    CACHE_API_ENABLED: "false",
+    HTML_CACHE_TTL_SECONDS: "60",
+    OPENAI_TEXT_MODEL: "gpt-5.5",
+    OPENAI_IMAGE_MODEL: "gpt-image-2",
+    SITE_PROVISIONING_DRY_RUN: "true",
+    SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
+    ...overrides,
+  };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("T2 OpenAI client", () => {
+  describe("createOpenAIClient + generateText", () => {
+    it("returns { skipped_no_api_key: true } when env.OPENAI_API_KEY is unset", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: undefined });
+      const client = createOpenAIClient(env);
+      expect(client.hasApiKey()).toBe(false);
+      const result = await client.generateText({ prompt: "hello" });
+      expect(result).toEqual({ skipped_no_api_key: true });
+    });
+
+    it("returns { skipped_no_api_key: true } when env.OPENAI_API_KEY is empty", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "   " });
+      const client = createOpenAIClient(env);
+      const result = await client.generateText({ prompt: "hello" });
+      expect(result).toEqual({ skipped_no_api_key: true });
+    });
+
+    it("retries once on 429 and then succeeds with retries=1", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ error: "rate" }, 429))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            choices: [{ message: { content: "ok" } }],
+          }),
+        );
+      const client = createOpenAIClient(env);
+      const result = await client.generateText({
+        prompt: "p",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected success result");
+      }
+      expect(result.text).toBe("ok");
+      expect(result.retries).toBe(1);
+      expect(result.model).toBe("gpt-5.5");
+    });
+
+    it("succeeds on first try with retries=0", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            choices: [{ message: { content: "first-try" } }],
+          }),
+        );
+      const client = createOpenAIClient(env);
+      const result = await client.generateText({
+        prompt: "p",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected success result");
+      }
+      expect(result.retries).toBe(0);
+      expect(result.text).toBe("first-try");
+    });
+
+    it("throws after final retry when status remains 429", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ error: "rate" }, 429));
+      const client = createOpenAIClient(env);
+      await expect(
+        client.generateText({
+          prompt: "p",
+          maxRetries: 1,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toThrow(/OpenAI text request failed: status=429/);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it("sends Bearer authorization header and JSON content-type", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+        jsonResponse({ choices: [{ message: { content: "hi" } }] }),
+      );
+      const client = createOpenAIClient(env);
+      await client.generateText({
+        prompt: "p",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      const call = fetchImpl.mock.calls[0];
+      if (!call) throw new Error("expected at least one fetch call");
+      const init = call[1] as RequestInit;
+      const headers = init.headers as Record<string, string>;
+      expect(headers["authorization"]).toBe("Bearer sk-test-real-key");
+      expect(headers["content-type"]).toBe("application/json");
+      expect(init.signal).toBeDefined();
+    });
+  });
+
+  describe("redaction", () => {
+    it("redactApiKey returns [REDACTED] for an sk- key", () => {
+      expect(redactApiKey("sk-abc123def456ghij")).toBe("[REDACTED]");
+    });
+
+    it("redactApiKey returns [REDACTED] for undefined", () => {
+      expect(redactApiKey(undefined)).toBe("[REDACTED]");
+    });
+
+    it("redactSecretsFromText replaces sk-abc123 with [REDACTED]", () => {
+      const input = "prompt context: sk-abc123def456 trailing text";
+      const output = redactSecretsFromText(input);
+      expect(output).not.toContain("sk-abc123");
+      expect(output).toContain("[REDACTED]");
+    });
+
+    it("redactSecretsFromText preserves text without secrets", () => {
+      const input = "no secret here";
+      expect(redactSecretsFromText(input)).toBe(input);
+    });
+
+    it("redactSecretsFromText scrubs error messages so logs never leak the key", () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-abc123def456ghij" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(
+            "auth failed for key sk-abc123def456ghij at upstream",
+            { status: 401 },
+          ),
+        );
+      const client = createOpenAIClient(env);
+      return expect(
+        client.generateText({
+          prompt: "p",
+          maxRetries: 0,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toThrow(/\[REDACTED\]/);
+    });
+  });
+
+  describe("generateImage", () => {
+    it("returns skipped_no_api_key when env has no key", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: undefined });
+      const client = createOpenAIClient(env);
+      const result = await client.generateImage({ prompt: "logo" });
+      expect(result).toEqual({ skipped_no_api_key: true });
+    });
+
+    it("decodes b64_json into an ArrayBuffer", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-real" });
+      // base64 for "hi"
+      const b64 = "aGk=";
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: b64 }] }));
+      const client = createOpenAIClient(env);
+      const result = await client.generateImage({
+        prompt: "logo",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected image bytes");
+      }
+      expect(result.bytes.byteLength).toBe(2);
+      expect(result.mime).toBe("image/png");
+      expect(result.model).toBe("gpt-image-2");
+    });
+  });
+});

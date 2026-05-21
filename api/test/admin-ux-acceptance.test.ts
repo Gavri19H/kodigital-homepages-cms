@@ -48,8 +48,8 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
     ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false",
     HTML_CACHE_TTL_SECONDS: "60",
-    OPENAI_TEXT_MODEL: "gpt-test",
-    OPENAI_IMAGE_MODEL: "img-test",
+    OPENAI_TEXT_MODEL: "gpt-5.5",
+    OPENAI_IMAGE_MODEL: "gpt-image-2",
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
@@ -91,6 +91,11 @@ function makeAboutPageDb(site: { id: string; name: string }): {
   inserts: InsertedPageRow[];
 } {
   const inserts: InsertedPageRow[] = [];
+  // T9: generate_about_page_stub now calls the T7 about-page generator,
+  // which writes/reads ai_generations. The fake just needs round-trip
+  // INSERT → SELECT-BY-IDEMPOTENCY-KEY parity so startGenerationLog
+  // resolves; the per-AC assertions still target the pages insert.
+  const aiGenerations = new Map<string, { id: string; status: string; parsed_json: string | null }>();
   const db = {
     prepare(sql: string) {
       let captured: unknown[] = [];
@@ -100,10 +105,27 @@ function makeAboutPageDb(site: { id: string; name: string }): {
           return stmt;
         },
         async first<T = unknown>(): Promise<T | null> {
+          if (
+            sql.indexOf("FROM sites WHERE id = ?") >= 0 &&
+            sql.indexOf("vertical_slug") >= 0
+          ) {
+            const [id] = captured as [string];
+            if (id !== site.id) return null;
+            return ({
+              id: site.id,
+              name: site.name,
+              domain: `${site.id}.test`,
+              vertical_slug: "general",
+            } as unknown) as T;
+          }
           if (sql.indexOf("FROM sites WHERE id = ?") >= 0) {
             const [id] = captured as [string];
             if (id !== site.id) return null;
             return ({ name: site.name, domain: `${site.id}.test` } as unknown) as T;
+          }
+          if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
+            const [key] = captured as [string];
+            return (aiGenerations.get(key) ?? null) as unknown as T | null;
           }
           return null;
         },
@@ -130,6 +152,35 @@ function makeAboutPageDb(site: { id: string; name: string }): {
                 show_in_footer: 1,
                 page_type: "about",
               });
+            }
+          } else if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
+            const [id, , , , , , key] = captured as [
+              string, string | null, string, string, string, string, string,
+            ];
+            if (!aiGenerations.has(key)) {
+              aiGenerations.set(key, { id, status: "pending", parsed_json: null });
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'fallback'") >= 0
+          ) {
+            const [parsed_json, , , , key] = captured as [
+              string, string | null, string | null, string | null, string,
+            ];
+            const row = aiGenerations.get(key);
+            if (row) {
+              row.status = "fallback";
+              row.parsed_json = parsed_json;
+            }
+          } else if (
+            sql.indexOf("UPDATE ai_generations SET status = 'success'") >= 0
+          ) {
+            const [, parsed_json, , , key] = captured as [
+              string, string, string | null, string | null, string,
+            ];
+            const row = aiGenerations.get(key);
+            if (row) {
+              row.status = "success";
+              row.parsed_json = parsed_json;
             }
           }
           return { success: true, meta: {} };

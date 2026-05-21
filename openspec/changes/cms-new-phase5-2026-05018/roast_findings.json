@@ -1,0 +1,60 @@
+{
+  "contract_version": "1.0.0",
+  "round": 1,
+  "timestamp": "2026-05-20T21:14:00Z",
+  "change_id": "cms-new-phase5-2026-05018",
+  "findings": [
+    {
+      "severity": "MINOR",
+      "roast_type": "deferred_check",
+      "description": "Production deploy is workflow_dispatch only per deploy.yml; /a2z-ship cannot trigger it (S11 RED LINE + F8 hook). Runtime/render correctness on the deployed tenant content domain is therefore a DEFERRED check, not a missed check. The deterministic_ci_artifact route's PASS rests on 429/429 vitest + 3/3 verify scripts + 59/59 develop RC on the squash-merged HEAD (6d9b918).",
+      "evidence": "ci_deploy_log.jsonl run 26189968357 conclusion=success; develop_handoff.json verdict=PASS 59/59 required_claims_passed; verdict_output.json + evidence.jsonl hash chain valid",
+      "linked_story_id": "T1-T22",
+      "status": "accepted_non_blocking",
+      "blocks_exit": false
+    },
+    {
+      "severity": "MINOR",
+      "roast_type": "production_smoke_modality",
+      "description": "T16 (cms.kodigital.app GET / -> 404 no leak) is verified at unit-test level (test/public-admin-host-no-home.test.ts with Miniflare). Production verification of T16 specifically would require Cloudflare Access auth or a tenant content domain configured to route through the worker — the admin host is Access-protected so anonymous curl redirects to login, not the worker. This is intrinsic to the worker's Access posture; not a planning gap.",
+      "evidence": "wrangler.toml [env.production.vars] ADMIN_HOST=cms.kodigital.app + CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD set; curl https://cms.kodigital.app/health observed HTTP 302 to Access login.",
+      "linked_story_id": "T16",
+      "status": "accepted_non_blocking",
+      "blocks_exit": false
+    },
+    {
+      "severity": "MINOR",
+      "roast_type": "no_browser_scenarios",
+      "description": "manualQA.md authored ZERO browser scenarios. For this mission's scope (server-side HTML rendering with a deterministic test contract where every PRD AC maps 1:1 to grep / test_exit_code / test_name_regex), browser QA gives zero marginal evidence over the in-process Miniflare-rendered template tests. The plan correctly omitted browser scenarios; the test_contract bindings are the full evidence surface. Future stories that add interactive UI will need browser scenarios.",
+      "evidence": "manualQA.md contains only the test_bindings table (no Scenario sections); classify_scenario_risk.py returned NO_SCENARIOS_FOUND; manualqa_route set to deterministic_ci_artifact.",
+      "linked_story_id": "T1-T22",
+      "status": "accepted_non_blocking",
+      "blocks_exit": false
+    }
+  ],
+  "per_story_ratings": [
+    {"id": "T1", "rating": "FIXED"},
+    {"id": "T2", "rating": "FIXED"},
+    {"id": "T3", "rating": "FIXED"},
+    {"id": "T4", "rating": "FIXED"},
+    {"id": "T5", "rating": "FIXED"},
+    {"id": "T6", "rating": "FIXED"},
+    {"id": "T7", "rating": "FIXED"},
+    {"id": "T8", "rating": "FIXED"},
+    {"id": "T9", "rating": "FIXED"},
+    {"id": "T10", "rating": "FIXED"},
+    {"id": "T11", "rating": "FIXED"},
+    {"id": "T12", "rating": "FIXED"},
+    {"id": "T13", "rating": "FIXED"},
+    {"id": "T14", "rating": "FIXED"},
+    {"id": "T15", "rating": "FIXED"},
+    {"id": "T16", "rating": "FIXED"},
+    {"id": "T17", "rating": "FIXED"},
+    {"id": "T18", "rating": "FIXED"},
+    {"id": "T19", "rating": "FIXED"},
+    {"id": "T20", "rating": "FIXED"},
+    {"id": "T21", "rating": "FIXED"},
+    {"id": "T22", "rating": "FIXED"}
+  ],
+  "convergence": true
+}
