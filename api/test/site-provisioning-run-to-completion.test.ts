@@ -38,8 +38,8 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
     ADMIN_BASE_PATH: "/admin",
     CACHE_API_ENABLED: "false",
     HTML_CACHE_TTL_SECONDS: "60",
-    OPENAI_TEXT_MODEL: "gpt-test",
-    OPENAI_IMAGE_MODEL: "img-test",
+    OPENAI_TEXT_MODEL: "gpt-5.5",
+    OPENAI_IMAGE_MODEL: "gpt-image-2",
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
     DEV_BYPASS_AUTH: "true",
@@ -59,6 +59,10 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
     total_steps: TOTAL_STEPS,
   };
   const stepsRows: StepRow[] = [];
+  // Merge-resolution: mission's AI generators read back ai_generations rows
+  // by idempotency_key (startGenerationLog -> getGenerationByIdempotencyKey).
+  // Track inserts/updates here so the 15-step run can clear AI steps T9-T11.
+  const aiGenerations = new Map<string, Record<string, unknown>>();
 
   const db = {
     prepare(sql: string) {
@@ -87,6 +91,10 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
               current_step_index: job.current_step_index,
               total_steps: job.total_steps,
             } as unknown) as T;
+          }
+          if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
+            const [idempotency_key] = captured as [string];
+            return (aiGenerations.get(idempotency_key) ?? null) as unknown as T | null;
           }
           return null;
         },
@@ -136,6 +144,19 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
             ];
             job.current_step_index = current_step_index;
             job.status = status;
+          } else if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
+            const [id, site_id, task, provider, model, prompt_version, idempotency_key, request_json, target_type, target_id] = captured as [string, string | null, string, string, string, string, string, string | null, string | null, string | null];
+            if (!aiGenerations.has(idempotency_key)) {
+              aiGenerations.set(idempotency_key, { id, site_id, task, provider, model, prompt_version, idempotency_key, request_json, response_json: null, parsed_json: null, status: "pending", target_type, target_id, error_message: null, created_at: 0, updated_at: 0 });
+            }
+          } else if (sql.indexOf("UPDATE ai_generations") >= 0) {
+            const idempotency_key = captured[captured.length - 1] as string;
+            const r = aiGenerations.get(idempotency_key);
+            if (r) {
+              if (sql.indexOf("status = 'success'") >= 0) (r as { status: string }).status = "success";
+              else if (sql.indexOf("status = 'failed'") >= 0) (r as { status: string }).status = "failed";
+              else if (sql.indexOf("status = 'fallback'") >= 0) (r as { status: string }).status = "fallback";
+            }
           }
           return { success: true, meta: {} };
         },
