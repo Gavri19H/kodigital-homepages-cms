@@ -351,8 +351,8 @@
       "id": "T12",
       "title": "Full acceptance suite passes (typecheck, npm test, verify:no-legacy-prod-refs, verify:infra, verify:worker-config)",
       "category": "script",
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],

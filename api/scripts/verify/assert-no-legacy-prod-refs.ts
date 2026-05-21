@@ -60,11 +60,17 @@ const GROUP_B_BANNED: readonly string[] = [
 // into the worktree by the architect; they enumerate the same legacy
 // identifiers as RED-LINE forbidden substitutes and therefore belong on
 // the same allowlist as prd.json / progress.txt / GUARDRAILS.md.
+// api/src/ai/schemas.ts owns the Phase 6 BANNED_LEGACY_REFS denylist used
+// by validateGeneratedArticle to REJECT AI-generated content referencing
+// these tokens (mirrors the Group B allowance for protected-domains.ts);
+// api/test/ai-schemas.test.ts is its rejection-path test.
 const GROUP_A_ALLOWED_FILES: readonly string[] = [
   "docs/source-architecture.md",
   "docs/no-touch-red-line.md",
   "docs/reference/current-theiwise-technical-spec.md",
   "api/scripts/verify/assert-no-legacy-prod-refs.ts",
+  "api/src/ai/schemas.ts",
+  "api/test/ai-schemas.test.ts",
   "prd.json",
   "progress.txt",
   "GUARDRAILS.md",
