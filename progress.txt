@@ -4662,3 +4662,14 @@ D13 canonical runner result — T1:
   (T3) with these 6 lines flagged. T5 does NOT touch those files and
   introduces 0 new violations; addressing the schemas.ts allowlist gap
   belongs to T12 (full acceptance gate) per execution_stories.json.
+
+  Evidence runner (per D12/D13): exit non-zero.
+    RC-032, RC-040: INVALID_EVIDENCE_PLAN_ENTRY (cwd=null in plan).
+    RC-033..RC-039: EVIDENCE_SOURCE_PATH_UNRESOLVED (Phase A authored
+      cwd_anchor=project_root for Ralph-created prompts/*.ts; per
+      Section L1 rule 7 of root-cwd-discipline.md the canonical
+      cwd_anchor for Ralph-modified target_files is worktree_root —
+      this is a Phase A producer defect, owned by
+      generate_plan_bundle._default_cwd_anchor / phase_b_unlock
+      matrix gate, not Ralph). Logging EVIDENCE_ROUTE_EXHAUSTED per
+      scripts/ralph/prompt.md D12 and moving on.
