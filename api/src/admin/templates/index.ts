@@ -8,4 +8,14 @@ export { tagsListPage } from "./tags";
 export { mediaListPage } from "./media";
 export { settingsPage } from "./settings";
 export { presetsListPage } from "./presets";
+export {
+  aiGenerationsListPage,
+  type AiGenerationListEntry,
+  type AiGenerationsPaging,
+} from "./ai-generations-list";
+export {
+  aiGenerationDetailPage,
+  aiGenerationNotFoundPage,
+  type AiGenerationDetailEntry,
+} from "./ai-generation-detail";
 export { editorScripts } from "../../editor/editor-scripts";

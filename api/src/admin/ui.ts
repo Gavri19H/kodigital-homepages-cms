@@ -25,8 +25,14 @@ import {
   mediaListPage,
   settingsPage,
   presetsListPage,
+  aiGenerationsListPage,
+  aiGenerationDetailPage,
+  aiGenerationNotFoundPage,
+  type AiGenerationListEntry,
+  type AiGenerationDetailEntry,
 } from './templates';
 import * as data from './data';
+import type { AiGenerationRow } from '../ai/generation-log';
 
 type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
 type AdminContext = Context<AdminEnv>;
@@ -178,6 +184,88 @@ adminUi.get('/admin/media', async (c) => {
 adminUi.get('/admin/presets', async (c) => {
   const presets = await data.listAdminPresets(c.env);
   return c.html(presetsListPage(presets, branding(c)));
+});
+
+// T10 — AI Generations list shell. The HTML page is a thin wrapper
+// around the JSON list endpoint at GET /api/admin/ai-generations; the
+// initial render reads up to `page_size` rows directly from D1 so
+// deep-linked visits do not require a follow-up XHR. Pagination uses
+// `page` + `page_size` query params; client-side JS is intentionally
+// minimal — the link-only pagination shell is server-rendered.
+adminUi.get('/admin/ai-generations', async (c) => {
+  const url = new URL(c.req.url);
+  const pageRaw = parseInt(url.searchParams.get('page') ?? '1', 10);
+  const sizeRaw = parseInt(url.searchParams.get('page_size') ?? '25', 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  const pageSize = Number.isFinite(sizeRaw) && sizeRaw > 0 && sizeRaw <= 100 ? sizeRaw : 25;
+  const offset = (page - 1) * pageSize;
+  const list = await c.env.DB.prepare(
+    'SELECT id, task, model, prompt_version, status, target_type, created_at, error_message FROM ai_generations ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
+  )
+    .bind(pageSize, offset)
+    .all<AiGenerationListEntry>();
+  const totalRow = await c.env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM ai_generations',
+  ).first<{ n: number }>();
+  const total = totalRow ? Number(totalRow.n) : 0;
+  return c.html(
+    aiGenerationsListPage(
+      list.results ?? [],
+      {
+        page,
+        page_size: pageSize,
+        total,
+        prev_url: page > 1 ? `/admin/ai-generations?page=${page - 1}&page_size=${pageSize}` : null,
+        next_url:
+          offset + pageSize < total
+            ? `/admin/ai-generations?page=${page + 1}&page_size=${pageSize}`
+            : null,
+      },
+      { userEmail: getUserEmail(c) },
+    ),
+  );
+});
+
+// T10 — AI Generation detail shell. /admin/ai-generations/:id renders
+// the full row from ai_generations (provider, model, prompt_version,
+// target_type/id, idempotency_key, the three JSON payloads, error).
+// The :id segment matches the typed `ai_generations.id` column and is
+// surfaced in the template as `data-ai-generation-id` so other admin
+// tabs can deep-link via the canonical column name.
+adminUi.get('/admin/ai-generations/:id', async (c) => {
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare(
+    'SELECT id, site_id, task, provider, model, prompt_version, idempotency_key, status, target_type, target_id, request_json, response_json, parsed_json, error_message, created_at, updated_at FROM ai_generations WHERE id = ? LIMIT 1',
+  )
+    .bind(id)
+    .first<AiGenerationRow>();
+  if (!row) {
+    return c.html(
+      aiGenerationNotFoundPage(id, { userEmail: getUserEmail(c) }),
+      404,
+    );
+  }
+  const detail: AiGenerationDetailEntry = {
+    id: row.id,
+    site_id: row.site_id,
+    task: row.task,
+    provider: row.provider,
+    model: row.model,
+    prompt_version: row.prompt_version,
+    idempotency_key: row.idempotency_key,
+    status: row.status,
+    target_type: row.target_type,
+    target_id: row.target_id,
+    request_json: row.request_json,
+    response_json: row.response_json,
+    parsed_json: row.parsed_json,
+    error_message: row.error_message,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+  return c.html(
+    aiGenerationDetailPage(detail, { userEmail: getUserEmail(c) }),
+  );
 });
 
 // 13/13 — Settings (per-site editor, 12 canonical keys). The `site_id`

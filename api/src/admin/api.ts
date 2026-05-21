@@ -495,6 +495,96 @@ api.get("/api/admin/presets", async (c) => {
   return c.json({ presets: result.results ?? [] });
 });
 
+// T10: AI generations JSON API.
+//
+// GET /api/admin/ai-generations — paged list of ai_generations rows
+// ordered by created_at DESC. Response shape:
+//   {
+//     ai_generations: AiGenerationListRow[],
+//     paging: { page, page_size, total, has_next, has_prev }
+//   }
+// where each row exposes task, model, prompt_version, status,
+// target_type, created_at, error_message — the columns required by
+// the T10 BEHAVIORAL contract.
+//
+// GET /api/admin/ai-generations/:id — full detail (incl.
+// request_json / response_json / parsed_json + idempotency_key) for
+// /admin/ai-generations/:id and provisioning job "AI step output"
+// deep links.
+//
+// Both endpoints are mounted under the /api/admin gate so:
+//   - off-ADMIN_HOST requests hit the index.ts 404 wall (T28).
+//   - on-ADMIN_HOST requests without a CF Access JWT hit accessAuth
+//     and return 401/403 (per access-auth.ts; DEV_BYPASS_AUTH only
+//     honored when APP_ENV != 'production').
+
+interface AiGenerationListRow {
+  id: string;
+  task: string;
+  model: string;
+  prompt_version: string;
+  status: string;
+  target_type: string | null;
+  created_at: number | null;
+  error_message: string | null;
+}
+
+interface AiGenerationDetailRow extends AiGenerationListRow {
+  site_id: string | null;
+  provider: string;
+  idempotency_key: string;
+  target_id: string | null;
+  request_json: string | null;
+  response_json: string | null;
+  parsed_json: string | null;
+  updated_at: number | null;
+}
+
+api.get("/api/admin/ai-generations", async (c) => {
+  const url = new URL(c.req.url);
+  const pageRaw = parseInt(url.searchParams.get("page") ?? "1", 10);
+  const sizeRaw = parseInt(url.searchParams.get("page_size") ?? "25", 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  const pageSize =
+    Number.isFinite(sizeRaw) && sizeRaw > 0 && sizeRaw <= 100 ? sizeRaw : 25;
+  const offset = (page - 1) * pageSize;
+
+  const result = await c.env.DB.prepare(
+    "SELECT id, task, model, prompt_version, status, target_type, created_at, error_message FROM ai_generations ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+  )
+    .bind(pageSize, offset)
+    .all<AiGenerationListRow>();
+  const totalRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM ai_generations",
+  ).first<{ n: number }>();
+  const total = totalRow ? Number(totalRow.n) : 0;
+
+  return c.json({
+    ai_generations: result.results ?? [],
+    paging: {
+      page,
+      page_size: pageSize,
+      total,
+      has_next: offset + pageSize < total,
+      has_prev: page > 1,
+    },
+  });
+});
+
+api.get("/api/admin/ai-generations/:id", async (c) => {
+  const id = c.req.param("id");
+  if (typeof id !== "string" || id.length === 0) {
+    return c.json({ error: "Invalid id" }, 400);
+  }
+  const row = await c.env.DB.prepare(
+    "SELECT id, site_id, task, provider, model, prompt_version, idempotency_key, status, target_type, target_id, request_json, response_json, parsed_json, error_message, created_at, updated_at FROM ai_generations WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<AiGenerationDetailRow>();
+  if (!row) return c.json({ error: "Not Found" }, 404);
+  return c.json({ ai_generation: row });
+});
+
 // T13: admin sites sub-router. Routes are registered on `adminApi` with
 // the literal `/sites` prefix so the T13.AC1 grep
 // (`admin(Api)?\.(get|post|patch)\("/sites`) counts exactly 4 hits in this
