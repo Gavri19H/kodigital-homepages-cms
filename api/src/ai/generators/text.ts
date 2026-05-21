@@ -72,6 +72,11 @@ import {
   fallbackStarterArticlePlan,
   type FallbackContextBase,
 } from "./fallback";
+import {
+  TenantBoundaryViolation,
+  assertTenantBoundary,
+  requireSiteIdForArticleInput,
+} from "../../site/tenant-guards";
 
 // T7: Text generators (tagline / description / about / plan / article /
 // SEO / alt-text).
@@ -304,6 +309,16 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
     const validationError = validate ? validate(parsed) : null;
     if (validationError) throw new Error(validationError);
   } catch (err) {
+    // T11: tenant-boundary violations are SECURITY signals, not "model
+    // returned bad JSON" — they must propagate out instead of being
+    // silently rewritten into a fallback row.
+    if (err instanceof TenantBoundaryViolation) {
+      await finishGenerationLogFailure(env, {
+        idempotency_key,
+        error_message: err.message,
+      });
+      throw err;
+    }
     const meta = buildFallbackMeta(
       task,
       model,
@@ -526,6 +541,9 @@ export async function generateStarterArticle(
   env: Env,
   input: GenerateStarterArticleInput,
 ): Promise<GenerationResult<GeneratedArticle>> {
+  // T11: every article-bearing input requires site_id. Tenant-bound
+  // generation refuses implicit site selection — no global articles.
+  const actorSiteId = requireSiteIdForArticleInput({ site_id: input.site_id });
   // OPENAI_API_KEY-aware. idempotency_key is namespaced by (site_id, slug)
   // so generateStarterArticle('fallback-article-1', ...) called twice
   // returns the same ai_generation_id.
@@ -550,6 +568,14 @@ export async function generateStarterArticle(
       // marked 'fallback', not silently patched into a "success" with mostly
       // synthetic content.
       const parsed = JSON.parse(raw) as Partial<GeneratedArticle>;
+      // T11: when the model echoes back a site_id, it MUST equal the
+      // caller's site_id. A mismatch is a tenant-boundary violation and
+      // propagates as TenantBoundaryViolation (NOT silently rewritten
+      // to fallback). This is the AI-side analogue of the admin/api.ts
+      // tenant guards used on /api/admin/articles writes.
+      if (typeof parsed.site_id === "string" && parsed.site_id.length > 0) {
+        assertTenantBoundary(actorSiteId, parsed.site_id);
+      }
       const body = fallbackArticleBody(
         input,
         input.slug,
@@ -558,7 +584,7 @@ export async function generateStarterArticle(
       );
       return {
         meta,
-        site_id: parsed.site_id ?? input.site_id,
+        site_id: actorSiteId,
         slug: parsed.slug ?? input.slug,
         title: parsed.title ?? input.title,
         intro: parsed.intro ?? body.intro,

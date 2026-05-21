@@ -5100,3 +5100,53 @@ D13 canonical runner result — T1:
   did not because the rewrite still points at project_root files that haven't
   been merged yet. RC-080 errored: INVALID_EVIDENCE_PLAN_ENTRY (cwd=None). Both
   are skill-owned blockers — not repaired by Ralph per L1.
+
+## 2026-05-21 08:42 - T11
+- Implemented AI tenant safety: site_id required by article generators, AI
+  endpoints admin-host + CF Access gated, no public AI surface.
+- api/src/ai/generators/text.ts: imported `assertTenantBoundary` +
+  `requireSiteIdForArticleInput` + `TenantBoundaryViolation` from
+  `../../site/tenant-guards`. `generateStarterArticle` now (a) calls
+  `requireSiteIdForArticleInput({site_id: input.site_id})` BEFORE entering
+  runTextGenerator (refuses implicit site selection — no global articles),
+  and (b) inside parseModelOutput calls
+  `assertTenantBoundary(actorSiteId, parsed.site_id)` when the model echoes
+  back a site_id, so a model that returns site-b for a site-a caller throws
+  instead of being silently rewritten to fallback.
+- runTextGenerator's parseModelOutput catch block now re-throws
+  `TenantBoundaryViolation` (after writing a `failed` row) so the security
+  signal is not buried in a fallback path — JSON.parse / validation errors
+  still route to fallback as before.
+- Admin host gate + CF Access JWT gate were already enforced globally by
+  api/src/index.ts (off-ADMIN_HOST /api/admin/* → 404) and api/src/admin/router.ts
+  (`admin.use("/api/admin/*", gate)`). ai-api.ts inherits both — no new
+  endpoint-level guard needed.
+- No public AI route exists: `grep -rln "/api/public.*ai|publicAi|public.*generateText" api/src/`
+  returns 0 matches (AC4).
+- New test: api/test/ai-tenant-safety.test.ts — 7 tests, all pass.
+  Covers: cross-tenant site_id throws TenantBoundaryViolation; missing
+  site_id throws; same-tenant succeeds; off-host POST /api/admin/ai/generate-text
+  → 404; on-host no-JWT POST /api/admin/ai/generate-text → 401/403;
+  off-host POST /api/admin/ai/generate-image → 404; no /api/public/ai/* route.
+- source_story_ids: [T11]
+- test commands:
+  - cd api && npx vitest run test/ai-tenant-safety.test.ts
+  - cd api && npx vitest run test/ai-generators-text.test.ts test/ai-generators-image.test.ts test/site-provisioning-ai-integration.test.ts
+  - cd api && npx tsc --noEmit
+- self-checks:
+  - File sizes: text.ts 764 (was 739, +25 for tenant guard import + checks)
+    — over default JS 200-line guideline but consistent with T7's pre-existing
+    structure; image.ts unchanged; ai-tenant-safety.test.ts 299 (test limit OK).
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password in changed
+    files; "sk-test" + "sk-abc123" are deliberate REDACT fixtures).
+  - Error handling: PASS (TenantBoundaryViolation re-thrown; failed-row written
+    via finishGenerationLogFailure before propagation).
+  - Parameterized queries: PASS (all .bind() — no template-literal SQL added).
+  - Migration execution: N/A (api category; no new migration).
+- AC verification (syntactic):
+  - AC1 site_id|siteId in text.ts >= 7: 32 PASS
+  - AC2 site_id|siteId in image.ts >= 4: 25 PASS
+  - AC3 /api/admin/ai in ai-api.ts >= 2: 2 PASS
+  - AC4 public AI routes == 0: 0 PASS
+  - AC5 assertTenantBoundary|requireSiteIdForArticleInput in text.ts >= 1: 4 PASS
+  - AC6 site_id in image.ts >= 2: 25 PASS
