@@ -5213,3 +5213,15 @@ D13 canonical runner result — T1:
   lines in api/src/ai/schemas.ts (lines 3, 95, 97, 98) and
   api/test/ai-schemas.test.ts (lines 120, 123) by routing them through
   the same Group A allowance pattern as docs/prd.json/GUARDRAILS.md.
+
+## 2026-05-21 08:53 - T12 evidence runner
+- Evidence runner (per D12/D13): RC-088..RC-093 routed via
+  run_required_evidence_command.py returned INVALID_EVIDENCE_PLAN_ENTRY
+  for all six RCs (route='parser_observation', cwd=None) — same Phase A
+  authoring shape as T4..T11. Per Section L1 rule 7
+  (root-cwd-discipline.md) the canonical cwd_anchor for Ralph-modified
+  target_files is worktree_root, owned by
+  generate_plan_bundle._default_cwd_anchor, not Ralph. Following the
+  T4..T11 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
+  scripts/ralph/prompt.md D12 and stopping. Implementation correctness
+  verified directly above: all 6 syntactic+functional ACs of T12 pass.
