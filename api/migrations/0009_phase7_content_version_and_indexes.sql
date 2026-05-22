@@ -1,0 +1,98 @@
+-- 0009_phase7_content_version_and_indexes.sql
+-- Phase 7 SEO + cache: add sites.content_version (monotonic per-tenant
+-- content generation counter) and the read-path indexes the public
+-- router needs for homepage / category / sitemap / feed queries.
+--
+-- Why content_version is its own column (not derived from updated_at):
+--   * Cache keys are formed as
+--       html:{site_id}:{path}:{content_version}:{TEMPLATE_VERSION}
+--     and we need a monotonic integer that can be embedded in a key
+--     without normalisation. Article publish, page publish, category
+--     mutation, and any other tenant content write bumps this column
+--     by exactly +1, which orphans every stale cache key suffixed with
+--     the prior version. updated_at is a wall-clock, can move
+--     non-monotonically on row replace, and would force the router to
+--     read sites.updated_at on every request just to build a key.
+--   * Phase 3 already established settings_version as the per-tenant
+--     monotonic counter for /robots.txt + /ads.txt + settings reads
+--     (0002_phase3_multi_site_schema.sql line 36). content_version is
+--     the symmetric counter for content (article / page / category)
+--     reads. Two counters means a settings change does NOT invalidate
+--     homepage HTML and an article publish does NOT invalidate
+--     /robots.txt — each surface has the minimum blast radius.
+--   * INTEGER NOT NULL DEFAULT 1 (not 0) so the very first SELECT after
+--     migration produces a non-zero cache key suffix (zero suffixes
+--     are easy to accidentally match against an uninitialised JS
+--     `number || …` fallback elsewhere — Phase 3 / 5 LEARNINGS C-006
+--     "Use ?? not || for numeric defaults" — picking DEFAULT 1 sidesteps
+--     the class of bugs entirely).
+--
+-- Why these specific indexes (and not the ones added in 0002):
+--   * 0002 added idx_articles_site_status_pub on (site_id, status,
+--     published_at) — ASCENDING on published_at. The Phase-7 homepage
+--     reader and the per-category listing both ORDER BY published_at
+--     DESC, so the ASC index forces SQLite to read the whole partition
+--     and sort. The DESC indexes below let the read path scan the
+--     index forward and stop at LIMIT N (homepage typically 12 / 24).
+--     IF NOT EXISTS leaves the legacy ASC index in place — drop is
+--     deferred to a later phase once the read path is fully on the
+--     DESC variants, because dropping an index inside a 0009 migration
+--     would block rollback on a partial deploy.
+--   * idx_articles_site_status_pub_desc + idx_articles_site_category_
+--     status_pub_desc cover the "list published per site by date" and
+--     "list published per site by date within category" read paths
+--     (Phase-7 proposal §"Read-path indexes" + Part 8 cost-driver
+--     "homepage queries"). The category index leads (site_id, status,
+--     category_id, published_at DESC) — status second so the partition
+--     immediately narrows to status='published', category_id third so
+--     the partial-prefix scan still covers the no-category case
+--     (homepage list).
+--   * idx_articles_site_featured_rank + idx_articles_site_trending_rank
+--     replace the 0002 idx_articles_site_featured / _site_trending
+--     indexes (which were keyed on a single boolean column). The
+--     homepage_rank suffix lets the router scan the index forward and
+--     pick the top-N ranked featured/trending articles without a
+--     follow-up ORDER BY pass.
+--   * idx_media_site_created supports the admin Media tab list query
+--     (most-recently-uploaded first per site) AND the public router's
+--     hero-image / OG-image lookup. Created_at DESC because the
+--     read paths always want "newest first" — no Phase-7 reader pages
+--     forwards through media in upload order.
+--   * idx_article_tags_article supports the per-article tag fan-out
+--     used by the Article schema (T9) JSON-LD emitter — without it
+--     the JSON-LD code does a full-scan join, which makes hot articles
+--     read O(article_tags.size) per request.
+--
+-- D1 / SQLite mechanics:
+--   * ALTER TABLE ... ADD COLUMN with a non-NULL constraint requires
+--     a non-NULL DEFAULT (SQLite restriction). DEFAULT 1 satisfies it.
+--   * CREATE INDEX IF NOT EXISTS is idempotent across re-runs and
+--     across the per-env apply-on-deploy step (deploy.yml runs
+--     `npx wrangler d1 migrations apply` on every push to main).
+--   * No PRAGMA toggles. No table recreation. No data migration of
+--     existing rows: every existing sites row gets content_version=1
+--     by the DEFAULT, which becomes the initial cache-key suffix.
+--   * Apply order is deterministic via the integer-prefixed filename
+--     (0008 -> 0009); D1's migrations driver reads them in lexicographic
+--     order.
+
+-- ------------------------------------------------------------------
+-- Phase 7 content-version counter — bumped by article / page /
+-- category mutation workflows (T14, T16) so every cache key suffixed
+-- with the prior content_version is orphaned without an explicit
+-- delete.
+-- ------------------------------------------------------------------
+ALTER TABLE sites ADD COLUMN content_version INTEGER NOT NULL DEFAULT 1;
+
+-- ------------------------------------------------------------------
+-- Phase 7 read-path indexes (homepage + category list + featured /
+-- trending rails + media + article-tags fan-out). All keyed on
+-- site_id first per the multi-tenant index discipline established
+-- in 0002.
+-- ------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_articles_site_status_pub_desc ON articles(site_id, status, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_site_category_status_pub_desc ON articles(site_id, status, category_id, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_site_featured_rank ON articles(site_id, is_featured, homepage_rank);
+CREATE INDEX IF NOT EXISTS idx_articles_site_trending_rank ON articles(site_id, is_trending, homepage_rank);
+CREATE INDEX IF NOT EXISTS idx_media_site_created ON media(site_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_article_tags_article ON article_tags(article_id, tag_id);

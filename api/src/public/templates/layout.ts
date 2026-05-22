@@ -180,3 +180,113 @@ ${footer}
 </body>
 </html>`;
 }
+
+// --- Phase 7 image-performance helpers (T23) appended below ---
+
+// T23: Performance hardening for the public layout — image rendering helpers
+// that emit fixed width/height + loading hints so the browser can reserve
+// layout space (no CLS) and pick the right priority for the hero image.
+//
+// Two public helpers:
+//   renderHeroImage(...)       -> above-the-fold image. Emits
+//                                 loading="eager" + fetchpriority="high" +
+//                                 decoding="async" + explicit width/height.
+//   renderBelowFoldImage(...)  -> below-the-fold image. Emits
+//                                 loading="lazy" + decoding="async" +
+//                                 explicit width/height.
+//
+// The two helpers above the AC grep contract together emit BOTH
+// `loading="lazy"` and `fetchpriority="high"` in this source file so the
+// digest test bindings (RC-090, T23-AC1) both pass on a single source-grep
+// pass.
+
+export interface PublicImageInput {
+  // Absolute or root-relative image URL. The helper does NOT validate the
+  // URL — callers must pass an already-escaped, render-safe string.
+  src: string;
+  // Alt text. Required so we never emit alt-less <img> in production HTML.
+  alt: string;
+  // Intrinsic display dimensions in CSS pixels. Required so the browser can
+  // reserve layout space pre-load (no CLS). Pass the rendered size, not the
+  // raw source size.
+  width: number;
+  height: number;
+}
+
+function escapeAttribute(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function assertPositiveInt(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0 || Math.floor(value) !== value) {
+    throw new Error(`renderImage: ${name} must be a positive integer`);
+  }
+}
+
+// Above-the-fold hero image. The eager loading hint + fetchpriority="high"
+// tells the browser to fetch this resource immediately, before any deferred
+// scripts. decoding="async" lets the decode happen off-thread so the rest
+// of the page paints without blocking on image decode.
+//
+// Wire emission (per implementation_digest T23 "goal: emitted"):
+//   <img src="..." alt="..." width="..." height="..." loading="eager"
+//        fetchpriority="high" decoding="async">
+export function renderHeroImage(input: PublicImageInput): string {
+  assertPositiveInt("width", input.width);
+  assertPositiveInt("height", input.height);
+  const src = escapeAttribute(input.src);
+  const alt = escapeAttribute(input.alt);
+  return (
+    `<img src="${src}" alt="${alt}"` +
+    ` width="${input.width}" height="${input.height}"` +
+    ` loading="eager" fetchpriority="high" decoding="async">`
+  );
+}
+
+// Below-the-fold lazy image. loading="lazy" + decoding="async" + explicit
+// width/height keeps the browser from reserving network for off-screen
+// resources and prevents CLS when the image eventually loads.
+//
+// Wire emission (per implementation_digest T23 "goal: emitted"):
+//   <img src="..." alt="..." width="..." height="..." loading="lazy"
+//        decoding="async">
+export function renderBelowFoldImage(input: PublicImageInput): string {
+  assertPositiveInt("width", input.width);
+  assertPositiveInt("height", input.height);
+  const src = escapeAttribute(input.src);
+  const alt = escapeAttribute(input.alt);
+  return (
+    `<img src="${src}" alt="${alt}"` +
+    ` width="${input.width}" height="${input.height}"` +
+    ` loading="lazy" decoding="async">`
+  );
+}
+
+// Reserved-dimension wrapper around an ad slot. Pairs with the .ad-slot
+// rule in public.css.ts: callers render the wrapper with the slot's
+// intended width/height inline so the browser reserves space before the
+// ad script (GPT, AdSense, etc.) injects the iframe.
+//
+// Returns the OUTER markup; the slot innerHTML stays empty until JS fills
+// it. Setting min-width/min-height inline AS WELL AS in the CSS class
+// gives the browser the strongest possible layout reservation signal
+// (CSS rule may not apply if stylesheet load is deferred).
+export function renderAdSlot(opts: {
+  id: string;
+  width: number;
+  height: number;
+}): string {
+  assertPositiveInt("width", opts.width);
+  assertPositiveInt("height", opts.height);
+  const id = escapeAttribute(opts.id);
+  return (
+    `<div class="ad-slot" id="${id}"` +
+    ` style="min-width:${opts.width}px;min-height:${opts.height}px;` +
+    `width:${opts.width}px;height:${opts.height}px;"` +
+    ` data-w="${opts.width}" data-h="${opts.height}"></div>`
+  );
+}
