@@ -8,8 +8,13 @@
 // publish() (T6.AC2) is the canonical "draft -> published" path. It
 // snapshots the pre-publish content into article_versions, renders the
 // stored content_json to HTML via the editor module, flips the article
-// row to status='published' with a fresh published_at, and finally
-// invalidates the feed cache so RSS/Atom/sitemap reflect the new article.
+// row to status='published' with a fresh published_at, bumps the owning
+// site's content_version monotonically (Phase 7 / T14.AC1 — keying the
+// public cache namespace), and invalidates the per-site public-content
+// cache surface (html/article/category/sitemap/feed) via
+// invalidatePublishCaches (T14.AC2). The legacy invalidateFeeds() call is
+// preserved for the pre-multi-tenant code path (article rows without
+// site_id) so Phase 1/2 callers still see RSS/Atom invalidation.
 //
 // Hard rule (mirrors db/index.ts): every D1 call uses
 // `db.prepare(<static SQL>).bind(...)` — NO template-literal SQL.
@@ -81,8 +86,34 @@ export async function publish(
     .bind(contentHtml, now, now, articleId)
     .run();
 
-  // (d) Invalidate feed cache so RSS/Atom/sitemap reflect the new article.
-  await invalidateFeeds(env);
+  // (d) Phase-7 T14.AC1: monotonically bump the owning site's
+  //     content_version so public cache keys (which suffix
+  //     content_version) orphan the prior cached HTML/article/category/
+  //     sitemap/feed entries. The site_id is the tenant scope — every
+  //     prepared statement is parameterized so a missing site_id cannot
+  //     turn into a cross-tenant bump.
+  const siteId = article.site_id ?? null;
+  if (siteId) {
+    await env.DB
+      .prepare(
+        "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
+      )
+      .bind(siteId)
+      .run();
+
+    // T14.AC2: wipe the per-site public-content cache surface in the same
+    // pass (explicit deletes are a courtesy — the version suffix already
+    // orphans the entries — but the explicit pass keeps KV list-output
+    // tight for operators and removes the stale entries from the LRU).
+    await invalidatePublishCaches(env, siteId);
+  } else {
+    // (e) Legacy compatibility: pre-multi-tenant article rows have no
+    //     site_id. Preserve the original Phase-1 feed-wipe (broad
+    //     "feed:*" prefix) so RSS/Atom/sitemap still refresh after
+    //     publish on those rows. Once article.site_id is populated in
+    //     production the invalidatePublishCaches() path takes over.
+    await invalidateFeeds(env);
+  }
 
   return {
     ...article,
@@ -92,6 +123,42 @@ export async function publish(
     scheduled_at: null,
     updated_at: now,
   };
+}
+
+// T14.AC2: per-site cache wipe. Lists every key under the public-content
+// namespaces (html, article, category, page, homepage-data, sitemap,
+// feed:rss, feed:atom) scoped to the site_id and deletes them in pages.
+// Versions are key SUFFIXES (see src/cache/cache-keys.ts) so the bumped
+// content_version already prevents reads of stale entries; this explicit
+// wipe just removes the orphans so KV list calls stay cheap.
+const PUBLISH_CACHE_PREFIXES = [
+  "html:",
+  "article:",
+  "category:",
+  "page:",
+  "homepage-data:",
+  "sitemap:",
+  "feed:rss:",
+  "feed:atom:",
+] as const;
+
+export async function invalidatePublishCaches(
+  env: Env,
+  siteId: string,
+): Promise<void> {
+  for (const ns of PUBLISH_CACHE_PREFIXES) {
+    const prefix = `${ns}${siteId}:`;
+    let cursor: string | undefined;
+    while (true) {
+      const result: KVNamespaceListResult<unknown, string> =
+        await env.CACHE.list({ prefix, cursor });
+      for (const entry of result.keys) {
+        await env.CACHE.delete(entry.name);
+      }
+      if (result.list_complete) break;
+      cursor = result.cursor;
+    }
+  }
 }
 
 async function snapshotVersion(

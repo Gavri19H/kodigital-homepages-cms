@@ -19,6 +19,8 @@ export const PROTECTED_DOMAINS: readonly string[] = [
   "www.theiwise.com",
   "staging.theiwise.com",
   "app.theiwise.com",
+  "admin.theiwise.com",
+  "api.theiwise.com",
 ];
 
 /**

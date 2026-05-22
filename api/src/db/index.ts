@@ -28,6 +28,7 @@ export interface ArticleRow {
   is_trending: number;
   created_at: number;
   updated_at: number;
+  site_id?: string | null;
 }
 
 export interface MediaRow {

@@ -15,11 +15,21 @@ const BARE = SUFFIX;
 const WWW = "www." + SUFFIX;
 const STAGING = "staging." + SUFFIX;
 const APP = "app." + SUFFIX;
+const ADMIN = "admin." + SUFFIX;
+const API = "api." + SUFFIX;
 
-describe("protected-domains (T9)", () => {
-  it("PROTECTED_DOMAINS lists exactly the 4 TheIWise hostnames", () => {
-    expect(PROTECTED_DOMAINS).toEqual([BARE, WWW, STAGING, APP]);
-    expect(PROTECTED_DOMAINS.length).toBe(4);
+describe("protected-domains (T9 + T18)", () => {
+  it("PROTECTED_DOMAINS lists exactly the 6 TheIWise hostnames (T18 widens to admin + api)", () => {
+    expect(PROTECTED_DOMAINS).toEqual([BARE, WWW, STAGING, APP, ADMIN, API]);
+    expect(PROTECTED_DOMAINS.length).toBe(6);
+  });
+
+  it("PROTECTED_DOMAINS includes admin.theiwise.com (T18-AC1)", () => {
+    expect(PROTECTED_DOMAINS).toContain(ADMIN);
+  });
+
+  it("PROTECTED_DOMAINS includes api.theiwise.com (T18-AC2)", () => {
+    expect(PROTECTED_DOMAINS).toContain(API);
   });
 
   it("normalizeHostname strips scheme + path + query + fragment", () => {
@@ -47,11 +57,19 @@ describe("protected-domains (T9)", () => {
     expect(normalizeHostname("   ")).toBe("");
   });
 
-  it("isProtectedDomain returns true for all 4 protected hostnames", () => {
+  it("isProtectedDomain returns true for all 6 protected hostnames", () => {
     expect(isProtectedDomain(BARE)).toBe(true);
     expect(isProtectedDomain(WWW)).toBe(true);
     expect(isProtectedDomain(STAGING)).toBe(true);
     expect(isProtectedDomain(APP)).toBe(true);
+    expect(isProtectedDomain(ADMIN)).toBe(true);
+    expect(isProtectedDomain(API)).toBe(true);
+  });
+
+  it("isProtectedDomain('admin.theiwise.com') === true (T18-AC3 behavioral)", () => {
+    expect(isProtectedDomain(ADMIN)).toBe(true);
+    expect(isProtectedDomain(`https://${ADMIN}/dashboard`)).toBe(true);
+    expect(isProtectedDomain(ADMIN.toUpperCase() + ".")).toBe(true);
   });
 
   it("isProtectedDomain returns true for uppercase + trailing dot form", () => {
@@ -86,6 +104,15 @@ describe("protected-domains (T9)", () => {
     expect(() => assertNotProtectedDomain(BARE)).toThrow(/protected hostname/i);
     expect(() => assertNotProtectedDomain(WWW)).toThrow(/protected hostname/i);
     expect(() => assertNotProtectedDomain(`https://${STAGING}/x`)).toThrow();
+    expect(() => assertNotProtectedDomain(ADMIN)).toThrow(/protected hostname/i);
+    expect(() => assertNotProtectedDomain(API)).toThrow(/protected hostname/i);
+  });
+
+  it("assertNotProtectedDomain('api.theiwise.com') throws Error with 'protected hostname' (T18-AC3 behavioral)", () => {
+    expect(() => assertNotProtectedDomain(API)).toThrow(/protected hostname/i);
+    expect(() => assertNotProtectedDomain(`https://${API}/v1/foo`)).toThrow(
+      /protected hostname/i,
+    );
   });
 
   it("assertNotProtectedDomain does not throw for kodigital hosts", () => {

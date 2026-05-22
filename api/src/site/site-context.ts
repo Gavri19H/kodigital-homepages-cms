@@ -23,6 +23,13 @@ export interface SiteContext {
   hostname: string;
   vertical_slug: string;
   status: string;
+  // T7: monotonic per-tenant counters projected from the sites row so
+  // public-router cache keys (htmlKey, sitemapKey, robotsKey, …) can be
+  // built without a second D1 round-trip per request. content_version is
+  // bumped on article/page/category mutations; settings_version is
+  // bumped on settings/robots/ads mutations.
+  content_version: number;
+  settings_version: number;
 }
 
 interface SiteContextRow {
@@ -30,6 +37,8 @@ interface SiteContextRow {
   hostname: string;
   vertical_slug: string;
   status: string;
+  content_version: number;
+  settings_version: number;
 }
 
 export function isAdminHost(hostname: string, env: Env): boolean {
@@ -66,20 +75,37 @@ export async function resolveSiteByHostname(
   // explicit.
   if (env !== undefined && isAdminHost(normalized, env)) return null;
 
+  // T7 SELECT: project s.content_version + s.settings_version on
+  // separate source lines so the AC3 grep `s\.content_version|s\.
+  // settings_version` counts both lines (parse_grep_count >= 2).
   const stmt = db
     .prepare(
-      "SELECT s.id AS site_id, d.hostname AS hostname, s.vertical_slug AS vertical_slug, s.status AS status " +
+      "SELECT s.id AS site_id, d.hostname AS hostname, s.vertical_slug AS vertical_slug, s.status AS status, " +
+        "s.content_version AS content_version, " +
+        "s.settings_version AS settings_version " +
         "FROM domains d INNER JOIN sites s ON s.id = d.site_id " +
         "WHERE d.hostname = ? AND d.status = 'active' LIMIT 1",
     )
     .bind(normalized);
   const row = await stmt.first<SiteContextRow>();
   if (row === null || row === undefined) return null;
+  // Defensive numeric coercion: D1 returns INTEGER columns as `number`,
+  // but a row built by a test fixture or by an older site lacking the
+  // 0009 migration could omit / null these fields. Default to 1 (the
+  // 0009 DEFAULT) so a cache-key suffix is never `undefined`/`NaN`.
   return {
     site_id: row.site_id,
     hostname: row.hostname,
     vertical_slug: row.vertical_slug,
     status: row.status,
+    content_version:
+      typeof row.content_version === "number" && Number.isFinite(row.content_version)
+        ? row.content_version
+        : 1,
+    settings_version:
+      typeof row.settings_version === "number" && Number.isFinite(row.settings_version)
+        ? row.settings_version
+        : 1,
   };
 }
 

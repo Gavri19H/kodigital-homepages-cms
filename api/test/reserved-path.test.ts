@@ -47,6 +47,8 @@ function makeDbMock(pages: PageSeed[]) {
                 hostname: "localhost",
                 vertical_slug: "home",
                 status: "active",
+                content_version: 1,
+                settings_version: 1,
               } as unknown as T | null;
             }
             return null;
@@ -86,6 +88,27 @@ function makeDbMock(pages: PageSeed[]) {
   } as unknown as D1Database;
 }
 
+function makeNoopKv(): KVNamespace {
+  // T33: /robots.txt + /ads.txt KV-cache the response body (T13). The
+  // reserved-path suite exercises the cold path (KV miss), so the
+  // fixture KV returns null on get and accepts put as a no-op.
+  const store = new Map<string, string>();
+  return {
+    async get(key: string) {
+      return store.get(key) ?? null;
+    },
+    async put(key: string, value: string) {
+      store.set(key, value);
+    },
+    async delete(key: string) {
+      store.delete(key);
+    },
+    async list() {
+      return { keys: [], list_complete: true, cacheStatus: null };
+    },
+  } as unknown as KVNamespace;
+}
+
 function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
   // T26: ADMIN_HOST is distinct from "localhost" so the default Hono
   // test hostname routes through publicRouter as a tenant. The
@@ -93,7 +116,7 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
   // "localhost" with a fake registered site row.
   return {
     DB: db,
-    CACHE: {} as KVNamespace,
+    CACHE: makeNoopKv(),
     MEDIA: {} as R2Bucket,
     APP_ENV: "development",
     ADMIN_HOST: "admin.example",

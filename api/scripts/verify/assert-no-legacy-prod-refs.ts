@@ -35,7 +35,9 @@ const REPO_ROOT = resolve(process.cwd(), "..");
 // Group A — legacy resource identifiers. The shared Cloudflare account
 // UUID 44c73f76-6ed5-4b26-b442-6c2044326c4d is INCLUDED here: T10
 // removes the prior global allowlist so the UUID can only appear in
-// approved docs (and this verifier's own source).
+// approved docs (and this verifier's own source). T24 adds the legacy
+// CF Access AUD claim and the legacy KV namespace id so the full set
+// of identifiers enumerated in docs/no-touch-red-line.md is enforced.
 const GROUP_A_BANNED: readonly string[] = [
   "a2z-cf-cms-v1-api",
   "a2z-cf-cms-v1-db",
@@ -44,6 +46,8 @@ const GROUP_A_BANNED: readonly string[] = [
   "psychic-quiz",
   "rental-booking",
   "44c73f76-6ed5-4b26-b442-6c2044326c4d",
+  "111320b080274cfd8465e89400712c5d",
+  "7542d73ba678850e7ec62797f0ffb6e5e5279b6e57bd1f34ac372f04a4ded425",
 ];
 
 // Group B — protected production hostnames. Substring `theiwise.com`
@@ -80,10 +84,14 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
 
 // Files that legitimately contain Group B identifiers: everything in
 // Group A's allowlist PLUS the runtime denylist module that implements
-// the protected-domains safety check.
+// the protected-domains safety check, PLUS the unit tests that exercise
+// that module (they must pass the literal protected hostnames as
+// inputs to verify the denylist refuses them).
 const GROUP_B_ALLOWED_FILES: readonly string[] = [
   ...GROUP_A_ALLOWED_FILES,
   "api/src/safety/protected-domains.ts",
+  "api/test/protected-domains.test.ts",
+  "api/test/purge-safety.test.ts",
 ];
 
 // Directories skipped entirely (matched by name at any depth). Keeps
