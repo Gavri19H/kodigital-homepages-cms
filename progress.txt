@@ -5310,3 +5310,56 @@ D13 canonical runner result — T1:
     .github/workflows/*; retrying the identical edit succeeds (it is a
     warning gate, not a block).
 ---
+
+## 2026-06-11 15:56 - T3
+- What was implemented: [A3] Migration 0010 — sites.content_mode. Created
+  api/migrations/0010_phase9_sites_content_mode.sql: ALTER TABLE sites ADD
+  COLUMN content_mode TEXT NOT NULL DEFAULT 'ai' CHECK (content_mode IN
+  ('ai','manual')) — definition copied verbatim from mission
+  field_contract.json (canonical_name=content_mode). Created
+  api/test/migrations-0010-content-mode.test.ts: BEHAVIORAL test (per AC2
+  "PRAGMA confirms content_mode column") — applies ALL migrations
+  0001..0010 in order to an in-memory node:sqlite DatabaseSync, then
+  asserts PRAGMA table_info(sites) lists content_mode TEXT/notnull=1/
+  dflt 'ai', insert-default = 'ai', CHECK accepts 'manual' and rejects
+  'autopilot', and 0010 has no destructive ops.
+- Files changed: api/migrations/0010_phase9_sites_content_mode.sql (new, 19
+  lines), api/test/migrations-0010-content-mode.test.ts (new, 112 lines)
+- source_story_ids: T3
+- Tests run:
+  - grep -c content_mode api/migrations/0010_phase9_sites_content_mode.sql -> 5 (AC1 >= 1 PASS)
+  - cd api && npx vitest run test/migrations-0010-content-mode.test.ts -> 5/5 PASS (AC2)
+  - cd api && npx tsc --noEmit -> EXIT=0 (packet exact command)
+  - cd api && npm test -> 107 files / 879 tests, 0 failures (packet exact command)
+  - cd api && npx wrangler d1 migrations apply kodigital-homepages-cms-db --local
+    -> 0010 applied OK; PRAGMA table_info(sites) row:
+    {"name":"content_mode","type":"TEXT","notnull":1,"dflt_value":"'ai'","pk":0}
+  - Evidence runner (D12/D13): RC-007 PASS (grep_count 5 >= 1).
+- Self-check results:
+  - File sizes: 0010 SQL 19 lines (limit 100) PASS; test 112 lines (limit 200) PASS
+  - Secret scan: PASS (0 matches in changed files)
+  - Error handling: N/A (migration + test, no route handlers)
+  - Migration execution: PASS (wrangler d1 --local apply + PRAGMA above)
+  - Parameterized queries: PASS (all .prepare() use ?-binds; no template literals)
+- EVIDENCE_ROUTE_EXHAUSTED: T3 RC-008 — same Phase-A authoring defect class
+  as T1 RC-003: expected_test_name_regex is the escaped COMMAND string
+  ('cd api && npx vitest run test/migrations-0010-content-mode.test.ts'),
+  which can never match a parsed test name. Receipt shows the suite GREEN
+  (exit_code=0, observed passing assertion 'test/migrations-0010-content-mode.test.ts
+  (5 tests) 9ms'); the vitest_text parser records only file-summary lines
+  as assertion names, so NO test naming could ever contain the 'cd api &&'
+  prefix — doubly non-convergent. Two runner invocations produced identical
+  receipts (deterministic). Renaming/gaming the parser is forbidden;
+  required_evidence_plan.json is a protected canonical artifact — plan-entry
+  repair is owned by the Phase-A producer, not Ralph. Implementation
+  correctness proven directly above (AC1 + AC2 + local-D1 PRAGMA all PASS).
+- Learnings for future iterations:
+  - vitest 2.1's bundled vite cannot resolve a runtime import of
+    node:sqlite ("Failed to load url sqlite"). Fix: type-only import for
+    types + process.getBuiltinModule("node:sqlite") for the implementation
+    (Node >= 22.3; runner is Node 25). Reusable for any future migration
+    test needing a real PRAGMA/behavioral check without new deps.
+  - RC expected_test_name_regex defect: vitest_text parser observes
+    file-summary lines only — any RC whose regex is not a file-path
+    substring is structurally unsatisfiable. Same handling as T1 RC-003.
+---

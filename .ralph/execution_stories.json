@@ -41,8 +41,8 @@
       "title": "[A3] Migration 0010 — sites.content_mode",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T3"
       ],
