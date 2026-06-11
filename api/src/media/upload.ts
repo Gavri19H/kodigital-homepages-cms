@@ -18,7 +18,9 @@ import type { Env } from "../env";
 
 const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
-function buildStorageKey(filename: string): string {
+// Exported so the admin media-library upload endpoint (T31,
+// admin/media-crud-handlers.ts) shares the exact same key convention.
+export function buildStorageKey(filename: string): string {
   const now = new Date();
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");

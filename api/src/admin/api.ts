@@ -34,6 +34,12 @@ import {
   deleteTagHandler,
 } from "./taxonomy-crud-handlers";
 import {
+  uploadMediaHandler,
+  getMediaHandler,
+  updateMediaHandler,
+  deleteMediaHandler,
+} from "./media-crud-handlers";
+import {
   TenantBoundaryViolation,
   assertSlugUniquePerSite,
   assertTenantBoundary,
@@ -442,6 +448,13 @@ api.get("/api/admin/media", async (c) => {
   ).all<MediaRow>();
   return c.json({ media: result.results ?? [] });
 });
+
+// T31 ([B10] Media library port): upload + single-item CRUD verbs the
+// ported media library UI calls. Handlers in ./media-crud-handlers.ts.
+api.post("/api/admin/media/upload", uploadMediaHandler);
+api.get("/api/admin/media/:id", getMediaHandler);
+api.put("/api/admin/media/:id", updateMediaHandler);
+api.delete("/api/admin/media/:id", deleteMediaHandler);
 
 api.get("/api/admin/settings", async (c) => {
   const siteId = c.req.query("site_id");

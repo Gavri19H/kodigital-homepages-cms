@@ -186,11 +186,15 @@ adminUi.get('/admin/tags', async (c) => {
   return c.html(tagsListPage(tags, sites, branding(c)));
 });
 
-// 11/13 — Media library list (Site filter, Kind filter).
+// 11/13 — Media library grid (T31 port: Site filter is server-side —
+// ?site_id= scopes to that site's rows + globals via listMediaForSite).
 adminUi.get('/admin/media', async (c) => {
-  const media = await data.listAdminMedia(c.env);
+  const siteId = c.req.query('site_id');
+  const media = typeof siteId === 'string' && siteId.length > 0
+    ? await data.listMediaForSite(c.env, siteId)
+    : await data.listAdminMedia(c.env);
   const sites = await data.listAdminSites(c.env);
-  return c.html(mediaListPage(media, sites, branding(c)));
+  return c.html(mediaListPage(media, sites, branding(c), siteId ?? null));
 });
 
 // 12/13 — AI Presets read-only list.
