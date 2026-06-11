@@ -7033,3 +7033,95 @@ iteration 15 — T27 (sources: T27)
     contract types) lose content on the content_json render path; the
     content_html fallback path renders fine. Pre-existing for ALL editor
     block types, T13/C8 surface.
+
+## 2026-06-11 ~18:05Z - T28 (iteration 16 — sources: T28)
+- What was implemented: [B8] AI assistant panel port. New
+  api/src/admin/templates/ai-panel.ts (281 ln) ports the legacy
+  renderAIAssistantPanel/aiAssistantStyles/aiAssistantScripts trio as a
+  compact panel mounted by articleFormPage below the form: preset select
+  (#ai-preset-select) populated client-side from GET /api/admin/ai/presets
+  (?active_only=true, optgrouped by category, prompt_template fills the
+  prompt box on select), prompt textarea, model display rendered
+  server-side from SUPPORTED_TEXT_MODELS/SUPPORTED_IMAGE_MODELS imports
+  (never hardcoded ids — T28.AC2 safe by construction), Generate
+  text -> POST /api/admin/ai/chat and Generate image -> POST
+  /api/admin/ai/image (both send {prompt, site_id?} reading the form's
+  site select), result area (pre/img) with Copy + Insert-into-editor via
+  window.blockEditor.addBlock('paragraph'|{image}) — the T27 hook.
+  Inline script is a single ES5 IIFE (var/function/.then only).
+- Files changed:
+  - api/src/admin/templates/ai-panel.ts (NEW, 281)
+  - api/src/admin/templates/articles.ts (511 -> 520): imports + mounts
+    panel/styles/script in articleFormPage; header comment
+  - api/test/admin-ai-panel-template.test.ts (NEW, 86): T28.AC3 panel +
+    preset select on form page (new + edit modes); endpoint targets
+    chat/image/presets present, legacy generate-text/generate-image
+    absent; SUPPORTED-models-only rendering (no gpt-4o/gpt-image-1);
+    T28.AC4 ES5 script-extraction (zero arrow/const/let on the exported
+    aiAssistantScripts string AND on all extracted <script> payloads of
+    the rendered form page)
+- Test commands actually run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run test/admin-ai-panel-template.test.ts ->
+    4/4 PASS
+  - cd api && npm test -> 118 files / 983 tests PASS
+- D13 runner (RC-085,RC-086,RC-087,RC-088 via
+  run_required_evidence_command.py):
+  - RC-085/RC-086 grep -rc over api/src/admin/templates/ (a DIRECTORY
+    arg): receipt FAIL reason=EVIDENCE_SOURCE_PATH_UNRESOLVED
+    (no_package_root_or_story_prefix_resolves_grep_files). New variant of
+    the runner path-resolution class: _evidence_source_path's existence
+    gate is os.path.isfile() per grep file arg, so a recursive
+    directory-target grep can NEVER resolve (isfile(dir)=False even
+    though the dir exists at the resolved worktree cwd — receipt's own
+    f22 detail lists the existing dir as "missing"). Re-implementation
+    cannot unblock (no product change makes isfile(dir) true). Direct
+    in-tree evidence GREEN: both evidence commands run verbatim at
+    worktree root sum to 0 across all 14 template files (expected == 0).
+  - RC-087/RC-088 npx vitest run test/admin-ai-panel-template.test.ts:
+    exit_code=0, observed_assertions passed=true
+    ('test/admin-ai-panel-template.test.ts (4 tests)') — receipt FAIL
+    ONLY because expected_test_name_regex escapes the WHOLE shell command
+    ('cd\ api\ \&\&\ npx\ vitest\ run\ ...'), which can never match the
+    vitest_text parser's file-level observed names. Identical defect
+    class to T25/T26/T27 (escaped-shell-command regex in the typed
+    evidence plan). Renaming tests to embed a shell command would be a
+    mechanism-dodge; the evidence plan is a typed artifact Ralph must
+    not edit.
+- EVIDENCE_ROUTE_EXHAUSTED: T28 RC-085,RC-086,RC-087,RC-088 — flagged
+  per T25/T26/T27 precedent without burning re-implementation retries
+  (deterministic producer would re-emit the identical defects).
+  Underlying evidence green in-tree; reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- Self-check results:
+  - File sizes: ai-panel.ts 281 (HTML/CSS/script template-string payload
+    file — template bucket 300, ported-payload precedent from
+    T25/T26/T27) PASS w/ precedent; articles.ts 520 (was 511, +9 wiring;
+    same precedent) PASS w/ precedent;
+    admin-ai-panel-template.test.ts 86 PASS.
+  - Secret scan: PASS (0 matches on all 3 changed files).
+  - Error handling: PASS (no new server routes; all 3 client fetch paths
+    check res.ok, surface {error} into the alert/status regions, .catch
+    to 'Network error'/'Presets unavailable'; buttons disabled while a
+    request is in flight).
+  - Migration execution: N/A (no schema changes).
+  - Parameterized queries: PASS (no SQL in ai-panel; grep 0 matches).
+  - Acceptance tests: none for this change-id (no T28 scripts under
+    acceptance-tests/ — the only T28*.sh belongs to phase3-2026-05-11).
+- Learnings for future iterations:
+  - grep-route RCs whose evidence_command targets a DIRECTORY
+    (grep -rc X dir/) hit EVIDENCE_SOURCE_PATH_UNRESOLVED in the runner:
+    the F22 existence gate is per-arg os.path.isfile(), and no
+    pkg-root/story-prefix prepend can make a directory pass it. Same
+    fate awaits RC-016/RC-025/RC-027/RC-031/RC-038/RC-040/RC-042/RC-063
+    style entries if re-run; file-target greps (grep -c X file.ts)
+    resolve fine.
+  - The AI panel deliberately avoids the substrings forbidden by
+    T28.AC1/AC2 in ids/classes too (ai-chat-btn / ai-image-btn, never
+    *generate-text*/*generate-image*); model ids render from the
+    SUPPORTED_*_MODELS imports so templates/ can never drift into
+    hardcoded model literals.
+  - window.blockEditor.addBlock(type, data) is the stable
+    insert-from-outside hook (defaultData normalizes paragraph {text} /
+    image {src, media_id, alt}); no need to touch textarea JSON or call
+    refreshBlockEditor for appends.
