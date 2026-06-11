@@ -18,6 +18,7 @@ import {
 } from "./steps";
 import {
   isCloudflareMutationStep,
+  resolveSiteHostname,
   runCloudflareRouteMutation,
 } from "./cloudflare-interfaces";
 
@@ -86,22 +87,6 @@ async function finalizeStepRow(
     )
     .bind(result.status, result.output, result.error ?? null, job_id, step_key)
     .run();
-}
-
-async function resolveSiteHostname(db: D1Database, site_id: string): Promise<string> {
-  const dom = await db
-    .prepare(
-      "SELECT hostname FROM domains WHERE site_id = ? " +
-        "ORDER BY is_primary DESC, id ASC LIMIT 1",
-    )
-    .bind(site_id)
-    .first<{ hostname: string | null }>();
-  if (dom && typeof dom.hostname === "string" && dom.hostname.length > 0) return dom.hostname;
-  const sr = await db
-    .prepare("SELECT primary_domain AS hostname FROM sites WHERE id = ? LIMIT 1")
-    .bind(site_id)
-    .first<{ hostname: string | null }>();
-  return sr && typeof sr.hostname === "string" && sr.hostname.length > 0 ? sr.hostname : "";
 }
 
 async function advanceJobPointer(

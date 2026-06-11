@@ -28,6 +28,11 @@
 import type { Env } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
 import {
+  resolveSiteHostname,
+  runCloudflareRouteMutation,
+  runCloudflareZoneValidation,
+} from "./cloudflare-interfaces";
+import {
   generateSiteTagline,
   generateSiteDescription,
   generateAboutPage,
@@ -101,15 +106,95 @@ export interface StepHandlerResult {
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
 
 // Deterministic placeholder: the payload is stable across calls so step
-// receipts stay reproducible until the step's owning story (T35-T39)
-// swaps in real behavior.
-function stubResult(step: StepKey): StepHandlerResult {
+// receipts stay reproducible until the step's owning story (T36-T39)
+// swaps in real behavior. T35 replaced the 3 Cloudflare-boundary steps
+// with real handlers below.
+function placeholderResult(step: StepKey): StepHandlerResult {
   const payload = {
     step,
     kind: "deterministic_placeholder",
     schema_version: 1,
   };
   return { status: "completed", output: JSON.stringify(payload) };
+}
+
+// T35 — validate_domain_in_cloudflare (step 1).
+// Read-only Cloudflare-boundary check: resolves the site's hostname and
+// asks the boundary whether an active zone exists. Dry-run (the default)
+// short-circuits to completed_dry_run with zero outbound fetch;
+// protected legacy-production hostnames are refused before any call.
+async function validateDomainInCloudflareStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
+  const outcome = await runCloudflareZoneValidation(
+    { env: ctx.env, db: ctx.db },
+    { site_id: ctx.site_id, hostname },
+  );
+  return { status: outcome.status, output: outcome.output, error: outcome.error };
+}
+
+// T35 — create_site_record (step 2).
+// Pure-D1 record completion: verifies the sites row committed by
+// POST /api/admin/sites still exists and repairs the canonical domains
+// row if it is missing (INSERT OR IGNORE under domains.hostname UNIQUE
+// keeps re-runs idempotent). No Cloudflare call in any mode.
+async function createSiteRecordStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  let domainsRowEnsured = false;
+  if (info.domain.length > 0) {
+    await ctx.db
+      .prepare(
+        "INSERT OR IGNORE INTO domains (site_id, hostname, kind, is_primary, status) " +
+          "VALUES (?, ?, 'canonical', 1, 'pending')",
+      )
+      .bind(ctx.site_id, info.domain)
+      .run();
+    domainsRowEnsured = true;
+  }
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "create_site_record",
+      kind: "deterministic_record",
+      schema_version: 1,
+      site_id: ctx.site_id,
+      domain: info.domain,
+      domains_row_ensured: domainsRowEnsured,
+    }),
+  };
+}
+
+// T35 — attach_domain_to_new_worker_or_mark_pending (step 3).
+// Registry-side mirror of the runner's CF-mutation interception: both
+// call the same runCloudflareRouteMutation boundary, which performs a
+// real route mutation ONLY when SITE_PROVISIONING_DRY_RUN=false AND
+// SITE_PROVISIONING_ALLOW_ROUTE_MUTATION=true AND the hostname is not
+// protected; otherwise it short-circuits to completed_dry_run (or marks
+// the domain pending when no zone exists in live mode).
+async function attachDomainToWorkerStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
+  const outcome = await runCloudflareRouteMutation(
+    { env: ctx.env, db: ctx.db },
+    {
+      site_id: ctx.site_id,
+      hostname,
+      action: "attach_domain_to_new_worker_or_mark_pending",
+      payload: { job_id: ctx.job_id, step_order: ctx.step_order },
+    },
+  );
+  return { status: outcome.status, output: outcome.output, error: outcome.error };
 }
 
 // T9 helper — load the site row + its vertical_slug so AI generators
@@ -717,16 +802,15 @@ async function generateOrAssignArticleImagesStep(
   };
 }
 
-// Placeholder handlers below (stubResult) are each owned by a named
-// follow-up story: T35 replaces the 3 Cloudflare-boundary steps, T36
-// publish_starter_articles, T37 warm_homepage_cache, T38
-// run_site_smoke_tests, T39 update_launch_readiness.
+// Placeholder handlers below (placeholderResult) are each owned by a
+// named follow-up story: T36 publish_starter_articles, T37
+// warm_homepage_cache, T38 run_site_smoke_tests, T39
+// update_launch_readiness. T35 replaced the 3 Cloudflare-boundary steps
+// with the real handlers above.
 export const STEPS: Record<StepKey, StepHandler> = {
-  validate_domain_in_cloudflare: async () =>
-    stubResult("validate_domain_in_cloudflare"),
-  create_site_record: async () => stubResult("create_site_record"),
-  attach_domain_to_new_worker_or_mark_pending: async () =>
-    stubResult("attach_domain_to_new_worker_or_mark_pending"),
+  validate_domain_in_cloudflare: validateDomainInCloudflareStep,
+  create_site_record: createSiteRecordStep,
+  attach_domain_to_new_worker_or_mark_pending: attachDomainToWorkerStep,
   allocate_vertical_categories: allocateVerticalCategoriesStep,
   create_site_settings: seedDefaultSiteSettings,
   generate_tagline_and_site_description: generateTaglineAndSiteDescriptionStep,
@@ -736,10 +820,12 @@ export const STEPS: Record<StepKey, StepHandler> = {
   generate_feature_image: generateFeatureImageStep,
   generate_15_homepage_articles: generate15HomepageArticlesStep,
   generate_or_assign_article_images: generateOrAssignArticleImagesStep,
-  publish_starter_articles: async () => stubResult("publish_starter_articles"),
-  warm_homepage_cache: async () => stubResult("warm_homepage_cache"),
-  run_site_smoke_tests: async () => stubResult("run_site_smoke_tests"),
-  update_launch_readiness: async () => stubResult("update_launch_readiness"),
+  publish_starter_articles: async () =>
+    placeholderResult("publish_starter_articles"),
+  warm_homepage_cache: async () => placeholderResult("warm_homepage_cache"),
+  run_site_smoke_tests: async () => placeholderResult("run_site_smoke_tests"),
+  update_launch_readiness: async () =>
+    placeholderResult("update_launch_readiness"),
 };
 
 export function getStepKeyForIndex(index: number): StepKey | null {
