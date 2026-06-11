@@ -329,8 +329,8 @@
       "title": "[E4] Presets CRUD + model constraint + migration 0011",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T21"
       ],

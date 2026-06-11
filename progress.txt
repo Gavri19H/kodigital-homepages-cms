@@ -6447,3 +6447,100 @@ iteration 7 — T16 [C11] Breakpoint parity (8) (sources: T16)
     keeps the authored evidence route genuinely observing the logo
     behavior even though the regex defect blocks the receipt.
 ---
+
+## 2026-06-11 19:25 - T21 (sources: T21) — [E4] Presets CRUD + model constraint + migration 0011
+- What was implemented:
+  - api/migrations/0011_phase9_prompt_presets_model_columns.sql (NEW, 11
+    lines): ALTER TABLE prompt_presets ADD COLUMN text_model TEXT +
+    image_model TEXT (nullable; no model id literal baked into schema —
+    registry owns defaults). Verified prompt_presets from migration 0001
+    lacked model columns before authoring (brief: "migration only if
+    prompt_presets lacks model columns — check first").
+  - api/src/admin/ai-presets.ts (NEW, 145 lines): shared preset contract
+    (PresetRow/PresetBody types, isValidPresetId, normModel,
+    modelValidationError) + read handlers listPresets (items+pagination
+    legacy shape, category/active_only filters, ORDER BY is_system DESC,
+    usage_count DESC, slug ASC), getPreset, usePreset (usage_count
+    increment, legacy parity).
+  - api/src/admin/ai-presets-write.ts (NEW, 162 lines): createPreset
+    (400 missing slug/prompt_template, 400 unsupported model, 409 dup
+    slug, defaults to DEFAULT_TEXT_MODEL/DEFAULT_IMAGE_MODEL imports),
+    updatePreset (COALESCE partial update; system presets: is_active
+    toggle only, else 403; 400 unsupported model — stored model proven
+    untouched), deletePreset (204; system 403).
+  - api/src/admin/ai-api.ts (+16 lines): mounted the 6 legacy route
+    patterns — GET/POST /api/admin/ai/presets, GET/PUT/DELETE
+    /api/admin/ai/presets/:id, POST /api/admin/ai/presets/:id/use.
+  - api/test/admin-ai-presets.test.ts (NEW, 459 lines, 16 tests): all 6
+    routes mounted; POST/PUT reject gpt-4o-mini/gpt-image-1 (banned
+    literals live ONLY in the test as REJECTED inputs) with 400 and no
+    write; supported models stored verbatim; registry defaults applied;
+    0011 content asserts both ALTERs + no DEFAULT 'gpt…' literal.
+    Migration-chain applicability covered by the existing 0010 test
+    (applies every *.sql in order, now including 0011).
+- Test commands actually run:
+  - cd api && npx vitest run test/admin-ai-presets.test.ts → 16/16 PASS
+  - cd api && npm test → 113 files, 934/934 PASS
+  - cd api && npx tsc --noEmit → clean
+  - cd api && npx wrangler d1 migrations apply kodigital-homepages-cms-db
+    --local → 0011 applied ✅; PRAGMA table_info(prompt_presets) via
+    wrangler d1 execute --local lists text_model (cid 8, TEXT, notnull 0)
+    + image_model (cid 9, TEXT, notnull 0) — negative_fail_condition
+    cleared.
+- Canonical runner (D13, RC-061,RC-062,RC-063,RC-064, run ONCE):
+  - RC-061 (T21.AC1): PASS — grep_count 13 >= 6.
+  - RC-064 (T21.AC4): PASS — grep_count 1 >= 1.
+  - RC-062 (T21.AC2): UNSATISFIED — same RC-055-class plan defect:
+    expected_test_name_regex is the shell-escaped COMMAND string
+    (cd\ api\ \&\&\ npx\ vitest\ run\ test/admin\-ai\-presets\.test\.ts);
+    parser observed "test/admin-ai-presets.test.ts (16 tests) 9ms"
+    passed:true, exit 0 — all 16 tests green; no test name can match an
+    escaped command line. required_evidence_plan.json repair is
+    orchestrator-owned; not retried (deterministic, no retry-storm).
+  - RC-063 (T21.AC3): FAIL reason=EVIDENCE_SOURCE_PATH_UNRESOLVED
+    (no_package_root_or_story_prefix_resolves_grep_files) — the F22
+    grep-path resolver does not resolve the DIRECTORY target "api/src/"
+    (same infrastructure-level resolver gap class as T2 RC-004 / T3
+    RC-006 / T4 RC-008). Direct grep in the worktree:
+    grep -rn "gpt-4o-mini\|gpt-image-1" api/src/ → 0 matches
+    (T21.AC3 SATISFIED in-tree).
+EVIDENCE_ROUTE_EXHAUSTED — T21 RC-062 + RC-063: re-implementation cannot
+change an escaped-command regex or the runner's directory-grep
+resolution; both repairs are orchestrator-owned (required_evidence_plan
+authoring + F22 resolver). Underlying evidence green in-tree. Proceeding
+per D12; reconciliation owned by reconcile_ralph_execution_prd.py.
+- Self-check results:
+  - File sizes: ai-presets.ts 145 (limit 200) PASS; ai-presets-write.ts
+    162 (limit 200) PASS; ai-api.ts 150 (limit 200) PASS; 0011 SQL 11
+    (limit 100) PASS; admin-ai-presets.test.ts 459 (test files routinely
+    exceed 200 per repo precedent) PASS
+  - Secret scan: PASS (0 matches on all 5 changed files)
+  - Error handling: PASS (400/403/404/409 + 204; no silent swallows; D1
+    errors surface through Hono's 500 like sibling handlers)
+  - Migration execution: PASS (wrangler d1 migrations apply --local +
+    PRAGMA table_info listed both columns — see above)
+  - Parameterized queries: PASS (grep 'prepare.*\${|prepare.*`' on all 3
+    src files → 0 matches; listPresets WHERE is concatenated from FIXED
+    literal fragments only, user values via .bind(); file convention
+    "NO template-literal SQL" upheld)
+  - Acceptance tests: none for this change-id (no T21 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - The PreToolUse Write security hook blocks NEW files containing
+    ".exec(" (child_process reminder) even for node:sqlite
+    DatabaseSync.exec — the migrations-0010 test predates it. For new
+    migration tests, assert SQL content statically and lean on the 0010
+    test's applyAllMigrations (it reads EVERY *.sql in filename order, so
+    new migrations are chain-applied automatically) + wrangler d1 --local
+    PRAGMA for runtime proof.
+  - Repo SQL convention (api.ts:4): dynamic WHERE/IN fragments are built
+    by string CONCATENATION of fixed literals (never template literals in
+    prepare); user values only ever through .bind().
+  - RC-063-class greps with a DIRECTORY target (api/src/) hit the same
+    F22 resolver gap as file-targets missing from project_root main —
+    the resolver tries package roots/story prefixes but never falls
+    through to a worktree-root directory grep.
+  - hono c.req.param("id") types string|undefined for handlers declared
+    as standalone functions (not inline on a typed route) — normalize
+    with ?? "" so the /^\d+$/ id guard 400s cleanly.
+---
