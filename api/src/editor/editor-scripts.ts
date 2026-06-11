@@ -1,4 +1,4 @@
-// Client-side block editor bootstrap script.
+// Client-side block editor bootstrap script (T27 [B6] full port).
 //
 // `editorScripts()` returns an IIFE string that the admin form templates
 // inject into a `<script>` tag. The IIFE finds every
@@ -7,38 +7,36 @@
 // `.block-editor` UI takes over, syncing JSON state back to the textarea
 // on every edit so the existing form submit pipeline keeps working.
 //
-// Six block types are supported: paragraph, heading, list, quote, image,
-// divider — matching the server-side renderer in ./blocks.ts. Output
-// shape matches `ContentDocument` ({ version, blocks: [{type, data}] }).
+// All ten block types are supported: paragraph, heading, list, quote,
+// image, divider, html, pullquote, callout, affiliate — matching the
+// server-side renderer in ./blocks.ts. Output shape matches
+// `ContentDocument` ({ version, blocks: [{type, data}] }).
+//
+// The ported feature set (drag & drop image upload, add-block menu,
+// AI image generation, AI-assist hooks) lives in ./editor-script-ui.ts
+// and ./editor-script-media.ts as ES5 string chunks concatenated into
+// the same IIFE. `initBlockEditor(target, options)` is the programmatic
+// mount hook (window.initBlockEditor / window.refreshBlockEditor are
+// the entry points the admin AI assistant panel uses).
+//
+// HARD CONTRACT (T27.AC3): the assembled script string is ES5-only —
+// no arrow functions, no block-scoped declarations. Module-level
+// TypeScript here may use ES6; the script LITERALS may not.
 
-export function editorScripts(): string {
-  return SCRIPT;
-}
+import { EDITOR_MEDIA_SCRIPT } from "./editor-script-media";
+import { EDITOR_UI_SCRIPT } from "./editor-script-ui";
+import { EDITOR_CSS } from "./editor-styles";
 
-export const editorStyles = `
-.block-editor { border: 1px solid #d0d5dd; border-radius: 6px; padding: 12px; background: #fff; margin-bottom: 12px; }
-.editor-toolbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e4e7ec; }
-.editor-btn { padding: 4px 10px; border: 1px solid #d0d5dd; background: #f9fafb; border-radius: 4px; cursor: pointer; font-size: 13px; }
-.editor-btn:hover { background: #f2f4f7; }
-.editor-blocks { display: flex; flex-direction: column; gap: 8px; }
-.editor-block { display: flex; gap: 6px; align-items: flex-start; padding: 6px; border: 1px solid transparent; border-radius: 4px; }
-.editor-block:focus-within { border-color: #d0d5dd; background: #f9fafb; }
-.editor-block textarea, .editor-block input[type="text"] { flex: 1; width: 100%; font: inherit; padding: 6px 8px; border: 1px solid #d0d5dd; border-radius: 4px; }
-.editor-block-heading textarea { font-weight: 600; font-size: 18px; }
-.editor-block-remove { width: 28px; height: 28px; border: 1px solid #d0d5dd; background: #fff; border-radius: 4px; cursor: pointer; }
-.editor-block-remove:hover { background: #fef3f2; border-color: #fda29b; color: #b42318; }
-`;
+export const editorStyles = EDITOR_CSS;
 
-const SCRIPT = `(function () {
-  var BLOCK_TYPES = ['paragraph', 'heading', 'list', 'quote', 'image', 'divider'];
-  var BLOCK_LABELS = {
-    paragraph: 'Paragraph',
-    heading: 'Heading',
-    list: 'List',
-    quote: 'Quote',
-    image: 'Image',
-    divider: 'Divider'
-  };
+const CORE_SCRIPT = `
+  function injectStyles() {
+    if (document.getElementById('block-editor-styles')) { return; }
+    var styleEl = document.createElement('style');
+    styleEl.id = 'block-editor-styles';
+    styleEl.appendChild(document.createTextNode(EDITOR_CSS));
+    (document.head || document.documentElement).appendChild(styleEl);
+  }
 
   function parseInitial(raw) {
     var trimmed = (raw || '').replace(/^\\s+|\\s+$/g, '');
@@ -53,9 +51,21 @@ const SCRIPT = `(function () {
     return [{ type: 'paragraph', data: { text: trimmed } }];
   }
 
-  function BlockEditor(textarea) {
+  var TOOLBAR_BUTTONS = [
+    { label: '\\u00b6 Paragraph', type: 'paragraph' },
+    { label: 'H2', type: 'heading', data: { level: 2 } },
+    { label: '\\u2022 List', type: 'list', data: { style: 'unordered' } },
+    { label: '\\u201d Quote', type: 'quote' },
+    { label: '\\u275d Pullquote', type: 'pullquote' },
+    { label: '\\ud83d\\uddbc Image', type: 'image' },
+    { label: '\\u2728 AI image', type: 'ai-image' }
+  ];
+
+  function BlockEditor(textarea, options) {
     this.textarea = textarea;
+    this.options = options || {};
     this.blocks = parseInitial(textarea.value);
+    injectStyles();
     this.root = document.createElement('div');
     this.root.className = 'block-editor';
     this.toolbar = this.createToolbar();
@@ -63,6 +73,8 @@ const SCRIPT = `(function () {
     this.blocksEl = document.createElement('div');
     this.blocksEl.className = 'editor-blocks';
     this.root.appendChild(this.blocksEl);
+    this.addBlockArea = this.createAddBlockArea();
+    this.root.appendChild(this.addBlockArea);
     textarea.parentNode.insertBefore(this.root, textarea);
     textarea.setAttribute('hidden', 'hidden');
     textarea.style.display = 'none';
@@ -70,26 +82,61 @@ const SCRIPT = `(function () {
   }
 
   BlockEditor.prototype.createToolbar = function () {
+    var self = this;
     var bar = document.createElement('div');
     bar.className = 'editor-toolbar';
-    var self = this;
-    for (var i = 0; i < BLOCK_TYPES.length; i++) {
-      var t = BLOCK_TYPES[i];
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'editor-btn editor-btn-' + t;
-      btn.setAttribute('data-block-type', t);
-      btn.textContent = '+ ' + BLOCK_LABELS[t];
-      (function (type) {
-        btn.addEventListener('click', function () { self.addBlock(type); });
-      }(t));
-      bar.appendChild(btn);
+    for (var i = 0; i < TOOLBAR_BUTTONS.length; i++) {
+      (function (def) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = def.type === 'ai-image' ? 'editor-btn editor-btn-ai' : 'editor-btn';
+        btn.setAttribute('data-block-type', def.type);
+        btn.textContent = def.label;
+        btn.addEventListener('click', function () {
+          if (def.type === 'ai-image') {
+            self.showAIImageDialog();
+          } else {
+            self.addBlock(def.type, def.data || {});
+          }
+        });
+        bar.appendChild(btn);
+      }(TOOLBAR_BUTTONS[i]));
     }
     return bar;
   };
 
-  BlockEditor.prototype.addBlock = function (type) {
-    this.blocks.push({ type: type, data: {} });
+  BlockEditor.prototype.createAddBlockArea = function () {
+    var self = this;
+    var area = document.createElement('div');
+    area.className = 'editor-add-block';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'editor-add-block-btn';
+    btn.textContent = '+ Add block';
+    btn.addEventListener('click', function () { self.showBlockMenu(); });
+    area.appendChild(btn);
+    return area;
+  };
+
+  BlockEditor.prototype.defaultData = function (type, data) {
+    var d = data || {};
+    switch (type) {
+      case 'paragraph': return { text: d.text || '' };
+      case 'heading': return { level: d.level || 2, text: d.text || '' };
+      case 'list': return { style: d.style || 'unordered', items: d.items || [''] };
+      case 'quote':
+      case 'pullquote': return { text: d.text || '', cite: d.cite || '' };
+      case 'image': return { src: d.src || '', alt: d.alt || '', media_id: d.media_id || null };
+      case 'callout': return { title: d.title || '', text: d.text || '' };
+      case 'affiliate': return { title: d.title || '', url: d.url || '', description: d.description || '', cta: d.cta || '' };
+      case 'html': return { html: d.html || '' };
+      case 'divider': return {};
+      default: return d;
+    }
+  };
+
+  BlockEditor.prototype.addBlock = function (type, data) {
+    this.blocks.push({ type: type, data: this.defaultData(type, data) });
     this.render();
   };
 
@@ -101,100 +148,93 @@ const SCRIPT = `(function () {
     this.render();
   };
 
-  BlockEditor.prototype.render = function () {
-    var self = this;
-    this.blocksEl.innerHTML = '';
-    for (var i = 0; i < this.blocks.length; i++) {
-      this.blocksEl.appendChild(this.renderBlock(i, this.blocks[i]));
-    }
-    this.sync();
+  BlockEditor.prototype.moveBlock = function (index, delta) {
+    var target = index + delta;
+    if (target < 0 || target >= this.blocks.length) { return; }
+    var moved = this.blocks[index];
+    this.blocks[index] = this.blocks[target];
+    this.blocks[target] = moved;
+    this.render();
   };
 
-  BlockEditor.prototype.renderBlock = function (index, block) {
-    var self = this;
-    var el = document.createElement('div');
-    el.className = 'editor-block editor-block-' + block.type;
-    el.setAttribute('data-index', String(index));
-    el.setAttribute('data-block-type', block.type);
-    var body = document.createElement('div');
-    body.style.flex = '1';
-    if (block.type === 'divider') {
-      var hr = document.createElement('hr');
-      body.appendChild(hr);
-    } else if (block.type === 'image') {
-      var srcInput = document.createElement('input');
-      srcInput.type = 'text';
-      srcInput.placeholder = 'Image URL';
-      srcInput.value = (block.data && block.data.src) || '';
-      srcInput.addEventListener('input', function () {
-        block.data = block.data || {};
-        block.data.src = srcInput.value;
-        self.sync();
-      });
-      body.appendChild(srcInput);
-      var altInput = document.createElement('input');
-      altInput.type = 'text';
-      altInput.placeholder = 'Alt text';
-      altInput.value = (block.data && block.data.alt) || '';
-      altInput.style.marginTop = '6px';
-      altInput.addEventListener('input', function () {
-        block.data = block.data || {};
-        block.data.alt = altInput.value;
-        self.sync();
-      });
-      body.appendChild(altInput);
-    } else if (block.type === 'list') {
-      var listInput = document.createElement('textarea');
-      listInput.rows = 4;
-      listInput.placeholder = 'One item per line';
-      var items = (block.data && block.data.items) || [];
-      listInput.value = items.join('\\n');
-      listInput.addEventListener('input', function () {
-        block.data = block.data || {};
-        block.data.items = listInput.value.split('\\n');
-        self.sync();
-      });
-      body.appendChild(listInput);
-    } else {
-      var ta = document.createElement('textarea');
-      ta.rows = block.type === 'heading' ? 1 : 3;
-      ta.value = (block.data && block.data.text) || '';
-      ta.placeholder = BLOCK_LABELS[block.type] || 'Text';
-      ta.addEventListener('input', function () {
-        block.data = block.data || {};
-        block.data.text = ta.value;
-        self.sync();
-      });
-      body.appendChild(ta);
+  BlockEditor.prototype.render = function () {
+    while (this.blocksEl.firstChild) {
+      this.blocksEl.removeChild(this.blocksEl.firstChild);
     }
-    el.appendChild(body);
-    var remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'editor-block-remove';
-    remove.setAttribute('aria-label', 'Remove block');
-    remove.textContent = 'x';
-    remove.addEventListener('click', function () { self.removeBlock(index); });
-    el.appendChild(remove);
-    return el;
+    for (var i = 0; i < this.blocks.length; i++) {
+      this.blocksEl.appendChild(this.renderBlockEl(i, this.blocks[i]));
+    }
+    this.sync();
   };
 
   BlockEditor.prototype.sync = function () {
     this.textarea.value = JSON.stringify({ version: 1, blocks: this.blocks });
   };
 
+  BlockEditor.prototype.getContent = function () {
+    return { version: 1, blocks: this.blocks };
+  };
+
+  BlockEditor.prototype.setContent = function (doc) {
+    var blocks = doc && Object.prototype.toString.call(doc.blocks) === '[object Array]' ? doc.blocks : [];
+    this.blocks = blocks.length > 0 ? blocks : [{ type: 'paragraph', data: { text: '' } }];
+    this.render();
+  };
+
+  BlockEditor.prototype.loadFromTextarea = function () {
+    this.blocks = parseInitial(this.textarea.value);
+    this.render();
+  };
+`;
+
+const BOOT_SCRIPT = `
+  function initBlockEditor(target, options) {
+    var el = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!el) { return null; }
+    var ta = el.tagName === 'TEXTAREA' ? el : el.querySelector('textarea[name="content_json"]');
+    if (!ta) { return null; }
+    if (ta.getAttribute('data-editor-mounted') === '1') { return window.blockEditor || null; }
+    ta.setAttribute('data-editor-mounted', '1');
+    var editor = new BlockEditor(ta, options || {});
+    window.blockEditor = editor;
+    return editor;
+  }
+
   function initEditors() {
     var nodes = document.querySelectorAll('textarea[name="content_json"]');
     for (var i = 0; i < nodes.length; i++) {
       if (nodes[i].getAttribute('data-editor-mounted') === '1') { continue; }
       nodes[i].setAttribute('data-editor-mounted', '1');
-      try { new BlockEditor(nodes[i]); } catch (e) { /* ignore */ }
+      try {
+        var editor = new BlockEditor(nodes[i], {});
+        if (!window.blockEditor) { window.blockEditor = editor; }
+      } catch (e) { /* ignore */ }
     }
   }
 
-  if (typeof window !== 'undefined') { window.BlockEditor = BlockEditor; }
+  if (typeof window !== 'undefined') {
+    window.BlockEditor = BlockEditor;
+    window.initBlockEditor = initBlockEditor;
+    window.refreshBlockEditor = function () {
+      if (window.blockEditor) { window.blockEditor.loadFromTextarea(); }
+    };
+  }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initEditors);
   } else {
     initEditors();
   }
-}());`;
+`;
+
+export function editorScripts(): string {
+  return (
+    "(function () {\n  var EDITOR_CSS = " +
+    JSON.stringify(EDITOR_CSS) +
+    ";\n" +
+    CORE_SCRIPT +
+    EDITOR_UI_SCRIPT +
+    EDITOR_MEDIA_SCRIPT +
+    BOOT_SCRIPT +
+    "\n}());"
+  );
+}

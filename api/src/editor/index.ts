@@ -14,7 +14,7 @@ export {
 } from "./blocks";
 export type { BaseBlock, BlockType, ContentDocument } from "./blocks";
 
-export { escapeHtml, sanitizeHtml } from "./sanitize";
+export { escapeHtml, isSafeUrl, sanitizeHtml } from "./sanitize";
 
 import { editorScripts as _editorScripts } from "./editor-scripts";
 export { editorScripts, editorStyles } from "./editor-scripts";
