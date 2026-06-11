@@ -175,11 +175,17 @@ async function handleCategory(
   });
 }
 
-router.get("/page/:slug", async (c) => {
-  const slug = c.req.param("slug");
+// Shared by /page/:slug and the /:slug catch-all (T40 [F1]) so both
+// entry points serve the IDENTICAL full document (same pageKey cache
+// entry, same /page/<slug> canonical — the sitemap's page URL shape).
+// Returns null when no published page matches the slug.
+async function servePage(
+  c: CategoryCtx,
+  slug: string,
+): Promise<Response | null> {
   const siteContext = c.get("siteContext");
   const row = await fetchPublishedPage(c.env.DB, slug, siteContext.siteId);
-  if (!row) return c.json({ error: "Not Found" }, 404);
+  if (!row) return null;
   const path = `/page/${slug}`;
   return servePublicHtml(c.env, siteContext, {
     key: pageKey(siteContext.siteId, slug, siteContext.content_version),
@@ -188,6 +194,12 @@ router.get("/page/:slug", async (c) => {
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () => renderPageHtml(siteContext, row, path),
   });
+}
+
+router.get("/page/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  const res = await servePage(c, slug);
+  return res ?? c.json({ error: "Not Found" }, 404);
 });
 
 // T12: /sitemap.xml, /feed.xml, /atom.xml all share the same KV-cache discipline:
@@ -371,19 +383,23 @@ router.get("/health", (c) =>
   c.json({ ok: true, app: "kodigital-homepages-cms", scope: "public" }),
 );
 
+// T40 [F1] slug canonicalization: the compatibility catch-all never
+// serves raw content_html. A published page renders through the same
+// SEO + cache pipeline as /page/:slug; a published article 301s to its
+// canonical /article/<slug> URL.
 router.get("/:slug", async (c) => {
   const slug = c.req.param("slug");
   if (isReservedPath(slug)) {
     return c.json({ error: "Not Found" }, 404);
   }
+  const page = await servePage(c, slug);
+  if (page) return page;
   const siteContext = c.get("siteContext");
-  const page = await fetchPublishedPage(c.env.DB, slug, siteContext.siteId);
-  if (page) return c.html(page.content_html ?? "");
   const article = await getArticleBySlug(c.env.DB, slug, {
     siteId: siteContext.siteId,
   });
   if (article && article.status === "published") {
-    return c.html(article.content_html ?? "");
+    return c.redirect(`/article/${encodeURIComponent(slug)}`, 301);
   }
   return c.json({ error: "Not Found" }, 404);
 });
