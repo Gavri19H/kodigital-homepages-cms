@@ -7125,3 +7125,97 @@ iteration 15 — T27 (sources: T27)
     insert-from-outside hook (defaultData normalizes paragraph {text} /
     image {src, media_id, alt}); no need to touch textarea JSON or call
     refreshBlockEditor for appends.
+
+## 2026-06-11 ~18:30Z - T29 (iteration 17 — sources: T29)
+iteration 17 — T29 [B8] Pages port + CRUD (sources: T29)
+- Implemented the pages write verbs the ported Pages UI calls (brief
+  BCL-033: POST/PATCH/DELETE /pages(:id)) + the schema delta they need:
+  - api/migrations/0012_phase9_pages_admin_crud_columns.sql (NEW, 25):
+    ALTER TABLE pages ADD display_order INTEGER NOT NULL DEFAULT 0,
+    seo_title TEXT, seo_description TEXT. The post-0007 pages table
+    lacked all three, yet data.ts getAdminPage already SELECTed the SEO
+    columns (latent break on the edit route vs a real DB) and T29.AC2
+    requires the display_order round-trip. Anchored in deploy.yml
+    tracked-migrations list (D1-file rule).
+  - api/src/admin/pages-crud-handlers.ts (NEW, 516): createPageHandler /
+    updatePageHandler / deletePageHandler. Tenant contract: legal
+    page_types (privacy-policy/terms/do-not-sell/contact/legal) may be
+    global (site_id NULL); all others 400 without a resolvable site_id;
+    per-site slug uniqueness via assertSlugUniquePerSite, global-tier
+    uniqueness via site_id IS NULL probe (409 SLUG_UNIQUENESS_VIOLATION);
+    cross-tenant site move 403 TENANT_BOUNDARY_VIOLATION (global→site
+    adoption allowed — pages legitimately have a global tier, unlike
+    articles); PATCH is allow-list partial update so absent fields
+    (page_type!) are RETAINED; status allow-list draft|published|archived
+    mirrors the DB CHECK (form's "pending" option → clean 400, noted
+    pre-existing template/schema seam); all SQL static + .bind().
+    First consumer of applyPageMutationCacheInvalidation (admin/pages.ts
+    Phase-7 T16 helper, previously zero callers) — fired post-write for
+    site-owned pages on POST/PATCH/DELETE.
+  - api/src/admin/api.ts (937→950): route registrations
+    api.post("/api/admin/pages"), api.patch("/api/admin/pages/:id"),
+    api.delete("/api/admin/pages/:id").
+  - api/src/admin/templates/pages.ts (393→431): Delete row action
+    (data-delete-page + ES5 confirmDelete→window.api('DELETE')→reload
+    script, articles-list parity) + ported legacy Display Order form
+    field; submit body now carries display_order (parseInt||0).
+  - api/src/admin/data.ts (644→647): getAdminPage SELECT + PageRecord +
+    PageFormDto carry display_order for the form.
+  - api/test/admin-pages-list-site-id-filter.test.ts (115→542): RX4 block
+    untouched; new "T29 pages CRUD port" block — mock-D1 CRUD persistence
+    (RC-089 test name "page CRUD persists rows via mock-D1 db.prepare"),
+    registration + page_type-retention-on-PATCH, legal global-template
+    POST path, list badge/page_type/Delete-action render, and a real
+    node:sqlite migrations-0001..0012 INSERT→SELECT→UPDATE→SELECT
+    round-trip of show_in_footer/display_order.
+- test: cd api && npx tsc --noEmit (clean); cd api && npx vitest run
+  test/admin-pages-list-site-id-filter.test.ts (9/9); cd api && npm test
+  (118 files, 988 tests, all PASS); npx wrangler d1 migrations apply
+  kodigital-homepages-cms-db --local (0012 ✅) + INSERT/SELECT/DELETE
+  round-trip on local D1 (show_in_footer=1, display_order=7 echoed;
+  self-check row cleaned up, count 0).
+- D13 runner (RC-089,RC-090 via run_required_evidence_command.py):
+  RC-089 PASS (deterministic parser; observed file-level test name
+  matched). RC-090 FAIL: its expected_test_name_regex is the escaped
+  SHELL COMMAND "cd\ api\ \&\&\ npx\ vitest\ run\ ..." which can never
+  match a vitest test name — identical deterministic plan-authoring
+  defect class as T25/T26/T27/T28; the runner's own observation shows
+  the file passing (9 tests, passed=true, exit 0).
+- EVIDENCE_ROUTE_EXHAUSTED: T29 RC-090 — flagged per T25/T26/T27/T28
+  precedent without burning re-implementation retries (a typed regex
+  cannot be changed by re-implementing; editing the evidence plan is a
+  forbidden mechanism-dodge). Underlying evidence green in-tree;
+  reconciliation owned by reconcile_ralph_execution_prd.py / evaluator.
+- Self-check results:
+  - File sizes: pages-crud-handlers.ts 516 (ported-CRUD handler module;
+    sites-handlers.ts 281 / articles.ts 520 / api.ts 950 precedent from
+    T13/T25-T28) PASS w/ precedent; api.ts 950 (+13 wiring, same
+    precedent); templates/pages.ts 431 (template bucket 300, ported-
+    payload precedent) PASS w/ precedent; data.ts 647 (+3); test file
+    542 (test-payload precedent); migration 25 (limit 100) PASS.
+  - Secret scan: PASS (0 matches across all 7 changed files).
+  - Error handling: PASS (every handler: JSON parse try/catch → 400;
+    400/403/404/409 typed codes; UPDATE/DELETE run() wrapped, UNIQUE
+    slug → 409, else 500 with message; no silent swallows).
+  - Migration execution: PASS (wrangler d1 migrations apply --local,
+    0012 applied; INSERT→SELECT round-trip verified then cleaned up).
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' → only
+    prose comments; all statements static SQL + .bind()).
+  - Acceptance tests: none for this change-id (no acceptance-tests/
+    kodigital-cms-rescue-2-2026-06-10/ dir; T25-T28 precedent).
+- Learnings for future iterations:
+  - The pages table (post-0007) had NO display_order/seo_title/
+    seo_description even though getAdminPage and the ported form already
+    referenced them — when porting a legacy UI surface, diff the legacy
+    table shape against the current migration chain BEFORE porting the
+    verbs; the template port can silently assume columns that were never
+    migrated.
+  - node:sqlite (process.getBuiltinModule pattern from migrations-0010
+    test) gives a real INSERT→SELECT round-trip develop-proof for
+    db-effect ACs without a dev server — stronger than mock-D1 echo
+    assertions and runs inside the same vitest evidence file the RC
+    targets.
+  - applyPageMutationCacheInvalidation (Phase-7 T16) sat caller-less
+    until this story; grep for zero-caller canonical helpers named in a
+    file header's "called from X" comment — they mark the intended
+    integration point for the port.

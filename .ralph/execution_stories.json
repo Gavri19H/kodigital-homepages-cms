@@ -457,8 +457,8 @@
       "title": "[B8] Pages port + CRUD",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T29"
       ],
