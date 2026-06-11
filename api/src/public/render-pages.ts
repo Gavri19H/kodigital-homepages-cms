@@ -10,7 +10,12 @@ import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow } from "./queries";
 import { renderSeoHead, buildCanonicalUrl } from "./templates/seo-head";
-import { renderArticleJsonLd } from "./templates/jsonld-article";
+import {
+  renderArticleJsonLd,
+  renderBreadcrumbJsonLd,
+  renderFaqJsonLd,
+} from "./templates/jsonld-article";
+import { adaptBodyBlocks } from "./view-models/article";
 import {
   renderHomeWebsiteJsonLd,
   renderHomeOrganizationJsonLd,
@@ -91,7 +96,10 @@ export function renderArticleHtml(
   path: string,
 ): string {
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
-  const head = [
+  // GEO checklist §1: FAQ blocks in content_json drive a FAQPage payload —
+  // emitted ONLY when faqs is non-empty (empty FAQPage is a negative signal).
+  const { faqs } = adaptBodyBlocks(row.content_json, row.content_html);
+  const headBlocks = [
     renderSeoHead({
       canonicalHost: siteContext.hostname,
       path,
@@ -104,13 +112,28 @@ export function renderArticleHtml(
       headline: row.title,
       datePublished: isoDate(row.published_at ?? row.created_at),
       dateModified: isoDate(row.updated_at ?? row.published_at),
+      // GEO checklist §3: anonymous content sets author to the publisher
+      // Organization — never a Person-typed placeholder, never omitted.
       authorName: row.author_name ?? siteContext.hostname,
+      authorType: row.author_name ? "Person" : "Organization",
       publisherName: siteContext.hostname,
     }),
-  ].join("\n");
+    // GEO checklist §2: every content route emits a root-first BreadcrumbList
+    // with absolute canonical-host URLs. The category crumb belongs to the
+    // joined view-model path (T13); this render layer has no category join.
+    renderBreadcrumbJsonLd({
+      items: [
+        { name: "Home", url: buildCanonicalUrl(siteContext.hostname, "/") },
+        { name: row.title, url: canonicalUrl },
+      ],
+    }),
+  ];
+  if (faqs.length > 0) {
+    headBlocks.push(renderFaqJsonLd({ questions: faqs }));
+  }
   // C4 root wrapper (see renderHomepageHtml): article screen label.
   const body = `<div data-screen-label=article-page>${row.content_html ?? ""}</div>`;
-  return wrapHtmlDocument(head, body);
+  return wrapHtmlDocument(headBlocks.join("\n"), body);
 }
 
 export function renderCategoryHtml(
@@ -141,6 +164,13 @@ export function renderCategoryHtml(
       name: cat.name,
       articles: articleEntries,
     }),
+    // GEO checklist §2: content routes emit a root-first BreadcrumbList.
+    renderBreadcrumbJsonLd({
+      items: [
+        { name: "Home", url: buildCanonicalUrl(siteContext.hostname, "/") },
+        { name: cat.name, url: canonicalUrl },
+      ],
+    }),
   ].join("\n");
   const body =
     `<h1>${escapeHtml(cat.name)}</h1>` +
@@ -170,6 +200,13 @@ export function renderPageHtml(
       url: canonicalUrl,
       name: row.title,
       dateModified: row.updated_at ? isoDate(row.updated_at) : undefined,
+    }),
+    // GEO checklist §2: content routes emit a root-first BreadcrumbList.
+    renderBreadcrumbJsonLd({
+      items: [
+        { name: "Home", url: buildCanonicalUrl(siteContext.hostname, "/") },
+        { name: row.title, url: canonicalUrl },
+      ],
     }),
   ].join("\n");
   return wrapHtmlDocument(head, row.content_html ?? "");
