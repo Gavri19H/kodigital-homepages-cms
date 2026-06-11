@@ -80,6 +80,13 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
   "GUARDRAILS.md",
   "implementation_digest.md",
   "implementation_digest.json",
+  // cms-rescue-2 mission docs (story A1): the rescue brief + decoded design
+  // contract + ship handoff docs reference legacy identifiers as red lines.
+  "docs/RESCUE_RESET_CONTEXT.md",
+  "docs/MISSION-CMS-RESCUE-2.md",
+  "docs/design-contract.md",
+  "SHIP_HANDOFF.md",
+  "manualQA.md",
 ];
 
 // Files that legitimately contain Group B identifiers: everything in

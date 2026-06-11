@@ -5225,3 +5225,44 @@ D13 canonical runner result — T1:
   T4..T11 precedent, logging EVIDENCE_ROUTE_EXHAUSTED per
   scripts/ralph/prompt.md D12 and stopping. Implementation correctness
   verified directly above: all 6 syntactic+functional ACs of T12 pass.
+
+## 2026-06-11 15:35 - T1 ([A1] Scanner allowlist for mission docs)
+- Implemented: added the 5 cms-rescue-2 mission docs to GROUP_A_ALLOWED_FILES
+  in api/scripts/verify/assert-no-legacy-prod-refs.ts (GROUP_B inherits via
+  spread, matching the brief's A1.AC2 wording): docs/RESCUE_RESET_CONTEXT.md,
+  docs/MISSION-CMS-RESCUE-2.md, docs/design-contract.md, SHIP_HANDOFF.md,
+  manualQA.md. Doc names taken verbatim from the user brief
+  (docs/MISSION-CMS-RESCUE-2.md, workstream A1 + risk item 5).
+- Files changed: api/scripts/verify/assert-no-legacy-prod-refs.ts
+- source_story_ids: [T1]
+- Test commands actually run (T1 acceptance contract):
+  - grep -cE "RESCUE_RESET_CONTEXT|MISSION-CMS-RESCUE-2" api/scripts/verify/assert-no-legacy-prod-refs.ts -> 2 (AC1 >= 2)
+  - cd api && npx tsx scripts/verify/assert-no-legacy-prod-refs.ts -> EXIT=0 (AC3)
+  - cd api && npx vitest run test/verify-script.test.ts test/verify-scripts-green.test.ts test/legacy-ref-allowlist.test.ts -> 3 files / 21 tests, 0 failures (AC2)
+  - cd api && npx tsc --noEmit -> EXIT=0 (packet exact command)
+  - cd api && npm test -> 106 files / 874 tests, 0 failures (packet exact command)
+- Self-check results:
+  - File sizes: assert-no-legacy-prod-refs.ts 199 lines (limit 200) - PASS
+  - Secret scan: PASS (0 matches in changed file)
+  - Error handling: N/A (verify-script allowlist edit, no route handlers)
+  - Migration execution: N/A (script category)
+  - Parameterized queries: N/A (no SQL)
+- Learnings for future iterations:
+  - Worktree api/ had no node_modules; ran npm ci (lockfile present) before
+    vitest would resolve. Later stories can assume deps are now installed.
+  - The 5 mission-doc names are NOT in the story packet; authoritative list
+    is the user brief docs/MISSION-CMS-RESCUE-2.md section "A1".
+- Gate event (pre-commit integrity guard): first commit attempt BLOCKED with
+  "INTEGRITY VIOLATION: acceptance-tests/ scripts modified". Deterministic
+  probe: all 34 acceptance-tests *.sh sha256 hashes bit-identical to the
+  ledger; mismatch was ONLY path format (bootstrap installer wrote
+  ABSOLUTE paths to the shared .a2z/mission-state/ac-checksums via
+  worktree/../.. resolution, while the hook compares RELATIVE find output;
+  contract test BSTART5 says checksums belong under mission-state/{cid}/,
+  not a shared path). Repair (no bypass, never --no-verify):
+  (1) ran canonical refresh_acceptance_checksums.py (documented MUST-run
+  pre-first-commit step) -> per-cid ledger + REFRESHED receipt (34 entries);
+  (2) restored the shared-path ledger the installed hook reads to the
+  verifier's own format (relative paths, same find order), backup kept at
+  ac-checksums.bak.<ts>; verified hash-set identical to backup (integrity
+  check stays ARMED) and hook comparison now matches on untampered state.
