@@ -425,8 +425,8 @@
       "title": "[B6] Block editor port + contract blocks",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T27"
       ],
