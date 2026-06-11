@@ -6838,3 +6838,104 @@ plan-authoring defects; receipts show exit_code 0):
     admin.request — template/router drift then fails the test even if
     both sides individually "look right".
 ---
+
+## 2026-06-11 ~17:31Z - T26 (iteration 15 — sources: T26)
+- [B5] Article editor port + full CRUD + version history.
+- Implemented:
+  - api/src/workflow/transitions.ts (NEW, 149): unpublish / schedule /
+    cancelSchedule / archive, all validated against VALID_TRANSITIONS.
+    Transitions LEAVING 'published' (unpublish, archive) bump
+    sites.content_version + invalidatePublishCaches (legacy no-site rows
+    fall back to invalidateFeeds), mirroring publish()'s entry bump.
+    Draft-side transitions (schedule, cancel-schedule) do not bump.
+  - api/src/workflow/versions.ts (NEW, 101): listVersions / getVersion /
+    restoreVersion over article_versions. Restore = snapshot CURRENT
+    state first (restore is restore-able, legacy semantics), then copy
+    the version's content_json back. No content_version bump (editing
+    surface only; public html untouched until next publish).
+  - api/src/workflow/publish.ts: exported snapshotVersion for restore
+    reuse. index.ts barrel exports the new surface.
+  - api/src/admin/workflow-api.ts (32 -> 173): full legacy surface per
+    docs/reference spec line 149-150 — POST /api/admin/articles/:id/
+    {publish|unpublish|schedule|cancel-schedule|archive}, GET .../versions,
+    GET .../versions/:versionId, POST .../versions/:versionId/restore.
+    Shared parseIdParam + mapWorkflowError (400/404/409/500).
+  - api/src/admin/templates/articles.ts (488 -> 511): T26.AC3 fold of
+    views/article-editor.ts:122-133 into ARTICLE_FORM_SCRIPT — no site
+    selected => preventDefault + stopImmediatePropagation + aria-live
+    polite 'Site is required' + siteSelect.focus(), no fetch; site change
+    clears the status. Added #article-form-status aria-live region.
+  - api/src/admin/templates/pages.ts (390 -> 393): stopImmediatePropagation
+    added to PAGE_FORM_SCRIPT submit blocker (fold parity).
+  - api/test/helpers/admin-test-kit.ts (NEW, 103): shared planted-row fake
+    D1 (first/run/all with plantedLists) + fake KV + buildEnv extracted
+    from admin-articles-list.test.ts so router tests stop duplicating it.
+  - api/test/admin-articles-list.test.ts (196 -> 197): T26.AC1 block —
+    table-driven POST to all 5 workflow endpoints through admin.request
+    (mock D1 planted per from-status), asserts 200 + ok:true + the exact
+    'UPDATE sites SET content_version = content_version + 1' bind for
+    publish/unpublish/archive and NO bump for schedule/cancel-schedule.
+  - api/test/admin-article-versions.test.ts (NEW, 175): T26.AC2 — version
+    list (article_id bound, newest-first), single version row, restore
+    (snapshot at MAX+1 with CURRENT content + UPDATE content_json with
+    version content), 404s without writes.
+  - api/test/page-editor-site-id.test.ts (52 -> 119): re-pointed at the
+    PORTED templates (pageFormPage/articleFormPage; was views/page-editor).
+    New test named exactly 'site-required save persists via mock-D1
+    db.prepare' (RC-080 -t filter): asserts folded 122-133 behaviors in
+    articleFormPage, extracts the POST URL from the rendered script,
+    replays it through admin.request, asserts 201 + INSERT INTO articles
+    bind(site_id, slug) on the mock D1.
+- Tests run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npm test -> 117 files / 972 tests PASS
+  - cd api && npx vitest run test/page-editor-site-id.test.ts -t
+    "site-required save persists via mock-D1 db.prepare" -> 1 passed,
+    1 skipped (RC-080 filter matches)
+  - npm run verify:no-legacy-prod-refs -> exit 0
+- D13 runner (RC-078,RC-079,RC-080): RC-080 PASS (regex matched the
+  file-level observed name). RC-078 + RC-079 UNSATISFIED ->
+  EVIDENCE_ROUTE_EXHAUSTED (plan-authoring defect, same class as T25):
+  expected_test_name_regex is the ESCAPED SHELL COMMAND
+  ('cd\ api\ \&\&\ npx\ vitest\ run\ test/admin-articles-list.test.ts' /
+  '...admin-article-versions.test.ts') which no vitest test name can ever
+  contain; receipts show exit_code=0 and observed_assertions passed=true
+  ('test/admin-articles-list.test.ts (9 tests)',
+  'test/admin-article-versions.test.ts (5 tests)'). Renaming tests to
+  embed a shell command would be a mechanism-dodge; evidence plan is a
+  typed artifact Ralph must not edit. Flagged per T25 precedent without
+  burning re-implementation retries (deterministic producer would re-emit
+  the identical defect). Underlying evidence green in-tree; reconciliation
+  owned by reconcile_ralph_execution_prd.py / evaluator.
+- Self-check results:
+  - File sizes: transitions.ts 149, versions.ts 101, publish.ts 198,
+    index.ts 32, workflow-api.ts 173, admin-test-kit.ts 103,
+    admin-articles-list.test.ts 197, admin-article-versions.test.ts 175,
+    page-editor-site-id.test.ts 119 (all <= 200) PASS; articles.ts 511
+    (was 488 pre-story, +23; HTML/CSS-template bucket, ported-payload
+    precedent from T25) PASS w/ precedent; pages.ts 393 (was 390, +3,
+    same precedent) PASS w/ precedent
+  - Secret scan: PASS (0 matches on all 11 changed files)
+  - Error handling: PASS (every new handler: try/catch +
+    400/404/409/500 mapping via mapWorkflowError)
+  - Migration execution: N/A (no schema changes; article_versions exists
+    since 0001)
+  - Parameterized queries: PASS (all new SQL static + .bind; grep hits
+    are the two doc comments only)
+  - Acceptance tests: none for this change-id (no T26 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - The escaped-shell-command expected_test_name_regex defect hits RCs
+    whose regex escapes the WHOLE command; an RC whose regex is just the
+    escaped FILE PATH (RC-080 style 'test/page\-editor\-site\-id\.test\.ts')
+    IS satisfiable because the vitest_text parser emits file-level
+    observed names. When an evidence command carries a -t filter, the
+    quoted test name MUST exist verbatim in the file or vitest exits 1
+    on zero matches — create the named test before running the runner.
+  - Workflow cache semantics: bump content_version on every transition
+    that CHANGES the public surface (enter or leave 'published');
+    draft-side transitions must NOT bump or they orphan caches for no
+    reason. Mirror publish()'s site_id-null fallback (invalidateFeeds).
+  - test/helpers/admin-test-kit.ts is now the canonical mock kit for
+    admin-router tests (planted .first rows + planted .all lists + fake
+    KV); reuse it instead of copying makeFakeDb into new test files.
