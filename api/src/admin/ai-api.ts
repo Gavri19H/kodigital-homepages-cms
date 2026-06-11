@@ -12,6 +12,11 @@
 // SUPPORTED_IMAGE_MODELS registry), PUTs the bytes to R2, inserts a media
 // row, and writes an ai_generations receipt row. The route is wrapped in
 // hono's bodyLimit — prompt JSON only, never image payloads.
+//
+// T20 [E3]: POST /api/admin/ai/logo is the REAL admin logo endpoint
+// (handler in ./ai-logo). It reuses the T8 logo generator
+// (generateLogoImage) and writes the resulting media id to
+// site_settings.logo_media_id for the posted site_id only.
 
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -24,6 +29,7 @@ import {
   startGenerationLog,
 } from "../ai/generation-log";
 import { handleAdminAiImage, IMAGE_BODY_LIMIT_BYTES } from "./ai-image";
+import { handleAdminAiLogo } from "./ai-logo";
 
 interface ChatBody {
   prompt?: string;
@@ -117,6 +123,12 @@ aiApi.post(
   "/api/admin/ai/image",
   bodyLimit({ maxSize: IMAGE_BODY_LIMIT_BYTES }),
   handleAdminAiImage,
+);
+
+aiApi.post(
+  "/api/admin/ai/logo",
+  bodyLimit({ maxSize: IMAGE_BODY_LIMIT_BYTES }),
+  handleAdminAiLogo,
 );
 
 export default aiApi;
