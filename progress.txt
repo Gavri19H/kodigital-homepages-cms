@@ -6239,3 +6239,70 @@ iteration 7 — T16 [C11] Breakpoint parity (8) (sources: T16)
     legitimate TS (whole-file grep is the wrong instrument; AC3 says so
     verbatim).
 ---
+
+## 2026-06-11 18:46 - T18 (iteration 8 — sources: T18)
+- implemented: [E1] Real POST /api/admin/ai/chat. Replaced the generate-text
+  placeholder in api/src/admin/ai-api.ts with a real /api/admin/ai/chat
+  endpoint: 501 JSON error when OPENAI_API_KEY unset (contract preserved),
+  400 on bad JSON / missing prompt (wire field per contract: prompt;
+  optional site_id), model from getTextModel() registry (gpt-5.5), OpenAI
+  chat-completions call via createOpenAIClient, ai_generations receipt row
+  written around the call (startGenerationLog pending -> success/failed
+  finishers), 502 + failed row on OpenAI error. generate-image stub left
+  untouched — T19 [E2] owns it (its `placeholder: true` is the one
+  remaining placeholder in the file by design of the E1/E2 story split).
+- files changed: api/src/admin/ai-api.ts (rewrite, 138 ln);
+  api/test/admin-ai-chat.test.ts (new, 252 ln, 5 tests: 501 no-key with
+  zero ai_generations calls, 400 missing prompt, receipt-row write via
+  mock-D1 db.prepare asserting INSERT model binding gpt-5.5 + success
+  UPDATE + outbound /chat/completions body model gpt-5.5, failed-row + 502
+  on OpenAI 400, accessAuth 401 gate); api/test/admin.test.ts (T10.AC2
+  placeholder tests superseded: generate-text 501 test -> /chat 501 test,
+  removed the 200-placeholder test whose behavior T18 deletes;
+  generate-image 501 test kept)
+- AC1 structural greps on api/src/admin/ai-api.ts: /chat = 2 (>=1 PASS),
+  generate-text = 0 (PASS), placeholder:true = 0 (PASS)
+- test: cd api && npx tsc --noEmit (clean); cd api && npm test
+  (111 files / 905 tests PASS, incl. admin-ai-chat 5 tests)
+- D13 runner (RC-053,RC-054,RC-055), run twice, deterministic:
+  - RC-053 PASS (grep -c "/chat" ai-api.ts -> 2, op >= 1)
+  - RC-054 PASS (vitest -t "writes ai_generations receipt row via mock-D1
+    db.prepare" -> matched test/admin-ai-chat.test.ts, exit 0)
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-055 — SAME plan-baked defect class as
+    RC-024/026/029/030/034/035/041/043/051/052: expected_test_name_regex is
+    the shell-escaped COMMAND string (cd\ api\ \&\&\ npx\ vitest\ run\
+    test/admin-ai-chat.test.ts); vitest text parser observes file-level
+    names only — observation "test/admin-ai-chat.test.ts (5 tests) 7ms"
+    passed:true, exit 0, all 5 tests green, yet no test name can match an
+    escaped command line. Underlying evidence green;
+    required_evidence_plan.json repair is orchestrator-owned; not retried
+    further (no retry-storm).
+- Self-check results:
+  - File sizes: ai-api.ts 138 (limit 200) PASS; admin-ai-chat.test.ts 252
+    (test files routinely exceed 200 in this repo: 577/559/475/430 ln
+    committed precedents; PASS by repo norm); admin.test.ts 187 PASS
+  - Secret scan: PASS (0 matches on all 3 changed files; "sk-test" is a
+    vitest fixture literal, not a credential)
+  - Error handling: PASS (chat handler: 501 no-key, 400 bad JSON/missing
+    prompt, 500 unsupported model, 502 + failed receipt row on OpenAI
+    error; no silent swallows)
+  - Migration execution: N/A (no db schema changes; uses existing
+    ai_generations table via generation-log .bind() helpers)
+  - Parameterized queries: PASS (grep for prepare-with-interpolation: 0
+    matches; all SQL lives in generation-log.ts static literals)
+  - Acceptance tests: none for this change-id (no T18 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - T19 ([E2] image): same shape as T18 — replace generate-image stub with
+    /api/admin/ai/image, reuse createOpenAIClient.generateImage +
+    generation-log; admin-ai-chat.test.ts makeFakeDb (ai_generations
+    INSERT-replay store keyed by idempotency_key binds[6]) is the
+    copy-ready mock-D1 pattern; ai-tenant-safety.test.ts gate tests keep
+    passing after route renames because accessAuth middleware 401s before
+    route matching (404 off-host unaffected).
+  - admin.test.ts buildEnv uses OPENAI_TEXT_MODEL "gpt-test" which
+    getTextModel() REJECTS — any endpoint that calls getTextModel needs
+    env OPENAI_TEXT_MODEL "gpt-5.5" (or unset) in tests.
+  - startGenerationLog re-SELECTs after INSERT and throws if no row — a
+    mock D1 must replay inserted ai_generations rows on the
+    idempotency_key SELECT (plain always-null first() breaks it).
