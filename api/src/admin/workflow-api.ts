@@ -1,9 +1,10 @@
 // Admin workflow API — the full legacy workflow + version-history surface
-// (T26 [B5]):
+// (T26 [B5]) plus the draft-preview link mint (T47 [G3]):
 //   POST /api/admin/articles/:id/{publish|unpublish|schedule|cancel-schedule|archive}
 //   GET  /api/admin/articles/:id/versions
 //   GET  /api/admin/articles/:id/versions/:versionId
 //   POST /api/admin/articles/:id/versions/:versionId/restore
+//   POST /api/admin/articles/:id/preview-link
 // Wraps the src/workflow module with HTTP error-shape mapping so the admin
 // UI sees a JSON 4xx/5xx instead of an unhandled exception.
 
@@ -13,6 +14,7 @@ import type { Env } from "../env";
 import {
   archive,
   cancelSchedule,
+  createPreviewLink,
   getVersion,
   listVersions,
   publish,
@@ -169,5 +171,30 @@ workflowApi.post(
     }
   },
 );
+
+// T47 ([G3]): mint a draft-preview link behind the /api/admin/*
+// accessAuth gate (admin/router.ts). Optional wire field `version_id`
+// pins a snapshot; omitted, the draft is snapshotted on demand.
+workflowApi.post("/api/admin/articles/:id/preview-link", async (c) => {
+  const id = parseIdParam(c, "id");
+  if (id === null) return c.json({ error: "Invalid article id" }, 400);
+  const secret = c.env.PREVIEW_SECRET;
+  if (!secret) return c.json({ error: "Preview is not configured" }, 500);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const raw = body.version_id;
+  let versionId: number | undefined;
+  if (raw !== undefined && raw !== null) {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+      return c.json({ error: "Invalid version_id" }, 400);
+    }
+    versionId = raw;
+  }
+  try {
+    const link = await createPreviewLink(c.env, secret, id, versionId);
+    return c.json({ ok: true, ...link });
+  } catch (err) {
+    return mapWorkflowError(c, err, "preview-link failed");
+  }
+});
 
 export default workflowApi;

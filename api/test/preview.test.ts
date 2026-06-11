@@ -5,11 +5,19 @@ import preview, {
   verifyPreviewToken,
   type PreviewPayload,
 } from "../src/preview";
+import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 
 interface VersionRow {
   id: number;
   article_id: number;
+  version_number: number;
+  content_json: string;
+  status: string;
+}
+
+interface ArticleRowLite {
+  id: number;
   content_json: string;
   status: string;
 }
@@ -21,24 +29,54 @@ const DRAFT_BLOCKS = JSON.stringify({
   blocks: [{ type: "paragraph", data: { text: "Draft body" } }],
 });
 
-function makeFakeDb(versions: VersionRow[]): D1Database {
+// Fake D1 covering the preview render SQL plus the preview-link mint SQL
+// (articles lookup, latest/MAX version, snapshot INSERT, getVersion).
+// `versions` is mutated by the INSERT so snapshot-on-demand is observable.
+function makeFakeDb(
+  versions: VersionRow[],
+  articles: ArticleRowLite[] = [],
+): D1Database {
   return {
     prepare(sql: string) {
       let bound: unknown[] = [];
+      const byArticle = (articleId: number) =>
+        versions.filter((v) => v.article_id === articleId);
       const stmt = {
         bind(...args: unknown[]) {
           bound = args;
           return stmt;
         },
         async first<T = unknown>(): Promise<T | null> {
+          if (sql.includes("FROM articles WHERE id = ?")) {
+            const [id] = bound as [number];
+            return (articles.find((a) => a.id === id) ?? null) as T | null;
+          }
+          if (sql.includes("ORDER BY version_number DESC LIMIT 1")) {
+            const [articleId] = bound as [number];
+            const row = byArticle(articleId).sort(
+              (a, b) => b.version_number - a.version_number,
+            )[0];
+            return row
+              ? ({ id: row.id, content_json: row.content_json } as T)
+              : null;
+          }
+          if (sql.includes("MAX(version_number)")) {
+            const [articleId] = bound as [number];
+            const max = byArticle(articleId).reduce(
+              (m, v) => Math.max(m, v.version_number),
+              0,
+            );
+            return { max_version: max } as T;
+          }
           if (sql.includes("FROM article_versions WHERE id = ? AND article_id = ?")) {
             const [versionId, articleId] = bound as [number, number];
             const row = versions.find((v) => v.id === versionId && v.article_id === articleId);
             if (!row) return null;
             return {
-              content_json: row.content_json,
-              status: row.status,
-              article_id: row.article_id,
+              ...row,
+              created_by: null,
+              change_summary: null,
+              created_at: 0,
             } as unknown as T;
           }
           return null;
@@ -47,6 +85,21 @@ function makeFakeDb(versions: VersionRow[]): D1Database {
           return { results: [] as T[], success: true, meta: {} };
         },
         async run() {
+          if (sql.startsWith("INSERT INTO article_versions")) {
+            const [articleId, versionNumber, contentJson, status] = bound as [
+              number,
+              number,
+              string,
+              string,
+            ];
+            versions.push({
+              id: versions.reduce((m, v) => Math.max(m, v.id), 0) + 1,
+              article_id: articleId,
+              version_number: versionNumber,
+              content_json: contentJson,
+              status,
+            });
+          }
           return { success: true, meta: {} };
         },
       };
@@ -55,7 +108,11 @@ function makeFakeDb(versions: VersionRow[]): D1Database {
   } as unknown as D1Database;
 }
 
-function buildEnv(db: D1Database, secret: string | undefined): Env {
+function buildEnv(
+  db: D1Database,
+  secret: string | undefined,
+  overrides: Partial<Env> = {},
+): Env {
   return {
     DB: db,
     CACHE: {} as KVNamespace,
@@ -71,6 +128,7 @@ function buildEnv(db: D1Database, secret: string | undefined): Env {
     PREVIEW_SECRET: secret,
     SITE_PROVISIONING_DRY_RUN: "true",
     SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
+    ...overrides,
   };
 }
 
@@ -129,7 +187,7 @@ describe("preview module: HMAC-signed short-lived token sign/verify", () => {
   });
 
   it("BEHAVIORAL T11.AC3: GET /preview/<articleId> with valid signed token renders the draft (200)", async () => {
-    const versions = [{ id: 3, article_id: 7, content_json: DRAFT_BLOCKS, status: "draft" }];
+    const versions = [{ id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" }];
     const token = await tokenFor(validPayload);
     const res = await getPreview(`/preview/7?token=${encodeURIComponent(token)}`, versions);
     expect(res.status).toBe(200);
@@ -140,7 +198,7 @@ describe("preview module: HMAC-signed short-lived token sign/verify", () => {
   });
 
   it("BEHAVIORAL T11.AC3: GET /preview/<articleId> with tampered token returns 401", async () => {
-    const versions = [{ id: 3, article_id: 7, content_json: DRAFT_BLOCKS, status: "draft" }];
+    const versions = [{ id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" }];
     const token = await tokenFor(validPayload);
     const tampered = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
     const res = await getPreview(`/preview/7?token=${encodeURIComponent(tampered)}`, versions);
@@ -148,14 +206,14 @@ describe("preview module: HMAC-signed short-lived token sign/verify", () => {
   });
 
   it("BEHAVIORAL T11.AC3: GET /preview/<articleId> with expired token returns 401", async () => {
-    const versions = [{ id: 3, article_id: 7, content_json: DRAFT_BLOCKS, status: "draft" }];
+    const versions = [{ id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" }];
     const token = await tokenFor({ ...validPayload, exp: PAST_EXP });
     const res = await getPreview(`/preview/7?token=${encodeURIComponent(token)}`, versions);
     expect(res.status).toBe(401);
   });
 
   it("rejects when token's articleId does not match URL id (401)", async () => {
-    const versions = [{ id: 3, article_id: 7, content_json: DRAFT_BLOCKS, status: "draft" }];
+    const versions = [{ id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" }];
     const token = await tokenFor({ ...validPayload, articleId: 99 });
     const res = await getPreview(`/preview/7?token=${encodeURIComponent(token)}`, versions);
     expect(res.status).toBe(401);
@@ -169,5 +227,118 @@ describe("preview module: HMAC-signed short-lived token sign/verify", () => {
     expect(
       (await getPreview(`/preview/7?token=${encodeURIComponent(token)}`, [])).status,
     ).toBe(404);
+  });
+});
+
+// T47 ([G3]): the mint endpoint lives behind the /api/admin/* accessAuth
+// gate (admin/router.ts), so requests go through the full admin router.
+// Wire field: `version_id` (optional JSON body).
+describe("POST /api/admin/articles/:id/preview-link (T47 [G3])", () => {
+  const draftArticle: ArticleRowLite = {
+    id: 7,
+    content_json: DRAFT_BLOCKS,
+    status: "draft",
+  };
+
+  function postLink(body?: unknown): RequestInit {
+    return body === undefined
+      ? { method: "POST" }
+      : {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        };
+  }
+
+  it("is gated by accessAuth (401 without bypass)", async () => {
+    const db = makeFakeDb([], [{ ...draftArticle }]);
+    const res = await admin.request(
+      "/api/admin/articles/7/preview-link",
+      postLink(),
+      buildEnv(db, SECRET),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("mints a link that renders the draft end-to-end (snapshot-on-demand) with noindex + no-store", async () => {
+    const versions: VersionRow[] = [];
+    const db = makeFakeDb(versions, [{ ...draftArticle }]);
+    const env = buildEnv(db, SECRET, { DEV_BYPASS_AUTH: "true" });
+
+    const res = await admin.request(
+      "/api/admin/articles/7/preview-link",
+      postLink(),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const link = (await res.json()) as {
+      ok: boolean;
+      preview_url: string;
+      version_id: number;
+      expires_at: number;
+    };
+    expect(link.ok).toBe(true);
+    expect(link.preview_url).toMatch(/^\/preview\/7\?token=/);
+    expect(link.expires_at).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    expect(versions).toHaveLength(1);
+    expect(link.version_id).toBe(versions[0]!.id);
+
+    const page = await mountApp().request(
+      link.preview_url,
+      { method: "GET" },
+      env,
+    );
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Draft body");
+    expect(page.headers.get("cache-control") ?? "").toContain("no-store");
+    expect(page.headers.get("x-robots-tag") ?? "").toContain("noindex");
+  });
+
+  it("reuses a matching snapshot and honors an explicit version_id", async () => {
+    const versions: VersionRow[] = [
+      { id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" },
+    ];
+    const db = makeFakeDb(versions, [{ ...draftArticle }]);
+    const env = buildEnv(db, SECRET, { DEV_BYPASS_AUTH: "true" });
+
+    const reuse = await admin.request(
+      "/api/admin/articles/7/preview-link",
+      postLink(),
+      env,
+    );
+    expect(reuse.status).toBe(200);
+    expect(((await reuse.json()) as { version_id: number }).version_id).toBe(3);
+    expect(versions).toHaveLength(1);
+
+    const pinned = await admin.request(
+      "/api/admin/articles/7/preview-link",
+      postLink({ version_id: 3 }),
+      env,
+    );
+    expect(pinned.status).toBe(200);
+    expect(((await pinned.json()) as { version_id: number }).version_id).toBe(3);
+  });
+
+  it("404s unknown article/version, 400s bad version_id, 500s without PREVIEW_SECRET", async () => {
+    const versions: VersionRow[] = [
+      { id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" },
+    ];
+    const db = makeFakeDb(versions, [{ ...draftArticle }]);
+    const env = buildEnv(db, SECRET, { DEV_BYPASS_AUTH: "true" });
+
+    expect(
+      (await admin.request("/api/admin/articles/999/preview-link", postLink(), env)).status,
+    ).toBe(404);
+    expect(
+      (await admin.request("/api/admin/articles/7/preview-link", postLink({ version_id: 999 }), env)).status,
+    ).toBe(404);
+    expect(
+      (await admin.request("/api/admin/articles/7/preview-link", postLink({ version_id: "x" }), env)).status,
+    ).toBe(400);
+
+    const noSecret = buildEnv(db, undefined, { DEV_BYPASS_AUTH: "true" });
+    expect(
+      (await admin.request("/api/admin/articles/7/preview-link", postLink(), noSecret)).status,
+    ).toBe(500);
   });
 });

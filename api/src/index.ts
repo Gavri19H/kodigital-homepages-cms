@@ -24,7 +24,8 @@
 // MUST be registered before publicRouter, otherwise /:slug would shadow
 // it. Specifically:
 //   - /health           — main app's literal route (public liveness).
-//   - /preview/:id      — previewRouter wins over publicRouter's 501.
+//   - /preview/:id      — previewRouter (HMAC token gate; links minted
+//                         via POST /api/admin/articles/:id/preview-link).
 //   - /media/*          — mediaRouter (R2 serve) and POST /admin/media.
 //   - /admin*, /api/admin/*  — adminRouter (shell + JSON CRUD).
 //   - /api/privacy/*    — privacyRouter (public, unauthenticated).

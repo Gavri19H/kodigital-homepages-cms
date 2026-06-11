@@ -1,5 +1,6 @@
 // Public router: the Phase-1 public routes (article/category/page/feeds/
-// sitemap/robots/ads/preview/health) plus the /:slug compatibility catch-all.
+// sitemap/robots/ads/health) plus the /:slug compatibility catch-all.
+// Draft preview (/preview/:id) is owned by the dedicated previewRouter.
 // /:slug calls isReservedPath() FIRST so the admin slug never shadows the
 // dedicated admin handler in api/src/index.ts.
 //
@@ -375,9 +376,10 @@ router.get("/ads.txt", async (c) => {
   });
 });
 
-router.get("/preview/:id", (c) => {
-  return c.json({ ok: false, error: "Preview not yet wired" }, 501);
-});
+// T47 ([G3]): /preview/:id is owned by the dedicated previewRouter
+// (src/preview), mounted in index.ts BEFORE this router — token-gated
+// draft rendering never flows through the public-content pipeline. The
+// /:slug catch-all below keeps "preview" reserved via isReservedPath().
 
 router.get("/health", (c) =>
   c.json({ ok: true, app: "kodigital-homepages-cms", scope: "public" }),

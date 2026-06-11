@@ -30,3 +30,8 @@ export type {
   ArticleVersionRow,
   RestoreResult,
 } from "./versions";
+export {
+  createPreviewLink,
+  PREVIEW_TOKEN_TTL_SECONDS,
+} from "./preview-link";
+export type { PreviewLink } from "./preview-link";
