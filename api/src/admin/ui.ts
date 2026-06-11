@@ -25,6 +25,8 @@ import {
   mediaListPage,
   settingsPage,
   presetsListPage,
+  presetFormPage,
+  type PresetFormEntry,
   aiGenerationsListPage,
   aiGenerationDetailPage,
   aiGenerationNotFoundPage,
@@ -32,6 +34,11 @@ import {
   type AiGenerationDetailEntry,
 } from './templates';
 import * as data from './data';
+import {
+  isValidPresetId,
+  SELECT_PRESET_BY_ID,
+  type PresetRow,
+} from './ai-presets';
 import type { AiGenerationRow } from '../ai/generation-log';
 
 type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
@@ -197,10 +204,40 @@ adminUi.get('/admin/media', async (c) => {
   return c.html(mediaListPage(media, sites, branding(c), siteId ?? null));
 });
 
-// 12/13 — AI Presets read-only list.
+// 12/13 — AI Presets list + T33 [B12] create/edit forms. /new must be
+// registered before /:id so the literal segment wins the match. Both
+// form routes render presetFormPage; the edit route loads the full
+// prompt_presets row via the shared SELECT_PRESET_BY_ID contract from
+// ai-presets.ts. An invalid or missing :id falls back to the create
+// form (null preset), matching the articles/pages editor precedent.
 adminUi.get('/admin/presets', async (c) => {
   const presets = await data.listAdminPresets(c.env);
   return c.html(presetsListPage(presets, branding(c)));
+});
+
+adminUi.get('/admin/presets/new', async (c) => {
+  return c.html(presetFormPage(null, branding(c)));
+});
+
+adminUi.get('/admin/presets/:id', async (c) => {
+  const id = c.req.param('id');
+  const row = isValidPresetId(id)
+    ? await c.env.DB.prepare(SELECT_PRESET_BY_ID).bind(id).first<PresetRow>()
+    : null;
+  const preset: PresetFormEntry | null = row
+    ? {
+        id: row.id,
+        slug: row.slug,
+        prompt_template: row.prompt_template,
+        category: row.category,
+        variables: row.variables,
+        is_system: row.is_system,
+        is_active: row.is_active,
+        text_model: row.text_model,
+        image_model: row.image_model,
+      }
+    : null;
+  return c.html(presetFormPage(preset, branding(c)));
 });
 
 // T10 — AI Generations list shell. The HTML page is a thin wrapper

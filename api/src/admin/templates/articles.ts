@@ -17,7 +17,7 @@
 // below the form — preset select fed by GET /api/admin/ai/presets, generate
 // actions on POST /api/admin/ai/chat and /api/admin/ai/image.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
 import {
   aiAssistantScripts,
@@ -106,16 +106,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "published", label: "Published" },
   { value: "archived", label: "Archived" },
 ];
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function selectedAttr(a: string | undefined, b: string): string {
   return a === b ? " selected" : "";

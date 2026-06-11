@@ -10,7 +10,7 @@
 // every dynamic value rendered into modal innerHTML goes through
 // escapeHtmlJs first.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 
 export interface SiteOption {
   id: string;
@@ -37,16 +37,6 @@ const KIND_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "video", label: "video" },
   { value: "document", label: "document" },
 ];
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) { return str; }

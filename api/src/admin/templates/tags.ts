@@ -5,7 +5,7 @@
 // column. GET /api/admin/tags?site_id=<id> returns site tags + globals;
 // site_id=__global__ returns NULL-only.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 
 export interface SiteOption {
   id: string;
@@ -23,16 +23,6 @@ export interface TagListEntry {
 
 export interface TagsBranding {
   userEmail?: string;
-}
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string | null): string {

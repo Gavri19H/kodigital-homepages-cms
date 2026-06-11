@@ -9,7 +9,7 @@
 // generation record from articles / pages / provisioning jobs can read
 // it from the DOM via a single selector.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 
 export interface AiGenerationListEntry {
   id: string;
@@ -32,16 +32,6 @@ export interface AiGenerationsPaging {
   total: number;
   next_url?: string | null;
   prev_url?: string | null;
-}
-
-function escapeHtml(input: string | number | null | undefined): string {
-  if (input === undefined || input === null) return "";
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function renderRow(g: AiGenerationListEntry): string {

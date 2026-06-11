@@ -6,7 +6,7 @@
 // single category to belong to multiple verticals (e.g. "Healthy Meals" =>
 // health + food + parenting), persisted via the category_verticals join.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 
 export interface SiteOption {
   id: string;
@@ -37,16 +37,6 @@ const VERTICAL_SLUGS: ReadonlyArray<string> = [
   "tech",
   "lifestyle",
 ];
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string | null): string {
   const blank = `<option value="">All sites</option><option value="__global__">Global only</option>`;

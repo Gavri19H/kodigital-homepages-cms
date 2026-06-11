@@ -19,7 +19,7 @@
 // URL contains the actual site_id and never produces the legacy
 // "//" double-slash 404.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 
 export interface DomainEntry {
   id?: string;
@@ -40,16 +40,6 @@ export interface VerticalEntry {
 
 export interface DomainsBranding {
   userEmail?: string;
-}
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function renderRow(d: DomainEntry): string {
@@ -95,6 +85,21 @@ function renderToolbar(): string {
   return '<div class="toolbar">'
     + '<button type="button" id="open-new-site-modal" class="btn btn-primary">+ New Site</button>'
     + '</div>';
+}
+
+// T33 restyle: the provisioning status panel is server-rendered (hidden)
+// so it participates in the card styling like every other admin surface;
+// the modal script unhides and reuses THIS node instead of building one
+// from scratch. The data-launch-readiness slot is filled from the poll
+// body's launch_readiness field once update_launch_readiness (D6) starts
+// writing it — until then the row stays hidden.
+function renderProvisioningPanel(): string {
+  return '<section id="provisioning-status-panel" class="card provisioning-status" role="status" aria-live="polite" data-site-id="" hidden>'
+    + '<h3 data-panel-title>Provisioning</h3>'
+    + '<p data-status>Idle</p>'
+    + '<ul data-steps></ul>'
+    + '<p class="launch-readiness" data-launch-readiness hidden>Launch readiness: <span data-launch-readiness-value>pending</span></p>'
+    + '</section>';
 }
 
 function renderTable(rows: string): string {
@@ -176,18 +181,52 @@ var MODAL_SCRIPT = '(function(){'
   + 'tr.innerHTML="<td>"+escapeText(d.domain)+"</td><td>"+escapeText(d.name)+"</td><td>"+escapeText(d.vertical_slug)+"</td><td>"+escapeText(d.activity||"main")+"</td><td>provisioning</td><td>0</td><td>"+escapeText(d.created)+"</td><td></td><td></td>";'
   + 'tbody.appendChild(tr);'
   + '}'
-  + 'function startProvisioningPanel(siteId,domain){'
-  + 'var existing=document.getElementById("provisioning-status-panel");'
-  + 'if(existing&&existing.parentNode){existing.parentNode.removeChild(existing);}'
+  + 'function buildPanelSkeleton(){'
   + 'var panel=document.createElement("section");'
   + 'panel.id="provisioning-status-panel";'
   + 'panel.className="card provisioning-status";'
-  + 'panel.setAttribute("data-site-id",siteId||"");'
-  + 'panel.innerHTML="<h3>Provisioning "+escapeText(domain)+"</h3><p data-status>Starting...</p><ul data-steps></ul>";'
+  + 'var title=document.createElement("h3");'
+  + 'title.setAttribute("data-panel-title","");'
+  + 'title.textContent="Provisioning";'
+  + 'panel.appendChild(title);'
+  + 'var status=document.createElement("p");'
+  + 'status.setAttribute("data-status","");'
+  + 'status.textContent="Starting...";'
+  + 'panel.appendChild(status);'
+  + 'var steps=document.createElement("ul");'
+  + 'steps.setAttribute("data-steps","");'
+  + 'panel.appendChild(steps);'
+  + 'var readiness=document.createElement("p");'
+  + 'readiness.setAttribute("data-launch-readiness","");'
+  + 'readiness.hidden=true;'
+  + 'readiness.textContent="Launch readiness: ";'
+  + 'var readinessValue=document.createElement("span");'
+  + 'readinessValue.setAttribute("data-launch-readiness-value","");'
+  + 'readinessValue.textContent="pending";'
+  + 'readiness.appendChild(readinessValue);'
+  + 'panel.appendChild(readiness);'
+  + 'return panel;'
+  + '}'
+  + 'function startProvisioningPanel(siteId,domain){'
+  // T33 restyle: reuse the server-rendered #provisioning-status-panel
+  // card (unhide + reset) so the panel keeps the page styling; the
+  // skeleton-builder branch survives only as a fallback for stale DOMs.
+  + 'var panel=document.getElementById("provisioning-status-panel");'
+  + 'if(!panel){'
+  + 'panel=buildPanelSkeleton();'
   + 'var toolbar=document.querySelector(".toolbar");'
   + 'if(toolbar&&toolbar.parentNode){toolbar.parentNode.insertBefore(panel,toolbar.nextSibling);}else{document.body.appendChild(panel);}'
+  + '}'
+  + 'panel.hidden=false;'
+  + 'panel.setAttribute("data-site-id",siteId||"");'
+  + 'var titleEl=panel.querySelector("[data-panel-title]");'
+  + 'if(titleEl){titleEl.textContent="Provisioning "+String(domain==null?"":domain);}'
   + 'var statusEl=panel.querySelector("[data-status]");'
+  + 'if(statusEl){statusEl.textContent="Starting...";}'
   + 'var stepsEl=panel.querySelector("[data-steps]");'
+  + 'while(stepsEl&&stepsEl.firstChild){stepsEl.removeChild(stepsEl.firstChild);}'
+  + 'var readinessRow=panel.querySelector("[data-launch-readiness]");'
+  + 'var readinessValue=panel.querySelector("[data-launch-readiness-value]");'
   + 'function poll(){'
   + 'fetch("/api/admin/sites/"+encodeURIComponent(siteId||"")+"/provision",{method:"GET",credentials:"same-origin",headers:{"Accept":"application/json"}})'
   + '.then(function(r){return r.json().then(function(j){return{ok:r.ok,status:r.status,body:j};},function(){return{ok:r.ok,status:r.status,body:null};});})'
@@ -198,6 +237,7 @@ var MODAL_SCRIPT = '(function(){'
   + 'if(statusEl){statusEl.textContent="Status: "+state;}'
   + 'var steps=body.steps||[];'
   + 'if(stepsEl&&steps&&steps.length){var html="";for(var i=0;i<steps.length;i++){var s=steps[i]||{};html+="<li>"+escapeText(s.name||s.id||("step "+i))+": "+escapeText(s.state||s.status||"")+"</li>";}stepsEl.innerHTML=html;}'
+  + 'if(readinessRow&&readinessValue&&body.launch_readiness!==undefined&&body.launch_readiness!==null){readinessRow.hidden=false;readinessValue.textContent=String(body.launch_readiness);}'
   + 'if(state!=="completed"&&state!=="failed"&&state!=="ready"){window.setTimeout(poll,1500);}'
   + '})'
   + '.catch(function(){if(statusEl){statusEl.textContent="Network error";}window.setTimeout(poll,2500);});'
@@ -244,7 +284,7 @@ export function domainsPage(
 ): string {
   var rows = renderRows(domains);
   var options = renderVerticalOptions(verticals);
-  var content = renderToolbar() + renderTable(rows) + renderModal(options);
+  var content = renderToolbar() + renderProvisioningPanel() + renderTable(rows) + renderModal(options);
   return adminLayout({
     title: "Domains",
     activePath: "/admin/domains",

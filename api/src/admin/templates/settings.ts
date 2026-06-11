@@ -15,7 +15,7 @@
 // Brand text comes from adminLayout (KoDigital CMS); no legacy brand
 // strings are emitted from this template.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 
 export interface SiteOption {
   id: string;
@@ -42,16 +42,6 @@ export const SETTING_KEYS: ReadonlyArray<string> = [
   "contact_email",
   "privacy_email",
 ];
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function settingValue(values: SettingsValueMap, key: string): string {
   const raw = values[key];

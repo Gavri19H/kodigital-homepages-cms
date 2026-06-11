@@ -19,15 +19,7 @@
 // image results as image blocks with src/media_id.
 
 import { SUPPORTED_IMAGE_MODELS, SUPPORTED_TEXT_MODELS } from "../../ai/models";
-
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+import { escapeHtml } from "./layout";
 
 export function renderAIAssistantPanel(): string {
   const textModels = escapeHtml(SUPPORTED_TEXT_MODELS.join(", "));

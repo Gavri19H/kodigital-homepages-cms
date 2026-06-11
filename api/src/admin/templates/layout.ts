@@ -49,8 +49,13 @@ const BRAND_TEXT = "KoDigital CMS";
 
 const LOGO_BADGE = `<svg width="32" height="32" viewBox="0 0 32 32" fill="currentColor"><rect x="2" y="2" width="28" height="28" rx="4" fill="#2563eb"/><text x="16" y="22" text-anchor="middle" font-size="12" font-weight="bold" fill="white">KD</text></svg>`;
 
-function escapeHtml(input: string): string {
-  return input
+// Shared HTML-escaper for every admin template. T33 de-dup contract:
+// this export is the ONLY escapeHtml definition under
+// api/src/admin/templates/ — page templates import it from here instead
+// of carrying per-file copies.
+export function escapeHtml(input: string | number | undefined | null): string {
+  if (input === undefined || input === null) { return ""; }
+  return String(input)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

@@ -14,11 +14,10 @@
 // satisfied by the file's current content. This file closes the
 // HTTP-level wire contract that the static grep alone cannot prove.
 //
-// The route under test is api/src/admin/ui.ts:130 (`adminUi.get('/admin/pages', ...)`).
-// The renderer it calls is `pagesListPage` from
-// api/src/admin/templates/pages.ts (the CANONICAL template — see header
-// comments in both api/src/admin/templates/pages.ts and the legacy
-// api/src/admin/views/pages.ts for the two-templates split rationale).
+// The route under test is `adminUi.get('/admin/pages', ...)` in
+// api/src/admin/ui.ts. The renderer it calls is `pagesListPage` from
+// api/src/admin/templates/pages.ts (the CANONICAL template — the legacy
+// views/ peer was deleted with the final B-port fold, T33).
 //
 // T29 ([B8] Pages port + CRUD) adds the second describe block below:
 // behavioral coverage for POST/PATCH/DELETE /api/admin/pages(:id)

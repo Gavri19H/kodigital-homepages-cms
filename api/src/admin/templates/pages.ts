@@ -11,16 +11,12 @@
 // New mode submits POST /api/admin/pages; edit mode submits PATCH
 // /api/admin/pages/:id. Inline submit script is ES5-only.
 //
-// Two-templates split (RX4 / MQAFIX-4):
-//   - api/src/admin/templates/pages.ts (THIS FILE) is the CANONICAL renderer.
-//     api/src/admin/ui.ts mounts GET /admin/pages here via pagesListPage()
-//     and the related new/edit forms via pageFormPage(). This is the only
-//     template the application actually serves to browsers.
-//   - api/src/admin/views/pages.ts is a LEGACY peer retained ONLY for the
-//     T22 acceptance-test grep contract
-//     (acceptance-tests/.../T22_pages_tab_site_aware.sh greps the views/
-//     file for data-filter="site"/page_type/status). It is NOT imported
-//     by any application code and renders no live route.
+// api/src/admin/templates/pages.ts (THIS FILE) is the CANONICAL renderer:
+// api/src/admin/ui.ts mounts GET /admin/pages here via pagesListPage()
+// and the related new/edit forms via pageFormPage(). This is the only
+// template the application serves to browsers — the legacy views/ peer
+// (kept through RX4/MQAFIX-4 for an old change's acceptance grep) was
+// deleted with the final B-port fold (T33).
 // The Site filter wire name is the canonical column name `site_id` (the
 // legacy short form must not appear on any select). Enforced by
 // api/test/pages-template.test.ts (T6.AC1 contract) and
@@ -28,7 +24,7 @@
 // Do NOT rename the Site filter select away from the canonical wire
 // name without also updating both wire contracts.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
 
 export interface SiteOption {
@@ -98,16 +94,6 @@ function isLegalPageType(pt: string | undefined | null): boolean {
     if (LEGAL_PAGE_TYPES[i] === pt) { return true; }
   }
   return false;
-}
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function selectedAttr(a: string | undefined | null, b: string): string {

@@ -4,29 +4,35 @@
 // Two unrelated stories share this file because the file path itself is
 // the test_file binding for both — the T7 contract specifies this exact
 // filename (T7.AC1 FUNCTIONAL clause). Each story owns its own
-// describe() block; the T23 block continues to assert the renderer
-// surface and the T7 block asserts the POST handler surface.
+// describe() block; the T23 block asserts the renderer surface and the
+// T7 block asserts the POST handler surface.
+//
+// T33 [B12]: the renderer block targets the CANONICAL templates page
+// (categoriesListPage) — the legacy views/ peer it originally asserted
+// was deleted with the last B-port fold. The multi-vertical contract is
+// unchanged: a multi <select> (wire name vertical_ids per POST
+// /api/admin/categories), all 8 canonical vertical slugs selectable,
+// and a zero-verticals submit guard that never POSTs.
 //
 // T7 test_name_regex (POST /api/admin/categories writes category_verticals
 // rows) matches the top-level T7 describe-name verbatim so the canonical
 // runner test_name_regex binding is satisfied by name discovery alone.
 
 import { describe, it, expect } from "vitest";
-import { renderCategoriesView } from "../src/admin/views/categories";
+import { categoriesListPage } from "../src/admin/templates/categories";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 
 describe("admin categories editor (T23.AC2)", () => {
   it("category multi-vertical selection persists to category_verticals", () => {
-    const html = renderCategoriesView();
+    const html = categoriesListPage([], [{ id: "st_1", name: "Site One" }]);
 
-    // Multi-vertical <select multiple>: the contract grep is
-    // `(multiple).*verticals|verticals.*multiple` and at minimum needs
-    // one matching line. The editor renders <select ... multiple ...>
-    // with name="verticals[]" so submit serializes a multi-value field
-    // that the server splits into category_verticals rows.
+    // Multi-vertical <select multiple>: the toolbar filter and the New
+    // Category modal both render multi selects; the modal's wire name is
+    // the canonical vertical_ids field POST /api/admin/categories splits
+    // into category_verticals rows.
     expect(html).toMatch(/<select[^>]*multiple[^>]*>/);
-    expect(html).toMatch(/name="verticals\[\]"/);
+    expect(html).toMatch(/name="vertical_ids"/);
     expect(html).toMatch(/data-multi="true"/);
 
     // The eight canonical vertical slugs (T8 seed) are each present as
@@ -46,17 +52,14 @@ describe("admin categories editor (T23.AC2)", () => {
     }
 
     // Submit-blocking guard: when zero verticals are selected, the
-    // editor must surface a polite status message and never POST. The
-    // aria-live region and preventDefault wiring guarantee this.
-    expect(html).toMatch(/aria-live="polite"/);
+    // editor must surface the alert message and never POST. The
+    // role=alert region and preventDefault wiring guarantee this.
+    expect(html).toMatch(/role="alert"/);
     expect(html).toContain("Select at least one vertical");
     expect(html).toMatch(/preventDefault/);
-    expect(html).toMatch(/stopImmediatePropagation/);
 
-    // Smoke shell contract from T10.AC1 — categories view must keep
-    // the data-area and admin-shell marker so the integration suite
-    // still recognises the page.
-    expect(html).toMatch(/data-area="categories"/);
+    // Smoke shell contract — the canonical page renders inside the
+    // adminLayout shell, recognised by its marker.
     expect(html).toContain("kodigital-admin-shell");
   });
 });
