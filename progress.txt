@@ -8107,3 +8107,58 @@ iteration 21 — T33 (sources: T33)
   - vitest 'default' reporter hides passing per-test names from any
     stdout parser; 'verbose' is now the api package's committed
     reporter — do not revert it while evidence routes parse stdout.
+
+## 2026-06-11 ~21:38 UTC — T41 (iteration 25)
+iteration 25 — T41 [F2] GEO checklist conformance (sources: T41)
+- Implemented GEO checklist (docs/geo-checklist.md §1–§5) conformance on
+  the LIVE public render path (render-pages.ts — what the router caches):
+  - §1 FAQ: renderArticleHtml now extracts faqs from content_json via
+    adaptBodyBlocks and emits renderFaqJsonLd ONLY when faqs non-empty
+    (empty FAQPage emission is forbidden by the checklist; gating is at
+    the caller, the T9 emitter contract is unchanged).
+  - §2 Breadcrumbs: article + category + page renders now emit a
+    root-first BreadcrumbList (Home -> leaf) with absolute canonical-host
+    URLs via buildCanonicalUrl. Homepage still emits none. The category
+    crumb on article pages stays with the joined view-model path (T13);
+    this render layer has no category join.
+  - §3 Author: ArticleJsonLdInput gained optional authorType
+    ("Person"|"Organization", default Person — backward compatible);
+    anonymous articles (author_name null) now emit the publisher
+    Organization as author instead of a Person-typed hostname.
+  - §4 dates + §5 canonical byte-equality asserted in tests (renderer
+    already conformed structurally).
+- Files changed: api/src/public/render-pages.ts (+~40),
+  api/src/public/templates/jsonld-article.ts (authorType),
+  api/test/json-ld-article.test.ts (T41 describe block: 3 AC tests +
+  per-checklist-item assertions, BCL-070 "greps per checklist item").
+- EVIDENCE: D13 runner RC-122, RC-123, RC-124 = ALL PASS (deterministic
+  vitest_text parser, 'matched expected_test_name_regex'; receipt
+  artifact 154281b66593..., exit 0). AC test titles embed the literal
+  'cd api && npx vitest run test/json-ld-article.test.ts' (T40 pattern).
+- test commands actually run: cd api && npx vitest run
+  test/json-ld-article.test.ts (21/21 green); cd api && npm test
+  (run 1: 1 flake, run 2: 121 files / 1059 tests ALL green);
+  cd api && npx tsc --noEmit (clean); D13 runner for RC-122,123,124 (PASS).
+- **Self-check results:**
+  - File sizes: render-pages.ts 213 (limit 200; +36 for GEO JSON-LD
+    blocks, cohesive render helpers — router.ts-421 precedent),
+    jsonld-article.ts 185, json-ld-article.test.ts 456 (ported/AC-test
+    precedent, public-router.test.ts 279) — PASS w/ precedent.
+  - Secret scan: PASS (0 matches across changed files).
+  - Error handling: N/A (render helpers only; no new route handlers).
+  - Migration execution: N/A (no schema change).
+  - Parameterized queries: PASS (no new SQL; grep 'prepare.*${|`' -> 0).
+  - ES5 inline scripts: N/A (JSON-LD <script type=application/ld+json>
+    blocks are data, not executable JS).
+  - Acceptance tests: none for this change-id (T25-T40 precedent).
+- **Learnings for future iterations:**
+  - FLAKE (pre-existing, NOT T41): test/preview.test.ts 'tampered token
+    returns 401' failed once in a full-suite run (got non-401), passed
+    in isolation and on full-suite re-run. Suspect the tamper fixture
+    (flip last base64 char) can produce a token whose signature decodes
+    to identical bytes (trailing-bit base64 quirk) for some exp values.
+    Owner: T47/preview story — harden by flipping a MIDDLE char or
+    asserting on decoded-byte inequality.
+  - GEO conformance lives at the CALLER: the T9 emitters stay
+    unconditional; FAQPage/BreadcrumbList gating belongs to the render
+    layer. Do not change emitter empty-input behavior (T9 tests pin it).
