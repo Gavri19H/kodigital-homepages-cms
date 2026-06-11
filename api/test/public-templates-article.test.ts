@@ -1,14 +1,18 @@
-// Phase 5 / T11 BEHAVIORAL guards for renderArticle.
+// C8 / T13 BEHAVIORAL guards for renderArticle.
 //
-// Test bindings (from implementation_digest):
-//   T11.AC2 — `^public-templates-article.*section[_-]?order`
-//   T11.AC3 — `^public-templates-article.*article[_-]?shell[_-]?minmax`
-//   T11.AC4 — `^public-templates-article.*faqs[_-]?empty[_-]?no[_-]?faqpage`
+// Contract: docs/design-contract.md §8 — Article section order (12) +
+// nesting. §§5–9 nest inside the §4 article-shell; §§7–8 nest inside the
+// §6 article-body. ReadingProgress is §1 — index 0 of the page, BEFORE the
+// header. There is no top-level ad or breadcrumb section on Article; the
+// only Article ad is the sidebar 300×250 rect (`.sidebar-ad.ad-slot--rect`).
 //
-// PART 2 specifies 12 article sections in numerical render order. PART 4
-// requires the article shell to use `minmax(0, 1fr)` so long links/code
-// do not blow the grid. PART 6 forbids emitting a FAQPage JSON-LD block
-// when faqs[] is empty.
+//   T13.AC1 — section order correct with nested shell content
+//   T13.AC2 — reading-progress is index 0
+//   T13.AC4 — BreadcrumbList JSON-LD intact (also json-ld-article.test.ts)
+//
+// Carried-over guards from the earlier article template phase: the shell
+// records the literal `minmax(0, 1fr)` column contract, and an empty
+// faqs[] MUST NOT emit a FAQPage JSON-LD payload.
 
 import { describe, it, expect } from "vitest";
 import { renderArticle } from "../src/public/templates/article";
@@ -103,13 +107,39 @@ function extractMarkerSequence(html: string): number[] {
   return out;
 }
 
+function markerIndex(html: string, n: number, name: string): number {
+  return html.indexOf(`<!-- article-section:${n} ${name} -->`);
+}
+
 describe("public-templates-article", () => {
-  it("T11.AC2: section-order — emits 12 markers in PART 2 numerical order", () => {
+  it("T13.AC1: section-order — emits 12 §8 markers in contract order with §§5–9 nested in the shell and §§7–8 nested in the body", () => {
     const html = renderArticle({ vm: makeVm() });
     const seq = extractMarkerSequence(html);
     expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     // each marker is unique (no double-rendered section)
     expect(new Set(seq).size).toBe(12);
+
+    // Nesting: §§5–9 sit INSIDE the §4 article-shell (between the shell
+    // marker and the §10 related-section marker)…
+    const shellStart = markerIndex(html, 4, "article-shell");
+    const relatedStart = markerIndex(html, 10, "related-section");
+    expect(shellStart).toBeGreaterThan(-1);
+    expect(relatedStart).toBeGreaterThan(shellStart);
+    const shellHtml = html.slice(shellStart, relatedStart);
+    expect(markerIndex(shellHtml, 5, "share-rail")).toBeGreaterThan(-1);
+    expect(markerIndex(shellHtml, 6, "article-body")).toBeGreaterThan(-1);
+    expect(markerIndex(shellHtml, 9, "article-sidebar")).toBeGreaterThan(-1);
+
+    // …and §§7–8 sit INSIDE the §6 article-body element.
+    const bodyOpen = shellHtml.indexOf('<article class="article-body"');
+    const bodyClose = shellHtml.indexOf("</article>");
+    expect(bodyOpen).toBeGreaterThan(-1);
+    expect(bodyClose).toBeGreaterThan(bodyOpen);
+    const bodyHtml = shellHtml.slice(bodyOpen, bodyClose);
+    expect(markerIndex(bodyHtml, 7, "faq-section")).toBeGreaterThan(-1);
+    expect(markerIndex(bodyHtml, 8, "article-share-bottom")).toBeGreaterThan(-1);
+    // The sidebar is a shell child, NOT a body child.
+    expect(bodyHtml).not.toContain('class="article-sidebar"');
   });
 
   it("section-order — markers stay in order when faqs/related are empty", () => {
@@ -120,15 +150,42 @@ describe("public-templates-article", () => {
     expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
-  it("T11.AC3: article-shell-minmax — rendered shell records the minmax(0, 1fr) column contract", () => {
+  it("T13.AC2: reading-progress-index-0 — reading-progress is the first section, before the header", () => {
+    const html = renderArticle({ vm: makeVm() });
+    const seq = extractMarkerSequence(html);
+    expect(seq[0]).toBe(1);
+    const progressAt = markerIndex(html, 1, "reading-progress");
+    const headerAt = markerIndex(html, 2, "site-header");
+    expect(progressAt).toBeGreaterThan(-1);
+    expect(headerAt).toBeGreaterThan(progressAt);
+    // The 3px-bar element itself renders at index 0 (right after its marker,
+    // before any header markup).
+    const progressEl = html.indexOf('class="reading-progress"');
+    expect(progressEl).toBeGreaterThan(progressAt);
+    expect(progressEl).toBeLessThan(headerAt);
+    expect(html).toContain('class="reading-progress-bar"');
+  });
+
+  it("article-shell-minmax — rendered shell records the minmax(0, 1fr) column contract on `.article-shell.container`", () => {
     const html = renderArticle({ vm: makeVm() });
     // PART 4: shell column track is recorded literally in the body so a
-    // CSS-less snapshot still captures the contract.
-    expect(html).toContain('class="article-shell"');
+    // CSS-less snapshot still captures the contract. §8 row 4 pins the
+    // shell root selector as `.article-shell.container`.
+    expect(html).toContain('class="article-shell container"');
     expect(html).toContain("minmax(0, 1fr)");
   });
 
-  it("T11.AC4: faqs-empty-no-faqpage — empty faqs[] does NOT emit FAQPage JSON-LD", () => {
+  it("ad-slots — no top-level leaderboard/in-feed on Article; the sidebar rect is the only ad (§8/§10)", () => {
+    const html = renderArticle({ vm: makeVm() });
+    expect(html).not.toContain('data-ad-type="leaderboard"');
+    expect(html).not.toContain('data-ad-type="in-feed"');
+    // §11 sidebar ad card: `.sidebar-ad.ad-slot--rect` wrapping the rect slot.
+    expect(html).toContain('class="sidebar-card sidebar-ad ad-slot--rect"');
+    expect(html).toContain('data-ad-type="rect"');
+    expect(html).toContain('data-ad-slot="article-sidebar-ad"');
+  });
+
+  it("faqs-empty-no-faqpage — empty faqs[] does NOT emit FAQPage JSON-LD", () => {
     const html = renderArticle({ vm: makeVm({ faqs: [] }) });
     // PART 6: when faqs is empty the FAQPage payload MUST be omitted.
     expect(html).not.toContain('"@type":"FAQPage"');
@@ -157,9 +214,16 @@ describe("public-templates-article", () => {
     expect(html).not.toContain('href="#"');
   });
 
-  it("breadcrumb — real category + article hrefs (PART 8)", () => {
+  it("T13.AC4: breadcrumb — no visible breadcrumb section (§8), but the BreadcrumbList JSON-LD stays intact", () => {
     const html = renderArticle({ vm: makeVm() });
+    // §8 lists 12 sections; none is a breadcrumb, and §10's class
+    // vocabulary has no breadcrumb class.
+    expect(html).not.toContain("article-breadcrumb");
+    // The structured-data trail survives with every crumb present.
+    expect(html).toContain('"@type":"BreadcrumbList"');
+    expect(html).toContain('"Home"');
+    expect(html).toContain('"Tech"');
+    // PART 8: the category link stays a real URL (now via the hero pill).
     expect(html).toContain('href="/category/tech"');
-    expect(html).toContain('class="article-breadcrumb"');
   });
 });

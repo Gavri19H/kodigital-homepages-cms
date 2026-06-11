@@ -1,45 +1,57 @@
-// Phase 5 / T11: renderArticle composes the public Article body in PART 2
-// order. The function returns a body fragment (no `<html>` wrapper — the
-// layout in templates/layout.ts wraps it). renderArticle EMITS its own
-// inline `<script type="application/ld+json">` blocks for Article +
-// BreadcrumbList + (optional) FAQPage so the JSON-LD presence regression
-// (T19) can detect them on the rendered body alone.
+// C8 / T13: renderArticle composes the public Article body in the decoded
+// design-contract §8 order (docs/design-contract.md). The function returns a
+// body fragment (no `<html>` wrapper — the layout in templates/layout.ts
+// wraps it). renderArticle EMITS its own inline
+// `<script type="application/ld+json">` blocks for Article + BreadcrumbList
+// + (optional) FAQPage so the JSON-LD presence regression can detect them on
+// the rendered body alone.
 //
-// PART 2 (session-4 spec) divides Article into 12 ordered sections. Each
-// section is delimited by an `<!-- article-section:N name -->` comment
-// so the section-order behavioural test can count them and assert their
-// numerical order without depending on CSS class names.
+// Contract §8 divides Article into 12 ordered sections with explicit
+// NESTING: §§5–9 live INSIDE the §4 article-shell, and §§7–8 live INSIDE
+// the §6 article-body. Each section is delimited by an
+// `<!-- article-section:N name -->` comment so the section-order behavioural
+// test can assert the marker sequence AND the nesting without depending on
+// CSS class names. Markers for conditionally-empty sections (faq-section,
+// related cards) always render so the count stays 12.
 //
-// Section catalogue (numerical = render order):
-//   1  site-header        renderHeader     (banner + brand wordmark + nav)
-//   2  breadcrumb         crumbs from vm.breadcrumb
-//   3  article-hero       title + subtitle + meta + hero image
-//   4  reading-progress   top progress bar (article-only)
-//   5  ad-leaderboard     renderAdSlot leaderboard
-//   6  article-shell      share-rail + article-body + sidebar (minmax(0,1fr))
-//   7  faq-section        details/summary FAQ list (omitted when faqs=[])
-//   8  ad-in-feed         renderAdSlot in-feed surface
-//   9  article-share-bottom share buttons after body
-//   10 related-section    renderCard×N from vm.related
-//   11 newsletter         renderNewsletter (provider-aware disabled state)
-//   12 site-footer        renderFooter + renderFloatingNext (>=1280px)
+// Section catalogue (§8, numerical = render order; indent = nesting):
+//   1  reading-progress     fixed top 3px bar — INDEX 0 of the page
+//   2  site-header          renderHeader (same pattern as Home)
+//   3  article-hero         full-bleed, dark gradient overlay
+//   4  article-shell        `.article-shell.container` — wrapper for 5–9
+//   5    share-rail         inside shell; sticky; hidden < 1080px
+//   6    article-body       `article.article-body`; holds body blocks + 7, 8
+//   7      faq-section      nested inside article-body
+//   8      article-share-bottom  nested inside article-body
+//   9    article-sidebar    inside shell; sticky; below body < 800px
+//   10 related-section      soft-bg, `.grid.grid-4`
+//   11 newsletter           reused from home
+//   12 site-footer          reused from home (+ floating-next overlay,
+//                           a fixed-position element, not a §8 section)
+//
+// There is NO top-level ad-leaderboard / ad-in-feed on Article (§8). The
+// only Article ad is the 300×250 rect INSIDE the sidebar:
+// `.sidebar-ad.ad-slot--rect` (§10/§11). Sidebar card order (§11):
+// toc → sidebar-newsletter → sidebar-ad → sidebar-popular.
+//
+// There is NO visible breadcrumb section on Article (§8 lists 12 sections;
+// none is a breadcrumb, and §10's class vocabulary has no breadcrumb class).
+// The BreadcrumbList JSON-LD payload still always renders.
 //
 // PART 12 RED LINE: every visible brand string flows from
 // vm.site.{name,tagline,description} or per-article data — this module
 // MUST NOT hardcode TheIWise / theiwise / cms.kodigital.app. The T18
 // regression test exercises renderArticle to assert this.
 //
-// PART 8 RED LINE: every href is a real URL (breadcrumb/related links
-// are real paths). No href="#".
+// PART 8 RED LINE: every href is a real URL. No href="#".
 //
 // PART 4 RED LINE: the rendered HTML MUST contain the literal
 // `minmax(0, 1fr)` inside the article-shell wrapper so a CSS-less
-// snapshot still records the column contract for T11.AC3.
+// snapshot still records the column contract.
 //
 // PART 6 RED LINE: an Article with no FAQ blocks MUST NOT emit a
-// FAQPage JSON-LD payload (T11.AC4). buildFaqJsonLd already returns ""
-// for empty faqs[]; we only emit the `<script>` when the payload is
-// non-empty.
+// FAQPage JSON-LD payload. buildFaqJsonLd already returns "" for empty
+// faqs[]; we only emit the `<script>` when the payload is non-empty.
 
 import type { ArticleViewModel } from "../view-models/article";
 import {
@@ -89,21 +101,6 @@ function marker(n: number, name: string): string {
   return `<!-- article-section:${n} ${name} -->`;
 }
 
-function renderBreadcrumb(items: ReadonlyArray<{ name: string; url: string }>): string {
-  if (items.length === 0) return "";
-  const trail = items
-    .map((item, i) => {
-      const isLast = i === items.length - 1;
-      const safeName = escText(item.name);
-      if (isLast) {
-        return `<li class="article-breadcrumb__item article-breadcrumb__item--current" aria-current="page">${safeName}</li>`;
-      }
-      return `<li class="article-breadcrumb__item"><a href="${escAttr(item.url)}">${safeName}</a></li>`;
-    })
-    .join("");
-  return `<nav class="article-breadcrumb" aria-label="Breadcrumb"><ol>${trail}</ol></nav>`;
-}
-
 function renderArticleHero(article: ArticleViewModel["article"]): string {
   const heroImg =
     article.imageUrl !== null && article.imageUrl.length > 0
@@ -141,13 +138,17 @@ function renderArticleHero(article: ArticleViewModel["article"]): string {
 </section>`;
 }
 
-function renderBlockHtml(block: ArticleViewModel["article"]["body"][number]): string {
+function renderBlockHtml(
+  block: ArticleViewModel["article"]["body"][number],
+  headingIndex: number,
+): string {
   switch (block.type) {
     case "html":
       return block.html.length > 0 ? `<div class="article-body__html">${block.html}</div>` : "";
     case "heading": {
       const tag = block.level === 3 ? "h3" : "h2";
-      return `<${tag} class="article-body__heading">${escText(block.text)}</${tag}>`;
+      // The id anchors the sidebar TOC links (#article-heading-N).
+      return `<${tag} id="article-heading-${headingIndex}" class="article-body__heading">${escText(block.text)}</${tag}>`;
     }
     case "image": {
       const caption =
@@ -175,11 +176,22 @@ function renderBlockHtml(block: ArticleViewModel["article"]["body"][number]): st
   }
 }
 
-function renderArticleBody(article: ArticleViewModel["article"]): string {
+function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
   if (article.body.length === 0) return "";
-  return article.body.map(renderBlockHtml).join("\n");
+  let headingIndex = 0;
+  return article.body
+    .map((block) => {
+      if (block.type === "heading") headingIndex += 1;
+      return renderBlockHtml(block, headingIndex);
+    })
+    .join("\n");
 }
 
+// §11 sidebar card order: toc → sidebar-newsletter → sidebar-ad → popular.
+// The ad wrapper carries the literal `ad-slot--rect` class so the
+// `.sidebar-ad.ad-slot--rect` contract selector matches; the inner
+// renderAdSlot node carries the data-ad-slot/data-ad-type attributes the
+// ad-slot regression asserts.
 function renderSidebar(vm: ArticleViewModel): string {
   const tocItems = vm.article.body
     .filter((b) => b.type === "heading")
@@ -189,6 +201,8 @@ function renderSidebar(vm: ArticleViewModel): string {
     tocItems.length > 0
       ? `<aside class="sidebar-card toc"><h3>On this page</h3><ol>${tocItems}</ol></aside>`
       : "";
+  const newsletterHtml = `<aside class="sidebar-card sidebar-newsletter"><h3>Newsletter</h3><p>Get the best stories in your inbox.</p><a class="btn-primary" href="#newsletter-heading">Subscribe</a></aside>`;
+  const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article" })}</aside>`;
   const popularItems = vm.related
     .slice(0, 3)
     .map((c) => `<li><a href="${escAttr(c.href)}">${escText(c.title)}</a></li>`)
@@ -197,7 +211,7 @@ function renderSidebar(vm: ArticleViewModel): string {
     popularItems.length > 0
       ? `<aside class="sidebar-card sidebar-popular"><h3>Popular</h3><ol>${popularItems}</ol></aside>`
       : "";
-  return `<aside class="article-sidebar">${tocHtml}${popularHtml}<aside class="sidebar-card sidebar-ad">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article" })}</aside></aside>`;
+  return `<aside class="article-sidebar">${tocHtml}${newsletterHtml}${adHtml}${popularHtml}</aside>`;
 }
 
 function renderShareRail(article: ArticleViewModel["article"]): string {
@@ -222,24 +236,23 @@ function renderFaqSection(faqs: ArticleViewModel["faqs"]): string {
 
 function renderRelated(related: ArticleViewModel["related"]): string {
   if (related.length === 0) {
-    return `<p class="related-section__empty">More stories coming soon.</p>`;
+    return `<p class="section-empty">More stories coming soon.</p>`;
   }
   const cards = related
-    .map(
-      (c) =>
-        `<li class="related-section__item">${renderCard({
-          href: c.href,
-          title: c.title,
-          excerpt: c.excerpt,
-          imageUrl: c.imageUrl,
-          imageAlt: c.imageAlt,
-          publishedAt: c.publishedAt,
-          categoryName: c.categoryName,
-          readMinutes: c.readMinutes,
-        })}</li>`,
+    .map((c) =>
+      renderCard({
+        href: c.href,
+        title: c.title,
+        excerpt: c.excerpt,
+        imageUrl: c.imageUrl,
+        imageAlt: c.imageAlt,
+        publishedAt: c.publishedAt,
+        categoryName: c.categoryName,
+        readMinutes: c.readMinutes,
+      }),
     )
     .join("");
-  return `<h2 class="related-section__heading">Related stories</h2><ul class="related-section__list">${cards}</ul>`;
+  return `<div class="grid grid-4">${cards}</div>`;
 }
 
 function renderJsonLdScripts(blocks: ReadonlyArray<string>): string {
@@ -254,7 +267,10 @@ export function renderArticle(args: RenderArticleArgs): string {
   const site = vm.site;
   const article = vm.article;
 
-  const s1 = renderHeader({
+  // §1 — reading-progress: index 0 of the page (before the header).
+  const s1 = `<div class="reading-progress" aria-hidden="true"><div class="reading-progress-bar"></div></div>`;
+
+  const s2 = renderHeader({
     site: {
       name: site.name,
       tagline: site.tagline,
@@ -264,28 +280,30 @@ export function renderArticle(args: RenderArticleArgs): string {
     nav: args.nav,
   });
 
-  const s2 = renderBreadcrumb(vm.breadcrumb);
   const s3 = renderArticleHero(article);
-  const s4 = `<div class="reading-progress" aria-hidden="true"><div class="reading-progress-bar"></div></div>`;
-  const s5 = renderAdSlot({ type: "leaderboard", slotId: "article-leaderboard", surface: "article" });
 
-  // §6 — article-shell carries the literal minmax(0, 1fr) so the
-  // CSS-less snapshot still records the column contract (T11.AC3).
-  const s6 = `<div class="article-shell" data-grid="60px minmax(0, 1fr) 320px">
+  // §4 article-shell wraps §§5–9; §§7–8 nest INSIDE the §6 article-body.
+  // The shell carries the literal minmax(0, 1fr) so a CSS-less snapshot
+  // still records the column contract (PART 4 RED LINE).
+  const s4 = `<div class="article-shell container" data-grid="60px minmax(0, 1fr) 320px">
+  ${marker(5, "share-rail")}
   ${renderShareRail(article)}
+  ${marker(6, "article-body")}
   <article class="article-body" id="article-content">
-    ${renderArticleBody(article)}
+    ${renderArticleBodyBlocks(article)}
+    ${marker(7, "faq-section")}
+    ${renderFaqSection(vm.faqs)}
+    ${marker(8, "article-share-bottom")}
+    <div class="article-share-bottom" aria-label="Share this story">
+  <button class="share-btn" type="button" data-share-action="copy" aria-label="Copy link">Copy link</button>
+  <button class="share-btn" type="button" data-share-action="native" aria-label="Share">Share</button>
+</div>
   </article>
+  ${marker(9, "article-sidebar")}
   ${renderSidebar(vm)}
 </div>`;
 
-  const s7 = renderFaqSection(vm.faqs);
-  const s8 = renderAdSlot({ type: "in-feed", slotId: "article-in-feed", surface: "article" });
-  const s9 = `<div class="article-share-bottom" aria-label="Share this story">
-  <button class="share-btn" type="button" data-share-action="copy" aria-label="Copy link">Copy link</button>
-  <button class="share-btn" type="button" data-share-action="native" aria-label="Share">Share</button>
-</div>`;
-  const s10 = `<section class="related-section" aria-labelledby="related-heading"><span id="related-heading" class="visually-hidden">Related stories</span>${renderRelated(vm.related)}</section>`;
+  const s10 = `<section class="related-section section--soft" aria-labelledby="related-heading"><div class="section-head"><h2 id="related-heading">Related stories</h2></div>${renderRelated(vm.related)}</section>`;
 
   const newsletterHeading =
     args.newsletterHeading !== undefined && args.newsletterHeading.length > 0
@@ -309,6 +327,8 @@ export function renderArticle(args: RenderArticleArgs): string {
     links: args.footerLinks,
     legalLinks: args.legalLinks,
   });
+  // floating-next is a fixed-position overlay (§11), not a §8 section; it
+  // rides inside §12 so the marker count stays exactly 12.
   const [firstRelated] = vm.related;
   const floatingHtml = firstRelated !== undefined
     ? renderFloatingNext({
@@ -321,7 +341,7 @@ export function renderArticle(args: RenderArticleArgs): string {
   const s12 = `${footerHtml}${floatingHtml}`;
 
   // JSON-LD: Article + BreadcrumbList always; FAQPage only when faqs[]
-  // is non-empty (PART 6 RED LINE, T11.AC4 / T19.AC3).
+  // is non-empty (PART 6 RED LINE).
   const jsonLdBlocks: string[] = [];
   jsonLdBlocks.push(
     buildArticleJsonLd({
@@ -354,15 +374,10 @@ export function renderArticle(args: RenderArticleArgs): string {
   const jsonLdHtml = renderJsonLdScripts(jsonLdBlocks);
 
   const sections = [
-    `${marker(1, "site-header")}\n${s1}`,
-    `${marker(2, "breadcrumb")}\n${s2}`,
+    `${marker(1, "reading-progress")}\n${s1}`,
+    `${marker(2, "site-header")}\n${s2}`,
     `${marker(3, "article-hero")}\n${s3}`,
-    `${marker(4, "reading-progress")}\n${s4}`,
-    `${marker(5, "ad-leaderboard")}\n${s5}`,
-    `${marker(6, "article-shell")}\n${s6}`,
-    `${marker(7, "faq-section")}\n${s7}`,
-    `${marker(8, "ad-in-feed")}\n${s8}`,
-    `${marker(9, "article-share-bottom")}\n${s9}`,
+    `${marker(4, "article-shell")}\n${s4}`,
     `${marker(10, "related-section")}\n${s10}`,
     `${marker(11, "newsletter")}\n${s11}`,
     `${marker(12, "site-footer")}\n${s12}`,
