@@ -6179,3 +6179,63 @@ iteration 7 — T16 [C11] Breakpoint parity (8) (sources: T16)
     in the same story pass fine.
   - T16 was assertion-only: the T4 scaffold already carried the full
     PART 4 breakpoint set; check existing source before writing CSS.
+
+## 2026-06-11 — T17 [C12] Public JS contract (iteration 7)
+- iteration 7 — T17 (sources: T17)
+- Note: iteration state said CURRENT STORY: T16, but T16 was already
+  passes=true/implemented (commit bd929f1) — skipped per the
+  skip-already-implemented rule; T17 was the highest-priority planned story.
+- What was implemented:
+  - api/src/public/assets/public-js.ts — reading-progress bar switched from
+    style.width mutation to transform-driven updates:
+    bar.style.setProperty('transform-origin', 'left center') once at init +
+    bar.style.transform = 'scaleX(' + ratio.toFixed(4) + ')' per tick.
+    Scroll listener stays { passive: true }. Script literal remains
+    ES5-only (var/function only; zero arrow/const/let inside the string).
+  - api/src/public/assets/public-css.ts — .reading-progress-bar moved to the
+    matching transform model (width: 100%; transform: scaleX(0);
+    transform-origin: left center; transition: transform 80ms linear).
+    Directly traced from T17.AC1: a scaleX-driven bar over the old
+    width: 0% rule renders invisible (negative_fail_condition: ACs pass,
+    user-facing outcome broken). No test pinned the old rule.
+  - api/test/public-js-contract.test.ts (NEW) — 4 behavioral tests, one per
+    AC: scaleX+transform-origin present / style.width absent; passive: true;
+    ES5-only on the IMPORTED STRING (module export const out of scope per
+    AC3); exported string < 6KB via TextEncoder byte length.
+- test: cd api && npx tsc --noEmit (clean); cd api && npm test
+  (110 files / 901 tests PASS, incl. public-js-contract 4 tests)
+- D13 runner (RC-049,RC-050,RC-051,RC-052), run twice, deterministic:
+  - RC-049 PASS (grep -c scaleX public-js.ts → 2, op >= 1)
+  - RC-050 PASS (grep -c "passive: true" public-js.ts → 1, op >= 1)
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-051, RC-052 — SAME plan-baked defect class
+    as RC-024/026/029/030/034/035/041/043: expected_test_name_regex is the
+    shell-escaped COMMAND string (cd\ api\ \&\&\ npx\ vitest\ run\ ...);
+    vitest text parser observes file-level names only — observation
+    "test/public-js-contract.test.ts (4 tests) 1ms" passed:true, exit 0,
+    all 4 tests green, yet no test name can match an escaped command line.
+    Underlying evidence green; required_evidence_plan.json repair is
+    orchestrator-owned; not retried further (no retry-storm).
+- Self-check results:
+  - File sizes: public-js.ts 75 (limit 200) PASS;
+    public-js-contract.test.ts 38 PASS; public-css.ts 270 (CSS string
+    template, 300 template limit) PASS
+  - Secret scan: PASS (0 matches on all 3 changed files)
+  - Error handling: N/A (client script string + CSS, no routes)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: none for this change-id (the only T17_* script under
+    acceptance-tests/ belongs to phase3-2026-05-11, a different mission)
+- Learnings for future iterations:
+  - publicJs/publicCss in api/src/public/assets/ are exported but NOT yet
+    imported/served by any route — layout.ts references /assets/public.js
+    and /assets/public.css but no router handler exists. Out of T17 scope
+    (canonical targetFiles = public-js.ts + test only); flagged for the
+    orchestrator/a later story — until wired, the progress bar and share
+    button never run in production.
+  - AC text "X >= 1; style.width = 0" decodes as grep-count contracts:
+    presence-count >= 1 for X, exactly 0 occurrences for style.width.
+  - ES5-only checks on exported script strings must grade the IMPORTED
+    string (vitest), never the whole file — module-level export const is
+    legitimate TS (whole-file grep is the wrong instrument; AC3 says so
+    verbatim).
+---
