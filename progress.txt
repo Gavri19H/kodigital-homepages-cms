@@ -7967,3 +7967,90 @@ iteration 21 — T33 (sources: T33)
     side-effect state from any later verifying step — when adding a
     read-back step, the fake must START tracking those writes or the
     step observes 0 rows and correctly fails the walk.
+
+## 2026-06-12 00:16 - T39
+- iteration 24 — T39 (sources: T39). NOTE: dispatch named T35 as CURRENT
+  STORY but T35 was already implemented + committed (fe87ac6); per the
+  skip rule (no re-walk of implemented stories) the next eligible
+  planned story T39 was picked instead (same stale-pointer handling as
+  the previous iteration's T38 entry).
+- What: replaced the update_launch_readiness placeholder (step 16, the
+  last one) with a real read-only D1 rollup in
+  api/src/site-provisioning/steps.ts: domain_attached (active domains
+  row count >= 1), published_articles (published+published_at COUNT),
+  media_count, cache_warmed (warm_homepage_cache step row status in
+  completed/completed_dry_run), smoke_passed (run_site_smoke_tests
+  status = completed), content_mode (sites.content_mode, defaults 'ai'
+  for pre-0010 rows via a tolerant separate read). Output JSON
+  (kind=launch_readiness_rollup) is persisted by the runner into
+  site_creation_job_steps.output. GET /api/admin/sites/:id/provision
+  (site-provisioning/index.ts provisionStatusHandler) now returns a
+  top-level launch_readiness field on every 200 — the parsed rollup or
+  null (corrupt stored JSON degrades to null via dedicated try/catch
+  per d1-database-safety/L-023). Domains template renders readiness
+  badges: server-rendered data-launch-readiness-badges <ul> in the
+  provisioning panel + ES5 renderReadinessBadges (one
+  .badge.launch-readiness-badge per rollup field, badge-published/
+  badge-draft palette, textContent only per XSS guardrail) + "N/3
+  checks ready" summary; MQAFIX-5 mirror
+  api/src/admin/static/domains-create-site.js kept in sync.
+- Files changed: api/src/site-provisioning/steps.ts (placeholderResult
+  removed — all 16 steps real), api/src/site-provisioning/index.ts,
+  api/src/admin/templates/domains.ts,
+  api/src/admin/static/domains-create-site.js,
+  api/test/admin-provision-status.test.ts (+9 tests: rollup-in-response,
+  null-before-rollup, corrupt-JSON-degrades, step rollup live counts /
+  honest not-ready / missing-site fail, badge container + renderer +
+  ES5-only badge script).
+- Commit: eaabfcd feat: [T39] - [D6] update_launch_readiness + UI
+- test: cd api && npx vitest run test/admin-provision-status.test.ts
+  test/admin-domains.test.ts (21/21 green); cd api && npx vitest run
+  test/site-provisioning-runner.test.ts
+  test/site-provisioning-run-to-completion.test.ts
+  test/provisioning-runner.test.ts test/provisioning-no-outbound.test.ts
+  test/admin-sites-create.test.ts test/admin-provision-status.test.ts
+  (36/36 green); cd api && npx tsc --noEmit (exit 0); cd api && npm test
+  (120 files, 1047 tests, all green).
+- D13 runner (RC-117,RC-118,RC-119) run twice, byte-identical outcomes:
+  RC-117 PASS (grep -c "update_launch_readiness" steps.ts -> 9 >= 2).
+  RC-118+RC-119 receipt FAIL with underlying vitest exit 0
+  (admin-provision-status 13/13 green, observed_test_names recorded).
+- EVIDENCE_ROUTE_EXHAUSTED — T39 RC-118, RC-119: same typed
+  evidence-plan defect as T32 RC-096/RC-098, T33 RC-100/RC-102, T34
+  RC-104/RC-106/RC-107, T35 RC-109/RC-110, T38 RC-116. The
+  expected_test_name_regex is the shell-escaped COMMAND string
+  ('cd\ api\ \&\&\ npx\ vitest\ run\ test/admin\-provision\-status\.test\.ts')
+  and can never match a vitest test NAME; the parser reports FAIL while
+  exit_code=0 and observed assertions show the file's 13 tests passed.
+  A typed regex cannot be changed by re-implementing; editing the
+  evidence plan is a forbidden mechanism-dodge. Reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- **Self-check results:**
+  - File sizes: steps.ts 1149 (+77 over pre-story 1072, registry-file
+    precedent T34-T38), index.ts 182 (<= 200), domains.ts 349
+    (template+inline-script precedent, was 296), domains-create-site.js
+    350 (mirror precedent, was 280), admin-provision-status.test.ts 497
+    (ported-test precedent pages 431 / articles 520) — PASS w/
+    precedent.
+  - Secret scan: PASS (0 matches across changed files).
+  - Error handling: PASS (rollup step returns typed failed envelope on
+    missing sites row; status handler 404 paths unchanged; corrupt
+    stored JSON degrades to null, never a 500).
+  - Migration execution: N/A (api story; no schema change — reads
+    0010's content_mode with a tolerant default).
+  - Parameterized queries: PASS (grep 'prepare.*\${|prepare.*\`' -> 0
+    matches in changed src files; all new SELECTs static SQL + .bind()).
+  - ES5 inline scripts: PASS (0 '=>|const |let ' matches in domains.ts
+    and domains-create-site.js; vitest asserts the badge script slice is
+    ES5-only).
+  - Acceptance tests: none for this change-id (T25-T38 precedent).
+- **Learnings for future iterations:**
+  - Test fakes match loadSiteInfo's exact projection: a step handler
+    that needs the sites row should call loadSiteInfo (fakes answer
+    'vertical_slug FROM sites WHERE id = ?' + 'SELECT id') and ride any
+    NEW column on its own tolerant SELECT that may return null —
+    'SELECT id, <new_col> FROM sites' matches NO fake branch
+    ('SELECT id ' has a trailing space) and fails the walk tests.
+  - GET /provision consumers: domains poll JS reads TOP-LEVEL
+    body.launch_readiness (not body.resource.*) — new response fields
+    for that script must be added at the envelope root.
