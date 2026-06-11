@@ -313,8 +313,8 @@
       "title": "[E3] Port POST /api/admin/ai/logo",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T20"
       ],

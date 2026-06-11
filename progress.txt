@@ -6365,3 +6365,85 @@ iteration 7 — T16 [C11] Breakpoint parity (8) (sources: T16)
     deterministic per target and would overwrite under the 1-yr immutable
     /media/* cache); derive the key from ai_generation_id instead.
 ---
+
+## 2026-06-11 19:08 - T20 ([E3] Port POST /api/admin/ai/logo)
+- iteration 10 — T20 (sources: T20)
+- What was implemented:
+  - Real POST /api/admin/ai/logo. New handler module api/src/admin/ai-logo.ts
+    (107 ln; keeps ai-api.ts at 134 ln): 501 no-key, 400 bad JSON / missing
+    site_id, 500 unsupported image model, 404 unknown site (tenant guard:
+    brand_name/vertical are read from the posted site's OWN sites row —
+    never trusted from the body; a missing row means zero writes). Reuses
+    the T8 logo generator generateLogoImage (api/src/ai/generators/image.ts)
+    per the mission contract: buildLogoPrompt, OpenAI image call
+    (gpt-image-2 from SUPPORTED_IMAGE_MODELS), R2 put under deterministic
+    ai/<site>/logo/<site>.png, media row INSERT with site_id +
+    ai_generation_id, ai_generations receipt (task logo-image,
+    target_type site_settings). On success the handler upserts
+    site_settings (site_id, 'logo_media_id', media_id) with OVERWRITE
+    semantics (admin explicit action; provisioning's fill-if-empty seed
+    untouched) — bound to the posted site_id only. 502 + NO setting write
+    when the generator returns fallback/failed (media_id 0) — never 2xx
+    without the DB row (story negative_fail_condition honored).
+  - Route mounted in ai-api.ts wrapped in hono bodyLimit (64 KiB, shared
+    IMAGE_BODY_LIMIT_BYTES).
+  - T20 tests added to api/test/admin-ai-image.test.ts (the file RC-060's
+    authored evidence command runs — the authored route now genuinely
+    exercises the logo behavior): 6 new tests (13 total in file) — 501
+    no-key zero-calls, 400 missing site_id, 404 unknown-site zero-writes,
+    200 happy path (asserts media INSERT binds site-a, site_settings
+    upsert binds exactly ['site-a','logo_media_id','7'], NO call carries
+    site-b — "for site_id only" tenant assertion, R2 put key/contentType,
+    outbound model gpt-image-2, receipt row task/model/site/target),
+    502-on-OpenAI-error with fallback receipt + zero setting writes,
+    401 auth gate. makeFakeDb extended: planted sites rows + fallback
+    UPDATE replay.
+- Files changed: api/src/admin/ai-logo.ts (new), api/src/admin/ai-api.ts,
+  api/test/admin-ai-image.test.ts
+- Tests run:
+  - cd api && npx tsc --noEmit -> clean
+  - cd api && npx vitest run test/admin-ai-image.test.ts -> 13/13 PASS
+  - cd api && npm test -> 112 files / 918 tests PASS (+6 vs T19 baseline)
+  - D13 runner (RC-059,RC-060), run twice post-commit, deterministic:
+    - RC-059 PASS (grep -c "/logo" ai-api.ts -> count=2 >= 1) — T20.AC1
+    - EVIDENCE_ROUTE_EXHAUSTED: RC-060 — SAME plan-baked defect class as
+      RC-055 (T18): expected_test_name_regex is the shell-escaped COMMAND
+      string (cd\ api\ \&\&\ npx\ vitest\ run\ test/admin-ai-image.test.ts);
+      the vitest text parser observes file-level names only — observation
+      "test/admin-ai-image.test.ts (13 tests) 13ms" passed:true, exit 0,
+      all 13 tests green, yet no test name can match an escaped command
+      line. Underlying T20.AC2 evidence green under the AUTHORED command
+      (the logo tests live in the exact file the sidecar runs);
+      required_evidence_plan.json repair is orchestrator-owned; not
+      retried further (no retry-storm).
+- Self-check results:
+  - File sizes: ai-logo.ts 107 (limit 200) PASS; ai-api.ts 134 (limit 200)
+    PASS; admin-ai-image.test.ts 502 (test files routinely exceed 200 per
+    repo precedent) PASS
+  - Secret scan: PASS (0 matches on all 3 changed files; "sk-test" is a
+    vitest fixture literal)
+  - Error handling: PASS (501/400/404/500/502 paths, no silent swallows)
+  - Migration execution: N/A (no schema change; existing media +
+    ai_generations + site_settings tables)
+  - Parameterized queries: PASS (no prepare-with-interpolation/backtick;
+    sites SELECT + site_settings upsert use .bind())
+  - Acceptance tests: none for this change-id (no T20 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - generateLogoImage's idempotency short-circuit treats fallback AND
+    skipped_no_api_key receipts as terminal: after one OpenAI outage the
+    deterministic (site_id, logo-image, logo:v1) key pins media_id=0
+    forever, so an admin "retry" can never regenerate that site's logo
+    without clearing the ai_generations row. Generator semantics are T8
+    contract (shared with provisioning) — out of T20 scope; flagged for
+    the orchestrator/ship phase as a UX caveat.
+  - Admin endpoint vs provisioning seed setting-write semantics differ on
+    purpose: upsertSiteSetting in steps.ts is fill-if-empty (preserves
+    human picks); the admin endpoint overwrites (the click IS the human
+    pick). Both bind (site_id, key) — UNIQUE(site_id, key) from migration
+    0003.
+  - RC-060's authored evidence command targets test/admin-ai-image.test.ts
+    (not a logo-named file); placing the T20 tests in that exact file
+    keeps the authored evidence route genuinely observing the logo
+    behavior even though the regex defect blocks the receipt.
+---
