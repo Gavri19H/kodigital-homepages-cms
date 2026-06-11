@@ -14,8 +14,8 @@
 //   - INSERT OR IGNORE on site_settings/articles/pages  — no duplicate domain rows
 //   - UPDATE … COALESCE / WHERE … IS NULL              — no clobber of populated values
 // T34 (rescue-2 D1) renames every key to its canonical suffix-free form
-// and appends the 16th step, update_launch_readiness (placeholder until
-// T39 implements the readiness rollup).
+// and appends the 16th step, update_launch_readiness; T39 implements it
+// as the read-only readiness rollup persisted to the step output row.
 //
 // Contract greps (each canonical key appears as a single-quoted literal
 // exactly once in the registry tuple it belongs to):
@@ -105,21 +105,6 @@ export interface StepHandlerResult {
 }
 
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
-
-// Deterministic placeholder: the payload is stable across calls so step
-// receipts stay reproducible until the step's owning story (T39)
-// swaps in real behavior. T35 replaced the 3 Cloudflare-boundary steps,
-// T36 replaced publish_starter_articles, T37 replaced
-// warm_homepage_cache, and T38 replaced run_site_smoke_tests with real
-// handlers below.
-function placeholderResult(step: StepKey): StepHandlerResult {
-  const payload = {
-    step,
-    kind: "deterministic_placeholder",
-    schema_version: 1,
-  };
-  return { status: "completed", output: JSON.stringify(payload) };
-}
 
 // T35 — validate_domain_in_cloudflare (step 1).
 // Read-only Cloudflare-boundary check: resolves the site's hostname and
@@ -1039,11 +1024,104 @@ async function runSiteSmokeTestsStep(
   return { status: "completed", output };
 }
 
-// Placeholder handlers below (placeholderResult) are each owned by a
-// named follow-up story: T39 update_launch_readiness. T35 replaced the
-// 3 Cloudflare-boundary steps, T36 replaced publish_starter_articles,
-// T37 replaced warm_homepage_cache, and T38 replaced
-// run_site_smoke_tests with the real handlers above.
+// T39 — update_launch_readiness (step 16, the final step).
+// Read-only D1 rollup: collects the launch-readiness signals produced by
+// the earlier steps into one JSON object and persists it as this step's
+// output row (the runner writes StepHandlerResult.output into
+// site_creation_job_steps.output). GET /api/admin/sites/:id/provision
+// reads that row back and surfaces it as the response's top-level
+// `launch_readiness` field (field_contract canonical_name
+// launch_readiness: domain_attached, published_articles, media_count,
+// cache_warmed, smoke_passed, content_mode). Zero fetch in any mode.
+async function readJobStepStatus(
+  db: D1Database,
+  job_id: string,
+  step_key: StepKey,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      "SELECT status FROM site_creation_job_steps " +
+        "WHERE job_id = ? AND step_key = ? LIMIT 1",
+    )
+    .bind(job_id, step_key)
+    .first<{ status: string }>();
+  return typeof row?.status === "string" ? row.status : null;
+}
+
+async function updateLaunchReadinessStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const site = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!site) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  // content_mode rides its own read so a legacy row (or a pre-0010
+  // local DB) degrades to the column's DEFAULT 'ai' instead of failing
+  // the rollup.
+  const modeRow = await ctx.db
+    .prepare("SELECT content_mode FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ content_mode: string | null }>();
+  const domainRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS attached_count FROM domains " +
+        "WHERE site_id = ? AND status = 'active'",
+    )
+    .bind(ctx.site_id)
+    .first<{ attached_count: number }>();
+  const articlesRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS published_count FROM articles " +
+        "WHERE site_id = ? AND status = 'published' " +
+        "AND published_at IS NOT NULL",
+    )
+    .bind(ctx.site_id)
+    .first<{ published_count: number }>();
+  const mediaRow = await ctx.db
+    .prepare("SELECT COUNT(*) AS media_count FROM media WHERE site_id = ?")
+    .bind(ctx.site_id)
+    .first<{ media_count: number }>();
+  const warmStatus = await readJobStepStatus(
+    ctx.db,
+    ctx.job_id,
+    "warm_homepage_cache",
+  );
+  const smokeStatus = await readJobStepStatus(
+    ctx.db,
+    ctx.job_id,
+    "run_site_smoke_tests",
+  );
+  const launch_readiness = {
+    domain_attached: (domainRow?.attached_count ?? 0) >= 1,
+    published_articles: articlesRow?.published_count ?? 0,
+    media_count: mediaRow?.media_count ?? 0,
+    cache_warmed:
+      warmStatus === "completed" || warmStatus === "completed_dry_run",
+    smoke_passed: smokeStatus === "completed",
+    content_mode:
+      typeof modeRow?.content_mode === "string" &&
+      modeRow.content_mode.length > 0
+        ? modeRow.content_mode
+        : "ai",
+  };
+  const output = JSON.stringify({
+    step: "update_launch_readiness",
+    kind: "launch_readiness_rollup",
+    schema_version: 1,
+    site_id: ctx.site_id,
+    launch_readiness,
+  });
+  return { status: "completed", output };
+}
+
+// All 16 steps have real handlers: T35 replaced the 3 Cloudflare-boundary
+// steps, T36 publish_starter_articles, T37 warm_homepage_cache, T38
+// run_site_smoke_tests, and T39 update_launch_readiness (the last
+// placeholder) with the implementations above.
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: validateDomainInCloudflareStep,
   create_site_record: createSiteRecordStep,
@@ -1060,8 +1138,7 @@ export const STEPS: Record<StepKey, StepHandler> = {
   publish_starter_articles: publishStarterArticlesStep,
   warm_homepage_cache: warmHomepageCacheStep,
   run_site_smoke_tests: runSiteSmokeTestsStep,
-  update_launch_readiness: async () =>
-    placeholderResult("update_launch_readiness"),
+  update_launch_readiness: updateLaunchReadinessStep,
 };
 
 export function getStepKeyForIndex(index: number): StepKey | null {

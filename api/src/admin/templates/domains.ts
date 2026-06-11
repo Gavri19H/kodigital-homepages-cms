@@ -90,15 +90,19 @@ function renderToolbar(): string {
 // T33 restyle: the provisioning status panel is server-rendered (hidden)
 // so it participates in the card styling like every other admin surface;
 // the modal script unhides and reuses THIS node instead of building one
-// from scratch. The data-launch-readiness slot is filled from the poll
-// body's launch_readiness field once update_launch_readiness (D6) starts
-// writing it — until then the row stays hidden.
+// from scratch. T39 (D6): the poll body's launch_readiness object
+// (domain_attached, published_articles, media_count, cache_warmed,
+// smoke_passed, content_mode) fills the data-launch-readiness summary
+// row and renders one .launch-readiness-badge per field into the
+// data-launch-readiness-badges list; both stay hidden until the poll
+// observes a non-null launch_readiness.
 function renderProvisioningPanel(): string {
   return '<section id="provisioning-status-panel" class="card provisioning-status" role="status" aria-live="polite" data-site-id="" hidden>'
     + '<h3 data-panel-title>Provisioning</h3>'
     + '<p data-status>Idle</p>'
     + '<ul data-steps></ul>'
     + '<p class="launch-readiness" data-launch-readiness hidden>Launch readiness: <span data-launch-readiness-value>pending</span></p>'
+    + '<ul class="launch-readiness-badges" data-launch-readiness-badges hidden></ul>'
     + '</section>';
 }
 
@@ -158,7 +162,8 @@ var MODAL_STYLES = '.modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;
   + '.modal.hidden{display:none}'
   + '.modal-content{background:#fff;border-radius:8px;padding:24px;max-width:520px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,0.15)}'
   + '.modal-title{margin-bottom:16px;font-size:18px;font-weight:600}'
-  + '.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}';
+  + '.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}'
+  + '.launch-readiness-badges{display:flex;flex-wrap:wrap;gap:6px;list-style:none;padding:0;margin:8px 0 0}';
 
 var MODAL_SCRIPT = '(function(){'
   + 'var modal=document.getElementById("new-site-modal");'
@@ -205,7 +210,40 @@ var MODAL_SCRIPT = '(function(){'
   + 'readinessValue.textContent="pending";'
   + 'readiness.appendChild(readinessValue);'
   + 'panel.appendChild(readiness);'
+  + 'var badges=document.createElement("ul");'
+  + 'badges.className="launch-readiness-badges";'
+  + 'badges.setAttribute("data-launch-readiness-badges","");'
+  + 'badges.hidden=true;'
+  + 'panel.appendChild(badges);'
   + 'return panel;'
+  + '}'
+  // T39 (D6): one badge per launch_readiness field. Boolean fields are
+  // ready when true, numeric fields when > 0, string fields when
+  // non-empty; ready badges reuse .badge-published, pending ones
+  // .badge-draft (layout.ts badge palette). textContent only — no
+  // innerHTML with server data (XSS guardrail).
+  + 'function renderReadinessBadges(panel,readiness){'
+  + 'var list=panel.querySelector("[data-launch-readiness-badges]");'
+  + 'if(!list||!readiness||typeof readiness!=="object"){return;}'
+  + 'var keys=["domain_attached","published_articles","media_count","cache_warmed","smoke_passed","content_mode"];'
+  + 'while(list.firstChild){list.removeChild(list.firstChild);}'
+  + 'var shown=0;'
+  + 'for(var i=0;i<keys.length;i++){'
+  + 'var key=keys[i];'
+  + 'var value=readiness[key];'
+  + 'if(value===undefined||value===null){continue;}'
+  + 'var ready;'
+  + 'if(typeof value==="boolean"){ready=value;}'
+  + 'else if(typeof value==="number"){ready=value>0;}'
+  + 'else{ready=String(value).length>0;}'
+  + 'var li=document.createElement("li");'
+  + 'li.className="badge launch-readiness-badge "+(ready?"badge-published":"badge-draft");'
+  + 'li.setAttribute("data-readiness-key",key);'
+  + 'li.textContent=key.split("_").join(" ")+": "+String(value);'
+  + 'list.appendChild(li);'
+  + 'shown++;'
+  + '}'
+  + 'list.hidden=shown===0;'
   + '}'
   + 'function startProvisioningPanel(siteId,domain){'
   // T33 restyle: reuse the server-rendered #provisioning-status-panel
@@ -237,7 +275,22 @@ var MODAL_SCRIPT = '(function(){'
   + 'if(statusEl){statusEl.textContent="Status: "+state;}'
   + 'var steps=body.steps||[];'
   + 'if(stepsEl&&steps&&steps.length){var html="";for(var i=0;i<steps.length;i++){var s=steps[i]||{};html+="<li>"+escapeText(s.name||s.id||("step "+i))+": "+escapeText(s.state||s.status||"")+"</li>";}stepsEl.innerHTML=html;}'
-  + 'if(readinessRow&&readinessValue&&body.launch_readiness!==undefined&&body.launch_readiness!==null){readinessRow.hidden=false;readinessValue.textContent=String(body.launch_readiness);}'
+  // T39 (D6): an object launch_readiness renders per-field badges plus a
+  // "N/3 checks ready" summary over the three boolean signals; any
+  // non-object value falls back to the legacy stringified display.
+  + 'if(readinessRow&&readinessValue&&body.launch_readiness!==undefined&&body.launch_readiness!==null){'
+  + 'readinessRow.hidden=false;'
+  + 'if(typeof body.launch_readiness==="object"){'
+  + 'var lr=body.launch_readiness;'
+  + 'var boolKeys=["domain_attached","cache_warmed","smoke_passed"];'
+  + 'var readyCount=0;'
+  + 'for(var bi=0;bi<boolKeys.length;bi++){if(lr[boolKeys[bi]]===true){readyCount++;}}'
+  + 'readinessValue.textContent=readyCount+"/"+boolKeys.length+" checks ready";'
+  + 'renderReadinessBadges(panel,lr);'
+  + '}else{'
+  + 'readinessValue.textContent=String(body.launch_readiness);'
+  + '}'
+  + '}'
   + 'if(state!=="completed"&&state!=="failed"&&state!=="ready"){window.setTimeout(poll,1500);}'
   + '})'
   + '.catch(function(){if(statusEl){statusEl.textContent="Network error";}window.setTimeout(poll,2500);});'

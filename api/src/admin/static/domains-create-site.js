@@ -111,7 +111,59 @@
     readinessValue.textContent = "pending";
     readiness.appendChild(readinessValue);
     panel.appendChild(readiness);
+    var badges = document.createElement("ul");
+    badges.className = "launch-readiness-badges";
+    badges.setAttribute("data-launch-readiness-badges", "");
+    badges.hidden = true;
+    panel.appendChild(badges);
     return panel;
+  }
+
+  // T39 (D6): one badge per launch_readiness field. Boolean fields are
+  // ready when true, numeric fields when > 0, string fields when
+  // non-empty; ready badges reuse .badge-published, pending ones
+  // .badge-draft (layout.ts badge palette). textContent only — no
+  // innerHTML with server data (XSS guardrail).
+  function renderReadinessBadges(panel, readiness) {
+    var list = panel.querySelector("[data-launch-readiness-badges]");
+    if (!list || !readiness || typeof readiness !== "object") {
+      return;
+    }
+    var keys = [
+      "domain_attached",
+      "published_articles",
+      "media_count",
+      "cache_warmed",
+      "smoke_passed",
+      "content_mode"
+    ];
+    while (list.firstChild) {
+      list.removeChild(list.firstChild);
+    }
+    var shown = 0;
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var value = readiness[key];
+      if (value === undefined || value === null) {
+        continue;
+      }
+      var ready;
+      if (typeof value === "boolean") {
+        ready = value;
+      } else if (typeof value === "number") {
+        ready = value > 0;
+      } else {
+        ready = String(value).length > 0;
+      }
+      var li = document.createElement("li");
+      li.className = "badge launch-readiness-badge " +
+        (ready ? "badge-published" : "badge-draft");
+      li.setAttribute("data-readiness-key", key);
+      li.textContent = key.split("_").join(" ") + ": " + String(value);
+      list.appendChild(li);
+      shown++;
+    }
+    list.hidden = shown === 0;
   }
 
   function startProvisioningPanel(siteId, domain) {
@@ -180,11 +232,29 @@
             }
             stepsEl.innerHTML = html;
           }
+          // T39 (D6): an object launch_readiness renders per-field badges
+          // plus a "N/3 checks ready" summary over the three boolean
+          // signals; any non-object value falls back to the legacy
+          // stringified display.
           if (readinessRow && readinessValue &&
               responseBody.launch_readiness !== undefined &&
               responseBody.launch_readiness !== null) {
             readinessRow.hidden = false;
-            readinessValue.textContent = String(responseBody.launch_readiness);
+            if (typeof responseBody.launch_readiness === "object") {
+              var lr = responseBody.launch_readiness;
+              var boolKeys = ["domain_attached", "cache_warmed", "smoke_passed"];
+              var readyCount = 0;
+              for (var bi = 0; bi < boolKeys.length; bi++) {
+                if (lr[boolKeys[bi]] === true) {
+                  readyCount++;
+                }
+              }
+              readinessValue.textContent =
+                readyCount + "/" + boolKeys.length + " checks ready";
+              renderReadinessBadges(panel, lr);
+            } else {
+              readinessValue.textContent = String(responseBody.launch_readiness);
+            }
           }
           if (state !== "completed" && state !== "failed" && state !== "ready") {
             window.setTimeout(poll, 1500);
