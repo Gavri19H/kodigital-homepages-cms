@@ -28,6 +28,12 @@ import {
   deletePageHandler,
 } from "./pages-crud-handlers";
 import {
+  updateCategoryHandler,
+  deleteCategoryHandler,
+  createTagHandler,
+  deleteTagHandler,
+} from "./taxonomy-crud-handlers";
+import {
   TenantBoundaryViolation,
   assertSlugUniquePerSite,
   assertTenantBoundary,
@@ -385,6 +391,16 @@ api.post("/api/admin/categories", async (c) => {
     201,
   );
 });
+
+// T30 ([B9] Categories + Tags port + CRUD completion): the write verbs
+// the ported taxonomy UI calls (categoriesListPage row Delete +
+// admin-side edits PUT/DELETE /api/admin/categories/:id; tagsListPage
+// create modal POSTs /api/admin/tags, row Delete DELETEs
+// /api/admin/tags/:id). Handlers live in ./taxonomy-crud-handlers.ts.
+api.put("/api/admin/categories/:id", updateCategoryHandler);
+api.delete("/api/admin/categories/:id", deleteCategoryHandler);
+api.post("/api/admin/tags", createTagHandler);
+api.delete("/api/admin/tags/:id", deleteTagHandler);
 
 api.get("/api/admin/tags", async (c) => {
   // T10: site_id filter — when present, restrict to that site's tags
