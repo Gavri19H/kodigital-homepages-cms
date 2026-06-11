@@ -7297,3 +7297,118 @@ iteration 18 — T30 (sources: T30)
   - DELETE handlers in this admin must return JSON (200 {ok,id}), never
     204 — window.api unconditionally json()-parses, so a legacy-
     faithful 204 makes every successful delete surface as a UI error.
+
+## 2026-06-11 — T31 (iteration 19)
+iteration 19 — T31 [B10] Media library port (sources: T31)
+- Implemented the media library port (brief BCL-033: GET/PUT/DELETE
+  /media/:id + the upload verb the ported UI calls) + the schema delta:
+  - api/migrations/0013_phase10_media_admin_crud_columns.sql (NEW, 12):
+    ALTER TABLE media ADD caption TEXT, uploaded_by TEXT, updated_at
+    INTEGER — the legacy media table carried all three; the 0001 port
+    dropped them, yet the ported PUT/upload paths write them. Anchored
+    in deploy.yml tracked-migrations list (D1-file rule).
+  - api/src/admin/media-crud-handlers.ts (NEW, 325): uploadMediaHandler
+    (multipart wire fields file/alt_text/caption/folder?/site_id? —
+    ported names, NOT the Phase-1 'alt'; mime allowlist JPEG/PNG/GIF/
+    WebP/AVIF/SVG + 10MB cap; site_id verified in sites → 400
+    UNKNOWN_SITE; R2 put with immutable cache-control; byte-header
+    width/height extraction; uploaded_by from the Access email header;
+    INSERT…RETURNING) + getMediaHandler / updateMediaHandler /
+    deleteMediaHandler (tenant guard: a named site scope may not touch
+    a row owned by a different site → 403 TENANT_BOUNDARY_VIOLATION;
+    global site_id-NULL rows pass every scope; PUT retention semantics
+    alt_text/caption absent → retained, folder COALESCE; DELETE removes
+    R2 blob (failure logged, not fatal) then the row, returns JSON 200
+    {deleted,id,storage_key} — never 204).
+  - api/src/media/dimensions.ts (NEW, 113): legacy PNG/JPEG/GIF/WebP
+    byte-header dimension extractors (pure, no decode).
+  - api/src/media/upload.ts (89→91): buildStorageKey exported so the
+    admin upload shares the yyyy/mm/dd/<uuid><ext> key convention.
+  - api/src/admin/api.ts (966→979): 4 route registrations (POST
+    /api/admin/media/upload, GET/PUT/DELETE /api/admin/media/:id).
+  - api/src/admin/templates/media.ts (140→538): legacy media-grid port —
+    card grid (preview/filename/size/Global badge), upload modal
+    (dropzone + drag-drop + XHR progress posting multipart
+    file/alt_text/caption/site_id), details modal (GET :id, Copy URL,
+    Copy HTML, Delete via DELETE :id). Site filter (name="site_id",
+    pinned by tags-media-filter test) now server-side via
+    ?site_id= reload; kind filter + search are client-side card
+    visibility. Scripts ES5-only (var/function/concat/.then, indexOf,
+    no template literals) per es5-inline-scripts.
+  - api/src/admin/ui.ts (305): /admin/media honors ?site_id= via
+    listMediaForSite (site rows + globals), passes selection to the
+    template.
+  - api/test/admin-media-site-filter.test.ts (224→665): RX3 block
+    untouched; new "T31 media library port" describe — upload wire-field
+    contract (legacy 'alt' decoy proven unread; INSERT binds carry
+    site_id/filename/key/mime/size/3×2 PNG dimensions/alt_text/caption/
+    folder/uploaded_by), global-row upload (no sites probe), 400
+    UNKNOWN_SITE before any write, 400 missing-file/bad-mime (no
+    writes), GET :id tenant matrix (200 own / 403 cross / 200 global /
+    404 / 400), PUT retention + parameterization + cross-tenant 403
+    (no UPDATE), DELETE R2+D1+JSON-200 + cross-tenant 403 (no deletes),
+    real-SQLite migrations 0001..0013 round-trip of caption/uploaded_by/
+    updated_at with the exact handler INSERT/UPDATE shapes, and the
+    media-grid template structural contract.
+- test commands actually run:
+  - cd api && npx tsc --noEmit → clean
+  - cd api && npx vitest run test/admin-media-site-filter.test.ts →
+    12/12 pass (3 RX3 retained + 9 new)
+  - cd api && npm test → 118 files, 1008/1008 pass (was 999 pre-T31,
+    0 regressions)
+  - cd api && npm run verify:no-legacy-prod-refs → exit 0
+  - npx wrangler d1 migrations apply kodigital-homepages-cms-db --local
+    → 0013 ✅; INSERT(caption,uploaded_by)→UPDATE(updated_at=unixepoch)
+    →SELECT round-trip echoed smoke-cap2/unixepoch value; smoke row
+    deleted (count back to 0).
+  - D13 runner (verbatim runner_command_rendered, RC-093,RC-094):
+    RC-094 PASS (parse_grep_count: media-grid count 3 >= 1, exit 0).
+    RC-093 FAIL on name-match only: vitest exit 0, file green
+    (observed "test/admin-media-site-filter.test.ts (12 tests)",
+    passed=true) but expected_test_name_regex is the escaped SHELL
+    COMMAND "cd\ api\ \&\&\ npx\ vitest\ run\ ..." which can never
+    match a vitest_text observation under the default reporter
+    (file-level ✓ lines only).
+- EVIDENCE_ROUTE_EXHAUSTED — T31 RC-093: same deterministic
+  plan-authoring defect class as T25/T26/T27/T28/T29 (RC-090 et al).
+  A typed regex cannot be changed by re-implementing; editing the
+  evidence plan is a forbidden mechanism-dodge. Underlying evidence
+  green in-tree (12/12, exit 0, runner's own observation artifact
+  evidence/raw/88ba7e21b4ca-2e261b6ae1fb-observations.json shows
+  passed=true). Reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- Self-check results:
+  - File sizes: media-crud-handlers.ts 325 (ported-CRUD module,
+    taxonomy 395 / pages 516 precedent) PASS; templates/media.ts 538
+    (ported-payload template, articles.ts 520 / pages.ts 431 precedent)
+    PASS w/ precedent; dimensions.ts 113 (limit 200) PASS; api.ts 979
+    (+13 wiring, T29/T30 precedent) PASS w/ precedent; ui.ts 305 (+5);
+    test file 665 (test-payload precedent); migration 12 (limit 100)
+    PASS.
+  - Secret scan: PASS (0 matches across all 9 changed files).
+  - Error handling: PASS (formData/JSON parse try/catch → 400; typed
+    400/403/404 codes; R2 put failure → 500 typed; R2 delete failure
+    logged + metadata delete proceeds (legacy parity); D1 UPDATE/DELETE
+    run() wrapped → 500 typed; no silent swallows).
+  - Migration execution: PASS (wrangler d1 migrations apply --local,
+    0013 applied; INSERT→UPDATE→SELECT round-trip verified then
+    cleaned up).
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' → only a
+    prose comment; all statements static SQL via concatenated static
+    MEDIA_COLUMNS const + .bind(), T29 PAGE_COLUMNS convention).
+  - Acceptance tests: none for this change-id (no acceptance-tests/
+    kodigital-cms-rescue-2-2026-06-10/ dir; T25-T30 precedent).
+- Learnings for future iterations:
+  - vitest.config.ts pins reporters:"default", so vitest_text receipts
+    only ever observe file-level "✓ path (N tests)" lines. An RC
+    expected_test_name_regex can only match a FILE PATH fragment (the
+    RC-091/RC-092 shape); any regex carrying "cd api &&" is
+    deterministically unsatisfiable — flag immediately, don't burn
+    re-implementation retries.
+  - The T29 PAGE_COLUMNS house style is string CONCATENATION
+    ("SELECT " + COLS + "..."), not template literals — keeps the
+    d1-safety grep (prepare.*${) clean without prose exceptions.
+  - media rows keep tenant scope in a nullable site_id column (like
+    tags, unlike categories): guard is column-equality with a
+    global-NULL pass-through, no allocation join needed.
+---
