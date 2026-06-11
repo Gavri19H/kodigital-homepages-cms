@@ -569,8 +569,8 @@
       "title": "[D3] Real publish_starter_articles",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T36"
       ],

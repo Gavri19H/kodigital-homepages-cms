@@ -7760,3 +7760,76 @@ iteration 21 — T33 (sources: T33)
     (stubResult("publish_starter_articles") etc.) trivially 0 ahead of
     time; their behavioral vitest ACs still bind T36-T38.
 ---
+
+## 2026-06-11 — T36 (iteration 23)
+- Execution story T36 (sources: T36) — [D3] Real publish_starter_articles.
+- What was implemented: replaced the publish_starter_articles
+  placeholder (steps.ts registry index 12) with a real handler. The
+  starter rows inserted by generate_15_homepage_articles carry
+  status='published' but NULL published_at, so public readers (which
+  filter/ORDER BY published_at) treat them as not-yet-live. The step:
+  (1) UPDATE articles SET status='published',
+  published_at=COALESCE(published_at, unixepoch()), scheduled_at=NULL,
+  updated_at=unixepoch() WHERE site_id=? AND homepage_section='starter'
+  — COALESCE keeps re-runs from clobbering the original timestamp
+  (idempotent); (2) null-tolerant SELECT COUNT receipt readback;
+  (3) UPDATE sites SET content_version = content_version + 1 — the
+  exact canonical statement from workflow/publish.ts so public cache
+  keys (which suffix content_version) roll over. No
+  invalidatePublishCaches() call: fresh provisioning site has no cached
+  entries (warm_homepage_cache T37 is the NEXT step) and env.CACHE is
+  a bare fake in every provisioning harness. Pure D1, zero Cloudflare
+  interaction in any mode. Extended the run-to-completion fake to
+  track articles rows (INSERT OR IGNORE branch lands them with
+  published_at=NULL exactly like the real INSERT) + a
+  site.content_version counter, and added the T36.AC2 behavioral test:
+  full 16-step walk -> 15 starter rows all status='published' with
+  published_at set, content_version bumped exactly 0->1.
+- Files changed: api/src/site-provisioning/steps.ts,
+  api/test/site-provisioning-run-to-completion.test.ts
+- Commit: af5d1f0 feat: [T36] - [D3] Real publish_starter_articles
+- Tests run: cd api && npx vitest run <9 provisioning suites> (37/37
+  green incl. 4/4 run-to-completion with the new T36 test);
+  cd api && npm test (119 files / 1033 tests PASS);
+  cd api && npx tsc --noEmit (clean).
+- D13 evidence runner (run twice, byte-identical):
+  RC-111 PASS (grep -c "stubResult" steps.ts -> 0 == 0).
+- EVIDENCE_ROUTE_EXHAUSTED — T36 RC-112: same typed evidence-plan
+  defect as T32 RC-096/RC-098, T33 RC-100/RC-102, T34
+  RC-104/RC-106/RC-107, T35 RC-109/RC-110. expected_test_name_regex is
+  the shell-escaped COMMAND string
+  ('cd\ api\ \&\&\ npx\ vitest\ run\ test/site\-provisioning\-run\-to\-completion\.test\.ts')
+  and can never match a vitest test NAME; the receipt FAILs while
+  exit_code=0 and observed_assertions show 4/4 tests passed. A typed
+  regex cannot be changed by re-implementing; editing the evidence
+  plan is a forbidden mechanism-dodge. Runner executed twice,
+  deterministic identical outcome. Reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- **Self-check results:**
+  - File sizes: steps.ts 900 (+64 over pre-story 836, registry-file
+    precedent), site-provisioning-run-to-completion.test.ts 345
+    (test-file precedent pages 431 / articles 520 / media 538) — PASS
+    w/ precedent.
+  - Secret scan: PASS (0 matches across changed files).
+  - Error handling: PASS (failed envelope on missing sites row,
+    consistent with sibling steps; no new route handlers; no silent
+    swallows).
+  - Migration execution: N/A (api story; no schema change —
+    articles.published_at and sites.content_version pre-exist in
+    migrations 0001/0007 and 0009).
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' -> 0
+    matches; all static SQL + .bind()).
+  - ES5 inline scripts: N/A (no template/static JS changes).
+  - Acceptance tests: none for this change-id (T25-T35 precedent).
+- **Learnings for future iterations:**
+  - publish_starter_articles is the ONLY provisioning step touching
+    sites.content_version, so run-to-completion can assert an exact
+    0->1 bump; if T37 warm_homepage_cache ever bumps it too, relax
+    that toBe(1) to toBeGreaterThanOrEqual(1).
+  - Step handlers must stay null-tolerant on readback SELECTs: every
+    provisioning harness returns null for unmatched .first() SQL, and
+    a step that fails on a missing count row would break all four
+    full-walk suites (run-to-completion, no-outbound, both runners).
+  - env.CACHE is a bare {} fake in all provisioning harnesses — any
+    step that calls KV (list/delete) will crash the walk; cache work
+    belongs to warm_homepage_cache's own story with its own fake.
