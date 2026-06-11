@@ -5266,3 +5266,16 @@ D13 canonical runner result — T1:
   verifier's own format (relative paths, same find order), backup kept at
   ac-checksums.bak.<ts>; verified hash-set identical to backup (integrity
   check stays ARMED) and hook comparison now matches on untampered state.
+
+## 2026-06-11 15:42 - T1 evidence runner
+- Evidence runner (D12/D13): RC-002 PASS (grep_count 2 >= 2), RC-004 PASS
+  (scanner exit 0). RC-003 FAIL — Phase A authoring defect in
+  required_evidence_plan.json: expected_test_name_regex is the escaped
+  COMMAND string ('cd api && npx vitest run test/verify-script.test.ts'),
+  which can never match a vitest test NAME. The same receipt shows the
+  suite green (2/2 observed assertions passed, exit_code=0). Deterministic
+  non-convergence (re-running yields identical receipts; renaming a test to
+  match the regex would be parser-gaming). EVIDENCE_ROUTE_EXHAUSTED RC-003
+  per D12; implementation correctness proven above (all 3 T1 ACs pass
+  directly). Plan-entry repair is owned by the canonical Phase-A producer,
+  not Ralph.
