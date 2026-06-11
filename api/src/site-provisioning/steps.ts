@@ -25,8 +25,9 @@
 //   - T9.AC1..AC5: imports of generateSiteTagline/Description, generateAboutPage,
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
 
-import type { Env } from "../env";
+import { type Env, parseNumber } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
+import { warmSiteCache } from "../cache/warm";
 import {
   resolveSiteHostname,
   runCloudflareRouteMutation,
@@ -106,9 +107,10 @@ export interface StepHandlerResult {
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
 
 // Deterministic placeholder: the payload is stable across calls so step
-// receipts stay reproducible until the step's owning story (T37-T39)
-// swaps in real behavior. T35 replaced the 3 Cloudflare-boundary steps
-// and T36 replaced publish_starter_articles with real handlers below.
+// receipts stay reproducible until the step's owning story (T38-T39)
+// swaps in real behavior. T35 replaced the 3 Cloudflare-boundary steps,
+// T36 replaced publish_starter_articles, and T37 replaced
+// warm_homepage_cache with real handlers below.
 function placeholderResult(step: StepKey): StepHandlerResult {
   const payload = {
     step,
@@ -867,11 +869,82 @@ async function publishStarterArticlesStep(
   };
 }
 
+// T37 — warm_homepage_cache (step 14).
+// Delegates to the canonical warmSiteCache helper (cache/warm.ts).
+// Under SITE_PROVISIONING_DRY_RUN (the default) the helper performs
+// ZERO outbound fetches and ZERO KV puts and the step reports
+// completed_dry_run. In live mode it GETs homepage + sitemap +
+// feed:rss + feed:atom from the site's own origin
+// (https://{hostname} — no api.cloudflare.com URL is ever built) and
+// stores each body in env.CACHE under the canonical cache-keys.ts
+// key — the homepage via putCachedHtml with its computed strong ETag.
+// content_version is read live from the sites row (bumped by the
+// preceding publish_starter_articles step) so the warmed keys match
+// what the public router will look up. TTL mirrors the public
+// pipeline's parseNumber(HTML_CACHE_TTL_SECONDS, 300). The homepage
+// target is the step's namesake side-effect: a live-mode run that
+// fails to warm it marks the step failed; sitemap/feed misses stay
+// best-effort inside the helper's per-target envelope.
+async function warmHomepageCacheStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  const versionRow = await ctx.db
+    .prepare("SELECT content_version FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ content_version: number | null }>();
+  const contentVersion =
+    versionRow && typeof versionRow.content_version === "number"
+      ? versionRow.content_version
+      : 0;
+  const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
+  const outcome = await warmSiteCache(ctx.env, {
+    site_id: ctx.site_id,
+    content_version: contentVersion,
+    originBaseUrl: `https://${hostname}`,
+    expirationTtl: parseNumber(ctx.env.HTML_CACHE_TTL_SECONDS, 300),
+  });
+  const homepage = outcome.results.find((r) => r.kind === "homepage");
+  const output = JSON.stringify({
+    step: "warm_homepage_cache",
+    kind: "cache_warm",
+    schema_version: 1,
+    site_id: ctx.site_id,
+    content_version: contentVersion,
+    dry_run: outcome.dry_run,
+    attempted: outcome.attempted,
+    warmed: outcome.warmed,
+    failed: outcome.failed,
+    homepage_cache_key: homepage ? homepage.cacheKey : "",
+    homepage_status: homepage ? homepage.status : "failed",
+  });
+  if (outcome.dry_run) {
+    return { status: "completed_dry_run", output };
+  }
+  if (!homepage || homepage.status !== "warmed") {
+    return {
+      status: "failed",
+      output,
+      error:
+        homepage?.error ??
+        `homepage warm did not complete (status=${homepage?.status ?? "missing"}, http=${homepage?.http_status ?? "n/a"})`,
+    };
+  }
+  return { status: "completed", output };
+}
+
 // Placeholder handlers below (placeholderResult) are each owned by a
-// named follow-up story: T37 warm_homepage_cache, T38
-// run_site_smoke_tests, T39 update_launch_readiness. T35 replaced the
-// 3 Cloudflare-boundary steps and T36 replaced publish_starter_articles
-// with the real handlers above.
+// named follow-up story: T38 run_site_smoke_tests, T39
+// update_launch_readiness. T35 replaced the 3 Cloudflare-boundary
+// steps, T36 replaced publish_starter_articles, and T37 replaced
+// warm_homepage_cache with the real handlers above.
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: validateDomainInCloudflareStep,
   create_site_record: createSiteRecordStep,
@@ -886,7 +959,7 @@ export const STEPS: Record<StepKey, StepHandler> = {
   generate_15_homepage_articles: generate15HomepageArticlesStep,
   generate_or_assign_article_images: generateOrAssignArticleImagesStep,
   publish_starter_articles: publishStarterArticlesStep,
-  warm_homepage_cache: async () => placeholderResult("warm_homepage_cache"),
+  warm_homepage_cache: warmHomepageCacheStep,
   run_site_smoke_tests: async () => placeholderResult("run_site_smoke_tests"),
   update_launch_readiness: async () =>
     placeholderResult("update_launch_readiness"),
