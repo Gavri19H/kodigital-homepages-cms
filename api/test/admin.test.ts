@@ -152,9 +152,9 @@ describe("admin router — AI endpoints (T10.AC2 / T18)", () => {
     expect(body.error).toMatch(/OPENAI_API_KEY/);
   });
 
-  it("POST /api/admin/ai/generate-image returns 501 when OPENAI_API_KEY unset", async () => {
+  it("POST /api/admin/ai/image returns 501 when OPENAI_API_KEY unset", async () => {
     const res = await admin.request(
-      "/api/admin/ai/generate-image",
+      "/api/admin/ai/image",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

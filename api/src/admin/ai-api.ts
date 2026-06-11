@@ -7,9 +7,14 @@
 // set it responds 501 with a JSON error (per the proposal's rejected
 // alternative: do NOT silently 200 a fake response).
 //
-// The image endpoint below is still the Phase 1 stub; T19 [E2] replaces it.
+// T19 [E2]: POST /api/admin/ai/image is the REAL admin image endpoint
+// (handler in ./ai-image). It generates via OpenAI images (model from the
+// SUPPORTED_IMAGE_MODELS registry), PUTs the bytes to R2, inserts a media
+// row, and writes an ai_generations receipt row. The route is wrapped in
+// hono's bodyLimit — prompt JSON only, never image payloads.
 
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import type { Env } from "../env";
 import { getTextModel } from "../ai/models";
 import { createOpenAIClient } from "../ai/openai-client";
@@ -18,15 +23,11 @@ import {
   finishGenerationLogSuccess,
   startGenerationLog,
 } from "../ai/generation-log";
+import { handleAdminAiImage, IMAGE_BODY_LIMIT_BYTES } from "./ai-image";
 
 interface ChatBody {
   prompt?: string;
   site_id?: string | null;
-}
-
-interface GenerateImageBody {
-  prompt?: string;
-  size?: string;
 }
 
 const CHAT_TASK = "admin-chat";
@@ -112,27 +113,10 @@ aiApi.post("/api/admin/ai/chat", async (c) => {
   }
 });
 
-aiApi.post("/api/admin/ai/generate-image", async (c) => {
-  if (!c.env.OPENAI_API_KEY) {
-    return c.json(
-      { error: "OPENAI_API_KEY is not configured", phase: "1-deferred" },
-      501,
-    );
-  }
-  let body: GenerateImageBody = {};
-  try {
-    body = await c.req.json<GenerateImageBody>();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-  const prompt = typeof body.prompt === "string" ? body.prompt : "";
-  if (!prompt) return c.json({ error: "prompt is required" }, 400);
-  return c.json({
-    ok: true,
-    model: c.env.OPENAI_IMAGE_MODEL,
-    placeholder: true,
-    image_url: null,
-  });
-});
+aiApi.post(
+  "/api/admin/ai/image",
+  bodyLimit({ maxSize: IMAGE_BODY_LIMIT_BYTES }),
+  handleAdminAiImage,
+);
 
 export default aiApi;
