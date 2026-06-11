@@ -761,8 +761,8 @@
       "title": "[H1] SHIP_HANDOFF.md",
       "category": "config",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T48"
       ],

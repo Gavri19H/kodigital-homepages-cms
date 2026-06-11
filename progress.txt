@@ -8514,3 +8514,66 @@ iteration — T45 (sources: T45)
   - Hono sub-router gating tests: import the admin router (gate
     registered there), not the sub-router — admin.request() without
     DEV_BYPASS_AUTH exercises the real accessAuth 401.
+
+## 2026-06-12 — T48 ([H1] SHIP_HANDOFF.md)
+- iteration 3 — T48 (sources: T48)
+- Implemented: SHIP_HANDOFF.md at worktree root (264 lines) — the
+  ship-phase operator handoff per brief BCL-028 ("backup prod D1 →
+  wipe all 9 sites + dependents → ..."). Sections: 0 preflight (the
+  five Phase-1.5 gate commands + deploy.yml migration-anchor greps +
+  service-token env check), 1 backup prod D1 (wrangler d1 export +
+  time-travel bookmark + backup verification + both restore paths),
+  2 wipe all 9 sites + dependents (enumerate manifest SELECT, 13
+  child-first DELETE commands preserving verticals/category_verticals/
+  legal_templates seeds, post-wipe count assertion), 3 recreate via
+  launch workflow (POST /api/admin/sites + /provision/next loop over
+  the 16 STEP_KEYS; theplaynest.net first, remaining 8 only after it
+  passes verification), 4 verification (pre-deploy: npm test +
+  npx playwright test incl. design-contract specs; post-deploy: 5
+  checks — health+auth/status, homepage content + cf-cache-status/age,
+  Lighthouse vs performance-checklist budget, sitemap/robots/feed,
+  wrangler tail), 5 CF Access service token KODIGITAL_CMS_SMOKE_TESTS
+  (headers, env vars, ALLOWED_CF_SERVICE_TOKEN_IDS gating, doc
+  pointer), 6 ownership (user-owned deploy per deploy-safety) +
+  rollback + references. All commands sourced from repo truth:
+  docs/deployment-runbook.md, docs/cloudflare-access-service-token-
+  setup.md, api/wrangler.toml (db name/id), api/package.json scripts,
+  api/src/site-provisioning/steps.ts STEP_KEYS, sites-handlers.ts
+  create-body shape {domain, vertical_slug, name}.
+- AC term counts (grep -c on SHIP_HANDOFF.md): backup=11 (AC1/AC2,
+  RC-139 >=1), theplaynest.net=11 (AC2, RC-140 >=1), Playwright=4,
+  design-contract=7, Lighthouse=4, post-deploy=6 (AC3 >=3 each),
+  wipe=7, recreate=8, preflight=3 (AC1).
+- D13 runner: RC-139 PASS (count=11>=1) via packet's
+  runner_command_rendered verbatim; RC-140 PASS (count=11>=1);
+  determinism re-run RC-139,RC-140 → PASS/PASS identical. RC-141 +
+  RC-146 are plan-authored route=production_pending /
+  claim_lifecycle=deferred — no local route to run (ship-phase
+  deploy-and-verify claims).
+- source_story_ids: T48
+- test commands actually run: cd api && npm test (122 files / 1073
+  tests green); cd api && npx tsc --noEmit (clean); D13 runner
+  RC-139 (x2), RC-140 (x2) — all PASS deterministic.
+- **Self-check results:**
+  - File sizes: SHIP_HANDOFF.md 264 lines — markdown runbook doc (no
+    md limit in prd/architecture; repo precedent deployment-runbook.md
+    is longer) — PASS
+  - Secret scan: PASS (0 matches; doc references env-var NAMES and
+    dashboard procedure only, no values)
+  - Error handling: N/A (documentation-only story, no route handlers)
+  - Migration execution: N/A (no db change)
+  - Parameterized queries: N/A (no product SQL; doc's operator DELETE
+    commands are static, no interpolation)
+  - Acceptance tests: none exist for this change-id (T25-T47
+    precedent)
+- **Learnings for future iterations:**
+  - Doc stories with grep-count RCs are case-sensitive: RC greps use
+    lowercase literals ("backup", "theplaynest.net") — keep the exact
+    lowercase token in prose/commands, capitalized headings don't
+    count.
+  - A story packet's runner_command_rendered may list only a subset of
+    the story's local RCs (T48 packet rendered RC-139 only, but
+    RC-140 is also local+T48-bound in required_evidence_plan.json).
+    Check the evidence plan for ALL entries with story_id=T<N> and run
+    the runner for each local claim — unrun local claims have no
+    receipt and cannot be satisfied at finalize.
