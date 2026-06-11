@@ -7500,3 +7500,99 @@ iteration 19 — T31 [B10] Media library port (sources: T31)
     server-side from the sites row, tenant guard).
   - Local d1 probe rows for sites need domain (NOT NULL) and a real
     vertical_slug (FK to verticals) — seed-check verticals first.
+
+## 2026-06-11 ~19:45Z — T33 [B12] Presets pages + Domains restyle
+iteration 21 — T33 (sources: T33)
+- Implemented:
+  - api/src/admin/ui.ts: added GET /admin/presets/new + GET
+    /admin/presets/:id (registered before :id wins; edit loads the full
+    prompt_presets row via SELECT_PRESET_BY_ID/isValidPresetId from
+    ai-presets.ts; invalid/missing id falls back to the create form per
+    the articles/pages editor precedent). BCL-032 verbatim intent.
+  - api/src/admin/templates/presets.ts: presetFormPage (slug, category,
+    prompt_template, variables, text_model/image_model selects sourced
+    ONLY from SUPPORTED_TEXT_MODELS/SUPPORTED_IMAGE_MODELS with
+    DEFAULT_* preselected in new mode, Active toggle); new POSTs
+    /api/admin/ai/presets, edit PUTs /api/admin/ai/presets/:id, delete
+    DELETEs same path (confirm + redirect); system presets render
+    disabled except Active. List page: + New Preset toolbar link, row
+    label links to /admin/presets/:id. ES5-only inline script.
+  - api/src/admin/templates/domains.ts: provisioning-status-panel now
+    SERVER-rendered (hidden card with role=status aria-live=polite,
+    data-launch-readiness slot for D6); MODAL_SCRIPT reuses/unhides the
+    panel (createElement skeleton only as fallback, DOM methods — no
+    innerHTML for the skeleton), poll body launch_readiness surfaces in
+    the readiness row. Poll URL byte-identical:
+    "/api/admin/sites/"+encodeURIComponent(siteId||"")+"/provision".
+  - api/src/admin/static/domains-create-site.js: hand-synced mirror
+    updated to the same panel-reuse + launch-readiness logic (MQAFIX-5
+    body.resource.id contract untouched).
+  - escapeHtml de-dup (AC4): single exported definition in
+    templates/layout.ts (widened to string|number|null|undefined); all
+    11 template files import it. grep -rn 'function escapeHtml(' in
+    templates/ -> 1 (layout.ts only; media.ts escapeHtmlJs is the
+    client-side inline-script helper, different symbol).
+  - api/src/admin/views/ DELETED (AC5, final B-port fold). The one live
+    dependency (test/category-multi-vertical.test.ts renderer block)
+    repointed to canonical categoriesListPage with the same
+    multi-vertical contract (vertical_ids wire name, 8 slugs,
+    zero-vertical guard); stale views/ comments fixed in
+    templates/pages.ts + test/admin-pages-list-site-id-filter.test.ts.
+  - Tests: admin-domains.test.ts + "T33 /admin/domains restyle"
+    describe (shell markers, server-rendered status panel +
+    launch-readiness slot, poll URL unchanged); NEW
+    test/admin-presets-pages.test.ts (new-form POST target + SUPPORTED
+    model options, :id edit form w/ PUT target + delete, system-preset
+    disable, list links).
+- Tests run:
+  - cd api && npx tsc --noEmit -> clean.
+  - cd api && npm test -> 119 files / 1021 tests PASS (24.9s).
+  - D13 runner (RC-099,RC-100,RC-101,RC-102,RC-103):
+    RC-099 PASS (grep "presets" ui.ts count=9 >= 2),
+    RC-101 PASS (grep provisioning-status-panel domains.ts count=4 >= 1,
+      receipt artifact 7de1555df0c2),
+    RC-103 PASS (test ! -d api/src/admin/views exit 0),
+    RC-100 UNSATISFIED, RC-102 FAIL -> EVIDENCE_ROUTE_EXHAUSTED.
+- EVIDENCE_ROUTE_EXHAUSTED: T33 RC-100 + RC-102 — same typed
+  plan-authoring defect class as T25..T31 (RC-090)/T32 (RC-098).
+  RC-100: expected_test_name_regex is the escaped COMMAND string
+  ('cd\ api\ \&\&\ npx\ vitest\ run\ test/admin-domains\.test\.ts') and
+  can never match a vitest test NAME; the underlying vitest run is
+  green (admin-domains 8/8, exit 0, receipt 942e19ca8ff5). RC-102: the
+  evidence_command is prose ("escapeHtml de-dup post-port: <= 1
+  definition in admin templates"), parse_grep_count -> EMPTY_STDOUT;
+  underlying evidence green (1 definition, layout.ts). A typed
+  regex/command cannot be changed by re-implementing; editing the
+  evidence plan is a forbidden mechanism-dodge. Reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- DB check (DoD "created row exists on SELECT"): wrangler d1 execute
+  kodigital-homepages-cms-db --local — INSERT prompt_presets probe
+  (slug probe-t33, text_model gpt-5.5, image_model gpt-image-2) ->
+  SELECT confirmed {id:1, slug:"probe-t33", text_model:"gpt-5.5",
+  image_model:"gpt-image-2", is_active:1} -> DELETE probe -> leftover 0.
+- Self-check results:
+  - File sizes: domains.ts 296, presets.ts 226, ui.ts 342,
+    domains-create-site.js 280, admin-presets-pages.test.ts 144,
+    admin-domains.test.ts 319 (ported-payload template precedent:
+    pages 431 / articles 520 / media 538) — PASS w/ precedent.
+  - Secret scan: PASS (0 matches across changed files).
+  - Error handling: PASS (preset form: error alert + submit re-enable
+    on both branches + fetch .catch; delete: confirm + error surface;
+    GET routes follow adminUi precedent).
+  - Migration execution: N/A (ui story; DoD d1 SELECT round-trip done
+    instead, see above).
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' -> 0;
+    the one new SELECT goes through SELECT_PRESET_BY_ID + .bind()).
+  - ES5 inline scripts: PASS (MODAL_SCRIPT + PRESET_FORM_SCRIPT string
+    bodies: 0 let/const/arrow/?./??; static mirror matches only in its
+    own rule comment).
+  - Acceptance tests: none for this change-id (T25-T32 precedent).
+- Learnings for future iterations:
+  - The security hook blocks ANY innerHTML in new edits (even =""
+    resets) — build DOM skeletons with createElement/appendChild and
+    clear children with removeChild loops; keeps the hand-synced static
+    mirror clean too.
+  - When deleting a legacy dir, grep api/test for IMPORTS first:
+    category-multi-vertical.test.ts was the only live views/ consumer
+    and its renderer block repoints cleanly to the canonical template
+    (same contract, wire name vertical_ids instead of verticals[]).
