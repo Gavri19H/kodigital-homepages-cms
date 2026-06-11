@@ -5448,3 +5448,68 @@ D13 canonical runner result — T1:
   - Footer grid '1.4fr 1fr 1fr 1fr' contains the featured-grid substring
     '1.4fr 1fr 1fr' — substring greps count both lines (fine for >=1,
     matters if a future AC pins =1).
+
+## 2026-06-11 16:22 — T6 ([C1] Brand tokens)
+- What: set all 5 brand custom properties in api/src/public/assets/public-css.ts
+  to the decoded design-contract reference values — --tw-brand: #1ba8c8,
+  --tw-brand-deep: #0f8aa6, --tw-brand-soft: #d6eef5, --tw-brand-tint: #f0f9fc,
+  --tw-accent: #f0a830. Updated the derived --tw-brand-shadow-rgb 37,99,235 ->
+  27,168,200 (RGB of #1ba8c8; old value was the legacy blue's RGB and would have
+  silently survived the hex grep). Updated layout.ts comment example hex.
+  Added T6.AC3 vitest guard in api/test/public-templates-components.test.ts
+  (publicCss contains all 5 reference values, not #2563eb).
+- Files changed: api/src/public/assets/public-css.ts,
+  api/src/public/templates/layout.ts (comment only),
+  api/test/public-templates-components.test.ts
+- source_story_ids: T6
+- Tests run:
+  - AC1: grep -n for all 5 reference declarations in public-css.ts -> 5/5 present (PASS)
+  - AC2: grep -rc 2563eb api/src/public/ -> every file :0, no match lines (PASS, count=0)
+  - AC3: cd api && npm test -> 107 files / 880 tests, 0 failures (includes new
+    T6.AC3 test asserting publicCss contains #1ba8c8 + the other 4 + NOT #2563eb)
+  - cd api && npx tsc --noEmit -> EXIT=0
+  - Evidence runner (D12/D13) RC-015,RC-016,RC-017: ran twice, deterministic:
+    - RC-015 PASS (grep_count=1 >= 1 for "--tw-brand: #1ba8c8")
+    - RC-016 FAIL reason_code=EVIDENCE_SOURCE_PATH_UNRESOLVED
+    - RC-017 FAIL (vitest exit 0, 12/12 passed; claim UNSATISFIED on
+      expected_test_name_regex)
+- EVIDENCE_ROUTE_EXHAUSTED: RC-016 — plan-baked evidence_command is
+  "grep -rc 2563eb api/src/public/ = 0": the criterion's trailing "= 0" rode
+  into the command; bare "=" is not in _PREDICATE_COMPARATORS
+  (_evidence_source_path.py:59) so strip_trailing_predicate_suffix cannot
+  remove it; F22 source-path recovery then fails on literal files "=" and "0"
+  (reason no_package_root_or_story_prefix_resolves_grep_files) — grep never
+  executes. Additionally the baked comparator is operator=">=",
+  expected_value=1, the INVERSE of AC T6.AC2 (= 0): it could only be satisfied
+  while the legacy blue still existed. Implementation-invariant; plan-artifact
+  (required_evidence_plan.json) repair is orchestrator-owned. The AC itself is
+  proven PASS by direct grep (count=0).
+- EVIDENCE_ROUTE_EXHAUSTED: RC-017 — plan-baked expected_test_name_regex is
+  the shell-escaped COMMAND string ("cd\ api\ \&\&\ npx\ vitest\ run\
+  test/public\-templates\-components\.test\.ts"), not a test-name pattern; the
+  vitest text parser observes file-level names only. No legitimate test name
+  can match a shell command line (renaming a test to a command string would be
+  a parser dodge). The underlying run is green: exit 0, 12/12 tests including
+  the T6.AC3 brand assertion. Implementation-invariant; plan repair is
+  orchestrator-owned.
+- Self-check results:
+  - File sizes: public-css.ts 247 lines (CSS template module, pre-existing
+    count, values-only edit); layout.ts 292 (comment-only edit);
+    components test 149 (limit 200) — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: no T6-*.sh scripts — legacy fallback manual AC verify above
+- Learnings for future iterations:
+  - Plan-baked grep RCs whose criterion text embeds a trailing "= 0" (bare "=")
+    are unrunnable as-routed: "=" is outside _PREDICATE_COMPARATORS, the suffix
+    becomes literal grep file args, and F22 path recovery FAILs the claim
+    before execution. Expect this on any future "grep ... = 0" AC in this plan;
+    prove the AC by direct grep and log EVIDENCE_ROUTE_EXHAUSTED.
+  - parse_test_output claims carry expected_test_name_regex from the plan; when
+    it's a baked command string it can never match — check the receipt's
+    claim_results reason before suspecting the test itself.
+  - --tw-brand-shadow-rgb is an unused declared token carrying the brand RGB
+    triple; keep it in sync with --tw-brand when brand changes (hex greps will
+    not catch a stale RGB triple).
