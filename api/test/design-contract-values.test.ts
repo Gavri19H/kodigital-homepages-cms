@@ -4,6 +4,9 @@
 //     the border to var(--tw-brand)
 //   - `.trending-section`: background var(--tw-ink) (dark, full-bleed)
 //   - `.pulse-dot`: 12px circle, color var(--tw-brand), 1.6s pulse keyframe
+// T16 [C11] adds breakpoint parity: all 8 contract breakpoints must exist
+// as @media (max-width:...) rules — a bare pixel value elsewhere in the
+// sheet can never satisfy the contract.
 // Assertions extract each selector's declaration block so a value match in
 // an unrelated rule can never satisfy the contract.
 
@@ -42,5 +45,15 @@ describe("design-contract-values", () => {
     expect(decl).toContain("width: 12px");
     expect(decl).toContain("height: 12px");
     expect(publicCss).toContain("animation: pulse 1.6s ease-out infinite");
+  });
+
+  it("publicCss pins all 8 contract breakpoints as max-width media queries", () => {
+    const breakpoints = [1280, 1080, 980, 880, 800, 760, 560, 480];
+    for (const bp of breakpoints) {
+      expect(
+        publicCss,
+        `publicCss has a @media (max-width:${bp}px) rule`,
+      ).toContain(`@media (max-width:${bp}px)`);
+    }
   });
 });
