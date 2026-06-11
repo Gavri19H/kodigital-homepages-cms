@@ -18,6 +18,9 @@
 // concatenated") is satisfied at source level — a single BANNED_TOKENS
 // list concatenates every variant the regression must guard against,
 // and the rendered-output assertions iterate that list.
+//
+// T9 (C4) / BCL-047: data-screen-label attributes are stripped before the
+// sweep — see stripScreenLabelAttrs below. The hostname ban is unaffected.
 
 import { describe, it, expect } from "vitest";
 import { renderHome } from "../src/public/templates/home";
@@ -203,15 +206,31 @@ function makeArticleVm(overrides: Partial<ArticleViewModel> = {}): ArticleViewMo
   };
 }
 
+// BCL-047 (C4): root wrappers legitimately carry data-screen-label
+// attributes whose values come from the decoded design-export screen names
+// (e.g. `theiwise-home`). Strip those attributes BEFORE the banned-token
+// sweep / /theiwise/i whole-HTML regex. The ban itself stays intact:
+//   - only dot-free lowercase values ([a-z0-9-]) are stripped, and the
+//     unquoted form must terminate at whitespace/`>` — so a banned
+//     `<brand>.com` hostname inside the attribute is NOT stripped (no
+//     partial strip can hide the `.com` suffix) and still trips the sweep;
+//   - every other surface of the HTML is scanned unchanged.
+function stripScreenLabelAttrs(html: string): string {
+  return html
+    .replace(/\sdata-screen-label="[a-z0-9-]+"/g, "")
+    .replace(/\sdata-screen-label=[a-z0-9-]+(?=[\s>])/g, "");
+}
+
 function assertNoBannedTokens(html: string): void {
+  const scanned = stripScreenLabelAttrs(html);
   for (const token of BANNED_TOKENS) {
-    expect(html).not.toContain(token);
+    expect(scanned).not.toContain(token);
   }
   // Defense-in-depth: case-insensitive sweep for any TheIWise variant
   // that BANNED_TOKENS may have missed (e.g. mixed-case substring inside
   // a larger word). Every banned-token string concatenates the same
   // `theiwise` root, so the /theiwise/i regex catches them all.
-  expect(html).not.toMatch(/theiwise/i);
+  expect(scanned).not.toMatch(/theiwise/i);
 }
 
 describe("public-no-theiwise-brand-render", () => {

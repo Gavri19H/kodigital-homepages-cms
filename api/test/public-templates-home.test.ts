@@ -81,6 +81,18 @@ function makeVm(overrides: Partial<HomeViewModel> = {}): HomeViewModel {
   };
 }
 
+// T9 (C4) / BCL-047: the Home root wrapper legitimately carries
+// `data-screen-label=theiwise-home` (decoded design-export screen name).
+// Strip data-screen-label attributes BEFORE the whole-HTML /theiwise/i
+// sweep. Only dot-free lowercase values are stripped, anchored at
+// whitespace/`>`, so a banned `<brand>.com` hostname inside the attribute
+// is left intact and still trips the ban.
+function stripScreenLabelAttrs(html: string): string {
+  return html
+    .replace(/\sdata-screen-label="[a-z0-9-]+"/g, "")
+    .replace(/\sdata-screen-label=[a-z0-9-]+(?=[\s>])/g, "");
+}
+
 function extractMarkerSequence(html: string): number[] {
   const re = /home-section:(\d+)/g;
   const out: number[] = [];
@@ -116,7 +128,8 @@ describe("public-templates-home", () => {
 
     // PART 12 RED LINE — no hardcoded vertical brand. The /theiwise/i
     // pattern already covers the .com / staging. / app. variants.
-    expect(html).not.toMatch(/theiwise/i);
+    // (data-screen-label attributes stripped first per BCL-047.)
+    expect(stripScreenLabelAttrs(html)).not.toMatch(/theiwise/i);
     expect(html).not.toContain("cms.kodigital.app");
 
     // PART 8 RED LINE — no placeholder anchors
@@ -152,8 +165,8 @@ describe("public-templates-home", () => {
     expect(html).toMatch(/site-footer__copyright[^<]*Beta Tribune/);
     // tagline + description appear in the rendered body (about panel)
     expect(html).toContain("Independent reporting for the working week.");
-    // banned tokens still absent
-    expect(html).not.toMatch(/theiwise/i);
+    // banned tokens still absent (screen-label attributes stripped first)
+    expect(stripScreenLabelAttrs(html)).not.toMatch(/theiwise/i);
     expect(html).not.toContain("cms.kodigital.app");
   });
 

@@ -353,7 +353,7 @@ export function renderArticle(args: RenderArticleArgs): string {
   if (faqJsonLd.length > 0) jsonLdBlocks.push(faqJsonLd);
   const jsonLdHtml = renderJsonLdScripts(jsonLdBlocks);
 
-  return [
+  const sections = [
     `${marker(1, "site-header")}\n${s1}`,
     `${marker(2, "breadcrumb")}\n${s2}`,
     `${marker(3, "article-hero")}\n${s3}`,
@@ -368,4 +368,9 @@ export function renderArticle(args: RenderArticleArgs): string {
     `${marker(12, "site-footer")}\n${s12}`,
     jsonLdHtml,
   ].join("\n");
+
+  // C4 root wrapper: data-screen-label names the decoded design-export
+  // screen. UNQUOTED on purpose to mirror the Home wrapper's contract-grep
+  // form (T9.AC2 matches the literal unquoted attribute).
+  return `<div data-screen-label=article-page>\n${sections}\n</div>`;
 }

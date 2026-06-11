@@ -72,12 +72,16 @@ export function renderHomepageHtml(
       listName: `Articles on ${siteContext.hostname}`,
     }),
   ].join("\n");
-  const body = articles
+  const articleList = articles
     .map(
       (a) =>
         `<article><a href="/article/${a.slug}">${escapeHtml(a.title)}</a></article>`,
     )
     .join("\n");
+  // C4 root wrapper: data-screen-label names the decoded design-export
+  // screen. UNQUOTED on purpose — the T9.AC2 contract grep matches the
+  // literal `data-screen-label=theiwise-home` with no quote after `=`.
+  const body = `<div data-screen-label=theiwise-home>${articleList}</div>`;
   return wrapHtmlDocument(head, body);
 }
 
@@ -104,7 +108,9 @@ export function renderArticleHtml(
       publisherName: siteContext.hostname,
     }),
   ].join("\n");
-  return wrapHtmlDocument(head, row.content_html ?? "");
+  // C4 root wrapper (see renderHomepageHtml): article screen label.
+  const body = `<div data-screen-label=article-page>${row.content_html ?? ""}</div>`;
+  return wrapHtmlDocument(head, body);
 }
 
 export function renderCategoryHtml(

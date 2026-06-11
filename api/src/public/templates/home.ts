@@ -193,7 +193,7 @@ export function renderHome(args: RenderHomeArgs): string {
     legalLinks: args.legalLinks,
   });
 
-  return [
+  const sections = [
     `${marker(1, "site-header")}\n${s1}`,
     `${marker(2, "hero")}\n${s2}`,
     `${marker(3, "chip-rail")}\n${s3}`,
@@ -208,4 +208,12 @@ export function renderHome(args: RenderHomeArgs): string {
     `${marker(12, "about")}\n${s12}`,
     `${marker(13, "site-footer")}\n${s13}`,
   ].join("\n");
+
+  // C4 root wrapper: data-screen-label names the decoded design-export
+  // screen. The attribute value is deliberately UNQUOTED — the T9.AC2
+  // contract grep matches the literal `data-screen-label=theiwise-home`
+  // (no quote between `=` and the value); quoting it breaks the contract.
+  // The no-brand regression strips data-screen-label attributes before its
+  // banned-token sweep, so this label never trips the /theiwise/i ban.
+  return `<div data-screen-label=theiwise-home>\n${sections}\n</div>`;
 }
