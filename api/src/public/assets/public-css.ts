@@ -23,29 +23,29 @@ export const publicCss: string = `
   --tw-accent: #f0a830;
   --tw-success: #10b981;
   --tw-brand-shadow-rgb: 27, 168, 200;
-  /* PART 3 -- typography tokens */
-  --tw-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --tw-font-display: "Inter", var(--tw-font-sans);
+  /* PART 3 -- typography tokens (values: docs/design-contract.md section 2) */
+  --tw-font-sans: "Nunito Sans", "Inter", system-ui;
+  --tw-font-display: "Nunito", "Nunito Sans", system-ui;
   --tw-fs-xs: 0.75rem;
   --tw-fs-sm: 0.875rem;
   --tw-fs-base: 1rem;
-  --tw-fs-md: 1.125rem;
+  --tw-fs-md: 1.0625rem;
   --tw-fs-lg: 1.25rem;
-  --tw-fs-xl: 1.5rem;
-  --tw-fs-2xl: 1.875rem;
-  --tw-fs-3xl: 2.25rem;
-  --tw-fs-4xl: 3rem;
-  /* PART 3 -- layout tokens */
+  --tw-fs-xl: 1.625rem;
+  --tw-fs-2xl: 2rem;
+  --tw-fs-3xl: 2.625rem;
+  --tw-fs-4xl: 3.25rem;
+  /* PART 3 -- layout tokens (values: docs/design-contract.md section 3) */
   --tw-container: 1200px;
-  --tw-container-narrow: 880px;
-  --tw-radius-sm: 4px;
-  --tw-radius: 8px;
+  --tw-container-narrow: 920px;
+  --tw-radius-sm: 6px;
+  --tw-radius: 10px;
   --tw-radius-lg: 16px;
   --tw-radius-pill: 999px;
-  --tw-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --tw-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-  --tw-shadow-md: 0 8px 24px rgba(15, 23, 42, 0.12);
-  --tw-header-h: 64px;
+  --tw-shadow-sm: 0 1px 2px rgba(20,30,50,0.04), 0 1px 1px rgba(20,30,50,0.03);
+  --tw-shadow: 0 2px 8px rgba(20,30,50,0.05), 0 1px 2px rgba(20,30,50,0.04);
+  --tw-shadow-md: 0 8px 24px rgba(20,30,50,0.08), 0 2px 4px rgba(20,30,50,0.04);
+  --tw-header-h: 72px;
   --tw-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --tw-dur: 200ms;
 }
@@ -75,7 +75,7 @@ img { max-width: 100%; height: auto; }
 }
 .skip-to-content:focus { left: 1rem; top: 1rem; }
 
-.container { max-width: var(--tw-container); margin: 0 auto; padding: 0 1rem; }
+.container { max-width: var(--tw-container); margin: 0 auto; padding: 0 clamp(16px, 3vw, 32px); }
 .container--narrow { max-width: var(--tw-container-narrow); }
 .section { padding: 2.5rem 0; }
 .section--soft { background: var(--tw-bg-soft); }
@@ -177,9 +177,11 @@ img { max-width: 100%; height: auto; }
 .share-btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 .share-count { font-size: var(--tw-fs-xs); color: var(--tw-text-muted); text-align: center; }
 
-.article-body { font-size: var(--tw-fs-md); line-height: 1.7; color: var(--tw-text); }
+/* Contract section 2 pins article body copy at 1.125rem/1.7 and article H2 at
+   1.75rem/1.2 weight 800 — literal values, NOT the fs tokens (fs-md is 17px). */
+.article-body { font-size: 1.125rem; line-height: 1.7; color: var(--tw-text); }
 .article-body p { margin: 0 0 1.25em; }
-.article-body h2 { font-family: var(--tw-font-display); font-size: var(--tw-fs-xl); color: var(--tw-ink); margin: 2em 0 0.5em; }
+.article-body h2 { font-family: var(--tw-font-display); font-size: 1.75rem; line-height: 1.2; font-weight: 800; color: var(--tw-ink); margin: 2em 0 0.5em; }
 .article-body ul { padding-left: 1.25em; list-style: none; }
 .article-body ul > li { position: relative; padding-left: 1em; }
 .article-body ul > li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 6px; height: 6px; background: var(--tw-brand); border-radius: var(--tw-radius-pill); }
