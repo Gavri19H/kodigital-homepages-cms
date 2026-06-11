@@ -6746,3 +6746,95 @@ reconcile_ralph_execution_prd.py.
     porting legacy DOM shape verbatim; data layer pre-formats dates
     (data.ts fmtDate) so do NOT port legacy template-side formatDate.
 ---
+
+## 2026-06-11 ~17:15Z - T25 (iteration 14)
+iteration 14 — T25 [B4] Articles list port (sources: T25)
+- NOTE: iteration banner said CURRENT STORY T23, but the execution PRD
+  showed T23 AND T24 already passes=true/implemented (commits e393b78,
+  37ed1a0) — skipped per the skip-already-implemented rule; picked next
+  planned story T25.
+- implemented: api/src/admin/templates/articles.ts list portion — legacy
+  admin port (theiwise-legacy-readonly api/src/admin/templates/
+  articles.ts articlesListPage) adapted for multi-site: toolbar-search is
+  now the legacy GET form (search input + Search button, ?search= round-
+  trips into the input); Site filter renamed to the site_id wire name
+  (select[name="site_id"] -> drives the ?site_id= query that ui.ts
+  resolveSiteId already consumes); all 8 filter controls render selected
+  state from a new optional ArticleListFilters param; rows ported to
+  legacy shape (title link to editor + /slug small line, badge-${status}
+  modifier, table-actions cell with Edit link + Delete button); legacy
+  empty-state div (svg + "No articles found" + Create Your First
+  Article); ES5 inline script (var/.then only): per-select URL-param
+  applyFilter, search-form hidden-input site_id preservation (the
+  select[name=site_id] selector literal lives here), Delete flow via
+  layout confirmDelete/api('DELETE','/api/admin/articles/'+id)/showToast.
+- also: api/src/admin/ui.ts /admin/articles handler passes the active
+  filter state (site_id + 7 URL params) into articlesListPage;
+  api/src/admin/api.ts new DELETE /api/admin/articles/:id (400 invalid
+  id / 404 unknown / 200 {ok,id}; static SQL + .bind only) — the
+  registered target of the list Delete row action; api/test/
+  admin-articles-list.test.ts (4 tests): row-action targets EXTRACTED
+  from the rendered template and requested through the real admin router
+  (Edit href -> 200 editor HTML; DELETE url built exactly as the script
+  builds it -> 200 + DELETE bind 42; unknown id -> handler JSON 404 not
+  route-miss; structural toolbar-search/name="site_id"/table-actions/
+  script-target assertions).
+- test: cd api && npx vitest run test/admin-articles-list.test.ts
+  (4 passed); cd api && npx tsc --noEmit (clean); cd api && npm test
+  (116 files / 961 tests passed; was 115/957)
+- D13 runner (RC-075,RC-076,RC-077): RC-075 PASS (grep -c toolbar-search
+  = 3 >= 1).
+EVIDENCE_ROUTE_EXHAUSTED — T25 RC-076 + RC-077 (deterministic
+plan-authoring defects; receipts show exit_code 0):
+- RC-076: the authored evidence_command is the BARE PATTERN
+  'name=site_id' (not a grep invocation); shell=True executes it as a
+  variable assignment -> empty stdout -> parse_grep_count EMPTY_STDOUT
+  -> observed_assertions []. required_evidence_plan.json is
+  orchestrator-owned; no implementation output can make that command
+  emit a count. AC2 intent satisfied in-tree: grep -c "name=site_id"
+  api/src/admin/templates/articles.ts = 1 (the functional
+  select[name=site_id] selector in the search-form site preservation
+  script).
+- RC-077: escaped-regex class, FOURTH story (T21/T22/T24 precedent) —
+  expected_test_name_regex is the escaped COMMAND string
+  ('cd\ api\ \&\&\ npx\ vitest\ run\ test/admin\-articles\-list\.test\.ts');
+  receipt shows observed_test_names 'test/admin-articles-list.test.ts
+  (4 tests)' passed=true. No test name can match a shell-command string;
+  renaming the test would be a mechanism-dodge. Flagged immediately per
+  documented precedent instead of burning re-implementation retries.
+  Underlying evidence green in-tree. Reconciliation owned by
+  reconcile_ralph_execution_prd.py.
+- Self-check results:
+  - File sizes: admin-articles-list.test.ts 196 (limit 200) PASS;
+    articles.ts 488 (HTML/CSS-template bucket 300; was already 372
+    pre-story; same-dir precedent pages.ts 390 + T22 layout.ts ruling —
+    file is dominated by the ported HTML/CSS/script payload that IS the
+    deliverable) PASS w/ precedent; ui.ts 301 (was 288 pre-story,
+    pre-existing oversize 13-page router, +13 lines) PASS w/ precedent;
+    api.ts 937 (was 907, pre-existing oversize CRUD surface, +30 lines)
+    PASS w/ precedent
+  - Secret scan: PASS (0 matches on all 4 changed files)
+  - Error handling: PASS (new DELETE handler: 400/404/500 + try/catch)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: PASS (DELETE uses static SQL + .bind; only
+    other match is the pre-existing api.ts doc comment)
+  - Acceptance tests: none for this change-id (no T25 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - A SECOND plan-authoring defect class exists alongside escaped-regex:
+    parse_grep_count RCs whose evidence_command is the bare pattern
+    (no 'grep -c' prefix). shell=True runs 'name=site_id' as an env
+    assignment -> exit 0 + empty stdout -> EMPTY_STDOUT parse failure.
+    Detect by reading the plan entry BEFORE implementing: if
+    parser_strategy=parse_grep_count and evidence_command does not start
+    with 'grep', the RC cannot pass as authored — satisfy the AC intent
+    in-tree and flag with receipt evidence.
+  - Articles-list port pattern: the layout globals (confirmDelete, api,
+    showToast from T22's layout.ts) replace the legacy per-page fetch
+    helpers — wire row actions through window.api('DELETE', url) and
+    keep scripts ES5 (var, .then, no template literals).
+  - Route-registration tests are strongest when the asserted URL is
+    EXTRACTED from the rendered template and replayed through
+    admin.request — template/router drift then fails the test even if
+    both sides individually "look right".
+---
