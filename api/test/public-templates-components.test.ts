@@ -33,7 +33,10 @@ describe("public-templates-components", () => {
     expect(html).toContain(">Tech<");
     expect(html).toContain(">AI<");
     expect(html).not.toContain('href="#"');
-    expect(html).toMatch(/<nav class="chip-rail"/);
+    // Contract §10 ChipRail vocabulary: cat-rail root, cat-chip links.
+    expect(html).toMatch(/<nav class="cat-rail"/);
+    expect(html).toContain('class="cat-chip"');
+    expect(html).toContain('class="cat-chip-label"');
   });
 
   it("chip-rail empty list renders empty string (no rail markup)", () => {

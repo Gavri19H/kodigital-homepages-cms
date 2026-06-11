@@ -14,7 +14,7 @@
 //   4  featured        renderCard×3       (featured stories, first enlarged)
 //   5  ad-leaderboard  renderAdSlot       (leaderboard surface, 970×90)
 //   6  editors-picks   renderCard×4       (curated re-promotion of featured)
-//   7  trending        renderCard×5       (dark strip, top 5 of latest)
+//   7  trending        renderTrending     (dark strip, vm.trending top 5)
 //   8  spotlight       (real /category/<slug> links per category)
 //   9  ad-in-feed      renderAdSlot       (in-feed surface, 728×90)
 //   10 latest          renderCard×N       (remaining latest cards)
@@ -46,6 +46,7 @@ import {
   type CategoryChip,
   type NavLink,
 } from "./components";
+import { renderTrending } from "./trending";
 
 export interface RenderHomeArgs {
   vm: HomeViewModel;
@@ -156,9 +157,17 @@ export function renderHome(args: RenderHomeArgs): string {
   const picks = vm.featured.slice(0, 4);
   const s6 = gridSection("Editor's picks", "picks", picks, "Editor's picks coming soon.");
 
-  // §7 — trending (top 5 of latest; dark full-bleed strip per contract)
-  const trending = vm.latest.slice(0, 5);
-  const s7 = gridSection("Trending", "trending", trending, "Trending stories load soon.");
+  // §7 — trending (vm.trending bucket = is_trending rows, contract: 5 items;
+  // dark full-bleed strip, .trending-section root, ranked 01..05 numerals)
+  const s7 = renderTrending({
+    items: vm.trending.slice(0, 5).map((c) => ({
+      href: c.href,
+      title: c.title,
+      imageUrl: c.imageUrl,
+      imageAlt: c.imageAlt,
+      categoryName: c.categoryName,
+    })),
+  });
 
   // §8 — category spotlight (each category linked, PART 8 real URLs)
   const s8 = vm.categories.length > 0
@@ -213,11 +222,11 @@ export function renderHome(args: RenderHomeArgs): string {
   const sections = [
     `${marker(1, "site-header")}\n${s1}`,
     `${marker(2, "hero")}\n${s2}`,
-    `${marker(3, "chip-rail")}\n${s3}`,
+    `${marker(3, "chip-rail")}\n${s3.length > 0 ? `<div class="container">${s3}</div>` : ""}`,
     `${marker(4, "featured")}\n<section class="home-section home-section--featured">${s4}</section>`,
     `${marker(5, "ad-leaderboard")}\n${s5}`,
     `${marker(6, "editors-picks")}\n<section class="home-section home-section--picks" id="picks">${s6}</section>`,
-    `${marker(7, "trending")}\n<section class="home-section home-section--trending" id="trending">${s7}</section>`,
+    `${marker(7, "trending")}\n<section class="home-section home-section--trending trending-section" id="trending">${s7}</section>`,
     `${marker(8, "spotlight")}\n<section class="home-section home-section--spotlight">${s8}</section>`,
     `${marker(9, "ad-in-feed")}\n${s9}`,
     `${marker(10, "latest")}\n<section class="home-section home-section--latest">${s10}</section>`,

@@ -37,6 +37,9 @@ export interface CategoryChip {
   // Optional pre-built href; when omitted the link is derived from the slug
   // as `/category/${slug}` — PART 8 RED LINE forbids href="#".
   href?: string;
+  // Optional 24×24 chip avatar (`.cat-chip-img`); omitted = label-only chip.
+  imageUrl?: string | null;
+  imageAlt?: string | null;
 }
 
 export interface HeaderArgs {
@@ -186,12 +189,17 @@ export function renderChipRail(args: ChipRailArgs): string {
       // caller does not pre-build the href.
       const href =
         chip.href !== undefined && chip.href.length > 0 ? chip.href : `/category/${slug}`;
-      return `<li class="chip-rail__item"><a class="chip" href="${escAttr(href)}">${escText(name)}</a></li>`;
+      const img = imgTag(
+        chip.imageUrl,
+        chip.imageAlt ?? name,
+        ' class="cat-chip-img" width="24" height="24" loading="lazy" decoding="async"',
+      );
+      return `<a class="cat-chip" href="${escAttr(href)}">${img}<span class="cat-chip-label">${escText(name)}</span></a>`;
     })
     .join("");
-  return `<nav class="chip-rail" aria-label="${escAttr(label)}">
-  <ul class="chip-rail__list">${items}</ul>
-</nav>`;
+  // Contract §10 vocabulary: chips are DIRECT flex children of `.cat-rail`
+  // (scroll-snap container) — no intermediate list element.
+  return `<nav class="cat-rail" aria-label="${escAttr(label)}">${items}</nav>`;
 }
 
 export function renderCard(args: CardArgs): string {
