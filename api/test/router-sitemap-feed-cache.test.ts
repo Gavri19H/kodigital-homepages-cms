@@ -372,3 +372,87 @@ describe("router /atom.xml KV cache (T12)", () => {
     expect(store.has("feed:atom:site_E:7")).toBe(true);
   });
 });
+
+// T44 (F5): sitemap/feeds URL audit — every article URL emitted by
+// /sitemap.xml, /feed.xml and /atom.xml must use the canonical /article/
+// prefix (F1 slug canonicalization); a bare https://<host>/<slug> form
+// anywhere in these documents is a regression.
+describe("sitemap/feeds URL audit (T44 / F5)", () => {
+  const auditArticles: ArticleSeed[] = [
+    ...baseArticles,
+    {
+      id: 2,
+      slug: "second-post",
+      site_id: "site_E",
+      title: "Second Post",
+      content_html: "<p>Second body.</p>",
+      status: "published",
+      published_at: 1_700_001_000,
+      updated_at: 1_700_001_500,
+      created_at: 1_699_500_000,
+      author_name: "Author B",
+    },
+  ];
+
+  it("cd api && npx vitest run test/router-sitemap-feed-cache.test.ts — every article <loc> contains /article/ (T44.AC1)", async () => {
+    const db = makeDb(domains, auditArticles, basePages);
+    const { kv } = makeKv();
+    const app = makeApp();
+
+    const res = await app.request(
+      "https://example.test/sitemap.xml",
+      {},
+      makeEnv(db, kv),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.text();
+
+    const locs = [...body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]!);
+    // home + every article + every page — nothing missing, nothing extra.
+    expect(locs).toHaveLength(1 + auditArticles.length + basePages.length);
+
+    for (const a of auditArticles) {
+      const articleLocs = locs.filter((l) => l.includes(a.slug));
+      expect(articleLocs).toHaveLength(1);
+      expect(articleLocs[0]).toContain("/article/");
+      expect(articleLocs[0]).toBe(`https://example.test/article/${a.slug}`);
+      // The bare /:slug compatibility form must never appear in the sitemap.
+      expect(locs).not.toContain(`https://example.test/${a.slug}`);
+    }
+  });
+
+  it("cd api && npx vitest run test/router-sitemap-feed-cache.test.ts — RSS + Atom feed links use /article/ (T44.AC2)", async () => {
+    const db = makeDb(domains, auditArticles, basePages);
+    const { kv } = makeKv();
+    const app = makeApp();
+    const env = makeEnv(db, kv);
+
+    const rss = await app.request("https://example.test/feed.xml", {}, env);
+    expect(rss.status).toBe(200);
+    const rssBody = await rss.text();
+    const itemLinks = [...rssBody.matchAll(/<link>([^<]+)<\/link>/g)]
+      .map((m) => m[1]!)
+      // channel-level <link> is the site home, not an article URL
+      .filter((l) => l !== "https://example.test");
+    const guids = [...rssBody.matchAll(/<guid[^>]*>([^<]+)<\/guid>/g)].map(
+      (m) => m[1]!,
+    );
+    expect(itemLinks).toHaveLength(auditArticles.length);
+    expect(guids).toHaveLength(auditArticles.length);
+    for (const url of [...itemLinks, ...guids]) {
+      expect(url).toContain("/article/");
+    }
+
+    const atom = await app.request("https://example.test/atom.xml", {}, env);
+    expect(atom.status).toBe(200);
+    const atomBody = await atom.text();
+    const entryChunks = atomBody.split("<entry>").slice(1);
+    expect(entryChunks).toHaveLength(auditArticles.length);
+    for (const chunk of entryChunks) {
+      const id = chunk.match(/<id>([^<]+)<\/id>/)?.[1];
+      const href = chunk.match(/<link href="([^"]+)"\/>/)?.[1];
+      expect(id).toContain("/article/");
+      expect(href).toContain("/article/");
+    }
+  });
+});
