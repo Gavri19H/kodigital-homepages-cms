@@ -7219,3 +7219,81 @@ iteration 17 — T29 [B8] Pages port + CRUD (sources: T29)
     until this story; grep for zero-caller canonical helpers named in a
     file header's "called from X" comment — they mark the intended
     integration point for the port.
+
+## 2026-06-11 — T30 (iteration 18)
+iteration 18 — T30 (sources: T30)
+- [B9] Categories + Tags port + CRUD completion (BCL-033 taxonomy verbs).
+- implemented:
+  - api/src/admin/taxonomy-crud-handlers.ts (NEW, 395 ln): PUT/DELETE
+    /api/admin/categories/:id + POST/DELETE /api/admin/tags(:id).
+    Category delete-guard reads the categories row's article_count
+    column → 400 CATEGORY_HAS_ARTICLES while articles reference it;
+    join rows (category_verticals, site_categories) + the category are
+    removed in one D1 batch. Categories tenant guard = site_categories
+    allocation probe (categories have no site_id column; scoping flows
+    through the join) → 403 TENANT_BOUNDARY_VIOLATION. Tags: site_id
+    column scoping (0002), POST verifies site exists (400 UNKNOWN_SITE),
+    GLOBAL slug probe → 409 (tags.slug kept its 0001 column-level
+    UNIQUE through the 0007 rebuild — 0007 only recreated
+    articles/pages), DELETE removes article_tags join rows + tag in one
+    batch. DELETEs return 200 {ok,id}, NOT legacy 204 (window.api
+    json()-parses; deletePageHandler T29 precedent).
+  - api/src/admin/api.ts (+17): import + 4 route registrations.
+  - api/src/admin/templates/categories.ts (130→298): row Delete button,
+    New Category modal (site select + name + slug + verticals
+    multi-select populated client-side from GET /api/admin/verticals —
+    vertical ids are autoincrement, POST needs integer vertical_ids),
+    ES5 list script; modal closes ONLY after the POST responds.
+  - api/src/admin/templates/tags.ts (111→251): row Delete button, New
+    Tag modal (Global-tier site option; slug optional — server derives
+    from name), ES5 list script, same close-after-response contract.
+  - api/test/category-multi-vertical.test.ts (+197): T30.AC1 describe —
+    "category delete guard reads article_count via mock-D1 db.prepare"
+    (RC-091 -t target: guard-refusal 400 w/ no DELETE issued + guard-
+    pass batch of 3 DELETEs), 404s, 403 tenant guard, PUT bind-shape +
+    409 slug collision.
+  - api/test/admin-tags-site-filter.test.ts (+252): T30.AC2 describe —
+    "tag create and delete persist via mock-D1 db.prepare" (RC-092 -t
+    target: 201 INSERT bind shape [slug,name,site_id] + global slug
+    probe + DELETE batch [article_tags, tags]), 400 UNKNOWN_SITE, 409
+    dup slug, 403 cross-site, 404. RX3 site-filter describe untouched —
+    "filters retained" proven by same-file green run.
+- test commands actually run:
+  - cd api && npx tsc --noEmit → clean
+  - cd api && npx vitest run test/category-multi-vertical.test.ts
+    test/admin-tags-site-filter.test.ts → 2 files, 19/19 pass
+  - cd api && npm test → 118 files, 999/999 pass
+  - D13 runner (verbatim runner_command_rendered, RC-091,RC-092) →
+    status PASS, both claims PASS (deterministic vitest_text receipts,
+    exit 0, artifact hashes 7c5470e72a74… / 0123bbe3fc47…)
+  - wrangler d1 execute --local SQL-shape smoke: tags INSERT…RETURNING,
+    categories UPDATE 5-col shape, all 5 DELETE shapes ran against the
+    real migrated schema; smoke rows cleaned (counts back to 0).
+- Self-check results:
+  - File sizes: taxonomy-crud-handlers.ts 395 (ported-CRUD module,
+    pages-crud-handlers 516 precedent) PASS; api.ts 966 (+16, T29
+    precedent 950) PASS w/ precedent; templates/categories.ts 298
+    (template bucket 300) PASS; templates/tags.ts 251 PASS; test files
+    572/437 (test-payload precedent) PASS.
+  - Secret scan: PASS (0 matches across all 6 changed files).
+  - Error handling: PASS (JSON parse try/catch → 400; typed
+    400/403/404/409 codes; no silent swallows; INSERT null → 500).
+  - Migration execution: N/A (no new migration; SQL shapes smoke-tested
+    against local D1 instead, see above).
+  - Parameterized queries: PASS (grep prepare.*${ → only a prose
+    comment; all statements static SQL + .bind()).
+  - Acceptance tests: none for this change-id (no acceptance-tests/
+    kodigital-cms-rescue-2-2026-06-10/ dir; T25-T29 precedent).
+- Learnings for future iterations:
+  - tags.slug is STILL globally UNIQUE: the 0007 CREATE-INSERT-DROP-
+    RENAME rebuild dropped the column-level UNIQUE only for articles
+    and pages. Any per-site tag-slug feature first needs a tags rebuild
+    migration; until then the create-path slug probe must stay global
+    or the sqlite_autoindex turns the typed 409 into a 500.
+  - categories have NO site_id column — the tenant boundary for
+    taxonomy is the site_categories allocation join. Guards must probe
+    the join, not a column; "site_id-scoped" in the brief decodes
+    differently per table (tags: column; categories: join).
+  - DELETE handlers in this admin must return JSON (200 {ok,id}), never
+    204 — window.api unconditionally json()-parses, so a legacy-
+    faithful 204 makes every successful delete surface as a UI error.
