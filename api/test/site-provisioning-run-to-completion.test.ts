@@ -27,6 +27,18 @@ interface StepRow {
   attempt_count: number;
 }
 
+// rescue-2 T36: articles rows tracked by the fake so the
+// publish_starter_articles step's publish-state finalization
+// (status + published_at + sites.content_version bump) is observable.
+interface ArticleRow {
+  site_id: string;
+  slug: string;
+  title: string;
+  status: string;
+  homepage_section: string;
+  published_at: number | null;
+}
+
 function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
   return {
     DB: db,
@@ -50,6 +62,8 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
 function makeFakeDb(initialJob: { id: string; site_id: string }): {
   db: D1Database;
   stepsRows: StepRow[];
+  articles: ArticleRow[];
+  site: { content_version: number };
 } {
   const job = {
     id: initialJob.id,
@@ -63,6 +77,11 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
   // by idempotency_key (startGenerationLog -> getGenerationByIdempotencyKey).
   // Track inserts/updates here so the 15-step run can clear AI steps T9-T11.
   const aiGenerations = new Map<string, Record<string, unknown>>();
+  // T36: starter articles inserted by generate_15_homepage_articles and
+  // finalized by publish_starter_articles; content_version starts at 0
+  // (migration 0009 DEFAULT) so the publish bump is observable as 0 -> 1.
+  const articles: ArticleRow[] = [];
+  const site = { content_version: 0 };
 
   const db = {
     prepare(sql: string) {
@@ -95,6 +114,17 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
           if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
             const [idempotency_key] = captured as [string];
             return (aiGenerations.get(idempotency_key) ?? null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS published_count FROM articles") >= 0) {
+            const [site_id] = captured as [string];
+            const published_count = articles.filter(
+              (a) =>
+                a.site_id === site_id &&
+                a.homepage_section === "starter" &&
+                a.status === "published" &&
+                a.published_at !== null,
+            ).length;
+            return ({ published_count } as unknown) as T;
           }
           return null;
         },
@@ -157,6 +187,33 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
               else if (sql.indexOf("status = 'failed'") >= 0) (r as { status: string }).status = "failed";
               else if (sql.indexOf("status = 'fallback'") >= 0) (r as { status: string }).status = "fallback";
             }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO articles") >= 0) {
+            // generate_15_homepage_articles: rows land with
+            // status='published' but NO published_at (the INSERT omits
+            // it) — exactly the gap publish_starter_articles closes.
+            const [site_id, slug, title] = captured as [string, string, string];
+            if (!articles.some((a) => a.site_id === site_id && a.slug === slug)) {
+              articles.push({
+                site_id,
+                slug,
+                title,
+                status: "published",
+                homepage_section: "starter",
+                published_at: null,
+              });
+            }
+          } else if (sql.indexOf("UPDATE articles SET status = 'published'") >= 0) {
+            // publish_starter_articles: COALESCE(published_at, unixepoch())
+            // — backfill only when NULL, mirroring the real SQL.
+            const [site_id] = captured as [string];
+            for (const a of articles) {
+              if (a.site_id === site_id && a.homepage_section === "starter") {
+                a.status = "published";
+                if (a.published_at === null) a.published_at = 1_700_000_000;
+              }
+            }
+          } else if (sql.indexOf("UPDATE sites SET content_version") >= 0) {
+            site.content_version += 1;
           }
           return { success: true, meta: {} };
         },
@@ -182,7 +239,7 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): {
     },
   } as unknown as D1Database;
 
-  return { db, stepsRows };
+  return { db, stepsRows, articles, site };
 }
 
 describe("runProvisioningToCompletion (MQAFIX-1 / RX1.AC1 + AC4)", () => {
@@ -228,6 +285,36 @@ describe("runProvisioningToCompletion (MQAFIX-1 / RX1.AC1 + AC4)", () => {
     expect(second.steps_run).toBe(0);
     expect(second.final_status).toBe("completed");
     expect(stepsRows).toHaveLength(TOTAL_STEPS);
+  });
+
+  // rescue-2 T36.AC2: after the full provisioning walk, every starter
+  // article row is status='published' WITH published_at populated, and
+  // the owning site's content_version was bumped (publish_starter_articles
+  // is the only provisioning step that touches sites.content_version).
+  it("publish_starter_articles finalizes starter rows: status='published' + published_at set + sites.content_version bumped", async () => {
+    const { db, articles, site } = makeFakeDb({
+      id: "job_publish",
+      site_id: "st_publish",
+    });
+    const env = buildEnv(db);
+
+    const summary = await runProvisioningToCompletion(env, db, "st_publish");
+    expect(summary.final_status).toBe("completed");
+
+    // generate_15_homepage_articles inserted the 15-row starter set
+    // (status='published', published_at=NULL — see the INSERT branch).
+    expect(articles).toHaveLength(15);
+
+    // publish_starter_articles backfilled the publish state on every row.
+    for (const a of articles) {
+      expect(a.status).toBe("published");
+      expect(a.published_at).not.toBeNull();
+      expect(typeof a.published_at).toBe("number");
+    }
+
+    // Exactly one monotonic content_version bump (0 -> 1) so public
+    // cache keys — which suffix content_version — roll over.
+    expect(site.content_version).toBe(1);
   });
 
   it("returns final_status='no_job' when no site_creation_jobs row exists for the site", async () => {

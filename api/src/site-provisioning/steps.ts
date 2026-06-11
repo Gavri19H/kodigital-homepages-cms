@@ -106,9 +106,9 @@ export interface StepHandlerResult {
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
 
 // Deterministic placeholder: the payload is stable across calls so step
-// receipts stay reproducible until the step's owning story (T36-T39)
+// receipts stay reproducible until the step's owning story (T37-T39)
 // swaps in real behavior. T35 replaced the 3 Cloudflare-boundary steps
-// with real handlers below.
+// and T36 replaced publish_starter_articles with real handlers below.
 function placeholderResult(step: StepKey): StepHandlerResult {
   const payload = {
     step,
@@ -802,10 +802,75 @@ async function generateOrAssignArticleImagesStep(
   };
 }
 
+// T36 — publish_starter_articles (step 13).
+// The starter rows inserted by generate_15_homepage_articles carry
+// status='published' but a NULL published_at (the INSERT omits it), so
+// public readers — which filter/ORDER BY published_at — treat them as
+// not-yet-live. This step finalizes the publish state for every starter
+// article (homepage_section='starter') in one pass:
+//   - status='published' + published_at backfilled via
+//     COALESCE(published_at, unixepoch()) so a re-run never clobbers
+//     the original publish timestamp (idempotent);
+//   - sites.content_version bumped monotonically — the same canonical
+//     statement the publish workflow uses (workflow/publish.ts) — so
+//     public cache keys (which suffix content_version) roll over.
+// No invalidatePublishCaches() here: a freshly-provisioned site has no
+// cached entries yet (warm_homepage_cache, the NEXT step, populates
+// them) and the bumped version suffix already orphans any stale key.
+// Pure D1 — zero Cloudflare interaction in any mode.
+async function publishStarterArticlesStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  await ctx.db
+    .prepare(
+      "UPDATE articles SET status = 'published', " +
+        "published_at = COALESCE(published_at, unixepoch()), " +
+        "scheduled_at = NULL, updated_at = unixepoch() " +
+        "WHERE site_id = ? AND homepage_section = 'starter'",
+    )
+    .bind(ctx.site_id)
+    .run();
+  // Receipt count read back from D1 (null-tolerant: harnesses that
+  // don't model the articles table report 0 rather than failing).
+  const countRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS published_count FROM articles " +
+        "WHERE site_id = ? AND homepage_section = 'starter' " +
+        "AND status = 'published' AND published_at IS NOT NULL",
+    )
+    .bind(ctx.site_id)
+    .first<{ published_count: number }>();
+  await ctx.db
+    .prepare(
+      "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
+    )
+    .bind(ctx.site_id)
+    .run();
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "publish_starter_articles",
+      kind: "deterministic_publish",
+      schema_version: 1,
+      site_id: ctx.site_id,
+      published_count: countRow?.published_count ?? 0,
+      content_version_bumped: true,
+    }),
+  };
+}
+
 // Placeholder handlers below (placeholderResult) are each owned by a
-// named follow-up story: T36 publish_starter_articles, T37
-// warm_homepage_cache, T38 run_site_smoke_tests, T39
-// update_launch_readiness. T35 replaced the 3 Cloudflare-boundary steps
+// named follow-up story: T37 warm_homepage_cache, T38
+// run_site_smoke_tests, T39 update_launch_readiness. T35 replaced the
+// 3 Cloudflare-boundary steps and T36 replaced publish_starter_articles
 // with the real handlers above.
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: validateDomainInCloudflareStep,
@@ -820,8 +885,7 @@ export const STEPS: Record<StepKey, StepHandler> = {
   generate_feature_image: generateFeatureImageStep,
   generate_15_homepage_articles: generate15HomepageArticlesStep,
   generate_or_assign_article_images: generateOrAssignArticleImagesStep,
-  publish_starter_articles: async () =>
-    placeholderResult("publish_starter_articles"),
+  publish_starter_articles: publishStarterArticlesStep,
   warm_homepage_cache: async () => placeholderResult("warm_homepage_cache"),
   run_site_smoke_tests: async () => placeholderResult("run_site_smoke_tests"),
   update_launch_readiness: async () =>
