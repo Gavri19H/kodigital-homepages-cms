@@ -16,13 +16,13 @@ export const publicCss: string = `
   --tw-bg: #ffffff;
   --tw-bg-soft: #f8fafc;
   --tw-bg-tint: #eef2f7;
-  --tw-brand: #2563eb;
-  --tw-brand-deep: #1d4ed8;
-  --tw-brand-soft: #93c5fd;
-  --tw-brand-tint: #dbeafe;
-  --tw-accent: #f59e0b;
+  --tw-brand: #1ba8c8;
+  --tw-brand-deep: #0f8aa6;
+  --tw-brand-soft: #d6eef5;
+  --tw-brand-tint: #f0f9fc;
+  --tw-accent: #f0a830;
   --tw-success: #10b981;
-  --tw-brand-shadow-rgb: 37, 99, 235;
+  --tw-brand-shadow-rgb: 27, 168, 200;
   /* PART 3 -- typography tokens */
   --tw-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --tw-font-display: "Inter", var(--tw-font-sans);

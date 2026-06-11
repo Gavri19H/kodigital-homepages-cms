@@ -91,7 +91,7 @@ export function renderBrandTokensStyle(
     const value = sanitiseTokenValue(rawValue);
     if (value.length === 0) continue;
     // Tokens are written with a leading `--` so they map onto CSS custom
-    // properties: e.g. { "tw-brand": "#1d4ed8" } -> --tw-brand: #1d4ed8;
+    // properties: e.g. { "tw-brand": "#0f8aa6" } -> --tw-brand: #0f8aa6;
     const prop = name.startsWith("--") ? name : `--${name}`;
     decls.push(`  ${prop}: ${value};`);
   }

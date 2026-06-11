@@ -16,6 +16,7 @@ import {
   renderFloatingNext,
   type CategoryChip,
 } from "../src/public/templates/components";
+import { publicCss } from "../src/public/assets/public-css";
 
 describe("public-templates-components", () => {
   it("chip-rail emits /category/<slug> hrefs and never href=\"#\"", () => {
@@ -135,5 +136,14 @@ describe("public-templates-components", () => {
     expect(html).toContain("Up next");
     expect(html).toContain("floating-next");
     expect(html).not.toContain('href="#"');
+  });
+
+  it("T6.AC3: publicCss carries the 5 reference brand tokens (no legacy blue)", () => {
+    expect(publicCss).toContain("--tw-brand: #1ba8c8");
+    expect(publicCss).toContain("--tw-brand-deep: #0f8aa6");
+    expect(publicCss).toContain("--tw-brand-soft: #d6eef5");
+    expect(publicCss).toContain("--tw-brand-tint: #f0f9fc");
+    expect(publicCss).toContain("--tw-accent: #f0a830");
+    expect(publicCss).not.toContain("#2563eb");
   });
 });
