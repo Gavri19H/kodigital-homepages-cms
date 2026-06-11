@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import admin from "../src/admin/router";
 import { articlesListPage } from "../src/admin/templates/articles";
-import type { Env } from "../src/env";
+import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
 
 // T25 ([B4] Articles list port) — row actions target registered endpoints.
 // The list page's row actions are (a) an Edit link into the article editor
@@ -9,72 +9,10 @@ import type { Env } from "../src/env";
 // Each target URL is extracted from the RENDERED template (not hardcoded)
 // and then requested through the real admin router, so a template/router
 // drift (unregistered action target) fails here.
-
-interface RecordedCall {
-  sql: string;
-  binds: unknown[];
-}
-
-interface PlantedRow {
-  match: string;
-  row: unknown | null;
-}
-
-function makeFakeDb(planted: PlantedRow[] = []): {
-  db: D1Database;
-  calls: RecordedCall[];
-} {
-  const calls: RecordedCall[] = [];
-  const db = {
-    prepare(sql: string) {
-      let captured: unknown[] = [];
-      const stmt = {
-        bind(...binds: unknown[]) {
-          captured = binds;
-          return stmt;
-        },
-        async first<T = unknown>(): Promise<T | null> {
-          calls.push({ sql, binds: captured });
-          for (const entry of planted) {
-            if (sql.indexOf(entry.match) >= 0) {
-              return (entry.row ?? null) as T | null;
-            }
-          }
-          return null;
-        },
-        async run() {
-          calls.push({ sql, binds: captured });
-          return { success: true, meta: {} };
-        },
-        async all<T = unknown>() {
-          calls.push({ sql, binds: captured });
-          return { results: [] as T[], success: true, meta: {} };
-        },
-      };
-      return stmt;
-    },
-  } as unknown as D1Database;
-  return { db, calls };
-}
-
-function buildEnv(db: D1Database): Env {
-  return {
-    DB: db,
-    CACHE: {} as KVNamespace,
-    MEDIA: {} as R2Bucket,
-    APP_ENV: "test",
-    ADMIN_HOST: "localhost",
-    ADMIN_BASE_URL: "http://localhost:8787",
-    ADMIN_BASE_PATH: "/admin",
-    CACHE_API_ENABLED: "false",
-    HTML_CACHE_TTL_SECONDS: "60",
-    OPENAI_TEXT_MODEL: "gpt-test",
-    OPENAI_IMAGE_MODEL: "img-test",
-    SITE_PROVISIONING_DRY_RUN: "true",
-    SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
-    DEV_BYPASS_AUTH: "true",
-  };
-}
+//
+// T26 ([B5] AC1) — the full legacy workflow surface
+// (publish/unpublish/schedule/cancel-schedule/archive) is registered and
+// the public-surface transitions bump sites.content_version.
 
 const SAMPLE_ARTICLE = {
   id: "42",
@@ -193,4 +131,67 @@ describe("articles list row actions target registered endpoints (T25)", () => {
       calls.find((c) => c.sql.indexOf("DELETE FROM articles") >= 0),
     ).toBeUndefined();
   });
+});
+
+// Workflow article row planted per from-status; "MAX(version_number)"
+// backs publish()'s snapshot step. The content_version bump assertion
+// pins the exact tenant-scoped UPDATE with the article's site_id bound.
+const WORKFLOW_ARTICLE = {
+  id: 42, slug: "row-action-probe", title: "Row Action Probe",
+  content_json: '{"blocks":[]}', content_html: null, category_id: null,
+  published_at: null, scheduled_at: null, author_name: null,
+  featured_image_id: null, is_featured: 0, is_trending: 0,
+  created_at: 0, updated_at: 0, site_id: "siteA",
+};
+
+const WORKFLOW_CASES = [
+  { action: "publish", from: "draft", bumps: true },
+  { action: "unpublish", from: "published", bumps: true },
+  { action: "schedule", from: "draft", bumps: false },
+  { action: "cancel-schedule", from: "scheduled", bumps: false },
+  { action: "archive", from: "published", bumps: true },
+] as const;
+
+describe("all workflow endpoints registered; content_version bumped (T26.AC1)", () => {
+  for (const tc of WORKFLOW_CASES) {
+    it(`POST /api/admin/articles/:id/${tc.action} answers 200 and ${tc.bumps ? "bumps" : "does not bump"} content_version`, async () => {
+      const { db, calls } = makeFakeDb([
+        {
+          match: "FROM articles WHERE id = ?",
+          row: {
+            ...WORKFLOW_ARTICLE,
+            status: tc.from,
+            published_at: tc.from === "published" ? 1750000000 : null,
+            scheduled_at: tc.from === "scheduled" ? 1893456000 : null,
+          },
+        },
+        { match: "MAX(version_number)", row: { max_version: 0 } },
+      ]);
+      const init: RequestInit = { method: "POST" };
+      if (tc.action === "schedule") {
+        init.body = JSON.stringify({ scheduled_at: 1893456000 });
+        init.headers = { "Content-Type": "application/json" };
+      }
+      const res = await admin.request(
+        `/api/admin/articles/42/${tc.action}`,
+        init,
+        buildEnv(db),
+      );
+      expect(res.status, `${tc.action} must be a registered handler`).toBe(200);
+      const json = (await res.json()) as { ok?: boolean; status?: string };
+      expect(json.ok).toBe(true);
+
+      const bump = calls.find((c) =>
+        c.sql.startsWith(
+          "UPDATE sites SET content_version = content_version + 1",
+        ),
+      );
+      if (tc.bumps) {
+        expect(bump, `${tc.action} must bump content_version`).toBeDefined();
+        expect(bump?.binds).toEqual(["siteA"]);
+      } else {
+        expect(bump, `${tc.action} must not bump content_version`).toBeUndefined();
+      }
+    });
+  }
 });

@@ -161,7 +161,10 @@ export async function invalidatePublishCaches(
   }
 }
 
-async function snapshotVersion(
+// Exported for reuse by the restore flow (versions.ts): restoring a
+// version snapshots the CURRENT article state first so a restore is
+// itself restore-able.
+export async function snapshotVersion(
   env: Env,
   article: ArticleRow,
   options: PublishOptions,

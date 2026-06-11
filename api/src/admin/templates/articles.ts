@@ -8,7 +8,11 @@
 //   globals).
 // articleFormPage  — site-required form with homepage fields + SEO fields.
 // New-mode submits POST /api/admin/articles; edit-mode submits PATCH
-// /api/admin/articles/:id. Form posts JSON via fetch().
+// /api/admin/articles/:id. Form posts JSON via fetch(). The submit-block
+// behaviors from views/article-editor.ts:122-133 are folded into the
+// inline script (T26.AC3): with no site selected, submit is blocked
+// (stopImmediatePropagation), the aria-live="polite" status region reads
+// "Site is required", the Site select takes focus, and no request fires.
 
 import { adminLayout } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
@@ -413,6 +417,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
     </div>
   </div>
   <p id="article-form-error" class="alert alert-error" hidden role="alert"></p>
+  <p id="article-form-status" class="form-status" role="status" aria-live="polite"></p>
   <div class="form-actions">
     <button type="submit" class="btn btn-primary">${isEdit ? "Save changes" : "Create article"}</button>
     <a href="/admin/articles" class="btn btn-secondary">Cancel</a>
@@ -427,11 +432,29 @@ const ARTICLE_FORM_SCRIPT = `
   var mode = form.getAttribute('data-mode');
   var articleId = form.getAttribute('data-article-id');
   var errEl = document.getElementById('article-form-error');
+  var statusEl = document.getElementById('article-form-status');
+  var siteSelect = document.getElementById('article-site');
   function setError(msg) { if (errEl) { errEl.hidden = !msg; errEl.textContent = msg || ''; } }
+  function setStatus(msg) {
+    if (!statusEl) { return; }
+    while (statusEl.firstChild) { statusEl.removeChild(statusEl.firstChild); }
+    if (msg) { statusEl.appendChild(document.createTextNode(msg)); }
+  }
   function toBool(v) { return v === '1' || v === 'on' || v === true; }
+  if (siteSelect) {
+    siteSelect.addEventListener('change', function () { setStatus(''); });
+  }
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     setError('');
+    if (siteSelect && !siteSelect.value) {
+      if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+      }
+      setStatus('Site is required');
+      siteSelect.focus();
+      return;
+    }
     var fd = new FormData(form);
     var body = {
       title: fd.get('title') || '',

@@ -335,6 +335,9 @@ const PAGE_FORM_SCRIPT = `
     e.preventDefault();
     setError('');
     if (siteSelect && !siteSelect.value && !isLegal()) {
+      if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+      }
       setStatus('Site is required');
       setError('Site is required');
       siteSelect.focus();
