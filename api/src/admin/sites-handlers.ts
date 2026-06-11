@@ -7,11 +7,11 @@
 // exactly 4 hits in api.ts itself.
 //
 // Tenant-boundary + safety contract:
-//   1. POST /sites refuses TheIWise-family hostnames via
+//   1. POST /sites refuses legacy-production-family hostnames via
 //      assertNotProtectedDomain BEFORE any INSERT — the protected-domain
 //      check is the same defense-in-depth gate used by site-provisioning
 //      mutators (no real DNS / Worker-route / cache-purge call may ever
-//      reach api.cloudflare.com against TheIWise infra).
+//      reach api.cloudflare.com against the legacy production infra).
 //   2. Every D1 statement is `db.prepare(<static SQL>).bind(...)` — no
 //      template-literal SQL, matching db/index.ts and tenant-guards.ts.
 //   3. Idempotency_key (optional header `Idempotency-Key`) short-circuits
