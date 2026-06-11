@@ -38,7 +38,7 @@
     },
     {
       "id": "T3",
-      "title": "[A3] Migration 0010 \u2014 sites.content_mode",
+      "title": "[A3] Migration 0010 — sites.content_mode",
       "category": "migration",
       "priority": null,
       "state": "implemented",
@@ -150,7 +150,7 @@
     },
     {
       "id": "T10",
-      "title": "[C5] Class flattening BEM \u2192 spec vocabulary",
+      "title": "[C5] Class flattening BEM → spec vocabulary",
       "category": "ui",
       "priority": null,
       "state": "implemented",
@@ -534,7 +534,7 @@
     },
     {
       "id": "T34",
-      "title": "[D1] STEP_KEYS \u2192 16 canonical names",
+      "title": "[D1] STEP_KEYS → 16 canonical names",
       "category": "api",
       "priority": null,
       "state": "implemented",
@@ -585,8 +585,8 @@
       "title": "[D4] Real warm_homepage_cache",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T37"
       ],

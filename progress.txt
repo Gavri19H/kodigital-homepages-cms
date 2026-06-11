@@ -7833,3 +7833,71 @@ iteration 21 — T33 (sources: T33)
   - env.CACHE is a bare {} fake in all provisioning harnesses — any
     step that calls KV (list/delete) will crash the walk; cache work
     belongs to warm_homepage_cache's own story with its own fake.
+
+## 2026-06-11 23:42 — T37 (iteration 23)
+- iteration 23 — T37 (sources: T37 [D4] Real warm_homepage_cache)
+- Implemented the real warm_homepage_cache provisioning step (step 14,
+  index 13): replaced placeholderResult with warmHomepageCacheStep in
+  api/src/site-provisioning/steps.ts. The handler loads the sites row
+  (loadSiteInfo), reads content_version live from D1 (so warmed keys
+  match the post-publish_starter_articles bump), resolves the hostname
+  via resolveSiteHostname, and delegates to the canonical warmSiteCache
+  helper (api/src/cache/warm.ts): dry-run (env default) → ZERO outbound
+  fetches + ZERO KV puts + completed_dry_run; live mode → GETs
+  homepage/sitemap/feed:rss/feed:atom from https://{hostname} (never
+  api.cloudflare.com) and puts each body in env.CACHE under the
+  canonical cache-keys.ts key — homepage via putCachedHtml with strong
+  ETag + parseNumber(HTML_CACHE_TTL_SECONDS, 300) TTL. Live-mode
+  homepage warm failure → step status 'failed' (namesake side-effect);
+  sitemap/feed misses stay best-effort. Typed JSON receipt includes
+  homepage_cache_key + warmed/failed counts.
+- Files changed: api/src/site-provisioning/steps.ts (900→973, +73,
+  registry-file precedent), NEW
+  api/test/site-provisioning-warm-homepage.test.ts (260 lines, 3 tests:
+  live-mode htmlKey put with correct key [T37.AC2], dry-run zero
+  fetch/zero KV put, live-mode homepage-failure → failed).
+- test: cd api && npx vitest run test/site-provisioning-warm-homepage.test.ts
+    test/site-provisioning-run-to-completion.test.ts
+    test/site-provisioning-runner.test.ts test/provisioning-no-outbound.test.ts
+    test/cache-warm.test.ts → 5 files / 24 tests PASS
+- test: cd api && npm test → 120 files / 1036 tests PASS
+- test: cd api && npx tsc --noEmit → clean
+- D13 runner (RC-113,RC-114) run twice, deterministic:
+  - RC-113 PASS (grep -c "stubResult" steps.ts → count 0 == 0; T37.AC1
+    satisfied — the warm placeholder registry entry is gone).
+  - RC-114 FAIL with underlying vitest exit 0
+    (site-provisioning-run-to-completion 4/4 green; observed_assertions
+    passed=true).
+- EVIDENCE_ROUTE_EXHAUSTED — T37 RC-114: same typed evidence-plan
+  defect as T32 RC-096/RC-098, T33 RC-100/RC-102, T34 RC-104/RC-106/
+  RC-107. The expected_test_name_regex is the shell-escaped COMMAND
+  string ('cd\ api\ \&\&\ npx\ vitest\ run\ test/site\-provisioning\-
+  run\-to\-completion\.test\.ts') and can never match a vitest test
+  NAME; the parser reports FAIL while exit_code=0 and
+  observed_assertions show all tests passed. A typed regex cannot be
+  changed by re-implementing; editing the evidence plan is a forbidden
+  mechanism-dodge. Reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- **Self-check results:**
+  - File sizes: steps.ts 973 (limit 200 TS; +73 over pre-story 900,
+    registry-file precedent T34/T35/T36),
+    site-provisioning-warm-homepage.test.ts 260 (ported-payload test
+    precedent) — PASS w/ precedent.
+  - Secret scan: PASS (0 matches across changed files).
+  - Error handling: PASS (typed failed envelope on missing sites row
+    and on live-mode homepage warm failure; no new route handlers;
+    warmSiteCache per-target try/catch preserved).
+  - Migration execution: N/A (api story; no schema change).
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' → 0
+    matches; new SELECT content_version uses static SQL + .bind()).
+  - ES5 inline scripts: N/A (no template/static JS changes).
+  - Acceptance tests: none for this change-id (T25-T36 precedent).
+- **Learnings for future iterations:**
+  - The run-to-completion fake's first() matches ANY "FROM sites WHERE
+    id = ?" select with one generic row — new per-step SELECTs against
+    sites must coalesce missing columns (content_version → 0) instead
+    of failing, or the 16-step walk breaks.
+  - warmSiteCache resolves dry-run INTERNALLY from
+    SITE_PROVISIONING_DRY_RUN; step handlers should call it
+    unconditionally and branch on outcome.dry_run rather than
+    pre-checking the env (avoids duplicating resolveDryRunDefault).
