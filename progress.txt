@@ -8267,3 +8267,54 @@ iteration — T43 (sources: T43)
   - servePublicHtml is cleanly testable with the cache.test.ts KV mock
     once getWithMetadata returns stored value + metadata; metadata
     retention in put() is the only mock change needed.
+
+## 2026-06-12 — T44 ([F5] Sitemap/feeds URL audit)
+- Iteration note: iteration-state CURRENT STORY pointer said T43, but T43
+  was already passes=true/state=implemented (commit ffd2cad). Per the
+  skip-already-implemented rule, picked the highest-priority planned
+  story: T44.
+- What was implemented: URL-audit coverage in
+  api/test/router-sitemap-feed-cache.test.ts (new describe block
+  "sitemap/feeds URL audit (T44 / F5)", +84 lines). The product code
+  already emits canonical /article/ URLs (sitemap.ts renderSitemap line
+  51; feeds.ts articleUrl) since T40/F1 — this story is the audit proof.
+  - T44.AC1 test: GET /sitemap.xml with 2 seeded articles + 1 page;
+    extracts every <loc>; asserts exact count (home+articles+pages),
+    each article loc equals https://example.test/article/<slug> and
+    contains /article/; asserts the bare https://<host>/<slug> form is
+    absent.
+  - T44.AC2 test: GET /feed.xml + /atom.xml; RSS item <link> (channel
+    link excluded) + <guid> all contain /article/ with exact item
+    counts; every Atom <entry> <id> + <link href> contains /article/.
+  - Test titles embed the literal command
+    'cd api && npx vitest run test/router-sitemap-feed-cache.test.ts'
+    for the RC-130/RC-131 expected_test_name_regex binding (T40/T43
+    convention).
+- Files changed: api/test/router-sitemap-feed-cache.test.ts (commit
+  17f4402 'feat: [T44] - [F5] Sitemap/feeds URL audit').
+- source_story_ids: T44
+- D13 runner: RC-130 PASS + RC-131 PASS (matched
+  expected_test_name_regex, deterministic_parser vitest_text, exit 0,
+  receipt artifact 80f5bb52...). Both RCs share the same regex so both
+  matched the AC1-titled test — runner-deterministic, AC2 test also
+  green in observed_assertions.
+- test commands actually run: cd api && npx vitest run
+  test/router-sitemap-feed-cache.test.ts (8/8 green); cd api && npm
+  test (121 files / 1066 tests green); cd api && npx tsc --noEmit
+  (clean); D13 runner for RC-130,RC-131 (PASS).
+- **Self-check results:**
+  - File sizes: router-sitemap-feed-cache.test.ts 458 lines — PASS w/
+    test-file precedent (public-image-attrs.test.ts 473).
+  - Secret scan: PASS (0 matches).
+  - Error handling: N/A (test-only change).
+  - Migration execution: N/A (no schema change).
+  - Parameterized queries: PASS (no SQL; grep 'prepare.*${|`' -> 0).
+  - Acceptance tests: none for this change-id (T25-T43 precedent).
+- **Learnings for future iterations:**
+  - When two RCs share one evidence_command + identical
+    expected_test_name_regex (literal-command binding), the runner
+    satisfies BOTH from the first matching passing test. Still write
+    one titled test per AC so each AC has real assertion coverage.
+  - Iteration-state CURRENT STORY can be stale (points at the previous
+    iteration's already-committed story); trust execution_stories.json
+    passes/state over the volatile pointer.
