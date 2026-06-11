@@ -297,8 +297,8 @@
       "title": "[E2] Real POST /api/admin/ai/image",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T19"
       ],

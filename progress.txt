@@ -6306,3 +6306,62 @@ iteration 7 — T16 [C11] Breakpoint parity (8) (sources: T16)
   - startGenerationLog re-SELECTs after INSERT and throws if no row — a
     mock D1 must replay inserted ai_generations rows on the
     idempotency_key SELECT (plain always-null first() breaks it).
+
+## 2026-06-11 18:54 - T19 ([E2] Real POST /api/admin/ai/image)
+- iteration 9 — T19 (sources: T19)
+- What was implemented:
+  - Replaced the Phase-1 generate-image stub with the real POST
+    /api/admin/ai/image. New handler module api/src/admin/ai-image.ts
+    (keeps ai-api.ts at 122 ln, under the 200 limit): 501 no-key, 400 bad
+    JSON/missing prompt, 500 unsupported model, ai_generations receipt row
+    (admin-image task, per-request idempotency_key) around every call,
+    client.generateImage (model from SUPPORTED_IMAGE_MODELS = gpt-image-2),
+    MEDIA.put under unique key ai/admin/<site|shared>/<gen-id>.png
+    (serve.ts caches /media/* immutable 1yr — keys never reused), INSERT
+    INTO media (..., site_id, ai_generation_id) RETURNING id via .bind(),
+    500 + failed receipt if INSERT yields no row (never 2xx without DB
+    row — story negative_fail_condition), 502 + failed receipt on OpenAI
+    error. Route mounted in ai-api.ts wrapped in hono bodyLimit (64 KiB).
+  - generate-image and dall-e now 0 refs in ai-api.ts; stale route renamed
+    in test/admin.test.ts + test/ai-tenant-safety.test.ts.
+  - New api/test/admin-ai-image.test.ts (7 tests): 501/400/413-bodyLimit/
+    200-happy-path (asserts model=gpt-image-2 outbound+response, R2 put
+    bytes+contentType, media INSERT binds, success receipt row)/500-no-
+    media-row/502-openai-error/401-auth-gate.
+- Files changed: api/src/admin/ai-api.ts, api/src/admin/ai-image.ts (new),
+  api/test/admin-ai-image.test.ts (new), api/test/admin.test.ts,
+  api/test/ai-tenant-safety.test.ts
+- Tests run:
+  - cd api && npx tsc --noEmit -> clean
+  - cd api && npx vitest run test/admin-ai-image.test.ts -> 7/7 PASS
+  - cd api && npm test -> 112 files / 912 tests PASS
+  - D13 runner (RC-056,RC-057,RC-058) -> status PASS:
+    - RC-056 PASS (grep -c "/image" ai-api.ts -> count=2 >= 1)
+    - RC-057 PASS (vitest run test/admin-ai-image.test.ts -t "R2 put and
+      media row insert via mock-D1 db.prepare" -> matched
+      test/admin-ai-image.test.ts, exit 0)
+    - RC-058 PASS (grep -c "bodyLimit" ai-api.ts -> count=3 >= 1)
+- Self-check results:
+  - File sizes: ai-api.ts 122 (limit 200) PASS; ai-image.ts 159 (limit
+    200) PASS; admin-ai-image.test.ts 327 (test files routinely exceed
+    200 per repo precedent) PASS
+  - Secret scan: PASS (0 matches on all 5 changed files; "sk-test" is a
+    vitest fixture literal)
+  - Error handling: PASS (501/400/413/500/502 paths, no silent swallows)
+  - Migration execution: N/A (no schema change; existing media +
+    ai_generations tables)
+  - Parameterized queries: PASS (no prepare-with-interpolation; media
+    INSERT uses .bind())
+  - Acceptance tests: none for this change-id (no T19 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - RC-057's expected_test_name_regex was the FILE path (escaped) — the
+    vitest text parser's file-level observation matches it, so the
+    RC-055-class defect (regex = escaped COMMAND string) does not affect
+    T19; the runner emitted real PASS receipts.
+  - hono bodyLimit (hono/body-limit) returns 413 before the handler runs;
+    mount it per-route to avoid touching the chat endpoint contract.
+  - For unique-per-request media, do NOT reuse buildAiStorageKey (it is
+    deterministic per target and would overwrite under the 1-yr immutable
+    /media/* cache); derive the key from ai_generation_id instead.
+---
