@@ -5984,3 +5984,91 @@ iteration 3 — T12 [C7] Home view-model buckets (sources: T12)
     public-ad-slots.test.ts only matches asides whose class list contains
     the exact token "ad-slot", so the wrapper never double-counts.
 ---
+
+## 2026-06-11 18:15 — T14 (iteration 5)
+iteration 5 — T14 [C9] Header + Hero exact DOM (sources: T14)
+- implemented: api/src/public/templates/components.ts — renderHeader rebuilt
+  to the design-contract §11 child order (.brand → .header-search →
+  .header-nav) with pinned nav labels (Explore w/ chevron, Trending,
+  Editor's Picks, Newsletter) + .btn-outline "Sign in" button; BEM
+  site-header__* classes flattened to §10 vocabulary (brand, brand-logo,
+  brand-name, nav-link). renderHero rebuilt to the §11 exact DOM:
+  .hero > .hero-bg + .hero-content > h1.hero-title > span.tagline (tagline
+  now a SPAN inside the h1) + form.hero-search with 48×48 brand submit
+  button. renderNewsletter section now carries id="newsletter".
+- implemented: api/src/public/assets/public-css.ts — hero
+  min-height: clamp(340px, 42vw, 480px) (T14.AC1, exactly 1 occurrence in
+  assets/); white-with-blur sticky header; 38px brand-bg .brand-logo;
+  .header-search max-width 460px + brand-tint focus ring; .nav-link +
+  .btn-outline rules (pill, 1.5px brand border, hover fill + 1px lift);
+  hero title clamp(2.25rem, 5.5vw, 3.25rem) weight 800 lh 1.05 white with
+  text-shadow; .tagline display:block 0.62em weight 700; .hero-search pill
+  with --tw-shadow-md + 48×48 brand button. .container padding clamp
+  unchanged (T14.AC3, grep "clamp" = 5 ≥ 1).
+- implemented: api/src/public/templates/home.ts — §2 empty-tenant fallback
+  now routes through renderHero (uniform contract DOM); §6/§7 sections
+  carry id="picks" / id="trending" so the contract header-nav fragment
+  hrefs (/#picks, /#trending, /#newsletter) resolve to real targets
+  (PART 8).
+- implemented: api/src/public/templates/esc.ts (NEW, 31 lines) — shared
+  escAttr/escText/imgTag extracted from components.ts to honor the
+  300-line template cap; api/src/public/templates/icons.ts +
+  iconChevronDown (nav chevron primitive).
+- tests: api/test/public-templates-components.test.ts — T14.AC2 header
+  order/labels/btn-outline test, hero exact-DOM test, T14.AC1/AC3 publicCss
+  clamp pins. cd api && npx vitest run test/public-templates-components.test.ts
+  test/public-templates-home.test.ts test/public-templates-article.test.ts →
+  31/31 pass. Full suite cd api && npm test → 108 files / 892 tests pass.
+  cd api && npx tsc --noEmit → clean.
+- Self-check results:
+  - File sizes: components.ts 299 (limit 300) PASS; home.ts 236 (300) PASS;
+    public-css.ts 262 (300) PASS; esc.ts 31 PASS; icons.ts 62 PASS
+  - Secret scan: PASS (no matches in changed files)
+  - Error handling: N/A (template-only story)
+  - Migration execution: N/A
+  - Parameterized queries: N/A
+  - Acceptance test check: N/A (no acceptance-tests/ bundle for this
+    change-id; legacy phase1/phase3 bundles only)
+- commit: d036e68 feat: [T14] - [C9] Header + Hero exact DOM
+- Evidence runner (T14): canonical run ×2 (second to capture full per-RC
+  JSON), RC-040,RC-041,RC-042 — overall FAIL; all three are
+  implementation-invariant plan-route defects; underlying evidence green:
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-040 — SAME defect class as RC-038
+    (iteration 4): typed reason_code EVIDENCE_SOURCE_PATH_UNRESOLVED; the
+    plan's evidence_command greps the DIRECTORY api/src/public/assets/ and
+    F22 source-path recovery is isfile()-only
+    (missing_files=["api/src/public/assets/"], tried_pkg_roots=["api"]);
+    grep never executes (exit None, 0ms). Underlying evidence green:
+    grep -rc "clamp(340px, 42vw, 480px)" api/src/public/assets/ from
+    worktree root → public-css.ts:1 + public-js.ts:0 → total 1 (op >= 1,
+    criterion "= 1" also satisfied).
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-041 — SAME plan-baked defect class as
+    RC-024/026/029/030/034/035: expected_test_name_regex is the
+    shell-escaped COMMAND string; vitest text parser observes file-level
+    names only (observation 4b8ec1659ed1:
+    "test/public-templates-components.test.ts (15 tests)" passed:true
+    exit 0). No test name can ever match an escaped command line.
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-042 — NEW defect shape (third grep-route
+    variant): single-FILE `grep -rc <pattern> <file>` emits ONE
+    "path:count" line; the runner's L12 multi-file pre-aggregation only
+    fires at >= 2 lines and parse_grep_count requires a bare integer →
+    typed NON_INTEGER_OUTPUT → UNSATISFIED. The grep itself exits 0 with
+    public-css.ts:5 (op >= 1 satisfied). Plan-side fix: use `grep -c`
+    (no -r) for single-file targets, or extend L12 to the single-line
+    path:count shape — both orchestrator-owned.
+  - required_evidence_plan.json repair is orchestrator-owned; not retried
+    further per iteration-2 learning (no retry-storm).
+- Learnings for future iterations:
+  - grep evidence routes have THREE shape constraints now: (1) FILE targets
+    only (F22 isfile()-only, iteration-4 learning); (2) multi-file greps
+    aggregate via L12 only when output has >= 2 path:count lines;
+    (3) single-file targets MUST use `grep -c` WITHOUT -r — `-r` on one
+    file still prefixes the filename, producing the one-line path:count
+    shape parse_grep_count rejects.
+  - templates/esc.ts now owns escAttr/escText/imgTag for public templates;
+    home.ts/article.ts still carry local copies (dedup candidate for a
+    cleanup story, NOT done in T14 to keep the diff story-scoped).
+  - Header nav fragment targets: /#picks, /#trending, /#newsletter ids are
+    emitted by home.ts §6/§7 wrappers and renderNewsletter respectively —
+    keep these ids stable; the contract header nav depends on them.
+---
