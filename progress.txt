@@ -7412,3 +7412,91 @@ iteration 19 — T31 [B10] Media library port (sources: T31)
     tags, unlike categories): guard is column-equality with a
     global-NULL pass-through, no allocation join needed.
 ---
+
+## 2026-06-11 22:25 - T32 (iteration 20)
+- iteration 20 — T32 (sources: T32)
+- implemented: [B11] Settings port (per-site) — rewrote
+  api/src/admin/templates/settings.ts (166→387) from the legacy
+  theiwise-legacy-readonly api/src/admin/templates/settings.ts (1120 ln,
+  tabs General/SEO/Ads/Social/Advanced) onto the per-site canonical
+  model: required Site selector (filter-site, navigates
+  /admin/settings?site_id= on change) + hidden site_id; legacy card
+  groups Site Information / Site Logo / ads.txt / robots.txt / Brand
+  Tokens / Newsletter / Custom HTML mapped onto the 12 canonical
+  SETTING_KEYS; inline ES5 script sends the T24 wire shape
+  {site_id, updates:{key:value}} to PATCH /api/admin/settings (FIXED the
+  stub's 'values' wire mismatch vs the handler/tests, which read
+  body.updates); Site Logo card's AI panel POSTs {site_id} to
+  /api/admin/ai/logo and reflects the returned media_id/image_url into
+  setting-logo_media_id + preview (handler writes logo_media_id
+  server-side itself). Contract classes from SCTX-047 kept (toolbar,
+  toolbar-filters, form-select, settings-form, card/card-header/
+  card-title, alert alert-error, form-status, form-actions, btn
+  btn-primary); SETTING_KEYS + settingsPage exports kept. No tabs
+  ported — contract css class set has no tab vocabulary; cards stack.
+- files changed: api/src/admin/templates/settings.ts,
+  api/test/admin-settings.test.ts (+6 tests: template contract describe
+  — required selector + hidden site_id binding, 12-key value
+  round-trip, ported card headings, {site_id,updates} + /api/admin/ai/
+  logo wire assertions, escapeHtml XSS guard — and an all-12-canonical-
+  keys PATCH handler round-trip: 12 UPSERTs + version bump in ONE
+  batch, updated_keys == SETTING_KEYS).
+- test: cd api && npx vitest run test/admin-settings.test.ts (9/9);
+  cd api && npx vitest run test/settings-version-bump.test.ts (1/1,
+  EXISTING test untouched — handler unchanged, no co-update needed,
+  green); admin-data-wiring 10/10 + settings-version-bump-invalidate
+  7/7 (adjacent settings surfaces); cd api && npm test → 118 files,
+  1014/1014 pass (was 1008 pre-T32, +6 new); cd api && npx tsc
+  --noEmit → clean; npm run verify:no-legacy-prod-refs → exit 0.
+- D13 runner (verbatim runner_command_rendered, RC-095..RC-098):
+  RC-095 PASS (parse_grep_count "Site Information" count 2 >= 1).
+  RC-097 PASS (parse_grep_count "/api/admin/ai/logo" count 2 >= 1).
+  RC-096 FAIL on name-match only: vitest exit 0, runner's own
+  observation artifact evidence/raw/53c234e5e847-* records
+  test/admin-settings.test.ts (9 tests) passed=true, but
+  expected_test_name_regex is the escaped SHELL COMMAND
+  ("cd api && npx vitest run test/admin-settings.test.ts") which can
+  never appear in a reporter test name. RC-098 FAIL identical class:
+  settings-version-bump.test.ts (1 test) passed=true in
+  evidence/raw/1658e2278cf2-*, regex is the escaped shell command.
+- EVIDENCE_ROUTE_EXHAUSTED — T32 RC-096, RC-098: same deterministic
+  plan-authoring defect class as T25/T26/T27/T28/T29 (RC-090)/T31
+  (RC-093). A typed regex cannot be changed by re-implementing; editing
+  the evidence plan is a forbidden mechanism-dodge. Underlying evidence
+  green in-tree (admin-settings 9/9 + version-bump 1/1, exit 0).
+  Reconciliation owned by reconcile_ralph_execution_prd.py / evaluator.
+- DB check (DoD "SELECT confirms write"): wrangler d1 execute
+  kodigital-homepages-cms-db --local — INSERT probe site (sites.domain
+  NOT NULL + vertical_slug FK to verticals required) → UPSERT
+  site_settings tagline → UPDATE settings_version+1 → SELECT confirmed
+  {settings_version: 2, tagline: "after-t32"} → probe rows deleted
+  (leftover count 0).
+- Self-check results:
+  - File sizes: settings.ts 387 (ported-payload template precedent:
+    pages 431 / articles 520 / media 538) PASS w/ precedent;
+    admin-settings.test.ts 361 (test-payload precedent 665) PASS.
+  - Secret scan: PASS (0 matches both files).
+  - Error handling: PASS (inline script: missing-site guard before both
+    POSTs, non-2xx → alert-error/status text, fetch .catch network
+    error, logo button re-enabled in both branches; no handler changes).
+  - Migration execution: N/A (no migration; ui story) — DoD d1 SELECT
+    round-trip done instead, see above.
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' → 0 in
+    both changed files; no SQL in template).
+  - ES5 inline script: PASS (grep let|const|=>|?.|?? inside
+    SETTINGS_SCRIPT → 0 matches; var/function/promise-chains only).
+  - Acceptance tests: none for this change-id (no acceptance-tests/
+    kodigital-cms-rescue-2-2026-06-10/ dir; T25-T31 precedent).
+- Learnings for future iterations:
+  - The settings stub's inline script wire name ('values') silently
+    disagreed with the live handler ('updates') — when a story ports a
+    template whose stub predates the handler, diff the stub's fetch
+    body against the handler's body parse FIRST; the packet's
+    extracted_contract excerpt (SCTX-120/142 'accept {site_id,
+    updates:{key:value}}') was the authoritative wire name.
+  - /api/admin/ai/logo writes site_settings.logo_media_id itself and
+    returns {ok, media_id, image_url} — UI panels must reflect, not
+    re-save; POST body is just {site_id} (brand inputs are read
+    server-side from the sites row, tenant guard).
+  - Local d1 probe rows for sites need domain (NOT NULL) and a real
+    vertical_slug (FK to verticals) — seed-check verticals first.
