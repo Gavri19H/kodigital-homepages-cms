@@ -5708,3 +5708,62 @@ iteration — T7 (sources: T7)
 - EVIDENCE_ROUTE_EXHAUSTED: RC-026 — same name-regex class as RC-024;
   receipt's underlying run exit 0, 6/6 passed
   ("test/public-no-theiwise-brand-render.test.ts (6 tests)").
+
+## 2026-06-11 — T10 ([C5] Class flattening BEM → spec vocabulary)
+- iteration 2 — T10 (sources: T10)
+- What was implemented: flattened the BEM double-underscore class vocabulary
+  in api/src/public/templates/ to the docs/design-contract.md §10 flat spec
+  vocabulary. components.ts renderHero now emits hero-bg (img) +
+  hero-content wrapper + hero-title + tagline + hero-kicker; renderCard now
+  emits card-img + card-cat + card-title + card-excerpt + card-foot
+  (card-date/card-read inside). home.ts: home-section__heading →
+  <div class="section-head"><h2> (matches existing .section-head/.section-head h2
+  CSS), home-section__empty → section-empty, empty-state hero →
+  hero-content/hero-title/tagline. Key insight: public-css.ts assets already
+  styled the FLAT spec classes — the BEM names were unstyled orphans, so this
+  story reconnects templates to the live stylesheet.
+- Files changed: api/src/public/templates/components.ts,
+  api/src/public/templates/home.ts (commit 1cbcd7b)
+- AC verification:
+  - T10.AC1: grep -rcE 'card__|hero__|home-section__' api/src/public/templates/
+    → all 11 files report 0 — PASS
+  - T10.AC2: card-title:1 card-img:1 card-foot:1 hero-content:3 hero-title:3
+    (class-attr grep across templates/) — PASS
+  - T10.AC3: cd api && npm test → 108 files / 884 tests passed, 0 failures
+    (public-templates-components.test.ts 12/12) — PASS
+- Test commands run: cd api && npx tsc --noEmit (exit 0); cd api && npm test
+  (884/884 pass); canonical runner for RC-027,RC-028,RC-029 (twice).
+- Self-check results:
+  - File sizes: components.ts 298, home.ts 219 (HTML template modules,
+    limit 300; prd.json maxFileLines null) — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: no T10-*.sh scripts — legacy fallback manual AC verify above
+- Evidence runner (T10): RC-028 PASS receipt (grep_count). Two RCs hit
+  plan-baked defects; underlying evidence green:
+- EVIDENCE_ROUTE_EXHAUSTED: RC-027 — EVIDENCE_SOURCE_PATH_UNRESOLVED, same
+  class as RC-025: evidence_command greps a DIRECTORY
+  (api/src/public/templates/) and F22 source-path recovery resolves only
+  grep FILE paths; command never executes (exit None). Direct deterministic
+  grep from worktree root proves the AC: all 11 template files = 0 banned
+  matches. Implementation-invariant; required_evidence_plan.json repair is
+  orchestrator-owned.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-029 — same name-regex class as RC-024/RC-026:
+  expected_test_name_regex is the shell-escaped COMMAND string
+  ("cd\ api\ \&\&\ npx\ vitest\ run\ test/public\-templates\-components\.test\.ts"),
+  vitest text parser observes file-level names only
+  ("test/public-templates-components.test.ts (12 tests)"); receipt's
+  underlying run exit 0, 12/12 passed. Implementation-invariant; plan repair
+  is orchestrator-owned.
+- Learnings for future iterations:
+  - public-css.ts (assets/public-css.ts) is the authoritative flat-class
+    stylesheet; when flattening template classes, map to selectors that
+    ALREADY exist there (.section-head wraps an h2 child — emit the div
+    wrapper, not a classed h2).
+  - hero--empty / home-grid-- BEM MODIFIERS (double dash) are not banned by
+    T10.AC1 and remain; home-grid__item / home-categories__ / site-header__ /
+    chip-rail__ / newsletter__ / site-footer__ / floating-next__ families are
+    outside T10's AC scope and owned by T11/T14/T15 DOM-rewrite stories.
+---
