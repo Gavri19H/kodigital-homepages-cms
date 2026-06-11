@@ -5904,3 +5904,83 @@ iteration 3 — T12 [C7] Home view-model buckets (sources: T12)
     the SQL sort; is_featured DESC, is_trending DESC, rank ASC,
     published_at DESC, id DESC).
 ---
+
+## 2026-06-11 - T13 ([C8] Article section order (12) + nesting)
+- iteration 4 — T13 (sources: T13)
+- Restructured renderArticle (api/src/public/templates/article.ts) to the
+  decoded design-contract §8 order: reading-progress is now §1 / index 0
+  (was §4); §§5-9 (share-rail, article-body, faq-section,
+  article-share-bottom, article-sidebar) nest INSIDE the §4
+  `.article-shell.container` wrapper, with faq-section + share-bottom
+  nested INSIDE the `article.article-body` element; §10 related-section
+  is soft-bg with `.grid.grid-4`; §11 newsletter / §12 footer unchanged
+  (floating-next rides inside §12 — fixed overlay, not a §8 section).
+  Removed: visible breadcrumb nav (not in §8/§10; BreadcrumbList JSON-LD
+  kept — T13.AC4), top-level ad-leaderboard + ad-in-feed (Article's only
+  ad is the sidebar rect per §8/§10). Sidebar cards reordered to §11
+  contract: toc → sidebar-newsletter (new card, anchors
+  #newsletter-heading) → sidebar-ad.ad-slot--rect (wrapper now carries
+  the literal `ad-slot--rect` class — T13.AC3 grep was 0 before, 4 now)
+  → sidebar-popular. Body headings gain id="article-heading-N" so the
+  TOC anchors resolve (previously dead links).
+- Files changed: api/src/public/templates/article.ts (391 lines),
+  api/test/public-templates-article.test.ts (229 lines, 9 tests —
+  T13.AC1 order+nesting incl. empty-faqs/related stability, T13.AC2
+  reading-progress index 0, T13.AC4 breadcrumb JSON-LD intact + no
+  visible breadcrumb, ad-slot placement, carried-over minmax/faqpage/
+  brand guards).
+- test: cd api && npx vitest run test/public-templates-article.test.ts
+  test/json-ld-article.test.ts test/public-ad-slots.test.ts
+  test/public-json-ld-presence.test.ts test/public-screen-labels.test.ts
+  test/public-image-attrs.test.ts test/public-no-theiwise-brand-render.test.ts
+  (7 files, 40/40 PASS); cd api && npm test (108 files, 889 tests PASS);
+  cd api && npx tsc --noEmit (exit 0)
+- Self-check results:
+  - File sizes: article.ts 391 (was 377 at iteration start; prd.json
+    maxFileLines null; single cohesive §8 template module, precedent
+    view-models/home.ts 333 PASS w/ note) — PASS w/ note;
+    public-templates-article.test.ts 229 — PASS
+  - Secret scan: PASS (no matches across both changed files)
+  - Error handling: N/A (template module, no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+- Evidence runner (T13): canonical run ×2 (second to capture full per-RC
+  receipt JSON), RC-036,RC-037,RC-038,RC-039 — overall FAIL, all four
+  implementation-invariant plan-route defects; underlying evidence green:
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-036, RC-037, RC-039 — SAME plan-baked
+    defect class as RC-024/026/029/030/034/035: expected_test_name_regex
+    is the shell-escaped COMMAND string; vitest text parser observes
+    file-level names only (observations a0cea83874c7:
+    "test/public-templates-article.test.ts (9 tests)" passed:true exit 0;
+    bfd15680b149: "test/json-ld-article.test.ts (14 tests)" passed:true
+    exit 0). No test name can ever match an escaped command line.
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-038 — NEW defect shape, typed
+    reason_code EVIDENCE_SOURCE_PATH_UNRESOLVED: the plan's
+    evidence_command greps the DIRECTORY api/src/public/templates/
+    (recursive -rc), but the runner's F22 source-path recovery resolves
+    grep targets via os.path.isfile() only (run_required_evidence_command.py
+    f22_source_path_recovery: missing_files=["api/src/public/templates/"],
+    tried_pkg_roots=["api"]) — a directory target can never resolve;
+    grep never executes (exit None, duration 0ms). Underlying evidence
+    green and deterministic: grep -rc "ad-slot--rect"
+    api/src/public/templates/ from worktree root → article.ts:4 (op >= 1).
+  - required_evidence_plan.json repair is orchestrator-owned; not
+    retried further per iteration-2 learning (no retry-storm).
+- Learnings for future iterations:
+  - deterministic_grep_count routes need FILE targets: the F22 resolver
+    in run_required_evidence_command.py is isfile()-only — a plan
+    evidence_command that greps a directory (grep -rc <dir>) fails
+    EVIDENCE_SOURCE_PATH_UNRESOLVED before grep runs. When authoring or
+    repairing plans, point grep ACs at explicit file paths.
+  - Article marker names changed in T13: §8 set is reading-progress,
+    site-header, article-hero, article-shell, share-rail, article-body,
+    faq-section, article-share-bottom, article-sidebar, related-section,
+    newsletter, site-footer (breadcrumb / ad-leaderboard / ad-in-feed
+    markers no longer exist on Article; Home still has its own §7 set).
+  - The §11 sidebar ad pattern: wrapper aside carries
+    `sidebar-card sidebar-ad ad-slot--rect` (contract selector + literal
+    grep token) while the inner renderAdSlot node carries the
+    data-ad-slot/data-ad-type attrs — extractAdSlots in
+    public-ad-slots.test.ts only matches asides whose class list contains
+    the exact token "ad-slot", so the wrapper never double-counts.
+---
