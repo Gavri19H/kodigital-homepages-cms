@@ -35,4 +35,10 @@ describe("public-js-contract", () => {
   it("T17.AC4: exported script string stays under 6KB", () => {
     expect(new TextEncoder().encode(publicJs).length).toBeLessThan(6 * 1024);
   });
+
+  // T42 [F3] Performance re-assert. The it() title embeds the literal
+  // evidence command for RC-127's deterministic test-name binding.
+  it("T42.AC3 exported public.js stays under 6KB [cd api && npx vitest run test/public-js-contract.test.ts]", () => {
+    expect(new TextEncoder().encode(publicJs).length).toBeLessThan(6 * 1024);
+  });
 });

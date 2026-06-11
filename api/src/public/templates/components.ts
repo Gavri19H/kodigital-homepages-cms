@@ -159,7 +159,7 @@ export function renderHero(args: HeroArgs): string {
     args.excerpt !== undefined && args.excerpt.length > 0
       ? ` <span class="tagline">${escText(args.excerpt)}</span>`
       : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="1200" height="630" loading="eager" decoding="async"');
+  const img = imgTag(args.imageUrl, args.imageAlt, ' width="1200" height="630" loading="eager" fetchpriority="high" decoding="async"');
   const titleText =
     href.length > 0
       ? `<a href="${escAttr(href)}">${escText(args.title)}</a>`

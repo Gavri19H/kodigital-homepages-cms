@@ -20,6 +20,8 @@
 import { describe, it, expect } from "vitest";
 import { renderHome } from "../src/public/templates/home";
 import { renderArticle } from "../src/public/templates/article";
+import { publicCss } from "../src/public/assets/public-css";
+import { PUBLIC_CSS } from "../src/public/templates/public.css";
 import type {
   HomeArticleCard,
   HomeViewModel,
@@ -36,6 +38,7 @@ interface ImgAttrs {
   width: string | null;
   height: string | null;
   loading: string | null;
+  fetchpriority: string | null;
   classes: ReadonlyArray<string>;
 }
 
@@ -64,6 +67,7 @@ function extractImgs(html: string): ReadonlyArray<ImgAttrs> {
       width: get("width"),
       height: get("height"),
       loading: get("loading"),
+      fetchpriority: get("fetchpriority"),
       classes: cls === null ? [] : cls.split(/\s+/).filter((s) => s.length > 0),
     });
   }
@@ -380,5 +384,90 @@ describe("public-image-attrs", () => {
     );
     expect(figureImg, "article figure image not rendered").toBeDefined();
     expect(figureImg!.loading).toBe("lazy");
+  });
+});
+
+// T42 [F3] Performance re-assert. AC1 binds the deterministic evidence
+// route for RC-125, so the it() title embeds the literal evidence
+// command "cd api && npx vitest run test/public-image-attrs.test.ts".
+describe("public-image-attrs T42 performance re-assert", () => {
+  it("T42.AC1 hero eager+high; below-fold lazy [cd api && npx vitest run test/public-image-attrs.test.ts]", () => {
+    const homeHtml = renderHome({ vm: makeHomeVm() });
+    const articleHtml = renderArticle({ vm: makeArticleVm() });
+    const homeImgs = extractImgs(homeHtml);
+    const articleImgs = extractImgs(articleHtml);
+
+    // Home hero (§2 hero region) — the LCP candidate MUST be
+    // loading="eager" + fetchpriority="high".
+    const homeRegions = sectionRegions(homeHtml, "home");
+    const heroRegion = homeRegions.get("hero");
+    expect(heroRegion, "home §hero region missing").toBeDefined();
+    const heroImgs = extractImgs(heroRegion!);
+    expect(heroImgs.length, "home hero renders no <img>").toBeGreaterThan(0);
+    for (const img of heroImgs) {
+      expect(img.loading, `home hero img not eager: ${img.raw}`).toBe("eager");
+      expect(
+        img.fetchpriority,
+        `home hero img missing fetchpriority="high": ${img.raw}`,
+      ).toBe("high");
+    }
+
+    // Article hero — same contract on the article-hero-img.
+    const articleHeroImg = articleImgs.find((i) =>
+      i.classes.includes("article-hero-img"),
+    );
+    expect(articleHeroImg, "article-hero-img not rendered").toBeDefined();
+    expect(articleHeroImg!.loading).toBe("eager");
+    expect(articleHeroImg!.fetchpriority).toBe("high");
+
+    // fetchpriority="high" is RESERVED for eager (above-fold) images:
+    // a lazy img with fetchpriority would compete with the hero for
+    // early-fetch bandwidth — that is a below-fold regression.
+    for (const img of [...homeImgs, ...articleImgs]) {
+      if (img.loading === "lazy") {
+        expect(
+          img.fetchpriority,
+          `lazy img must not carry fetchpriority: ${img.raw}`,
+        ).toBeNull();
+      }
+    }
+
+    // Below-fold lazy re-assert: both surfaces render at least one
+    // loading="lazy" <img>, and every img outside the above-fold
+    // sections is lazy.
+    expect(homeImgs.filter(isBelowFold).length).toBeGreaterThan(0);
+    expect(articleImgs.filter(isBelowFold).length).toBeGreaterThan(0);
+    for (const [name, region] of homeRegions.entries()) {
+      if (name === "site-header" || name === "hero") continue;
+      for (const img of extractImgs(region)) {
+        expect(img.loading, `home §${name} img not lazy: ${img.raw}`).toBe("lazy");
+      }
+    }
+    const articleRegions = sectionRegions(articleHtml, "article");
+    for (const [name, region] of articleRegions.entries()) {
+      if (name === "site-header" || name === "article-hero") continue;
+      for (const img of extractImgs(region)) {
+        expect(img.loading, `article §${name} img not lazy: ${img.raw}`).toBe("lazy");
+      }
+    }
+  });
+
+  it("T42.AC2 ad-slot dimension rules present in both css files", () => {
+    // assets/public-css.ts — the Phase-5 generic stylesheet served at
+    // /assets/public.css reserves ad-slot boxes per data-ad-type.
+    expect(publicCss).toContain(".ad-slot");
+    expect(publicCss).toContain('.ad-slot[data-ad-type="leaderboard"]');
+    expect(publicCss).toMatch(
+      /\.ad-slot\[data-ad-type="leaderboard"\][^}]*min-height:\s*90px/,
+    );
+    expect(publicCss).toMatch(
+      /\.ad-slot\[data-ad-type="rect"\][^}]*min-height:\s*250px/,
+    );
+
+    // templates/public.css.ts — the inlined anti-CLS bundle reserves
+    // the same boxes for the default + variant slots.
+    expect(PUBLIC_CSS).toContain(".ad-slot");
+    expect(PUBLIC_CSS).toContain("min-height");
+    expect(PUBLIC_CSS).toMatch(/\.ad-slot\s*{[^}]*min-height/);
   });
 });

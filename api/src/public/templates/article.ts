@@ -104,7 +104,7 @@ function marker(n: number, name: string): string {
 function renderArticleHero(article: ArticleViewModel["article"]): string {
   const heroImg =
     article.imageUrl !== null && article.imageUrl.length > 0
-      ? `<img class="article-hero-img" src="${escAttr(article.imageUrl)}" alt="${escAttr(article.imageAlt ?? "")}" width="1200" height="630" loading="eager" decoding="async">`
+      ? `<img class="article-hero-img" src="${escAttr(article.imageUrl)}" alt="${escAttr(article.imageAlt ?? "")}" width="1200" height="630" loading="eager" fetchpriority="high" decoding="async">`
       : "";
   const categoryHtml =
     article.categoryName.length > 0
