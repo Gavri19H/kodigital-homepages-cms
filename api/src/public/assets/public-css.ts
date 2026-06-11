@@ -176,7 +176,7 @@ img { max-width: 100%; height: auto; }
 .ad-slot[data-ad-type="rect"]       { min-height: 250px; max-width: 300px; }
 
 .reading-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: transparent; z-index: 60; }
-.reading-progress-bar { height: 100%; width: 0%; background: var(--tw-brand); transition: width 80ms linear; }
+.reading-progress-bar { height: 100%; width: 100%; background: var(--tw-brand); transform: scaleX(0); transform-origin: left center; transition: transform 80ms linear; }
 
 .article-hero { position: relative; min-height: 320px; }
 .article-hero-img { width: 100%; height: 320px; object-fit: cover; }
