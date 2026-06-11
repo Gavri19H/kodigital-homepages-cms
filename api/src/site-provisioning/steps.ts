@@ -1,27 +1,29 @@
-// Phase 3 / T17+T19+T20 + Phase 6 / T9: provisioning step registry.
+// Phase 3 / T17+T19+T20 + Phase 6 / T9 + rescue-2 T34: provisioning
+// step registry.
 //
-// 15 step keys advance a site_creation_jobs row one step per
-// POST /api/admin/sites/:id/provision/next call. T17 wired stubs;
-// T18 added dry-run gating for CF-mutation steps; T19 swapped
+// 16 canonical step keys advance a site_creation_jobs row one step per
+// POST /api/admin/sites/:id/provision/next call. T17 wired placeholder
+// handlers; T18 added dry-run gating for CF-mutation steps; T19 swapped
 // create_site_settings for a 12-key seed; T20 swapped the legal-pages
-// stub for variable-aware rendering via legal-renderer.ts; Phase 6 / T9
-// now swaps SIX of the remaining deterministic stubs for AI-or-fallback
-// generators that write a typed receipt row to ai_generations and
-// persist their side-effects (site_settings updates, pages rows,
-// articles rows, media rows) so re-running the same step is idempotent
-// via:
+// placeholder for variable-aware rendering via legal-renderer.ts;
+// Phase 6 / T9 swapped six steps for AI-or-fallback generators that
+// write a typed receipt row to ai_generations and persist their
+// side-effects (site_settings updates, pages rows, articles rows,
+// media rows) so re-running the same step is idempotent via:
 //   - ai_generations.idempotency_key UNIQUE (T4)        — no duplicate gen rows
 //   - INSERT OR IGNORE on site_settings/articles/pages  — no duplicate domain rows
 //   - UPDATE … COALESCE / WHERE … IS NULL              — no clobber of populated values
+// T34 (rescue-2 D1) renames every key to its canonical suffix-free form
+// and appends the 16th step, update_launch_readiness (placeholder until
+// T39 implements the readiness rollup).
 //
 // Contract greps (each canonical key appears as a single-quoted literal
 // exactly once in the registry tuple it belongs to):
-//   - T17.AC1: 15 step-key literals in STEP_KEYS
+//   - T34.AC1: 16 step-key literals in STEP_KEYS; index 15 is
+//     update_launch_readiness
 //   - T19.AC1: 12 site-settings-key literals in DEFAULT_SETTING_SEED
 //   - T9.AC1..AC5: imports of generateSiteTagline/Description, generateAboutPage,
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
-//   - T9.AC6: each of the 6 swapped step keys appears >=12 times in this file
-//     (type union + STEP_KEYS literal + STEPS key + dispatch handler etc.)
 
 import type { Env } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
@@ -45,36 +47,39 @@ export type StepKey =
   | "attach_domain_to_new_worker_or_mark_pending"
   | "allocate_vertical_categories"
   | "create_site_settings"
-  | "generate_tagline_and_site_description_stub"
-  | "generate_about_page_stub"
+  | "generate_tagline_and_site_description"
+  | "generate_about_page"
   | "render_generic_legal_pages_with_site_variables"
-  | "generate_logo_mark_stub"
-  | "generate_feature_image_stub"
-  | "generate_15_homepage_articles_stub"
-  | "generate_or_assign_article_images_stub"
+  | "generate_logo_mark"
+  | "generate_feature_image"
+  | "generate_15_homepage_articles"
+  | "generate_or_assign_article_images"
   | "publish_starter_articles"
   | "warm_homepage_cache"
-  | "run_site_smoke_tests";
+  | "run_site_smoke_tests"
+  | "update_launch_readiness";
 
 // Ordered registry — STEP_KEYS[i] is the step the runner executes when
 // site_creation_jobs.current_step_index = i. The single-quoted literal
-// form below is what T17.AC1's grep counts.
+// form below is what T34.AC1's grep counts (16 keys; index 15 MUST be
+// update_launch_readiness).
 export const STEP_KEYS: readonly StepKey[] = [
   'validate_domain_in_cloudflare',
   'create_site_record',
   'attach_domain_to_new_worker_or_mark_pending',
   'allocate_vertical_categories',
   'create_site_settings',
-  'generate_tagline_and_site_description_stub',
-  'generate_about_page_stub',
+  'generate_tagline_and_site_description',
+  'generate_about_page',
   'render_generic_legal_pages_with_site_variables',
-  'generate_logo_mark_stub',
-  'generate_feature_image_stub',
-  'generate_15_homepage_articles_stub',
-  'generate_or_assign_article_images_stub',
+  'generate_logo_mark',
+  'generate_feature_image',
+  'generate_15_homepage_articles',
+  'generate_or_assign_article_images',
   'publish_starter_articles',
   'warm_homepage_cache',
   'run_site_smoke_tests',
+  'update_launch_readiness',
 ];
 
 export const TOTAL_STEPS: number = STEP_KEYS.length;
@@ -95,12 +100,13 @@ export interface StepHandlerResult {
 
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
 
-// Deterministic stub: the payload is stable across calls so step receipts
-// stay reproducible until T19/T20 swap in real per-step behavior.
+// Deterministic placeholder: the payload is stable across calls so step
+// receipts stay reproducible until the step's owning story (T35-T39)
+// swaps in real behavior.
 function stubResult(step: StepKey): StepHandlerResult {
   const payload = {
     step,
-    kind: "deterministic_stub",
+    kind: "deterministic_placeholder",
     schema_version: 1,
   };
   return { status: "completed", output: JSON.stringify(payload) };
@@ -302,7 +308,7 @@ async function allocateVerticalCategoriesStep(
 }
 
 
-// T9 — generate_tagline_and_site_description_stub
+// T9 — generate_tagline_and_site_description
 // Calls generateSiteTagline + generateSiteDescription. With no
 // OPENAI_API_KEY both return a deterministic fallback and write an
 // ai_generations row with status='skipped_no_api_key' / 'fallback'.
@@ -340,7 +346,7 @@ async function generateTaglineAndSiteDescriptionStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_tagline_and_site_description_stub",
+      step: "generate_tagline_and_site_description",
       kind: "ai_or_fallback",
       schema_version: 1,
       tagline_status: tagline.status,
@@ -351,7 +357,7 @@ async function generateTaglineAndSiteDescriptionStep(
   };
 }
 
-// T9 — generate_about_page_stub
+// T9 — generate_about_page
 // Calls generateAboutPage and persists the About page as a real row in
 // pages, idempotent on (site_id, slug)='about'. The earlier T15
 // deterministic implementation wrote a minimal block document; we now
@@ -394,7 +400,7 @@ async function generateAboutPageStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_about_page_stub",
+      step: "generate_about_page",
       kind: "ai_or_fallback",
       schema_version: 1,
       about_page_slug: "about",
@@ -453,7 +459,7 @@ async function renderLegalPagesStep(
   };
 }
 
-// T9 — generate_logo_mark_stub
+// T9 — generate_logo_mark
 // Calls generateLogoPrompt + generateLogoImage. With no OPENAI_API_KEY
 // the image generator returns { media_id: 0, status: 'skipped_no_api_key' }
 // and writes no media row; site_settings.logo_media_id stays empty.
@@ -491,7 +497,7 @@ async function generateLogoMarkStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_logo_mark_stub",
+      step: "generate_logo_mark",
       kind: "ai_or_fallback",
       schema_version: 1,
       prompt_status: promptResult.status,
@@ -504,7 +510,7 @@ async function generateLogoMarkStep(
   };
 }
 
-// T9 — generate_feature_image_stub
+// T9 — generate_feature_image
 // Generates a single global feature image keyed on site_id (acts as a
 // fallback hero used by pages that don't have a per-article image yet).
 // Idempotent via the image generator's (site_id, task, target_id) key.
@@ -536,7 +542,7 @@ async function generateFeatureImageStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_feature_image_stub",
+      step: "generate_feature_image",
       kind: "ai_or_fallback",
       schema_version: 1,
       prompt_status: promptResult.status,
@@ -549,7 +555,7 @@ async function generateFeatureImageStep(
   };
 }
 
-// T9 — generate_15_homepage_articles_stub
+// T9 — generate_15_homepage_articles
 // Calls generateStarterArticlePlan (always exactly 15 items, unique
 // slugs). For each item: generateStarterArticle, then INSERT OR IGNORE
 // into articles bound to ctx.site_id. The articles table has a
@@ -616,7 +622,7 @@ async function generate15HomepageArticlesStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_15_homepage_articles_stub",
+      step: "generate_15_homepage_articles",
       kind: "ai_or_fallback",
       schema_version: 1,
       plan_status: plan.status,
@@ -649,7 +655,7 @@ function renderArticleHtml(
   return parts.join("");
 }
 
-// T9 — generate_or_assign_article_images_stub
+// T9 — generate_or_assign_article_images
 // For each starter article (selected via SELECT slug+title FROM articles
 // WHERE site_id=? AND homepage_section='starter'), call
 // generateFeatureImage. With OPENAI_API_KEY the generator inserts a
@@ -701,7 +707,7 @@ async function generateOrAssignArticleImagesStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_or_assign_article_images_stub",
+      step: "generate_or_assign_article_images",
       kind: "ai_or_fallback",
       schema_version: 1,
       article_count: rows.length,
@@ -711,6 +717,10 @@ async function generateOrAssignArticleImagesStep(
   };
 }
 
+// Placeholder handlers below (stubResult) are each owned by a named
+// follow-up story: T35 replaces the 3 Cloudflare-boundary steps, T36
+// publish_starter_articles, T37 warm_homepage_cache, T38
+// run_site_smoke_tests, T39 update_launch_readiness.
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: async () =>
     stubResult("validate_domain_in_cloudflare"),
@@ -719,17 +729,17 @@ export const STEPS: Record<StepKey, StepHandler> = {
     stubResult("attach_domain_to_new_worker_or_mark_pending"),
   allocate_vertical_categories: allocateVerticalCategoriesStep,
   create_site_settings: seedDefaultSiteSettings,
-  generate_tagline_and_site_description_stub:
-    generateTaglineAndSiteDescriptionStep,
-  generate_about_page_stub: generateAboutPageStep,
+  generate_tagline_and_site_description: generateTaglineAndSiteDescriptionStep,
+  generate_about_page: generateAboutPageStep,
   render_generic_legal_pages_with_site_variables: renderLegalPagesStep,
-  generate_logo_mark_stub: generateLogoMarkStep,
-  generate_feature_image_stub: generateFeatureImageStep,
-  generate_15_homepage_articles_stub: generate15HomepageArticlesStep,
-  generate_or_assign_article_images_stub: generateOrAssignArticleImagesStep,
+  generate_logo_mark: generateLogoMarkStep,
+  generate_feature_image: generateFeatureImageStep,
+  generate_15_homepage_articles: generate15HomepageArticlesStep,
+  generate_or_assign_article_images: generateOrAssignArticleImagesStep,
   publish_starter_articles: async () => stubResult("publish_starter_articles"),
   warm_homepage_cache: async () => stubResult("warm_homepage_cache"),
   run_site_smoke_tests: async () => stubResult("run_site_smoke_tests"),
+  update_launch_readiness: async () => stubResult("update_launch_readiness"),
 };
 
 export function getStepKeyForIndex(index: number): StepKey | null {

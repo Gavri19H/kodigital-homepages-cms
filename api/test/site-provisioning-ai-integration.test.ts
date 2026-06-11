@@ -7,16 +7,16 @@ import type { AiGenerationRow } from "../src/ai/generation-log";
 // deterministic fallback. The behavioural ACs we assert here:
 //
 //   AC8.1 — GIVEN no OPENAI_API_KEY WHEN the
-//           generate_tagline_and_site_description_stub step runs THEN an
+//           generate_tagline_and_site_description step runs THEN an
 //           ai_generations row exists with status='skipped_no_api_key' AND
 //           site_settings.tagline is set to a non-empty fallback string.
 //
-//   AC8.2 — GIVEN step generate_15_homepage_articles_stub has run once
+//   AC8.2 — GIVEN step generate_15_homepage_articles has run once
 //           WHEN it runs again THEN no additional articles are inserted
 //           (idempotency via idempotency_key + (site_id, slug) UNIQUE).
 //
 //   AC8.3 — GIVEN no OPENAI_API_KEY WHEN the
-//           generate_15_homepage_articles_stub step runs THEN exactly 15
+//           generate_15_homepage_articles step runs THEN exactly 15
 //           articles exist in the articles table with distinct slugs all
 //           bound to ctx.site_id.
 
@@ -334,7 +334,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("generate_tagline_and_site_description_stub writes ai_generations row AND non-empty tagline without OPENAI_API_KEY", async () => {
+  it("generate_tagline_and_site_description writes ai_generations row AND non-empty tagline without OPENAI_API_KEY", async () => {
     // AC8.1 — no OPENAI_API_KEY in env → an ai_generations row exists
     // (status='skipped_no_api_key' in the function return; row carries
     // 'fallback' or 'skipped_no_api_key' per the CHECK constraint) AND
@@ -353,7 +353,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_1",
       step_order: 5,
     };
-    const result = await STEPS["generate_tagline_and_site_description_stub"](ctx);
+    const result = await STEPS["generate_tagline_and_site_description"](ctx);
     expect(result.status).toBe("completed");
     // At least one ai_generations row exists.
     expect(store.ai_generations.size).toBeGreaterThanOrEqual(2);
@@ -377,7 +377,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(fetchCalls).toEqual([]);
   });
 
-  it("generate_15_homepage_articles_stub inserts exactly 15 articles with unique slugs bound to ctx.site_id (no API key)", async () => {
+  it("generate_15_homepage_articles inserts exactly 15 articles with unique slugs bound to ctx.site_id (no API key)", async () => {
     // AC8.3 — no OPENAI_API_KEY → exactly 15 articles, distinct slugs,
     // all rows have site_id=ctx.site_id.
     const store = makeStore({
@@ -394,7 +394,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_15",
       step_order: 10,
     };
-    const result = await STEPS["generate_15_homepage_articles_stub"](ctx);
+    const result = await STEPS["generate_15_homepage_articles"](ctx);
     expect(result.status).toBe("completed");
     expect(store.articles).toHaveLength(15);
     const slugs = new Set(store.articles.map((a) => a.slug));
@@ -408,7 +408,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(fetchCalls).toEqual([]);
   });
 
-  it("generate_15_homepage_articles_stub re-invocation does NOT add additional articles", async () => {
+  it("generate_15_homepage_articles re-invocation does NOT add additional articles", async () => {
     // AC8.2 — second invocation is a no-op under (site_id, slug) UNIQUE
     // + ai_generations idempotency_key UNIQUE.
     const store = makeStore({
@@ -425,7 +425,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_idem",
       step_order: 10,
     };
-    const first = await STEPS["generate_15_homepage_articles_stub"](ctx);
+    const first = await STEPS["generate_15_homepage_articles"](ctx);
     expect(first.status).toBe("completed");
     const firstArticleCount = store.articles.length;
     const firstAiGenCount = store.ai_generations.size;
@@ -437,7 +437,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     // Re-run the same step. The ai_generations idempotency check short-
     // circuits the article generator (no duplicate ai_generations INSERT);
     // INSERT OR IGNORE on articles guarantees no new articles row.
-    const second = await STEPS["generate_15_homepage_articles_stub"](ctx);
+    const second = await STEPS["generate_15_homepage_articles"](ctx);
     expect(second.status).toBe("completed");
     expect(store.articles).toHaveLength(firstArticleCount);
     expect(store.ai_generations.size).toBe(firstAiGenCount);
@@ -447,7 +447,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(fetchCalls).toEqual([]);
   });
 
-  it("generate_about_page_stub writes the About page row idempotently", async () => {
+  it("generate_about_page writes the About page row idempotently", async () => {
     // Re-running the step yields exactly 1 pages row (idempotent under
     // (site_id, slug)='about' UNIQUE).
     const store = makeStore({
@@ -464,16 +464,16 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_about",
       step_order: 6,
     };
-    await STEPS["generate_about_page_stub"](ctx);
+    await STEPS["generate_about_page"](ctx);
     expect(store.pages).toHaveLength(1);
     expect(store.pages[0]?.slug).toBe("about");
     expect((store.pages[0]?.content_html ?? "").length).toBeGreaterThan(0);
-    await STEPS["generate_about_page_stub"](ctx);
+    await STEPS["generate_about_page"](ctx);
     expect(store.pages).toHaveLength(1);
     expect(fetchCalls).toEqual([]);
   });
 
-  it("generate_logo_mark_stub leaves site_settings.logo_media_id empty without OPENAI_API_KEY", async () => {
+  it("generate_logo_mark leaves site_settings.logo_media_id empty without OPENAI_API_KEY", async () => {
     // No API key → image generator returns media_id=0 → site_settings
     // logo_media_id is not populated (UPDATE-IF-NULL keeps the seed '').
     const store = makeStore({
@@ -492,7 +492,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_logo",
       step_order: 8,
     };
-    const result = await STEPS["generate_logo_mark_stub"](ctx);
+    const result = await STEPS["generate_logo_mark"](ctx);
     expect(result.status).toBe("completed");
     // No media row inserted.
     expect(store.media).toHaveLength(0);
@@ -503,7 +503,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(fetchCalls).toEqual([]);
   });
 
-  it("generate_feature_image_stub writes ai_generations rows without OPENAI_API_KEY (no R2 PUT, no media row)", async () => {
+  it("generate_feature_image writes ai_generations rows without OPENAI_API_KEY (no R2 PUT, no media row)", async () => {
     const store = makeStore({
       id: "st_t9_fi",
       name: "Travel Briefs",
@@ -518,7 +518,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_fi",
       step_order: 9,
     };
-    const result = await STEPS["generate_feature_image_stub"](ctx);
+    const result = await STEPS["generate_feature_image"](ctx);
     expect(result.status).toBe("completed");
     expect(store.media).toHaveLength(0);
     const tasks = Array.from(store.ai_generations.values()).map((r) => r.task);
@@ -527,7 +527,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(fetchCalls).toEqual([]);
   });
 
-  it("generate_or_assign_article_images_stub leaves featured_image_id unchanged when no API key", async () => {
+  it("generate_or_assign_article_images leaves featured_image_id unchanged when no API key", async () => {
     // Setup: 3 starter articles already exist; without an API key the
     // step writes ai_generations receipts but does NOT update
     // featured_image_id (since image generator returns media_id=0).
@@ -560,7 +560,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_assign",
       step_order: 11,
     };
-    const result = await STEPS["generate_or_assign_article_images_stub"](ctx);
+    const result = await STEPS["generate_or_assign_article_images"](ctx);
     expect(result.status).toBe("completed");
     // No media row inserted; featured_image_id still null on every article.
     expect(store.media).toHaveLength(0);

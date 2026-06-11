@@ -2,7 +2,7 @@
 //
 // T6.AC1: pagesListPage exposes a Site filter named `site_id` (NOT `site`)
 //         and a Page-type filter with an option `about`.
-// T6.AC2: Provisioning step `generate_about_page_stub` INSERTs exactly one
+// T6.AC2: Provisioning step `generate_about_page` INSERTs exactly one
 //         pages row with page_type='about' for the target site_id, and
 //         re-running is idempotent (still exactly 1 row).
 
@@ -60,7 +60,7 @@ describe("pages template renders site_id filter and page_type filter", () => {
   });
 });
 
-describe("provisioning generate_about_page_stub inserts pages row with page_type='about'", () => {
+describe("provisioning generate_about_page inserts pages row with page_type='about'", () => {
   let db: CapturingDb;
 
   beforeEach(() => {

@@ -195,6 +195,40 @@ export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Pr
       completed: job.status === "completed",
     };
   }
+  // T34 defensive stale-job guard. Jobs minted before the registry grew
+  // to 16 steps (or rows that fell back to migration 0002's DEFAULT 15)
+  // carry a stale total_steps — re-sync the stored count so DB progress
+  // math agrees with the live STEP_KEYS registry.
+  if (job.total_steps !== TOTAL_STEPS) {
+    await db
+      .prepare(
+        "UPDATE site_creation_jobs SET total_steps = ?, updated_at = unixepoch() WHERE id = ?",
+      )
+      .bind(TOTAL_STEPS, job.id)
+      .run();
+  }
+  // A non-terminal job whose pointer already ran past the end of the
+  // registry has executed every registered step — finalize it as
+  // completed instead of throwing no_step_at_index.
+  if (job.current_step_index >= TOTAL_STEPS) {
+    await db
+      .prepare(
+        "UPDATE site_creation_jobs SET status = 'completed', current_step_index = ?, " +
+          "last_error = NULL, updated_at = unixepoch() WHERE id = ?",
+      )
+      .bind(TOTAL_STEPS, job.id)
+      .run();
+    return {
+      job_id: job.id,
+      site_id: job.site_id,
+      current_step: getStepKeyForIndex(STEP_KEYS.length - 1),
+      current_step_index: TOTAL_STEPS,
+      total_steps: TOTAL_STEPS,
+      status: "completed",
+      last_step_status: null,
+      completed: true,
+    };
+  }
   const index = job.current_step_index;
   const step_key = getStepKeyForIndex(index);
   if (step_key === null) {

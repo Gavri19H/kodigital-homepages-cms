@@ -5,12 +5,12 @@ import type { Env } from "../src/env";
 
 // T4 / Phase 3 perfect-recovery: end-to-end runner contract.
 //
-// AC1 / RC-010 (vitest -t "provisioning runner completes all 15 steps
+// AC1 / RC-010 (vitest -t "provisioning runner completes all 16 steps
 // idempotently"): GIVEN a freshly-created sites + site_creation_jobs row,
-// WHEN POST /api/admin/sites/:id/provision/next is called 15 times
+// WHEN POST /api/admin/sites/:id/provision/next is called 16 times
 // against the in-memory D1 fake below, THEN site_creation_job_steps has
-// exactly 15 rows all with status in {completed, completed_dry_run},
-// job.status='completed', AND a 16th call inserts NO new step row.
+// exactly 16 rows all with status in {completed, completed_dry_run},
+// job.status='completed', AND one further call inserts NO new step row.
 // AC3 (pages with page_type='about' COUNT(*)=1): the about-page step
 // inserts via INSERT OR IGNORE under (site_id, slug) UNIQUE — the fake
 // honours this so re-invocation produces exactly 1 row.
@@ -77,7 +77,7 @@ function makeFakeDb(initial: {
   // Merge-resolution: mission's AI generators read back inserted ai_generations
   // rows via SELECT idempotency_key (see startGenerationLog in
   // api/src/ai/generation-log.ts). The original mock returned null for those
-  // SELECTs, breaking the 15-step run when AI steps T9-T11 began calling
+  // SELECTs, breaking the full-registry run when AI steps T9-T11 began calling
   // generation-log. Track ai_generations writes here so the fallback-key
   // path (no OPENAI_API_KEY -> 'fallback' status) can complete.
   const aiGenerations = new Map<string, Record<string, unknown>>();
@@ -161,7 +161,7 @@ function makeFakeDb(initial: {
               settings.push({ site_id, key, value });
             }
           } else if (sql.indexOf("INSERT OR IGNORE INTO pages") >= 0) {
-            // generate_about_page_stub: VALUES (?, 'about', ?, ?, ?, 'published', 'default', 1, 'about')
+            // generate_about_page: VALUES (?, 'about', ?, ?, ?, 'published', 'default', 1, 'about')
             const [site_id] = captured as [string];
             const slug = "about";
             if (!pages.find((p) => p.site_id === site_id && p.slug === slug)) {
@@ -211,7 +211,7 @@ function makeFakeDb(initial: {
 }
 
 describe("site-provisioning runner end-to-end (T4)", () => {
-  it("provisioning runner completes all 15 steps idempotently", async () => {
+  it("provisioning runner completes all 16 steps idempotently", async () => {
     const SITE_ID = "st_t4";
     const JOB_ID = "job_t4";
     const fake = makeFakeDb({
@@ -234,7 +234,7 @@ describe("site-provisioning runner end-to-end (T4)", () => {
     }
     const ok = new Set(["completed", "completed_dry_run"]);
 
-    // 15 sequential POSTs advance one step each.
+    // TOTAL_STEPS sequential POSTs advance one step each.
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const res = await admin.request(
         `/api/admin/sites/${SITE_ID}/provision/next`,
@@ -256,7 +256,7 @@ describe("site-provisioning runner end-to-end (T4)", () => {
       }
     }
 
-    // BEHAVIORAL #1: 15 step rows, all completed (incl. dry-run completed).
+    // BEHAVIORAL #1: TOTAL_STEPS step rows, all completed (incl. dry-run completed).
     expect(fake.stepsRows).toHaveLength(TOTAL_STEPS);
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const row = fake.stepsRows[i];

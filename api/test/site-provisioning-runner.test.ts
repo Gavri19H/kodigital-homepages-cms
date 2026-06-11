@@ -3,14 +3,25 @@ import admin from "../src/admin/router";
 import { STEP_KEYS, TOTAL_STEPS } from "../src/site-provisioning";
 import type { Env } from "../src/env";
 
-// T17 / Phase 3: site-provisioning runner behavioral AC (T17.AC2).
+// T17 / Phase 3: site-provisioning runner behavioral AC (T17.AC2),
+// extended by rescue-2 T34 (D1).
 //
 // GIVEN a pending site_creation_jobs row (status='pending',
 // current_step_index=0), WHEN POST /api/admin/sites/:id/provision/next is
-// invoked 15 times in sequence, THEN each call advances exactly one
-// step, persists per-step input/output/status to site_creation_job_steps
-// with attempt_count incremented, returns 200 with the {current_step,
-// status} envelope, and the 15th response returns status='completed'.
+// invoked TOTAL_STEPS times in sequence, THEN each call advances exactly
+// one step, persists per-step input/output/status to
+// site_creation_job_steps with attempt_count incremented, returns 200
+// with the {current_step, status} envelope, and the final response
+// returns status='completed'.
+//
+// T34 additions:
+//   - T34.AC1: STEP_KEYS.length === 16 and STEP_KEYS[15] ===
+//     'update_launch_readiness' (canonical suffix-free names).
+//   - T34.AC3: POST /api/admin/sites INSERTs site_creation_jobs with
+//     total_steps bound to TOTAL_STEPS (16), and the runner defensively
+//     re-syncs stale rows (total_steps=15 from the pre-T34 era /
+//     migration 0002 DEFAULT) + completes overrun pointers instead of
+//     throwing no_step_at_index.
 
 interface RecordedCall {
   sql: string;
@@ -52,13 +63,30 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
 }
 
 // In-memory D1 fake: tracks the single (job, step) pair we care about so
-// the runner sees consistent state across the 15 sequential POSTs. Only
-// the SQL shapes the runner actually issues are modelled.
+// the runner sees consistent state across the sequential POSTs. Only
+// the SQL shapes the runner actually issues are modelled. T34 also
+// models the POST /api/admin/sites create flow (verticals lookup,
+// domains-uniqueness check, the three INSERTs) so the create-site job
+// INSERT's total_steps bind is observable, and exposes `job` so tests
+// can seed stale pre-T34 rows.
+interface FakeJob {
+  id: string;
+  site_id: string;
+  status: string;
+  current_step_index: number;
+  total_steps: number;
+}
+
 function makeFakeDb(initialJob: {
   id: string;
   site_id: string;
-}): { db: D1Database; calls: RecordedCall[]; stepsRows: StepRow[] } {
-  const job = {
+}): {
+  db: D1Database;
+  calls: RecordedCall[];
+  stepsRows: StepRow[];
+  job: FakeJob;
+} {
+  const job: FakeJob = {
     id: initialJob.id,
     site_id: initialJob.site_id,
     status: "pending",
@@ -86,6 +114,14 @@ function makeFakeDb(initialJob: {
         },
         async first<T = unknown>(): Promise<T | null> {
           calls.push({ sql, binds: captured });
+          if (sql.indexOf("FROM verticals WHERE slug = ?") >= 0) {
+            // T34 create-site flow: the requested vertical exists.
+            return ({ slug: captured[0] } as unknown) as T;
+          }
+          if (sql.indexOf("FROM domains WHERE hostname = ?") >= 0) {
+            // T34 create-site flow: hostname not yet attached anywhere.
+            return null;
+          }
           if (
             sql.indexOf("FROM sites WHERE id = ?") >= 0 &&
             sql.indexOf("vertical_slug") >= 0
@@ -130,7 +166,21 @@ function makeFakeDb(initialJob: {
         },
         async run() {
           calls.push({ sql, binds: captured });
-          if (sql.indexOf("INSERT INTO site_creation_job_steps") >= 0) {
+          if (sql.indexOf("INSERT INTO site_creation_jobs") >= 0) {
+            // T34 create-site flow: adopt the inserted row as THE job so
+            // the inline run-to-completion loop sees it.
+            const [id, site_id, , total_steps] = captured as [
+              string,
+              string,
+              string | null,
+              number,
+            ];
+            job.id = id;
+            job.site_id = site_id;
+            job.status = "pending";
+            job.current_step_index = 0;
+            job.total_steps = total_steps;
+          } else if (sql.indexOf("INSERT INTO site_creation_job_steps") >= 0) {
             const [job_id, step_key, step_order, inputJson] = captured as [
               string,
               string,
@@ -173,6 +223,21 @@ function makeFakeDb(initialJob: {
               row.output = output;
               void errorMsg;
             }
+          } else if (
+            sql.indexOf("UPDATE site_creation_jobs SET total_steps = ?") >= 0
+          ) {
+            // T34 stale-job guard: re-sync of a pre-16-step row.
+            const [total_steps] = captured as [number, string];
+            job.total_steps = total_steps;
+          } else if (
+            sql.indexOf(
+              "UPDATE site_creation_jobs SET status = 'completed', current_step_index = ?",
+            ) >= 0
+          ) {
+            // T34 stale-job guard: defensive completion of an overrun pointer.
+            const [current_step_index] = captured as [number, string];
+            job.current_step_index = current_step_index;
+            job.status = "completed";
           } else if (sql.indexOf("UPDATE site_creation_jobs SET") >= 0) {
             const [current_step, current_step_index, status] = captured as [
               string,
@@ -235,7 +300,7 @@ function makeFakeDb(initialJob: {
         },
         async all<T = unknown>() {
           calls.push({ sql, binds: captured });
-          // T9: generate_or_assign_article_images_stub queries this
+          // T9: generate_or_assign_article_images queries this
           // table; returning an empty list is fine (the step then
           // returns 'completed' with article_count=0).
           return { results: [] as T[], success: true, meta: {} };
@@ -245,7 +310,7 @@ function makeFakeDb(initialJob: {
     },
   } as unknown as D1Database;
 
-  return { db, calls, stepsRows };
+  return { db, calls, stepsRows, job };
 }
 
 describe("site-provisioning runner (T17)", () => {
@@ -271,8 +336,8 @@ describe("site-provisioning runner (T17)", () => {
     // SITE_PROVISIONING_DRY_RUN='true' env, the Cloudflare-mutation step
     // (attach_domain_to_new_worker_or_mark_pending, index 2) resolves to
     // status='completed_dry_run' instead of 'completed'. All other steps
-    // remain deterministic-stub 'completed'. The 15-step single-advance
-    // invariant this test was written for is unchanged.
+    // resolve 'completed'. The one-step-per-call invariant this test was
+    // written for is unchanged by the T34 16-key registry.
     const okStatuses = new Set(["completed", "completed_dry_run"]);
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const res = await admin.request(
@@ -308,4 +373,124 @@ describe("site-provisioning runner (T17)", () => {
     }
   });
 
+});
+
+describe("site-provisioning 16-step registry + stale-job guard (T34)", () => {
+  // T34.AC1 — the registry exposes exactly 16 canonical (suffix-free)
+  // step keys, ending with update_launch_readiness at index 15.
+  it("STEP_KEYS has 16 canonical names with update_launch_readiness at index 15", () => {
+    expect(STEP_KEYS.length).toBe(16);
+    expect(TOTAL_STEPS).toBe(16);
+    expect(STEP_KEYS[15]).toBe("update_launch_readiness");
+    for (const key of STEP_KEYS) {
+      expect(key.endsWith("_stub")).toBe(false);
+    }
+    // No duplicate keys.
+    expect(new Set(STEP_KEYS).size).toBe(16);
+  });
+
+  // T34.AC3 (INSERT leg) — POST /api/admin/sites binds total_steps from
+  // the live registry constant, so the site_creation_jobs row is minted
+  // with 16, and the inline run-to-completion walks all 16 steps.
+  it("POST /api/admin/sites INSERTs site_creation_jobs with total_steps=TOTAL_STEPS (16)", async () => {
+    const { db, calls, stepsRows, job } = makeFakeDb({
+      id: "job_seed_unused",
+      site_id: "st_seed_unused",
+    });
+    const env = buildEnv(db);
+    const res = await admin.request(
+      "/api/admin/sites",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          domain: "t34-canonical.example",
+          vertical_slug: "general",
+          activity: "main",
+          name: "T34 Canonical",
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const jobInsert = calls.find(
+      (c) => c.sql.indexOf("INSERT INTO site_creation_jobs") >= 0,
+    );
+    expect(jobInsert).toBeDefined();
+    expect(jobInsert?.binds[3]).toBe(TOTAL_STEPS);
+    expect(jobInsert?.binds[3]).toBe(16);
+    // The inline run-to-completion drove the freshly-minted job through
+    // every registered step, finishing on update_launch_readiness.
+    expect(job.status).toBe("completed");
+    expect(stepsRows).toHaveLength(TOTAL_STEPS);
+    expect(stepsRows[TOTAL_STEPS - 1]?.step_key).toBe(
+      "update_launch_readiness",
+    );
+  });
+
+  // T34.AC3 (guard leg, re-sync) — a stale pre-T34 row (total_steps=15)
+  // is re-synced to the live registry length on the next advance.
+  it("re-syncs a stale total_steps=15 job row to 16 on advance", async () => {
+    const { db, calls, job } = makeFakeDb({
+      id: "job_stale",
+      site_id: "st_stale",
+    });
+    job.status = "running";
+    job.current_step_index = 3;
+    job.total_steps = 15;
+    const env = buildEnv(db);
+    const res = await admin.request(
+      "/api/admin/sites/st_stale/provision/next",
+      { method: "POST", headers: { "content-type": "application/json" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      total_steps: number;
+      current_step: string;
+      status: string;
+    };
+    expect(body.total_steps).toBe(16);
+    expect(body.current_step).toBe(STEP_KEYS[3]);
+    expect(body.status).toBe("running");
+    const resync = calls.find(
+      (c) =>
+        c.sql.indexOf("UPDATE site_creation_jobs SET total_steps = ?") >= 0,
+    );
+    expect(resync).toBeDefined();
+    expect(resync?.binds[0]).toBe(16);
+    expect(job.total_steps).toBe(16);
+  });
+
+  // T34.AC3 (guard leg, overrun) — a non-terminal job whose pointer ran
+  // past the registry end is defensively completed instead of the
+  // runner throwing no_step_at_index (HTTP 500).
+  it("completes a running job with an overrun step pointer instead of erroring", async () => {
+    const { db, job, stepsRows } = makeFakeDb({
+      id: "job_overrun",
+      site_id: "st_overrun",
+    });
+    job.status = "running";
+    job.current_step_index = TOTAL_STEPS;
+    const env = buildEnv(db);
+    const res = await admin.request(
+      "/api/admin/sites/st_overrun/provision/next",
+      { method: "POST", headers: { "content-type": "application/json" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      completed: boolean;
+      current_step_index: number;
+      last_step_status: string | null;
+    };
+    expect(body.status).toBe("completed");
+    expect(body.completed).toBe(true);
+    expect(body.current_step_index).toBe(TOTAL_STEPS);
+    expect(body.last_step_status).toBeNull();
+    // Defensive completion writes NO new step receipt.
+    expect(stepsRows).toHaveLength(0);
+    expect(job.status).toBe("completed");
+  });
 });

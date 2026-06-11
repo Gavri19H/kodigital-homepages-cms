@@ -20,7 +20,7 @@
 //      row (matches the schema's UNIQUE(idempotency_key) constraint).
 //   4. Newly-created sites land with status='draft' and a paired
 //      site_creation_jobs row (status='pending', current_step_index=0)
-//      that the T17 runner advances through 15 steps.
+//      that the T17 runner advances through all TOTAL_STEPS steps.
 
 import type { Context } from "hono";
 import type { Env } from "../env";
@@ -28,7 +28,7 @@ import {
   assertNotProtectedDomain,
   normalizeHostname,
 } from "../safety/protected-domains";
-import { runProvisioningToCompletion } from "../site-provisioning";
+import { runProvisioningToCompletion, TOTAL_STEPS } from "../site-provisioning";
 
 interface SiteRow {
   id: string;
@@ -200,10 +200,14 @@ export async function createSiteHandler(
     )
       .bind(siteId, domain)
       .run();
+    // T34: total_steps is bound from the live registry length (16) so
+    // the row can never drift from STEP_KEYS; migration 0002's
+    // DEFAULT 15 only ever applies to legacy rows, which the runner's
+    // stale-job guard re-syncs.
     await c.env.DB.prepare(
-      "INSERT INTO site_creation_jobs (id, site_id, idempotency_key, status, current_step_index, total_steps) VALUES (?, ?, ?, 'pending', 0, 15)",
+      "INSERT INTO site_creation_jobs (id, site_id, idempotency_key, status, current_step_index, total_steps) VALUES (?, ?, ?, 'pending', 0, ?)",
     )
-      .bind(jobId, siteId, idempotencyKey)
+      .bind(jobId, siteId, idempotencyKey, TOTAL_STEPS)
       .run();
   } catch (err) {
     const message = err instanceof Error ? err.message : "insert failed";
@@ -211,7 +215,7 @@ export async function createSiteHandler(
   }
 
   // MQAFIX-1: drive the provisioning runner to completion inline so the
-  // freshly-created site reaches step 15 of 15 within the AC4 60-second
+  // freshly-created site reaches the final step within the AC4 60-second
   // budget without relying on a manual UI driver. All steps are
   // deterministic + dry-run gated for Cloudflare mutations, so the loop
   // completes in milliseconds against D1. Errors are swallowed — the
