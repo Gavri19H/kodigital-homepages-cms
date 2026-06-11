@@ -7901,3 +7901,69 @@ iteration 21 — T33 (sources: T33)
     SITE_PROVISIONING_DRY_RUN; step handlers should call it
     unconditionally and branch on outcome.dry_run rather than
     pre-checking the env (avoids duplicating resolveDryRunDefault).
+
+## 2026-06-11 23:57 - T38
+- iteration 23 — T38 (sources: T38). NOTE: dispatch named T35 as CURRENT
+  STORY but T35 was already implemented + committed (fe87ac6) along with
+  T36/T37; per the skip rule (no re-walk of implemented stories) the
+  next eligible planned story T38 was picked instead.
+- What: replaced the run_site_smoke_tests placeholder (step 15) with a
+  real in-process smoke handler in api/src/site-provisioning/steps.ts.
+  Four read-only D1 checks, zero fetch in any mode: sites_row_present,
+  starter_articles_published (canonical published_count COUNT, >= 1),
+  site_settings_seeded (>= 12, the T19 seed), pages_present (>= 1).
+  Any failing check fails the step AND the job with the failing check
+  names in error — the step cannot report success while an expected
+  side-effect table is empty (the named negative_fail_condition).
+- Files changed: api/src/site-provisioning/steps.ts (handler + registry
+  + comment updates); api/test/site-provisioning-run-to-completion.test.ts
+  (fake now tracks site_settings/pages writes + step output, answers the
+  3 smoke COUNT reads from tracked state, suppressArticleInserts option;
+  +2 tests: ">= 3 in-process checks with zero outbound fetch" via fetch
+  spy over the full dry-run walk, and the negative path: empty articles
+  table => smoke step failed + job failed naming
+  starter_articles_published observed=0);
+  api/test/provisioning-runner.test.ts, api/test/provisioning-no-outbound.test.ts,
+  api/test/site-provisioning-runner.test.ts (fakes track articles/
+  settings/pages inserts + answer the smoke COUNT reads so the full
+  16-step walks observe genuine side-effect rows).
+- test: cd api && npx vitest run test/site-provisioning-run-to-completion.test.ts
+  test/site-provisioning-runner.test.ts test/provisioning-runner.test.ts
+  test/provisioning-no-outbound.test.ts test/admin-sites-create.test.ts
+  (23/23 green); cd api && npx tsc --noEmit (exit 0); cd api && npm test
+  (120 files, 1038 tests, all green).
+- D13 runner (RC-115,RC-116) run twice, byte-identical outcomes:
+  RC-115 PASS (grep -c "stubResult" steps.ts -> 0 == 0). RC-116 receipt
+  FAIL with underlying vitest exit 0 (run-to-completion 6/6 green).
+- EVIDENCE_ROUTE_EXHAUSTED — T38 RC-116: same typed evidence-plan defect
+  as T32 RC-096/RC-098, T33 RC-100/RC-102, T34 RC-104/RC-106/RC-107.
+  The expected_test_name_regex is the shell-escaped COMMAND string
+  ('cd\ api\ \&\&\ npx\ vitest\ run\ test/site\-provisioning\-run\-to\-completion\.test\.ts')
+  and can never match a vitest test NAME; the parser reports FAIL while
+  exit_code=0 and observed_assertions show the file's 6 tests passed.
+  A typed regex cannot be changed by re-implementing; editing the
+  evidence plan is a forbidden mechanism-dodge. Reconciliation owned by
+  reconcile_ralph_execution_prd.py / evaluator.
+- **Self-check results:**
+  - File sizes: steps.ts 1072 (+99 over pre-story 973, registry-file
+    precedent T34-T37), site-provisioning-run-to-completion.test.ts 505,
+    site-provisioning-runner.test.ts 575, provisioning-runner.test.ts
+    343, provisioning-no-outbound.test.ts 395 (full-registry-walk test
+    precedent) — PASS w/ precedent.
+  - Secret scan: PASS (0 matches across changed files).
+  - Error handling: PASS (smoke step returns typed failed envelope with
+    failing-check names; no new route handlers).
+  - Migration execution: N/A (api story; no schema change).
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' -> 0
+    matches in changed files; all new SELECTs static SQL + .bind()).
+  - ES5 inline scripts: N/A (no template/static JS changes).
+  - Acceptance tests: none for this change-id (T25-T33 precedent).
+- **Learnings for future iterations:**
+  - The smoke step's COUNT reads reuse the publish step's canonical
+    published_count SQL so fakes that model one automatically serve
+    both; new COUNT shapes (settings_count/pages_count) needed explicit
+    first() branches in all four full-walk fakes.
+  - Full-walk fakes that silently accept content-table INSERTs hide
+    side-effect state from any later verifying step — when adding a
+    read-back step, the fake must START tracking those writes or the
+    step observes 0 rows and correctly fails the walk.
