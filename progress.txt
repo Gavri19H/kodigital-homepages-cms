@@ -5844,3 +5844,63 @@ iteration — T7 (sources: T7)
     safe as long as public-ad-slots.test.ts's two pinned marker literals
     move with the contract order.
 ---
+
+## 2026-06-11 17:36 - T12 (iteration 3)
+iteration 3 — T12 [C7] Home view-model buckets (sources: T12)
+- implemented: HomeViewModel gains `picks` + `trending` buckets.
+  - api/src/public/view-models/home.ts: is_trending added to
+    ArticleListingRow + articles SELECT; ORDER BY adds is_trending DESC
+    (after is_featured DESC) so flagged rows stay inside the LIMIT
+    window (now FEATURED+LATEST+TRENDING = 31); trending = is_trending=1
+    rows (cap 5) removed from the pool BEFORE hero/featured/latest are
+    cut (no duplication — a trending card appears in NO other bucket;
+    trending flag wins over is_featured); picks = curated re-promotion
+    of the featured pool [hero, ...featured].slice(0,4) per design
+    contract §12 editorsPicks { hero, thumbs[3] }. Still exactly 3
+    prepared statements.
+  - api/test/public-view-models-home.test.ts: mock mirrors new SELECT
+    column + ORDER BY; 2 new behavioral tests (T12.AC2 bucket
+    disjointness/no-duplication incl. featured+trending tiebreak;
+    T12.AC3 D1 statement count <= 3 for one build). 5/5 pass.
+  - vm factories updated with picks/trending fields:
+    public-ad-slots, public-image-attrs, public-no-theiwise-brand-render,
+    public-screen-labels, public-templates-home (renderHome template
+    wiring of vm.trending is T15's scope — template unchanged).
+- test: cd api && npx vitest run test/public-view-models-home.test.ts
+  (5/5 PASS); cd api && npm test (108 files, 887 tests PASS);
+  cd api && npx tsc --noEmit (exit 0)
+- Self-check results:
+  - File sizes: view-models/home.ts 333 (was 306 at mission start;
+    prd.json maxFileLines null; +27 for bucket logic + contract comment
+    — single cohesive builder, split would be out-of-scope churn);
+    public-view-models-home.test.ts 321 (test file, precedent limit
+    300-ish judged PASS at 322 in iteration 2) — PASS w/ note
+  - Secret scan: PASS (no matches across 7 changed files)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes; is_trending exists since
+    migration 0002)
+  - Parameterized queries: PASS (static SQL + .bind only; grep hit is a
+    doc comment)
+- Evidence runner (T12): single canonical run, RC-033,RC-034,RC-035.
+  - RC-033 PASS: parse_grep_count observation 06e9d52c1720 — grep_count=6,
+    op >= 1, exit 0, passed:true.
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-034, RC-035 — SAME plan-baked defect
+    class as RC-024/RC-026/RC-029/RC-030: expected_test_name_regex is the
+    shell-escaped COMMAND string
+    ("cd\ api\ \&\&\ npx\ vitest\ run\ test/public\-view\-models\-home\.test\.ts");
+    vitest text parser observes file-level names only
+    ("test/public-view-models-home.test.ts (5 tests) 3ms", passed:true,
+    exit 0, observation 3c45d3bbaf44). Receipt FAIL is implementation-
+    invariant (no test name can ever match an escaped command line);
+    underlying evidence green (5/5). required_evidence_plan.json repair
+    is orchestrator-owned; not retried per iteration-2 learning (no
+    retry-storm).
+- Learnings for future iterations:
+  - HomeViewModel is constructed as a literal in 5 render-test factories;
+    any new required field must be added to all of them or tsc breaks —
+    grep "function make.*Vm" api/test/public-*.test.ts first.
+  - Bucket ORDER BY and the mock's sort comparator in
+    public-view-models-home.test.ts must move together (mock emulates
+    the SQL sort; is_featured DESC, is_trending DESC, rank ASC,
+    published_at DESC, id DESC).
+---
