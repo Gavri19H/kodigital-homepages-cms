@@ -5393,3 +5393,58 @@ D13 canonical runner result — T1:
     command string; exit-code-route RCs are unaffected.
   - Full vitest suite is currently 879 tests / ~24s; cheap enough to run
     per-iteration as a regression gate alongside scoped tests.
+
+## 2026-06-11 16:11 - T5
+- What was implemented: [A5] Decoded design contract. Created
+  docs/design-contract.md (211 lines) — the single value source for all
+  C-stories. Decoded from docs/reference/implementation-spec-standalone.html
+  (de-escaped / / \" / HTML entities via python) and cross-checked
+  against docs/reference/theiwise-home-article-implementation-spec.pdf with
+  pdftotext: every pinned value (all 6 color-token hexes, both grids, both
+  data-screen-label values, 920px/72px/1200px dims) appears in the PDF text.
+  Contents: all --tw-* tokens (color/type/layout/motion), contract grids,
+  root wrappers (theiwise-home / article-page), home section order (13,
+  no "about"), article section order (12, reading-progress index 0,
+  shell nesting), all 8 breakpoints, class vocabulary, pinned component
+  values (cat-chip 168px + brand hover border, trending bg --tw-ink,
+  pulse-dot brand 12px), TIW_DATA/TIW_ARTICLE bucket shapes.
+- Files changed: docs/design-contract.md (new)
+- source_story_ids: T5
+- Tests run:
+  - grep ACs: 5 brand hexes each=2 (>=1 PASS); '60px minmax(0, 1fr) 320px'=1
+    (=1 PASS); '1.4fr 1fr 1fr'=2 (>=1 PASS); data-screen-label=2 with both
+    values (PASS); both section-order lists present (PASS)
+  - brief exact-count pins honored: '--tw-brand-tint: #f0f9fc'=1,
+    '--tw-accent: #f0a830'=1, '920px'=1, '72px'=1
+  - cd api && npx tsc --noEmit -> EXIT=0
+  - cd api && npm test -> 107 files / 879 tests, 0 failures
+  - cd api && npm run verify:all -> OK (doc already on T1 scanner allowlist)
+  - Evidence runner (D12/D13): RC-012 PASS (count=2>=1), RC-013 PASS
+    (count=1>=1), RC-014 PASS (count=2>=2) — parse_grep_count receipts,
+    runner status PASS.
+- Self-check results:
+  - File sizes: docs/design-contract.md 211 lines (md doc, no limit set;
+    under 300) — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: no T5-*.sh scripts exist for this change-id —
+    legacy fallback manual AC verify via greps above
+  - Q1 api/db checks: N/A on the merits — doc-only story, no endpoint,
+    no db_effects (templated checks don't instantiate); full vitest +
+    tsc run as regression cover.
+- Learnings for future iterations:
+  - The reference export de-escapes cleanly with: replace / -> /,
+    \" -> ", \n -> newline, then strip real tags, THEN html.unescape
+    (order matters: unescaping first turns &lt;header&gt; into tags that
+    get stripped).
+  - pdftotext is available on this machine — PDF cross-check for design
+    values is cheap and deterministic.
+  - Brief BCL-044/045 pin exact-count greps on this doc: keep
+    '--tw-brand-tint: #f0f9fc', '--tw-accent: #f0a830', '920px', '72px'
+    each on exactly ONE line of docs/design-contract.md. C-stories
+    editing this doc must preserve those counts.
+  - Footer grid '1.4fr 1fr 1fr 1fr' contains the featured-grid substring
+    '1.4fr 1fr 1fr' — substring greps count both lines (fine for >=1,
+    matters if a future AC pins =1).
