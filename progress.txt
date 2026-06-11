@@ -5363,3 +5363,33 @@ D13 canonical runner result — T1:
     file-summary lines only — any RC whose regex is not a file-path
     substring is structurally unsatisfiable. Same handling as T1 RC-003.
 ---
+
+## 2026-06-11 16:00 - T4
+- What was implemented: [A4] Baseline green gate. Gate-only story: ran the
+  three baseline checks on the worktree as-is. NO source changes were needed
+  — the baseline is already green (T1's verify-script allowlist + T3's
+  migration/test landed earlier in this cycle).
+- Files changed: none (bookkeeping-only iteration; commit titled
+  'chore: progress + state update' per commit-title parity rule)
+- source_story_ids: T4
+- Tests run:
+  - cd api && npx tsc --noEmit -> EXIT=0 (AC1 PASS)
+  - cd api && npm test -> 107 files / 879 tests, 0 failures (AC2 PASS)
+  - cd api && npm run verify:all -> EXIT=0; verify:no-legacy-prod-refs OK,
+    verify:infra OK (8 checks), verify:worker-config OK (3 blocks) (AC3 PASS)
+  - Evidence runner (D12/D13): RC-009 PASS (tsc exit 0), RC-010 PASS
+    (vitest exit 0), RC-011 PASS (verify:all exit 0) — all via
+    parser_strategy=test_exit_code, runner status PASS, receipts emitted.
+- Self-check results:
+  - File sizes: N/A (no files modified or created)
+  - Secret scan: N/A (no changed source files)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+- Learnings for future iterations:
+  - T4's RC entries (RC-009..011) use parser_strategy=test_exit_code with
+    null expected_test_name_regex — the sane authoring shape. The T1/T3
+    regex defect is specific to RCs that set expected_test_name_regex to a
+    command string; exit-code-route RCs are unaffected.
+  - Full vitest suite is currently 879 tests / ~24s; cheap enough to run
+    per-iteration as a regression gate alongside scoped tests.

@@ -57,8 +57,8 @@
       "title": "[A4] Baseline green gate",
       "category": "script",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T4"
       ],
