@@ -117,9 +117,11 @@ export function renderHome(args: RenderHomeArgs): string {
     nav: args.nav,
   });
 
-  // §2 — hero (sourced from vm.hero; fall back to a site-name panel when
+  // §2 — hero (sourced from vm.hero; fall back to a site-name hero when
   // the tenant has no published articles yet so the hero slot is never
-  // collapsed and the section count remains 13).
+  // collapsed and the section count remains 13). Both branches go through
+  // renderHero so the §11 contract DOM (.hero-bg + .hero-content >
+  // h1.hero-title > span.tagline + form.hero-search) holds either way.
   const hero = vm.hero;
   const s2 = hero !== null
     ? renderHero({
@@ -130,7 +132,10 @@ export function renderHome(args: RenderHomeArgs): string {
         href: hero.href,
         kicker: hero.categoryName.length > 0 ? hero.categoryName : undefined,
       })
-    : `<section class="hero hero--empty" aria-label="Featured story"><div class="hero-content"><h1 class="hero-title">${escText(site.name)}</h1>${site.tagline.length > 0 ? `<p class="tagline">${escText(site.tagline)}</p>` : ""}</div></section>`;
+    : renderHero({
+        title: site.name,
+        excerpt: site.tagline.length > 0 ? site.tagline : undefined,
+      });
 
   // §3 — chip-rail (categories)
   const chips: CategoryChip[] = vm.categories.map((c) => ({
@@ -211,8 +216,8 @@ export function renderHome(args: RenderHomeArgs): string {
     `${marker(3, "chip-rail")}\n${s3}`,
     `${marker(4, "featured")}\n<section class="home-section home-section--featured">${s4}</section>`,
     `${marker(5, "ad-leaderboard")}\n${s5}`,
-    `${marker(6, "editors-picks")}\n<section class="home-section home-section--picks">${s6}</section>`,
-    `${marker(7, "trending")}\n<section class="home-section home-section--trending">${s7}</section>`,
+    `${marker(6, "editors-picks")}\n<section class="home-section home-section--picks" id="picks">${s6}</section>`,
+    `${marker(7, "trending")}\n<section class="home-section home-section--trending" id="trending">${s7}</section>`,
     `${marker(8, "spotlight")}\n<section class="home-section home-section--spotlight">${s8}</section>`,
     `${marker(9, "ad-in-feed")}\n${s9}`,
     `${marker(10, "latest")}\n<section class="home-section home-section--latest">${s10}</section>`,

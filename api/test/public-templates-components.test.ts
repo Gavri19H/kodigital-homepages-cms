@@ -146,4 +146,63 @@ describe("public-templates-components", () => {
     expect(publicCss).toContain("--tw-accent: #f0a830");
     expect(publicCss).not.toContain("#2563eb");
   });
+
+  it("T14.AC2: renderHeader emits brand → search → nav in contract order with pinned labels and btn-outline Sign in", () => {
+    const html = renderHeader({ site: { name: "Acme Daily", hostname: "acme.example" } });
+
+    // child order pinned by design-contract §11
+    const brandAt = html.indexOf('class="brand"');
+    const searchAt = html.indexOf('class="header-search"');
+    const navAt = html.indexOf('class="header-nav"');
+    expect(brandAt).toBeGreaterThan(-1);
+    expect(searchAt).toBeGreaterThan(brandAt);
+    expect(navAt).toBeGreaterThan(searchAt);
+
+    // nav labels in contract order, then the Sign in outline button
+    const exploreAt = html.indexOf(">Explore");
+    const trendingAt = html.indexOf(">Trending<");
+    const picksAt = html.indexOf(">Editor's Picks<");
+    const newsletterAt = html.indexOf(">Newsletter<");
+    const signInAt = html.indexOf(">Sign in<");
+    expect(exploreAt).toBeGreaterThan(navAt);
+    expect(trendingAt).toBeGreaterThan(exploreAt);
+    expect(picksAt).toBeGreaterThan(trendingAt);
+    expect(newsletterAt).toBeGreaterThan(picksAt);
+    expect(signInAt).toBeGreaterThan(newsletterAt);
+
+    // Sign in is the .btn-outline; Explore carries the chevron glyph
+    expect(html).toMatch(/<button class="btn-outline" type="button">Sign in<\/button>/);
+    expect(html).toMatch(/>Explore<svg class="nav-chevron"/);
+    // every nav link is a real URL (PART 8)
+    expect(html).not.toContain('href="#"');
+  });
+
+  it("T14: renderHero emits the §11 exact DOM — hero-bg + hero-content > h1 > span.tagline + form.hero-search", () => {
+    const html = renderHero({
+      title: "Big Story",
+      excerpt: "Lede sentence.",
+      imageUrl: "/media/hero.jpg",
+      imageAlt: "Hero image",
+    });
+
+    // .hero-bg immediately precedes .hero-content inside .hero
+    const bgAt = html.indexOf('<div class="hero-bg"');
+    const contentAt = html.indexOf('<div class="hero-content">');
+    expect(bgAt).toBeGreaterThan(-1);
+    expect(contentAt).toBeGreaterThan(bgAt);
+
+    // tagline is a SPAN inside the h1.hero-title
+    expect(html).toMatch(
+      /<h1 class="hero-title">Big Story <span class="tagline">Lede sentence\.<\/span><\/h1>/,
+    );
+    // search form lives inside hero-content with a submit button
+    expect(html).toContain('<form class="hero-search" role="search"');
+    expect(html.indexOf('<form class="hero-search"')).toBeGreaterThan(contentAt);
+    expect(html).not.toContain('href="#"');
+  });
+
+  it("T14.AC1/AC3: publicCss pins hero min-height clamp and container padding clamp", () => {
+    expect(publicCss).toContain("min-height: clamp(340px, 42vw, 480px)");
+    expect(publicCss).toContain("padding: 0 clamp(16px, 3vw, 32px)");
+  });
 });
