@@ -271,7 +271,7 @@ export function renderArticle(args: RenderArticleArgs): string {
 
   // §6 — article-shell carries the literal minmax(0, 1fr) so the
   // CSS-less snapshot still records the column contract (T11.AC3).
-  const s6 = `<div class="article-shell" data-grid="64px minmax(0, 1fr) 320px">
+  const s6 = `<div class="article-shell" data-grid="60px minmax(0, 1fr) 320px">
   ${renderShareRail(article)}
   <article class="article-body" id="article-content">
     ${renderArticleBody(article)}
