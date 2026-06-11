@@ -537,8 +537,8 @@
       "title": "[D1] STEP_KEYS \u2192 16 canonical names",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T34"
       ],
