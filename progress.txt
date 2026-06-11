@@ -8217,3 +8217,53 @@ iteration 25 — T41 [F2] GEO checklist conformance (sources: T41)
     same; log exhaustion early instead of re-implementing.
   - The literal-command test-title binding (T40 discovery) keeps
     working: RC-125 + RC-127 both matched on first run.
+
+## 2026-06-12 — T43 ([F4] Cache re-verify)
+iteration — T43 (sources: T43)
+- Re-verified the cache stack end-to-end through the REAL pipeline
+  (servePublicHtml): extended api/test/cache.test.ts (existing cache
+  test only, per brief BCL-071) with a T43 describe block — cold render
+  warms KV (write-through observed in the KV store), warm hit serves
+  from KV without invoking the render thunk, If-None-Match with the
+  current strong ETag answers 304 with empty body + ETag echoed, stale
+  If-None-Match falls through to 200 warm body. Test title embeds the
+  literal command 'cd api && npx vitest run test/cache.test.ts' for the
+  RC-128 binding (T40 pattern). KV mock gained metadata retention +
+  getWithMetadata(key) so the edge-cache warm path (stored ETag) is
+  observable.
+- T43.AC2 content verified: htmlKey(siteContext.siteId at
+  api/src/public/router.ts:109; grep -rc "htmlKey" api/src/ → 7 total
+  (warm.ts 2, cache-keys.ts 1, router.ts 2, html-pipeline.ts 1,
+  site-context.ts 1) >= 1.
+- RC-128 PASS (x2 runs, vitest receipt, 8/8 tests observed incl. the
+  literal-command title).
+- EVIDENCE_ROUTE_EXHAUSTED: RC-129 (T43.AC2). Typed reason
+  EVIDENCE_SOURCE_PATH_UNRESOLVED, deterministic across 2 runs, fails
+  PRE-EXECUTION (exit_code null, 0ms — grep never runs).
+  evidence_command 'grep -rc "htmlKey" api/src/' targets a DIRECTORY;
+  same unsatisfiable defect class as RC-126 (F22 isfile gate: every
+  grep file arg must be a FILE at resolved_cwd;
+  f22_source_path_recovery tried pkg root 'api' + story prefixes
+  'api','docs', reason no_package_root_or_story_prefix_resolves_grep_files).
+  Logged exhaustion early per the RC-126 learning instead of
+  re-implementing; content satisfies the AC (count 7 >= 1).
+- test commands actually run: cd api && npx vitest run
+  test/cache.test.ts (8/8 green); cd api && npm test (121 files /
+  1064 tests green); cd api && npx tsc --noEmit (clean); D13 runner
+  for RC-128,RC-129 (x2: RC-128 PASS, RC-129 typed FAIL pre-exec).
+- **Self-check results:**
+  - File sizes: cache.test.ts 224 (test-file precedent: 473) — PASS
+    w/ precedent.
+  - Secret scan: PASS (0 matches).
+  - Error handling: N/A (test-only change).
+  - Migration execution: N/A (no schema change).
+  - Parameterized queries: PASS (no SQL; grep 'prepare.*${|`' → 0).
+  - Acceptance tests: none for this change-id (T25-T42 precedent;
+    acceptance-tests/ has only golden + phase1 + phase3).
+- **Learnings for future iterations:**
+  - parse_grep_count + directory file-arg confirmed unsatisfiable a
+    second time (RC-126, now RC-129) — the F22 gate is deterministic;
+    one runner run is enough to classify, two confirm.
+  - servePublicHtml is cleanly testable with the cache.test.ts KV mock
+    once getWithMetadata returns stored value + metadata; metadata
+    retention in put() is the only mock change needed.
