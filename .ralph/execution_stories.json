@@ -233,8 +233,8 @@
       "title": "[C10] ChipRail + Trending dark section",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T15"
       ],

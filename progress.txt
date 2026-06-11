@@ -6072,3 +6072,73 @@ iteration 5 — T14 [C9] Header + Hero exact DOM (sources: T14)
     emitted by home.ts §6/§7 wrappers and renderNewsletter respectively —
     keep these ids stable; the contract header nav depends on them.
 ---
+
+## 2026-06-11 — T15 (iteration 6)
+iteration 6 — T15 [C10] ChipRail + Trending dark section (sources: T15)
+- implemented:
+  - api/src/public/assets/public-css.ts — contract §11 pinned values:
+    .cat-chip min-width 168px + gap 16px + hover (translateY(-2px),
+    border-color var(--tw-brand)); .trending-section background
+    var(--tw-ink) dark full-bleed (+ white section-head h2);
+    .trending-num/-img/-cat/-h styles (2rem/900/brand numerals, brand
+    uppercase eyebrow, 1rem/800 white headline); .pulse-dot 12px
+    var(--tw-brand) with ::after ring, keyframe scale 0.6→1.6 /
+    opacity 0.5→0, 1.6s ease-out infinite (was 8px --tw-success blink).
+  - api/src/public/templates/components.ts — renderChipRail emits contract
+    §10 vocabulary (cat-rail root, cat-chip direct flex children,
+    cat-chip-img 24px optional via imgTag, cat-chip-label); CategoryChip
+    gains optional imageUrl/imageAlt.
+  - api/src/public/templates/trending.ts (NEW, 52 ln) — renderTrending:
+    .container > section-head (pulse-dot + h2) + ol.grid of trending-item
+    (trending-num = String(i+1).padStart(2,"0") contract-verbatim,
+    trending-img, trending-cat, trending-h); empty state keeps
+    section-empty parity.
+  - api/src/public/templates/home.ts — §7 now renders vm.trending.slice(0,5)
+    (was vm.latest.slice(0,5) — non-trending rows in the Trending strip);
+    §7 wrapper adds contract root class trending-section (id=trending kept
+    stable for header nav /#trending); §3 chip rail wrapped in .container
+    per contract `.container > .cat-rail`.
+  - api/test/design-contract-values.test.ts (NEW) — T15.AC1 vitest: extracts
+    each selector's declaration block and asserts exact contract values
+    (.cat-chip min-width/gap, :hover lift+brand border, .trending-section
+    var(--tw-ink) bg, .pulse-dot var(--tw-brand) 12px 1.6s).
+  - api/test/public-templates-components.test.ts — nav class assertion
+    chip-rail → cat-rail + cat-chip/cat-chip-label presence (contract §10
+    vocabulary; behavioral href assertions unchanged).
+- test: cd api && npx tsc --noEmit (clean); cd api && npm test
+  (109 files / 896 tests PASS, incl. design-contract-values 4 tests)
+- D13 runner (RC-043,RC-044,RC-045), run twice, deterministic:
+  - RC-044 PASS (grep -c trending-section public-css.ts → 5, op >= 1)
+  - RC-045 PASS (grep -c pulse-dot public-css.ts → 2, op >= 1)
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-043 — SAME plan-baked defect class as
+    RC-024/026/029/030/034/035/041: expected_test_name_regex is the
+    shell-escaped COMMAND string (cd\ api\ \&\&\ npx\ vitest\ run\ ...);
+    vitest text parser observes file-level names only — observation
+    "test/design-contract-values.test.ts (4 tests) 2ms" passed:true, all
+    4 tests green, yet no test name can match an escaped command line.
+    Underlying evidence green; required_evidence_plan.json repair is
+    orchestrator-owned; not retried further (no retry-storm).
+- Self-check results:
+  - File sizes: trending.ts 52 (limit 200) PASS;
+    design-contract-values.test.ts 46 PASS; public-css.ts 270 (CSS string
+    template, 300 template limit) PASS; components.ts 307 / home.ts 245 —
+    pre-existing >200 from T4-T14 scaffolds (+8/+9 this story; new
+    component deliberately placed in its own module to avoid growth) —
+    DOCUMENTED, refactor owned by a cleanup story.
+  - Secret scan: PASS (0 matches on all 6 changed files)
+  - Error handling: N/A (pure template-string renderers, no routes)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: none exist for T15 (no acceptance-tests/T15-*)
+- Learnings for future iterations:
+  - The vitest-route expected_test_name_regex defect (escaped command
+    string) now spans RC-024/026/029/030/034/035/041/043 — every
+    behavioral vitest RC in this plan; assume FAIL on the regex match and
+    log EVIDENCE_ROUTE_EXHAUSTED with the green file-level observation.
+  - renderChipRail/renderTrending pattern: contract §10 class vocabulary
+    REQUIRES chips/items as direct flex/grid children of the root
+    (cat-rail, .trending-section .grid) — no intermediate ul wrapper, or
+    the scroll-snap/grid CSS targets the wrong element.
+  - vm.trending bucket (is_trending=1, dedup'd from latest) was already
+    built by T12 but §7 still rendered vm.latest — when a view-model
+    bucket exists, check the template actually consumes it.
