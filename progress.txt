@@ -5626,3 +5626,85 @@ iteration — T7 (sources: T7)
   green: exit 0, "test/public-templates-article.test.ts (7 tests)" all
   passed — T8.AC3 itself is proven PASS. Implementation-invariant;
   required_evidence_plan.json repair is orchestrator-owned.
+
+## 2026-06-11 16:59 - T9
+- Implemented [C4] Root wrappers data-screen-label: every public screen's
+  root wrapper now carries a data-screen-label attribute naming the decoded
+  design-export screen — Home -> theiwise-home, Article -> article-page.
+  Applied on BOTH render surfaces: the design templates (renderHome /
+  renderArticle now root their section list in a labeled <div>) and the
+  full-document renderers (renderHomepageHtml / renderArticleHtml wrap the
+  body in the labeled <div> inside <body>). Attribute value is deliberately
+  UNQUOTED so the T9.AC2 contract grep matches the literal
+  data-screen-label=theiwise-home (commented at each emission site).
+- Per BCL-047 (user-brief quantifier), brand-ban tests strip
+  data-screen-label attributes BEFORE their /theiwise/i whole-HTML regex.
+  stripScreenLabelAttrs added to public-no-theiwise-brand-render.test.ts and
+  public-templates-home.test.ts: strips only dot-free lowercase values
+  ([a-z0-9-]+), unquoted form anchored at whitespace/'>' lookahead — a
+  banned <brand>.com hostname inside the attribute is NOT stripped (no
+  partial strip can hide the .com suffix), so the hostname ban is intact.
+- Files changed: api/src/public/templates/home.ts,
+  api/src/public/templates/article.ts, api/src/public/render-pages.ts,
+  api/test/public-screen-labels.test.ts (new),
+  api/test/public-no-theiwise-brand-render.test.ts,
+  api/test/public-templates-home.test.ts
+- Manual AC verify (no T9-*.sh acceptance scripts — legacy fallback):
+  - T9.AC1: cd api && npx vitest run test/public-screen-labels.test.ts —
+    4/4 passed, exit 0 (renderHomepageHtml contains theiwise-home at
+    <body><div data-screen-label=theiwise-home>; renderArticleHtml contains
+    article-page; design templates rooted in the labeled wrapper) — PASS
+  - T9.AC2: grep -rc data-screen-label=theiwise-home api/src/public/ ->
+    templates/home.ts:2, render-pages.ts:2 (>= 1) — PASS
+  - T9.AC3: cd api && npx vitest run test/public-no-theiwise-brand-render.test.ts
+    — 6/6 passed, exit 0; hostname ban intact (strip is dot-free-value-only,
+    boundary-anchored) — PASS
+- Tests run: cd api && npx vitest run test/public-screen-labels.test.ts
+  test/public-no-theiwise-brand-render.test.ts
+  test/public-templates-home.test.ts test/public-templates-article.test.ts
+  test/public-templates-components.test.ts (35/35); cd api && npm test
+  (108 files, 884/884 passed); cd api && npx tsc --noEmit (clean)
+- source_story_ids: T9 (canonical C4)
+- Self-check results:
+  - File sizes: home.ts 219 (pre-existing 211, +8 wrapper/comment);
+    article.ts 376 (pre-existing 371, +5); render-pages.ts 176 (limit 200);
+    public-screen-labels.test.ts 185 — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: no T9-*.sh scripts — legacy fallback manual AC verify above
+- Learnings for future iterations:
+  - The Group B scanner (verify:no-legacy-prod-refs) bans the literal
+    <brand>.com substring even inside COMMENTS of non-allowlisted files —
+    public-no-theiwise-brand-render.test.ts assembles it from parts at
+    runtime on purpose. Never write the resolved hostname literal in
+    comments; say "<brand>.com".
+  - public-templates-home.test.ts carries its own /theiwise/i whole-HTML
+    regexes (T10.AC3 + brand-from-site) in addition to the dedicated
+    no-brand test — any future surface that legitimately emits a
+    theiwise-* design token must go through stripScreenLabelAttrs in BOTH
+    files.
+  - Only the HOME screen label contains the brand substring; article-page
+    is inert — brand-regex fallout is home-template-test-only.
+- Evidence runner (T9): all 3 RCs hit plan-baked defects; underlying
+  evidence green.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-024 — same class as RC-017/RC-023:
+  expected_test_name_regex is the shell-escaped COMMAND string
+  ("cd\ api\ \&\&\ npx\ vitest\ run\ test/public\-screen\-labels\.test\.ts"),
+  vitest text parser observes file-level names only
+  ("test/public-screen-labels.test.ts (4 tests)"); receipt's underlying run
+  exit 0, 4/4 passed. Implementation-invariant; plan repair is
+  orchestrator-owned.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-025 — NEW defect class:
+  EVIDENCE_SOURCE_PATH_UNRESOLVED. The plan's evidence_command greps a
+  DIRECTORY (api/src/public/) but the runner's F22 source-path recovery
+  resolves only grep FILE paths (tried_pkg_roots=['api'],
+  reason=no_package_root_or_story_prefix_resolves_grep_files); command never
+  executes (exit_code null, duration 0ms). Direct deterministic grep from
+  worktree root proves the AC: home.ts:2 + render-pages.ts:2 matches >= 1.
+  Implementation-invariant; required_evidence_plan.json repair is
+  orchestrator-owned.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-026 — same name-regex class as RC-024;
+  receipt's underlying run exit 0, 6/6 passed
+  ("test/public-no-theiwise-brand-render.test.ts (6 tests)").

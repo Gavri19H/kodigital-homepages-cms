@@ -137,8 +137,8 @@
       "title": "[C4] Root wrappers data-screen-label",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],
