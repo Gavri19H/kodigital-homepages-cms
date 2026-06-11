@@ -8431,3 +8431,86 @@ iteration — T45 (sources: T45)
     gotcha is real: resolveSiteContextFromRequest matches the literal
     seeded hostname 'localhost'; 127.0.0.1 404s.
 ---
+
+## 2026-06-12 — T47 (sources: T47) — [G3] Draft preview route
+- What was implemented: wired the draft-preview feature end to end.
+  (1) Removed the publicRouter 501 placeholder ("Preview not yet
+  wired") — the dedicated previewRouter (src/preview, HMAC-token gate,
+  noindex + no-store headers) owns /preview/:id; updated the stale
+  router/index comments. (2) New api/src/workflow/preview-link.ts:
+  createPreviewLink() resolves the article_versions row to pin
+  (explicit version_id, or snapshot-on-demand of the current draft —
+  reusing the newest snapshot when content_json already matches) and
+  signs the short-lived token via signPreviewToken (TTL 600s).
+  (3) New POST /api/admin/articles/:id/preview-link in
+  admin/workflow-api.ts, reached only through the /api/admin/*
+  accessAuth gate; optional wire field version_id (handler reads the
+  same name; no form added — JSON wire only). (4) Extended
+  test/preview.test.ts: accessAuth gate (401 without bypass), mint →
+  render end-to-end (snapshot-on-demand, noindex + no-store asserted),
+  snapshot reuse + explicit version_id pinning, 400/404/500 paths.
+- Files changed: api/src/workflow/preview-link.ts (new),
+  api/src/workflow/index.ts, api/src/admin/workflow-api.ts,
+  api/src/public/router.ts, api/src/index.ts, api/test/preview.test.ts.
+  Committed 1c672ec 'feat: [T47] - [G3] Draft preview route'.
+- AC verification (substance):
+  - T47.AC1: grep -r "Preview not yet wired" api/src/ → 0 matches
+    (verified from worktree root post-change).
+  - T47.AC2: cd api && npx vitest run test/preview.test.ts → 13/13
+    PASS including 'is gated by accessAuth (401 without bypass)' and
+    the end-to-end render asserting Cache-Control contains no-store
+    and X-Robots-Tag contains noindex.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-137 (T47.AC1). Runner FAILs
+  pre-execution with typed reason EVIDENCE_SOURCE_PATH_UNRESOLVED
+  (exit_code null, duration_ms 0, f22 recovery: missing_files
+  ['api/src/'], reason no_package_root_or_story_prefix_resolves_grep_files)
+  — the deterministic_grep_count route cannot resolve a DIRECTORY grep
+  target into files; the grep itself never executes. Deterministic
+  across 2 runner runs. Same route-authoring defect class as
+  RC-126/RC-129/RC-134. Substance verified manually (0 matches) — no
+  product-code state can change a pre-execution path-resolution FAIL.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-138 (T47.AC2). Runner executes the
+  vitest command (exit 0, 13/13 observed assertions passed:true) but
+  the claim is UNSATISFIED because expected_test_name_regex is the
+  ESCAPED COMMAND STRING ('cd\ api\ \&\&\ npx\ vitest\ run\
+  test/preview\.test\.ts') — no real vitest test name can match a
+  shell command string; renaming a test to match would be a
+  mechanism-dodge (NO-BYPASS rule 6), refused. Deterministic across 2
+  runner runs. Route-authoring defect, unsatisfiable by product code.
+- source_story_ids: T47
+- test commands actually run: cd api && npx vitest run
+  test/preview.test.ts (13/13 green, x3 incl. via D13 runner); cd api
+  && npm test (122 files / 1073 tests green); cd api && npx tsc
+  --noEmit (clean); D13 runner for RC-137,RC-138 (x2, deterministic
+  typed FAILs as above).
+- **Self-check results:**
+  - File sizes: preview-link.ts 98 (limit 200) PASS; workflow-api.ts
+    200 (limit 200) PASS; workflow/index.ts 37 PASS; index.ts 139
+    PASS; public/router.ts 423 — pre-existing over-limit file, this
+    change NET-SHRANK it (-3 lines, comment + stub removal only);
+    preview.test.ts 344 — over 200 default but RC-138 pins evidence to
+    THIS file so gate tests must live here; repo test-file precedent
+    admin-ai-image.test.ts 502 lines.
+  - Secret scan: PASS (0 matches across 6 changed files; the test's
+    'preview-secret-test-only' literal is a pre-existing test-only
+    fixture, not a credential).
+  - Error handling: PASS (new route handler validates id/version_id,
+    maps module errors via mapWorkflowError to 400/404/409/500;
+    accessAuth 401 upstream; module throws typed Errors, no silent
+    swallow).
+  - Migration execution: N/A (no db story, no schema change).
+  - Parameterized queries: PASS (all new SQL is
+    .prepare(<static>).bind(); the one grep hit is a comment line).
+  - Acceptance tests: none for this change-id (T25-T46 precedent).
+- **Learnings for future iterations:**
+  - Fourth+fifth instances of the malformed-evidence-route class, two
+    NEW subtypes: (a) parse_grep_count with a DIRECTORY target fails
+    pre-execution as EVIDENCE_SOURCE_PATH_UNRESOLVED — recursive
+    'grep -rc <dir>' routes need per-file grep targets; (b)
+    expected_test_name_regex populated with the escaped COMMAND string
+    can never match a test name — vitest claims need a real test-name
+    pattern. Verify substance, confirm determinism x2, log exhaustion;
+    never rename tests to match a defective matcher.
+  - Hono sub-router gating tests: import the admin router (gate
+    registered there), not the sub-router — admin.request() without
+    DEV_BYPASS_AUTH exercises the real accessAuth 401.

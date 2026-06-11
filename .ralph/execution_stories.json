@@ -745,8 +745,8 @@
       "title": "[G3] Draft preview route",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T47"
       ],
