@@ -2,8 +2,9 @@
 // and Article surfaces MUST carry a non-empty `data-ad-slot` slot id
 // AND a `data-ad-type` whose value is one of {leaderboard, in-feed,
 // rect} (T21.AC1). Home in particular MUST render BOTH a leaderboard
-// and an in-feed ad-slot so the layout contract from PART 1 (§6
-// ad-leaderboard, §9 ad-in-feed) is pinned (T21.AC2).
+// and an in-feed ad-slot so the layout contract from PART 1 (§5
+// ad-leaderboard, §9 ad-in-feed, design-contract §7 order) is pinned
+// (T21.AC2).
 //
 // Test bindings (from implementation_digest.md / T21):
 //   T21.AC1 — `^public-ad-slots.*data[_-]?attrs`
@@ -289,7 +290,7 @@ describe("public-ad-slots", () => {
       .map((s) => s.type)
       .filter((t): t is string => t !== null);
 
-    // PART 1 §6 ad-leaderboard MUST be present on Home.
+    // PART 1 §5 ad-leaderboard MUST be present on Home.
     expect(
       homeTypes,
       `home leaderboard ad-slot missing; types=${homeTypes.join(",")}`,
@@ -301,17 +302,17 @@ describe("public-ad-slots", () => {
       `home in-feed ad-slot missing; types=${homeTypes.join(",")}`,
     ).toContain("in-feed");
 
-    // Defense-in-depth: the section markers for §6 ad-leaderboard and
-    // §9 ad-in-feed MUST appear in the rendered HTML so a regression
-    // that drops the marker (but happens to leak a leaderboard
-    // ad-slot from elsewhere) still surfaces.
-    expect(homeHtml).toContain("<!-- home-section:6 ad-leaderboard -->");
+    // Defense-in-depth: the section markers for §5 ad-leaderboard and
+    // §9 ad-in-feed (design-contract §7 order) MUST appear in the
+    // rendered HTML so a regression that drops the marker (but happens
+    // to leak a leaderboard ad-slot from elsewhere) still surfaces.
+    expect(homeHtml).toContain("<!-- home-section:5 ad-leaderboard -->");
     expect(homeHtml).toContain("<!-- home-section:9 ad-in-feed -->");
 
     // Defense-in-depth: the specific slot ids wired by
     // api/src/public/templates/home.ts MUST appear with the matching
     // data-ad-type — guards against a regression that swaps the
-    // leaderboard/in-feed types between §6 and §9.
+    // leaderboard/in-feed types between §5 and §9.
     const leaderboard = homeSlots.find((s) => s.slot === "home-leaderboard");
     expect(leaderboard, "home-leaderboard slot id not rendered").toBeDefined();
     expect(leaderboard!.type).toBe("leaderboard");

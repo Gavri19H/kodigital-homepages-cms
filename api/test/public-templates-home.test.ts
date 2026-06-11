@@ -1,17 +1,22 @@
-// Phase 5 / T10 BEHAVIORAL guards for renderHome.
+// Phase 5 / T10+T11 BEHAVIORAL guards for renderHome.
 //
-// T10.AC2 (section-order): the 13 home-section markers appear in the
-// rendered output in numerical PART 1 order — 1,2,…,13 — and each marker
-// appears exactly once. The test name MUST match
+// T11.AC1 (section-order): the 13 home-section markers appear in the
+// rendered output in the exact docs/design-contract.md §7 sequence —
+// site-header, hero, chip-rail, featured, ad-leaderboard, editors-picks,
+// trending, spotlight, ad-in-feed, latest, newsletter, site-footer,
+// floating-next — each exactly once. Contract §7: there is NO standalone
+// site-description ("About") panel on Home. The test name MUST match
 // `^public-templates-home.*section[_-]?order` per the implementation
-// digest's RC-031 binding.
+// digest binding.
 //
 // T10.AC3 (brand-from-site): every visible brand string flows from
 // vm.site.name (and the per-card payload). Hard-coded vertical brand
 // tokens (TheIWise / theiwise / cms.kodigital.app) MUST NOT appear in
 // the rendered body. The test name MUST match
-// `^public-templates-home.*brand[_-]?from[_-]?site` per the digest's
-// RC-032 binding.
+// `^public-templates-home.*brand[_-]?from[_-]?site` per the digest binding.
+//
+// T11.AC3 (floating-next): renderHome emits the floating "Read next"
+// button exactly once, with a real /article/<slug> href (PART 8).
 //
 // PART 8 RED LINE: rendered output never contains href="#".
 
@@ -93,23 +98,38 @@ function stripScreenLabelAttrs(html: string): string {
     .replace(/\sdata-screen-label=[a-z0-9-]+(?=[\s>])/g, "");
 }
 
-function extractMarkerSequence(html: string): number[] {
-  const re = /home-section:(\d+)/g;
-  const out: number[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(html)) !== null) {
-    out.push(Number(match[1]));
-  }
-  return out;
+// docs/design-contract.md §7 — the exact 13-section Home sequence.
+const CONTRACT_SECTION_SEQUENCE = [
+  "1 site-header",
+  "2 hero",
+  "3 chip-rail",
+  "4 featured",
+  "5 ad-leaderboard",
+  "6 editors-picks",
+  "7 trending",
+  "8 spotlight",
+  "9 ad-in-feed",
+  "10 latest",
+  "11 newsletter",
+  "12 site-footer",
+  "13 floating-next",
+];
+
+function extractMarkerSequence(html: string): string[] {
+  const matches = html.matchAll(/home-section:(\d+ [a-z-]+)/g);
+  return Array.from(matches, (m) => m[1] ?? "");
 }
 
 describe("public-templates-home", () => {
-  it("T10.AC2: section-order — emits 13 markers in PART 1 numerical order", () => {
+  it("T11.AC1: section-order — emits the exact 13-section marker sequence of contract §7", () => {
     const html = renderHome({ vm: makeVm() });
     const seq = extractMarkerSequence(html);
-    expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(seq).toEqual(CONTRACT_SECTION_SEQUENCE);
     // each marker is unique (no double-rendered section)
     expect(new Set(seq).size).toBe(13);
+    // contract §7: NO standalone site-description panel on Home
+    expect(html).not.toMatch(/home-section:\d+ about/);
+    expect(html).not.toContain("home-about");
   });
 
   it("section-order — section markers stay in order when buckets are empty", () => {
@@ -117,13 +137,25 @@ describe("public-templates-home", () => {
       vm: makeVm({ hero: null, featured: [], latest: [], categories: [] }),
     });
     const seq = extractMarkerSequence(html);
-    expect(seq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(seq).toEqual(CONTRACT_SECTION_SEQUENCE);
+    // with no stories the floating-next aside is omitted (no dead link),
+    // but its marker above still keeps the section count at 13
+    expect(html).not.toContain('class="floating-next"');
+  });
+
+  it("T11.AC3: floating-next — renders exactly once with a real article href", () => {
+    const html = renderHome({ vm: makeVm() });
+    const asides = html.match(/class="floating-next"/g) ?? [];
+    expect(asides.length).toBe(1);
+    // target is the lead story (vm.hero) — PART 8 real URL, never "#"
+    expect(html).toMatch(/floating-next__link" href="\/article\/hero"/);
+    expect(html).toContain("Hero story");
   });
 
   it("T10.AC3: brand-from-site — output contains site.name and never the banned vertical tokens", () => {
     const html = renderHome({ vm: makeVm() });
 
-    // site.name flows through header + footer + about
+    // site.name flows through header + footer
     expect(html).toContain("Acme Daily");
 
     // PART 12 RED LINE — no hardcoded vertical brand. The /theiwise/i
@@ -136,7 +168,7 @@ describe("public-templates-home", () => {
     expect(html).not.toContain('href="#"');
   });
 
-  it("brand-from-site — site.name surfaces in header + footer + about regions", () => {
+  it("brand-from-site — site.name surfaces in header + footer regions", () => {
     const html = renderHome({
       vm: makeVm({
         site: {
@@ -159,12 +191,8 @@ describe("public-templates-home", () => {
     });
     // header brand wordmark
     expect(html).toMatch(/<header class="site-header"[\s\S]*Beta Tribune/);
-    // about heading
-    expect(html).toContain("About Beta Tribune");
     // footer copyright
     expect(html).toMatch(/site-footer__copyright[^<]*Beta Tribune/);
-    // tagline + description appear in the rendered body (about panel)
-    expect(html).toContain("Independent reporting for the working week.");
     // banned tokens still absent (screen-label attributes stripped first)
     expect(stripScreenLabelAttrs(html)).not.toMatch(/theiwise/i);
     expect(html).not.toContain("cms.kodigital.app");
