@@ -17,6 +17,7 @@ interface SeedArticle {
   site_id: string;
   status: string;
   is_featured: number;
+  is_trending: number;
   homepage_section: string | null;
   homepage_rank: number | null;
   published_at: number;
@@ -69,6 +70,7 @@ function makeDb(
               .filter((a) => a.site_id === siteId && a.status === "published")
               .sort((x, y) => {
                 if (x.is_featured !== y.is_featured) return y.is_featured - x.is_featured;
+                if (x.is_trending !== y.is_trending) return y.is_trending - x.is_trending;
                 const rx = x.homepage_rank ?? Number.MAX_SAFE_INTEGER;
                 const ry = y.homepage_rank ?? Number.MAX_SAFE_INTEGER;
                 if (rx !== ry) return rx - ry;
@@ -86,6 +88,7 @@ function makeDb(
                 published_at: a.published_at,
                 featured_image_id: a.featured_image_id,
                 is_featured: a.is_featured,
+                is_trending: a.is_trending,
                 homepage_section: a.homepage_section,
                 homepage_rank: a.homepage_rank,
                 site_id: a.site_id,
@@ -133,6 +136,7 @@ function seedArticle(overrides: Partial<SeedArticle> & Pick<SeedArticle, "id" | 
     title: overrides.title ?? `Title ${overrides.id}`,
     status: overrides.status ?? "published",
     is_featured: overrides.is_featured ?? 0,
+    is_trending: overrides.is_trending ?? 0,
     homepage_section: overrides.homepage_section ?? "none",
     homepage_rank: overrides.homepage_rank ?? null,
     published_at: overrides.published_at ?? 1_700_000_000,
@@ -235,6 +239,83 @@ describe("public-view-models-home", () => {
     expect(vm.site.name).toBe("x.example");
     expect(vm.hero).toBeNull();
     expect(vm.featured).toEqual([]);
+    expect(vm.picks).toEqual([]);
+    expect(vm.trending).toEqual([]);
     expect(vm.latest).toEqual([]);
+  });
+
+  it("T12.AC2: buckets — is_trending=1 lands in vm.trending and in no other bucket (no duplication)", async () => {
+    const articles: SeedArticle[] = [
+      seedArticle({ id: 1, slug: "feat-1", site_id: "site_A", is_featured: 1, homepage_rank: 1 }),
+      seedArticle({ id: 2, slug: "feat-2", site_id: "site_A", is_featured: 1, homepage_rank: 2 }),
+      seedArticle({ id: 3, slug: "feat-3", site_id: "site_A", is_featured: 1, homepage_rank: 3 }),
+      // Flagged trending AND featured: the trending flag wins the bucket.
+      seedArticle({ id: 4, slug: "trend-feat", site_id: "site_A", is_featured: 1, is_trending: 1, homepage_rank: 4 }),
+      seedArticle({ id: 5, slug: "trend-1", site_id: "site_A", is_trending: 1 }),
+      seedArticle({ id: 6, slug: "trend-2", site_id: "site_A", is_trending: 1 }),
+      seedArticle({ id: 7, slug: "plain-1", site_id: "site_A" }),
+      seedArticle({ id: 8, slug: "plain-2", site_id: "site_A" }),
+    ];
+    const { db } = makeDb(articles, [], []);
+    const vm = await buildHomeViewModel(db, { siteId: "site_A", hostname: "site-a.example" });
+
+    // Every is_trending=1 article is in vm.trending.
+    const trendingSlugs = vm.trending.map((c) => c.slug);
+    expect(trendingSlugs).toContain("trend-feat");
+    expect(trendingSlugs).toContain("trend-1");
+    expect(trendingSlugs).toContain("trend-2");
+    expect(vm.trending.length).toBeLessThanOrEqual(5);
+
+    // No duplication: a trending card appears in NO other bucket.
+    const otherIds = new Set<number>([
+      ...(vm.hero !== null ? [vm.hero.id] : []),
+      ...vm.featured.map((c) => c.id),
+      ...vm.picks.map((c) => c.id),
+      ...vm.latest.map((c) => c.id),
+    ]);
+    for (const card of vm.trending) {
+      expect(otherIds.has(card.id)).toBe(false);
+    }
+
+    // No bucket contains the same article twice.
+    for (const bucket of [vm.trending, vm.featured, vm.picks, vm.latest]) {
+      const ids = bucket.map((c) => c.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+
+    // hero/featured/latest stay pairwise disjoint.
+    expect(vm.hero).not.toBeNull();
+    expect(vm.featured.map((c) => c.id)).not.toContain(vm.hero!.id);
+    for (const card of vm.latest) {
+      expect(card.id).not.toBe(vm.hero!.id);
+      expect(vm.featured.map((c) => c.id)).not.toContain(card.id);
+    }
+
+    // Picks = curated re-promotion of the featured pool (lead story + next
+    // featured cards, max 4) — contract §12 editorsPicks { hero, thumbs[3] }.
+    expect(vm.picks.length).toBeLessThanOrEqual(4);
+    expect(vm.picks[0]?.id).toBe(vm.hero!.id);
+    const featuredPool = new Set<number>([vm.hero!.id, ...vm.featured.map((c) => c.id)]);
+    for (const card of vm.picks) {
+      expect(featuredPool.has(card.id)).toBe(true);
+    }
+  });
+
+  it("T12.AC3: buildHomeViewModel issues at most 3 D1 prepared statements", async () => {
+    const articles: SeedArticle[] = [
+      seedArticle({ id: 1, slug: "feat-1", site_id: "site_A", is_featured: 1 }),
+      seedArticle({ id: 2, slug: "trend-1", site_id: "site_A", is_trending: 1 }),
+      seedArticle({ id: 3, slug: "plain-1", site_id: "site_A" }),
+    ];
+    const categories: SeedCategory[] = [
+      { id: 100, slug: "tech", name: "Tech", site_id: "site_A", display_order: 1 },
+    ];
+    const { db, calls } = makeDb(articles, categories, [
+      { site_id: "site_A", key: "site_name", value: "Site Alpha" },
+    ]);
+    await buildHomeViewModel(db, { siteId: "site_A", hostname: "site-a.example" });
+    // One view-model build = at most 3 statements (articles, categories,
+    // settings) — the trending/picks buckets must NOT add a 4th query.
+    expect(calls.length).toBeLessThanOrEqual(3);
   });
 });

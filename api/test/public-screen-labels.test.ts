@@ -73,6 +73,8 @@ function makeHomeVm(): HomeViewModel {
     },
     hero: null,
     featured: [],
+    picks: [],
+    trending: [],
     latest: [],
     categories: [],
     newsletter: {

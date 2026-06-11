@@ -165,6 +165,8 @@ function makeHomeVm(overrides: Partial<HomeViewModel> = {}): HomeViewModel {
     },
     hero,
     featured,
+    picks: [],
+    trending: [],
     latest,
     categories: [
       { id: 1, slug: "tech", name: "Tech", href: "/category/tech" },

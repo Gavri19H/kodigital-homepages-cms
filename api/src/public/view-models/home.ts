@@ -71,10 +71,17 @@ export interface HomeMeta {
   canonicalUrl: string;
 }
 
+// T12 (C7) bucket contract (design contract §12): `picks` is the curated
+// re-promotion of the featured pool (editorsPicks hero + thumbs[3] = 4
+// cards); `trending` holds articles flagged `is_trending = 1` (5-item dark
+// strip) and those articles appear in NO other bucket — a flagged card
+// never renders twice on the Home page.
 export interface HomeViewModel {
   site: HomeViewModelSite;
   hero: HomeArticleCard | null;
   featured: HomeArticleCard[];
+  picks: HomeArticleCard[];
+  trending: HomeArticleCard[];
   latest: HomeArticleCard[];
   categories: HomeCategoryChip[];
   newsletter: HomeNewsletter;
@@ -91,6 +98,7 @@ interface ArticleListingRow {
   published_at: number | null;
   featured_image_id: number | null;
   is_featured: number;
+  is_trending: number;
   homepage_section: string | null;
   homepage_rank: number | null;
   site_id: string | null;
@@ -113,6 +121,8 @@ interface SettingsRow {
 
 const FEATURED_LIMIT = 8;
 const LATEST_LIMIT = 18;
+const TRENDING_LIMIT = 5;
+const PICKS_LIMIT = 4;
 const CATEGORY_LIMIT = 12;
 
 function parseBrandTokens(raw: string | null | undefined): Readonly<Record<string, string>> {
@@ -215,6 +225,7 @@ export async function buildHomeViewModel(
       "SELECT a.id AS id, a.slug AS slug, a.title AS title, a.content_html AS content_html, " +
         "a.category_id AS category_id, a.status AS status, a.published_at AS published_at, " +
         "a.featured_image_id AS featured_image_id, a.is_featured AS is_featured, " +
+        "a.is_trending AS is_trending, " +
         "a.homepage_section AS homepage_section, a.homepage_rank AS homepage_rank, " +
         "a.site_id AS site_id, " +
         "c.name AS category_name, c.slug AS category_slug, " +
@@ -223,10 +234,10 @@ export async function buildHomeViewModel(
         "LEFT JOIN categories c ON c.id = a.category_id " +
         "LEFT JOIN media m ON m.id = a.featured_image_id " +
         "WHERE site_id = ? AND a.status = 'published' " +
-        "ORDER BY a.is_featured DESC, a.homepage_rank ASC, a.published_at DESC, a.id DESC " +
+        "ORDER BY a.is_featured DESC, a.is_trending DESC, a.homepage_rank ASC, a.published_at DESC, a.id DESC " +
         "LIMIT ?",
     )
-    .bind(siteId, FEATURED_LIMIT + LATEST_LIMIT)
+    .bind(siteId, FEATURED_LIMIT + LATEST_LIMIT + TRENDING_LIMIT)
     .all<ArticleListingRow>();
   const articleRows = articlesResult.results ?? [];
 
@@ -271,8 +282,18 @@ export async function buildHomeViewModel(
     brandTokens: parseBrandTokens(settings.brand_tokens_json),
   };
 
-  const cards = articleRows.map(toCard);
-  const featuredBucket = articleRows
+  // T12 buckets: rows flagged is_trending = 1 go to vm.trending ONLY —
+  // they are removed from the pool BEFORE hero/featured/latest are cut so
+  // a trending card never duplicates into another bucket.
+  const trendingRows = articleRows
+    .filter((r) => r.is_trending === 1)
+    .slice(0, TRENDING_LIMIT);
+  const trendingIds = new Set<number>(trendingRows.map((r) => r.id));
+  const trending = trendingRows.map(toCard);
+
+  const pool = articleRows.filter((r) => !trendingIds.has(r.id));
+  const cards = pool.map(toCard);
+  const featuredBucket = pool
     .filter((r) => r.is_featured === 1)
     .slice(0, FEATURED_LIMIT)
     .map(toCard);
@@ -280,6 +301,12 @@ export async function buildHomeViewModel(
   const featured = featuredBucket.length > 0
     ? featuredBucket.slice(hero === featuredBucket[0] ? 1 : 0)
     : cards.slice(1, FEATURED_LIMIT);
+
+  // Editor's picks: curated re-promotion of the featured pool — the lead
+  // story plus the next 3 featured cards (contract §12 editorsPicks
+  // { hero, thumbs[3] }).
+  const picks = (hero !== null ? [hero, ...featured] : featured).slice(0, PICKS_LIMIT);
+
   const featuredIds = new Set<number>();
   if (hero !== null) featuredIds.add(hero.id);
   for (const f of featured) featuredIds.add(f.id);
@@ -302,5 +329,5 @@ export async function buildHomeViewModel(
     canonicalUrl: `https://${site.hostname}/`,
   };
 
-  return { site, hero, featured, latest, categories, newsletter, meta };
+  return { site, hero, featured, picks, trending, latest, categories, newsletter, meta };
 }
