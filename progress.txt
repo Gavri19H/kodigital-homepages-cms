@@ -5513,3 +5513,54 @@ D13 canonical runner result — T1:
   - --tw-brand-shadow-rgb is an unused declared token carrying the brand RGB
     triple; keep it in sync with --tw-brand when brand changes (hex greps will
     not catch a stale RGB triple).
+
+## 2026-06-11 16:32 - T7 [C2] Typography/layout tokens
+iteration — T7 (sources: T7)
+- Implemented: aligned api/src/public/assets/public-css.ts typography + layout
+  tokens to docs/design-contract.md sections 2-3 (the T5 decoded contract):
+  font-sans -> "Nunito Sans", "Inter", system-ui; font-display -> "Nunito",
+  "Nunito Sans", system-ui; fs-md 1.0625rem, fs-xl 1.625rem, fs-2xl 2rem,
+  fs-3xl 2.625rem, fs-4xl 3.25rem; container-narrow 920px; radius-sm 6px,
+  radius 10px; all 3 shadow tokens -> rgba(20,30,50,...) dual-layer values;
+  header-h 72px; .container padding -> clamp(16px, 3vw, 32px) (contract §3
+  pins the container utility).
+- Coherence fixes forced by the token changes: .article-body font-size pinned
+  to literal 1.125rem (contract §2 pins body copy 1.125rem/1.7; it previously
+  rode var(--tw-fs-md) which is now 17px) and .article-body h2 pinned to
+  1.75rem/1.2 weight 800 (contract §2) instead of var(--tw-fs-xl).
+- api/src/public/templates/layout.ts head: added preconnect + Google Fonts
+  link (Nunito Sans 400/600/700, Nunito 700/800/900, display=swap) before the
+  public.css link — without a webfont load the new stacks silently fall back
+  to system-ui and the typography story has no user-facing effect.
+- test: cd api && npm test (107 files, 880/880 PASS); cd api && npx tsc
+  --noEmit (clean)
+- Evidence runner: RC-018 PASS (Nunito Sans count=2>=1), RC-019 PASS
+  (1.0625rem count=1>=1), RC-020 PASS (rgba(20,30,50 count=3>=2) — overall
+  PASS, deterministic receipts emitted.
+- Manual AC verify (packet ACs are broader than the RC greps): AC1 "Nunito"
+  display stack grep=1 + "Nunito Sans" grep=2 PASS; AC2 1.0625rem=1,
+  920px=1, 72px=1 PASS; AC3 rgba(20,30,50=3>=2 PASS.
+- Self-check results:
+  - File sizes: public-css.ts 249 (CSS template, limit 300) PASS;
+    layout.ts 295 (HTML template module, limit 300) PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: no T7-*.sh for this mission — legacy fallback manual
+    AC verify above
+- Learnings for future iterations:
+  - T7's RC routes (RC-018/019/020) were clean parse_grep_count entries — the
+    "= 0"-suffix and command-string-regex defects seen on T6 (RC-016/017) are
+    not systemic to all plan RCs.
+  - NOT covered by C1/C2: motion tokens (--tw-ease still cubic-bezier(0.4, 0,
+    0.2, 1) vs contract §4 cubic-bezier(.2,.7,.2,1)) and neutral color tokens
+    (ink/text/muted/rule/bg-* still old values vs contract §1 — T6 [C1] only
+    changed the 5 brand hexes). Heading defaults (weight 800, -0.015em, lh
+    1.18) and per-component fs-token reassignments (hero search input fs-md,
+    picks-excerpt fs-md) belong to the component C-stories (C9/C10 etc.).
+    Whichever C-story touches those sections should pull values from
+    docs/design-contract.md.
+  - Contract §2 pins article body copy (1.125rem) and article H2 (1.75rem)
+    as literals that intentionally DIVERGE from the fs tokens — don't
+    "simplify" them back to var(--tw-fs-*).
