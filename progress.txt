@@ -8318,3 +8318,78 @@ iteration — T43 (sources: T43)
   - Iteration-state CURRENT STORY can be stale (points at the previous
     iteration's already-committed story); trust execution_stories.json
     passes/state over the volatile pointer.
+
+## 2026-06-12 — T45 ([G1] seed:local deterministic fixture)
+iteration — T45 (sources: T45)
+- Iteration note: iteration-state CURRENT STORY pointer said T43, but T43
+  is already passes=true/implemented (commit ffd4cad lineage; skip rule
+  T10/R10). Picked the highest-priority planned story: T45.
+- Implemented the deterministic local seed (brief BCL-024 'deterministic
+  proof only'): NEW api/scripts/seed/seed-fixture.ts (pure fixed-literal
+  fixture: 1 vertical id 9001, site st_seedlocal01, domain localhost
+  active/canonical, 4 categories 9001-9004, 3 media, 5 site_settings,
+  15 articles ids 9101-9115 = 4 featured + 5 trending + 6 latest, fixed
+  epoch anchor 1780272000), NEW api/scripts/seed/seed-sql.ts
+  (buildSeedSql(): 34 INSERT OR REPLACE statements, explicit PKs +
+  explicit created_at/updated_at so no unixepoch() default ever fires;
+  FK-ordered verticals->sites->domains->categories->site_categories->
+  media->articles->site_settings), NEW api/scripts/seed-local.ts (entry:
+  writes SQL to .wrangler/seed-local.generated.sql, spawnSync wrangler
+  d1 execute kodigital-homepages-cms-db --local --file; --print mode;
+  zero fetch( tokens), NEW api/test/seed-local-sql.test.ts (3 tests),
+  package.json gained "seed:local": "tsx scripts/seed-local.ts".
+- T45.AC1: grep -c "seed:local" api/package.json = 1. RC-132 PASS.
+- T45.AC2: vitest proves (a) builder deterministic (byte-equal across
+  calls; --print SHA identical across 2 process runs: 39bd31faf9e2) and
+  idempotent (every INSERT is INSERT OR REPLACE; no unixepoch/
+  CURRENT_TIMESTAMP/strftime/random/datetime), (b) ALL home buckets
+  covered behaviorally via buildHomeViewModel + fake-D1: hero!=null,
+  featured=3, picks=4, trending=5 (TRENDING_LIMIT exactly), latest=6,
+  categories=4, newsletter heading, plus T12 no-duplicate-trending
+  assertion. RC-133 PASS (3 test names matched the literal-command
+  title binding — T40/T42/T44 pattern keeps working).
+- End-to-end DB proof (strongest route): wrangler d1 migrations apply
+  --local (no-op, already applied) + npm run seed:local exit 0; SELECT
+  counts: articles=15, featured=4, trending=5, cats=4, site_cats=4,
+  settings=5, domains(localhost,active)=1, media=3. Re-ran seed:local
+  (exit 0) — counts and MAX(updated_at)=1780272000 unchanged:
+  idempotency proven against real local D1, not just structurally.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-134 (T45.AC3). evidence_command in the
+  plan is the raw AC text 'fetch( in seed-local.ts = 0' — not a runnable
+  command ('fetch(' is no executable). Deterministic FAIL exit 2 in 36ms
+  across 2 runner runs, observations empty. Same defect class as RC-126/
+  RC-129 (route-authoring, unsatisfiable by any product-code state). AC3
+  substance verified twice: grep -c "fetch(" = 0 in seed-local.ts,
+  seed-sql.ts, seed-fixture.ts; and the RC-133-bound vitest asserts the
+  same on every test run.
+- source_story_ids: T45
+- test commands actually run: cd api && npx vitest run
+  test/seed-local-sql.test.ts (3/3 green); cd api && npm test (122
+  files / 1069 tests green); cd api && npx tsc --noEmit (clean); npm
+  run seed:local x2 + d1 SELECT verification; D13 runner for
+  RC-132,RC-133,RC-134 (x2: RC-132 PASS, RC-133 PASS, RC-134 typed FAIL
+  pre-exec). Committed dae6823 'feat: [T45] - [G1] seed:local
+  deterministic fixture'.
+- **Self-check results:**
+  - File sizes: seed-fixture.ts 200 (limit 200), seed-sql.ts 84,
+    seed-local.ts 60, seed-local-sql.test.ts 168 — PASS.
+  - Secret scan: PASS (0 matches across 5 changed files).
+  - Error handling: PASS (seed-local.ts handles spawn error + non-zero
+    wrangler exit with actionable stderr; no route handlers added).
+  - Migration execution: PASS (seed SQL executed against real local D1
+    via wrangler d1 execute --local; row counts verified).
+  - Parameterized queries: PASS (no .prepare() interpolation; builder
+    emits a static SQL file from fixed literals with '' escaping — not
+    runtime user-input SQL).
+  - ES5 inline scripts: N/A (no public JS change).
+  - Acceptance tests: none for this change-id (T25-T44 precedent).
+- **Learnings for future iterations:**
+  - Third instance of the malformed-evidence-command class: when an
+    RC's evidence_command is the verbatim AC text instead of a shell
+    command, the runner fails pre-execution deterministically. Verify
+    substance manually + via a bound vitest assertion, then log
+    exhaustion immediately — do not burn re-implement retries.
+  - Seed IDs in a 9xxx namespace + INSERT OR REPLACE with explicit PKs
+    AND explicit timestamp columns is the full idempotency recipe: any
+    column left to a unixepoch() DEFAULT would drift on re-run even
+    with OR REPLACE.
