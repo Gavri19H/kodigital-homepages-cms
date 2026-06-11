@@ -103,6 +103,18 @@ function makeFakeDb(initialJob: {
   const aiGenerations = new Map<string, { id: string; status: string; parsed_json: string | null }>();
   let nextAiId = 1;
   let nextMediaId = 1;
+  // rescue-2 T38: run_site_smoke_tests COUNT-reads articles,
+  // site_settings, and pages — track the content-table writes (deduped
+  // on the real UNIQUE keys) so those reads observe genuine step
+  // side-effects instead of nulls.
+  const articles: Array<{
+    site_id: string;
+    slug: string;
+    status: string;
+    published_at: number | null;
+  }> = [];
+  const settings: Array<{ site_id: string; key: string }> = [];
+  const pages: Array<{ site_id: string; slug: string }> = [];
 
   const db = {
     prepare(sql: string) {
@@ -161,6 +173,31 @@ function makeFakeDb(initialJob: {
             // image generator short-circuits before this branch, so
             // returning a synthetic id is safe.
             return ({ id: nextMediaId++ } as unknown) as T;
+          }
+          // rescue-2 T38 smoke-step COUNT reads — answered from tracked state.
+          if (sql.indexOf("SELECT COUNT(*) AS published_count FROM articles") >= 0) {
+            const [site_id] = captured as [string];
+            const published_count = articles.filter(
+              (a) =>
+                a.site_id === site_id &&
+                a.status === "published" &&
+                a.published_at !== null,
+            ).length;
+            return ({ published_count } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS settings_count FROM site_settings") >= 0) {
+            const [site_id] = captured as [string];
+            const settings_count = settings.filter(
+              (r) => r.site_id === site_id,
+            ).length;
+            return ({ settings_count } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS pages_count FROM pages") >= 0) {
+            const [site_id] = captured as [string];
+            const pages_count = pages.filter(
+              (p) => p.site_id === site_id,
+            ).length;
+            return ({ pages_count } as unknown) as T;
           }
           return null;
         },
@@ -291,11 +328,53 @@ function makeFakeDb(initialJob: {
               row.status = "failed";
               void error_message;
             }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO site_settings") >= 0) {
+            // rescue-2 T38: create_site_settings 12-key seed tracked so
+            // the smoke step's settings COUNT observes it.
+            const [site_id, key] = captured as [string, string];
+            if (!settings.some((s) => s.site_id === site_id && s.key === key)) {
+              settings.push({ site_id, key });
+            }
+          } else if (
+            sql.indexOf("INSERT INTO site_settings") >= 0 &&
+            sql.indexOf("ON CONFLICT(site_id, key)") >= 0
+          ) {
+            const [site_id, key] = captured as [string, string];
+            if (!settings.some((s) => s.site_id === site_id && s.key === key)) {
+              settings.push({ site_id, key });
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO pages") >= 0) {
+            // generate_about_page — slug 'about' is a SQL literal.
+            const [site_id] = captured as [string];
+            if (!pages.some((p) => p.site_id === site_id && p.slug === "about")) {
+              pages.push({ site_id, slug: "about" });
+            }
+          } else if (
+            sql.indexOf("INSERT INTO pages") >= 0 &&
+            sql.indexOf("ON CONFLICT(site_id, slug)") >= 0
+          ) {
+            const [site_id, slug] = captured as [string, string];
+            if (!pages.some((p) => p.site_id === site_id && p.slug === slug)) {
+              pages.push({ site_id, slug });
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO articles") >= 0) {
+            // starter rows: status='published', published_at omitted —
+            // publish_starter_articles backfills it below.
+            const [site_id, slug] = captured as [string, string];
+            if (!articles.some((a) => a.site_id === site_id && a.slug === slug)) {
+              articles.push({ site_id, slug, status: "published", published_at: null });
+            }
+          } else if (sql.indexOf("UPDATE articles SET status = 'published'") >= 0) {
+            const [site_id] = captured as [string];
+            for (const a of articles) {
+              if (a.site_id === site_id && a.published_at === null) {
+                a.published_at = 1_700_000_000;
+              }
+            }
           }
-          // INSERT OR IGNORE INTO site_settings / pages / articles +
-          // UPDATE site_settings / articles + INSERT INTO site_settings
-          // ON CONFLICT — these are no-op for the runner test (which
-          // only cares that each step's handler returns 'completed').
+          // Remaining UPDATE site_settings / articles shapes stay no-op
+          // for the runner test (which only cares that each step's
+          // handler returns 'completed').
           return { success: true, meta: {} };
         },
         async all<T = unknown>() {

@@ -74,6 +74,15 @@ function makeFakeDb(initial: {
   const pages: PageRow[] = [];
   const settings: SettingRow[] = [];
   const purgeLog: PurgeLogRow[] = [];
+  // rescue-2 T38: starter articles tracked so the run_site_smoke_tests
+  // step's COUNT reads observe the rows generate_15_homepage_articles
+  // actually inserted (and publish_starter_articles finalized).
+  const articles: Array<{
+    site_id: string;
+    slug: string;
+    status: string;
+    published_at: number | null;
+  }> = [];
   // Merge-resolution: mission's AI generators read back inserted ai_generations
   // rows via SELECT idempotency_key (see startGenerationLog in
   // api/src/ai/generation-log.ts). The original mock returned null for those
@@ -132,6 +141,24 @@ function makeFakeDb(initial: {
             const [idempotency_key] = captured as [string];
             return (aiGenerations.get(idempotency_key) ?? null) as unknown as T | null;
           }
+          // rescue-2 T38 smoke-step COUNT reads — answered from tracked state.
+          if (sql.indexOf("SELECT COUNT(*) AS published_count FROM articles") >= 0) {
+            const [site_id] = captured as [string];
+            const published_count = articles.filter(
+              (a) => a.site_id === site_id && a.status === "published" && a.published_at !== null,
+            ).length;
+            return ({ published_count } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS settings_count FROM site_settings") >= 0) {
+            const [site_id] = captured as [string];
+            const settings_count = settings.filter((r) => r.site_id === site_id).length;
+            return ({ settings_count } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS pages_count FROM pages") >= 0) {
+            const [site_id] = captured as [string];
+            const pages_count = pages.filter((p) => p.site_id === site_id).length;
+            return ({ pages_count } as unknown) as T;
+          }
           return null;
         },
         async run() {
@@ -176,6 +203,20 @@ function makeFakeDb(initial: {
           } else if (sql.indexOf("INSERT INTO cache_purge_log") >= 0) {
             const [site_id, hostname, action, status, dry_run] = captured as [string, string, string, string, number];
             purgeLog.push({ site_id, hostname, action, status, dry_run });
+          } else if (sql.indexOf("INSERT OR IGNORE INTO articles") >= 0) {
+            // rescue-2 T38: starter rows land status='published' with
+            // published_at omitted; publish_starter_articles backfills.
+            const [site_id, slug] = captured as [string, string];
+            if (!articles.some((a) => a.site_id === site_id && a.slug === slug)) {
+              articles.push({ site_id, slug, status: "published", published_at: null });
+            }
+          } else if (sql.indexOf("UPDATE articles SET status = 'published'") >= 0) {
+            const [site_id] = captured as [string];
+            for (const a of articles) {
+              if (a.site_id === site_id && a.published_at === null) {
+                a.published_at = 1_700_000_000;
+              }
+            }
           } else if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
             const [id, site_id, task, provider, model, prompt_version, idempotency_key, request_json, target_type, target_id] = captured as [string, string | null, string, string, string, string, string, string | null, string | null, string | null];
             if (!aiGenerations.has(idempotency_key)) {

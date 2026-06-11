@@ -107,10 +107,11 @@ export interface StepHandlerResult {
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
 
 // Deterministic placeholder: the payload is stable across calls so step
-// receipts stay reproducible until the step's owning story (T38-T39)
+// receipts stay reproducible until the step's owning story (T39)
 // swaps in real behavior. T35 replaced the 3 Cloudflare-boundary steps,
-// T36 replaced publish_starter_articles, and T37 replaced
-// warm_homepage_cache with real handlers below.
+// T36 replaced publish_starter_articles, T37 replaced
+// warm_homepage_cache, and T38 replaced run_site_smoke_tests with real
+// handlers below.
 function placeholderResult(step: StepKey): StepHandlerResult {
   const payload = {
     step,
@@ -940,11 +941,109 @@ async function warmHomepageCacheStep(
   return { status: "completed", output };
 }
 
+// T38 — run_site_smoke_tests (step 15).
+// In-process smoke verification of the freshly-provisioned site: four
+// read-only D1 checks, zero fetch in ANY mode (the step never leaves
+// the Worker, so there is nothing to dry-run-gate):
+//   1. sites_row_present          — the sites row still exists;
+//   2. starter_articles_published — >= 1 starter article is publicly
+//      live (status='published' AND published_at set), read back via
+//      the same canonical COUNT publish_starter_articles uses;
+//   3. site_settings_seeded       — the 12-key T19 seed landed
+//      (>= 12 site_settings rows for the site);
+//   4. pages_present              — >= 1 pages row (about/legal).
+// Any failing check fails the step — and therefore the job — with the
+// failing check names in error. The step MUST NOT report success while
+// an expected side-effect table is empty.
+interface SmokeCheck {
+  check: string;
+  pass: boolean;
+  observed: number;
+  expected_min: number;
+}
+
+async function runSiteSmokeTestsStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  const checks: SmokeCheck[] = [
+    { check: "sites_row_present", pass: true, observed: 1, expected_min: 1 },
+  ];
+  const articleRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS published_count FROM articles " +
+        "WHERE site_id = ? AND homepage_section = 'starter' " +
+        "AND status = 'published' AND published_at IS NOT NULL",
+    )
+    .bind(ctx.site_id)
+    .first<{ published_count: number }>();
+  const publishedCount = articleRow?.published_count ?? 0;
+  checks.push({
+    check: "starter_articles_published",
+    pass: publishedCount >= 1,
+    observed: publishedCount,
+    expected_min: 1,
+  });
+  const settingsRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS settings_count FROM site_settings WHERE site_id = ?",
+    )
+    .bind(ctx.site_id)
+    .first<{ settings_count: number }>();
+  const settingsCount = settingsRow?.settings_count ?? 0;
+  checks.push({
+    check: "site_settings_seeded",
+    pass: settingsCount >= 12,
+    observed: settingsCount,
+    expected_min: 12,
+  });
+  const pagesRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS pages_count FROM pages WHERE site_id = ?",
+    )
+    .bind(ctx.site_id)
+    .first<{ pages_count: number }>();
+  const pagesCount = pagesRow?.pages_count ?? 0;
+  checks.push({
+    check: "pages_present",
+    pass: pagesCount >= 1,
+    observed: pagesCount,
+    expected_min: 1,
+  });
+  const failedChecks = checks.filter((c) => !c.pass);
+  const output = JSON.stringify({
+    step: "run_site_smoke_tests",
+    kind: "in_process_smoke",
+    schema_version: 1,
+    site_id: ctx.site_id,
+    checks_run: checks.length,
+    checks_passed: checks.length - failedChecks.length,
+    checks,
+  });
+  if (failedChecks.length > 0) {
+    return {
+      status: "failed",
+      output,
+      error:
+        "smoke checks failed: " +
+        failedChecks.map((c) => c.check).join(", "),
+    };
+  }
+  return { status: "completed", output };
+}
+
 // Placeholder handlers below (placeholderResult) are each owned by a
-// named follow-up story: T38 run_site_smoke_tests, T39
-// update_launch_readiness. T35 replaced the 3 Cloudflare-boundary
-// steps, T36 replaced publish_starter_articles, and T37 replaced
-// warm_homepage_cache with the real handlers above.
+// named follow-up story: T39 update_launch_readiness. T35 replaced the
+// 3 Cloudflare-boundary steps, T36 replaced publish_starter_articles,
+// T37 replaced warm_homepage_cache, and T38 replaced
+// run_site_smoke_tests with the real handlers above.
 export const STEPS: Record<StepKey, StepHandler> = {
   validate_domain_in_cloudflare: validateDomainInCloudflareStep,
   create_site_record: createSiteRecordStep,
@@ -960,7 +1059,7 @@ export const STEPS: Record<StepKey, StepHandler> = {
   generate_or_assign_article_images: generateOrAssignArticleImagesStep,
   publish_starter_articles: publishStarterArticlesStep,
   warm_homepage_cache: warmHomepageCacheStep,
-  run_site_smoke_tests: async () => placeholderResult("run_site_smoke_tests"),
+  run_site_smoke_tests: runSiteSmokeTestsStep,
   update_launch_readiness: async () =>
     placeholderResult("update_launch_readiness"),
 };
