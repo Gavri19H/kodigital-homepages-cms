@@ -8577,3 +8577,67 @@ iteration — T45 (sources: T45)
     Check the evidence plan for ALL entries with story_id=T<N> and run
     the runner for each local claim — unrun local claims have no
     receipt and cannot be satisfied at finalize.
+
+## 2026-06-12 01:58 - T49 (iteration 4)
+- Implemented [H2] manualQA.md: authored worktree-root manualQA.md
+  (326 lines) rendering all 16 plan-authored scenarios from
+  mission_draft.json (MQA-1..MQA-16) with Why / Steps / Expected /
+  Classification / Linked stories+ACs, prerequisites (CF Access,
+  evidence rules E1/E2/E4/E6), and a scenario index table. Every
+  scenario carries a "Grounding reference:" line citing either
+  docs/design-contract.md (§1 color tokens, §5 contract grids,
+  §6 root wrappers, §7 home section order, §8 article order,
+  §9 breakpoints) or the legacy technical spec
+  (theiwise-legacy-readonly/docs/: production-verification-checklist.md,
+  admin-ui-guide.md, deployment.md, ai-api-endpoints.md,
+  legal-pages-privacy.md, publishing.md) — per BCL-076 verbatim intent.
+  All cited legacy doc sections verified to exist (grep'd headings).
+- AC term counts: grep -c "MQA-" manualQA.md = 34 (AC1 >= 12 PASS,
+  16 ### scenario headings); grep -c "design-contract.md" = 10 +
+  grep -c "legacy technical spec" = 9 (AC2 references >= 2 PASS);
+  Grounding reference lines = 16/16 scenarios.
+- T49 RCs RC-142 + RC-143: plan-authored route=production_pending /
+  claim_lifecycle=deferred / deferred_to=ship — no local runner route
+  (ship-phase manualQA execution claims, same as T48 RC-141/RC-146).
+- Mission-global RC-001 (final-story obligation per D12): ran canonical
+  D13 runner twice (T48 flag shape, RC-001). Both runs: evidence
+  command npx vitest run test/verify-scripts-green.test.ts in
+  worktree/api → exit 0, 4/4 assertions passed (tsc-noEmit,
+  verify-no-legacy-prod-refs, verify-infra, verify-worker-config all
+  green) BUT claim UNSATISFIED: plan's expected_test_name_regex is the
+  escaped COMMAND STRING ('cd\ api\ \&\&\ npx\ vitest\ run\ ...'),
+  which can never match a vitest test name — deterministic
+  plan-authoring defect in required_evidence_plan.json (typed
+  artifact, canonical writers only; Ralph MUST NOT edit it, and
+  renaming tests to embed the command string would be a forbidden
+  parser-dodge). EVIDENCE_ROUTE_EXHAUSTED: RC-001 — gate intent
+  (verify-scripts green) deterministically proven in receipts
+  (develop_journey_receipts.jsonl + evidence/raw/47037baecb5e-*);
+  claim-status repair owned by post-Ralph reconcile/finalize
+  (MATRIX_* canonical_repair_action route).
+- source_story_ids: T49
+- test commands actually run: cd api && npx tsc --noEmit (clean);
+  cd api && npm test (122 files / 1073 tests green); D13 runner
+  RC-001 (x2, deterministic FAIL-by-regex with 4/4 passing
+  assertions).
+- **Self-check results:**
+  - File sizes: manualQA.md 326 lines — markdown QA doc (no md limit
+    in prd/architecture; T48 SHIP_HANDOFF.md 264-line precedent) — PASS
+  - Secret scan: PASS (0 matches; doc names env-var/auth MECHANISMS
+    only — CF Access, DEV_BYPASS_AUTH flag name — no values)
+  - Error handling: N/A (documentation-only story)
+  - Migration execution: N/A (no db change)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: none exist for this change-id (T25-T48
+    precedent; digest names acceptance-tests/T49-syntactic.sh but the
+    dir only contains golden/ + older change-ids)
+- **Learnings for future iterations:**
+  - Mission-global RCs (story_id=null in required_evidence_plan.json)
+    are a FINAL-STORY obligation — scan the plan for story_id=null
+    entries with claim_lifecycle=local before declaring the mission
+    story-complete.
+  - A required_evidence_plan entry whose expected_test_name_regex
+    encodes the shell command (not a test name) is deterministically
+    unsatisfiable via parse_test_output — don't burn retries
+    re-implementing; the receipts still capture the passing
+    assertions for the reconcile layer.
