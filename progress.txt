@@ -6142,3 +6142,40 @@ iteration 6 — T15 [C10] ChipRail + Trending dark section (sources: T15)
   - vm.trending bucket (is_trending=1, dedup'd from latest) was already
     built by T12 but §7 still rendered vm.latest — when a view-model
     bucket exists, check the template actually consumes it.
+
+## 2026-06-11 — T16 (iteration 7)
+iteration 7 — T16 [C11] Breakpoint parity (8) (sources: T16)
+- implemented: api/test/design-contract-values.test.ts — added
+  "publicCss pins all 8 contract breakpoints as max-width media queries"
+  (asserts @media (max-width:NNNNpx) for 1280/1080/980/880/800/760/560/480,
+  so a bare pixel value elsewhere in the sheet can never satisfy it).
+  No source change needed: all 8 @media rules already exist in
+  api/src/public/assets/public-css.ts (PART 4, T4 scaffold) and
+  ad-slot+min-height already in api/src/public/templates/public.css.ts.
+- commit: bd929f1 feat: [T16] - [C11] Breakpoint parity (8)
+- test: cd api && npx tsc --noEmit (clean); cd api && npm test
+  (109 files / 897 tests PASS, design-contract-values now 5 tests)
+- D13 runner (RC-046,RC-047,RC-048), run twice, deterministic:
+  - RC-047 PASS (grep -c ad-slot templates/public.css.ts → 6, op >= 1)
+  - RC-048 PASS (grep -c 1280px assets/public-css.ts → 1, op >= 1)
+  - EVIDENCE_ROUTE_EXHAUSTED: RC-046 — SAME plan-baked defect class as
+    RC-024/026/029/030/034/035/041/043: expected_test_name_regex is the
+    shell-escaped COMMAND string (cd\ api\ \&\&\ npx\ vitest\ run\ ...);
+    vitest text parser observes file-level names only — observation
+    "test/design-contract-values.test.ts (5 tests) 1ms" passed:true, all
+    5 tests green, exit 0, yet no test name can match an escaped command
+    line. Underlying evidence green; required_evidence_plan.json repair
+    is orchestrator-owned; not retried further (no retry-storm).
+- Self-check results:
+  - File sizes: design-contract-values.test.ts 59 (limit 200) PASS
+  - Secret scan: PASS (0 matches)
+  - Error handling: N/A (test-only change)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: none exist for T16 (no acceptance-tests/T16-*)
+- Learnings for future iterations:
+  - RC-046 extends the vitest expected_test_name_regex defect roster to
+    9 RCs — every behavioral vitest RC in this plan; the grep-route RCs
+    in the same story pass fine.
+  - T16 was assertion-only: the T4 scaffold already carried the full
+    PART 4 breakpoint set; check existing source before writing CSS.
