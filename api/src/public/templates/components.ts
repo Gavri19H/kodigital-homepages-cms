@@ -152,22 +152,24 @@ export function renderHero(args: HeroArgs): string {
   const href = args.href !== undefined && args.href.length > 0 ? args.href : "";
   const kickerHtml =
     args.kicker !== undefined && args.kicker.length > 0
-      ? `<p class="hero__kicker">${escText(args.kicker)}</p>`
+      ? `<p class="hero-kicker">${escText(args.kicker)}</p>`
       : "";
-  const excerptHtml =
+  const taglineHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
-      ? `<p class="hero__excerpt">${escText(args.excerpt)}</p>`
+      ? `<p class="tagline">${escText(args.excerpt)}</p>`
       : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="1200" height="630" loading="eager" decoding="async"');
+  const img = imgTag(args.imageUrl, args.imageAlt, ' class="hero-bg" width="1200" height="630" loading="eager" decoding="async"');
   const titleNode =
     href.length > 0
-      ? `<a class="hero__title-link" href="${escAttr(href)}"><h1 class="hero__title">${escText(args.title)}</h1></a>`
-      : `<h1 class="hero__title">${escText(args.title)}</h1>`;
+      ? `<a href="${escAttr(href)}"><h1 class="hero-title">${escText(args.title)}</h1></a>`
+      : `<h1 class="hero-title">${escText(args.title)}</h1>`;
   return `<section class="hero" aria-label="Featured story">
   ${img}
-  ${kickerHtml}
-  ${titleNode}
-  ${excerptHtml}
+  <div class="hero-content">
+    ${kickerHtml}
+    ${titleNode}
+    ${taglineHtml}
+  </div>
 </section>`;
 }
 
@@ -193,28 +195,28 @@ export function renderChipRail(args: ChipRailArgs): string {
 
 export function renderCard(args: CardArgs): string {
   const href = args.href.length > 0 ? args.href : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="640" height="360" loading="lazy" decoding="async"');
+  const img = imgTag(args.imageUrl, args.imageAlt, ' class="card-img" width="640" height="360" loading="lazy" decoding="async"');
   const categoryHtml =
     args.categoryName !== undefined && args.categoryName.length > 0
-      ? `<p class="card__category">${escText(args.categoryName)}</p>`
+      ? `<p class="card-cat">${escText(args.categoryName)}</p>`
       : "";
   const metaParts: string[] = [];
   if (args.publishedAt !== undefined && args.publishedAt.length > 0) {
-    metaParts.push(`<time class="card__date">${escText(args.publishedAt)}</time>`);
+    metaParts.push(`<time class="card-date">${escText(args.publishedAt)}</time>`);
   }
   if (args.readMinutes !== undefined && args.readMinutes !== null) {
-    metaParts.push(`<span class="card__read">${escText(String(args.readMinutes))} min read</span>`);
+    metaParts.push(`<span class="card-read">${escText(String(args.readMinutes))} min read</span>`);
   }
-  const metaHtml = metaParts.length > 0 ? `<p class="card__meta">${metaParts.join("")}</p>` : "";
+  const metaHtml = metaParts.length > 0 ? `<p class="card-foot">${metaParts.join("")}</p>` : "";
   const excerptHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
-      ? `<p class="card__excerpt">${escText(args.excerpt)}</p>`
+      ? `<p class="card-excerpt">${escText(args.excerpt)}</p>`
       : "";
   return `<article class="card">
-  <a class="card__link" href="${escAttr(href)}">
+  <a href="${escAttr(href)}">
     ${img}
     ${categoryHtml}
-    <h3 class="card__title">${escText(args.title)}</h3>
+    <h3 class="card-title">${escText(args.title)}</h3>
     ${excerptHtml}
     ${metaHtml}
   </a>

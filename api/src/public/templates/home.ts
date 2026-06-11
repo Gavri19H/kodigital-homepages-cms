@@ -90,10 +90,10 @@ function gridSection(
   emptyLabel: string,
 ): string {
   if (cards.length === 0) {
-    return `<h2 class="home-section__heading">${escText(heading)}</h2><p class="home-section__empty">${escText(emptyLabel)}</p>`;
+    return `<div class="section-head"><h2>${escText(heading)}</h2></div><p class="section-empty">${escText(emptyLabel)}</p>`;
   }
   const items = cards.map((c) => `<li class="home-grid__item">${cardFromVm(c)}</li>`).join("");
-  return `<h2 class="home-section__heading">${escText(heading)}</h2><ul class="home-grid home-grid--${modifier}">${items}</ul>`;
+  return `<div class="section-head"><h2>${escText(heading)}</h2></div><ul class="home-grid home-grid--${modifier}">${items}</ul>`;
 }
 
 export function renderHome(args: RenderHomeArgs): string {
@@ -124,7 +124,7 @@ export function renderHome(args: RenderHomeArgs): string {
         href: hero.href,
         kicker: hero.categoryName.length > 0 ? hero.categoryName : undefined,
       })
-    : `<section class="hero hero--empty" aria-label="Featured story"><h1 class="hero__title">${escText(site.name)}</h1>${site.tagline.length > 0 ? `<p class="hero__excerpt">${escText(site.tagline)}</p>` : ""}</section>`;
+    : `<section class="hero hero--empty" aria-label="Featured story"><div class="hero-content"><h1 class="hero-title">${escText(site.name)}</h1>${site.tagline.length > 0 ? `<p class="tagline">${escText(site.tagline)}</p>` : ""}</div></section>`;
 
   // §3 — chip-rail (categories)
   const chips: CategoryChip[] = vm.categories.map((c) => ({
@@ -151,13 +151,13 @@ export function renderHome(args: RenderHomeArgs): string {
 
   // §8 — category spotlight (each category linked, PART 8 real URLs)
   const s8 = vm.categories.length > 0
-    ? `<h2 class="home-section__heading">Explore by category</h2><ul class="home-categories">${vm.categories
+    ? `<div class="section-head"><h2>Explore by category</h2></div><ul class="home-categories">${vm.categories
         .map(
           (c) =>
             `<li class="home-categories__item"><a class="home-categories__link" href="${escAttr(c.href)}">${escText(c.name)}</a></li>`,
         )
         .join("")}</ul>`
-    : `<p class="home-section__empty">Categories will appear here.</p>`;
+    : `<p class="section-empty">Categories will appear here.</p>`;
 
   // §9 — ad slot, in-feed surface
   const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home" });
