@@ -5279,3 +5279,34 @@ D13 canonical runner result — T1:
   per D12; implementation correctness proven above (all 3 T1 ACs pass
   directly). Plan-entry repair is owned by the canonical Phase-A producer,
   not Ralph.
+
+## 2026-06-11 15:46 - T2
+- What was implemented: [A2] deploy.yml migration anchors — extended the
+  tracked-migration filename anchor list in the production deploy job of
+  .github/workflows/deploy.yml with three lines: 0009_phase7_content_version_and_indexes.sql
+  (exists in api/migrations/ but was missing from the anchor list),
+  0010_phase9_sites_content_mode.sql (lands in T3), and
+  0011_phase9_prompt_presets_model_columns.sql (lands in T21). Filenames for
+  0010/0011 copied verbatim from canonical prd.json target_files (T3/T21).
+- Files changed: .github/workflows/deploy.yml (+3 comment anchor lines)
+- source_story_ids: T2
+- Tests run:
+  - grep -c "0009_phase7_content_version_and_indexes.sql" .github/workflows/deploy.yml -> 1 (AC1 >= 1 PASS)
+  - grep -cE "0010_|0011_" .github/workflows/deploy.yml -> 2 (AC2 >= 2 PASS)
+  - cd api && npx tsc --noEmit -> EXIT=0 (packet exact command)
+  - cd api && npm test -> 106 files / 874 tests, 0 failures (packet exact command)
+  - Evidence runner (D12/D13): RC-005 PASS, RC-006 PASS (parse_grep_count receipts)
+- Self-check results:
+  - File sizes: deploy.yml 175 lines (YAML workflow, no JS/TS limit) - PASS
+  - Secret scan: PASS (0 matches in changed file)
+  - Error handling: N/A (workflow comment anchors, no route handlers)
+  - Migration execution: N/A (no migration file created; anchors only)
+  - Parameterized queries: N/A (no SQL)
+- Learnings for future iterations:
+  - T3 MUST create api/migrations/0010_phase9_sites_content_mode.sql and T21
+    MUST create api/migrations/0011_phase9_prompt_presets_model_columns.sql
+    with EXACTLY these filenames — deploy.yml anchors now reference them.
+  - A PreToolUse security-reminder hook fires on first edit to
+    .github/workflows/*; retrying the identical edit succeeds (it is a
+    warning gate, not a block).
+---
