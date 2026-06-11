@@ -6617,3 +6617,80 @@ owned by reconcile_ralph_execution_prd.py.
     inline scripts need ES5 conversion (const->var, async/await ->
     .then()) to satisfy the es5-inline-scripts rule.
 ---
+
+## 2026-06-11 — T23 ([B2] Shared admin helpers)
+iteration 13 — T23 (sources: T23)
+- implemented: ported the legacy shared admin helpers into the worktree
+  admin module as two new files plus a types spec:
+  - api/src/admin/types.ts (123 lines): ListQueryParams (multi-site
+    adaptation: + site_id?: string — the brief's "adapted only for
+    multi-site"), PaginationMeta / ListResponse / ItemResponse /
+    ErrorResponse, calculatePagination, parsePaginationParams, isValidId,
+    generateSlug, escapeHtml. Legacy semantics preserved verbatim,
+    including parsePaginationParams' `|| 20` falsy fallback (per_page "0"
+    → 20, NOT clamped to 1) and generateSlug's default 100-char cap. One
+    adaptation for this repo's stricter indexed-access typing: escapeHtml
+    map lookup gets `?? char` (tsc error TS2769 otherwise; semantics
+    identical — the regex only matches mapped chars).
+  - api/src/admin/query-filters.ts (32 lines): FilterCondition +
+    buildWhereClause ported from legacy api/src/lib/query-filters.ts
+    (admin-local path per SCTX-075/RC plan). Fixed-literal clause
+    fragments, values via params -> .bind(), '1=1' when no active filter.
+  - api/test/admin-types.test.ts (143 lines, 18 tests): slug legacy
+    semantics (lowercase/trim, non-word strip, hyphen collapse,
+    edge-trim, 100-cap + custom maxLength, underscores/digits kept),
+    pagination math (defaults, offset math, clamps + legacy falsy
+    fallback, non-numeric fallback, calculatePagination totals/flags,
+    empty-set total_pages=1), escapeHtml 5-entity table, isValidId
+    canonical-form rejections ("007", " 7", "1.5", "12abc"...),
+    buildWhereClause importable/callable + AND-join + param flattening.
+- test commands actually run:
+  - cd api && npx vitest run test/admin-types.test.ts → 18 passed (18)
+  - cd api && npm test → 115 files / 957 tests passed
+  - cd api && npx tsc --noEmit → clean
+  - cd api && npm run verify:no-legacy-prod-refs → OK
+  - AC1 greps: escapeHtml/isValidId/generateSlug/parsePaginationParams in
+    api/src/admin/types.ts = 1 each; buildWhereClause in
+    api/src/admin/query-filters.ts = 1
+- D13 runner (verbatim runner_command_rendered, RC-070,RC-071,RC-072):
+  - RC-070 (T23.AC1 grep -c generateSlug api/src/admin/types.ts): PASS
+    (count 1 >= 1, exit 0).
+  - RC-071 + RC-072 (T23.AC2/AC3, npx vitest run
+    test/admin-types.test.ts): receipt status=FAIL on
+    expected_test_name_regex mismatch ONLY — the authored regex is the
+    escaped evidence COMMAND ("cd\ api\ \&\&\ npx\ vitest\ run\
+    test/admin\-types\.test\.ts"), the T21/T22 escaped-regex class. The
+    underlying run is GREEN: exit_code 0, observed_test_names
+    "test/admin-types.test.ts (18 tests)" passed=true.
+EVIDENCE_ROUTE_EXHAUSTED — T23 RC-071 + RC-072: re-implementation cannot
+change an authored expected_test_name_regex in
+required_evidence_plan.json (orchestrator-owned; renaming tests to embed
+a shell-command string would be a mechanism-dodge). The mismatch is
+deterministic — retrying the identical command cannot converge.
+Underlying evidence green in-tree. Proceeding per D12; reconciliation
+owned by reconcile_ralph_execution_prd.py.
+- Self-check results:
+  - File sizes: types.ts 123 (limit 200) PASS; query-filters.ts 32
+    (limit 200) PASS; admin-types.test.ts 143 (limit 200) PASS
+  - Secret scan: PASS (0 matches on all 3 files)
+  - Error handling: N/A (pure helper modules, no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: PASS (grep 'prepare.*${|prepare.*`' → 0
+    matches; buildWhereClause keeps values out of clause strings by
+    contract)
+  - Acceptance tests: none for this change-id (no T23 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - This repo's tsconfig flags unchecked indexed access (legacy
+    Record<string,string> map lookups need `?? fallback`) — port legacy
+    code through `npx tsc --noEmit` before assuming verbatim compiles.
+  - Legacy pagination semantics intentionally use `||` (falsy) defaults:
+    per_page "0" yields the DEFAULT (20), not the min clamp (1). Specs
+    asserting "legacy semantics" must encode the quirk, not the
+    "intuitive" clamp (D1 rule "?? vs ||" is about NEW code, not ports).
+  - The legacy shared admin helpers live at theiwise-legacy-readonly
+    api/src/admin/types.ts + api/src/lib/query-filters.ts
+    (/Users/guyhaikov/Projects/kodigital/theiwise-legacy-readonly);
+    B3-B12 ports should import from src/admin/types + src/admin/query-filters
+    instead of re-declaring per-file escapeHtml copies.
+---
