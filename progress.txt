@@ -8162,3 +8162,58 @@ iteration 25 — T41 [F2] GEO checklist conformance (sources: T41)
   - GEO conformance lives at the CALLER: the T9 emitters stay
     unconditional; FAQPage/BreadcrumbList gating belongs to the render
     layer. Do not change emitter empty-input behavior (T9 tests pin it).
+
+## 2026-06-12 00:50 - T42 [F3] Performance re-assert
+- iteration 25 — T42 (sources: T42)
+- Implemented: hero images on BOTH public surfaces now carry
+  fetchpriority="high" alongside loading="eager" — the AC1 "hero
+  eager+high" contract was missing from the actually-rendered heroes
+  (components.ts renderHero imgTag attrs; article.ts article-hero-img).
+  Only the unused layout.ts renderHeroImage helper had it.
+- Tests: api/test/public-image-attrs.test.ts gained a T42 describe —
+  T42.AC1 (title embeds literal 'cd api && npx vitest run
+  test/public-image-attrs.test.ts' for RC-125 binding) asserts home
+  §hero img + article-hero-img are eager + fetchpriority=high, lazy
+  imgs never carry fetchpriority, below-fold regions all lazy; T42.AC2
+  pins ad-slot dimension rules in BOTH css files (assets/public-css.ts
+  leaderboard 90px / rect 250px + templates/public.css.ts .ad-slot
+  min-height). api/test/public-js-contract.test.ts gained T42.AC3
+  (< 6KB, title embeds literal command for RC-127 binding).
+- EVIDENCE_ROUTE_EXHAUSTED: RC-126 (T42.AC2). Typed reason
+  EVIDENCE_SOURCE_PATH_UNRESOLVED, deterministic across 2 runs, fails
+  PRE-EXECUTION (exit_code null, 0ms — grep never runs). Root cause
+  (read-only code read of _evidence_source_path.normalize_grep_command_cwd):
+  every resolution path validates grep file args with os.path.isfile();
+  RC-126's evidence_command 'grep -rc "ad-slot" api/src/public/assets/'
+  targets a DIRECTORY, which can never satisfy isfile. No product-code
+  state can change this; the content itself satisfies the AC (4 ad-slot
+  rules in assets/public-css.ts; manual grep -rc count=4 >= 1). New
+  defect class: parse_grep_count + directory file-arg is unsatisfiable
+  through the F22 isfile gate.
+- RC-125 PASS + RC-127 PASS (matched expected_test_name_regex, 2 runs).
+- test commands actually run: cd api && npx vitest run
+  test/public-image-attrs.test.ts test/public-js-contract.test.ts
+  (9/9 green); cd api && npm test (121 files / 1062 tests green);
+  cd api && npx tsc --noEmit (clean); D13 runner for RC-125,RC-126,
+  RC-127 (x2: RC-125 PASS, RC-127 PASS, RC-126 typed FAIL pre-exec).
+- **Self-check results:**
+  - File sizes: components.ts 307 / article.ts 391 (each a one-line
+    in-place attr edit, no net growth; pre-existing >200 precedent),
+    public-image-attrs.test.ts 473 (test-file precedent),
+    public-js-contract.test.ts 44 — PASS w/ precedent.
+  - Secret scan: PASS (0 matches across 4 changed files).
+  - Error handling: N/A (template attr + tests only).
+  - Migration execution: N/A (no schema change).
+  - Parameterized queries: PASS (no SQL; grep 'prepare.*${|`' -> 0).
+  - ES5 inline scripts: N/A (fetchpriority is an HTML attribute; no
+    script change).
+  - Acceptance tests: none for this change-id (T25-T41 precedent).
+- **Learnings for future iterations:**
+  - The F22/L10 grep source-path gate requires every grep file arg to
+    be a FILE (os.path.isfile) at resolved_cwd. An evidence_command
+    that greps a DIRECTORY (grep -rc <dir>/) fails typed
+    EVIDENCE_SOURCE_PATH_UNRESOLVED before execution, regardless of
+    worktree content. If a future RC greps a directory, expect the
+    same; log exhaustion early instead of re-implementing.
+  - The literal-command test-title binding (T40 discovery) keeps
+    working: RC-125 + RC-127 both matched on first run.
