@@ -6694,3 +6694,55 @@ owned by reconcile_ralph_execution_prd.py.
     B3-B12 ports should import from src/admin/types + src/admin/query-filters
     instead of re-declaring per-file escapeHtml copies.
 ---
+
+## 2026-06-11 ~16:57Z - T24 (iteration 13)
+iteration 13 — T24 [B3] Dashboard port (sources: T24)
+- NOTE: iteration banner said CURRENT STORY T23, but execution PRD showed
+  T23 already passes=true/implemented (commit e393b78) — skipped per the
+  skip-already-implemented rule; picked next planned story T24.
+- implemented: api/src/admin/templates/dashboard.ts — legacy admin port
+  (theiwise-legacy-readonly api/src/admin/templates/dashboard.ts) adapted
+  for multi-site: 7-card stats-grid retained (incl. Sites card); Recent
+  Articles table ported to legacy shape (title link to editor,
+  badge-${status} modifier classes, Last Updated col, table-actions Edit
+  button, View All Articles below table, legacy empty-state div w/ svg +
+  Create Your First Article) with the multi-site Site column retained;
+  Quick Actions ported to legacy set (+ New Article, + New Page, Upload
+  Media, Settings) with multi-site "+ New Site" retained first; local
+  escapeHtml dropped in favor of the T23 shared helper from ../types
+  (mirrors legacy's `import { escapeHtml } from '../types'`).
+- test: cd api && npx vitest run test/admin-dashboard-template.test.ts
+  (1 passed); cd api && npx tsc --noEmit (clean); cd api && npm test
+  (115 files / 957 tests passed)
+- D13 runner: RC-073 PASS (grep -c stat-card = 1 >= 1).
+EVIDENCE_ROUTE_EXHAUSTED — T24 RC-074: escaped-regex class (same as
+T21/T22). Receipt shows exit_code 0, observed_test_names
+'test/admin-dashboard-template.test.ts (1 test)' passed=true, but
+expected_test_name_regex was authored as the escaped evidence COMMAND
+('cd\ api\ \&\&\ npx\ vitest\ run\ ...') — no test name can match it;
+required_evidence_plan.json is orchestrator-owned and renaming the test
+would violate the typed-contract test-name regex
+'^dashboardPage renders stats-grid with sites stat$' (mechanism-dodge).
+Deterministic mismatch — retries cannot converge; flagged immediately
+per the documented T21/T22 precedent instead of burning re-implement
+retries. Underlying evidence green in-tree. Reconciliation owned by
+reconcile_ralph_execution_prd.py.
+- Self-check results:
+  - File sizes: dashboard.ts 124 lines (limit 200) — PASS
+  - Secret scan: PASS (0 matches)
+  - Error handling: N/A (template module, no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: PASS (no SQL in changed file)
+  - Acceptance tests: none for this change-id (no T24 scripts under
+    acceptance-tests/)
+- Learnings for future iterations:
+  - The escaped-regex RC class now confirmed on a THIRD story (T21, T22,
+    T24) — every parse_test_output RC in this mission's plan appears to
+    carry the escaped command as expected_test_name_regex; expect the
+    same on remaining B-stories and flag immediately with receipt
+    evidence (exit 0 + observed passing) rather than retrying.
+  - Dashboard port pattern for remaining B-stories: keep worktree
+    multi-site adaptations (extra Site column / "+ New Site") while
+    porting legacy DOM shape verbatim; data layer pre-formats dates
+    (data.ts fmtDate) so do NOT port legacy template-side formatDate.
+---
