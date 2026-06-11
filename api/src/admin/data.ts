@@ -75,6 +75,7 @@ interface PageListRecord {
 interface PageRecord extends PageListRecord {
   content_json: string;
   content_html: string | null;
+  display_order: number;
   seo_title: string | null;
   seo_description: string | null;
 }
@@ -205,6 +206,7 @@ export interface PageFormDto {
   page_type: string;
   status: string;
   show_in_footer: boolean;
+  display_order: number;
   content_json: string;
   content_html: string;
   seo_title: string;
@@ -480,7 +482,7 @@ export async function getAdminPage(
   id: number,
 ): Promise<PageFormDto | null> {
   const row = await env.DB.prepare(
-    "SELECT id, title, slug, site_id, page_type, status, show_in_footer, content_json, content_html, seo_title, seo_description, updated_at FROM pages WHERE id = ? LIMIT 1",
+    "SELECT id, title, slug, site_id, page_type, status, show_in_footer, display_order, content_json, content_html, seo_title, seo_description, updated_at FROM pages WHERE id = ? LIMIT 1",
   )
     .bind(id)
     .first<PageRecord>();
@@ -493,6 +495,7 @@ export async function getAdminPage(
     page_type: row.page_type,
     status: row.status,
     show_in_footer: row.show_in_footer === 1,
+    display_order: row.display_order,
     content_json: row.content_json,
     content_html: row.content_html ?? "",
     seo_title: row.seo_title ?? "",

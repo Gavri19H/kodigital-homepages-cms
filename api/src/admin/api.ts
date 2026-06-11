@@ -23,6 +23,11 @@ import {
 import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
 import {
+  createPageHandler,
+  updatePageHandler,
+  deletePageHandler,
+} from "./pages-crud-handlers";
+import {
   TenantBoundaryViolation,
   assertSlugUniquePerSite,
   assertTenantBoundary,
@@ -217,6 +222,14 @@ api.get("/api/admin/pages", async (c) => {
   ).all<PageRow>();
   return c.json({ pages: result.results ?? [] });
 });
+
+// T29 ([B8] Pages port + CRUD): the write verbs the ported Pages UI
+// calls (pageFormPage submit script POSTs /api/admin/pages, PATCHes
+// /api/admin/pages/:id; the list's Delete row action DELETEs
+// /api/admin/pages/:id). Handlers live in ./pages-crud-handlers.ts.
+api.post("/api/admin/pages", createPageHandler);
+api.patch("/api/admin/pages/:id", updatePageHandler);
+api.delete("/api/admin/pages/:id", deletePageHandler);
 
 api.get("/api/admin/categories", async (c) => {
   const result = await c.env.DB.prepare(

@@ -56,6 +56,7 @@ export interface PageFormValues {
   page_type?: string;
   status?: string;
   show_in_footer?: boolean | number;
+  display_order?: number;
   content_json?: string;
   content_html?: string;
   seo_title?: string;
@@ -173,7 +174,10 @@ function renderPageRow(p: PageListEntry): string {
   <td><span class="badge">${status}</span></td>
   <td>${footer}</td>
   <td>${updated}</td>
-  <td><a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a></td>
+  <td>
+    <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
+    <button type="button" class="btn btn-danger btn-sm" data-delete-page="${id}" data-page-title="${title}">Delete</button>
+  </td>
 </tr>`;
 }
 
@@ -199,6 +203,34 @@ function renderPagesTable(pages: ReadonlyArray<PageListEntry>): string {
 </div>`;
 }
 
+// T29: Delete row action — port of the legacy deletePage flow using the
+// layout's confirmDelete/api/showToast globals (articles-list parity).
+// ES5 only (var, .then(), no template literals).
+const PAGES_LIST_SCRIPT = `
+(function () {
+  function onDeleteClick() {
+    var id = this.getAttribute('data-delete-page');
+    var title = this.getAttribute('data-page-title') || 'this page';
+    if (!id) { return; }
+    if (!window.confirmDelete('Are you sure you want to delete "' + title + '"?')) { return; }
+    window.api('DELETE', '/api/admin/pages/' + id).then(function (data) {
+      if (data && data.error) {
+        window.showToast('Error: ' + data.error, 'error');
+      } else {
+        window.location.reload();
+      }
+    }).catch(function () {
+      window.showToast('Error: Failed to delete page', 'error');
+    });
+  }
+  var deleteButtons = document.querySelectorAll('button[data-delete-page]');
+  var i;
+  for (i = 0; i < deleteButtons.length; i++) {
+    deleteButtons[i].addEventListener('click', onDeleteClick);
+  }
+}());
+`;
+
 export function pagesListPage(
   pages: ReadonlyArray<PageListEntry>,
   sites: ReadonlyArray<SiteOption>,
@@ -210,6 +242,7 @@ export function pagesListPage(
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
+    scripts: PAGES_LIST_SCRIPT,
   });
 }
 
@@ -265,6 +298,10 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
     </div>
     <div class="form-group">
       <label for="page-show-in-footer" class="form-label"><input id="page-show-in-footer" name="show_in_footer" type="checkbox" value="1"${boolAttr(p.show_in_footer)} /> Show in footer</label>
+    </div>
+    <div class="form-group">
+      <label for="page-display-order" class="form-label">Display Order</label>
+      <input id="page-display-order" name="display_order" type="number" class="form-input" value="${escapeHtml(p.display_order ?? 0)}" min="0" />
     </div>
     <div class="form-group">
       <label for="page-content" class="form-label">Content (block JSON)</label>
@@ -351,6 +388,7 @@ const PAGE_FORM_SCRIPT = `
       page_type: fd.get('page_type') || 'generic',
       status: fd.get('status') || 'draft',
       show_in_footer: fd.get('show_in_footer') ? 1 : 0,
+      display_order: parseInt(fd.get('display_order'), 10) || 0,
       content_json: fd.get('content_json') || '',
       seo_title: fd.get('seo_title') || '',
       seo_description: fd.get('seo_description') || ''
