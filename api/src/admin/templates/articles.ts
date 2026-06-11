@@ -13,9 +13,17 @@
 // inline script (T26.AC3): with no site selected, submit is blocked
 // (stopImmediatePropagation), the aria-live="polite" status region reads
 // "Site is required", the Site select takes focus, and no request fires.
+// The form page also mounts the AI assistant panel (T28 [B8], ./ai-panel)
+// below the form — preset select fed by GET /api/admin/ai/presets, generate
+// actions on POST /api/admin/ai/chat and /api/admin/ai/image.
 
 import { adminLayout } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
+import {
+  aiAssistantScripts,
+  aiAssistantStyles,
+  renderAIAssistantPanel,
+} from "./ai-panel";
 
 export interface SiteOption {
   id: string;
@@ -500,12 +508,13 @@ export function articleFormPage(
 ): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const title = isEdit ? "Edit Article" : "New Article";
-  const content = renderArticleForm(article, sites, categories);
+  const content = renderArticleForm(article, sites, categories) + renderAIAssistantPanel();
   return adminLayout({
     title,
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
-    scripts: editorScripts() + ARTICLE_FORM_SCRIPT,
+    styles: aiAssistantStyles,
+    scripts: editorScripts() + ARTICLE_FORM_SCRIPT + aiAssistantScripts,
   });
 }
