@@ -5564,3 +5564,54 @@ iteration — T7 (sources: T7)
   - Contract §2 pins article body copy (1.125rem) and article H2 (1.75rem)
     as literals that intentionally DIVERGE from the fs tokens — don't
     "simplify" them back to var(--tw-fs-*).
+
+## 2026-06-11 16:45 - T8 ([C3] Contract grids)
+- What was implemented: section-5 "Contract grids" of docs/design-contract.md
+  applied to api/src/public/assets/public-css.ts — .article-shell
+  grid-template-columns: 60px minmax(0, 1fr) 320px with gap clamp(24px, 4vw,
+  56px) + align-items: start; .featured .grid 2fr→1.4fr 1fr 1fr; .picks-grid
+  2fr→1.4fr 1fr; .site-footer .grid-4 → 1.4fr 1fr 1fr 1fr; .trending-section
+  .grid → repeat(5, 1fr) (forward-looking selector; home DOM adopts it in
+  T10/T11/T15); shell responsive overrides per contract section 5 (1080px:
+  .share-rail display none !important; 800px: 1fr + .article-sidebar order 2).
+  article.ts data-grid record updated 64px→60px so the rendered shell records
+  the true contract. .story-row img height 64px → aspect-ratio: 11 / 8 at
+  width 88px (same proportions; contract pins no story-row img size — value
+  was an unpinned scaffold literal that AC1's "64px = 0" requires gone).
+  Newsletter "1fr 1fr" grid row of section 5 deliberately deferred: today's
+  newsletter DOM (BEM newsletter__* children stacked in one column) would be
+  visually broken by a 2-col grid; the story that restructures newsletter DOM
+  (T11/T16) applies it.
+- Files changed: api/src/public/assets/public-css.ts,
+  api/src/public/templates/article.ts
+- AC verification (direct, pre-runner):
+  - T8.AC1: grep -c "grid-template-columns: 60px minmax" public-css.ts = 1;
+    grep -c "gap: clamp(24px, 4vw, 56px)" = 1; grep -c "64px" = 0 (also 0 in
+    article.ts) — PASS
+  - T8.AC2: grep -c "1.4fr 1fr 1fr" = 2 (featured + footer); grep -c "2fr"
+    = 0 — PASS
+  - T8.AC3: cd api && npx vitest run test/public-templates-article.test.ts —
+    7/7 passed, exit 0 — PASS
+- Tests run: cd api && npx vitest run test/public-templates-article.test.ts
+  (7/7); cd api && npm test (107 files, 880/880 passed); cd api && npx tsc
+  --noEmit (clean)
+- source_story_ids: T8 (canonical C3)
+- Self-check results:
+  - File sizes: public-css.ts 251 lines (CSS template module, pre-existing
+    count, values-only edit +4 lines); article.ts 371 (pre-existing count,
+    one-line value edit) — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: N/A (no route handlers)
+  - Migration execution: N/A (no db changes)
+  - Parameterized queries: N/A (no SQL)
+  - Acceptance tests: no T8-*.sh scripts — legacy fallback manual AC verify above
+- Learnings for future iterations:
+  - article.ts records the shell grid literally in data-grid on
+    .article-shell — any change to the shell columns in public-css.ts MUST
+    update that attribute too or the rendered HTML records a stale contract.
+  - Stylesheet selectors .featured .grid / .picks-grid / .trending-section
+    .grid / .site-footer .grid-4 are forward-looking: current templates still
+    emit BEM (home-grid--*, site-footer__inner) until T10/T11; value edits in
+    public-css.ts cannot regress current rendering.
+  - Contract section-5 newsletter "1fr 1fr" needs the newsletter DOM
+    restructure first — apply it with T11/T16, not before.
