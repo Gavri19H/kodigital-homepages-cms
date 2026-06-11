@@ -5615,3 +5615,14 @@ iteration — T7 (sources: T7)
     public-css.ts cannot regress current rendering.
   - Contract section-5 newsletter "1fr 1fr" needs the newsletter DOM
     restructure first — apply it with T11/T16, not before.
+- Evidence runner (T8): RC-021 PASS (grep_count 1 >= 1), RC-022 PASS
+  (grep_count 2 >= 1) — deterministic receipts emitted.
+- EVIDENCE_ROUTE_EXHAUSTED: RC-023 — same plan-baked defect class as RC-017:
+  expected_test_name_regex is the shell-escaped COMMAND string
+  ("cd\ api\ \&\&\ npx\ vitest\ run\ test/public\-templates\-article\.test\.ts"),
+  not a test-name pattern; the vitest text parser observes file-level names
+  only, so no legitimate test name can match (renaming a test to a command
+  string would be a parser dodge). The underlying run inside the receipt is
+  green: exit 0, "test/public-templates-article.test.ts (7 tests)" all
+  passed — T8.AC3 itself is proven PASS. Implementation-invariant;
+  required_evidence_plan.json repair is orchestrator-owned.
