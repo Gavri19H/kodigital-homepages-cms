@@ -17,6 +17,12 @@
 // (handler in ./ai-logo). It reuses the T8 logo generator
 // (generateLogoImage) and writes the resulting media id to
 // site_settings.logo_media_id for the posted site_id only.
+//
+// T21 [E4]: presets CRUD — the 6 legacy route patterns
+// (GET/POST /api/admin/ai/presets, GET/PUT/DELETE /api/admin/ai/presets/:id,
+// POST /api/admin/ai/presets/:id/use). Handlers in ./ai-presets (reads) and
+// ./ai-presets-write (writes); POST/PUT reject models outside the
+// SUPPORTED_*_MODELS registry lists with 400.
 
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -30,6 +36,8 @@ import {
 } from "../ai/generation-log";
 import { handleAdminAiImage, IMAGE_BODY_LIMIT_BYTES } from "./ai-image";
 import { handleAdminAiLogo } from "./ai-logo";
+import { getPreset, listPresets, usePreset } from "./ai-presets";
+import { createPreset, deletePreset, updatePreset } from "./ai-presets-write";
 
 interface ChatBody {
   prompt?: string;
@@ -130,5 +138,13 @@ aiApi.post(
   bodyLimit({ maxSize: IMAGE_BODY_LIMIT_BYTES }),
   handleAdminAiLogo,
 );
+
+// T21 [E4]: presets CRUD route patterns (6).
+aiApi.get("/api/admin/ai/presets", listPresets);
+aiApi.post("/api/admin/ai/presets", createPreset);
+aiApi.get("/api/admin/ai/presets/:id", getPreset);
+aiApi.put("/api/admin/ai/presets/:id", updatePreset);
+aiApi.delete("/api/admin/ai/presets/:id", deletePreset);
+aiApi.post("/api/admin/ai/presets/:id/use", usePreset);
 
 export default aiApi;
