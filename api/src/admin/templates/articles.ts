@@ -1,5 +1,11 @@
-// Admin Articles templates.
+// Admin Articles templates (legacy admin port, multi-site adapted).
 // articlesListPage  — 8-column table + 8 filter controls + toolbar New button.
+//   Toolbar search is a GET form (legacy semantics); the Site filter uses
+//   the site_id wire name so it drives the ?site_id= query the /admin/
+//   articles handler resolves. Row actions: Edit link to the editor and a
+//   Delete button wired to DELETE /api/admin/articles/:id (legacy
+//   deleteArticle flow via the layout's confirmDelete/api/showToast
+//   globals).
 // articleFormPage  — site-required form with homepage fields + SEO fields.
 // New-mode submits POST /api/admin/articles; edit-mode submits PATCH
 // /api/admin/articles/:id. Form posts JSON via fetch().
@@ -61,6 +67,20 @@ export interface ArticlesBranding {
   userEmail?: string;
 }
 
+// Active list-filter state (URL query params) so selects render their
+// selected option after a filter-driven reload. site_id is the wire name
+// for the per-site filter (?site_id=) the admin UI handler resolves.
+export interface ArticleListFilters {
+  site_id?: string;
+  search?: string;
+  vertical?: string;
+  category?: string;
+  status?: string;
+  featured?: string;
+  trending?: string;
+  published?: string;
+}
+
 const HOMEPAGE_SECTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "", label: "— None —" },
   { value: "hero", label: "Hero" },
@@ -99,12 +119,18 @@ function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string, 
   return blank + opts;
 }
 
-function renderVerticalOptions(verticals: ReadonlyArray<VerticalOption>): string {
+function renderVerticalOptions(verticals: ReadonlyArray<VerticalOption>, selected?: string): string {
   const blank = `<option value="">All verticals</option>`;
   const opts = verticals.map((v) => {
-    return `<option value="${escapeHtml(v.slug)}">${escapeHtml(v.label ?? v.slug)}</option>`;
+    return `<option value="${escapeHtml(v.slug)}"${selectedAttr(selected, v.slug)}>${escapeHtml(v.label ?? v.slug)}</option>`;
   }).join("");
   return blank + opts;
+}
+
+function binaryFilterOptions(selected: string | undefined, anyLabel: string, onLabel: string, offLabel: string): string {
+  return `<option value="">${escapeHtml(anyLabel)}</option>` +
+    `<option value="1"${selectedAttr(selected, "1")}>${escapeHtml(onLabel)}</option>` +
+    `<option value="0"${selectedAttr(selected, "0")}>${escapeHtml(offLabel)}</option>`;
 }
 
 function renderCategoryOptions(categories: ReadonlyArray<CategoryOption>, selected?: string, includeBlank?: boolean): string {
@@ -130,17 +156,22 @@ function renderHomepageSectionOptions(selected?: string | null): string {
   }).join("");
 }
 
-function renderToolbar(sites: ReadonlyArray<SiteOption>, verticals: ReadonlyArray<VerticalOption>, categories: ReadonlyArray<CategoryOption>): string {
+function renderToolbar(sites: ReadonlyArray<SiteOption>, verticals: ReadonlyArray<VerticalOption>, categories: ReadonlyArray<CategoryOption>, filters: ArticleListFilters): string {
   return `<div class="toolbar">
-  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search articles..." /></div>
+  <div class="toolbar-search">
+    <form method="get" action="/admin/articles">
+      <input type="search" name="search" class="form-input" placeholder="Search articles..." value="${escapeHtml(filters.search ?? "")}" />
+      <button type="submit" class="btn btn-secondary">Search</button>
+    </form>
+  </div>
   <div class="toolbar-filters">
-    <select name="site" class="form-select" aria-label="Site filter">${renderSiteOptions(sites, undefined, true)}</select>
-    <select name="vertical" class="form-select" aria-label="Vertical filter">${renderVerticalOptions(verticals)}</select>
-    <select name="category" class="form-select" aria-label="Category filter">${renderCategoryOptions(categories, undefined, true)}</select>
-    <select name="status" class="form-select" aria-label="Status filter">${renderStatusOptions(undefined, true)}</select>
-    <select name="featured" class="form-select" aria-label="Featured filter"><option value="">Any featured</option><option value="1">Featured only</option><option value="0">Not featured</option></select>
-    <select name="trending" class="form-select" aria-label="Trending filter"><option value="">Any trending</option><option value="1">Trending only</option><option value="0">Not trending</option></select>
-    <select name="published" class="form-select" aria-label="Published filter"><option value="">Any published</option><option value="1">Has published_at</option><option value="0">No published_at</option></select>
+    <select name="site_id" class="form-select" aria-label="Site filter">${renderSiteOptions(sites, filters.site_id, true)}</select>
+    <select name="vertical" class="form-select" aria-label="Vertical filter">${renderVerticalOptions(verticals, filters.vertical)}</select>
+    <select name="category" class="form-select" aria-label="Category filter">${renderCategoryOptions(categories, filters.category, true)}</select>
+    <select name="status" class="form-select" aria-label="Status filter">${renderStatusOptions(filters.status, true)}</select>
+    <select name="featured" class="form-select" aria-label="Featured filter">${binaryFilterOptions(filters.featured, "Any featured", "Featured only", "Not featured")}</select>
+    <select name="trending" class="form-select" aria-label="Trending filter">${binaryFilterOptions(filters.trending, "Any trending", "Trending only", "Not trending")}</select>
+    <select name="published" class="form-select" aria-label="Published filter">${binaryFilterOptions(filters.published, "Any published", "Has published_at", "No published_at")}</select>
   </div>
   <a href="/admin/articles/new" class="btn btn-primary">+ New Article</a>
 </div>`;
@@ -149,6 +180,7 @@ function renderToolbar(sites: ReadonlyArray<SiteOption>, verticals: ReadonlyArra
 function renderArticleRow(a: ArticleListEntry): string {
   const id = escapeHtml(a.id ?? "");
   const title = escapeHtml(a.title);
+  const slug = escapeHtml(a.slug ?? "");
   const site = escapeHtml(a.site ?? a.site_id ?? "");
   const category = escapeHtml(a.category ?? "");
   const status = escapeHtml(a.status ?? "draft");
@@ -157,21 +189,37 @@ function renderArticleRow(a: ArticleListEntry): string {
   const updated = escapeHtml(a.updated_at ?? "");
   const editHref = id ? `/admin/articles/${id}/edit` : "/admin/articles";
   return `<tr data-article-id="${id}">
-  <td>${title}</td>
+  <td>
+    <a href="${editHref}" class="article-title-link">${title}</a>
+    <br /><small class="article-slug">/${slug}</small>
+  </td>
   <td>${site}</td>
   <td>${category}</td>
-  <td><span class="badge">${status}</span></td>
+  <td><span class="badge badge-${status}">${status}</span></td>
   <td>${homepage}</td>
   <td>${published}</td>
   <td>${updated}</td>
-  <td><a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a></td>
+  <td class="table-actions">
+    <a href="${editHref}" class="btn btn-secondary btn-sm">Edit</a>
+    <button type="button" class="btn btn-danger btn-sm" data-delete-article="${id}" data-article-title="${title}">Delete</button>
+  </td>
 </tr>`;
 }
 
 function renderArticlesTable(articles: ReadonlyArray<ArticleListEntry>): string {
-  const rows = articles.length === 0
-    ? `<tr><td colspan="8" class="empty-state">No articles yet</td></tr>`
-    : articles.map(renderArticleRow).join("");
+  if (articles.length === 0) {
+    return `<div class="card">
+  <div class="empty-state">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+      <polyline points="14 2 14 8 20 8"></polyline>
+    </svg>
+    <p>No articles found</p>
+    <a href="/admin/articles/new" class="btn btn-primary">Create Your First Article</a>
+  </div>
+</div>`;
+  }
+  const rows = articles.map(renderArticleRow).join("");
   return `<div class="card">
   <div class="table-wrapper">
     <table class="table articles-list" aria-label="Articles list">
@@ -191,19 +239,87 @@ function renderArticlesTable(articles: ReadonlyArray<ArticleListEntry>): string 
 </div>`;
 }
 
+const ARTICLES_LIST_STYLES = `
+.toolbar-search form{display:flex;gap:8px}
+.article-title-link{font-weight:500}
+.article-slug{color:var(--c-muted)}
+`;
+
+// ES5 only (var, .then(), no template literals). Filter selects rewrite
+// the URL query param matching their name (?site_id= for the Site
+// filter); the search GET form carries the active site_id along via a
+// hidden input; Delete row actions run the legacy confirmDelete ->
+// DELETE /api/admin/articles/:id -> reload flow using the layout's
+// api()/showToast globals.
+const ARTICLES_LIST_SCRIPT = `
+(function () {
+  function applyFilter(select) {
+    var url = new URL(window.location.href);
+    if (select.value) {
+      url.searchParams.set(select.name, select.value);
+    } else {
+      url.searchParams.delete(select.name);
+    }
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
+  }
+  var filterSelects = document.querySelectorAll('.toolbar-filters select');
+  var i;
+  for (i = 0; i < filterSelects.length; i++) {
+    filterSelects[i].addEventListener('change', function () {
+      applyFilter(this);
+    });
+  }
+  var searchForm = document.querySelector('.toolbar-search form');
+  var siteSelect = document.querySelector('select[name=site_id]');
+  if (searchForm && siteSelect) {
+    searchForm.addEventListener('submit', function () {
+      if (!siteSelect.value) { return; }
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'site_id';
+      hidden.value = siteSelect.value;
+      searchForm.appendChild(hidden);
+    });
+  }
+  function onDeleteClick() {
+    var id = this.getAttribute('data-delete-article');
+    var title = this.getAttribute('data-article-title') || 'this article';
+    if (!id) { return; }
+    if (!window.confirmDelete('Are you sure you want to delete "' + title + '"?')) { return; }
+    window.api('DELETE', '/api/admin/articles/' + id).then(function (data) {
+      if (data && data.error) {
+        window.showToast('Error: ' + data.error, 'error');
+      } else {
+        window.location.reload();
+      }
+    }).catch(function () {
+      window.showToast('Error: Failed to delete article', 'error');
+    });
+  }
+  var deleteButtons = document.querySelectorAll('button[data-delete-article]');
+  for (i = 0; i < deleteButtons.length; i++) {
+    deleteButtons[i].addEventListener('click', onDeleteClick);
+  }
+}());
+`;
+
 export function articlesListPage(
   articles: ReadonlyArray<ArticleListEntry>,
   sites: ReadonlyArray<SiteOption>,
   verticals: ReadonlyArray<VerticalOption>,
   categories: ReadonlyArray<CategoryOption>,
   branding: ArticlesBranding = {},
+  filters: ArticleListFilters = {},
 ): string {
-  const content = `${renderToolbar(sites, verticals, categories)}${renderArticlesTable(articles)}`;
+  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles)}`;
   return adminLayout({
     title: "Articles",
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
+    styles: ARTICLES_LIST_STYLES,
+    scripts: ARTICLES_LIST_SCRIPT,
   });
 }
 

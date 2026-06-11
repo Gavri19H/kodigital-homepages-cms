@@ -102,8 +102,21 @@ adminUi.get('/admin/articles', async (c) => {
   const articles = siteId !== null
     ? await data.listArticlesForSite(c.env, siteId)
     : await data.listAdminArticles(c.env);
+  // Active filter state round-trips into the toolbar so selects render
+  // their selected option after a filter-driven reload (?site_id= is the
+  // wire name resolveSiteId consumes; the rest are URL params the
+  // toolbar script maintains).
   return c.html(
-    articlesListPage(articles, sites, verticals, categories, branding(c)),
+    articlesListPage(articles, sites, verticals, categories, branding(c), {
+      site_id: siteId ?? undefined,
+      search: c.req.query('search'),
+      vertical: c.req.query('vertical'),
+      category: c.req.query('category'),
+      status: c.req.query('status'),
+      featured: c.req.query('featured'),
+      trending: c.req.query('trending'),
+      published: c.req.query('published'),
+    }),
   );
 });
 

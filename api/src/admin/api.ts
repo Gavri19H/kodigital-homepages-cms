@@ -184,6 +184,33 @@ api.post("/api/admin/articles", async (c) => {
   return c.json({ article: row }, 201);
 });
 
+// T25 ([B4] Articles list port): DELETE /api/admin/articles/:id — the
+// registered target of the list page's Delete row action (legacy
+// deleteArticle flow). 400 invalid id, 404 unknown article, 200 with
+// { ok, id } after the parameterized DELETE.
+api.delete("/api/admin/articles/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid id" }, 400);
+  }
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM articles WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<{ id: number }>();
+  if (existing === null || existing === undefined) {
+    return c.json({ error: "Not Found" }, 404);
+  }
+  try {
+    await c.env.DB.prepare("DELETE FROM articles WHERE id = ?")
+      .bind(id)
+      .run();
+  } catch (err) {
+    return c.json({ error: (err as Error).message || "Delete failed" }, 500);
+  }
+  return c.json({ ok: true, id });
+});
+
 api.get("/api/admin/pages", async (c) => {
   const result = await c.env.DB.prepare(
     "SELECT id, slug, title, status, template, show_in_footer, updated_at FROM pages ORDER BY updated_at DESC, id DESC LIMIT 200",
