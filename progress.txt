@@ -8393,3 +8393,41 @@ iteration — T45 (sources: T45)
     AND explicit timestamp columns is the full idempotency recipe: any
     column left to a unixepoch() DEFAULT would drift on re-run even
     with OR REPLACE.
+
+## 2026-06-12 — T46 ([G2] Local preview runbook)
+- Wrote docs/local-preview.md (145 lines): end-to-end local preview
+  runbook — db:migrate:local -> seed:local -> wrangler dev (npm run
+  dev), public-site preview URLs, admin preview via DEV_BYPASS_AUTH
+  (double-gated, APP_ENV != production), hostname-based tenant
+  resolution via resolveSiteContextFromRequest, reset/troubleshooting.
+  Accuracy verified against api/package.json scripts,
+  api/scripts/seed-local.ts (seed registers hostname 'localhost'),
+  api/src/site/site-context.ts, api/src/auth/access-auth.ts, and
+  api/src/public/router.ts (documented /preview/:id as a 501 stub —
+  [G3]/T47 lands it; did NOT document unbuilt behavior).
+- Files changed: docs/local-preview.md (new).
+- AC token counts (grep -c on docs/local-preview.md):
+  db:migrate:local=4, seed:local=9, "wrangler dev"=4 (AC1 sum 17 >= 3);
+  DEV_BYPASS_AUTH=4, resolveSiteContextFromRequest=1 (AC2 sum 5 >= 1).
+- D13 runner RC-135,RC-136: both PASS (RC-135 count=9>=1, RC-136
+  count=4>=1), receipts emitted, overall status PASS.
+- source_story_ids: T46
+- test commands actually run: cd api && npx tsc --noEmit (clean);
+  cd api && npm test (122 files / 1069 tests green); D13 runner for
+  RC-135,RC-136 (PASS). Committed 3b65e3f
+  'feat: [T46] - [G2] Local preview runbook'.
+- **Self-check results:**
+  - File sizes: docs/local-preview.md 145 lines (docs precedent
+    local-dev-vars.md 145) — PASS.
+  - Secret scan: PASS (0 matches; doc references env var NAMES only).
+  - Error handling: N/A (docs-only, no route handlers).
+  - Migration execution: N/A (no migration in this story).
+  - Parameterized queries: N/A (no SQL code).
+  - Acceptance tests: none for this change-id (T25-T45 precedent).
+- **Learnings for future iterations:**
+  - Runbook stories: verify every documented command/route against the
+    live code before writing (negative_fail_condition = doc passes
+    greps while instructions are wrong). The localhost-vs-127.0.0.1
+    gotcha is real: resolveSiteContextFromRequest matches the literal
+    seeded hostname 'localhost'; 127.0.0.1 404s.
+---
