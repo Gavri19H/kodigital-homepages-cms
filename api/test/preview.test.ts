@@ -200,7 +200,15 @@ describe("preview module: HMAC-signed short-lived token sign/verify", () => {
   it("BEHAVIORAL T11.AC3: GET /preview/<articleId> with tampered token returns 401", async () => {
     const versions = [{ id: 3, article_id: 7, version_number: 1, content_json: DRAFT_BLOCKS, status: "draft" }];
     const token = await tokenFor(validPayload);
-    const tampered = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
+    // Flip the FIRST char of the signature segment — all 6 of its bits are
+    // significant on base64url decode. (The token's LAST char carries only
+    // 4 significant bits; atob discards the low 2, so an 'A'<->'B' flip
+    // there can decode to identical signature bytes and correctly 200.)
+    const sigStart = token.lastIndexOf(".") + 1;
+    const tampered =
+      token.slice(0, sigStart) +
+      (token[sigStart] === "A" ? "B" : "A") +
+      token.slice(sigStart + 1);
     const res = await getPreview(`/preview/7?token=${encodeURIComponent(tampered)}`, versions);
     expect(res.status).toBe(401);
   });
