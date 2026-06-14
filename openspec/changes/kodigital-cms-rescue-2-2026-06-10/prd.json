@@ -1,0 +1,806 @@
+{
+  "changeId": "kodigital-cms-rescue-2-2026-06-10",
+  "mainGoal": "cd api && npx tsc --noEmit && npx vitest run && npm run verify:all all exit 0; every story AC returns its pinned value; public design matches the contract; admin is ported legacy look; provisioning has 16 real steps; real AI endpoints replace placeholders; seeded local preview works",
+  "stories": [
+    {
+      "id": "T1",
+      "title": "[A1] Scanner allowlist for mission docs",
+      "category": "script",
+      "targetFiles": [
+        "api/scripts/verify/assert-no-legacy-prod-refs.ts"
+      ],
+      "acceptanceCriteria": [
+        "allowlist entries for the 5 mission docs present in the scanner (count >= 2)",
+        "vitest verify-script.test.ts + verify-scripts-green.test.ts + legacy-ref-allowlist.test.ts -> 0 failures",
+        "npm run verify:no-legacy-prod-refs exits 0"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T2",
+      "title": "[A2] deploy.yml migration anchors",
+      "category": "infra",
+      "targetFiles": [
+        ".github/workflows/deploy.yml"
+      ],
+      "acceptanceCriteria": [
+        "deploy workflow migration tracking names 0009 (count >= 1)",
+        "deploy workflow migration tracking names 0010 and 0011 (count >= 2)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T3",
+      "title": "[A3] Migration 0010 — sites.content_mode",
+      "category": "migration",
+      "targetFiles": [
+        "api/migrations/0010_phase9_sites_content_mode.sql",
+        "api/test/migrations-0010-content-mode.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -c content_mode api/migrations/0010_phase9_sites_content_mode.sql >= 1",
+        "vitest migrations-0010-content-mode.test.ts: PRAGMA confirms content_mode column"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T4",
+      "title": "[A4] Baseline green gate",
+      "category": "script",
+      "targetFiles": [],
+      "acceptanceCriteria": [
+        "tsc --noEmit 0 errors",
+        "vitest run 0 failures",
+        "npm run verify:all exit 0"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T5",
+      "title": "[A5] Decoded design contract",
+      "category": "config",
+      "targetFiles": [
+        "docs/design-contract.md"
+      ],
+      "acceptanceCriteria": [
+        "all 5 brand hex values grep >= 1 each in design-contract.md",
+        "60px minmax(0, 1fr) 320px = 1; 1.4fr 1fr 1fr >= 1",
+        "both data-screen-label values + both section-order lists present"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T6",
+      "title": "[C1] Brand tokens",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/assets/public-css.ts"
+      ],
+      "acceptanceCriteria": [
+        "all 5 brand properties set to reference values",
+        "grep -rc 2563eb api/src/public/ = 0",
+        "vitest public-templates-components: publicCss contains #1ba8c8"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T7",
+      "title": "[C2] Typography/layout tokens",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/assets/public-css.ts"
+      ],
+      "acceptanceCriteria": [
+        "Nunito Sans + Nunito present",
+        "1.0625rem, 920px, 72px each grep >= 1",
+        "grep -c \"rgba(20,30,50\" api/src/public/assets/public-css.ts >= 2"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T8",
+      "title": "[C3] Contract grids",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/assets/public-css.ts",
+        "api/src/public/templates/article.ts",
+        "api/test/public-templates-article.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "60px shell + clamp gap; 64px = 0",
+        "1.4fr featured; 2fr = 0",
+        "vitest article test 0 failures"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T9",
+      "title": "[C4] Root wrappers data-screen-label",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/render-pages.ts",
+        "api/test/public-no-theiwise-brand-render.test.ts",
+        "api/test/public-screen-labels.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: renderHomepageHtml contains theiwise-home; renderArticleHtml contains article-page",
+        "grep -rc data-screen-label=theiwise-home api/src/public/ >= 1",
+        "vitest public-no-theiwise-brand-render passes (hostname ban intact)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T10",
+      "title": "[C5] Class flattening BEM → spec vocabulary",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/templates/components.ts",
+        "api/src/public/templates/home.ts",
+        "api/src/public/templates/article.ts",
+        "api/test/public-templates-components.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "grep -rcE card__|hero__|home-section__ api/src/public/templates/ = 0",
+        "card-title/card-img/card-foot/hero-content/hero-title each >= 1",
+        "vitest components test 0 failures"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T11",
+      "title": "[C6] Home section set + order (13)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/templates/home.ts",
+        "api/test/public-templates-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: exact 13-section marker sequence",
+        "about section-marker usages = 0",
+        "renderFloatingNext called = 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T12",
+      "title": "[C7] Home view-model buckets",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/view-models/home.ts",
+        "api/test/public-view-models-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "is_trending grep >= 1; HomeViewModel has trending + picks",
+        "vitest: is_trending=1 -> vm.trending; no duplication",
+        "vitest: D1 statement count <= 3"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T13",
+      "title": "[C8] Article section order (12) + nesting",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/templates/article.ts",
+        "api/test/public-templates-article.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: section order correct with nested shell content",
+        "vitest: reading-progress is index 0",
+        "ad-slot--rect grep >= 1",
+        "vitest json-ld-article: BreadcrumbList intact"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T14",
+      "title": "[C9] Header + Hero exact DOM",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/templates/components.ts",
+        "api/src/public/assets/public-css.ts"
+      ],
+      "acceptanceCriteria": [
+        "clamp(340px, 42vw, 480px) grep = 1",
+        "vitest renderHeader: correct order + labels + btn-outline",
+        "container padding clamp grep >= 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T15",
+      "title": "[C10] ChipRail + Trending dark section",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/assets/public-css.ts",
+        "api/src/public/templates/components.ts",
+        "api/test/design-contract-values.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest design-contract-values: publicCss contains exact .cat-chip min-width, hover border, trending-section background, pulse-dot color from design-contract.md",
+        "trending-section dark bg class name present in public-css.ts >= 1 (structural secondary)",
+        "pulse-dot color class name present in public-css.ts >= 1 (structural secondary)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T16",
+      "title": "[C11] Breakpoint parity (8)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/assets/public-css.ts",
+        "api/src/public/templates/public.css.ts",
+        "api/test/design-contract-values.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest design-contract-values: publicCss contains all 8 breakpoint values (1280/1080/980/880/800/760/560/480px)",
+        "ad-slot + min-height present in public.css.ts >= 1 (structural secondary)",
+        "All 8 breakpoint pixel values present in public-css.ts grep >= 1 each (structural secondary)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T17",
+      "title": "[C12] Public JS contract",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/assets/public-js.ts",
+        "api/test/public-js-contract.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "scaleX + transform-origin >= 1; style.width = 0",
+        "passive: true >= 1",
+        "vitest public-js-contract: imported script-string content contains zero arrow/const/let (ES5-only inside script literal; whole-file grep is invalid — module export const is legitimate)",
+        "vitest: exported string < 6KB"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T18",
+      "title": "[E1] Real POST /api/admin/ai/chat",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/ai-api.ts",
+        "api/test/admin-ai-chat.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "placeholder:true = 0; /chat grep >= 1; generate-text = 0",
+        "vitest: model=gpt-5.5; ai_generations row written",
+        "vitest: no OPENAI_API_KEY -> 501"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T19",
+      "title": "[E2] Real POST /api/admin/ai/image",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/ai-api.ts",
+        "api/test/admin-ai-image.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "/image mounted; generate-image = 0; dall-e = 0",
+        "vitest: model=gpt-image-2; R2 put + media row",
+        "bodyLimit grep >= 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T20",
+      "title": "[E3] Port POST /api/admin/ai/logo",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/ai-api.ts"
+      ],
+      "acceptanceCriteria": [
+        "/logo mounted = 1",
+        "vitest: writes logo + setting for site_id only"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T21",
+      "title": "[E4] Presets CRUD + model constraint + migration 0011",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/ai-api.ts",
+        "api/migrations/0011_phase9_prompt_presets_model_columns.sql",
+        "api/test/admin-ai-presets.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "all 6 preset route patterns mounted",
+        "vitest: POST/PUT reject invalid models (400)",
+        "gpt-4o-mini/gpt-image-1 in api/src/ = 0",
+        "text_model + image_model columns in migration 0011"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T22",
+      "title": "[B1] adminLayout shell port",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/layout.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest admin-ux-acceptance passes UNMODIFIED (shell markers)",
+        "KoDigital CMS >= 1; TheIWise in admin/ = 0",
+        "vitest: nav order exact 9 entries",
+        "toast/mobile-menu-btn/badge-draft CSS markers >= 1",
+        "ported layout inline script stays ES5 — zero arrow/const/let in the script string (layout.ts; script-extraction assertion, not whole-file grep)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T23",
+      "title": "[B2] Shared admin helpers",
+      "category": "script",
+      "targetFiles": [
+        "api/src/admin/types.ts",
+        "api/src/admin/query-filters.ts",
+        "api/test/admin-types.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "escapeHtml/isValidId/generateSlug/parsePaginationParams in types.ts = 1 each; buildWhereClause in query-filters.ts = 1",
+        "legacy slug-generation helper semantics (export from types.ts) + pagination math — types spec green",
+        "list-filter where-clause builder (export from query-filters.ts) callable and importable — types spec green"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T24",
+      "title": "[B3] Dashboard port",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/dashboard.ts",
+        "api/test/admin-dashboard-template.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "stat-card/stat-value/Quick Actions grep >= 1",
+        "vitest: multi-site stat cards retained; admin-dashboard-template.test.ts green"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T25",
+      "title": "[B4] Articles list port",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/test/admin-articles-list.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "toolbar-search + table-actions >= 1",
+        "name=site_id >= 1",
+        "vitest: row actions target registered endpoints"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T26",
+      "title": "[B5] Article editor port + full CRUD + version history",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/src/admin/api.ts",
+        "api/src/admin/workflow-api.ts",
+        "api/test/page-editor-site-id.test.ts",
+        "api/test/admin-article-versions.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: all workflow endpoints registered; content_version bumped",
+        "vitest admin-article-versions: version list + restore endpoint",
+        "vitest page-editor-site-id passes; views/article-editor.ts:122-133 behaviors folded into ported editor template; test re-pointed at template and green"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T27",
+      "title": "[B6] Block editor port + contract blocks",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/editor/editor-scripts.ts",
+        "api/src/editor/blocks.ts",
+        "api/src/editor/blocks-to-html.ts",
+        "api/src/editor/sanitize.ts",
+        "api/test/editor.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "pullquote/callout/affiliate in blocks.ts >= 1 each",
+        "initBlockEditor grep >= 1",
+        "vitest editor: imported editorScripts string contains zero arrow/const/let (ES5-only inside script literal; whole-file grep is invalid — module-level TS uses ES6, current count 2)",
+        "vitest: round-trip passes; all 3 new block types survive sanitize"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T28",
+      "title": "[B7] AI assistant panel port",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/test/admin-ai-panel-template.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "generate-text/generate-image in templates/ = 0",
+        "gpt-4o/gpt-image-1 in templates/ = 0",
+        "vitest: form page contains AI panel + preset select",
+        "ported AI-assistant inline script stays ES5 — zero arrow/const/let in the script string (articles.ts; script-extraction assertion, not whole-file grep)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T29",
+      "title": "[B8] Pages port + CRUD",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/templates/pages.ts",
+        "api/src/admin/api.ts",
+        "api/test/admin-pages-list-site-id-filter.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: POST/PATCH/DELETE registered; legal badge + page_type retained",
+        "vitest: show_in_footer/display_order round-trip"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T30",
+      "title": "[B9] Categories + Tags port + CRUD completion",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/templates/categories.ts",
+        "api/src/admin/templates/tags.ts",
+        "api/src/admin/api.ts",
+        "api/test/admin-tags-site-filter.test.ts",
+        "api/test/category-multi-vertical.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest category-multi-vertical: PUT/DELETE /categories + delete-guard",
+        "vitest admin-tags-site-filter: POST/DELETE /tags; filters retained"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T31",
+      "title": "[B10] Media library port",
+      "category": "api",
+      "targetFiles": [
+        "api/src/admin/templates/media.ts",
+        "api/src/admin/api.ts",
+        "api/test/admin-media-site-filter.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: upload multipart fields match; media CRUD site-scoped",
+        "media-grid grep >= 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T32",
+      "title": "[B11] Settings port (per-site)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/settings.ts",
+        "api/test/admin-settings.test.ts",
+        "api/test/settings-version-bump.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "card headings: Site Information/Site Logo/ads.txt/etc. >= 1 each",
+        "vitest: site selector + PATCH with site_id; canonical keys round-trip",
+        "/api/admin/ai/logo grep = 1",
+        "vitest settings-version-bump.test.ts: 0 failures (EXISTING test co-updated, green)"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T33",
+      "title": "[B12] Presets pages + Domains restyle",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/presets.ts",
+        "api/src/admin/ui.ts",
+        "api/src/admin/templates/domains.ts",
+        "api/test/admin-domains.test.ts",
+        "api/src/admin/views/article-editor.ts",
+        "api/src/admin/views/articles.ts",
+        "api/src/admin/views/categories.ts",
+        "api/src/admin/views/domains.ts",
+        "api/src/admin/views/media.ts",
+        "api/src/admin/views/page-editor.ts",
+        "api/src/admin/views/pages.ts",
+        "api/src/admin/views/settings.ts",
+        "api/src/admin/views/tags.ts"
+      ],
+      "acceptanceCriteria": [
+        "presets/new + presets/:id in ui.ts >= 2; SUPPORTED_*_MODELS import >= 1",
+        "vitest admin-domains: restyled; status-panel present; poll URL unchanged",
+        "provisioning-status-panel = 1; launch-readiness >= 1",
+        "escapeHtml de-dup post-port: <= 1 definition in admin templates",
+        "views/ dir deleted after all B-port folds"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T34",
+      "title": "[D1] STEP_KEYS → 16 canonical names",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/runner.ts",
+        "api/test/admin-ux-acceptance.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: STEP_KEYS.length === 16; STEP_KEYS[15] === update_launch_readiness",
+        "_stub in steps.ts = 0",
+        "vitest: TOTAL_STEPS=16 in INSERTs; defensive stale-job guard",
+        "vitest admin-ux-acceptance passes"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T35",
+      "title": "[D2] Real Cloudflare-boundary steps 1-3",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/src/site-provisioning/cloudflare-interfaces.ts"
+      ],
+      "acceptanceCriteria": [
+        "stubResult for 3 CF steps = 0",
+        "vitest dry-run: completed_dry_run; route mutation guard correct",
+        "vitest: zero outbound fetch"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T36",
+      "title": "[D3] Real publish_starter_articles",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "acceptanceCriteria": [
+        "stubResult publish = 0",
+        "vitest: status=published + published_at + content_version bumped"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T37",
+      "title": "[D4] Real warm_homepage_cache",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "acceptanceCriteria": [
+        "stubResult warm = 0",
+        "vitest fake KV: htmlKey put with correct key"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T38",
+      "title": "[D5] Real run_site_smoke_tests",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts"
+      ],
+      "acceptanceCriteria": [
+        "stubResult smoke = 0",
+        "vitest: >= 3 in-process checks; zero network"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T39",
+      "title": "[D6] update_launch_readiness + UI",
+      "category": "api",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/src/admin/sites-handlers.ts",
+        "api/src/admin/templates/domains.ts",
+        "api/test/admin-provision-status.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "update_launch_readiness in steps.ts >= 2 (union + registry)",
+        "vitest: GET /provision response includes launch_readiness",
+        "vitest: domains template renders readiness badges"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T40",
+      "title": "[F1] Slug URL canonicalization",
+      "category": "api",
+      "targetFiles": [
+        "api/src/public/router.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: article slug -> 301 /article/<slug>",
+        "vitest: page slug -> full render; content_html raw leak = 0"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T41",
+      "title": "[F2] GEO checklist conformance",
+      "category": "api",
+      "targetFiles": [
+        "api/src/public/templates/jsonld-article.ts",
+        "api/src/public/templates/jsonld-home-category-page.ts",
+        "api/src/public/templates/seo-head.ts",
+        "api/test/json-ld-article.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: author + publisher + datePublished + dateModified",
+        "vitest: FAQPage only when faqs non-empty",
+        "vitest: BreadcrumbList + canonical-host"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T42",
+      "title": "[F3] Performance re-assert",
+      "category": "ui",
+      "targetFiles": [
+        "api/test/public-image-attrs.test.ts",
+        "api/test/public-ad-slots.test.ts",
+        "api/src/public/assets/public-css.ts",
+        "api/src/public/templates/public.css.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest: hero eager+high; below-fold lazy",
+        "ad-slot dims in both css files",
+        "vitest public-js-contract: < 6KB"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T43",
+      "title": "[F4] Cache re-verify",
+      "category": "api",
+      "targetFiles": [],
+      "acceptanceCriteria": [
+        "vitest: ETag + 304 + KV warm-path green",
+        "htmlKey(siteContext.siteId grep >= 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T44",
+      "title": "[F5] Sitemap/feeds URL audit",
+      "category": "api",
+      "targetFiles": [
+        "api/src/public/sitemap.ts",
+        "api/src/public/feeds.ts",
+        "api/test/router-sitemap-feed-cache.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "vitest router-sitemap-feed-cache: every article loc contains /article/",
+        "vitest router-sitemap-feed-cache: feed links use /article/"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T45",
+      "title": "[G1] seed:local deterministic fixture",
+      "category": "script",
+      "targetFiles": [
+        "api/scripts/db/seed-local.ts",
+        "api/package.json",
+        "api/test/seed-local-sql.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "seed:local in package.json = 1",
+        "vitest: SQL-builder idempotent; all home buckets covered",
+        "fetch( in seed-local.ts = 0"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T46",
+      "title": "[G2] Local preview runbook",
+      "category": "config",
+      "targetFiles": [
+        "docs/local-preview.md"
+      ],
+      "acceptanceCriteria": [
+        "db:migrate:local + seed:local + wrangler dev >= 3",
+        "DEV_BYPASS_AUTH + resolveSiteContextFromRequest >= 1"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T47",
+      "title": "[G3] Draft preview route",
+      "category": "api",
+      "targetFiles": [
+        "api/src/preview/index.ts",
+        "api/src/public/router.ts",
+        "api/test/preview.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Preview not yet wired in api/src = 0",
+        "vitest: X-Robots-Tag: noindex + Cache-Control: no-store; accessAuth gated"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T48",
+      "title": "[H1] SHIP_HANDOFF.md",
+      "category": "config",
+      "targetFiles": [
+        "SHIP_HANDOFF.md"
+      ],
+      "acceptanceCriteria": [
+        "backup + wipe + recreate + preflight commands listed",
+        "theplaynest.net >= 1; backup >= 1; CF Access service-token documented",
+        "Playwright + design-contract + Lighthouse + post-deploy >= 3"
+      ],
+      "passes": false,
+      "state": "planned"
+    },
+    {
+      "id": "T49",
+      "title": "[H2] manualQA.md",
+      "category": "config",
+      "targetFiles": [
+        "manualQA.md"
+      ],
+      "acceptanceCriteria": [
+        "MQA- scenario count >= 12",
+        "design-contract.md + legacy technical spec references >= 2"
+      ],
+      "passes": false,
+      "state": "planned"
+    }
+  ]
+}
