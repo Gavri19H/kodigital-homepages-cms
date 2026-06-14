@@ -3,7 +3,19 @@ import app from "../src/index";
 import type { Env } from "../src/env";
 
 const adminEnv: Env = {
-  DB: {} as D1Database,
+  // Minimal D1 stub: now that non-admin "/" delegates to publicRouter, the
+  // public site-context resolver runs and queries `domains`. An unknown host
+  // resolves to null (no row) -> publicSiteContextMiddleware returns 404 (the
+  // "falls through to 404" assertion below). The old direct-404 never hit DB.
+  DB: {
+    prepare: () => ({
+      bind: () => ({
+        first: async () => null,
+        all: async () => ({ results: [], success: true, meta: {} }),
+        run: async () => ({ success: true, meta: {} }),
+      }),
+    }),
+  } as unknown as D1Database,
   CACHE: {} as KVNamespace,
   MEDIA: {} as R2Bucket,
   APP_ENV: "test",
