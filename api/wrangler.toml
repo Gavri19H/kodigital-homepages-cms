@@ -85,8 +85,8 @@ CACHE_API_ENABLED = "true"
 HTML_CACHE_TTL_SECONDS = "300"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
-SITE_PROVISIONING_DRY_RUN = "true"
-SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
+SITE_PROVISIONING_DRY_RUN = "false"
+SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "true"
 # Cloudflare Access auth context. Required by api/src/auth/access-auth.ts
 # to fetch JWKS (CF_ACCESS_TEAM_DOMAIN/cdn-cgi/access/certs) and to
 # validate the JWT audience claim against the CMS app (CF_ACCESS_AUD).
