@@ -4,29 +4,35 @@
 // Two unrelated stories share this file because the file path itself is
 // the test_file binding for both — the T7 contract specifies this exact
 // filename (T7.AC1 FUNCTIONAL clause). Each story owns its own
-// describe() block; the T23 block continues to assert the renderer
-// surface and the T7 block asserts the POST handler surface.
+// describe() block; the T23 block asserts the renderer surface and the
+// T7 block asserts the POST handler surface.
+//
+// T33 [B12]: the renderer block targets the CANONICAL templates page
+// (categoriesListPage) — the legacy views/ peer it originally asserted
+// was deleted with the last B-port fold. The multi-vertical contract is
+// unchanged: a multi <select> (wire name vertical_ids per POST
+// /api/admin/categories), all 8 canonical vertical slugs selectable,
+// and a zero-verticals submit guard that never POSTs.
 //
 // T7 test_name_regex (POST /api/admin/categories writes category_verticals
 // rows) matches the top-level T7 describe-name verbatim so the canonical
 // runner test_name_regex binding is satisfied by name discovery alone.
 
 import { describe, it, expect } from "vitest";
-import { renderCategoriesView } from "../src/admin/views/categories";
+import { categoriesListPage } from "../src/admin/templates/categories";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 
 describe("admin categories editor (T23.AC2)", () => {
   it("category multi-vertical selection persists to category_verticals", () => {
-    const html = renderCategoriesView();
+    const html = categoriesListPage([], [{ id: "st_1", name: "Site One" }]);
 
-    // Multi-vertical <select multiple>: the contract grep is
-    // `(multiple).*verticals|verticals.*multiple` and at minimum needs
-    // one matching line. The editor renders <select ... multiple ...>
-    // with name="verticals[]" so submit serializes a multi-value field
-    // that the server splits into category_verticals rows.
+    // Multi-vertical <select multiple>: the toolbar filter and the New
+    // Category modal both render multi selects; the modal's wire name is
+    // the canonical vertical_ids field POST /api/admin/categories splits
+    // into category_verticals rows.
     expect(html).toMatch(/<select[^>]*multiple[^>]*>/);
-    expect(html).toMatch(/name="verticals\[\]"/);
+    expect(html).toMatch(/name="vertical_ids"/);
     expect(html).toMatch(/data-multi="true"/);
 
     // The eight canonical vertical slugs (T8 seed) are each present as
@@ -46,17 +52,14 @@ describe("admin categories editor (T23.AC2)", () => {
     }
 
     // Submit-blocking guard: when zero verticals are selected, the
-    // editor must surface a polite status message and never POST. The
-    // aria-live region and preventDefault wiring guarantee this.
-    expect(html).toMatch(/aria-live="polite"/);
+    // editor must surface the alert message and never POST. The
+    // role=alert region and preventDefault wiring guarantee this.
+    expect(html).toMatch(/role="alert"/);
     expect(html).toContain("Select at least one vertical");
     expect(html).toMatch(/preventDefault/);
-    expect(html).toMatch(/stopImmediatePropagation/);
 
-    // Smoke shell contract from T10.AC1 — categories view must keep
-    // the data-area and admin-shell marker so the integration suite
-    // still recognises the page.
-    expect(html).toMatch(/data-area="categories"/);
+    // Smoke shell contract — the canonical page renders inside the
+    // adminLayout shell, recognised by its marker.
     expect(html).toContain("kodigital-admin-shell");
   });
 });
@@ -369,6 +372,204 @@ describe("POST /api/admin/categories writes category_verticals rows", () => {
     expect(body.code).toBe("UNKNOWN_SITE");
     expect(
       calls.find((c) => c.sql.indexOf("INSERT INTO categories") >= 0),
+    ).toBeUndefined();
+  });
+});
+
+// T30 ([B9] Categories + Tags port + CRUD completion) — PUT/DELETE
+// /api/admin/categories/:id (taxonomy-crud-handlers.ts).
+//
+// T30.AC1: "vitest category-multi-vertical: PUT/DELETE /categories +
+// delete-guard". The delete-guard contract: the handler reads the
+// categories row's article_count column (the existence probe SELECTs it)
+// and refuses with 400 CATEGORY_HAS_ARTICLES while articles still
+// reference the category; at zero the join rows (category_verticals,
+// site_categories) and the categories row are removed in one D1 batch.
+describe("PUT/DELETE /api/admin/categories/:id (T30.AC1)", () => {
+  const EXISTING = {
+    id: 7,
+    slug: "travel-tips",
+    name: "Travel Tips",
+    parent_id: null,
+    featured_image_id: null,
+    display_order: 2,
+    article_count: 0,
+  };
+
+  it("category delete guard reads article_count via mock-D1 db.prepare", async () => {
+    // Guard refusal: article_count > 0 → 400, nothing deleted.
+    const guarded = makeFakeDb([
+      {
+        match: "FROM categories WHERE id = ?",
+        row: { id: 7, article_count: 3 },
+      },
+    ]);
+    const refused = await admin.request(
+      "/api/admin/categories/7",
+      { method: "DELETE" },
+      buildEnv(guarded.db),
+    );
+    expect(refused.status).toBe(400);
+    const refusedBody = (await refused.json()) as {
+      error: string;
+      code?: string;
+      article_count?: number;
+    };
+    expect(refusedBody.code).toBe("CATEGORY_HAS_ARTICLES");
+    expect(refusedBody.article_count).toBe(3);
+
+    // The guard's evidence: the existence probe SELECTed article_count
+    // from categories with the id parameterized via .bind().
+    const probe = guarded.calls.find(
+      (c) =>
+        c.sql.indexOf("article_count") >= 0 &&
+        c.sql.indexOf("FROM categories WHERE id = ?") >= 0,
+    );
+    expect(probe).toBeDefined();
+    expect(probe?.binds).toEqual([7]);
+    expect(
+      guarded.calls.find((c) => c.sql.indexOf("DELETE FROM categories") >= 0),
+    ).toBeUndefined();
+
+    // Guard pass: article_count == 0 → join rows + category removed in
+    // one batch, 200 { ok: true }.
+    const clear = makeFakeDb([
+      {
+        match: "FROM categories WHERE id = ?",
+        row: { id: 7, article_count: 0 },
+      },
+    ]);
+    const deleted = await admin.request(
+      "/api/admin/categories/7",
+      { method: "DELETE" },
+      buildEnv(clear.db),
+    );
+    expect(deleted.status).toBe(200);
+    const deletedBody = (await deleted.json()) as { ok: boolean; id: number };
+    expect(deletedBody.ok).toBe(true);
+    expect(deletedBody.id).toBe(7);
+
+    const cvDelete = findBatchCalls(
+      clear.batches,
+      "DELETE FROM category_verticals WHERE category_id = ?",
+    );
+    const scDelete = findBatchCalls(
+      clear.batches,
+      "DELETE FROM site_categories WHERE category_id = ?",
+    );
+    const catDelete = findBatchCalls(
+      clear.batches,
+      "DELETE FROM categories WHERE id = ?",
+    );
+    expect(cvDelete).toHaveLength(1);
+    expect(cvDelete[0]?.binds).toEqual([7]);
+    expect(scDelete).toHaveLength(1);
+    expect(scDelete[0]?.binds).toEqual([7]);
+    expect(catDelete).toHaveLength(1);
+    expect(catDelete[0]?.binds).toEqual([7]);
+  });
+
+  it("DELETE returns 404 for an unknown category", async () => {
+    const { db, calls } = makeFakeDb();
+    const res = await admin.request(
+      "/api/admin/categories/99",
+      { method: "DELETE" },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(404);
+    expect(
+      calls.find((c) => c.sql.indexOf("DELETE FROM categories") >= 0),
+    ).toBeUndefined();
+  });
+
+  it("DELETE with ?site_id= not allocated to the category is refused 403", async () => {
+    // Existence probe resolves, but no site_categories allocation row is
+    // planted — the tenant guard refuses before any delete statement.
+    const { db, calls, batches } = makeFakeDb([
+      {
+        match: "FROM categories WHERE id = ?",
+        row: { id: 7, article_count: 0 },
+      },
+    ]);
+    const res = await admin.request(
+      "/api/admin/categories/7?site_id=st_other",
+      { method: "DELETE" },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("TENANT_BOUNDARY_VIOLATION");
+    const allocationProbe = calls.find(
+      (c) => c.sql.indexOf("FROM site_categories WHERE site_id = ?") >= 0,
+    );
+    expect(allocationProbe?.binds).toEqual(["st_other", 7]);
+    expect(batches).toHaveLength(0);
+  });
+
+  it("PUT updates slug/name/display_order with parameterized binds", async () => {
+    const { db, calls } = makeFakeDb([
+      { match: "FROM categories WHERE id = ?", row: EXISTING },
+    ]);
+    const res = await admin.request(
+      "/api/admin/categories/7",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Trip Tips",
+          slug: "trip-tips",
+          display_order: 5,
+        }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(200);
+
+    const update = calls.find(
+      (c) => c.sql.indexOf("UPDATE categories SET") >= 0,
+    );
+    expect(update).toBeDefined();
+    // Static SQL with every value bound — retained fields (parent_id,
+    // featured_image_id) carry the existing row's values.
+    expect(update?.sql).toContain("slug = ?");
+    expect(update?.sql).not.toContain("trip-tips");
+    expect(update?.binds).toEqual(["trip-tips", "Trip Tips", null, null, 5, 7]);
+  });
+
+  it("PUT refuses a slug collision with 409 (no UPDATE issued)", async () => {
+    const { db, calls } = makeFakeDb([
+      { match: "FROM categories WHERE id = ?", row: EXISTING },
+      { match: "WHERE slug = ? AND id <> ?", row: { id: 8 } },
+    ]);
+    const res = await admin.request(
+      "/api/admin/categories/7",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug: "already-taken" }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(409);
+    expect(
+      calls.find((c) => c.sql.indexOf("UPDATE categories SET") >= 0),
+    ).toBeUndefined();
+  });
+
+  it("PUT returns 404 for an unknown category", async () => {
+    const { db, calls } = makeFakeDb();
+    const res = await admin.request(
+      "/api/admin/categories/123",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "X" }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(404);
+    expect(
+      calls.find((c) => c.sql.indexOf("UPDATE categories SET") >= 0),
     ).toBeUndefined();
   });
 });

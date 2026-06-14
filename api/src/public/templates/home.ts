@@ -1,29 +1,34 @@
-// Phase 5 / T10: renderHome composes the public Home body in PART 1 order.
+// Phase 5 / T11: renderHome composes the public Home body in the decoded
+// design-contract order (docs/design-contract.md §7).
 //
-// PART 1 (session-4 spec) divides the Home page into 13 ordered sections.
-// Each section is delimited by an `<!-- home-section:N name -->` comment so
-// the section-order behavioural test can count them and assert their
-// numerical order without depending on CSS class names.
+// §7 divides the Home page into 13 ordered sections; the exact set and
+// sequence are a 100% contract (BCL-002). Each section is delimited by an
+// `<!-- home-section:N name -->` comment so the section-order behavioural
+// test can assert the exact marker sequence without depending on CSS class
+// names.
 //
-// Section catalogue (numerical = render order):
-//   1  site-header        renderHeader     (banner + brand wordmark + nav)
-//   2  hero               renderHero       (top story: title/excerpt/image)
-//   3  chip-rail          renderChipRail   (taxonomy chips → /category/<slug>)
-//   4  featured-grid      renderCard×N     (up to 3 featured, first enlarged)
-//   5  trending           renderCard×N     (up to 5 trending stories)
-//   6  ad-leaderboard     renderAdSlot     (leaderboard surface)
-//   7  latest             renderCard×N     (remaining latest cards)
-//   8  category-spotlight (real /category/<slug> links per chip)
-//   9  ad-in-feed         renderAdSlot     (in-feed surface)
-//   10 editors-picks      renderCard×N     (curated re-promotion of featured)
-//   11 newsletter         renderNewsletter (provider-aware disabled state)
-//   12 about              (site.description / tagline panel)
-//   13 site-footer        renderFooter     (legal + nav + copyright)
+// Section catalogue (numerical = render order, contract §7):
+//   1  site-header     renderHeader       (banner + brand wordmark + nav)
+//   2  hero            renderHero         (top story: title/excerpt/image)
+//   3  chip-rail       renderChipRail     (taxonomy chips → /category/<slug>)
+//   4  featured        renderCard×3       (featured stories, first enlarged)
+//   5  ad-leaderboard  renderAdSlot       (leaderboard surface, 970×90)
+//   6  editors-picks   renderCard×4       (curated re-promotion of featured)
+//   7  trending        renderTrending     (dark strip, vm.trending top 5)
+//   8  spotlight       (real /category/<slug> links per category)
+//   9  ad-in-feed      renderAdSlot       (in-feed surface, 728×90)
+//   10 latest          renderCard×N       (remaining latest cards)
+//   11 newsletter      renderNewsletter   (provider-aware disabled state)
+//   12 site-footer     renderFooter       (legal + nav + copyright)
+//   13 floating-next   renderFloatingNext (fixed circle, hidden < 1280px)
+//
+// Contract §7: the Home page has NO standalone site-description panel —
+// §12 is the footer and §13 the floating "Read next" button.
 //
 // PART 12 RED LINE: every visible brand string flows from vm.site.{name,
-// tagline, description} or per-card data — this module MUST NOT hardcode
-// TheIWise / theiwise / cms.kodigital.app. The T18 regression test
-// exercises renderHome to assert this.
+// tagline} or per-card data — this module MUST NOT hardcode TheIWise /
+// cms.kodigital.app. The no-brand regression test exercises renderHome to
+// assert this.
 //
 // PART 8 RED LINE: every href is a real URL (chip = /category/<slug>,
 // card = /article/<slug>, footer/nav are caller-supplied). No href="#".
@@ -33,6 +38,7 @@ import {
   renderAdSlot,
   renderCard,
   renderChipRail,
+  renderFloatingNext,
   renderFooter,
   renderHeader,
   renderHero,
@@ -40,6 +46,7 @@ import {
   type CategoryChip,
   type NavLink,
 } from "./components";
+import { renderTrending } from "./trending";
 
 export interface RenderHomeArgs {
   vm: HomeViewModel;
@@ -90,10 +97,10 @@ function gridSection(
   emptyLabel: string,
 ): string {
   if (cards.length === 0) {
-    return `<h2 class="home-section__heading">${escText(heading)}</h2><p class="home-section__empty">${escText(emptyLabel)}</p>`;
+    return `<div class="section-head"><h2>${escText(heading)}</h2></div><p class="section-empty">${escText(emptyLabel)}</p>`;
   }
   const items = cards.map((c) => `<li class="home-grid__item">${cardFromVm(c)}</li>`).join("");
-  return `<h2 class="home-section__heading">${escText(heading)}</h2><ul class="home-grid home-grid--${modifier}">${items}</ul>`;
+  return `<div class="section-head"><h2>${escText(heading)}</h2></div><ul class="home-grid home-grid--${modifier}">${items}</ul>`;
 }
 
 export function renderHome(args: RenderHomeArgs): string {
@@ -111,9 +118,11 @@ export function renderHome(args: RenderHomeArgs): string {
     nav: args.nav,
   });
 
-  // §2 — hero (sourced from vm.hero; fall back to a site-name panel when
+  // §2 — hero (sourced from vm.hero; fall back to a site-name hero when
   // the tenant has no published articles yet so the hero slot is never
-  // collapsed and the section count remains 13).
+  // collapsed and the section count remains 13). Both branches go through
+  // renderHero so the §11 contract DOM (.hero-bg + .hero-content >
+  // h1.hero-title > span.tagline + form.hero-search) holds either way.
   const hero = vm.hero;
   const s2 = hero !== null
     ? renderHero({
@@ -124,7 +133,10 @@ export function renderHome(args: RenderHomeArgs): string {
         href: hero.href,
         kicker: hero.categoryName.length > 0 ? hero.categoryName : undefined,
       })
-    : `<section class="hero hero--empty" aria-label="Featured story"><h1 class="hero__title">${escText(site.name)}</h1>${site.tagline.length > 0 ? `<p class="hero__excerpt">${escText(site.tagline)}</p>` : ""}</section>`;
+    : renderHero({
+        title: site.name,
+        excerpt: site.tagline.length > 0 ? site.tagline : undefined,
+      });
 
   // §3 — chip-rail (categories)
   const chips: CategoryChip[] = vm.categories.map((c) => ({
@@ -138,33 +150,41 @@ export function renderHome(args: RenderHomeArgs): string {
   const featured = vm.featured.slice(0, 3);
   const s4 = gridSection("Featured", "featured", featured, "No featured stories yet.");
 
-  // §5 — trending (top 5 of latest)
-  const trending = vm.latest.slice(0, 5);
-  const s5 = gridSection("Trending", "trending", trending, "Trending stories load soon.");
+  // §5 — ad slot, leaderboard surface
+  const s5 = renderAdSlot({ type: "leaderboard", slotId: "home-leaderboard", surface: "home" });
 
-  // §6 — ad slot, leaderboard surface
-  const s6 = renderAdSlot({ type: "leaderboard", slotId: "home-leaderboard", surface: "home" });
+  // §6 — editor's picks (re-promote up to 4 featured for the picks rail)
+  const picks = vm.featured.slice(0, 4);
+  const s6 = gridSection("Editor's picks", "picks", picks, "Editor's picks coming soon.");
 
-  // §7 — latest (remaining cards after trending)
-  const latest = vm.latest.slice(5);
-  const s7 = gridSection("Latest", "latest", latest, "More stories on the way.");
+  // §7 — trending (vm.trending bucket = is_trending rows, contract: 5 items;
+  // dark full-bleed strip, .trending-section root, ranked 01..05 numerals)
+  const s7 = renderTrending({
+    items: vm.trending.slice(0, 5).map((c) => ({
+      href: c.href,
+      title: c.title,
+      imageUrl: c.imageUrl,
+      imageAlt: c.imageAlt,
+      categoryName: c.categoryName,
+    })),
+  });
 
   // §8 — category spotlight (each category linked, PART 8 real URLs)
   const s8 = vm.categories.length > 0
-    ? `<h2 class="home-section__heading">Explore by category</h2><ul class="home-categories">${vm.categories
+    ? `<div class="section-head"><h2>Explore by category</h2></div><ul class="home-categories">${vm.categories
         .map(
           (c) =>
             `<li class="home-categories__item"><a class="home-categories__link" href="${escAttr(c.href)}">${escText(c.name)}</a></li>`,
         )
         .join("")}</ul>`
-    : `<p class="home-section__empty">Categories will appear here.</p>`;
+    : `<p class="section-empty">Categories will appear here.</p>`;
 
   // §9 — ad slot, in-feed surface
   const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home" });
 
-  // §10 — editor's picks (re-promote up to 4 featured for the picks rail)
-  const picks = vm.featured.slice(0, 4);
-  const s10 = gridSection("Editor's picks", "picks", picks, "Editor's picks coming soon.");
+  // §10 — latest (remaining cards after trending)
+  const latest = vm.latest.slice(5);
+  const s10 = gridSection("Latest", "latest", latest, "More stories on the way.");
 
   // §11 — newsletter
   const s11 = renderNewsletter({
@@ -173,16 +193,8 @@ export function renderHome(args: RenderHomeArgs): string {
     provider: vm.newsletter.provider,
   });
 
-  // §12 — about (site description / tagline)
-  const aboutBody = site.description.length > 0
-    ? site.description
-    : site.tagline.length > 0
-      ? site.tagline
-      : "";
-  const s12 = `<aside class="home-about" aria-labelledby="home-about-heading"><h2 id="home-about-heading" class="home-about__heading">About ${escText(site.name)}</h2>${aboutBody.length > 0 ? `<p class="home-about__description">${escText(aboutBody)}</p>` : ""}</aside>`;
-
-  // §13 — site-footer
-  const s13 = renderFooter({
+  // §12 — site-footer
+  const s12 = renderFooter({
     site: {
       name: site.name,
       hostname: site.hostname,
@@ -193,19 +205,41 @@ export function renderHome(args: RenderHomeArgs): string {
     legalLinks: args.legalLinks,
   });
 
-  return [
+  // §13 — floating "Read next" button (contract §11: fixed 64×64 circle,
+  // hidden < 1280px by CSS). Target = the lead story; PART 8: real article
+  // URL, never "#". When the tenant has no published stories the aside is
+  // omitted but the marker still renders so the section count stays 13.
+  const next = vm.hero ?? vm.featured[0] ?? vm.latest[0] ?? null;
+  const s13 = next !== null && next !== undefined
+    ? renderFloatingNext({
+        href: next.href,
+        label: next.title,
+        imageUrl: next.imageUrl,
+        imageAlt: next.imageAlt,
+      })
+    : "";
+
+  const sections = [
     `${marker(1, "site-header")}\n${s1}`,
     `${marker(2, "hero")}\n${s2}`,
-    `${marker(3, "chip-rail")}\n${s3}`,
-    `${marker(4, "featured-grid")}\n<section class="home-section home-section--featured">${s4}</section>`,
-    `${marker(5, "trending")}\n<section class="home-section home-section--trending">${s5}</section>`,
-    `${marker(6, "ad-leaderboard")}\n${s6}`,
-    `${marker(7, "latest")}\n<section class="home-section home-section--latest">${s7}</section>`,
-    `${marker(8, "category-spotlight")}\n<section class="home-section home-section--categories">${s8}</section>`,
+    `${marker(3, "chip-rail")}\n${s3.length > 0 ? `<div class="container">${s3}</div>` : ""}`,
+    `${marker(4, "featured")}\n<section class="home-section home-section--featured">${s4}</section>`,
+    `${marker(5, "ad-leaderboard")}\n${s5}`,
+    `${marker(6, "editors-picks")}\n<section class="home-section home-section--picks" id="picks">${s6}</section>`,
+    `${marker(7, "trending")}\n<section class="home-section home-section--trending trending-section" id="trending">${s7}</section>`,
+    `${marker(8, "spotlight")}\n<section class="home-section home-section--spotlight">${s8}</section>`,
     `${marker(9, "ad-in-feed")}\n${s9}`,
-    `${marker(10, "editors-picks")}\n<section class="home-section home-section--picks">${s10}</section>`,
+    `${marker(10, "latest")}\n<section class="home-section home-section--latest">${s10}</section>`,
     `${marker(11, "newsletter")}\n${s11}`,
-    `${marker(12, "about")}\n${s12}`,
-    `${marker(13, "site-footer")}\n${s13}`,
+    `${marker(12, "site-footer")}\n${s12}`,
+    `${marker(13, "floating-next")}\n${s13}`,
   ].join("\n");
+
+  // C4 root wrapper: data-screen-label names the decoded design-export
+  // screen. The attribute value is deliberately UNQUOTED — the T9.AC2
+  // contract grep matches the literal `data-screen-label=theiwise-home`
+  // (no quote between `=` and the value); quoting it breaks the contract.
+  // The no-brand regression strips data-screen-label attributes before its
+  // banned-token sweep, so this label never trips the /theiwise/i ban.
+  return `<div data-screen-label=theiwise-home>\n${sections}\n</div>`;
 }

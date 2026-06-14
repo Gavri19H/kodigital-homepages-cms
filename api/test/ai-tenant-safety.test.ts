@@ -271,10 +271,10 @@ describe("T11 host + JWT gating on /api/admin/ai/generate-text", () => {
     expect([401, 403]).toContain(res.status);
   });
 
-  it("off-ADMIN_HOST POST /api/admin/ai/generate-image returns 404 (hostname gate)", async () => {
+  it("off-ADMIN_HOST POST /api/admin/ai/image returns 404 (hostname gate)", async () => {
     const env = buildEnv({ OPENAI_API_KEY: "sk-test" });
     const res = await app.request(
-      "https://example.com/api/admin/ai/generate-image",
+      "https://example.com/api/admin/ai/image",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

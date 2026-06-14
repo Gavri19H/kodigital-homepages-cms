@@ -49,6 +49,12 @@ export function iconArrow(args?: IconArgs): string {
   return `<svg class="${c}" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" focusable="false"><path d="M13.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 1 1-1.4-1.4L17.58 13H4a1 1 0 1 1 0-2h13.58l-4.28-4.3a1 1 0 0 1 0-1.4Z" fill="currentColor"/></svg>`;
 }
 
+export function iconChevronDown(args?: IconArgs): string {
+  const c = cls(args);
+  const s = size(args);
+  return `<svg class="${c}" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" focusable="false"><path d="M5.3 8.3a1 1 0 0 1 1.4 0L12 13.58l5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4Z" fill="currentColor"/></svg>`;
+}
+
 export function iconBrandMark(args?: IconArgs): string {
   const c = cls(args);
   const s = size(args);

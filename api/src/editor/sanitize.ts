@@ -101,6 +101,19 @@ function stripEventHandlers(html: string): string {
 const URL_ATTRS = ["href", "src", "action", "formaction", "xlink:href"];
 const SAFE_PROTOCOL_RE = /^(https?:|mailto:|tel:|\/|#|\?|[a-z0-9._-]+(?:\/|$))/i;
 
+// URL-protocol allowlist, exported so block renderers (notably the
+// affiliate card's outbound link) can gate href values through the same
+// allowlist the sanitizer applies — sanitize.ts stays in the render path
+// for every contract block (pullquote / callout / affiliate markup:
+// blockquote.pullquote, aside.callout-box, aside.affiliate-card with
+// cite/strong/p/a children — none of which the strip passes remove).
+export function isSafeUrl(url: string): boolean {
+  if (typeof url !== "string") return false;
+  const trimmed = url.replace(/[\x00-\x20]/g, "");
+  if (trimmed.length === 0) return false;
+  return SAFE_PROTOCOL_RE.test(trimmed);
+}
+
 function stripUnsafeUrls(html: string): string {
   let out = html;
   for (const attr of URL_ATTRS) {

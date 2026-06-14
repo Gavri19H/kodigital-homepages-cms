@@ -18,6 +18,7 @@ import {
 } from "./steps";
 import {
   isCloudflareMutationStep,
+  resolveSiteHostname,
   runCloudflareRouteMutation,
 } from "./cloudflare-interfaces";
 
@@ -86,22 +87,6 @@ async function finalizeStepRow(
     )
     .bind(result.status, result.output, result.error ?? null, job_id, step_key)
     .run();
-}
-
-async function resolveSiteHostname(db: D1Database, site_id: string): Promise<string> {
-  const dom = await db
-    .prepare(
-      "SELECT hostname FROM domains WHERE site_id = ? " +
-        "ORDER BY is_primary DESC, id ASC LIMIT 1",
-    )
-    .bind(site_id)
-    .first<{ hostname: string | null }>();
-  if (dom && typeof dom.hostname === "string" && dom.hostname.length > 0) return dom.hostname;
-  const sr = await db
-    .prepare("SELECT primary_domain AS hostname FROM sites WHERE id = ? LIMIT 1")
-    .bind(site_id)
-    .first<{ hostname: string | null }>();
-  return sr && typeof sr.hostname === "string" && sr.hostname.length > 0 ? sr.hostname : "";
 }
 
 async function advanceJobPointer(
@@ -193,6 +178,40 @@ export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Pr
       status: job.status,
       last_step_status: null,
       completed: job.status === "completed",
+    };
+  }
+  // T34 defensive stale-job guard. Jobs minted before the registry grew
+  // to 16 steps (or rows that fell back to migration 0002's DEFAULT 15)
+  // carry a stale total_steps — re-sync the stored count so DB progress
+  // math agrees with the live STEP_KEYS registry.
+  if (job.total_steps !== TOTAL_STEPS) {
+    await db
+      .prepare(
+        "UPDATE site_creation_jobs SET total_steps = ?, updated_at = unixepoch() WHERE id = ?",
+      )
+      .bind(TOTAL_STEPS, job.id)
+      .run();
+  }
+  // A non-terminal job whose pointer already ran past the end of the
+  // registry has executed every registered step — finalize it as
+  // completed instead of throwing no_step_at_index.
+  if (job.current_step_index >= TOTAL_STEPS) {
+    await db
+      .prepare(
+        "UPDATE site_creation_jobs SET status = 'completed', current_step_index = ?, " +
+          "last_error = NULL, updated_at = unixepoch() WHERE id = ?",
+      )
+      .bind(TOTAL_STEPS, job.id)
+      .run();
+    return {
+      job_id: job.id,
+      site_id: job.site_id,
+      current_step: getStepKeyForIndex(STEP_KEYS.length - 1),
+      current_step_index: TOTAL_STEPS,
+      total_steps: TOTAL_STEPS,
+      status: "completed",
+      last_step_status: null,
+      completed: true,
     };
   }
   const index = job.current_step_index;

@@ -4,6 +4,11 @@
 // the Web Share API with a clipboard fallback. Exported as a string so the
 // Worker can ship it without a bundler step. Designed to be tenant-neutral —
 // it does not reference any brand or admin host string.
+//
+// Contract (T17 / C12): the progress bar is transform-driven — scaleX with
+// an explicit transform-origin, never style.width (compositor-only updates,
+// no layout/paint per scroll tick) — and the script literal is ES5-only so
+// it runs without transpilation on every tenant browser baseline.
 
 export const publicJs: string = `
 (function () {
@@ -13,13 +18,14 @@ export const publicJs: string = `
     var bar = document.querySelector('.reading-progress-bar');
     if (!bar) return;
     var article = document.querySelector('.article-shell') || document.querySelector('article') || document.body;
+    bar.style.setProperty('transform-origin', 'left center');
     function update() {
       var rect = article.getBoundingClientRect();
       var viewport = window.innerHeight || document.documentElement.clientHeight || 1;
       var total = Math.max(1, rect.height - viewport);
       var scrolled = Math.min(Math.max(0, -rect.top), total);
-      var pct = Math.min(100, Math.max(0, (scrolled / total) * 100));
-      bar.style.width = pct.toFixed(2) + '%';
+      var ratio = Math.min(1, Math.max(0, scrolled / total));
+      bar.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
     }
     window.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);

@@ -10,14 +10,14 @@ import type { Env } from "../src/env";
 //     surface, NOT the Phase 1 admin shell placeholder.
 //   * PATCH /api/admin/articles/:id is REGISTERED on the admin sub-
 //     router (404 on a missing id, NOT a Hono "no route" miss).
-//   * site-provisioning step generate_about_page_stub inserts a real
+//   * site-provisioning step generate_about_page inserts a real
 //     pages row keyed (site_id, slug='about', page_type='about').
 //
 // Acceptance assertions (mirrors prd.json T21):
 //   T21-AC1: admin-sidebar + stats-grid + admin-layout literals
 //   T21-AC2: response body does NOT contain 'Phase 1 admin shell'
 //   T21-AC3: PATCH /api/admin/articles/:id route exists
-//   T21-AC4: generate_about_page_stub inserts a pages row (page_type='about')
+//   T21-AC4: generate_about_page inserts a pages row (page_type='about')
 //   T21-AC5: vitest run admin-ux-acceptance.test.ts → exit 0
 
 interface RecordedCall {
@@ -91,7 +91,7 @@ function makeAboutPageDb(site: { id: string; name: string }): {
   inserts: InsertedPageRow[];
 } {
   const inserts: InsertedPageRow[] = [];
-  // T9: generate_about_page_stub now calls the T7 about-page generator,
+  // T9: generate_about_page now calls the T7 about-page generator,
   // which writes/reads ai_generations. The fake just needs round-trip
   // INSERT → SELECT-BY-IDEMPOTENCY-KEY parity so startGenerationLog
   // resolves; the per-AC assertions still target the pages insert.
@@ -240,15 +240,15 @@ describe("admin UX acceptance (T21)", () => {
     expect(typeof body).toBe("object");
   });
 
-  // T21-AC4: site-provisioning step generate_about_page_stub inserts a
+  // T21-AC4: site-provisioning step generate_about_page inserts a
   // pages row keyed (site_id, slug='about', page_type='about'). about_page_id
   // is intentionally not surfaced (pages.id is auto-increment + idempotent
   // INSERT OR IGNORE — the slug is the stable correlator).
-  it("generate_about_page_stub inserts a pages row (page_type='about')", async () => {
+  it("generate_about_page inserts a pages row (page_type='about')", async () => {
     const site = { id: "st_t21", name: "Acme Times" };
     const { db, inserts } = makeAboutPageDb(site);
     const env = buildEnv(db);
-    const result = await STEPS.generate_about_page_stub({
+    const result = await STEPS.generate_about_page({
       env,
       db,
       job_id: "job_t21",
@@ -268,7 +268,7 @@ describe("admin UX acceptance (T21)", () => {
     expect(Array.isArray(doc.blocks)).toBe(true);
     expect(row.content_html.startsWith("<")).toBe(true);
     // Idempotency: a second invocation must NOT add a duplicate row.
-    const second = await STEPS.generate_about_page_stub({
+    const second = await STEPS.generate_about_page({
       env,
       db,
       job_id: "job_t21",
@@ -282,7 +282,7 @@ describe("admin UX acceptance (T21)", () => {
       step: string;
       about_page_slug: string;
     };
-    expect(out.step).toBe("generate_about_page_stub");
+    expect(out.step).toBe("generate_about_page");
     expect(out.about_page_slug).toBe("about");
   });
 });

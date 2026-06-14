@@ -15,6 +15,9 @@
 //   renderAdSlot      — Home §6/§9 + Article §6/§9 (leaderboard | in-feed | rect)
 //   renderFloatingNext— Article §12 (>=1280px viewport only, PART 4)
 
+import { escAttr, escText, imgTag } from "./esc";
+import { iconBrandMark, iconChevronDown, iconSearch } from "./icons";
+
 export interface SiteRef {
   name: string;
   tagline?: string;
@@ -34,11 +37,15 @@ export interface CategoryChip {
   // Optional pre-built href; when omitted the link is derived from the slug
   // as `/category/${slug}` — PART 8 RED LINE forbids href="#".
   href?: string;
+  // Optional 24×24 chip avatar (`.cat-chip-img`); omitted = label-only chip.
+  imageUrl?: string | null;
+  imageAlt?: string | null;
 }
 
 export interface HeaderArgs {
   site: SiteRef;
   nav?: ReadonlyArray<NavLink>;
+  searchPlaceholder?: string;
 }
 
 export interface HeroArgs {
@@ -48,6 +55,7 @@ export interface HeroArgs {
   imageAlt?: string | null;
   href?: string;
   kicker?: string;
+  searchPlaceholder?: string;
 }
 
 export interface ChipRailArgs {
@@ -97,77 +105,75 @@ export interface FloatingNextArgs {
   imageAlt?: string | null;
 }
 
-function escAttr(input: string | null | undefined): string {
-  if (input === null || input === undefined) return "";
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// Contract §11 header nav: labels + order pinned by docs/design-contract.md
+// ("Explore w/ chevron, Trending, Editor's Picks, Newsletter, then
+// .btn-outline Sign in"). Fragment hrefs target real Home §6/§7/§11 section
+// ids — PART 8 forbids only the bare placeholder href="#".
+const CONTRACT_NAV: ReadonlyArray<NavLink> = [
+  { label: "Explore", href: "/" },
+  { label: "Trending", href: "/#trending" },
+  { label: "Editor's Picks", href: "/#picks" },
+  { label: "Newsletter", href: "/#newsletter" },
+];
 
-function escText(input: string | null | undefined): string {
-  if (input === null || input === undefined) return "";
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function imgTag(
-  src: string | null | undefined,
-  alt: string | null | undefined,
-  attrs: string,
-): string {
-  if (src === null || src === undefined || src.length === 0) return "";
-  return `<img src="${escAttr(src)}" alt="${escAttr(alt ?? "")}"${attrs}>`;
+function searchPlaceholderOf(input: string | undefined): string {
+  return input !== undefined && input.length > 0 ? input : "Search";
 }
 
 export function renderHeader(args: HeaderArgs): string {
   const site = args.site;
-  const nav = args.nav ?? [];
+  const placeholder = searchPlaceholderOf(args.searchPlaceholder);
   const logoHtml =
     site.logoUrl !== undefined && site.logoUrl !== null && site.logoUrl.length > 0
-      ? `<img class="site-header__logo" src="${escAttr(site.logoUrl)}" alt="${escAttr(site.name)}" width="120" height="36" loading="eager" decoding="async">`
-      : "";
-  const navHtml =
-    nav.length === 0
-      ? ""
-      : `<nav class="site-header__nav" aria-label="Primary"><ul>${nav
-          .map(
-            (n) =>
-              `<li${n.active === true ? ' class="is-active" aria-current="page"' : ""}><a href="${escAttr(n.href)}">${escText(n.label)}</a></li>`,
-          )
-          .join("")}</ul></nav>`;
+      ? `<img class="brand-logo" src="${escAttr(site.logoUrl)}" alt="" width="38" height="38" loading="eager" decoding="async">`
+      : `<span class="brand-logo" aria-hidden="true">${iconBrandMark()}</span>`;
+  // Contract §11 child order: .brand → .header-search → .header-nav
+  // (4 nav-links, the first with chevron, then .btn-outline "Sign in").
+  const nav = args.nav !== undefined && args.nav.length > 0 ? args.nav : CONTRACT_NAV;
+  const navLinks = nav
+    .map((n, i) => {
+      const current = n.active === true ? ' aria-current="page"' : "";
+      const chevron = i === 0 ? iconChevronDown({ className: "nav-chevron", size: 12 }) : "";
+      return `<a class="nav-link" href="${escAttr(n.href)}"${current}>${escText(n.label)}${chevron}</a>`;
+    })
+    .join("");
   return `<header class="site-header" role="banner">
-  <div class="site-header__inner">
-    <a class="site-header__brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="site-header__name">${escText(site.name)}</span></a>
-    ${navHtml}
+  <div class="container">
+    <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="brand-name">${escText(site.name)}</span></a>
+    <div class="header-search" role="search"><input type="search" name="q" aria-label="Search" placeholder="${escAttr(placeholder)}"></div>
+    <nav class="header-nav" aria-label="Primary">${navLinks}<button class="btn-outline" type="button">Sign in</button></nav>
   </div>
 </header>`;
 }
 
 export function renderHero(args: HeroArgs): string {
   const href = args.href !== undefined && args.href.length > 0 ? args.href : "";
+  const placeholder = searchPlaceholderOf(args.searchPlaceholder);
   const kickerHtml =
     args.kicker !== undefined && args.kicker.length > 0
-      ? `<p class="hero__kicker">${escText(args.kicker)}</p>`
+      ? `<p class="hero-kicker">${escText(args.kicker)}</p>`
       : "";
-  const excerptHtml =
+  // Contract §11 hero DOM: .hero > .hero-bg + .hero-content > h1.hero-title
+  // > span.tagline, then form.hero-search. The tagline rides INSIDE the h1.
+  const taglineHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
-      ? `<p class="hero__excerpt">${escText(args.excerpt)}</p>`
+      ? ` <span class="tagline">${escText(args.excerpt)}</span>`
       : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="1200" height="630" loading="eager" decoding="async"');
-  const titleNode =
+  const img = imgTag(args.imageUrl, args.imageAlt, ' width="1200" height="630" loading="eager" fetchpriority="high" decoding="async"');
+  const titleText =
     href.length > 0
-      ? `<a class="hero__title-link" href="${escAttr(href)}"><h1 class="hero__title">${escText(args.title)}</h1></a>`
-      : `<h1 class="hero__title">${escText(args.title)}</h1>`;
+      ? `<a href="${escAttr(href)}">${escText(args.title)}</a>`
+      : escText(args.title);
   return `<section class="hero" aria-label="Featured story">
-  ${img}
-  ${kickerHtml}
-  ${titleNode}
-  ${excerptHtml}
+  <div class="hero-bg" aria-hidden="true">${img}</div>
+  <div class="hero-content">
+    ${kickerHtml}
+    <h1 class="hero-title">${titleText}${taglineHtml}</h1>
+    <form class="hero-search" role="search" method="get" action="/">
+      <input type="search" name="q" aria-label="Search" placeholder="${escAttr(placeholder)}">
+      <button type="submit" aria-label="Search">${iconSearch()}</button>
+    </form>
+  </div>
 </section>`;
 }
 
@@ -183,38 +189,43 @@ export function renderChipRail(args: ChipRailArgs): string {
       // caller does not pre-build the href.
       const href =
         chip.href !== undefined && chip.href.length > 0 ? chip.href : `/category/${slug}`;
-      return `<li class="chip-rail__item"><a class="chip" href="${escAttr(href)}">${escText(name)}</a></li>`;
+      const img = imgTag(
+        chip.imageUrl,
+        chip.imageAlt ?? name,
+        ' class="cat-chip-img" width="24" height="24" loading="lazy" decoding="async"',
+      );
+      return `<a class="cat-chip" href="${escAttr(href)}">${img}<span class="cat-chip-label">${escText(name)}</span></a>`;
     })
     .join("");
-  return `<nav class="chip-rail" aria-label="${escAttr(label)}">
-  <ul class="chip-rail__list">${items}</ul>
-</nav>`;
+  // Contract §10 vocabulary: chips are DIRECT flex children of `.cat-rail`
+  // (scroll-snap container) — no intermediate list element.
+  return `<nav class="cat-rail" aria-label="${escAttr(label)}">${items}</nav>`;
 }
 
 export function renderCard(args: CardArgs): string {
   const href = args.href.length > 0 ? args.href : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="640" height="360" loading="lazy" decoding="async"');
+  const img = imgTag(args.imageUrl, args.imageAlt, ' class="card-img" width="640" height="360" loading="lazy" decoding="async"');
   const categoryHtml =
     args.categoryName !== undefined && args.categoryName.length > 0
-      ? `<p class="card__category">${escText(args.categoryName)}</p>`
+      ? `<p class="card-cat">${escText(args.categoryName)}</p>`
       : "";
   const metaParts: string[] = [];
   if (args.publishedAt !== undefined && args.publishedAt.length > 0) {
-    metaParts.push(`<time class="card__date">${escText(args.publishedAt)}</time>`);
+    metaParts.push(`<time class="card-date">${escText(args.publishedAt)}</time>`);
   }
   if (args.readMinutes !== undefined && args.readMinutes !== null) {
-    metaParts.push(`<span class="card__read">${escText(String(args.readMinutes))} min read</span>`);
+    metaParts.push(`<span class="card-read">${escText(String(args.readMinutes))} min read</span>`);
   }
-  const metaHtml = metaParts.length > 0 ? `<p class="card__meta">${metaParts.join("")}</p>` : "";
+  const metaHtml = metaParts.length > 0 ? `<p class="card-foot">${metaParts.join("")}</p>` : "";
   const excerptHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
-      ? `<p class="card__excerpt">${escText(args.excerpt)}</p>`
+      ? `<p class="card-excerpt">${escText(args.excerpt)}</p>`
       : "";
   return `<article class="card">
-  <a class="card__link" href="${escAttr(href)}">
+  <a href="${escAttr(href)}">
     ${img}
     ${categoryHtml}
-    <h3 class="card__title">${escText(args.title)}</h3>
+    <h3 class="card-title">${escText(args.title)}</h3>
     ${excerptHtml}
     ${metaHtml}
   </a>
@@ -236,7 +247,7 @@ export function renderNewsletter(args: NewsletterArgs): string {
   const noticeHtml = disabled
     ? `<p class="newsletter__notice" role="status">Newsletter signup will open soon.</p>`
     : "";
-  return `<section class="newsletter" aria-labelledby="newsletter-heading">
+  return `<section class="newsletter" id="newsletter" aria-labelledby="newsletter-heading">
   <h2 id="newsletter-heading" class="newsletter__heading">${escText(args.heading)}</h2>
   ${descriptionHtml}
   <form class="newsletter__form" method="post" action="${escAttr(action)}">

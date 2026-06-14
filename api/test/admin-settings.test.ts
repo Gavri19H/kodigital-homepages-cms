@@ -15,6 +15,11 @@
 import { describe, expect, it } from "vitest";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
+import {
+  SETTING_KEYS,
+  settingsPage,
+  type SettingsValueMap,
+} from "../src/admin/templates/settings";
 
 interface RecordedCall {
   sql: string;
@@ -233,5 +238,124 @@ describe("admin settings PATCH (T8.AC1)", () => {
     // D1 round trip so a missing site_id cannot become a global write.
     expect(batches.length).toBe(0);
     expect(calls.length).toBe(0);
+  });
+
+  it("PATCH round-trips all 12 canonical keys for one site (12 UPSERTs + version bump in one batch)", async () => {
+    const { db, batches } = makeFakeDb([
+      {
+        match: "FROM sites WHERE id = ?",
+        row: { id: "st_a", settings_version: 4 },
+      },
+    ]);
+    const updates: Record<string, string> = {};
+    for (const key of SETTING_KEYS) {
+      updates[key] = `probe_${key}`;
+    }
+    const res = await admin.request(
+      "/api/admin/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ site_id: "st_a", updates }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      site_id: string;
+      settings_version: number;
+      updated_keys: string[];
+    };
+    expect(body.site_id).toBe("st_a");
+    expect(body.settings_version).toBe(5);
+    expect(body.updated_keys).toEqual([...SETTING_KEYS]);
+
+    // One atomic batch: one UPSERT per canonical key, then the version
+    // bump as the final statement.
+    expect(batches.length).toBe(1);
+    const batch = batches[0];
+    if (!batch) throw new Error("batch not recorded");
+    expect(batch.length).toBe(SETTING_KEYS.length + 1);
+    SETTING_KEYS.forEach((key, i) => {
+      const upsert = batch[i];
+      if (!upsert) throw new Error(`UPSERT for ${key} missing`);
+      expect(upsert.sql).toMatch(/INSERT INTO site_settings/);
+      expect(upsert.sql).toMatch(/ON CONFLICT\(site_id, key\)/);
+      expect(upsert.binds).toEqual(["st_a", key, `probe_${key}`]);
+    });
+    const bump = batch[batch.length - 1];
+    if (!bump) throw new Error("version-bump statement missing");
+    expect(bump.sql).toMatch(/UPDATE sites SET settings_version = settings_version \+ 1/);
+    expect(bump.binds).toEqual(["st_a"]);
+  });
+});
+
+// T32 [B11] Settings port (per-site) — template contract.
+// The page must render the required Site selector, the legacy card
+// groups, one control per canonical key with values round-tripped, and
+// its inline script must send the T24 wire shape {site_id, updates} to
+// PATCH /api/admin/settings and target POST /api/admin/ai/logo for AI
+// logo generation.
+describe("settings template (T32 settings port per-site)", () => {
+  const sites = [
+    { id: "st_a", name: "Site A" },
+    { id: "st_b", name: "Site B" },
+  ];
+
+  it("renders the required site selector with options and a hidden site_id bound to the selection", () => {
+    const html = settingsPage(sites, {}, "st_b", { userEmail: "qa@example.test" });
+    expect(html).toMatch(/<select id="filter-site"[^>]*name="site_id"[^>]*required/);
+    expect(html).toContain('<option value="st_a"');
+    expect(html).toMatch(/<option value="st_b" selected/);
+    expect(html).toMatch(
+      /<input type="hidden" id="settings-site-id" name="site_id"[^>]*value="st_b"/,
+    );
+  });
+
+  it("renders one form control per canonical key and round-trips provided values", () => {
+    const values: SettingsValueMap = {};
+    for (const key of SETTING_KEYS) {
+      values[key] = `probe_${key}`;
+    }
+    const html = settingsPage(sites, values, "st_a", {});
+    for (const key of SETTING_KEYS) {
+      expect(html).toContain(`name="${key}"`);
+      expect(html).toContain(`probe_${key}`);
+    }
+  });
+
+  it("renders the ported card headings (Site Information / Site Logo / ads.txt / robots.txt / Custom HTML)", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    for (const heading of [
+      "Site Information",
+      "Site Logo",
+      "ads.txt",
+      "robots.txt",
+      "Brand Tokens",
+      "Newsletter",
+      "Custom HTML",
+    ]) {
+      expect(html).toContain(`<h3 class="card-title">${heading}</h3>`);
+    }
+  });
+
+  it("submits PATCH {site_id, updates} to /api/admin/settings and targets /api/admin/ai/logo for logo generation", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    expect(html).toContain("'/api/admin/settings'");
+    expect(html).toContain("method: 'PATCH'");
+    expect(html).toContain("{ site_id: hidden.value, updates: updates }");
+    expect(html).toContain("'/api/admin/ai/logo'");
+    expect(html).toContain("JSON.stringify({ site_id: hidden.value })");
+  });
+
+  it("escapes setting values so stored content cannot break out of the form HTML", () => {
+    const html = settingsPage(
+      sites,
+      { site_name: '"><script>alert(1)</script>' },
+      "st_a",
+      {},
+    );
+    expect(html).not.toContain('"><script>alert(1)</script>');
+    expect(html).toContain("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 });

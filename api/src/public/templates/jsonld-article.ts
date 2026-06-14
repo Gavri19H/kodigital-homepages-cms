@@ -31,8 +31,10 @@ export interface ArticleJsonLdInput {
   dateModified: string;
   // Author display name. Article rich results require either Person or
   // Organization; we emit @type Person which is the common case for CMS
-  // articles.
+  // articles. GEO checklist §3: anonymous / tenant-authored content passes
+  // "Organization" so author is the publisher, never omitted.
   authorName: string;
+  authorType?: "Person" | "Organization";
   authorUrl?: string;
   // Publisher (Organization). siteName is required for the Organization
   // @type; logo is optional but recommended.
@@ -95,7 +97,7 @@ function serializeJsonLd(payload: Record<string, unknown>): string {
 // (>=6 matches). The "mainEntityOfPage" field satisfies AC4 (mainEntity >=1).
 export function renderArticleJsonLd(input: ArticleJsonLdInput): string {
   const author: Record<string, unknown> = {
-    "@type": "Person",
+    "@type": input.authorType ?? "Person",
     "name": input.authorName,
   };
   if (input.authorUrl) {

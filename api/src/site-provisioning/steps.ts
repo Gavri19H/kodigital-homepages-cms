@@ -1,30 +1,38 @@
-// Phase 3 / T17+T19+T20 + Phase 6 / T9: provisioning step registry.
+// Phase 3 / T17+T19+T20 + Phase 6 / T9 + rescue-2 T34: provisioning
+// step registry.
 //
-// 15 step keys advance a site_creation_jobs row one step per
-// POST /api/admin/sites/:id/provision/next call. T17 wired stubs;
-// T18 added dry-run gating for CF-mutation steps; T19 swapped
+// 16 canonical step keys advance a site_creation_jobs row one step per
+// POST /api/admin/sites/:id/provision/next call. T17 wired placeholder
+// handlers; T18 added dry-run gating for CF-mutation steps; T19 swapped
 // create_site_settings for a 12-key seed; T20 swapped the legal-pages
-// stub for variable-aware rendering via legal-renderer.ts; Phase 6 / T9
-// now swaps SIX of the remaining deterministic stubs for AI-or-fallback
-// generators that write a typed receipt row to ai_generations and
-// persist their side-effects (site_settings updates, pages rows,
-// articles rows, media rows) so re-running the same step is idempotent
-// via:
+// placeholder for variable-aware rendering via legal-renderer.ts;
+// Phase 6 / T9 swapped six steps for AI-or-fallback generators that
+// write a typed receipt row to ai_generations and persist their
+// side-effects (site_settings updates, pages rows, articles rows,
+// media rows) so re-running the same step is idempotent via:
 //   - ai_generations.idempotency_key UNIQUE (T4)        — no duplicate gen rows
 //   - INSERT OR IGNORE on site_settings/articles/pages  — no duplicate domain rows
 //   - UPDATE … COALESCE / WHERE … IS NULL              — no clobber of populated values
+// T34 (rescue-2 D1) renames every key to its canonical suffix-free form
+// and appends the 16th step, update_launch_readiness; T39 implements it
+// as the read-only readiness rollup persisted to the step output row.
 //
 // Contract greps (each canonical key appears as a single-quoted literal
 // exactly once in the registry tuple it belongs to):
-//   - T17.AC1: 15 step-key literals in STEP_KEYS
+//   - T34.AC1: 16 step-key literals in STEP_KEYS; index 15 is
+//     update_launch_readiness
 //   - T19.AC1: 12 site-settings-key literals in DEFAULT_SETTING_SEED
 //   - T9.AC1..AC5: imports of generateSiteTagline/Description, generateAboutPage,
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
-//   - T9.AC6: each of the 6 swapped step keys appears >=12 times in this file
-//     (type union + STEP_KEYS literal + STEPS key + dispatch handler etc.)
 
-import type { Env } from "../env";
+import { type Env, parseNumber } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
+import { warmSiteCache } from "../cache/warm";
+import {
+  resolveSiteHostname,
+  runCloudflareRouteMutation,
+  runCloudflareZoneValidation,
+} from "./cloudflare-interfaces";
 import {
   generateSiteTagline,
   generateSiteDescription,
@@ -45,36 +53,39 @@ export type StepKey =
   | "attach_domain_to_new_worker_or_mark_pending"
   | "allocate_vertical_categories"
   | "create_site_settings"
-  | "generate_tagline_and_site_description_stub"
-  | "generate_about_page_stub"
+  | "generate_tagline_and_site_description"
+  | "generate_about_page"
   | "render_generic_legal_pages_with_site_variables"
-  | "generate_logo_mark_stub"
-  | "generate_feature_image_stub"
-  | "generate_15_homepage_articles_stub"
-  | "generate_or_assign_article_images_stub"
+  | "generate_logo_mark"
+  | "generate_feature_image"
+  | "generate_15_homepage_articles"
+  | "generate_or_assign_article_images"
   | "publish_starter_articles"
   | "warm_homepage_cache"
-  | "run_site_smoke_tests";
+  | "run_site_smoke_tests"
+  | "update_launch_readiness";
 
 // Ordered registry — STEP_KEYS[i] is the step the runner executes when
 // site_creation_jobs.current_step_index = i. The single-quoted literal
-// form below is what T17.AC1's grep counts.
+// form below is what T34.AC1's grep counts (16 keys; index 15 MUST be
+// update_launch_readiness).
 export const STEP_KEYS: readonly StepKey[] = [
   'validate_domain_in_cloudflare',
   'create_site_record',
   'attach_domain_to_new_worker_or_mark_pending',
   'allocate_vertical_categories',
   'create_site_settings',
-  'generate_tagline_and_site_description_stub',
-  'generate_about_page_stub',
+  'generate_tagline_and_site_description',
+  'generate_about_page',
   'render_generic_legal_pages_with_site_variables',
-  'generate_logo_mark_stub',
-  'generate_feature_image_stub',
-  'generate_15_homepage_articles_stub',
-  'generate_or_assign_article_images_stub',
+  'generate_logo_mark',
+  'generate_feature_image',
+  'generate_15_homepage_articles',
+  'generate_or_assign_article_images',
   'publish_starter_articles',
   'warm_homepage_cache',
   'run_site_smoke_tests',
+  'update_launch_readiness',
 ];
 
 export const TOTAL_STEPS: number = STEP_KEYS.length;
@@ -95,15 +106,83 @@ export interface StepHandlerResult {
 
 export type StepHandler = (ctx: StepContext) => Promise<StepHandlerResult>;
 
-// Deterministic stub: the payload is stable across calls so step receipts
-// stay reproducible until T19/T20 swap in real per-step behavior.
-function stubResult(step: StepKey): StepHandlerResult {
-  const payload = {
-    step,
-    kind: "deterministic_stub",
-    schema_version: 1,
+// T35 — validate_domain_in_cloudflare (step 1).
+// Read-only Cloudflare-boundary check: resolves the site's hostname and
+// asks the boundary whether an active zone exists. Dry-run (the default)
+// short-circuits to completed_dry_run with zero outbound fetch;
+// protected legacy-production hostnames are refused before any call.
+async function validateDomainInCloudflareStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
+  const outcome = await runCloudflareZoneValidation(
+    { env: ctx.env, db: ctx.db },
+    { site_id: ctx.site_id, hostname },
+  );
+  return { status: outcome.status, output: outcome.output, error: outcome.error };
+}
+
+// T35 — create_site_record (step 2).
+// Pure-D1 record completion: verifies the sites row committed by
+// POST /api/admin/sites still exists and repairs the canonical domains
+// row if it is missing (INSERT OR IGNORE under domains.hostname UNIQUE
+// keeps re-runs idempotent). No Cloudflare call in any mode.
+async function createSiteRecordStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  let domainsRowEnsured = false;
+  if (info.domain.length > 0) {
+    await ctx.db
+      .prepare(
+        "INSERT OR IGNORE INTO domains (site_id, hostname, kind, is_primary, status) " +
+          "VALUES (?, ?, 'canonical', 1, 'pending')",
+      )
+      .bind(ctx.site_id, info.domain)
+      .run();
+    domainsRowEnsured = true;
+  }
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "create_site_record",
+      kind: "deterministic_record",
+      schema_version: 1,
+      site_id: ctx.site_id,
+      domain: info.domain,
+      domains_row_ensured: domainsRowEnsured,
+    }),
   };
-  return { status: "completed", output: JSON.stringify(payload) };
+}
+
+// T35 — attach_domain_to_new_worker_or_mark_pending (step 3).
+// Registry-side mirror of the runner's CF-mutation interception: both
+// call the same runCloudflareRouteMutation boundary, which performs a
+// real route mutation ONLY when SITE_PROVISIONING_DRY_RUN=false AND
+// SITE_PROVISIONING_ALLOW_ROUTE_MUTATION=true AND the hostname is not
+// protected; otherwise it short-circuits to completed_dry_run (or marks
+// the domain pending when no zone exists in live mode).
+async function attachDomainToWorkerStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
+  const outcome = await runCloudflareRouteMutation(
+    { env: ctx.env, db: ctx.db },
+    {
+      site_id: ctx.site_id,
+      hostname,
+      action: "attach_domain_to_new_worker_or_mark_pending",
+      payload: { job_id: ctx.job_id, step_order: ctx.step_order },
+    },
+  );
+  return { status: outcome.status, output: outcome.output, error: outcome.error };
 }
 
 // T9 helper — load the site row + its vertical_slug so AI generators
@@ -302,7 +381,7 @@ async function allocateVerticalCategoriesStep(
 }
 
 
-// T9 — generate_tagline_and_site_description_stub
+// T9 — generate_tagline_and_site_description
 // Calls generateSiteTagline + generateSiteDescription. With no
 // OPENAI_API_KEY both return a deterministic fallback and write an
 // ai_generations row with status='skipped_no_api_key' / 'fallback'.
@@ -340,7 +419,7 @@ async function generateTaglineAndSiteDescriptionStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_tagline_and_site_description_stub",
+      step: "generate_tagline_and_site_description",
       kind: "ai_or_fallback",
       schema_version: 1,
       tagline_status: tagline.status,
@@ -351,7 +430,7 @@ async function generateTaglineAndSiteDescriptionStep(
   };
 }
 
-// T9 — generate_about_page_stub
+// T9 — generate_about_page
 // Calls generateAboutPage and persists the About page as a real row in
 // pages, idempotent on (site_id, slug)='about'. The earlier T15
 // deterministic implementation wrote a minimal block document; we now
@@ -394,7 +473,7 @@ async function generateAboutPageStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_about_page_stub",
+      step: "generate_about_page",
       kind: "ai_or_fallback",
       schema_version: 1,
       about_page_slug: "about",
@@ -453,7 +532,7 @@ async function renderLegalPagesStep(
   };
 }
 
-// T9 — generate_logo_mark_stub
+// T9 — generate_logo_mark
 // Calls generateLogoPrompt + generateLogoImage. With no OPENAI_API_KEY
 // the image generator returns { media_id: 0, status: 'skipped_no_api_key' }
 // and writes no media row; site_settings.logo_media_id stays empty.
@@ -491,7 +570,7 @@ async function generateLogoMarkStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_logo_mark_stub",
+      step: "generate_logo_mark",
       kind: "ai_or_fallback",
       schema_version: 1,
       prompt_status: promptResult.status,
@@ -504,7 +583,7 @@ async function generateLogoMarkStep(
   };
 }
 
-// T9 — generate_feature_image_stub
+// T9 — generate_feature_image
 // Generates a single global feature image keyed on site_id (acts as a
 // fallback hero used by pages that don't have a per-article image yet).
 // Idempotent via the image generator's (site_id, task, target_id) key.
@@ -536,7 +615,7 @@ async function generateFeatureImageStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_feature_image_stub",
+      step: "generate_feature_image",
       kind: "ai_or_fallback",
       schema_version: 1,
       prompt_status: promptResult.status,
@@ -549,7 +628,7 @@ async function generateFeatureImageStep(
   };
 }
 
-// T9 — generate_15_homepage_articles_stub
+// T9 — generate_15_homepage_articles
 // Calls generateStarterArticlePlan (always exactly 15 items, unique
 // slugs). For each item: generateStarterArticle, then INSERT OR IGNORE
 // into articles bound to ctx.site_id. The articles table has a
@@ -616,7 +695,7 @@ async function generate15HomepageArticlesStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_15_homepage_articles_stub",
+      step: "generate_15_homepage_articles",
       kind: "ai_or_fallback",
       schema_version: 1,
       plan_status: plan.status,
@@ -649,7 +728,7 @@ function renderArticleHtml(
   return parts.join("");
 }
 
-// T9 — generate_or_assign_article_images_stub
+// T9 — generate_or_assign_article_images
 // For each starter article (selected via SELECT slug+title FROM articles
 // WHERE site_id=? AND homepage_section='starter'), call
 // generateFeatureImage. With OPENAI_API_KEY the generator inserts a
@@ -701,7 +780,7 @@ async function generateOrAssignArticleImagesStep(
   return {
     status: "completed",
     output: JSON.stringify({
-      step: "generate_or_assign_article_images_stub",
+      step: "generate_or_assign_article_images",
       kind: "ai_or_fallback",
       schema_version: 1,
       article_count: rows.length,
@@ -711,25 +790,355 @@ async function generateOrAssignArticleImagesStep(
   };
 }
 
+// T36 — publish_starter_articles (step 13).
+// The starter rows inserted by generate_15_homepage_articles carry
+// status='published' but a NULL published_at (the INSERT omits it), so
+// public readers — which filter/ORDER BY published_at — treat them as
+// not-yet-live. This step finalizes the publish state for every starter
+// article (homepage_section='starter') in one pass:
+//   - status='published' + published_at backfilled via
+//     COALESCE(published_at, unixepoch()) so a re-run never clobbers
+//     the original publish timestamp (idempotent);
+//   - sites.content_version bumped monotonically — the same canonical
+//     statement the publish workflow uses (workflow/publish.ts) — so
+//     public cache keys (which suffix content_version) roll over.
+// No invalidatePublishCaches() here: a freshly-provisioned site has no
+// cached entries yet (warm_homepage_cache, the NEXT step, populates
+// them) and the bumped version suffix already orphans any stale key.
+// Pure D1 — zero Cloudflare interaction in any mode.
+async function publishStarterArticlesStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  await ctx.db
+    .prepare(
+      "UPDATE articles SET status = 'published', " +
+        "published_at = COALESCE(published_at, unixepoch()), " +
+        "scheduled_at = NULL, updated_at = unixepoch() " +
+        "WHERE site_id = ? AND homepage_section = 'starter'",
+    )
+    .bind(ctx.site_id)
+    .run();
+  // Receipt count read back from D1 (null-tolerant: harnesses that
+  // don't model the articles table report 0 rather than failing).
+  const countRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS published_count FROM articles " +
+        "WHERE site_id = ? AND homepage_section = 'starter' " +
+        "AND status = 'published' AND published_at IS NOT NULL",
+    )
+    .bind(ctx.site_id)
+    .first<{ published_count: number }>();
+  await ctx.db
+    .prepare(
+      "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
+    )
+    .bind(ctx.site_id)
+    .run();
+  return {
+    status: "completed",
+    output: JSON.stringify({
+      step: "publish_starter_articles",
+      kind: "deterministic_publish",
+      schema_version: 1,
+      site_id: ctx.site_id,
+      published_count: countRow?.published_count ?? 0,
+      content_version_bumped: true,
+    }),
+  };
+}
+
+// T37 — warm_homepage_cache (step 14).
+// Delegates to the canonical warmSiteCache helper (cache/warm.ts).
+// Under SITE_PROVISIONING_DRY_RUN (the default) the helper performs
+// ZERO outbound fetches and ZERO KV puts and the step reports
+// completed_dry_run. In live mode it GETs homepage + sitemap +
+// feed:rss + feed:atom from the site's own origin
+// (https://{hostname} — no api.cloudflare.com URL is ever built) and
+// stores each body in env.CACHE under the canonical cache-keys.ts
+// key — the homepage via putCachedHtml with its computed strong ETag.
+// content_version is read live from the sites row (bumped by the
+// preceding publish_starter_articles step) so the warmed keys match
+// what the public router will look up. TTL mirrors the public
+// pipeline's parseNumber(HTML_CACHE_TTL_SECONDS, 300). The homepage
+// target is the step's namesake side-effect: a live-mode run that
+// fails to warm it marks the step failed; sitemap/feed misses stay
+// best-effort inside the helper's per-target envelope.
+async function warmHomepageCacheStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  const versionRow = await ctx.db
+    .prepare("SELECT content_version FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ content_version: number | null }>();
+  const contentVersion =
+    versionRow && typeof versionRow.content_version === "number"
+      ? versionRow.content_version
+      : 0;
+  const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
+  const outcome = await warmSiteCache(ctx.env, {
+    site_id: ctx.site_id,
+    content_version: contentVersion,
+    originBaseUrl: `https://${hostname}`,
+    expirationTtl: parseNumber(ctx.env.HTML_CACHE_TTL_SECONDS, 300),
+  });
+  const homepage = outcome.results.find((r) => r.kind === "homepage");
+  const output = JSON.stringify({
+    step: "warm_homepage_cache",
+    kind: "cache_warm",
+    schema_version: 1,
+    site_id: ctx.site_id,
+    content_version: contentVersion,
+    dry_run: outcome.dry_run,
+    attempted: outcome.attempted,
+    warmed: outcome.warmed,
+    failed: outcome.failed,
+    homepage_cache_key: homepage ? homepage.cacheKey : "",
+    homepage_status: homepage ? homepage.status : "failed",
+  });
+  if (outcome.dry_run) {
+    return { status: "completed_dry_run", output };
+  }
+  if (!homepage || homepage.status !== "warmed") {
+    return {
+      status: "failed",
+      output,
+      error:
+        homepage?.error ??
+        `homepage warm did not complete (status=${homepage?.status ?? "missing"}, http=${homepage?.http_status ?? "n/a"})`,
+    };
+  }
+  return { status: "completed", output };
+}
+
+// T38 — run_site_smoke_tests (step 15).
+// In-process smoke verification of the freshly-provisioned site: four
+// read-only D1 checks, zero fetch in ANY mode (the step never leaves
+// the Worker, so there is nothing to dry-run-gate):
+//   1. sites_row_present          — the sites row still exists;
+//   2. starter_articles_published — >= 1 starter article is publicly
+//      live (status='published' AND published_at set), read back via
+//      the same canonical COUNT publish_starter_articles uses;
+//   3. site_settings_seeded       — the 12-key T19 seed landed
+//      (>= 12 site_settings rows for the site);
+//   4. pages_present              — >= 1 pages row (about/legal).
+// Any failing check fails the step — and therefore the job — with the
+// failing check names in error. The step MUST NOT report success while
+// an expected side-effect table is empty.
+interface SmokeCheck {
+  check: string;
+  pass: boolean;
+  observed: number;
+  expected_min: number;
+}
+
+async function runSiteSmokeTestsStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  const checks: SmokeCheck[] = [
+    { check: "sites_row_present", pass: true, observed: 1, expected_min: 1 },
+  ];
+  const articleRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS published_count FROM articles " +
+        "WHERE site_id = ? AND homepage_section = 'starter' " +
+        "AND status = 'published' AND published_at IS NOT NULL",
+    )
+    .bind(ctx.site_id)
+    .first<{ published_count: number }>();
+  const publishedCount = articleRow?.published_count ?? 0;
+  checks.push({
+    check: "starter_articles_published",
+    pass: publishedCount >= 1,
+    observed: publishedCount,
+    expected_min: 1,
+  });
+  const settingsRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS settings_count FROM site_settings WHERE site_id = ?",
+    )
+    .bind(ctx.site_id)
+    .first<{ settings_count: number }>();
+  const settingsCount = settingsRow?.settings_count ?? 0;
+  checks.push({
+    check: "site_settings_seeded",
+    pass: settingsCount >= 12,
+    observed: settingsCount,
+    expected_min: 12,
+  });
+  const pagesRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS pages_count FROM pages WHERE site_id = ?",
+    )
+    .bind(ctx.site_id)
+    .first<{ pages_count: number }>();
+  const pagesCount = pagesRow?.pages_count ?? 0;
+  checks.push({
+    check: "pages_present",
+    pass: pagesCount >= 1,
+    observed: pagesCount,
+    expected_min: 1,
+  });
+  const failedChecks = checks.filter((c) => !c.pass);
+  const output = JSON.stringify({
+    step: "run_site_smoke_tests",
+    kind: "in_process_smoke",
+    schema_version: 1,
+    site_id: ctx.site_id,
+    checks_run: checks.length,
+    checks_passed: checks.length - failedChecks.length,
+    checks,
+  });
+  if (failedChecks.length > 0) {
+    return {
+      status: "failed",
+      output,
+      error:
+        "smoke checks failed: " +
+        failedChecks.map((c) => c.check).join(", "),
+    };
+  }
+  return { status: "completed", output };
+}
+
+// T39 — update_launch_readiness (step 16, the final step).
+// Read-only D1 rollup: collects the launch-readiness signals produced by
+// the earlier steps into one JSON object and persists it as this step's
+// output row (the runner writes StepHandlerResult.output into
+// site_creation_job_steps.output). GET /api/admin/sites/:id/provision
+// reads that row back and surfaces it as the response's top-level
+// `launch_readiness` field (field_contract canonical_name
+// launch_readiness: domain_attached, published_articles, media_count,
+// cache_warmed, smoke_passed, content_mode). Zero fetch in any mode.
+async function readJobStepStatus(
+  db: D1Database,
+  job_id: string,
+  step_key: StepKey,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      "SELECT status FROM site_creation_job_steps " +
+        "WHERE job_id = ? AND step_key = ? LIMIT 1",
+    )
+    .bind(job_id, step_key)
+    .first<{ status: string }>();
+  return typeof row?.status === "string" ? row.status : null;
+}
+
+async function updateLaunchReadinessStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const site = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!site) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+  // content_mode rides its own read so a legacy row (or a pre-0010
+  // local DB) degrades to the column's DEFAULT 'ai' instead of failing
+  // the rollup.
+  const modeRow = await ctx.db
+    .prepare("SELECT content_mode FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ content_mode: string | null }>();
+  const domainRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS attached_count FROM domains " +
+        "WHERE site_id = ? AND status = 'active'",
+    )
+    .bind(ctx.site_id)
+    .first<{ attached_count: number }>();
+  const articlesRow = await ctx.db
+    .prepare(
+      "SELECT COUNT(*) AS published_count FROM articles " +
+        "WHERE site_id = ? AND status = 'published' " +
+        "AND published_at IS NOT NULL",
+    )
+    .bind(ctx.site_id)
+    .first<{ published_count: number }>();
+  const mediaRow = await ctx.db
+    .prepare("SELECT COUNT(*) AS media_count FROM media WHERE site_id = ?")
+    .bind(ctx.site_id)
+    .first<{ media_count: number }>();
+  const warmStatus = await readJobStepStatus(
+    ctx.db,
+    ctx.job_id,
+    "warm_homepage_cache",
+  );
+  const smokeStatus = await readJobStepStatus(
+    ctx.db,
+    ctx.job_id,
+    "run_site_smoke_tests",
+  );
+  const launch_readiness = {
+    domain_attached: (domainRow?.attached_count ?? 0) >= 1,
+    published_articles: articlesRow?.published_count ?? 0,
+    media_count: mediaRow?.media_count ?? 0,
+    cache_warmed:
+      warmStatus === "completed" || warmStatus === "completed_dry_run",
+    smoke_passed: smokeStatus === "completed",
+    content_mode:
+      typeof modeRow?.content_mode === "string" &&
+      modeRow.content_mode.length > 0
+        ? modeRow.content_mode
+        : "ai",
+  };
+  const output = JSON.stringify({
+    step: "update_launch_readiness",
+    kind: "launch_readiness_rollup",
+    schema_version: 1,
+    site_id: ctx.site_id,
+    launch_readiness,
+  });
+  return { status: "completed", output };
+}
+
+// All 16 steps have real handlers: T35 replaced the 3 Cloudflare-boundary
+// steps, T36 publish_starter_articles, T37 warm_homepage_cache, T38
+// run_site_smoke_tests, and T39 update_launch_readiness (the last
+// placeholder) with the implementations above.
 export const STEPS: Record<StepKey, StepHandler> = {
-  validate_domain_in_cloudflare: async () =>
-    stubResult("validate_domain_in_cloudflare"),
-  create_site_record: async () => stubResult("create_site_record"),
-  attach_domain_to_new_worker_or_mark_pending: async () =>
-    stubResult("attach_domain_to_new_worker_or_mark_pending"),
+  validate_domain_in_cloudflare: validateDomainInCloudflareStep,
+  create_site_record: createSiteRecordStep,
+  attach_domain_to_new_worker_or_mark_pending: attachDomainToWorkerStep,
   allocate_vertical_categories: allocateVerticalCategoriesStep,
   create_site_settings: seedDefaultSiteSettings,
-  generate_tagline_and_site_description_stub:
-    generateTaglineAndSiteDescriptionStep,
-  generate_about_page_stub: generateAboutPageStep,
+  generate_tagline_and_site_description: generateTaglineAndSiteDescriptionStep,
+  generate_about_page: generateAboutPageStep,
   render_generic_legal_pages_with_site_variables: renderLegalPagesStep,
-  generate_logo_mark_stub: generateLogoMarkStep,
-  generate_feature_image_stub: generateFeatureImageStep,
-  generate_15_homepage_articles_stub: generate15HomepageArticlesStep,
-  generate_or_assign_article_images_stub: generateOrAssignArticleImagesStep,
-  publish_starter_articles: async () => stubResult("publish_starter_articles"),
-  warm_homepage_cache: async () => stubResult("warm_homepage_cache"),
-  run_site_smoke_tests: async () => stubResult("run_site_smoke_tests"),
+  generate_logo_mark: generateLogoMarkStep,
+  generate_feature_image: generateFeatureImageStep,
+  generate_15_homepage_articles: generate15HomepageArticlesStep,
+  generate_or_assign_article_images: generateOrAssignArticleImagesStep,
+  publish_starter_articles: publishStarterArticlesStep,
+  warm_homepage_cache: warmHomepageCacheStep,
+  run_site_smoke_tests: runSiteSmokeTestsStep,
+  update_launch_readiness: updateLaunchReadinessStep,
 };
 
 export function getStepKeyForIndex(index: number): StepKey | null {

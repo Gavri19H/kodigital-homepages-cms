@@ -11,16 +11,12 @@
 // New mode submits POST /api/admin/pages; edit mode submits PATCH
 // /api/admin/pages/:id. Inline submit script is ES5-only.
 //
-// Two-templates split (RX4 / MQAFIX-4):
-//   - api/src/admin/templates/pages.ts (THIS FILE) is the CANONICAL renderer.
-//     api/src/admin/ui.ts mounts GET /admin/pages here via pagesListPage()
-//     and the related new/edit forms via pageFormPage(). This is the only
-//     template the application actually serves to browsers.
-//   - api/src/admin/views/pages.ts is a LEGACY peer retained ONLY for the
-//     T22 acceptance-test grep contract
-//     (acceptance-tests/.../T22_pages_tab_site_aware.sh greps the views/
-//     file for data-filter="site"/page_type/status). It is NOT imported
-//     by any application code and renders no live route.
+// api/src/admin/templates/pages.ts (THIS FILE) is the CANONICAL renderer:
+// api/src/admin/ui.ts mounts GET /admin/pages here via pagesListPage()
+// and the related new/edit forms via pageFormPage(). This is the only
+// template the application serves to browsers — the legacy views/ peer
+// (kept through RX4/MQAFIX-4 for an old change's acceptance grep) was
+// deleted with the final B-port fold (T33).
 // The Site filter wire name is the canonical column name `site_id` (the
 // legacy short form must not appear on any select). Enforced by
 // api/test/pages-template.test.ts (T6.AC1 contract) and
@@ -28,7 +24,7 @@
 // Do NOT rename the Site filter select away from the canonical wire
 // name without also updating both wire contracts.
 
-import { adminLayout } from "./layout";
+import { adminLayout, escapeHtml } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
 
 export interface SiteOption {
@@ -56,6 +52,7 @@ export interface PageFormValues {
   page_type?: string;
   status?: string;
   show_in_footer?: boolean | number;
+  display_order?: number;
   content_json?: string;
   content_html?: string;
   seo_title?: string;
@@ -97,16 +94,6 @@ function isLegalPageType(pt: string | undefined | null): boolean {
     if (LEGAL_PAGE_TYPES[i] === pt) { return true; }
   }
   return false;
-}
-
-function escapeHtml(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) { return ""; }
-  return String(input)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function selectedAttr(a: string | undefined | null, b: string): string {
@@ -173,7 +160,10 @@ function renderPageRow(p: PageListEntry): string {
   <td><span class="badge">${status}</span></td>
   <td>${footer}</td>
   <td>${updated}</td>
-  <td><a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a></td>
+  <td>
+    <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
+    <button type="button" class="btn btn-danger btn-sm" data-delete-page="${id}" data-page-title="${title}">Delete</button>
+  </td>
 </tr>`;
 }
 
@@ -199,6 +189,34 @@ function renderPagesTable(pages: ReadonlyArray<PageListEntry>): string {
 </div>`;
 }
 
+// T29: Delete row action — port of the legacy deletePage flow using the
+// layout's confirmDelete/api/showToast globals (articles-list parity).
+// ES5 only (var, .then(), no template literals).
+const PAGES_LIST_SCRIPT = `
+(function () {
+  function onDeleteClick() {
+    var id = this.getAttribute('data-delete-page');
+    var title = this.getAttribute('data-page-title') || 'this page';
+    if (!id) { return; }
+    if (!window.confirmDelete('Are you sure you want to delete "' + title + '"?')) { return; }
+    window.api('DELETE', '/api/admin/pages/' + id).then(function (data) {
+      if (data && data.error) {
+        window.showToast('Error: ' + data.error, 'error');
+      } else {
+        window.location.reload();
+      }
+    }).catch(function () {
+      window.showToast('Error: Failed to delete page', 'error');
+    });
+  }
+  var deleteButtons = document.querySelectorAll('button[data-delete-page]');
+  var i;
+  for (i = 0; i < deleteButtons.length; i++) {
+    deleteButtons[i].addEventListener('click', onDeleteClick);
+  }
+}());
+`;
+
 export function pagesListPage(
   pages: ReadonlyArray<PageListEntry>,
   sites: ReadonlyArray<SiteOption>,
@@ -210,6 +228,7 @@ export function pagesListPage(
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
+    scripts: PAGES_LIST_SCRIPT,
   });
 }
 
@@ -265,6 +284,10 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
     </div>
     <div class="form-group">
       <label for="page-show-in-footer" class="form-label"><input id="page-show-in-footer" name="show_in_footer" type="checkbox" value="1"${boolAttr(p.show_in_footer)} /> Show in footer</label>
+    </div>
+    <div class="form-group">
+      <label for="page-display-order" class="form-label">Display Order</label>
+      <input id="page-display-order" name="display_order" type="number" class="form-input" value="${escapeHtml(p.display_order ?? 0)}" min="0" />
     </div>
     <div class="form-group">
       <label for="page-content" class="form-label">Content (block JSON)</label>
@@ -335,6 +358,9 @@ const PAGE_FORM_SCRIPT = `
     e.preventDefault();
     setError('');
     if (siteSelect && !siteSelect.value && !isLegal()) {
+      if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+      }
       setStatus('Site is required');
       setError('Site is required');
       siteSelect.focus();
@@ -348,6 +374,7 @@ const PAGE_FORM_SCRIPT = `
       page_type: fd.get('page_type') || 'generic',
       status: fd.get('status') || 'draft',
       show_in_footer: fd.get('show_in_footer') ? 1 : 0,
+      display_order: parseInt(fd.get('display_order'), 10) || 0,
       content_json: fd.get('content_json') || '',
       seo_title: fd.get('seo_title') || '',
       seo_description: fd.get('seo_description') || ''

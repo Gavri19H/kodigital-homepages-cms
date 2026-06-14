@@ -7,7 +7,11 @@ export { categoriesListPage } from "./categories";
 export { tagsListPage } from "./tags";
 export { mediaListPage } from "./media";
 export { settingsPage } from "./settings";
-export { presetsListPage } from "./presets";
+export {
+  presetsListPage,
+  presetFormPage,
+  type PresetFormEntry,
+} from "./presets";
 export {
   aiGenerationsListPage,
   type AiGenerationListEntry,

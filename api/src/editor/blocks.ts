@@ -1,17 +1,18 @@
 // Editor block engine: turns the editor's content_json document into
 // HTML for storage on articles.content_html.
 //
-// Phase-1 supports exactly seven block types: paragraph, heading, list,
-// quote, image, divider, html. Any other type (notably `embed`, which
-// the legacy CMS allowed and the new CMS deliberately drops) is rejected
-// — rejected blocks are skipped and their contribution to the output is
-// the empty string.
+// Ten block types: paragraph, heading, list, quote, image, divider, html
+// plus the design-contract body blocks pullquote, callout, affiliate
+// (T27 / BCL-034). Any other type (notably `embed`, which the legacy CMS
+// allowed and the new CMS deliberately drops) is rejected — rejected
+// blocks are skipped and contribute the empty string.
 //
 // All user-supplied text passes through `escapeHtml`. The `html` block
 // is the only path that emits markup the author wrote; that markup goes
-// through `sanitizeHtml` (defense-in-depth: see ./sanitize.ts).
+// through `sanitizeHtml`. The affiliate link href is gated by the
+// sanitizer's URL-protocol allowlist (`isSafeUrl` — see ./sanitize.ts).
 
-import { escapeHtml, sanitizeHtml } from "./sanitize";
+import { escapeHtml, isSafeUrl, sanitizeHtml } from "./sanitize";
 
 export type BlockType =
   | "paragraph"
@@ -20,7 +21,10 @@ export type BlockType =
   | "quote"
   | "image"
   | "divider"
-  | "html";
+  | "html"
+  | "pullquote"
+  | "callout"
+  | "affiliate";
 
 export const ALLOWED_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "paragraph",
@@ -30,6 +34,9 @@ export const ALLOWED_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "image",
   "divider",
   "html",
+  "pullquote",
+  "callout",
+  "affiliate",
 ]);
 
 export interface BaseBlock {
@@ -103,6 +110,46 @@ function renderDivider(): string {
   return "<hr />";
 }
 
+// Contract body blocks (T27): markup matches the public design-contract
+// classes (.pullquote / .callout-box / .affiliate-card in public-css.ts).
+
+function renderPullquote(data: Record<string, unknown>): string {
+  const text = escapeHtml(asString(data.text));
+  if (text === "") return "";
+  const cite = asString(data.cite).trim();
+  const citeHtml = cite === "" ? "" : `<cite>${escapeHtml(cite)}</cite>`;
+  return `<blockquote class="pullquote"><p>${text}</p>${citeHtml}</blockquote>`;
+}
+
+function renderCallout(data: Record<string, unknown>): string {
+  const title = asString(data.title).trim();
+  const text = escapeHtml(asString(data.text));
+  if (title === "" && text === "") return "";
+  const titleHtml =
+    title === "" ? "" : `<strong class="callout-title">${escapeHtml(title)}</strong>`;
+  return `<aside class="callout-box">${titleHtml}<p>${text}</p></aside>`;
+}
+
+function renderAffiliate(data: Record<string, unknown>): string {
+  const title = asString(data.title).trim();
+  const url = asString(data.url).trim();
+  const description = asString(data.description).trim();
+  const ctaRaw = asString(data.cta).trim();
+  if (title === "" && url === "" && description === "") return "";
+  const cta = ctaRaw === "" ? "Learn more" : ctaRaw;
+  const titleHtml =
+    title === "" ? "" : `<strong class="affiliate-card-title">${escapeHtml(title)}</strong>`;
+  const descHtml =
+    description === "" ? "" : `<p class="affiliate-card-desc">${escapeHtml(description)}</p>`;
+  // Unsafe protocols (javascript:, data:, ...) fail the sanitizer's URL
+  // allowlist and the outbound link is dropped entirely.
+  const ctaHtml =
+    url !== "" && isSafeUrl(url)
+      ? `<a class="affiliate-card-cta" href="${escapeAttribute(url)}" target="_blank" rel="sponsored nofollow noopener">${escapeHtml(cta)}</a>`
+      : "";
+  return `<aside class="affiliate-card">${titleHtml}${descHtml}${ctaHtml}</aside>`;
+}
+
 function renderHtml(data: Record<string, unknown>): string {
   const raw = asString(data.html);
   if (raw === "") return "";
@@ -124,6 +171,9 @@ const BLOCK_RENDERERS: Record<
   image: renderImage,
   divider: renderDivider,
   html: renderHtml,
+  pullquote: renderPullquote,
+  callout: renderCallout,
+  affiliate: renderAffiliate,
 };
 
 export function isAllowedBlockType(type: string): type is BlockType {

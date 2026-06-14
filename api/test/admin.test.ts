@@ -133,10 +133,13 @@ describe("admin router — auth-status (T10.AC3)", () => {
   });
 });
 
-describe("admin router — AI endpoints (T10.AC2)", () => {
-  it("POST /api/admin/ai/generate-text returns 501 when OPENAI_API_KEY unset", async () => {
+describe("admin router — AI endpoints (T10.AC2 / T18)", () => {
+  // T18 [E1] replaced the generate-text placeholder with the real
+  // /api/admin/ai/chat endpoint (full coverage in admin-ai-chat.test.ts);
+  // the 501-without-OPENAI_API_KEY contract carries over unchanged.
+  it("POST /api/admin/ai/chat returns 501 when OPENAI_API_KEY unset", async () => {
     const res = await admin.request(
-      "/api/admin/ai/generate-text",
+      "/api/admin/ai/chat",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -149,9 +152,9 @@ describe("admin router — AI endpoints (T10.AC2)", () => {
     expect(body.error).toMatch(/OPENAI_API_KEY/);
   });
 
-  it("POST /api/admin/ai/generate-image returns 501 when OPENAI_API_KEY unset", async () => {
+  it("POST /api/admin/ai/image returns 501 when OPENAI_API_KEY unset", async () => {
     const res = await admin.request(
-      "/api/admin/ai/generate-image",
+      "/api/admin/ai/image",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -160,22 +163,6 @@ describe("admin router — AI endpoints (T10.AC2)", () => {
       bypassEnv(),
     );
     expect(res.status).toBe(501);
-  });
-
-  it("POST /api/admin/ai/generate-text returns 200 placeholder when OPENAI_API_KEY set", async () => {
-    const res = await admin.request(
-      "/api/admin/ai/generate-text",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: "hi" }),
-      },
-      bypassEnv({ OPENAI_API_KEY: "sk-test" }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; placeholder: boolean };
-    expect(body.ok).toBe(true);
-    expect(body.placeholder).toBe(true);
   });
 });
 

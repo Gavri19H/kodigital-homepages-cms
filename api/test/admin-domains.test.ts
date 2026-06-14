@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import admin from "../src/admin/router";
+import { domainsPage } from "../src/admin/templates/domains";
 import type { Env } from "../src/env";
 
 // T30 / Phase 3: admin verticals + domains endpoints (T14 surface area)
@@ -269,5 +270,50 @@ describe("T30 admin domains endpoints", () => {
     expect(body.resource.id).toBe("st_existing");
     // The replay path must have looked up by idempotency_key.
     expect(findCall(calls, "idempotency_key = ?")).toBeDefined();
+  });
+});
+
+// T33 [B12] Domains restyle: the /admin/domains page renders inside the
+// KoDigital adminLayout shell, server-renders the provisioning status
+// panel (with the launch-readiness slot D6 will populate), and keeps the
+// provisioning poll URL byte-identical to the MQAFIX-5 contract.
+describe("T33 /admin/domains restyle", () => {
+  const html = domainsPage(
+    [
+      {
+        domain: "alpha.example",
+        name: "Alpha",
+        vertical: "home",
+        activity: "main",
+        status: "active",
+        articles: 3,
+      },
+    ],
+    [{ slug: "home", label: "Home" }],
+    { userEmail: "admin@example.com" },
+  );
+
+  it("renders inside the restyled KoDigital admin shell", () => {
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain("KoDigital CMS");
+    expect(html).toContain('class="admin-sidebar"');
+    // Legacy form vocabulary preserved by the restyle (modal + form
+    // classes the Create-Site flow depends on).
+    expect(html).toContain('class="modal hidden"');
+    expect(html).toContain('class="form-group"');
+  });
+
+  it("server-renders the provisioning status panel with a launch-readiness slot", () => {
+    expect(html).toContain('id="provisioning-status-panel"');
+    expect(html).toContain("data-launch-readiness");
+    expect(html).toContain("Launch readiness:");
+  });
+
+  it("keeps the provisioning poll URL unchanged (/api/admin/sites/:id/provision)", () => {
+    expect(html).toContain(
+      '"/api/admin/sites/"+encodeURIComponent(siteId||"")+"/provision"',
+    );
+    // The Create-Site POST target is also unchanged.
+    expect(html).toContain('fetch("/api/admin/sites"');
   });
 });

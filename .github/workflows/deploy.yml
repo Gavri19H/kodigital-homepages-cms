@@ -165,6 +165,11 @@ jobs:
       #   - 0006_phase3r_admin_site_aware_content.sql
       #   - 0007_phase3r_drop_global_slug_unique.sql
       #   - 0008_phase5_ai_generations.sql
+      #   - 0009_phase7_content_version_and_indexes.sql
+      #   - 0010_phase9_sites_content_mode.sql
+      #   - 0011_phase9_prompt_presets_model_columns.sql
+      #   - 0012_phase9_pages_admin_crud_columns.sql
+      #   - 0013_phase10_media_admin_crud_columns.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 

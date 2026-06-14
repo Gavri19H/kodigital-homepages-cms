@@ -23,6 +23,23 @@ import {
 import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
 import {
+  createPageHandler,
+  updatePageHandler,
+  deletePageHandler,
+} from "./pages-crud-handlers";
+import {
+  updateCategoryHandler,
+  deleteCategoryHandler,
+  createTagHandler,
+  deleteTagHandler,
+} from "./taxonomy-crud-handlers";
+import {
+  uploadMediaHandler,
+  getMediaHandler,
+  updateMediaHandler,
+  deleteMediaHandler,
+} from "./media-crud-handlers";
+import {
   TenantBoundaryViolation,
   assertSlugUniquePerSite,
   assertTenantBoundary,
@@ -184,12 +201,47 @@ api.post("/api/admin/articles", async (c) => {
   return c.json({ article: row }, 201);
 });
 
+// T25 ([B4] Articles list port): DELETE /api/admin/articles/:id — the
+// registered target of the list page's Delete row action (legacy
+// deleteArticle flow). 400 invalid id, 404 unknown article, 200 with
+// { ok, id } after the parameterized DELETE.
+api.delete("/api/admin/articles/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid id" }, 400);
+  }
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM articles WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<{ id: number }>();
+  if (existing === null || existing === undefined) {
+    return c.json({ error: "Not Found" }, 404);
+  }
+  try {
+    await c.env.DB.prepare("DELETE FROM articles WHERE id = ?")
+      .bind(id)
+      .run();
+  } catch (err) {
+    return c.json({ error: (err as Error).message || "Delete failed" }, 500);
+  }
+  return c.json({ ok: true, id });
+});
+
 api.get("/api/admin/pages", async (c) => {
   const result = await c.env.DB.prepare(
     "SELECT id, slug, title, status, template, show_in_footer, updated_at FROM pages ORDER BY updated_at DESC, id DESC LIMIT 200",
   ).all<PageRow>();
   return c.json({ pages: result.results ?? [] });
 });
+
+// T29 ([B8] Pages port + CRUD): the write verbs the ported Pages UI
+// calls (pageFormPage submit script POSTs /api/admin/pages, PATCHes
+// /api/admin/pages/:id; the list's Delete row action DELETEs
+// /api/admin/pages/:id). Handlers live in ./pages-crud-handlers.ts.
+api.post("/api/admin/pages", createPageHandler);
+api.patch("/api/admin/pages/:id", updatePageHandler);
+api.delete("/api/admin/pages/:id", deletePageHandler);
 
 api.get("/api/admin/categories", async (c) => {
   const result = await c.env.DB.prepare(
@@ -346,6 +398,16 @@ api.post("/api/admin/categories", async (c) => {
   );
 });
 
+// T30 ([B9] Categories + Tags port + CRUD completion): the write verbs
+// the ported taxonomy UI calls (categoriesListPage row Delete +
+// admin-side edits PUT/DELETE /api/admin/categories/:id; tagsListPage
+// create modal POSTs /api/admin/tags, row Delete DELETEs
+// /api/admin/tags/:id). Handlers live in ./taxonomy-crud-handlers.ts.
+api.put("/api/admin/categories/:id", updateCategoryHandler);
+api.delete("/api/admin/categories/:id", deleteCategoryHandler);
+api.post("/api/admin/tags", createTagHandler);
+api.delete("/api/admin/tags/:id", deleteTagHandler);
+
 api.get("/api/admin/tags", async (c) => {
   // T10: site_id filter — when present, restrict to that site's tags
   // (no global merge). Mirrors templates/tags.ts select[name="site_id"]
@@ -386,6 +448,13 @@ api.get("/api/admin/media", async (c) => {
   ).all<MediaRow>();
   return c.json({ media: result.results ?? [] });
 });
+
+// T31 ([B10] Media library port): upload + single-item CRUD verbs the
+// ported media library UI calls. Handlers in ./media-crud-handlers.ts.
+api.post("/api/admin/media/upload", uploadMediaHandler);
+api.get("/api/admin/media/:id", getMediaHandler);
+api.put("/api/admin/media/:id", updateMediaHandler);
+api.delete("/api/admin/media/:id", deleteMediaHandler);
 
 api.get("/api/admin/settings", async (c) => {
   const siteId = c.req.query("site_id");

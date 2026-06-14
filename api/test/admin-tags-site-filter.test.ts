@@ -183,3 +183,255 @@ describe("GET /api/admin/tags applies site_id filter (no globals)", () => {
     expect(tagsCall?.binds).toEqual([]);
   });
 });
+
+// T30 ([B9] Categories + Tags port + CRUD completion) — POST
+// /api/admin/tags + DELETE /api/admin/tags/:id
+// (taxonomy-crud-handlers.ts). The GET site-filter contract above is
+// RETAINED unchanged — T30.AC2's "filters retained" clause is proven by
+// the RX3 describe block passing in the same run as this one.
+
+interface WriteRecordedCall {
+  sql: string;
+  binds: unknown[];
+  via: "run" | "batch";
+}
+
+interface WritePlantedRow {
+  match: string;
+  row: unknown | null;
+}
+
+// Write-capable fake (category-multi-vertical.test.ts makeFakeDb
+// parity): planted rows answer first() by SQL substring; run/batch
+// record every statement + its binds.
+function makeWriteFakeDb(planted: WritePlantedRow[] = []): {
+  db: D1Database;
+  calls: WriteRecordedCall[];
+  batches: WriteRecordedCall[][];
+} {
+  const calls: WriteRecordedCall[] = [];
+  const batches: WriteRecordedCall[][] = [];
+
+  function makeStmt(sql: string) {
+    let captured: unknown[] = [];
+    const stmt = {
+      _sql: sql,
+      _binds: () => captured,
+      bind(...binds: unknown[]) {
+        captured = binds;
+        return stmt;
+      },
+      async first<T = unknown>(): Promise<T | null> {
+        calls.push({ sql, binds: captured, via: "run" });
+        for (const entry of planted) {
+          if (sql.indexOf(entry.match) >= 0) {
+            return (entry.row ?? null) as T | null;
+          }
+        }
+        return null;
+      },
+      async run() {
+        calls.push({ sql, binds: captured, via: "run" });
+        return { success: true, meta: {} };
+      },
+      async all<T = unknown>() {
+        calls.push({ sql, binds: captured, via: "run" });
+        return { results: [] as T[], success: true, meta: {} };
+      },
+    };
+    return stmt;
+  }
+
+  const db = {
+    prepare(sql: string) {
+      return makeStmt(sql);
+    },
+    async batch(statements: ReturnType<typeof makeStmt>[]) {
+      const batchRecord: WriteRecordedCall[] = [];
+      for (const s of statements) {
+        const rec = {
+          sql: s._sql,
+          binds: s._binds(),
+          via: "batch" as const,
+        };
+        batchRecord.push(rec);
+        calls.push(rec);
+      }
+      batches.push(batchRecord);
+      return statements.map(() => ({ success: true, meta: {} }));
+    },
+  } as unknown as D1Database;
+
+  return { db, calls, batches };
+}
+
+function findInBatches(
+  batches: WriteRecordedCall[][],
+  substring: string,
+): WriteRecordedCall[] {
+  const out: WriteRecordedCall[] = [];
+  for (const batch of batches) {
+    for (const call of batch) {
+      if (call.sql.indexOf(substring) >= 0) out.push(call);
+    }
+  }
+  return out;
+}
+
+describe("POST/DELETE /api/admin/tags (T30.AC2)", () => {
+  it("tag create and delete persist via mock-D1 db.prepare", async () => {
+    // CREATE: site resolves, slug is free → INSERT with (slug, name,
+    // site_id) bound, 201 { item }.
+    const created = makeWriteFakeDb([
+      { match: "FROM sites WHERE id = ?", row: { id: "site-a" } },
+      {
+        match: "INSERT INTO tags",
+        row: {
+          id: 42,
+          slug: "summer-sale",
+          name: "Summer Sale",
+          site_id: "site-a",
+          article_count: 0,
+        },
+      },
+    ]);
+    const postRes = await admin.request(
+      "/api/admin/tags",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Summer Sale",
+          slug: "summer-sale",
+          site_id: "site-a",
+        }),
+      },
+      buildEnv(created.db),
+    );
+    expect(postRes.status).toBe(201);
+    const postBody = (await postRes.json()) as {
+      item: { id: number; slug: string; site_id: string | null };
+    };
+    expect(postBody.item.id).toBe(42);
+    expect(postBody.item.slug).toBe("summer-sale");
+    expect(postBody.item.site_id).toBe("site-a");
+
+    const insert = created.calls.find(
+      (c) => c.sql.indexOf("INSERT INTO tags") >= 0,
+    );
+    expect(insert).toBeDefined();
+    // Static SQL, every value parameterized (site_id included — the
+    // tenant discriminator is bound, never interpolated).
+    expect(insert?.sql).toContain("INSERT INTO tags (slug, name, site_id)");
+    expect(insert?.sql).not.toContain("summer-sale");
+    expect(insert?.binds).toEqual(["summer-sale", "Summer Sale", "site-a"]);
+
+    // The global slug probe ran before the INSERT (tags.slug kept its
+    // 0001 column-level UNIQUE through the 0007 rebuild).
+    const slugProbe = created.calls.find(
+      (c) => c.sql.indexOf("FROM tags WHERE slug = ?") >= 0,
+    );
+    expect(slugProbe).toBeDefined();
+    expect(slugProbe?.binds).toEqual(["summer-sale"]);
+
+    // DELETE: tag resolves → article_tags join rows + the tags row are
+    // removed in one batch, 200 { ok: true }.
+    const removed = makeWriteFakeDb([
+      {
+        match: "FROM tags WHERE id = ?",
+        row: { id: 42, site_id: "site-a" },
+      },
+    ]);
+    const delRes = await admin.request(
+      "/api/admin/tags/42",
+      { method: "DELETE" },
+      buildEnv(removed.db),
+    );
+    expect(delRes.status).toBe(200);
+    const delBody = (await delRes.json()) as { ok: boolean; id: number };
+    expect(delBody.ok).toBe(true);
+    expect(delBody.id).toBe(42);
+
+    const joinDelete = findInBatches(
+      removed.batches,
+      "DELETE FROM article_tags WHERE tag_id = ?",
+    );
+    const tagDelete = findInBatches(
+      removed.batches,
+      "DELETE FROM tags WHERE id = ?",
+    );
+    expect(joinDelete).toHaveLength(1);
+    expect(joinDelete[0]?.binds).toEqual([42]);
+    expect(tagDelete).toHaveLength(1);
+    expect(tagDelete[0]?.binds).toEqual([42]);
+  });
+
+  it("POST refuses an unknown site_id with 400 UNKNOWN_SITE (no INSERT)", async () => {
+    const { db, calls } = makeWriteFakeDb();
+    const res = await admin.request(
+      "/api/admin/tags",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Orphan", site_id: "st_missing" }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("UNKNOWN_SITE");
+    expect(
+      calls.find((c) => c.sql.indexOf("INSERT INTO tags") >= 0),
+    ).toBeUndefined();
+  });
+
+  it("POST refuses a duplicate slug with 409 (no INSERT)", async () => {
+    const { db, calls } = makeWriteFakeDb([
+      { match: "FROM sites WHERE id = ?", row: { id: "site-a" } },
+      { match: "FROM tags WHERE slug = ?", row: { id: 9 } },
+    ]);
+    const res = await admin.request(
+      "/api/admin/tags",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Dup",
+          slug: "dup",
+          site_id: "site-a",
+        }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(409);
+    expect(
+      calls.find((c) => c.sql.indexOf("INSERT INTO tags") >= 0),
+    ).toBeUndefined();
+  });
+
+  it("DELETE refuses a cross-site delete with 403 (tenant boundary)", async () => {
+    const { db, batches } = makeWriteFakeDb([
+      { match: "FROM tags WHERE id = ?", row: { id: 5, site_id: "site-b" } },
+    ]);
+    const res = await admin.request(
+      "/api/admin/tags/5?site_id=site-a",
+      { method: "DELETE" },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("TENANT_BOUNDARY_VIOLATION");
+    expect(batches).toHaveLength(0);
+  });
+
+  it("DELETE returns 404 for an unknown tag", async () => {
+    const { db, batches } = makeWriteFakeDb();
+    const res = await admin.request(
+      "/api/admin/tags/77",
+      { method: "DELETE" },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(404);
+    expect(batches).toHaveLength(0);
+  });
+});

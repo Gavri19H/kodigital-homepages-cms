@@ -25,6 +25,8 @@ import {
   mediaListPage,
   settingsPage,
   presetsListPage,
+  presetFormPage,
+  type PresetFormEntry,
   aiGenerationsListPage,
   aiGenerationDetailPage,
   aiGenerationNotFoundPage,
@@ -32,6 +34,11 @@ import {
   type AiGenerationDetailEntry,
 } from './templates';
 import * as data from './data';
+import {
+  isValidPresetId,
+  SELECT_PRESET_BY_ID,
+  type PresetRow,
+} from './ai-presets';
 import type { AiGenerationRow } from '../ai/generation-log';
 
 type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
@@ -102,8 +109,21 @@ adminUi.get('/admin/articles', async (c) => {
   const articles = siteId !== null
     ? await data.listArticlesForSite(c.env, siteId)
     : await data.listAdminArticles(c.env);
+  // Active filter state round-trips into the toolbar so selects render
+  // their selected option after a filter-driven reload (?site_id= is the
+  // wire name resolveSiteId consumes; the rest are URL params the
+  // toolbar script maintains).
   return c.html(
-    articlesListPage(articles, sites, verticals, categories, branding(c)),
+    articlesListPage(articles, sites, verticals, categories, branding(c), {
+      site_id: siteId ?? undefined,
+      search: c.req.query('search'),
+      vertical: c.req.query('vertical'),
+      category: c.req.query('category'),
+      status: c.req.query('status'),
+      featured: c.req.query('featured'),
+      trending: c.req.query('trending'),
+      published: c.req.query('published'),
+    }),
   );
 });
 
@@ -173,17 +193,51 @@ adminUi.get('/admin/tags', async (c) => {
   return c.html(tagsListPage(tags, sites, branding(c)));
 });
 
-// 11/13 — Media library list (Site filter, Kind filter).
+// 11/13 — Media library grid (T31 port: Site filter is server-side —
+// ?site_id= scopes to that site's rows + globals via listMediaForSite).
 adminUi.get('/admin/media', async (c) => {
-  const media = await data.listAdminMedia(c.env);
+  const siteId = c.req.query('site_id');
+  const media = typeof siteId === 'string' && siteId.length > 0
+    ? await data.listMediaForSite(c.env, siteId)
+    : await data.listAdminMedia(c.env);
   const sites = await data.listAdminSites(c.env);
-  return c.html(mediaListPage(media, sites, branding(c)));
+  return c.html(mediaListPage(media, sites, branding(c), siteId ?? null));
 });
 
-// 12/13 — AI Presets read-only list.
+// 12/13 — AI Presets list + T33 [B12] create/edit forms. /new must be
+// registered before /:id so the literal segment wins the match. Both
+// form routes render presetFormPage; the edit route loads the full
+// prompt_presets row via the shared SELECT_PRESET_BY_ID contract from
+// ai-presets.ts. An invalid or missing :id falls back to the create
+// form (null preset), matching the articles/pages editor precedent.
 adminUi.get('/admin/presets', async (c) => {
   const presets = await data.listAdminPresets(c.env);
   return c.html(presetsListPage(presets, branding(c)));
+});
+
+adminUi.get('/admin/presets/new', async (c) => {
+  return c.html(presetFormPage(null, branding(c)));
+});
+
+adminUi.get('/admin/presets/:id', async (c) => {
+  const id = c.req.param('id');
+  const row = isValidPresetId(id)
+    ? await c.env.DB.prepare(SELECT_PRESET_BY_ID).bind(id).first<PresetRow>()
+    : null;
+  const preset: PresetFormEntry | null = row
+    ? {
+        id: row.id,
+        slug: row.slug,
+        prompt_template: row.prompt_template,
+        category: row.category,
+        variables: row.variables,
+        is_system: row.is_system,
+        is_active: row.is_active,
+        text_model: row.text_model,
+        image_model: row.image_model,
+      }
+    : null;
+  return c.html(presetFormPage(preset, branding(c)));
 });
 
 // T10 — AI Generations list shell. The HTML page is a thin wrapper

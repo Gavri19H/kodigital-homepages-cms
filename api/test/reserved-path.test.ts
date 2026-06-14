@@ -92,6 +92,8 @@ function makeNoopKv(): KVNamespace {
   // T33: /robots.txt + /ads.txt KV-cache the response body (T13). The
   // reserved-path suite exercises the cold path (KV miss), so the
   // fixture KV returns null on get and accepts put as a no-op.
+  // T40: the /:slug page branch now rides servePublicHtml, whose
+  // getCachedHtml reads via getWithMetadata — the fake must answer it.
   const store = new Map<string, string>();
   return {
     async get(key: string) {
@@ -105,6 +107,10 @@ function makeNoopKv(): KVNamespace {
     },
     async list() {
       return { keys: [], list_complete: true, cacheStatus: null };
+    },
+    async getWithMetadata(key: string) {
+      const value = store.get(key) ?? null;
+      return { value, metadata: null, cacheStatus: null };
     },
   } as unknown as KVNamespace;
 }

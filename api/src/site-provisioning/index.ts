@@ -19,6 +19,14 @@
 // Both missing-site and missing-job return 404 with a neutral error
 // message — the handler MUST NOT leak whether the site exists when no
 // provisioning job is attached to it.
+//
+// T39 (rescue-2 D6): every 200 response also carries a top-level
+// `launch_readiness` field — the JSON object the update_launch_readiness
+// step wrote into its site_creation_job_steps.output row
+// (domain_attached, published_articles, media_count, cache_warmed,
+// smoke_passed, content_mode), or null until that step has run. The
+// domains-page poll script reads `body.launch_readiness` and renders
+// the readiness badges from it.
 
 import type { Context } from "hono";
 import type { Env } from "../env";
@@ -55,6 +63,35 @@ interface LatestStepRow {
   status: string;
 }
 
+// T39: read back the readiness rollup the update_launch_readiness step
+// persisted to its output row. Corrupt or absent stored JSON resolves to
+// null (d1-database-safety: a dedicated try/catch falls through instead
+// of failing the status read — the rollup re-materializes the next time
+// the step runs).
+async function loadLaunchReadiness(
+  db: D1Database,
+  jobId: string,
+): Promise<unknown> {
+  const row = await db
+    .prepare(
+      "SELECT output FROM site_creation_job_steps " +
+        "WHERE job_id = ? AND step_key = 'update_launch_readiness' LIMIT 1",
+    )
+    .bind(jobId)
+    .first<{ output: string | null }>();
+  if (!row || typeof row.output !== "string" || row.output.length === 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(row.output) as {
+      launch_readiness?: unknown;
+    };
+    return parsed?.launch_readiness ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function provisionStatusHandler(
   c: Context<{ Bindings: Env }>,
 ): Promise<Response> {
@@ -80,6 +117,7 @@ export async function provisionStatusHandler(
   )
     .bind(job.id)
     .first<LatestStepRow>();
+  const launchReadiness = await loadLaunchReadiness(c.env.DB, job.id);
   if (stepRow === null || stepRow === undefined) {
     return c.json({
       resource: {
@@ -87,6 +125,7 @@ export async function provisionStatusHandler(
         status: job.status,
         step_key: "",
       },
+      launch_readiness: launchReadiness,
     });
   }
   return c.json({
@@ -95,6 +134,7 @@ export async function provisionStatusHandler(
       status: stepRow.status,
       step_key: stepRow.step_key,
     },
+    launch_readiness: launchReadiness,
   });
 }
 

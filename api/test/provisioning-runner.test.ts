@@ -5,12 +5,12 @@ import type { Env } from "../src/env";
 
 // T4 / Phase 3 perfect-recovery: end-to-end runner contract.
 //
-// AC1 / RC-010 (vitest -t "provisioning runner completes all 15 steps
+// AC1 / RC-010 (vitest -t "provisioning runner completes all 16 steps
 // idempotently"): GIVEN a freshly-created sites + site_creation_jobs row,
-// WHEN POST /api/admin/sites/:id/provision/next is called 15 times
+// WHEN POST /api/admin/sites/:id/provision/next is called 16 times
 // against the in-memory D1 fake below, THEN site_creation_job_steps has
-// exactly 15 rows all with status in {completed, completed_dry_run},
-// job.status='completed', AND a 16th call inserts NO new step row.
+// exactly 16 rows all with status in {completed, completed_dry_run},
+// job.status='completed', AND one further call inserts NO new step row.
 // AC3 (pages with page_type='about' COUNT(*)=1): the about-page step
 // inserts via INSERT OR IGNORE under (site_id, slug) UNIQUE — the fake
 // honours this so re-invocation produces exactly 1 row.
@@ -74,10 +74,19 @@ function makeFakeDb(initial: {
   const pages: PageRow[] = [];
   const settings: SettingRow[] = [];
   const purgeLog: PurgeLogRow[] = [];
+  // rescue-2 T38: starter articles tracked so the run_site_smoke_tests
+  // step's COUNT reads observe the rows generate_15_homepage_articles
+  // actually inserted (and publish_starter_articles finalized).
+  const articles: Array<{
+    site_id: string;
+    slug: string;
+    status: string;
+    published_at: number | null;
+  }> = [];
   // Merge-resolution: mission's AI generators read back inserted ai_generations
   // rows via SELECT idempotency_key (see startGenerationLog in
   // api/src/ai/generation-log.ts). The original mock returned null for those
-  // SELECTs, breaking the 15-step run when AI steps T9-T11 began calling
+  // SELECTs, breaking the full-registry run when AI steps T9-T11 began calling
   // generation-log. Track ai_generations writes here so the fallback-key
   // path (no OPENAI_API_KEY -> 'fallback' status) can complete.
   const aiGenerations = new Map<string, Record<string, unknown>>();
@@ -132,6 +141,24 @@ function makeFakeDb(initial: {
             const [idempotency_key] = captured as [string];
             return (aiGenerations.get(idempotency_key) ?? null) as unknown as T | null;
           }
+          // rescue-2 T38 smoke-step COUNT reads — answered from tracked state.
+          if (sql.indexOf("SELECT COUNT(*) AS published_count FROM articles") >= 0) {
+            const [site_id] = captured as [string];
+            const published_count = articles.filter(
+              (a) => a.site_id === site_id && a.status === "published" && a.published_at !== null,
+            ).length;
+            return ({ published_count } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS settings_count FROM site_settings") >= 0) {
+            const [site_id] = captured as [string];
+            const settings_count = settings.filter((r) => r.site_id === site_id).length;
+            return ({ settings_count } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT COUNT(*) AS pages_count FROM pages") >= 0) {
+            const [site_id] = captured as [string];
+            const pages_count = pages.filter((p) => p.site_id === site_id).length;
+            return ({ pages_count } as unknown) as T;
+          }
           return null;
         },
         async run() {
@@ -161,7 +188,7 @@ function makeFakeDb(initial: {
               settings.push({ site_id, key, value });
             }
           } else if (sql.indexOf("INSERT OR IGNORE INTO pages") >= 0) {
-            // generate_about_page_stub: VALUES (?, 'about', ?, ?, ?, 'published', 'default', 1, 'about')
+            // generate_about_page: VALUES (?, 'about', ?, ?, ?, 'published', 'default', 1, 'about')
             const [site_id] = captured as [string];
             const slug = "about";
             if (!pages.find((p) => p.site_id === site_id && p.slug === slug)) {
@@ -176,6 +203,20 @@ function makeFakeDb(initial: {
           } else if (sql.indexOf("INSERT INTO cache_purge_log") >= 0) {
             const [site_id, hostname, action, status, dry_run] = captured as [string, string, string, string, number];
             purgeLog.push({ site_id, hostname, action, status, dry_run });
+          } else if (sql.indexOf("INSERT OR IGNORE INTO articles") >= 0) {
+            // rescue-2 T38: starter rows land status='published' with
+            // published_at omitted; publish_starter_articles backfills.
+            const [site_id, slug] = captured as [string, string];
+            if (!articles.some((a) => a.site_id === site_id && a.slug === slug)) {
+              articles.push({ site_id, slug, status: "published", published_at: null });
+            }
+          } else if (sql.indexOf("UPDATE articles SET status = 'published'") >= 0) {
+            const [site_id] = captured as [string];
+            for (const a of articles) {
+              if (a.site_id === site_id && a.published_at === null) {
+                a.published_at = 1_700_000_000;
+              }
+            }
           } else if (sql.indexOf("INSERT INTO ai_generations") >= 0) {
             const [id, site_id, task, provider, model, prompt_version, idempotency_key, request_json, target_type, target_id] = captured as [string, string | null, string, string, string, string, string, string | null, string | null, string | null];
             if (!aiGenerations.has(idempotency_key)) {
@@ -211,7 +252,7 @@ function makeFakeDb(initial: {
 }
 
 describe("site-provisioning runner end-to-end (T4)", () => {
-  it("provisioning runner completes all 15 steps idempotently", async () => {
+  it("provisioning runner completes all 16 steps idempotently", async () => {
     const SITE_ID = "st_t4";
     const JOB_ID = "job_t4";
     const fake = makeFakeDb({
@@ -234,7 +275,7 @@ describe("site-provisioning runner end-to-end (T4)", () => {
     }
     const ok = new Set(["completed", "completed_dry_run"]);
 
-    // 15 sequential POSTs advance one step each.
+    // TOTAL_STEPS sequential POSTs advance one step each.
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const res = await admin.request(
         `/api/admin/sites/${SITE_ID}/provision/next`,
@@ -256,7 +297,7 @@ describe("site-provisioning runner end-to-end (T4)", () => {
       }
     }
 
-    // BEHAVIORAL #1: 15 step rows, all completed (incl. dry-run completed).
+    // BEHAVIORAL #1: TOTAL_STEPS step rows, all completed (incl. dry-run completed).
     expect(fake.stepsRows).toHaveLength(TOTAL_STEPS);
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const row = fake.stepsRows[i];

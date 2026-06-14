@@ -1,20 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { cacheGet, cacheSet, cacheDel, invalidateFeeds } from "../src/cache";
+import { computeEtag } from "../src/cache/edge-cache";
+import { htmlKey } from "../src/cache/cache-keys";
+import { publicHtmlCacheHeaders } from "../src/cache/cache-control";
+import { servePublicHtml } from "../src/public/html-pipeline";
+import type { PublicSiteContext } from "../src/public/middleware";
 import type { Env } from "../src/env";
 
-// In-memory KV mock that supports get/put/delete and list({ prefix, cursor }).
-// list() returns at most 2 keys per page so the invalidateFeeds() pagination
-// loop is exercised end-to-end (cursor handoff between calls).
+// In-memory KV mock that supports get/put/delete, getWithMetadata, and
+// list({ prefix, cursor }). list() returns at most 2 keys per page so the
+// invalidateFeeds() pagination loop is exercised end-to-end (cursor handoff
+// between calls). put() retains opts.metadata so the edge-cache warm path
+// (getWithMetadata -> stored ETag) is observable.
 function makeKvMock(): { kv: KVNamespace; store: Map<string, string> } {
   const store = new Map<string, string>();
+  const metadataByKey = new Map<string, unknown>();
   const PAGE_SIZE = 2;
 
   const kv = {
     async get(key: string) {
       return store.has(key) ? store.get(key)! : null;
     },
-    async put(key: string, value: string) {
+    async put(key: string, value: string, opts?: KVNamespacePutOptions) {
       store.set(key, value);
+      metadataByKey.set(key, opts?.metadata ?? null);
     },
     async delete(key: string) {
       store.delete(key);
@@ -35,8 +44,12 @@ function makeKvMock(): { kv: KVNamespace; store: Map<string, string> } {
         ? { keys, list_complete: true, cacheStatus: null }
         : { keys, list_complete: false, cursor: lastKey ?? "", cacheStatus: null };
     },
-    async getWithMetadata() {
-      return { value: null, metadata: null, cacheStatus: null };
+    async getWithMetadata(key: string) {
+      return {
+        value: store.has(key) ? store.get(key)! : null,
+        metadata: metadataByKey.get(key) ?? null,
+        cacheStatus: null,
+      };
     },
   } as unknown as KVNamespace;
 
@@ -124,5 +137,88 @@ describe("cache module: feed-key invalidation + KV roundtrip", () => {
     // If the gate were broken, accessing caches.default in a Node test runtime
     // would throw a ReferenceError; cacheDel should swallow that path entirely.
     await expect(cacheDel(env, "k")).resolves.toBeUndefined();
+  });
+});
+
+describe("cache re-verify: ETag + 304 + KV warm path (T43 / F4)", () => {
+  const siteContext: PublicSiteContext = {
+    site_id: "site-1",
+    siteId: "site-1",
+    hostname: "example.com",
+    vertical_slug: "finance",
+    status: "active",
+    content_version: 3,
+    settings_version: 1,
+  };
+
+  function serve(
+    env: Env,
+    opts: { ifNoneMatch?: string | null; render?: () => string },
+  ) {
+    // Same wiring as the public router (router.ts): key built via
+    // htmlKey(siteContext.siteId, ...), headers via publicHtmlCacheHeaders.
+    return servePublicHtml(env, siteContext, {
+      key: htmlKey(siteContext.siteId, "/", siteContext.content_version),
+      path: "/",
+      ifNoneMatch: opts.ifNoneMatch ?? null,
+      render: opts.render ?? (() => "<html>v3</html>"),
+      headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
+    });
+  }
+
+  it("cd api && npx vitest run test/cache.test.ts — cold render warms KV, warm hit skips render, If-None-Match answers 304 (T43.AC1)", async () => {
+    const { env, store } = buildEnv();
+    const expectedEtag = await computeEtag({
+      site_id: siteContext.siteId,
+      path: "/",
+      content_version: siteContext.content_version,
+    });
+
+    // 1. Cold cache: render runs once, 200 + strong ETag, KV is warmed.
+    let renders = 0;
+    const cold = await serve(env, {
+      render: () => {
+        renders += 1;
+        return "<html>v3</html>";
+      },
+    });
+    expect(cold.status).toBe(200);
+    expect(await cold.text()).toBe("<html>v3</html>");
+    expect(cold.headers.get("ETag")).toBe(expectedEtag);
+    expect(renders).toBe(1);
+    expect(
+      store.get(htmlKey(siteContext.siteId, "/", siteContext.content_version)),
+    ).toBe("<html>v3</html>");
+
+    // 2. KV warm path: body served from cache, render thunk NOT invoked,
+    //    stored ETag echoed.
+    const warm = await serve(env, {
+      render: () => {
+        throw new Error("render must not run on a warm cache");
+      },
+    });
+    expect(warm.status).toBe(200);
+    expect(await warm.text()).toBe("<html>v3</html>");
+    expect(warm.headers.get("ETag")).toBe(expectedEtag);
+
+    // 3. Conditional GET: If-None-Match with the current ETag -> 304 with
+    //    empty body and the ETag echoed back (RFC 7232 §3.2).
+    const conditional = await serve(env, {
+      ifNoneMatch: expectedEtag,
+      render: () => {
+        throw new Error("render must not run on a 304");
+      },
+    });
+    expect(conditional.status).toBe(304);
+    expect(await conditional.text()).toBe("");
+    expect(conditional.headers.get("ETag")).toBe(expectedEtag);
+  });
+
+  it("stale If-None-Match falls through to the warm body, not 304", async () => {
+    const { env } = buildEnv();
+    await serve(env, {});
+    const res = await serve(env, { ifNoneMatch: '"deadbeefdeadbeef"' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>v3</html>");
   });
 });
