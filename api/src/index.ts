@@ -91,13 +91,17 @@ app.get("/health", (c) =>
 
 // On ADMIN_HOST, root redirects to ADMIN_BASE_PATH ('/admin'). On any
 // other host, root falls through to publicRouter / catch-all 404.
-app.get("/", (c) => {
+app.get("/", async (c, next) => {
   const adminHost = String(getAdminHost(c.env) ?? "").toLowerCase();
   const requestHost = new URL(c.req.url).hostname.toLowerCase();
   if (requestHost === adminHost && adminHost !== "") {
     return c.redirect(c.env.ADMIN_BASE_PATH, 302);
   }
-  return c.json({ error: "Not Found", path: c.req.path }, 404);
+  // Non-admin (tenant) host: delegate to publicRouter's homepage renderer
+  // (router.get("/") -> renderHomepageHtml) instead of returning 404, which
+  // had made every tenant homepage dead. publicRouter is mounted at "/"
+  // below; next() lets its "/" handler render the resolved site's home.
+  return next();
 });
 
 // Phase 1.5 auth-status handler — registered BEFORE adminRouter so the
