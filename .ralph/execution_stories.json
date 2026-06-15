@@ -89,8 +89,8 @@
       "title": "Starter articles get category, default author, SEO and 1/4/4/6 placement",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T6"
       ],

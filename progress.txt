@@ -9066,3 +9066,84 @@ Learnings for future iterations:
   tolerates empty article/category/settings results, so a minimal fake-D1 (empty
   .all(), site row via loadSiteInfo) is enough to drive the REAL step end-to-end
   in a unit test (no full home-data fixture needed).
+
+## 2026-06-15 - T6 (sources: T6)
+Starter articles get category, default author, SEO and 1/4/4/6 placement.
+
+What was implemented:
+- generate_15_homepage_articles (api/src/site-provisioning/steps.ts) now writes
+  every starter article's editorial metadata:
+  * category_id — round-robin over the site's allocated site_categories
+    (read via new loadSiteCategoryIds; allocate_vertical_categories runs at
+    step index 3, before this step at index 10, so the pool is non-empty).
+  * author_name — from the default_author_name site_setting (new
+    readSiteSettingValue helper); falls back to `${brand_name} Editorial Team`
+    (deterministic, NEVER a user email) so author_name is non-null even before
+    T7 seeds the setting. Scope boundary respected: T6 READS the setting; T7
+    SEEDS it.
+  * seo_title / seo_description — deterministic, derived from the article
+    title + plan summary/intro (non-empty; no extra AI/network call).
+  * placement flags + homepage_rank — starterPlacementForIndex(): indices 0-4
+    is_featured=1 (hero+4 featured), 5-8 is_trending=1 (trending=4), 9-14 both
+    0 (latest=6); homepage_rank = i+1 on all 15. This is exactly the flag
+    distribution buildHomeViewModel (home.ts:285-315) buckets into the agreed
+    1 hero + 4 featured + 4 trending + 6 latest split.
+- INSERT column order keeps (site_id, slug, title, content_json, content_html,
+  ai_generation_id) at bind positions 0-5 (unchanged) and APPENDS the new
+  editorial columns at 6-12, so the existing fake-DB handlers in
+  site-provisioning-ai-integration / provisioning-runner / provisioning-no-outbound
+  (which destructure only positions 0-5) keep working — no regressions.
+
+Files changed:
+- api/src/site-provisioning/steps.ts (generate_15_homepage_articles + 3 helpers)
+- api/test/site-provisioning-run-to-completion.test.ts (fake-DB now models the
+  new columns + site_categories; +2 BEHAVIORAL tests for T6-AC1 and T6-AC2)
+
+Self-check results:
+- File sizes: steps.ts 1285 lines (canonical 16-step provisioning registry —
+  already >200 before this story; documented T4/T5 exception, no architecture.md,
+  splitting is an out-of-scope refactor) — NOTED. test file 718 (test fixture,
+  not subject to the 200-line product limit).
+- Secret scan: PASS (0 matches).
+- Parameterized queries: PASS — all .bind() with ? placeholders; 'published' and
+  'starter' remain fixed SQL literals (not interpolated values), mirroring the
+  prior INSERT.
+- Error handling: PASS — step returns {status:'failed'} on missing sites row;
+  generators own their fallbacks; no swallowed errors.
+- Migration execution: N/A — no new migration. category_id, author_name,
+  seo_title, seo_description, is_featured, is_trending, homepage_rank all already
+  exist in articles (migration 0007_phase3r_drop_global_slug_unique.sql).
+
+Tests run:
+- cd api && npx tsc --noEmit -> exit 0
+- cd api && npx vitest run -> 122 files, 1086 tests PASS (+2 from T6)
+- Q3 run_story_quality_checks.py --story-id=T6 -> PASS checks_executed=4,
+  receipts appended
+- D13 run_required_evidence_command.py RC-019,RC-020,RC-057 -> TOP PASS
+
+Evidence (D13 per-claim):
+- RC-019 (T6-AC1, test/site-provisioning-run-to-completion.test.ts): PASS —
+  matched parser pattern L2_AUTO_DISAMBIGUATION:T6-AC1:RC-019 (every starter
+  article has non-null category_id from the allocated set, non-null author_name
+  not containing '@', non-null seo_title + seo_description).
+- RC-020 (T6-AC2, same file): PASS — 4 is_trending=1 / 5 is_featured=1&trending=0
+  / 6 neither, homepage_rank = unique 1..15; the test mirrors the home reader's
+  exact bucketing to prove the 1/4/4/6 split emerges from the flags alone.
+- RC-057: DEFERRED / SKIPPED_ALLOWED — route=production_pending (post-deploy curl
+  POST /provision/next, MQA-PROVISIONING-STEP-API); not Ralph's concern.
+
+Learnings for future iterations:
+- L-167 observed again (identical to T1-T5): the D13 runner_command_rendered
+  ships --worktree-root=<project-root> (the brief-branch base checkout that LACKS
+  the mission's committed code). Run verbatim -> resolved_cwd=<project-root>/api,
+  observed_test_names lacked the new T6 tests -> FAIL. Re-ran with
+  --worktree-root=<mission worktree> (where the committed code lives) -> TOP PASS.
+  The sibling Q3 story_quality_checks_command_rendered already points correctly
+  at the mission worktree.
+- T6/T7 dependency: T6 reads default_author_name; T7 seeds it. Handled by a
+  deterministic non-email fallback in T6 so AC1 holds regardless of T7 ordering.
+  When T7 lands the seed, the same read path picks it up — no T6 change needed.
+- Bind-position discipline: when adding columns to an existing INSERT that
+  multiple fake-DBs destructure positionally, append new binds AFTER the shared
+  head so sibling test handlers stay valid. Saved touching 3 unrelated test files.
+---
