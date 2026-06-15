@@ -329,8 +329,8 @@
       "title": "Homepage meta description from site_settings.site_description",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T18"
       ],
