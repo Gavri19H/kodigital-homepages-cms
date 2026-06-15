@@ -371,3 +371,68 @@ describe("article editor: hero image card + AI hero-image modal (T14b)", () => {
     expect(editHtml).toContain("/media/ai/admin/site-1/abc.png");
   });
 });
+
+describe("article editor: publish workflow + version history/restore (T14c)", () => {
+  const sites = [{ id: "site-1", name: "Demo Site" }];
+  const newHtml = articleFormPage(null, sites, [], {});
+  const editHtml = articleFormPage(
+    { id: "42", title: "Existing", site_id: "site-1", status: "draft" },
+    sites,
+    [],
+    {},
+  );
+
+  it("BEHAVIORAL T14c-AC1: the edit-mode editor emits all five publish-workflow actions, each wired to its admin endpoint", () => {
+    expect(editHtml).toContain('id="workflow-panel"');
+    expect(editHtml).toContain('data-article-id="42"');
+    // The five transition actions (data-workflow-action == endpoint segment).
+    for (const a of ["publish", "unpublish", "archive", "schedule", "cancel-schedule"]) {
+      expect(editHtml).toContain(`data-workflow-action="${a}"`);
+    }
+    // Wired to POST /api/admin/articles/:id/<action> by the inline script.
+    expect(editHtml).toContain("/api/admin/articles/");
+    expect(editHtml).toMatch(/method:\s*'POST'/);
+    // Schedule carries the scheduled_at wire (input name == endpoint body key).
+    expect(editHtml).toContain('name="scheduled_at"');
+    expect(editHtml).toContain("scheduled_at:");
+    // No placeholder marker leaks into the rendered editor (negative_fail).
+    expect(editHtml).not.toContain("Phase 1 admin shell");
+  });
+
+  it("BEHAVIORAL T14c-AC1: the version-history modal renders with a restore control wired to the restore endpoint", () => {
+    expect(editHtml).toContain('id="workflow-versions-open"');
+    expect(editHtml).toContain('id="workflow-versions-modal"');
+    expect(editHtml).toContain('id="workflow-versions-list"');
+    // List loads from GET /api/admin/articles/:id/versions; each row's Restore
+    // button POSTs to /api/admin/articles/:id/versions/:vid/restore.
+    expect(editHtml).toContain("/versions");
+    expect(editHtml).toContain("/restore");
+    expect(editHtml).toContain("workflow-restore");
+    // The restore control fires the POST (must_not_do: no close without POST).
+    expect(editHtml).toContain("window.location.reload()");
+  });
+
+  it("BEHAVIORAL T14c-AC2: the publish/version panel is composed inside the editor body", () => {
+    // The editor form and the workflow panel render together in the editor.
+    expect(editHtml).toContain('id="article-form"');
+    expect(editHtml).toContain('id="workflow-panel"');
+    // Initial badge reflects the article's current status.
+    expect(editHtml).toContain('id="workflow-status-value"');
+    expect(editHtml).toContain(">draft</span>");
+  });
+
+  it("the workflow panel is omitted for a brand-new (unsaved) article — transitions need a persisted id", () => {
+    expect(newHtml).not.toContain('id="workflow-panel"');
+    expect(newHtml).not.toContain('data-workflow-action=');
+  });
+
+  it("workflow-panel inline script is ES5-only (no arrow/const/let inside the literal)", () => {
+    const marker = "var panel = document.getElementById('workflow-panel');";
+    const start = editHtml.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const wfScript = editHtml.slice(start);
+    expect(wfScript.match(/=>/g) ?? []).toHaveLength(0);
+    expect(wfScript.match(/\bconst\b/g) ?? []).toHaveLength(0);
+    expect(wfScript.match(/\blet\b/g) ?? []).toHaveLength(0);
+  });
+});

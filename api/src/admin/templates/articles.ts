@@ -29,6 +29,11 @@ import {
   heroImageStyles,
   renderHeroImageCard,
 } from "./hero-image";
+import {
+  renderWorkflowPanel,
+  workflowPanelScripts,
+  workflowPanelStyles,
+} from "./workflow-panel";
 
 export interface SiteOption {
   id: string;
@@ -422,6 +427,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
     </div>
   </div>
   ${renderHeroImageCard(a.featured_image_id, a.featured_image_url)}
+  ${renderWorkflowPanel(isEdit ? a.id : "", a.status)}
   <p id="article-form-error" class="alert alert-error" hidden role="alert"></p>
   <p id="article-form-status" class="form-status" role="status" aria-live="polite"></p>
   <div class="form-actions">
@@ -513,8 +519,12 @@ export function articleFormPage(
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
-    styles: aiAssistantStyles + heroImageStyles,
+    styles: aiAssistantStyles + heroImageStyles + workflowPanelStyles,
     scripts:
-      editorScripts() + ARTICLE_FORM_SCRIPT + aiAssistantScripts + heroImageScripts,
+      editorScripts() +
+      ARTICLE_FORM_SCRIPT +
+      aiAssistantScripts +
+      heroImageScripts +
+      workflowPanelScripts,
   });
 }
