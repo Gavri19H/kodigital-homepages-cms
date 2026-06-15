@@ -10180,3 +10180,22 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
     file whose name contains the api/-prefixed expected_test_name_regex; embed
     the [api/test/<file>.test.ts] literal in the it() title (the established
     convention in this mission's tests) as the deterministic binding.
+
+## 2026-06-15 - T19 (sources: T19)
+Story: Gate public serving + indexing on sites.status='active'
+- Implemented: api/src/site/site-context.ts — resolveSiteByHostname WHERE clause now gates on the SITE status: added `AND s.status = 'active'` (was `WHERE d.hostname = ? AND d.status = 'active'`, gating only the DOMAIN status). A non-active site resolves to null; publicSiteContextMiddleware already 404s null. Because router.use("*", publicSiteContextMiddleware) routes EVERY public path (incl. /sitemap.xml, /robots.txt) through that middleware, a draft site is neither served nor indexable. Change confined to site-context.ts.
+- Test: api/test/public-router.test.ts — new describe "public-router GET / site-status gating (T19 rescue-3)" with 2 behavioral tests. makeStatusGatedHomeDb emulates D1 evaluating the resolver WHERE clause (returns the row only when the SQL gates on s.status='active' AND the seeded status is 'active'), so the test DISCRIMINATES the fix: without the clause the draft row resolves and the 404 assertion fails. Tests: draft GET / -> 404 (no home-section/public.css markers leak), active GET / -> 200 (<!doctype html> + public.css); draft /sitemap.xml + /robots.txt -> 404, active both -> 200.
+- Self-checks:
+  - File sizes: site-context.ts 134 lines (limit 200) PASS; public-router.test.ts 1010 lines (test file, non-product) PASS
+  - Secret scan: PASS (no secrets)
+  - Error handling: N/A (resolver returns null; middleware handles)
+  - Migration execution: N/A (category=script)
+  - Parameterized queries: PASS (.bind(?) placeholder; 'active' is a SQL constant, matching existing d.status='active' pattern)
+- Tests run:
+  - cd api && npx vitest run test/public-router.test.ts -> 13 passed
+  - cd api && npx vitest run (full suite) -> 125 files / 1166 tests passed (no regressions from the shared-resolver SQL change)
+  - cd api && npx tsc --noEmit -> clean
+- Q3 quality checks: run_story_quality_checks.py --story-id=T19 -> PASS (checks_executed=1)
+- D13 evidence: run_required_evidence_command.py --required-claim-ids=RC-054 (run with the ACTUAL --worktree-root mission worktree per root-cwd rule 7 / memory d13-parser-observation-prefix-mismatch) -> status PASS; parser matched T19 test name carrying the [api/test/public-router.test.ts] binding literal. Did NOT re-run the packet's wrong-root runner_command_rendered (would flip latest receipt to FAIL).
+- State: execution_stories.json T19 state=implemented passes=true (Ralph-local PRD); canonical prd.json T19 state=implemented passes=false (no self-cert).
+---

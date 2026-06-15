@@ -345,8 +345,8 @@
       "title": "Gate public serving + indexing on sites.status='active'",
       "category": "script",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T19"
       ],
