@@ -265,8 +265,8 @@
       "title": "Article editor: author Name/Bio + author_bio migration + clean Display Options",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14d"
       ],

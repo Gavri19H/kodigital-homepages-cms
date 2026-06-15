@@ -9821,3 +9821,99 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
     (3) one RC uses an L2_AUTO_DISAMBIGUATION synthetic pattern. Raw exit-0
     receipts are authoritative for finalize.
 ---
+
+## 2026-06-15 - T14d (Article editor: author Name/Bio + author_bio migration + clean Display Options)
+- Sources: T14d (RX execution story T14d). Test commands actually run below.
+- What was implemented:
+  - api/src/admin/templates/articles.ts — renderArticleForm now takes a
+    branding param; new helpers renderAuthorCard (author_name input pre-filled
+    from the signed-in admin email in NEW mode — NOT auto-stored, persists only
+    on submit; author_bio textarea) and renderDisplayOptions (clean Display
+    Options card: is_featured='Homepage hero', is_trending='Trending')
+    replacing the stripped Featured/Trending checkbox labels. articleFormPage
+    threads branding into renderArticleForm. Submit script body now sends
+    author_name + author_bio. ArticleFormValues gains author_name/author_bio.
+  - api/src/admin/api.ts — PATCH /articles/:id allow-list reads author_bio
+    (author_name already wired); body interface + both allow-list comment
+    enumerations updated. Form name == handler-read key == DB column.
+  - api/src/admin/data.ts — ArticleRecord + ArticleFormDto gain author_name/
+    author_bio; getAdminArticle SELECTs a.author_name, a.author_bio and maps
+    them (edit-mode pre-population).
+  - api/migrations/0017_phase11_articles_author_bio.sql — ALTER TABLE articles
+    ADD COLUMN author_bio TEXT (nullable; no backfill). Anchored in deploy.yml
+    (also back-anchored the drifted 0014 + 0016 anchors prior stories left).
+  - api/test/editor.test.ts — +4 T14d render-output tests (AC1 new/edit author
+    fields + clean Display Options; AC3 composition into the live editor form).
+- Files changed: api/src/admin/templates/articles.ts, api/src/admin/api.ts,
+  api/src/admin/data.ts, api/migrations/0017_phase11_articles_author_bio.sql,
+  api/test/editor.test.ts, .github/workflows/deploy.yml
+- Self-check results:
+  - File sizes: articles.ts 570 (was 530; +40 for required author card +
+    Display Options helpers, kept inline so AC3 wiring is provable — template
+    module, pre-existing >200 default), api.ts 984, data.ts 661,
+    editor.test.ts 502, 0017 migration 9 — PASS (no story-introduced limit).
+  - Secret scan: PASS (SECRET_SCAN_CLEAN on all changed files).
+  - Error handling: PASS (PATCH handler keeps its try/catch + 400/403/404/409
+    branches; data.ts is a parameterized SELECT; no new error paths swallowed).
+  - Migration execution: PASS — npx wrangler d1 migrations apply DB --local
+    applied 0017; PRAGMA table_info(articles) lists author_bio (and the
+    pre-existing author_name, featured_image_id). AC2 satisfied.
+  - Parameterized queries: PASS — getAdminArticle SELECT is static SQL +
+    .bind(id); PATCH builds setClauses from static literals only (author_bio
+    = ?), values bound. The grep "INTERP_FOUND" hit only the two doc comments
+    that say "no template-literal SQL", not real interpolation.
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run test/editor.test.ts test/admin-articles-post-site-id.test.ts -> 45 passed (incl. 4 new T14d), exit 0
+  - cd api && npx vitest run -> 124 files / 1137 tests passed (was 1133; +4, no regressions)
+- Q3 story_quality_checks (run_story_quality_checks.py, correct worktree-root):
+  PASS — checks_executed=4, receipts appended to story_execution_receipts.jsonl.
+- Evidence routing (D13 RC-043, RC-044, RC-045) against the ACTUAL worktree
+  (verbatim runner_command_rendered mis-points --worktree-root at the PROJECT
+  ROOT, which lacks the new 0017 migration + T14d code — same defect logged on
+  T12..T14c; re-ran with --worktree-root=<actual worktree>):
+  * RC-045 (T14d-AC2, acceptance_check/test_exit_code): PASS, exit 0 — migration
+    0017 applies + PRAGMA table_info(articles) in worktree/api (DB binding
+    resolves from wrangler.toml). Genuine PASS receipt written.
+  * RC-043 (T14d-AC3, parser_observation/parse_grep_count): UNSATISFIED but
+    exit 0 — the grep MATCHED (renderArticleForm defined at articles.ts:386 AND
+    composed by articleFormPage at :556; grep -cE count=2). The sidecar pairs
+    parser_strategy=parse_grep_count with a `grep -nE` command that emits LINES,
+    not an integer -> typed NON_INTEGER_OUTPUT. Command/parser mismatch lives in
+    required_evidence_plan.json (canonical-writer-only); editing it would be a
+    write-boundary/self-cert violation. Develop-legal structural proof also
+    PASSES via editor.test.ts "STRUCTURAL T14d-AC3" (4/4 T14d tests green).
+  * RC-044 (T14d-AC1, parser_observation/parse_test_output): UNSATISFIED but
+    exit 0 — admin-ai-panel-template.test.ts ran 9/9 PASS. Runner STATUS=FAIL
+    only because expected_test_name_regex='api/test/admin\-ai\-panel\-template\.test\.ts'
+    carries an api/ prefix vitest never emits under cwd=api (it reports
+    'test/admin-ai-panel-template.test.ts > ...'). Identical api/-prefix-vs-
+    cwd=api defect documented on T13/T14b/T14c (RC-040/RC-041). Develop-legal
+    behavioral proof for AC1 also PASSES via editor.test.ts "BEHAVIORAL
+    T14d-AC1" render-output assertions (author_name email prefill, author_bio,
+    clean Display Options).
+  - EVIDENCE_ROUTE_EXHAUSTED: T14d/RC-043 + T14d/RC-044 — underlying proofs are
+    CORRECT and PASSING (grep match count=2 exit 0; tests 9/9 exit 0; 4/4 T14d
+    render tests exit 0). Both blockers are canonical required_evidence_plan.json
+    parser/regex config mismatches (parse_grep_count on -n line output;
+    api/-prefixed test-name regex under cwd=api). Exit codes are 0, not
+    non-zero, so re-implementing cannot change the parser config — re-running
+    verbatim re-emits the identical defect. Did NOT tamper with
+    required_evidence_plan.json and did NOT game test names/grep flags to embed
+    the path/disambiguation regex. Finalize/reconcile resolves against the raw
+    exit-0 receipts.
+- Learnings for future iterations:
+  - The articles table already carried author_name (0001, recreated 0007) and
+    featured_image_id; only author_bio was missing — a single ADD COLUMN.
+  - ai-panel-script.ts (T14 structured auto-fill) already targets
+    [name="author_name"] and [name="author_bio"]; T14d makes those targets
+    real in the rendered form (the auto-fill was wiring to fields that did not
+    yet exist before this story).
+  - The PATCH allow-list test (admin-articles-post-site-id.test.ts) only
+    asserts ABSENCE of attacker keys, not an exact whitelist — adding a new
+    allow-listed column (author_bio) is safe.
+  - Branding (userEmail) must be threaded all the way into renderArticleForm
+    for the author_name email prefill; articleFormPage already received it but
+    previously dropped it before renderArticleForm.
+  - deploy.yml migration anchor block had drifted (0014/0016 unanchored by
+    prior stories) — back-anchored alongside 0017 to keep the D1-file rule honest.
