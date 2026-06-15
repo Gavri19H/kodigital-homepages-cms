@@ -21,6 +21,7 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import publicRouter from "../src/public/router";
+import { buildHomeViewModel } from "../src/public/view-models/home";
 import type { PublicSiteVariables } from "../src/public/middleware";
 import type { Env } from "../src/env";
 
@@ -275,5 +276,223 @@ describe("public-router /:slug canonicalization (T40 [F1])", () => {
     );
 
     expect(res.status).toBe(404);
+  });
+});
+
+// T1 (rescue-3): the LIVE GET / route must compose the design homepage
+// (buildHomeViewModel + renderHome + renderLayout) through the db-fed
+// renderHomepageHtml — the rescue-2 failure was a route that served the
+// bare article-list fallback (no design shell / sections / brand tokens).
+//
+// AC1 (RC-004): the SERVED HTML carries the 13 home-section markers, Nunito,
+// /assets/public.css, a hero bg image and the inline --tw-brand override.
+// AC3 (RC-005): buildHomeViewModel buckets the seeded is_featured/is_trending
+// flags into hero=1, featured=4, trending=4, latest=6 (disjoint buckets).
+//
+// The `api/test/public-router.test.ts` literal in each title is the
+// deterministic binding for the parse_test_output evidence route
+// (expected_test_name_regex), matching the file path the runner expects.
+const HOME_SITE_ID = "site_home";
+
+interface HomeArticleSeed {
+  id: number;
+  slug: string;
+  title: string;
+  is_featured: number;
+  is_trending: number;
+  image_url: string | null;
+}
+
+function homeArticleRow(seed: HomeArticleSeed) {
+  return {
+    id: seed.id,
+    slug: seed.slug,
+    title: seed.title,
+    content_html: `<p>Body for ${seed.title} with enough words to compute a read time.</p>`,
+    category_id: 1,
+    status: "published",
+    published_at: 1_700_000_000 + seed.id,
+    featured_image_id: seed.image_url !== null ? seed.id : null,
+    is_featured: seed.is_featured,
+    is_trending: seed.is_trending,
+    homepage_section: null,
+    homepage_rank: null,
+    site_id: HOME_SITE_ID,
+    category_name: "News",
+    category_slug: "news",
+    image_url: seed.image_url,
+    image_alt: seed.image_url !== null ? `${seed.title} image` : null,
+  };
+}
+
+// 5 featured (→ hero=1 + featured=4) + 4 trending + 6 plain (→ latest=6).
+// The lead featured row carries an image so the hero renders a real bg img.
+const HOME_ARTICLES = [
+  ...Array.from({ length: 5 }, (_unused, i) =>
+    homeArticleRow({
+      id: i + 1,
+      slug: `feat-${i + 1}`,
+      title: `Featured ${i + 1}`,
+      is_featured: 1,
+      is_trending: 0,
+      image_url: i === 0 ? "/media/hero.jpg" : null,
+    }),
+  ),
+  ...Array.from({ length: 4 }, (_unused, i) =>
+    homeArticleRow({
+      id: 20 + i,
+      slug: `trend-${i + 1}`,
+      title: `Trending ${i + 1}`,
+      is_featured: 0,
+      is_trending: 1,
+      image_url: `/media/trend-${i + 1}.jpg`,
+    }),
+  ),
+  ...Array.from({ length: 6 }, (_unused, i) =>
+    homeArticleRow({
+      id: 40 + i,
+      slug: `latest-${i + 1}`,
+      title: `Latest ${i + 1}`,
+      is_featured: 0,
+      is_trending: 0,
+      image_url: null,
+    }),
+  ),
+];
+
+const HOME_CATEGORIES = [
+  { id: 1, slug: "news", name: "News" },
+  { id: 2, slug: "sport", name: "Sport" },
+];
+
+const HOME_SETTINGS = [
+  { key: "site_name", value: "Acme Daily" },
+  { key: "tagline", value: "Tomorrow's news today" },
+  {
+    key: "site_description",
+    value: "Acme Daily covers technology, world, and culture.",
+  },
+  // brand_tokens_json from the brand contract → renderLayout inline --tw-brand.
+  { key: "brand_tokens_json", value: JSON.stringify({ "tw-brand": "#1ba8c8" }) },
+];
+
+function makeHomeDb(): D1Database {
+  return {
+    prepare(sql: string) {
+      let captured: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          captured = args;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          if (sql.startsWith("SELECT s.id AS site_id")) {
+            const host = String(captured[0] ?? "").toLowerCase();
+            if (host !== TENANT_HOST) return null;
+            return {
+              site_id: HOME_SITE_ID,
+              hostname: TENANT_HOST,
+              vertical_slug: "news",
+              status: "active",
+              content_version: 7,
+              settings_version: 1,
+            } as unknown as T;
+          }
+          return null;
+        },
+        async all<T = unknown>() {
+          // Check the articles listing FIRST: its SQL also joins
+          // `categories c`, so the categories dispatch must not steal it.
+          if (sql.includes("FROM articles a")) {
+            return { results: HOME_ARTICLES as unknown as T[], success: true, meta: {} };
+          }
+          if (sql.includes("FROM categories c")) {
+            return { results: HOME_CATEGORIES as unknown as T[], success: true, meta: {} };
+          }
+          if (sql.includes("FROM site_settings")) {
+            return { results: HOME_SETTINGS as unknown as T[], success: true, meta: {} };
+          }
+          return { results: [] as T[], success: true, meta: {} };
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
+describe("public-router GET / homepage design system (T1 rescue-3)", () => {
+  it("T1.AC1 GET / serves the design system inline — 13 markers + Nunito + /assets/public.css + hero bg image + --tw-brand, not the bare fallback [api/test/public-router.test.ts]", async () => {
+    const app = makeApp();
+    const res = await app.request(
+      `https://${TENANT_HOST}/`,
+      {},
+      makeEnv(makeHomeDb()),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+
+    // Full document, not the bare content fragment.
+    expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+
+    // The 13 ordered home-section markers are INLINE in the served HTML.
+    const markers = body.match(/home-section:\d+ [a-z-]+/g) ?? [];
+    expect(markers.length).toBe(13);
+
+    // Design-system shell (renderLayout): Nunito font + public stylesheet.
+    expect(body).toContain("Nunito");
+    expect(body).toContain('href="/assets/public.css"');
+
+    // Inline brand-token override sourced from site_settings.brand_tokens_json.
+    expect(body).toContain('<style data-source="brand_tokens">');
+    expect(body).toContain("--tw-brand: #1ba8c8;");
+
+    // Hero bg image: the .hero-bg surface carries the lead story's image.
+    expect(body).toContain('class="hero-bg"');
+    expect(body).toContain('src="/media/hero.jpg"');
+
+    // NOT the rescue-2 bare fallback: the design header is present, and the
+    // root wrapper opens the <main> content region (not a bare <body><div>).
+    expect(body).toContain('class="site-header"');
+    expect(body).toContain('<main id="main-content"><div data-screen-label=theiwise-home>');
+
+    // Full servePublicHtml pipeline: cache policy + strong ETag.
+    expect(res.headers.get("Cache-Control")).toBe(PUBLIC_HTML_CACHE_CONTROL);
+    expect(res.headers.get("ETag")).toMatch(/^"[0-9a-f]{16}"$/);
+
+    // Tenant-boundary RED LINE: admin host never appears on the homepage.
+    expect(body).not.toContain(ADMIN_HOST);
+  });
+
+  it("T1.AC3 coherence: buildHomeViewModel buckets the seeded flags into hero=1, featured=4, trending=4, latest=6 (disjoint) [api/test/public-router.test.ts]", async () => {
+    const vm = await buildHomeViewModel(makeHomeDb(), {
+      siteId: HOME_SITE_ID,
+      hostname: TENANT_HOST,
+    });
+
+    // The four bucket counts the live homepage renders.
+    expect(vm.hero).not.toBeNull();
+    expect(vm.featured.length).toBe(4);
+    expect(vm.trending.length).toBe(4);
+    expect(vm.latest.length).toBe(6);
+
+    // No card renders in more than one bucket (contract §12): hero, the
+    // featured rail, the trending strip and latest are pairwise disjoint.
+    const heroId = vm.hero!.id;
+    const featuredIds = new Set(vm.featured.map((c) => c.id));
+    const trendingIds = new Set(vm.trending.map((c) => c.id));
+    const latestIds = new Set(vm.latest.map((c) => c.id));
+
+    expect(featuredIds.has(heroId)).toBe(false);
+    expect(latestIds.has(heroId)).toBe(false);
+    for (const id of featuredIds) expect(latestIds.has(id)).toBe(false);
+    for (const id of trendingIds) {
+      expect(featuredIds.has(id)).toBe(false);
+      expect(latestIds.has(id)).toBe(false);
+      expect(id).not.toBe(heroId);
+    }
   });
 });

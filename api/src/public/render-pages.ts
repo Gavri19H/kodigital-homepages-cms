@@ -23,6 +23,9 @@ import {
   renderCategoryJsonLd,
   renderWebPageJsonLd,
 } from "./templates/jsonld-home-category-page";
+import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
+import { renderHome } from "./templates/home";
+import { renderLayout } from "./templates/layout";
 
 function wrapHtmlDocument(headHtml: string, bodyHtml: string): string {
   return (
@@ -45,49 +48,82 @@ function escapeHtml(input: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function renderHomepageHtml(
+// T1 (rescue-3): the LIVE GET / handler composes the design homepage
+// through buildHomeViewModel + renderHome + renderLayout — NOT the bare
+// article-list fallback. The DB is threaded from c.env.DB (router.ts) so
+// the renderer is wired into the live entry; rescue-2 shipped a route that
+// called no db-fed renderer, so the public homepage rendered the bare
+// fallback (no design shell, no 13 sections, no brand tokens).
+//
+// renderLayout owns the full <head> (Nunito + /assets/public.css + the
+// inline `--tw-*` brand-token <style> sourced from site_settings
+// .brand_tokens_json) plus the <main> scaffold; renderHome owns the 13
+// ordered home sections (design-contract §7). The homepage emits WebSite +
+// Organization (+ ItemList when there are stories) JSON-LD only — NO
+// BreadcrumbList / FAQPage (a one-item home breadcrumb is a negative GEO
+// signal, GEO §1/§2).
+export async function renderHomepageHtml(
+  db: D1Database,
   siteContext: PublicSiteContext,
-  articles: ArticleRow[],
-): string {
-  const path = "/";
-  const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
-  const head = [
-    renderSeoHead({
-      canonicalHost: siteContext.hostname,
-      path,
-      title: siteContext.hostname,
-      description: `Latest articles on ${siteContext.hostname}`,
-      ogType: "website",
-      siteName: siteContext.hostname,
-    }),
+): Promise<string> {
+  const vm = await buildHomeViewModel(db, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
+  const canonicalUrl = vm.meta.canonicalUrl;
+
+  // Disjoint buckets (trending removed from the pool, hero = featured[0],
+  // featured excludes hero, latest excludes featured) — flatten for the
+  // ItemList without de-duping.
+  const listed: HomeArticleCard[] = [
+    ...(vm.hero !== null ? [vm.hero] : []),
+    ...vm.featured,
+    ...vm.trending,
+    ...vm.latest,
+  ];
+
+  const jsonLd: string[] = [
     renderHomeWebsiteJsonLd({
       url: canonicalUrl,
-      name: siteContext.hostname,
+      name: vm.site.name,
       searchRouteEnabled: false,
     }),
     renderHomeOrganizationJsonLd({
       url: canonicalUrl,
-      name: siteContext.hostname,
+      name: vm.site.name,
     }),
-    renderHomeItemListJsonLd({
-      items: articles.map((a) => ({
-        name: a.title,
-        url: buildCanonicalUrl(siteContext.hostname, `/article/${a.slug}`),
-      })),
-      listName: `Articles on ${siteContext.hostname}`,
-    }),
-  ].join("\n");
-  const articleList = articles
-    .map(
-      (a) =>
-        `<article><a href="/article/${a.slug}">${escapeHtml(a.title)}</a></article>`,
-    )
-    .join("\n");
-  // C4 root wrapper: data-screen-label names the decoded design-export
-  // screen. UNQUOTED on purpose — the T9.AC2 contract grep matches the
-  // literal `data-screen-label=theiwise-home` with no quote after `=`.
-  const body = `<div data-screen-label=theiwise-home>${articleList}</div>`;
-  return wrapHtmlDocument(head, body);
+  ];
+  if (listed.length > 0) {
+    jsonLd.push(
+      renderHomeItemListJsonLd({
+        items: listed.map((c) => ({
+          name: c.title,
+          url: buildCanonicalUrl(siteContext.hostname, c.href),
+        })),
+        listName: `Articles on ${vm.site.name}`,
+      }),
+    );
+  }
+
+  const body = renderHome({ vm });
+  return renderLayout({
+    site: {
+      name: vm.site.name,
+      hostname: vm.site.hostname,
+      tagline: vm.site.tagline,
+      description: vm.site.description,
+      brandTokens: vm.site.brandTokens,
+      logoUrl: vm.site.logoUrl,
+    },
+    meta: {
+      title: vm.meta.title,
+      description: vm.meta.description,
+      canonicalUrl,
+      ogImage: vm.hero?.imageUrl ?? null,
+      jsonLd,
+    },
+    body,
+  });
 }
 
 export function renderArticleHtml(

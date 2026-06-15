@@ -30,6 +30,32 @@ function parseJsonLd(html: string): Record<string, unknown> {
   return JSON.parse(body.replace(/<\\\//g, "</")) as Record<string, unknown>;
 }
 
+// T1 (rescue-3): renderHomepageHtml is now db-fed (it composes
+// buildHomeViewModel). These GEO assertions only care about the homepage's
+// JSON-LD *shape* (no FAQPage, no BreadcrumbList), so an empty-listing D1
+// stub is sufficient — the home doc renders WebSite + Organization only.
+function makeEmptyHomeDb(): D1Database {
+  const stmt = {
+    bind() {
+      return stmt;
+    },
+    async first() {
+      return null;
+    },
+    async all() {
+      return { results: [], success: true, meta: {} };
+    },
+    async run() {
+      return { success: true, meta: {} };
+    },
+  };
+  return {
+    prepare() {
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
 describe("T9 renderArticleJsonLd: Article schema", () => {
   const baseInput = {
     url: "https://example.com/article/hello",
@@ -384,8 +410,8 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     expect(html).not.toMatch(/cms\.kodigital\.app/);
   });
 
-  it("GEO §1: FAQPage is forbidden on homepage / category / page routes", () => {
-    const home = renderHomepageHtml(geoSiteContext, [makeGeoArticleRow()]);
+  it("GEO §1: FAQPage is forbidden on homepage / category / page routes", async () => {
+    const home = await renderHomepageHtml(makeEmptyHomeDb(), geoSiteContext);
     const category = renderCategoryHtml(
       geoSiteContext,
       geoCategory,
@@ -399,7 +425,7 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     expect(page).not.toContain("FAQPage");
   });
 
-  it("GEO §2: category + page emit BreadcrumbList; homepage MUST NOT", () => {
+  it("GEO §2: category + page emit BreadcrumbList; homepage MUST NOT", async () => {
     const category = renderCategoryHtml(
       geoSiteContext,
       geoCategory,
@@ -424,7 +450,7 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     const pageItems = pageCrumb.itemListElement as Record<string, unknown>[];
     expect(pageItems[1]!.item).toBe("https://acme.example/about");
     // Homepage: a one-item breadcrumb chain is a negative signal.
-    const home = renderHomepageHtml(geoSiteContext, [makeGeoArticleRow()]);
+    const home = await renderHomepageHtml(makeEmptyHomeDb(), geoSiteContext);
     expect(home).not.toContain("BreadcrumbList");
   });
 

@@ -98,20 +98,21 @@ router.use("*", publicSiteContextMiddleware);
 
 // T11 homepage: ItemList of latest published articles + WebSite +
 // Organization JSON-LD. canonical href is https://{hostname}/.
+// T1 (rescue-3): the GET / handler passes c.env.DB into renderHomepageHtml
+// so the design homepage (buildHomeViewModel + renderHome + renderLayout) is
+// composed through the LIVE route — the renderer is db-fed, not orphaned.
+// rescue-2 served the bare fallback because the route called no db-fed
+// renderer; the served HTML now carries the 13 home sections, the inline
+// brand tokens and the design shell.
 router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";
-  const articles = await listArticles(c.env.DB, {
-    status: "published",
-    limit: 20,
-    siteId: siteContext.siteId,
-  });
   return servePublicHtml(c.env, siteContext, {
     key: htmlKey(siteContext.siteId, path, siteContext.content_version),
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderHomepageHtml(siteContext, articles),
+    render: () => renderHomepageHtml(c.env.DB, siteContext),
   });
 });
 

@@ -39,6 +39,32 @@ const siteContext: PublicSiteContext = {
   settings_version: 1,
 };
 
+// T1 (rescue-3): renderHomepageHtml is now db-fed (composes
+// buildHomeViewModel). A minimal D1 stub whose every listing query returns
+// no rows is enough to exercise the screen-label wrapper — the design
+// shell renders all 13 sections with empty buckets.
+function makeEmptyHomeDb(): D1Database {
+  const stmt = {
+    bind() {
+      return stmt;
+    },
+    async first() {
+      return null;
+    },
+    async all() {
+      return { results: [], success: true, meta: {} };
+    },
+    async run() {
+      return { success: true, meta: {} };
+    },
+  };
+  return {
+    prepare() {
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
 function makeArticleRow(): ArticleRow {
   return {
     id: 1,
@@ -154,11 +180,13 @@ function makeArticleVm(): ArticleViewModel {
 }
 
 describe("public-screen-labels", () => {
-  it("renderHomepageHtml — home document body opens a root wrapper with data-screen-label=theiwise-home", () => {
-    const html = renderHomepageHtml(siteContext, [makeArticleRow()]);
+  it("renderHomepageHtml — home document wraps the design body in data-screen-label=theiwise-home", async () => {
+    const html = await renderHomepageHtml(makeEmptyHomeDb(), siteContext);
     expect(html).toContain(HOME_LABEL);
-    // Root position: the wrapper is the first element inside <body>.
-    expect(html).toContain(`<body><div ${HOME_LABEL}>`);
+    // T1 (rescue-3): the screen-label wrapper now opens the design shell's
+    // <main> content region (renderLayout wraps renderHome's body), no
+    // longer the bare <body><div> fallback.
+    expect(html).toContain(`<main id="main-content"><div ${HOME_LABEL}>`);
     expect(html).toContain("theiwise-home");
   });
 

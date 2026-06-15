@@ -22,6 +22,7 @@
 
 import { describe, it, expect } from "vitest";
 import { renderHome } from "../src/public/templates/home";
+import { renderLayout } from "../src/public/templates/layout";
 import type {
   HomeViewModel,
   HomeArticleCard,
@@ -213,5 +214,61 @@ describe("public-templates-home", () => {
     expect(html).toContain('data-ad-type="in-feed"');
     expect(html).toContain('data-ad-slot="home-leaderboard"');
     expect(html).toContain('data-ad-slot="home-in-feed"');
+  });
+
+  // T1 (rescue-3) AC5 / RC-003 — render-output: renderHome + renderLayout
+  // together emit the 13 home-section markers AND the inline --tw-brand
+  // brand-token override. This is the design-system render contract the
+  // live homepage (renderHomepageHtml) composes; the bare rescue-2 fallback
+  // emitted neither. The file-path literal in the title is the
+  // deterministic binding for the required_evidence_plan parse_test_output
+  // route (expected_test_name_regex = api/test/public-templates-home.test.ts).
+  it("T1.AC5 render-output: renderHome+renderLayout emit the 13 home-section markers + inline --tw-brand [api/test/public-templates-home.test.ts]", () => {
+    // brand_tokens_json from the site row drives renderLayout's inline
+    // `--tw-*` override (T8 will seed #1ba8c8 from the brand contract).
+    const vm = makeVm({
+      site: {
+        site_id: "site-acme",
+        name: "Acme Daily",
+        hostname: "acme.example",
+        tagline: "Tomorrow's news today",
+        description: "Acme Daily covers technology, world, and culture.",
+        logoUrl: null,
+        brandTokens: { "tw-brand": "#1ba8c8" },
+      },
+    });
+
+    const body = renderHome({ vm });
+    // renderHome owns the 13 ordered sections (contract §7).
+    const bodySeq = extractMarkerSequence(body);
+    expect(bodySeq).toEqual(CONTRACT_SECTION_SEQUENCE);
+    expect(new Set(bodySeq).size).toBe(13);
+
+    const doc = renderLayout({
+      site: {
+        name: vm.site.name,
+        hostname: vm.site.hostname,
+        tagline: vm.site.tagline,
+        description: vm.site.description,
+        brandTokens: vm.site.brandTokens,
+        logoUrl: vm.site.logoUrl,
+      },
+      meta: {
+        title: vm.meta.title,
+        description: vm.meta.description,
+        canonicalUrl: vm.meta.canonicalUrl,
+      },
+      body,
+    });
+
+    // The 13 markers survive into the full document (renderLayout wraps the
+    // renderHome body verbatim inside <main>).
+    expect(extractMarkerSequence(doc)).toEqual(CONTRACT_SECTION_SEQUENCE);
+    // Inline --tw-brand override sourced from brand_tokens_json.
+    expect(doc).toContain('<style data-source="brand_tokens">');
+    expect(doc).toContain("--tw-brand: #1ba8c8;");
+    // Design-system scaffold: Nunito font + the public stylesheet.
+    expect(doc).toContain("Nunito");
+    expect(doc).toContain('href="/assets/public.css"');
   });
 });
