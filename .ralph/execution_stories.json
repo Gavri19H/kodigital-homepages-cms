@@ -169,8 +169,8 @@
       "title": "Reliable full-article text: raise per-article timeout + retry on abort",
       "category": "script",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T11"
       ],

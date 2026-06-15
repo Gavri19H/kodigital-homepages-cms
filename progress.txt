@@ -9352,3 +9352,62 @@ Learnings for future iterations:
   - D13 runner_command_rendered --worktree-root is mis-rendered to <project_root> mission-wide; run the
     RC runner with --worktree-root=<actual worktree> (the value the Q3 command already uses).
 ---
+
+## 2026-06-15 - T11 (Reliable full-article text: raise per-article timeout + retry on abort)
+sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented, passes=true)
+- What: Made full-article generation reliable per the brief (articles timed out at 30s and were
+  not retried because isRetriableStatus = 429/5xx only, openai-client.ts).
+  AC1: generateStarterArticle now passes a longer per-article timeoutMs via the existing knob.
+  AC2: the retry classifier now retries aborted/timed-out calls alongside 429/5xx.
+- Files changed:
+  - api/src/ai/openai-client.ts — added isAbortOrTimeoutError(); callWithRetry now wraps
+    fetchWithTimeout in try/catch and retries on abort/timeout (rethrows non-abort errors + after
+    exhausting retries). Status-based 429/5xx retry path unchanged.
+  - api/src/ai/generators/text.ts — added STARTER_ARTICLE_TIMEOUT_MS=120_000; threaded optional
+    timeoutMs through RunGeneratorArgs -> client.generateText({prompt,timeoutMs}); generateStarterArticle
+    passes timeoutMs=STARTER_ARTICLE_TIMEOUT_MS (>30_000 DEFAULT_TIMEOUT_MS). Other generators pass
+    undefined -> keep DEFAULT_TIMEOUT_MS.
+  - api/test/ai-generators-text.test.ts — AC1 test: asserts generateStarterArticle calls the text
+    client with timeoutMs > 30000 (spy OpenAIClient). Marked [api/test/ai-generators-text.test.ts]
+    L2_AUTO_DISAMBIGUATION:T11-AC1:RC-028.
+  - api/test/ai-openai-client.test.ts — AC2 tests: retries an aborted/timed-out request then succeeds
+    (retries=1) [marked L2_AUTO_DISAMBIGUATION:T11-AC2:RC-029]; rethrows abort after exhausting retries
+    (bounded); does NOT retry a non-abort/non-status error (scope locked to timeout/abort).
+- Evidence routing (develop-legal parser_observation, same convention as T5..T10): marked tests embed
+  the literal token [api/test/<file>.test.ts] + L2_AUTO_DISAMBIGUATION:T11-ACx:RC-0xx INSIDE the it()
+  name so the plan's expected_test_name_regex (api/test/...) matches vitest verbose output via re.search.
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run    -> 122 files / 1100 tests passed (full regression; +4 new T11 tests; no breakage)
+  - targeted: npx vitest run test/ai-openai-client.test.ts test/ai-generators-text.test.ts -> 33 passed
+- Q3 story_quality_checks_command_rendered (VERBATIM, correct worktree-root):
+  PASS story=T11 checks_executed=1 (structural_check) -> story_execution_receipts.jsonl
+- D13 runner_command_rendered (RC-028,RC-029,RC-057): VERBATIM run's rendered --worktree-root is
+  <project_root> (the known mission-wide plan-bundle render defect, documented T2..T10): resolves cwd to
+  the BASE checkout (lacks Ralph's new tests; observed_test_names show only old tests) -> FAIL. INPUT-
+  corrected run (--worktree-root = actual .a2z/mission-state/<cid>/worktree, the same value the Q3
+  command uses and that PASSed): TOP status PASS; resolved_cwd=<worktree>/api;
+  RC-028 (T11-AC1) PASS + RC-029 (T11-AC2) PASS (matched expected_test_name_regex via the embedded path
+  token + L2 marker). RC-057 = production_pending, SKIPPED_ALLOWED -> DEFERRED to ship (post-deploy
+  manualQA revert MQA-2; story T5; genuinely runtime, no develop-legal route). Positive proof both sides:
+  base-checkout run lacks the T11 tests (FAIL); worktree run PASS.
+- Self-check results:
+  - File sizes: api/src/ai/openai-client.ts 260 lines (soft default 200; justified — single cohesive
+    OpenAI client module, no architecture.md per-file limit; +32 lines is the focused AC2 retry-on-abort
+    logic). api/src/ai/generators/text.ts 779 lines (pre-existing large shared text-generators barrel;
+    my addition is +14 focused lines). Test files are test code. — PASS (justified)
+  - Secret scan: PASS (only the pre-existing parameterized `Bearer ${apiKey ?? ""}` env reference; no
+    hardcoded secrets added).
+  - Error handling: PASS (abort rethrown after exhausting retries -> caught by runTextGenerator ->
+    fallback row surfaced in receipts; non-ok responses still throw; non-abort errors propagate).
+  - Migration execution: N/A (category=script).
+  - Parameterized queries: N/A (no SQL touched).
+- Learnings for future iterations:
+  - The mock OpenAIClient `successClient`/spy pattern (test/ai-generators-text.test.ts) is the develop-
+    legal way to assert call-args of generateText without any network: build a vi.fn<OpenAIClient
+    ['generateText']>() and inject it via the input.client knob.
+  - Simulate an OpenAI abort/timeout in tests with a plain Error whose .name='AbortError' (no DOMException
+    dependency) — isAbortOrTimeoutError classifies by .name first, then message regex.
+  - D13 runner_command_rendered --worktree-root remains mis-rendered to <project_root> mission-wide; run
+    the RC runner with --worktree-root=<actual worktree> (the value the Q3 command already uses).
+---
