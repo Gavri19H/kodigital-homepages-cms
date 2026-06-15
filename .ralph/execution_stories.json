@@ -73,8 +73,8 @@
       "title": "Provisioning completes: in-process warm + sites.status='active'",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T5"
       ],

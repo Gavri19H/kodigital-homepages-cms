@@ -8985,3 +8985,84 @@ Learnings for future iterations:
   a home-grid <ul> for design parity, not a renamed bare list.
 - parse_test_output binding still requires the literal evidence-file path in a
   PASSING test's it() title (e.g. [api/test/public-router.test.ts]).
+
+## 2026-06-15 — T5 (sources: T5) — Provisioning completes: in-process warm + sites.status='active'
+What was implemented:
+- T5-AC1: warm_homepage_cache (STEP_KEYS index 13) no longer self-fetches
+  https://{host}/ (the subrequest 403s in prod -> step 13 failed -> sites
+  stalled in status='draft' while serving; brief BCL-007). New exported
+  warmHomepageInProcess (api/src/cache/warm.ts) renders the homepage IN-PROCESS
+  via the same renderHomepageHtml the public GET / handler uses (ZERO outbound
+  fetch) and stores it via putCachedHtml under htmlKey(site_id,"/",content_version)
+  with the router's strong ETag + env TTL. Dry-run renders nothing / writes
+  nothing. The step (steps.ts:warmHomepageCacheStep) now delegates to it;
+  receipt kind 'in_process_warm'.
+- T5-AC2: update_launch_readiness (STEP_KEYS index 15) now flips
+  sites.status 'draft' -> 'active' (migration 0002 CHECK allows
+  draft/provisioning/active/disabled/failed; 'launched' is NOT in the set and
+  would be rejected). Pure D1 write — runs in dry-run too (the dry-run gate
+  only suppresses outbound CF/KV mutation). Reaching this final step implies
+  every prior step (incl. smoke) passed, since the runner halts the job on the
+  first failed step. Output gains site_status:'active'.
+- T5-AC3 (guard): total_steps == STEP_KEYS.length == 16, index 15 ==
+  update_launch_readiness. Pre-existing derive + runner re-sync (runner.ts);
+  no 15->16 fix claimed.
+
+Files changed: api/src/cache/warm.ts, api/src/site-provisioning/steps.ts,
+api/test/site-provisioning-warm-homepage.test.ts (rewritten: in-process render,
+no self-fetch — superseded the legacy rescue-2 T37 self-fetch test),
+api/test/site-provisioning-run-to-completion.test.ts (status='active' tracking +
+AC2 test), api/test/provisioning-runner.test.ts (AC3 total_steps=16 guard test).
+
+Self-check results:
+- File sizes: warm.ts 283 (was 197; +86 = the cohesive in-process warm helper +
+  doc — kept in the warm module beside the warmSiteCache helper it supersedes
+  for the step; splitting a single-responsibility cache-warm module for an
+  86-line addition is over-engineering) — NOTED. steps.ts 1166 (was 1149; the
+  canonical 16-step registry, already >200 long before T5; splitting is a major
+  refactor out of T5 scope — same rationale as T4 render-pages/router) — NOTED.
+  No architecture.md present, so default 200 TS limit applied.
+- Secret scan: PASS (0 matches)
+- Parameterized queries: PASS (UPDATE sites SET status='active' ... WHERE id=?
+  uses ? + .bind(); 'active' is a fixed SQL literal, mirroring
+  publishStarterArticlesStep's status='published' — no template interpolation)
+- Error handling: warmHomepageInProcess wraps the render+put in try/catch ->
+  status:'failed' (graceful); the step maps that to a failed StepHandlerResult.
+- Migration execution: N/A (no new migration; status='active' uses existing
+  sites.status column from migration 0002).
+
+Tests run:
+- cd api && npx tsc --noEmit -> exit 0
+- cd api && npx vitest run -> 122 files, 1084 tests PASS (+3 from T5)
+- Q3 run_story_quality_checks.py --story-id=T5 -> PASS checks_executed=4,
+  receipts appended
+- D13 run_required_evidence_command.py RC-016,RC-017,RC-018,RC-057 -> TOP PASS
+
+Evidence (D13 per-claim):
+- RC-016 (T5-AC1, test/site-provisioning-warm-homepage.test.ts): PASS —
+  matched expected_test_name_regex (in-process render -> putCachedHtml under
+  htmlKey, ZERO outbound fetch).
+- RC-017 (T5-AC2, test/site-provisioning-run-to-completion.test.ts): PASS —
+  full run drives status 'draft' -> 'active'.
+- RC-018 (T5-AC3, test/provisioning-runner.test.ts): PASS — total_steps=16 guard.
+- RC-057: DEFERRED — route=production_pending (post-deploy manualQA MQA-2);
+  not Ralph's concern.
+
+Learnings for future iterations:
+- L-167 observed again: the D13 runner_command_rendered passes
+  --worktree-root=<project-root> (/Users/.../kodigital-homepages-cms) — the
+  brief-branch base checkout that LACKS the mission's committed code. Run
+  verbatim, cwd resolved to <project-root>/api and RC-016/017/018 came back
+  UNSATISFIED ("no passing test matched ...; observed 1 test names" — the base
+  checkout only has the pre-T5 tests). Re-ran with --worktree-root=<mission
+  worktree> (where the committed T5 code lives) -> all PASS. The sibling Q3
+  story_quality_checks_command_rendered DOES correctly point at the mission
+  worktree. Identical to the T1-T4 observation.
+- The warm step's old self-fetch helper (warmSiteCache/buildWarmTargets) is now
+  unused by product code but left intact: it's still covered by
+  test/cache-warm.test.ts and is a valid helper for a future publish-warm path.
+  The provisioning warm step is the ONLY former caller.
+- In-process homepage warm renders against the live sites row; buildHomeViewModel
+  tolerates empty article/category/settings results, so a minimal fake-D1 (empty
+  .all(), site row via loadSiteInfo) is enough to drive the REAL step end-to-end
+  in a unit test (no full home-data fixture needed).
