@@ -530,6 +530,39 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
       expect(id).not.toBe(heroId);
     }
   });
+
+  // T18-AC1 / RC-052 — BEHAVIORAL (live route): a provisioned site whose
+  // site_settings.site_description is set must serve a homepage whose
+  // <meta name="description"> equals that stored description — NOT the
+  // rescue-2 hard-coded `Latest articles on <hostname>` text. HOME_SETTINGS
+  // seeds site_description, so the SERVED HTML (renderHomepageHtml →
+  // buildHomeViewModel → renderLayout, through the db-fed live GET / route)
+  // must carry it verbatim in the head. The `api/test/public-router.test.ts`
+  // literal in the title is the deterministic binding for the
+  // required_evidence_plan parse_test_output route.
+  it("T18.AC1 GET / serves <meta name=description> equal to the stored site_settings.site_description, not a hard-coded latest-articles string [api/test/public-router.test.ts]", async () => {
+    const app = makeApp();
+    const res = await app.request(
+      `https://${TENANT_HOST}/`,
+      {},
+      makeEnv(makeHomeDb()),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+
+    // The served head carries the stored site_description verbatim — the live
+    // route fed the real site_settings.site_description into the view model.
+    expect(body).toContain(
+      '<meta name="description" content="Acme Daily covers technology, world, and culture.">',
+    );
+    // og:description is derived from the same meta.description source.
+    expect(body).toContain(
+      '<meta property="og:description" content="Acme Daily covers technology, world, and culture.">',
+    );
+    // Negative: the rescue-2 hard-coded homepage meta description is gone.
+    expect(body).not.toContain("Latest articles on");
+  });
 });
 
 // T2 (rescue-3): the LIVE GET /article/:slug route must compose the design

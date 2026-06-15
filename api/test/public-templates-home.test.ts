@@ -341,4 +341,70 @@ describe("public-templates-home", () => {
     expect(doc).toContain('href="/assets/public.css"');
     expect(doc).not.toContain('href="#"');
   });
+
+  // T18-AC2 / RC-053 — render-output (ui_visual_parity): renderHome composed
+  // by renderLayout emits a <meta name="description"> in the document <head>
+  // populated from the home view model's description field. This is the
+  // design-template half of T18: the live route (renderHomepageHtml) feeds the
+  // real site_settings.site_description into vm.meta.description (T18-AC1) and
+  // renderLayout emits exactly that string into the head — NOT a hard-coded
+  // `Latest articles on <hostname>` string. The file-path literal in the title
+  // is the deterministic binding for the required_evidence_plan
+  // parse_test_output route (expected_test_name_regex =
+  // api/test/public-templates-home.test.ts).
+  it("T18.AC2 render-output: renderHome+renderLayout emit <meta name=description> from the view model's description field [api/test/public-templates-home.test.ts]", () => {
+    // A distinctive site_description proves the head meta is sourced from the
+    // view model rather than any hard-coded/default string.
+    const siteDescription =
+      "Daily wellness journalism for the modern reader (T18 marker).";
+    // Mirror buildHomeViewModel: vm.meta.description is the stored
+    // site_description when non-empty. renderHomepageHtml feeds
+    // vm.meta.description into renderLayout's meta.description.
+    const vm = makeVm({
+      site: {
+        site_id: "site-acme",
+        name: "Acme Daily",
+        hostname: "acme.example",
+        tagline: "Tomorrow's news today",
+        description: siteDescription,
+        logoUrl: null,
+        brandTokens: {},
+      },
+      meta: {
+        title: "Acme Daily — Tomorrow's news today",
+        description: siteDescription,
+        canonicalUrl: "https://acme.example/",
+      },
+    });
+
+    const body = renderHome({ vm });
+    const doc = renderLayout({
+      site: {
+        name: vm.site.name,
+        hostname: vm.site.hostname,
+        tagline: vm.site.tagline,
+        description: vm.site.description,
+        brandTokens: vm.site.brandTokens,
+        logoUrl: vm.site.logoUrl,
+      },
+      meta: {
+        title: vm.meta.title,
+        description: vm.meta.description,
+        canonicalUrl: vm.meta.canonicalUrl,
+      },
+      body,
+    });
+
+    // The <head> carries the meta description sourced from the view model's
+    // description field — verbatim, not a hard-coded latest-articles string.
+    expect(doc).toContain(
+      `<meta name="description" content="${siteDescription}">`,
+    );
+    // renderLayout derives og:description from the same meta.description.
+    expect(doc).toContain(
+      `<meta property="og:description" content="${siteDescription}">`,
+    );
+    // Negative: the rescue-2 hard-coded homepage description is gone.
+    expect(doc).not.toContain("Latest articles on");
+  });
 });
