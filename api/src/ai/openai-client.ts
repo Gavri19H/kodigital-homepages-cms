@@ -72,6 +72,23 @@ function isRetriableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
+// T11/AC2: a timed-out / aborted request is retriable, alongside
+// isRetriableStatus 429/5xx. fetchWithTimeout aborts via AbortController at
+// timeoutMs, which rejects with an AbortError (DOMException/Error name
+// "AbortError"); some runtimes surface a "TimeoutError" instead. We classify
+// by error name first, then fall back to message text, so a slow full-article
+// generation is retried rather than surfaced immediately as a fallback stub.
+function isAbortOrTimeoutError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const name = (err as { name?: unknown }).name;
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  const message = (err as { message?: unknown }).message;
+  return (
+    typeof message === "string" &&
+    /\b(abort(ed)?|timed?\s*out|timeout)\b/i.test(message)
+  );
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function fetchWithTimeout(
@@ -111,19 +128,34 @@ export function createOpenAIClient(env: Env): OpenAIClient {
     let attempt = 0;
     let last: Response | null = null;
     while (attempt <= maxRetries) {
-      const response = await fetchWithTimeout(
-        url,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${apiKey ?? ""}`,
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(
+          url,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${apiKey ?? ""}`,
+            },
+            body: JSON.stringify(body),
           },
-          body: JSON.stringify(body),
-        },
-        timeoutMs,
-        fetchImpl,
-      );
+          timeoutMs,
+          fetchImpl,
+        );
+      } catch (err) {
+        // T11/AC2: an aborted/timed-out call is retried (timeout/abort added
+        // to the retriable set alongside isRetriableStatus 429/5xx). If
+        // retries remain, back off and retry; otherwise rethrow so the
+        // caller's fallback path runs (surfaced in receipts). Non-abort
+        // errors are NOT retried — they propagate immediately.
+        if (isAbortOrTimeoutError(err) && attempt < maxRetries) {
+          attempt += 1;
+          await sleep(RETRY_DELAY_MS);
+          continue;
+        }
+        throw err;
+      }
       last = response;
       if (!isRetriableStatus(response.status) || attempt === maxRetries) {
         return { response, retries: attempt };

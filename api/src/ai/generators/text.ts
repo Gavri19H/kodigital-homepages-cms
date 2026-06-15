@@ -94,6 +94,12 @@ import {
 //   with the same (site_id, slug) reuses the same ai_generation_id row and
 //   never inserts a duplicate.
 
+// T11/AC1: a full starter article is a long generation. The OpenAI client's
+// DEFAULT_TIMEOUT_MS is 30_000ms, which aborts a real article mid-stream and
+// drops it to a fallback stub. Raise the article path's per-article timeout
+// via the existing timeoutMs knob so a full article is not aborted at 30s.
+const STARTER_ARTICLE_TIMEOUT_MS = 120_000;
+
 export interface GenerationResult<T> {
   ai_generation_id: string;
   idempotency_key: string;
@@ -114,6 +120,10 @@ interface RunGeneratorArgs<TContext extends FallbackContextBase, TParsed> {
   buildFallback: (meta: GeneratedMeta) => TParsed;
   validate?: (parsed: TParsed) => string | null;
   client?: OpenAIClient;
+  // T11/AC1: per-generator override of the text client's timeoutMs knob. When
+  // omitted the client uses its DEFAULT_TIMEOUT_MS (30s); the article path
+  // passes a larger value so a full article is not aborted at 30s.
+  timeoutMs?: number;
 }
 
 function newId(): string {
@@ -170,6 +180,7 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
     parseModelOutput,
     buildFallback,
     validate,
+    timeoutMs,
   } = args;
 
   const idempotency_key = computeIdempotencyKey(
@@ -250,7 +261,9 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
 
   let modelResult: GenerateTextResult;
   try {
-    modelResult = await client.generateText({ prompt });
+    // T11/AC1: forward the per-generator timeoutMs (undefined keeps the
+    // client's DEFAULT_TIMEOUT_MS for non-article generators).
+    modelResult = await client.generateText({ prompt, timeoutMs });
   } catch (err) {
     const meta = buildFallbackMeta(
       task,
@@ -555,6 +568,8 @@ export async function generateStarterArticle(
     target_id: input.slug,
     context: input,
     idempotency_suffix: input.slug,
+    // T11/AC1: full articles need more than the 30s DEFAULT_TIMEOUT_MS.
+    timeoutMs: STARTER_ARTICLE_TIMEOUT_MS,
     prompt: buildStarterArticlePrompt(input),
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(

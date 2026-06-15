@@ -428,3 +428,43 @@ describe("T7 success path with OpenAI client mock", () => {
     expect(result.parsed.faqs.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("T11 reliable full-article generation — longer per-article timeout", () => {
+  // The OpenAI client's DEFAULT_TIMEOUT_MS is 30_000ms. A full article needs
+  // more, so it would otherwise be aborted at 30s.
+  const DEFAULT_TIMEOUT_MS = 30_000;
+
+  // T11-AC1: generateStarterArticle MUST pass a timeoutMs larger than the
+  // 30_000ms DEFAULT_TIMEOUT_MS (using the existing timeoutMs knob) so a full
+  // article is not aborted at 30s.
+  it("AC1: generateStarterArticle calls the text client with timeoutMs > 30000 [api/test/ai-generators-text.test.ts] L2_AUTO_DISAMBIGUATION:T11-AC1:RC-028", async () => {
+    const { env } = makeEnv({ apiKey: "sk-livefakekey-t11" });
+    const generateText = vi.fn<OpenAIClient["generateText"]>().mockResolvedValue({
+      text: "model output that routes to fallback — only the call args matter",
+      model: "gpt-5.5",
+      retries: 0,
+      status: 200,
+    });
+    const client: OpenAIClient = {
+      hasApiKey: () => true,
+      generateText,
+      async generateImage() {
+        return { skipped_no_api_key: true };
+      },
+    };
+
+    await generateStarterArticle(env, {
+      site_id: "site-t11",
+      vertical: "personal finance",
+      slug: "long-form-guide",
+      title: "A long-form guide that needs more than 30 seconds to generate",
+      client,
+    });
+
+    expect(generateText).toHaveBeenCalledTimes(1);
+    const opts = generateText.mock.calls[0]?.[0];
+    if (!opts) throw new Error("expected generateText to be called with options");
+    expect(typeof opts.timeoutMs).toBe("number");
+    expect(opts.timeoutMs as number).toBeGreaterThan(DEFAULT_TIMEOUT_MS);
+  });
+});

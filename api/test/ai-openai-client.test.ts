@@ -296,4 +296,75 @@ describe("T2 OpenAI client", () => {
       expect(result.bytes.byteLength).toBe(2);
     });
   });
+
+  describe("T11 retry on timeout/abort — not just 429/5xx", () => {
+    function abortError(message = "The operation was aborted"): Error {
+      const e = new Error(message);
+      e.name = "AbortError";
+      return e;
+    }
+
+    // T11-AC2: a timed-out / aborted call is added to the retriable set
+    // alongside isRetriableStatus 429/5xx, so a slow generation is retried
+    // rather than surfaced immediately as a fallback stub.
+    it("AC2: retries an aborted/timed-out request then succeeds (retries=1) [api/test/ai-openai-client.test.ts] L2_AUTO_DISAMBIGUATION:T11-AC2:RC-029", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        // 1st call: aborts (timeout) — must be retried, NOT dropped to fallback.
+        .mockRejectedValueOnce(abortError("The operation was aborted due to timeout"))
+        // 2nd call: succeeds.
+        .mockResolvedValueOnce(
+          jsonResponse({ choices: [{ message: { content: "recovered" } }] }),
+        );
+      const client = createOpenAIClient(env);
+      const result = await client.generateText({
+        prompt: "p",
+        maxRetries: 1,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected success result");
+      }
+      expect(result.text).toBe("recovered");
+      expect(result.retries).toBe(1);
+    });
+
+    it("AC2: rethrows the abort after exhausting retries (bounded)", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(abortError("aborted"));
+      const client = createOpenAIClient(env);
+      await expect(
+        client.generateText({
+          prompt: "p",
+          maxRetries: 1,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toThrow(/abort/i);
+      // initial attempt + one retry = 2 calls, then it gives up.
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it("AC2: does NOT retry a non-abort/non-status error (scope is timeout/abort only)", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-test-real-key" });
+      const networkErr = new Error("Failed to fetch");
+      networkErr.name = "TypeError";
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(networkErr);
+      const client = createOpenAIClient(env);
+      await expect(
+        client.generateText({
+          prompt: "p",
+          maxRetries: 1,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toThrow(/Failed to fetch/);
+      // No retry for a generic error — surfaced immediately.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+  });
 });
