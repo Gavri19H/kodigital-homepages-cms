@@ -9305,3 +9305,50 @@ Learnings for future iterations:
     lacks Ralph's code. The fix is the INPUT path arg (--worktree-root=<actual worktree>), not
     the runner. Plan-bundle render owner should align D13 --worktree-root with the Q3 command.
 ---
+
+## 2026-06-15 — T10 (sources: T10) — Fix AI image generation: remove response_format; parse b64_json AND url
+- Implemented:
+  - api/src/ai/openai-client.ts: generateImage no longer sends `response_format` in the request
+    body (gpt-image-2 400s "Unknown parameter: response_format"); model id unchanged (brief-locked).
+    Response parsing now reads BOTH shapes: data[0].b64_json (inline base64) ?? fetch(data[0].url)
+    (hosted link via a follow-on GET on the same fetchImpl; mime from the fetched content-type,
+    fallback image/png; throws on a non-ok image fetch).
+  - api/test/ai-openai-client.test.ts: T10 describe — AC1 marked test (no response_format key in the
+    serialized body) + supporting unit tests (b64 path, url path, b64-preferred-over-url).
+  - api/test/ai-generators-image.test.ts: AC2 marked test drives the REAL createOpenAIClient parser
+    through both a b64_json response AND a url response (genuine parser proof, not a mock) —
+    avoids the negative_fail_condition (AC green while outcome broken).
+- Evidence routing (develop-legal parser_observation convention, same as T5..T9): marked tests embed
+  the literal token [api/test/<file>.test.ts] + L2_AUTO_DISAMBIGUATION:T10-ACx:RC-0xx INSIDE the it()
+  name so the plan's expected_test_name_regex (api/test/...) matches vitest verbose output via re.search.
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npm test          -> 122 files / 1095 tests passed (full regression; no breakage)
+  - targeted: npx vitest run test/ai-openai-client.test.ts test/ai-generators-image.test.ts -> 27 passed
+- Q3 story_quality_checks_command_rendered (VERBATIM, correct worktree-root):
+  PASS story=T10 checks_executed=1 (structural_check) -> story_execution_receipts.jsonl
+- D13 runner_command_rendered (RC-026,RC-027): the rendered --worktree-root is <project_root> (the
+  known mission-wide plan-bundle render defect documented for T2..T9). Verbatim run resolves cwd to the
+  BASE checkout (lacks Ralph's code) -> UNSATISFIED. INPUT-corrected run (--worktree-root set to the
+  actual .a2z/mission-state/<cid>/worktree, the same value the Q3 command uses): TOP status PASS;
+  resolved_cwd=<worktree>/api; RC-026 (T10-AC1) PASS + RC-027 (T10-AC2) PASS (both matched
+  expected_test_name_regex via the embedded path token). Positive proof both sides: base-checkout
+  openai-client.ts still has `response_format` (old code); worktree run PASS.
+- Self-check results:
+  - File sizes: api/src/ai/openai-client.ts 228 lines (soft default 200; justified — single cohesive
+    OpenAI client module; the dual-shape bugfix adds the url branch; no architecture.md per-file limit
+    defined). Test files are test code. — PASS (justified)
+  - Secret scan: PASS (only pre-existing mock fixtures e.g. "Bearer sk-test-real-key" in tests; no
+    hardcoded production secrets added).
+  - Error handling: PASS (throws on non-ok generations response AND on non-ok url image fetch).
+  - Migration execution: N/A (category=script).
+  - Parameterized queries: N/A (no SQL touched).
+- Learnings for future iterations:
+  - Develop-legal RC route for vitest stories = parser_observation matched on
+    expected_test_name_regex="api/test/<file>.test.ts". Vitest (cwd=api, verbose) prints names as
+    "test/<file>.test.ts > ..." (NO api/ prefix), so a plain test name never matches. Convention
+    (T5..T9): EMBED "[api/test/<file>.test.ts]" (+ the L2_AUTO_DISAMBIGUATION marker) inside the it()
+    description so re.search matches. All vitest-routed stories MUST follow this.
+  - D13 runner_command_rendered --worktree-root is mis-rendered to <project_root> mission-wide; run the
+    RC runner with --worktree-root=<actual worktree> (the value the Q3 command already uses).
+---

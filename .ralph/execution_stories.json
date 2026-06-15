@@ -153,8 +153,8 @@
       "title": "Fix AI image generation: remove response_format; parse b64_json AND url",
       "category": "script",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T10"
       ],
