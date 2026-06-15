@@ -6,6 +6,7 @@ import {
   isAllowedBlockType,
   sanitizeHtml,
 } from "../src/editor";
+import { articleFormPage } from "../src/admin/templates/articles";
 
 // The literal "java"+"script:" / "<scr"+"ipt>" strings below are split via
 // concatenation so this test file itself does not flag the verify scanner
@@ -292,5 +293,81 @@ describe("editor: contract blocks + ported block editor (T27 [B6])", () => {
     expect(sanitized).toContain('<aside class="affiliate-card">');
     expect(sanitized).toContain('href="https://shop.test/w"');
     expect(sanitized).toContain('rel="sponsored nofollow noopener"');
+  });
+});
+
+describe("article editor: hero image card + AI hero-image modal (T14b)", () => {
+  const sites = [{ id: "site-1", name: "Demo Site" }];
+  const newHtml = articleFormPage(null, sites, [], {});
+  const editHtml = articleFormPage(
+    {
+      id: "42",
+      title: "Existing",
+      site_id: "site-1",
+      featured_image_id: 7,
+      featured_image_url: "/media/ai/admin/site-1/abc.png",
+    },
+    sites,
+    [],
+    {},
+  );
+
+  it("BEHAVIORAL T14b-AC1: the editor emits the hero image uploader and the hero-image-ai-generate control", () => {
+    // Hero card + uploader (file input the upload label triggers) + the
+    // hero-image-ai-generate control that opens the AI hero-image modal.
+    expect(newHtml).toContain('id="hero-image-card"');
+    expect(newHtml).toContain('id="hero-image-upload"');
+    expect(newHtml).toContain('type="file"');
+    expect(newHtml).toContain("hero-image-ai-generate");
+    // No placeholder marker leaks into the rendered editor (negative_fail).
+    expect(newHtml).not.toContain("Phase 1 admin shell");
+  });
+
+  it("BEHAVIORAL T14b-AC1: the AI hero-image modal renders preset, variables, prompt-preview, size, style and quality controls", () => {
+    expect(newHtml).toContain('id="hero-ai-modal"');
+    // preset select + variables container + live prompt preview
+    expect(newHtml).toContain('id="hero-ai-preset"');
+    expect(newHtml).toContain('id="hero-ai-variables"');
+    expect(newHtml).toContain('id="hero-ai-preview"');
+    // size, style, quality controls
+    expect(newHtml).toContain('id="hero-ai-size"');
+    expect(newHtml).toContain('id="hero-ai-style"');
+    expect(newHtml).toContain('id="hero-ai-quality"');
+    // preview region + error handling (both card-level and modal-level)
+    expect(newHtml).toContain('id="hero-ai-result"');
+    expect(newHtml).toContain('id="hero-ai-error"');
+    expect(newHtml).toContain('id="hero-image-error"');
+  });
+
+  it("BEHAVIORAL T14b-AC1: generate POSTs to /api/admin/ai/image and the apply button places the image into the article", () => {
+    // Generate + apply buttons present.
+    expect(newHtml).toContain('id="hero-ai-generate-btn"');
+    expect(newHtml).toContain('id="hero-ai-apply-btn"');
+    // The hero-image wiring fires POST /api/admin/ai/image on generate.
+    expect(newHtml).toContain("/api/admin/ai/image");
+    expect(newHtml).toMatch(/method:\s*'POST'/);
+    // Apply places the chosen image into the article via the single wire
+    // name featured_image_id (handler-read field == DB column).
+    expect(newHtml).toContain('name="featured_image_id"');
+    // Upload uses the same media endpoint the block editor uses.
+    expect(newHtml).toContain("/admin/media");
+  });
+
+  it("hero-image inline script is ES5-only (no arrow/const/let inside the literal)", () => {
+    // Slice out just the hero-image script region so we don't lint unrelated
+    // template TypeScript. The script literal opens at the IIFE that grabs
+    // #hero-image-card.
+    const marker = "var card = document.getElementById('hero-image-card');";
+    const start = newHtml.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const heroScript = newHtml.slice(start);
+    expect(heroScript.match(/=>/g) ?? []).toHaveLength(0);
+    expect(heroScript.match(/\bconst\b/g) ?? []).toHaveLength(0);
+    expect(heroScript.match(/\blet\b/g) ?? []).toHaveLength(0);
+  });
+
+  it("edit mode pre-populates the hidden featured_image_id and the hero preview", () => {
+    expect(editHtml).toContain('name="featured_image_id" value="7"');
+    expect(editHtml).toContain("/media/ai/admin/site-1/abc.png");
   });
 });

@@ -57,6 +57,8 @@ interface ArticleRecord extends ArticleListRecord {
   content_json: string;
   content_html: string | null;
   homepage_rank: number | null;
+  featured_image_id: number | null;
+  featured_image_storage_key: string | null;
   seo_title: string | null;
   seo_description: string | null;
 }
@@ -181,6 +183,8 @@ export interface ArticleFormDto {
   homepage_rank: number | null;
   is_featured: boolean;
   is_trending: boolean;
+  featured_image_id: number | null;
+  featured_image_url: string | null;
   seo_title: string;
   seo_description: string;
   published_at: string | null;
@@ -409,7 +413,7 @@ export async function getAdminArticle(
   id: number,
 ): Promise<ArticleFormDto | null> {
   const row = await env.DB.prepare(
-    "SELECT id, title, slug, site_id, category_id, status, content_json, content_html, homepage_section, homepage_rank, is_featured, is_trending, seo_title, seo_description, published_at, updated_at FROM articles WHERE id = ? LIMIT 1",
+    "SELECT a.id, a.title, a.slug, a.site_id, a.category_id, a.status, a.content_json, a.content_html, a.homepage_section, a.homepage_rank, a.is_featured, a.is_trending, a.featured_image_id, m.storage_key AS featured_image_storage_key, a.seo_title, a.seo_description, a.published_at, a.updated_at FROM articles a LEFT JOIN media m ON m.id = a.featured_image_id WHERE a.id = ? LIMIT 1",
   )
     .bind(id)
     .first<ArticleRecord>();
@@ -427,6 +431,10 @@ export async function getAdminArticle(
     homepage_rank: row.homepage_rank,
     is_featured: row.is_featured === 1,
     is_trending: row.is_trending === 1,
+    featured_image_id: row.featured_image_id,
+    featured_image_url: row.featured_image_storage_key
+      ? `/media/${row.featured_image_storage_key}`
+      : null,
     seo_title: row.seo_title ?? "",
     seo_description: row.seo_description ?? "",
     published_at: row.published_at !== null ? fmtDate(row.published_at) : null,

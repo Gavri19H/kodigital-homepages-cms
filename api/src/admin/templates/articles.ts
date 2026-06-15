@@ -24,6 +24,11 @@ import {
   aiAssistantStyles,
   renderAIAssistantPanel,
 } from "./ai-panel";
+import {
+  heroImageScripts,
+  heroImageStyles,
+  renderHeroImageCard,
+} from "./hero-image";
 
 export interface SiteOption {
   id: string;
@@ -70,6 +75,8 @@ export interface ArticleFormValues {
   homepage_rank?: number | null;
   is_featured?: boolean | number;
   is_trending?: boolean | number;
+  featured_image_id?: number | string | null;
+  featured_image_url?: string | null;
   seo_title?: string;
   seo_description?: string;
   published_at?: string | null;
@@ -414,6 +421,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <textarea id="article-seo-description" name="seo_description" class="form-textarea" rows="3">${seoDescVal}</textarea>
     </div>
   </div>
+  ${renderHeroImageCard(a.featured_image_id, a.featured_image_url)}
   <p id="article-form-error" class="alert alert-error" hidden role="alert"></p>
   <p id="article-form-status" class="form-status" role="status" aria-live="polite"></p>
   <div class="form-actions">
@@ -466,6 +474,7 @@ const ARTICLE_FORM_SCRIPT = `
       homepage_rank: fd.get('homepage_rank') ? Number(fd.get('homepage_rank')) : null,
       is_featured: toBool(fd.get('is_featured')) ? 1 : 0,
       is_trending: toBool(fd.get('is_trending')) ? 1 : 0,
+      featured_image_id: fd.get('featured_image_id') ? Number(fd.get('featured_image_id')) : null,
       seo_title: fd.get('seo_title') || '',
       seo_description: fd.get('seo_description') || '',
       published_at: fd.get('published_at') || null
@@ -504,7 +513,8 @@ export function articleFormPage(
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
-    styles: aiAssistantStyles,
-    scripts: editorScripts() + ARTICLE_FORM_SCRIPT + aiAssistantScripts,
+    styles: aiAssistantStyles + heroImageStyles,
+    scripts:
+      editorScripts() + ARTICLE_FORM_SCRIPT + aiAssistantScripts + heroImageScripts,
   });
 }
