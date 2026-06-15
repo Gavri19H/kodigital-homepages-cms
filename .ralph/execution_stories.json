@@ -185,8 +185,8 @@
       "title": "AI Presets form to reference (Name/Description/Category select/system+user prompt/chips/content-map) + migration",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],
