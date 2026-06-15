@@ -7,7 +7,7 @@
 //         re-running is idempotent (still exactly 1 row).
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { pagesListPage } from "../src/admin/templates/pages";
+import { pagesListPage, pageFormPage } from "../src/admin/templates/pages";
 
 // In-memory shim for D1.prepare(...).bind(...).run().
 // Captures the last executed SQL + bound parameters so the test can
@@ -57,6 +57,49 @@ describe("pages template renders site_id filter and page_type filter", () => {
     for (const pt of required) {
       expect(html).toContain(`value="${pt}"`);
     }
+  });
+});
+
+// T16.AC1 — the Pages editor form exposes a layout Template <select> with
+// the three legacy options (default / full-width / landing) and the content
+// field label is clean (no longer "Content (block JSON)"). The Template
+// select must also be wired into the submit body so the chosen layout
+// actually persists through POST/PATCH.
+describe("pages editor form exposes the layout Template select + clean content label (T16.AC1)", () => {
+  it("renders a Template <select name='template'> with default / full-width / landing options", () => {
+    const html = pageFormPage(null, [{ id: "siteA", name: "Site A" }]);
+
+    // a dedicated Template chooser select
+    expect(html).toMatch(/<select[^>]*\sname="template"/);
+    expect(html).toContain('id="page-template"');
+    expect(html).toContain('<label for="page-template" class="form-label">Template</label>');
+
+    // exactly the three legacy layout options
+    expect(html).toMatch(/<option value="default"[^>]*>Default<\/option>/);
+    expect(html).toMatch(/<option value="full-width"[^>]*>Full-Width<\/option>/);
+    expect(html).toMatch(/<option value="landing"[^>]*>Landing<\/option>/);
+  });
+
+  it("pre-selects the page's stored template value on edit", () => {
+    const html = pageFormPage(
+      { id: "7", title: "Landing Page", template: "landing" },
+      [{ id: "siteA", name: "Site A" }],
+    );
+    expect(html).toMatch(/<option value="landing" selected>Landing<\/option>/);
+    // the non-selected options carry no `selected` attribute
+    expect(html).toMatch(/<option value="default">Default<\/option>/);
+  });
+
+  it("labels the content field cleanly — no longer 'Content (block JSON)'", () => {
+    const html = pageFormPage(null, [{ id: "siteA", name: "Site A" }]);
+    expect(html).not.toContain("Content (block JSON)");
+    expect(html).toContain('<label for="page-content" class="form-label">Content</label>');
+  });
+
+  it("wires the Template select into the submit body so the layout persists", () => {
+    const html = pageFormPage(null, [{ id: "siteA", name: "Site A" }]);
+    // the inline ES5 submit script must send the chosen template
+    expect(html).toMatch(/template:\s*fd\.get\('template'\)\s*\|\|\s*'default'/);
   });
 });
 
