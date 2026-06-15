@@ -324,17 +324,40 @@ async function seedDefaultSiteSettings(
   };
 }
 
+// T9 (rescue-3) — authoritative per-vertical category allocation.
+// brief W2.3-EXTENDED: the 0004 category_verticals seed mapped the
+// `parenting` vertical to a mismatched leftover set (family-travel,
+// healthy-meals, wellness) that was ALSO empty — vertical-mismatched AND
+// article_count 0. For any vertical listed here the allocate step is
+// AUTHORITATIVE: it ensures the parenting-appropriate categories exist
+// (INSERT OR IGNORE INTO categories, idempotent on the slug UNIQUE),
+// resolves their autoincrement ids, and links them to the site —
+// INDEPENDENT of the (mismatched) category_verticals matrix. Verticals
+// NOT listed here keep the matrix-driven path below; their 0004 mappings
+// are already vertical-appropriate (finance→personal-finance, etc.).
+const VERTICAL_CATEGORY_PLAN: Readonly<
+  Record<string, ReadonlyArray<{ slug: string; name: string }>>
+> = {
+  parenting: [
+    { slug: "parenting-tips", name: "Parenting Tips" },
+    { slug: "child-development", name: "Child Development" },
+    { slug: "family-activities", name: "Family Activities" },
+    { slug: "newborn-baby-care", name: "Newborn & Baby Care" },
+  ],
+};
+
 // MQAFIX-1 handler: allocate categories to a freshly-created site based
-// on the site's vertical_slug → category_verticals matrix. Before this
-// fix the step was a deterministic stub that returned `completed`
-// without writing any rows, so production sites had 0 site_categories
-// (REQ-026 unsatisfied). The fix: walk the category_verticals matrix
-// for the site's vertical and INSERT OR IGNORE INTO site_categories
-// (site_id, category_id, display_order). The operation is idempotent
-// under the (site_id, category_id) PRIMARY KEY declared in
-// migration 0002, and the same code path runs in dry-run and live —
-// the step never makes a Cloudflare call, so there is no diverging
-// branch between dry-run and prod.
+// on the site's vertical_slug. Before this fix the step was a
+// deterministic stub that returned `completed` without writing any rows,
+// so production sites had 0 site_categories (REQ-026 unsatisfied). The
+// step has two paths: (1) T9 vertical-plan path — for verticals in
+// VERTICAL_CATEGORY_PLAN, allocate the authoritative parenting-appropriate
+// set; (2) the original category_verticals matrix path for every other
+// vertical. Both INSERT OR IGNORE INTO site_categories
+// (site_id, category_id, display_order), idempotent under the
+// (site_id, category_id) PRIMARY KEY declared in migration 0002, and run
+// identically in dry-run and live — the step never makes a Cloudflare
+// call, so there is no diverging branch between dry-run and prod.
 async function allocateVerticalCategoriesStep(
   ctx: StepContext,
 ): Promise<StepHandlerResult> {
@@ -356,6 +379,48 @@ async function allocateVerticalCategoriesStep(
         allocated: 0,
         vertical_slug: "",
         reason: "no_vertical_slug_on_site",
+      }),
+    };
+  }
+  // T9 vertical-plan path: allocate the authoritative, vertical-appropriate
+  // category set instead of the (possibly mismatched) matrix. The categories
+  // are created on demand so a fresh environment that never seeded them still
+  // ends up with a non-empty, correct site_categories set.
+  const plan = VERTICAL_CATEGORY_PLAN[slug];
+  if (plan && plan.length > 0) {
+    const allocatedSlugs: string[] = [];
+    for (let i = 0; i < plan.length; i++) {
+      const cat = plan[i]!;
+      await ctx.db
+        .prepare(
+          "INSERT OR IGNORE INTO categories (slug, name, display_order) " +
+            "VALUES (?, ?, ?)",
+        )
+        .bind(cat.slug, cat.name, i)
+        .run();
+      const row = await ctx.db
+        .prepare("SELECT id AS id FROM categories WHERE slug = ? LIMIT 1")
+        .bind(cat.slug)
+        .first<{ id: number }>();
+      if (!row || typeof row.id !== "number") continue;
+      await ctx.db
+        .prepare(
+          "INSERT OR IGNORE INTO site_categories " +
+            "(site_id, category_id, display_order) VALUES (?, ?, ?)",
+        )
+        .bind(ctx.site_id, row.id, i)
+        .run();
+      allocatedSlugs.push(cat.slug);
+    }
+    return {
+      status: "completed",
+      output: JSON.stringify({
+        step: "allocate_vertical_categories",
+        kind: "vertical_plan",
+        schema_version: 1,
+        allocated: allocatedSlugs.length,
+        vertical_slug: slug,
+        plan_categories: allocatedSlugs,
       }),
     };
   }
