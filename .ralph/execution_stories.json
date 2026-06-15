@@ -105,8 +105,8 @@
       "title": "AI tagline/site_description overwrite stubs; seed default_author_name",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T7"
       ],

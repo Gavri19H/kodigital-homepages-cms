@@ -9147,3 +9147,43 @@ Learnings for future iterations:
   multiple fake-DBs destructure positionally, append new binds AFTER the shared
   head so sibling test handlers stay valid. Saved touching 3 unrelated test files.
 ---
+
+## 2026-06-15 - T7 (sources: T7) - AI tagline/site_description overwrite stubs; seed default_author_name
+- What: (AC1) generate_tagline_and_site_description now upserts tagline/site_description
+  with overwrite=true (drops the `WHERE value IS NULL OR value=''` guard) so the AI/fallback
+  values replace the deterministic stubs the earlier create_site_settings step seeded.
+  (AC2) the same step seeds default_author_name = "<brand> Editorial Team" (INSERT OR IGNORE,
+  never a user email); kept OUT of the create_site_settings 12-key seed so the T19 contract
+  count is unchanged. T6's generate_15_homepage_articles (later step) sources the author from it.
+- Files changed:
+  - api/src/site-provisioning/steps.ts (upsertSiteSetting +overwrite param; AI-step overwrite + default_author_name seed)
+  - api/test/site-provisioning-ai-integration.test.ts (T7-AC1:RC-021 tagged test; fake models guarded vs overwrite upsert)
+  - api/test/site-provisioning-create-site-settings.test.ts (T7-AC2:RC-022 tagged test; self-contained fake)
+- Self-check results:
+  - File sizes: steps.ts 1324 lines — PRE-EXISTING large step registry (grown across T17->rescue-3);
+    splitting is out of T7 scope and forbidden by must_not_do. +50 net lines this story. NOTE (not a T7 regression).
+  - Secret scan: PASS (no hardcoded secrets in changed files)
+  - Error handling: PASS (step returns failed on missing site; D1 errors propagate to runner)
+  - Migration execution: N/A (no schema change; default_author_name is a row in existing site_settings, not a column)
+  - Parameterized queries: PASS (all .bind() with ? placeholders; no template-literal prepares)
+- Tests run:
+  - cd api && npm test  => 122 files / 1088 tests PASS
+  - cd api && npx tsc --noEmit  => exit 0
+  - bash acceptance-tests/kodigital-homepages-cms-phase3-2026-05-11/T19_create_site_settings_12_keys.sh => PASS (12-key contract intact)
+  - Q3 story_quality_checks (canonical runner) => PASS checks_executed=4
+- Required-claim evidence (D13 canonical runner):
+  - RC-021 (T7-AC1) => PASS (matched expected_test_name_regex + obs pattern)
+  - RC-022 (T7-AC2) => PASS
+  - RC-057 => DEFERRED (route=production_pending; verified at ship)
+- RENDERED-COMMAND DEFECT (producer-side, NOT product/test): the packet's
+  test_commands_rendered.runner_command_rendered passes
+  --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms (PROJECT ROOT),
+  but cwd_anchor=worktree_root then runs vitest in <project_root>/api (the base checkout,
+  WITHOUT this worktree's changes) -> RC-021/RC-022 falsely UNSATISFIED (observed only the 7
+  base tests). The SAME packet's story_quality_checks_command_rendered correctly uses
+  --worktree-root=.../mission-state/<cid>/worktree. Running the evidence runner with the
+  correct mission-worktree --worktree-root yields TOP STATUS: PASS. Fix belongs to the
+  rendered-command producer (run_journey_gate.expand_template / nested-project worktree-root
+  resolution, root-cwd-doctrine rule 3/7), not to product code. Evidence above was collected
+  via the corrected (develop-legal) invocation.
+---
