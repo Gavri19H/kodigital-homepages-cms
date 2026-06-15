@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { Env } from "../src/env";
+import { createOpenAIClient } from "../src/ai/openai-client";
 import type {
   OpenAIClient,
   GenerateImageResult,
@@ -471,5 +472,60 @@ describe("T8 prompt generators", () => {
     });
     expect(result.parsed.target_kind).toBe("feature_image");
     expect(result.parsed.prompt).toMatch(/Indoor herbs/);
+  });
+});
+
+describe("T10 image-response parsing — b64_json AND url via the real OpenAI client (AC2)", () => {
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  // L2_AUTO_DISAMBIGUATION:T10-AC2:RC-027 [api/test/ai-generators-image.test.ts]
+  it("createOpenAIClient.generateImage returns image bytes for BOTH a b64_json response AND a url response (data[0].b64_json ?? fetch(data[0].url)) [api/test/ai-generators-image.test.ts] L2_AUTO_DISAMBIGUATION:T10-AC2:RC-027", async () => {
+    const { env } = makeEnv({ apiKey: "sk-livefake-ac2" });
+
+    // --- shape 1: inline base64 (data[0].b64_json) — "hi" ---
+    const b64Fetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: "aGk=" }] }));
+    const b64Result = await createOpenAIClient(env).generateImage({
+      prompt: "feature image",
+      fetchImpl: b64Fetch as unknown as typeof fetch,
+    });
+    if ("skipped_no_api_key" in b64Result && b64Result.skipped_no_api_key) {
+      throw new Error("expected image bytes from the b64_json shape");
+    }
+    // Inline base64 needs no follow-on URL fetch.
+    expect(b64Fetch).toHaveBeenCalledTimes(1);
+    expect(b64Result.bytes.byteLength).toBe(2);
+
+    // --- shape 2: hosted url (data[0].url) ---
+    const hostedBytes = new TextEncoder().encode("PNG_BYTES_FROM_URL");
+    const urlFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ url: "https://img.example/feature.png" }] }),
+      )
+      .mockResolvedValueOnce(
+        new Response(hostedBytes, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
+    const urlResult = await createOpenAIClient(env).generateImage({
+      prompt: "feature image",
+      fetchImpl: urlFetch as unknown as typeof fetch,
+    });
+    if ("skipped_no_api_key" in urlResult && urlResult.skipped_no_api_key) {
+      throw new Error("expected image bytes from the url shape");
+    }
+    // generations endpoint call + a follow-on GET to the hosted url.
+    expect(urlFetch).toHaveBeenCalledTimes(2);
+    expect(urlFetch.mock.calls[1]?.[0]).toBe("https://img.example/feature.png");
+    expect(urlResult.bytes.byteLength).toBe(hostedBytes.byteLength);
+    expect(urlResult.mime).toBe("image/png");
   });
 });

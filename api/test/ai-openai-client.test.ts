@@ -200,4 +200,100 @@ describe("T2 OpenAI client", () => {
       expect(result.model).toBe("gpt-image-2");
     });
   });
+
+  describe("T10 generateImage fix — request shape + response shapes", () => {
+    // L2_AUTO_DISAMBIGUATION:T10-AC1:RC-026 [api/test/ai-openai-client.test.ts]
+    it("AC1: serialized request body contains NO response_format key (gpt-image-2 rejects it) [api/test/ai-openai-client.test.ts] L2_AUTO_DISAMBIGUATION:T10-AC1:RC-026", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-real" });
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: "aGk=" }] }));
+      const client = createOpenAIClient(env);
+      await client.generateImage({
+        prompt: "logo",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      const call = fetchImpl.mock.calls[0];
+      if (!call) throw new Error("expected a fetch call");
+      const init = call[1] as RequestInit;
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect("response_format" in body).toBe(false);
+      expect(Object.keys(body)).not.toContain("response_format");
+      // The model id is locked by the brief and stays unchanged.
+      expect(body.model).toBe("gpt-image-2");
+    });
+
+    it("AC2: parses a b64_json response into image bytes (data[0].b64_json)", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-real" });
+      // base64 for "hi"
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: "aGk=" }] }));
+      const client = createOpenAIClient(env);
+      const result = await client.generateImage({
+        prompt: "logo",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected image bytes");
+      }
+      // Only the generations endpoint is hit; no follow-on URL fetch.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(result.bytes.byteLength).toBe(2);
+      expect(result.mime).toBe("image/png");
+    });
+
+    it("AC2: parses a url response by fetching the hosted image bytes (data[0].url)", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-real" });
+      const imageBytes = new TextEncoder().encode("PNG_BYTES_FROM_URL");
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        // 1st call: generations endpoint returns a URL (no b64_json).
+        .mockResolvedValueOnce(
+          jsonResponse({ data: [{ url: "https://img.example/abc.png" }] }),
+        )
+        // 2nd call: fetching that URL returns the raw image bytes.
+        .mockResolvedValueOnce(
+          new Response(imageBytes, {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          }),
+        );
+      const client = createOpenAIClient(env);
+      const result = await client.generateImage({
+        prompt: "logo",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected image bytes");
+      }
+      // The hosted URL is fetched as a follow-on GET.
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(fetchImpl.mock.calls[1]?.[0]).toBe("https://img.example/abc.png");
+      const secondInit = fetchImpl.mock.calls[1]?.[1] as RequestInit;
+      expect(secondInit.method).toBe("GET");
+      expect(result.bytes.byteLength).toBe(imageBytes.byteLength);
+      expect(result.mime).toBe("image/png");
+    });
+
+    it("AC2: prefers b64_json over url when both are present (b64_json ?? url)", async () => {
+      const env = makeEnv({ OPENAI_API_KEY: "sk-real" });
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ b64_json: "aGk=", url: "https://img.example/should-not-fetch.png" }],
+        }),
+      );
+      const client = createOpenAIClient(env);
+      const result = await client.generateImage({
+        prompt: "logo",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+        throw new Error("expected image bytes");
+      }
+      // b64_json wins; the url is never fetched.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(result.bytes.byteLength).toBe(2);
+    });
+  });
 });
