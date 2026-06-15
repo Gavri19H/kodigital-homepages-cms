@@ -9645,3 +9645,78 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
     `grep -nE`; (3) RC test route uses an `api/`-prefixed name regex under cwd=api. Raw exit-0
     receipts + deterministic counts are authoritative for finalize.
 ---
+
+## 2026-06-15 - T14b (Article editor: hero image card + AI hero-image modal)
+- sources: T14b | RC: RC-040 | execution story: T14b
+- What was implemented:
+  - Added the article editor Hero image card + AI hero-image modal, ported to the
+    design shell and matching the legacy hero card. New module
+    api/src/admin/templates/hero-image.ts (card + AI modal markup + styles) with the
+    ES5 inline script split into api/src/admin/templates/hero-image-script.ts
+    (mirrors the ai-panel.ts / ai-panel-script.ts decomposition). Composed into
+    articleFormPage (articles.ts) below the SEO card.
+  - Card: hidden featured_image_id input (single wire name == admin handler-read
+    field == articles.featured_image_id DB column), hero preview img, Upload control
+    (POST /admin/media multipart 'file' -> set featured_image_id + preview), the
+    hero-image-ai-generate control that opens the modal, Remove, and a card-level
+    error + status region.
+  - AI hero-image modal: preset select (GET /api/admin/ai/presets?active_only=true),
+    auto-detected {{variable}} chips + live interpolated prompt-preview, size/style/
+    quality controls, Generate (POST /api/admin/ai/image {prompt, site_id?, size,
+    style, quality, alt_text}), a generated-image preview + error region, and Apply
+    (places the image into the article: set featured_image_id + card preview, close
+    modal). Wired to the T10-fixed image gen endpoint.
+  - Wired featured_image_id end-to-end: ArticleFormValues + ARTICLE_FORM_SCRIPT submit
+    body (PATCH reads featured_image_id), and getAdminArticle (data.ts) now SELECTs
+    a.featured_image_id + LEFT JOIN media for the storage_key so edit mode pre-fills
+    the hidden input + hero preview.
+  - Test: api/test/editor.test.ts +5 render-output assertions (uploader +
+    hero-image-ai-generate control; modal preset/variables/prompt-preview/size/style/
+    quality; generate POSTs to /api/admin/ai/image + apply + featured_image_id wire +
+    /admin/media upload; hero-script ES5-only; edit-mode pre-fill). No 'Phase 1 admin
+    shell' marker.
+- Files changed: api/src/admin/templates/hero-image.ts (new),
+  api/src/admin/templates/hero-image-script.ts (new),
+  api/src/admin/templates/articles.ts, api/src/admin/data.ts, api/test/editor.test.ts
+- Self-check results:
+  - File sizes: hero-image.ts 155, hero-image-script.ts 282 (inline ES5 script; ==
+    ai-panel-script.ts pattern), articles.ts 520, data.ts 655, editor.test.ts 373 — PASS
+  - Secret scan: PASS (no hardcoded secrets in changed files)
+  - Error handling: PASS (upload/generate fetch each have non-2xx branch + .catch;
+    image endpoint already returns 400/501/502/500; data.ts change is a SELECT)
+  - Migration execution: N/A (no DB schema change; featured_image_id column pre-exists
+    from 0001_init_cms.sql)
+  - Parameterized queries: PASS (getAdminArticle uses .bind(id), no template literals)
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run test/editor.test.ts -> 28 passed (incl. 5 new T14b), exit 0
+  - cd api && npm test -> 124 files / 1128 tests passed, exit 0
+- Evidence routing (D13 RC-040):
+  - Develop-legal route BUILT and PASSING: render-output vitest test asserts the editor
+    handler emits the hero uploader + AI hero modal controls + generate-POSTs-to-
+    /api/admin/ai/image + apply + preview/error. `npx vitest run test/editor.test.ts`
+    exit 0 (28/28).
+  - EVIDENCE_ROUTE_EXHAUSTED: T14b/RC-040 — runner reports UNSATISFIED only because the
+    sidecar `expected_test_name_regex='api/test/editor\.test\.ts'` carries an `api/`
+    prefix that vitest (run under cwd=api) never emits (it reports `test/editor.test.ts
+    > ...`). Same canonical mission-wide evidence-plan defect documented on T1..T14
+    (runner_command_rendered --worktree-root also renders to <project_root>). Not
+    Ralph-fixable; re-running verbatim re-emits the identical defect; re-implementing is
+    futile (code + tests green). Finalize/reconcile resolves against the raw exit-0
+    test-output receipt. Did NOT tamper with required_evidence_plan.json and did NOT game
+    the test name to embed the path regex.
+  - Q3 story_quality_checks (run_story_quality_checks.py, correct worktree-root): PASS —
+    checks_executed=4 (browser/api/db/job -> vitest_run PASS), receipts written to
+    story_execution_receipts.jsonl.
+- Learnings for future iterations:
+  - Hero image == articles.featured_image_id (REFERENCES media(id)); the article create
+    POST handler is minimal (site_id/slug/title/content_json/category_id/status only), so
+    featured_image_id (like homepage/seo fields) persists via the edit PATCH, not initial
+    create — consistent with existing form behavior.
+  - /api/admin/ai/image returns {ok, model, media_id, storage_key, image_url,
+    ai_generation_id}; apply uses media_id (-> featured_image_id) + image_url (-> preview).
+    The endpoint only reads prompt/site_id/size/alt_text; extra style/quality fields are
+    accepted and ignored (modal still renders them for legacy parity).
+  - File upload for the hero card reuses POST /admin/media (multipart 'file') -> {id,
+    storage_key}; same endpoint the block editor uses.
+---
