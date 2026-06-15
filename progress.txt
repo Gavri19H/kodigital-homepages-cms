@@ -9483,3 +9483,78 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
     `api/`-prefixed expected_test_name_regex while running vitest from cwd=api, and parse_grep_count does
     not record a count — both yield spurious FAILs on correct work; raw receipts (exit 0) are authoritative.
 ---
+
+## 2026-06-15 - T13 (sources: T13) — Presets drive generation
+- Implemented preset-driven starter generation + seeded default presets.
+- Files changed:
+  - api/src/ai/generators/preset-resolver.ts — NEW. resolveCategoryPreset(env, category, vars):
+    category-scoped prompt_presets SELECT (is_active=1, ORDER BY is_system DESC, usage_count DESC,
+    id ASC LIMIT 1). Returns the interpolated effective prompt (System+User split from migration 0014,
+    else flat prompt_template) + the preset's text_model (only when a SUPPORTED_TEXT_MODELS id; else
+    null). interpolatePreset() substitutes {{token}}s; unknown tokens left intact. DB error / no row /
+    empty-prompt row -> null so the caller falls back to the builder (no crash).
+  - api/src/ai/generators/text.ts — generateStarterArticlePlan resolves the 'outline' preset,
+    generateStarterArticle resolves the 'content' preset; each uses preset?.prompt ?? builderPrompt and
+    modelOverride: preset?.model. runTextGenerator gained a modelOverride knob (resolveModelForRun)
+    that NEVER widens the SUPPORTED_TEXT_MODELS RED-LINE (unsupported override -> registry default).
+  - api/migrations/0016_phase9_seed_default_prompt_presets.sql — NEW. Seeds 7 is_system=1 default
+    presets for the FULL enum (title/excerpt/outline/content/seo/image/custom) via INSERT OR IGNORE
+    (idempotent on slug UNIQUE). prompt_template (NOT NULL) populated; reference System/User split +
+    text_model=gpt-5.5 (image preset image_model=gpt-image-2). Fresh site otherwise 0 rows.
+  - api/test/site-provisioning-ai-integration.test.ts — added RC-035 test (L2 marker): category-scoped
+    lookup ('content'/'outline'), preset interpolated prompt + text_model used; empty presets -> builder
+    fallback (no crash, real GeneratedArticle). Extended fake DB + FakeStore for the prompt_presets SELECT.
+  - api/test/public-templates-home.test.ts — added RC-037 test (L2 marker): renderHome+renderLayout emit
+    the 13 design home-section markers AND surface preset-driven article cards (hero/featured/latest).
+  - api/test/migrations-0016-seed-default-prompt-presets.test.ts — NEW seed proof (full enum, INSERT OR
+    IGNORE idempotency, NOT NULL prompt_template + reference split, supported model ids, no destructive ops).
+- Self-check results:
+  - File sizes: preset-resolver.ts 95 (<200); text.ts 828 (pre-existing large peer module, no
+    architecture.md limit; net +49 lines); migration 0016 92 (<100 SQL) — PASS.
+  - Secret scan: PASS (no hardcoded secrets in changed src/migration).
+  - Error handling: PASS (resolver wraps the D1 call in try/catch -> null fallback; generators fall back
+    to the deterministic builder when no preset; no new route handlers).
+  - Migration execution: PASS — `npx wrangler d1 migrations apply DB --local` applied 0016; SELECT shows
+    7 is_system rows across all 7 categories; re-running the seed file keeps COUNT=7 (INSERT OR IGNORE).
+  - Parameterized queries: PASS (resolver .bind(category); migration uses fixed seed VALUES, no user input).
+- Tests run (all PASS):
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run -> 124 files / 1118 tests passed (was 123/1110; no regressions)
+  - cd api && npx vitest run test/site-provisioning-ai-integration.test.ts test/public-templates-home.test.ts
+    test/migrations-0016-seed-default-prompt-presets.test.ts -> all PASS
+- Evidence runner (RC-034..037):
+  - Verbatim rendered command mis-points --worktree-root at the PROJECT ROOT (resolved_cwd=
+    <project_root>/api on the base branch lacking T13 code) -> spurious FAILs. Applied the T12-documented
+    diagnostic: re-ran with --worktree-root=<actual worktree>.
+  - With correct worktree-root: RC-035 PASS (preset lookup + prompt/model; builder fallback),
+    RC-036 PASS (migration applies + SELECT exit 0), RC-037 PASS (home design sections surface
+    preset-driven articles).
+  - RC-034 (T13-AC3 structural wiring): exit_code=0, 3 grep matches in steps.ts (import line 41, call
+    line 851, + comment 807). Spurious FAIL: route pairs parser_strategy=parse_grep_count (expects an
+    INTEGER count, as from grep -c) with evidence_command `grep -nE "..."` (emits matching LINES). Typed
+    reason: "parse_grep_count: stdout empty or non-integer". `grep -cE "\bgenerateStarterArticle\b"
+    api/src/site-provisioning/steps.ts` = 3 >= 1 -> AC3 (steps.ts imports AND calls generateStarterArticle)
+    is satisfied (and was pre-existing T9 code). required_evidence_plan.json is orchestrator/architect-
+    owned (canonical-writer-only audit artifact) — Ralph editing the command/parser would be a self-cert /
+    write-boundary violation. Identical class to T12's RC-030. Finalize/reconcile resolves against the raw
+    exit-0 receipt + deterministic_grep_count.
+  - EVIDENCE_ROUTE_EXHAUSTED: T13/RC-034 — underlying wiring proven correct (grep -c = 3); the only blocker
+    is the plan-route parser/command config mismatch, which is not Ralph-fixable. Re-running verbatim re-
+    emits the identical defect; re-implementing is futile (code correct, wiring pre-exists).
+  - Q3 story_quality_checks (verbatim, correct worktree-root): PASS — checks_executed=5, receipts written.
+- Learnings for future iterations:
+  - Preset-driven generation: keep the resolver defensive (try/catch -> null) so any fake/real DB without
+    a prompt_presets row safely falls back to the deterministic builder — this kept all pre-existing
+    generator + provisioning tests green without seeding presets.
+  - The runTextGenerator request_json:{prompt} + model are logged BEFORE the hasApiKey short-circuit, so
+    even the no-API-key fallback path records the dispatched prompt/model — but to OBSERVE the preset
+    prompt, the RC-035 test injects a capturing client (hasApiKey=true) returning "{}" (parser fills the
+    deterministic fallback body -> status=success).
+  - SUPPORTED_TEXT_MODELS is a single id (gpt-5.5) RED-LINE, so "uses its model" is asserted as
+    logged-model == preset.text_model; the strong observable for preset usage is the PROMPT (distinct
+    interpolated text) + the category-scoped SELECT spy.
+  - The two evidence-plan defects seen this mission persist on T13: (1) --worktree-root mis-render to
+    <project_root> on the rendered runner command; (2) RC-034 pairs parse_grep_count with `grep -nE`
+    (line output) instead of `grep -c` (integer). Both yield spurious FAILs on correct work; raw exit-0
+    receipts + deterministic grep counts are authoritative for finalize.
+---

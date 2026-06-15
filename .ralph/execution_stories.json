@@ -201,8 +201,8 @@
       "title": "Presets drive generation: seed default presets + select a preset by use-case category and use its prompt/model/mapping",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T13"
       ],
