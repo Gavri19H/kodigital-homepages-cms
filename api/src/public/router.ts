@@ -187,6 +187,13 @@ async function handleCategory(
 // entry points serve the IDENTICAL full document (same pageKey cache
 // entry, same /page/<slug> canonical — the sitemap's page URL shape).
 // Returns null when no published page matches the slug.
+//
+// T3 (rescue-3): the render thunk passes c.env.DB into renderPageHtml so the
+// static page is composed through the design layout (fetchPublicLayoutSiteInfo
+// + renderHeader/renderFooter + renderLayout) via the LIVE route — the renderer
+// is db-fed, not orphaned. rescue-2 served a bare document because the route
+// called renderPageHtml without the DB handle, so the page rendered with no
+// design shell, no /assets/public.css and no header/footer regions.
 async function servePage(
   c: CategoryCtx,
   slug: string,
@@ -200,7 +207,7 @@ async function servePage(
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderPageHtml(siteContext, row, path),
+    render: () => renderPageHtml(c.env.DB, siteContext, row, path),
   });
 }
 

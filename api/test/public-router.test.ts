@@ -251,6 +251,41 @@ describe("public-router /:slug canonicalization (T40 [F1])", () => {
     expect(bare.headers.get("ETag")).toBe(dedicated.headers.get("ETag"));
   });
 
+  it("T3.AC1 GET /page/:slug serves the design shell — /assets/public.css + site-header + site-footer regions, not bare content [api/test/public-router.test.ts]", async () => {
+    const db = makeDb([PAGE], []);
+    const app = makeApp();
+
+    const res = await app.request(
+      `https://${TENANT_HOST}/page/about`,
+      {},
+      makeEnv(db),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+
+    // Full design document composed through renderLayout, not bare content.
+    expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+    expect(body).not.toBe(RAW_PAGE_HTML);
+    // renderLayout links the public stylesheet (the shell, not the fallback).
+    expect(body).toContain('href="/assets/public.css"');
+    // Header + footer regions are served (banner + contentinfo).
+    expect(body).toContain('class="site-header"');
+    expect(body).toContain('role="banner"');
+    expect(body).toContain('class="site-footer"');
+    expect(body).toContain('role="contentinfo"');
+    // The page body is composed inside the shell.
+    expect(body).toContain(RAW_PAGE_HTML);
+    expect(body).toContain('class="page-title"');
+
+    // Full servePublicHtml pipeline still owns cache policy + strong ETag.
+    expect(res.headers.get("Cache-Control")).toBe(PUBLIC_HTML_CACHE_CONTROL);
+    expect(res.headers.get("ETag")).toMatch(/^"[0-9a-f]{16}"$/);
+
+    // Tenant-boundary RED LINE: admin host never appears on a content page.
+    expect(body).not.toContain(ADMIN_HOST);
+  });
+
   it("draft article at bare slug -> 404, no redirect", async () => {
     const db = makeDb([], [{ ...ARTICLE, status: "draft" }]);
     const app = makeApp();

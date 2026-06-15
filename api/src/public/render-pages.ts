@@ -9,6 +9,8 @@
 import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow } from "./queries";
+import { fetchPublicLayoutSiteInfo } from "./queries";
+import { renderHeader, renderFooter } from "./templates/components";
 import { renderSeoHead, buildCanonicalUrl } from "./templates/seo-head";
 import {
   renderArticleJsonLd,
@@ -274,20 +276,43 @@ export function renderCategoryHtml(
   return wrapHtmlDocument(head, body);
 }
 
-export function renderPageHtml(
+// T3 (rescue-3): the LIVE GET /page/:slug handler composes the static page
+// through fetchPublicLayoutSiteInfo + renderHeader/renderFooter + renderLayout
+// — NOT the rescue-2 bare `wrapHtmlDocument(head, content_html)` fallback. The
+// DB is threaded from c.env.DB (router.ts) so the renderer is db-fed and wired
+// into the live entry; rescue-2 served a bare document (no design shell, no
+// /assets/public.css, no site-header / site-footer regions). renderLayout owns
+// the <head> (Nunito + /assets/public.css + the inline `--tw-*` brand-token
+// override sourced from site_settings.brand_tokens_json) plus the
+// banner/contentinfo regions via its header/footer slots; the page body is the
+// row's content_html under an <article>.
+//
+// The GEO-conformant WebPage + root-first BreadcrumbList JSON-LD is emitted
+// ONCE — in the <head> via renderLayout.extraHead (renderWebPageJsonLd /
+// renderBreadcrumbJsonLd already return wrapped <script> tags, so they ride
+// extraHead verbatim, exactly like the article renderer). The canonical href is
+// always the resolved SiteContext.hostname — the admin host MUST NEVER appear
+// (mission RED LINE).
+export async function renderPageHtml(
+  db: D1Database,
   siteContext: PublicSiteContext,
   row: PublicPageRow,
   path: string,
-): string {
+): Promise<string> {
+  const site = await fetchPublicLayoutSiteInfo(db, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
-  const head = [
-    renderSeoHead({
-      canonicalHost: siteContext.hostname,
-      path,
-      title: row.title,
-      ogType: "website",
-      siteName: siteContext.hostname,
-    }),
+
+  const headerSite = {
+    name: site.name,
+    tagline: site.tagline,
+    logoUrl: site.logoUrl,
+    hostname: site.hostname,
+  };
+
+  const jsonLdHead: string[] = [
     renderWebPageJsonLd({
       url: canonicalUrl,
       name: row.title,
@@ -300,6 +325,31 @@ export function renderPageHtml(
         { name: row.title, url: canonicalUrl },
       ],
     }),
-  ].join("\n");
-  return wrapHtmlDocument(head, row.content_html ?? "");
+  ];
+
+  const body =
+    `<article class="page-article">` +
+    `<h1 class="page-title">${escapeHtml(row.title)}</h1>` +
+    `<div class="page-content">${row.content_html ?? ""}</div>` +
+    `</article>`;
+
+  return renderLayout({
+    site: {
+      name: site.name,
+      hostname: site.hostname,
+      tagline: site.tagline,
+      description: site.description,
+      brandTokens: site.brandTokens,
+      logoUrl: site.logoUrl,
+    },
+    meta: {
+      title: row.title,
+      description: site.description,
+      canonicalUrl,
+    },
+    body,
+    header: renderHeader({ site: headerSite }),
+    footer: renderFooter({ site: headerSite }),
+    extraHead: jsonLdHead.join("\n"),
+  });
 }

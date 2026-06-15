@@ -474,7 +474,12 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
       1,
       "news",
     );
-    const page = renderPageHtml(geoSiteContext, geoPage, "/about");
+    const page = await renderPageHtml(
+      makeEmptyHomeDb(),
+      geoSiteContext,
+      geoPage,
+      "/about",
+    );
     expect(home).not.toContain("FAQPage");
     expect(category).not.toContain("FAQPage");
     expect(page).not.toContain("FAQPage");
@@ -499,7 +504,12 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     >[];
     expect(categoryItems[0]!.name).toBe("Home");
     expect(categoryItems[1]!.item).toBe("https://acme.example/category/news");
-    const page = renderPageHtml(geoSiteContext, geoPage, "/about");
+    const page = await renderPageHtml(
+      makeEmptyHomeDb(),
+      geoSiteContext,
+      geoPage,
+      "/about",
+    );
     const pageCrumb = findByType(extractJsonLdBlocks(page), "BreadcrumbList")!;
     expect(pageCrumb).toBeDefined();
     const pageItems = pageCrumb.itemListElement as Record<string, unknown>[];

@@ -17,6 +17,37 @@ import {
   type CategoryChip,
 } from "../src/public/templates/components";
 import { publicCss } from "../src/public/assets/public-css";
+import { renderPageHtml } from "../src/public/render-pages";
+import type { PublicSiteContext } from "../src/public/middleware";
+import type { PublicPageRow } from "../src/public/queries";
+
+// T3 (rescue-3) render-output (T3-AC3) fixture: a D1 stub whose site_settings
+// SELECT returns the seeded brand rows so renderPageHtml composes the design
+// shell (renderLayout + renderHeader/renderFooter) rather than the bare
+// document. `.all()` is the only path fetchPublicLayoutSiteInfo exercises.
+function makeSettingsDb(
+  rows: ReadonlyArray<{ key: string; value: string | null }>,
+): D1Database {
+  return {
+    prepare() {
+      const stmt = {
+        bind() {
+          return stmt;
+        },
+        async all<T = unknown>() {
+          return { results: rows as unknown as T[], success: true, meta: {} };
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          return null;
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
 
 describe("public-templates-components", () => {
   it("chip-rail emits /category/<slug> hrefs and never href=\"#\"", () => {
@@ -207,5 +238,53 @@ describe("public-templates-components", () => {
   it("T14.AC1/AC3: publicCss pins hero min-height clamp and container padding clamp", () => {
     expect(publicCss).toContain("min-height: clamp(340px, 42vw, 480px)");
     expect(publicCss).toContain("padding: 0 clamp(16px, 3vw, 32px)");
+  });
+
+  it("T3.AC3: renderPageHtml wraps page content in renderLayout — links /assets/public.css and carries the site-header + site-footer regions, not the bare fallback [api/test/public-templates-components.test.ts]", async () => {
+    const RAW_PAGE_BODY = "<p>about-body must-be-wrapped-in-shell</p>";
+    const siteContext = {
+      siteId: "site_T3",
+      hostname: "tenant.example.com",
+    } as unknown as PublicSiteContext;
+    const row = {
+      id: 1,
+      slug: "about",
+      title: "About Us",
+      content_html: RAW_PAGE_BODY,
+      status: "published",
+      updated_at: 1_700_000_500,
+      site_id: "site_T3",
+    } as unknown as PublicPageRow;
+    const db = makeSettingsDb([
+      { key: "site_name", value: "Acme Daily" },
+      { key: "brand_tokens_json", value: '{"tw-brand":"#0f8aa6"}' },
+    ]);
+
+    const html = await renderPageHtml(db, siteContext, row, "/page/about");
+
+    // Design shell, not the bare document.
+    expect(html.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+    expect(html).not.toBe(RAW_PAGE_BODY);
+    // renderLayout owns the stylesheet + brand-token override (db-fed shell).
+    expect(html).toContain('href="/assets/public.css"');
+    expect(html).toContain('<style data-source="brand_tokens">');
+    expect(html).toContain("--tw-brand: #0f8aa6");
+    // Header + footer regions present (banner + contentinfo).
+    expect(html).toContain('class="site-header"');
+    expect(html).toContain('role="banner"');
+    expect(html).toContain('class="site-footer"');
+    expect(html).toContain('role="contentinfo"');
+    // Brand name resolved from site_settings, surfaced in the header.
+    expect(html).toContain("Acme Daily");
+    // Page content is composed inside the shell.
+    expect(html).toContain(RAW_PAGE_BODY);
+    expect(html).toContain('class="page-title"');
+    // WebPage JSON-LD rides the head exactly once (no double-wrapped script).
+    expect(html).toContain('"@type": "WebPage"');
+    expect(html).not.toContain(
+      '<script type="application/ld+json"><script type="application/ld+json">',
+    );
+    // Tenant-boundary RED LINE: admin host never appears.
+    expect(html).not.toContain("cms.kodigital.app");
   });
 });
