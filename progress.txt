@@ -9995,3 +9995,73 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
   - Media upload endpoint for admin file uploads is POST /admin/media
     (multipart `file`); response carries storage_key / image_url (mirror of
     the T14b hero-image upload wiring).
+
+## 2026-06-15 — T16 (sources: T16) — Pages tab: layout Template select + clean content label
+- What was implemented:
+  - api/src/admin/templates/pages.ts — added a layout Template <select
+    name="template"> to the Pages editor form with the three legacy options
+    Default(default) / Full-Width(full-width) / Landing(landing); pre-selects
+    the page's stored `template` value on edit (defaults to 'default' on new).
+    Cleaned the content field label from "Content (block JSON)" -> "Content".
+    Wired `template: fd.get('template') || 'default'` into the ES5 submit body
+    so the chosen layout persists through POST/PATCH. Added `template?: string`
+    to PageFormValues.
+  - NOTE: the `pages.template` column already exists (0001_init_cms.sql DEFAULT
+    'default') and the pages CRUD handler (pages-crud-handlers.ts) already
+    accepts + persists `template` on both create (default 'default') and PATCH
+    (allow-list). No migration / handler change needed — pure form-parity work.
+- Files changed: api/src/admin/templates/pages.ts,
+  api/test/pages-template.test.ts (+4 T16.AC1 render-output tests),
+  api/test/admin-layout-shell.test.ts (+2 T16.AC2 shell-hosts-Pages tests).
+- Self-check results:
+  - File sizes: api/src/admin/templates/pages.ts 441 lines (was 418;
+    +23 additive) — PASS-with-note: admin template modules embed inline
+    <style>/ES5 <script> payloads and consistently exceed the generic 200-line
+    JS/TS default (layout.ts/articles.ts/settings.ts precedent); no
+    architecture.md maxFileLines override; splitting is out of scope for a
+    label/select change.
+  - Secret scan: PASS (no API_KEY/Bearer/TOKEN/SECRET/password/private_key).
+  - Error handling: N/A (template + test changes only).
+  - Migration execution: N/A (template column pre-exists; no new migration).
+  - Parameterized queries: N/A (no SQL changed).
+  - ES5 inline script: PASS (template default uses string `|| 'default'`, not a
+    numeric default; no const/let/arrow added).
+- Tests run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run test/pages-template.test.ts test/admin-layout-shell.test.ts
+    -> 17/17 PASS (incl. 6 new T16 tests)
+  - cd api && npx vitest run (full suite) -> 1153/1153 PASS, 124 files
+    (was 1147; +6 new T16 tests). No regressions.
+- Story quality checks (run_story_quality_checks.py --story-id=T16):
+  PASS, checks_executed=4 (receipts appended to story_execution_receipts.jsonl).
+- Evidence routing (D13 RC-048=T16.AC1, RC-049=T16.AC2) against the ACTUAL
+  worktree (verbatim runner_command_rendered again mis-points --worktree-root
+  at the PROJECT root; re-ran with the canonical worktree path):
+  * RC-048 (T16.AC1, parse_test_output/vitest_text): exit_code=0, observed 8
+    test names incl. all 4 new T16.AC1 tests, ALL PASSING. Runner STATUS=FAIL
+    only because expected_test_name_regex='api/test/pages\-template\.test\.ts'
+    carries an api/ prefix vitest never emits under cwd=api (it reports
+    'test/pages-template.test.ts > ...').
+  * RC-049 (T16.AC2, parse_test_output/vitest_text): exit_code=0, observed 9
+    test names incl. both new T16.AC2 tests, ALL PASSING. Runner STATUS=FAIL
+    for the same reason — expected_test_name_regex='api/test/admin\-layout\-
+    shell\.test\.ts' api/ prefix under cwd=api.
+  - EVIDENCE_ROUTE_EXHAUSTED: T16/RC-048 + T16/RC-049 — underlying proofs are
+    CORRECT and PASSING (tsc 0; full suite 1153/1153). Both blockers are the
+    SAME canonical required_evidence_plan.json regex config mismatch documented
+    on T13/T14b/T14c/T14d/T15 (RC-040..RC-047): api/-prefixed
+    expected_test_name_regex under cwd=api. Exit codes are 0 (NOT non-zero), so
+    re-implementing cannot change the parser config — re-running verbatim
+    re-emits the identical defect. Did NOT edit required_evidence_plan.json
+    (canonical-writer-only) and did NOT game test names to embed the api/ path
+    prefix. Finalize/reconcile resolves against the raw exit-0 receipts.
+- Learnings for future iterations:
+  - The pages.template column + pages-crud-handlers.ts already round-trip a
+    `template` value end-to-end; Pages-form parity work that adds a layout
+    chooser is form-only (no DB/handler change) — same pattern T15 found for
+    settings keys (PATCH /api/admin/settings upserts arbitrary keys).
+  - The api/-prefix-vs-cwd=api required_evidence_plan defect is mission-wide
+    (RC-003..RC-056 all carry the api/ prefix; only RC-001 is correct). Every
+    vitest-backed develop-local RC in this mission will STATUS=FAIL on the
+    parser while exiting 0 — finalize/reconcile is the resolution path.
+---

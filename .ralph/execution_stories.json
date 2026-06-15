@@ -297,8 +297,8 @@
       "title": "Pages tab: layout Template select + clean content label",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T16"
       ],
