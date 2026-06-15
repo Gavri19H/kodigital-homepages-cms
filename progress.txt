@@ -8900,3 +8900,88 @@ Learnings for future iterations:
   (e.g. [api/test/public-templates-components.test.ts]) — embed it in the it()
   title or the claim never binds (RC-011 fix this iteration).
 ---
+
+## 2026-06-15 — T4 (execution story T4; sources: T4)
+Category listing pages render through the design layout with styled cards.
+
+What was implemented:
+- renderCategoryHtml (api/src/public/render-pages.ts): changed from sync 5-arg
+  (siteContext, cat, articles, pageNum, slug) wrapHtmlDocument bare-render to
+  async db-fed 6-arg (db, siteContext, cat, articles, pageNum, slug). Now
+  fetches site settings via fetchPublicLayoutSiteInfo and composes the listing
+  through renderLayout with renderHeader (site-header/banner) + renderFooter
+  (site-footer/contentinfo) + /assets/public.css + inline brand-token <style>.
+  The article list is now styled design cards: renderCard (.card / card-title)
+  inside a `home-grid home-grid--category` <ul>, with the category name as the
+  section <h1 class="category-title">. CollectionPage + root-first
+  BreadcrumbList JSON-LD ride renderLayout.extraHead (article/page pattern;
+  the jsonld renderers already emit wrapped <script> tags). pageNum rides a
+  data-page attribute only (page-1 canonical; no /page/<n> URL in the body).
+  This is the FOURTH orphaned renderer wired (BCL-019 W1-EXTENDED: live
+  /category/<slug> was rendering bare = 1,279 bytes, 0 <style>).
+- router.ts handleCategory: render thunk now threads c.env.DB into
+  renderCategoryHtml (T4-AC2 wiring) — shared by GET /category/:slug and
+  GET /category/:slug/page/:page.
+- Removed now-unused wrapHtmlDocument helper + renderSeoHead import from
+  render-pages.ts (renderLayout owns the head; consistent with the article/
+  page renderers).
+- regression: added T4.AC3 render-output test (public-templates-components)
+  and T4.AC1 live-route test (public-router); migrated json-ld-article.test.ts
+  three renderCategoryHtml call sites to the new async db-fed signature (GEO
+  §1/§2/§5 still green).
+
+Files changed: api/src/public/render-pages.ts, api/src/public/router.ts,
+api/test/public-router.test.ts, api/test/public-templates-components.test.ts,
+api/test/json-ld-article.test.ts
+
+Self-check results:
+- File sizes: render-pages.ts 413, router.ts 446 (both pre-existing multi-
+  renderer/multi-route files already >200 before T4; the design-shell
+  composition is shared with renderHomepage/Article/Page; split is out of T4
+  scope) — NOTED. Test files not subject to the 200-line product limit.
+- Secret scan: PASS (0 matches)
+- Banned legacy identifiers: PASS (0 matches)
+- Error handling: N/A (render thunk; errors propagate to servePublicHtml,
+  same as the home/article/page renderers)
+- Migration execution: N/A (category=ui; no DB write)
+- Parameterized queries: PASS (no new SQL; reuses fetchPublicLayoutSiteInfo /
+  fetchCategory / fetchCategoryArticles, all already .bind()-parameterized)
+
+Tests run:
+- cd api && npx tsc --noEmit -> exit 0
+- cd api && npx vitest run -> 122 files, 1081 tests PASS (+2 from T4)
+- RC evidence runner (run_required_evidence_command.py, RC-013,RC-014,RC-015)
+- Q3 story_quality_checks (run_story_quality_checks.py --story-id=T4) ->
+  PASS checks_executed=4, receipts appended
+
+Evidence:
+- RC-015 (T4-AC1 behavioral, test/public-router.test.ts): PASS
+- RC-014 (T4-AC3 behavioral, test/public-templates-components.test.ts): PASS
+- RC-013 (T4-AC2 structural, grep): code SATISFIES the claim
+  (grep -cE '\brenderCategoryHtml\b' api/src/public/router.ts = 4, i.e. router
+  imports AND calls renderCategoryHtml). EVIDENCE_ROUTE_EXHAUSTED: the rendered
+  evidence_command uses `grep -nE` (line-number mode) but parser_strategy is
+  parse_grep_count, which requires the first stdout line to be a bare integer
+  (`grep -cE` count mode). `-nE` output -> NON_INTEGER_OUTPUT, deterministic
+  UNSATISFIED regardless of code. IDENTICAL to T1 RC-002, T2 RC-006, T3 RC-010
+  (grep -nE vs parse_grep_count), all of which reached state=implemented. Plan-
+  generation defect (not a product-code defect); owned by a skill-fix session.
+- L-167 observed again: the RC runner_command_rendered passes
+  --worktree-root=<project-root> (the brief-branch base checkout at the
+  project root, which LACKS the Ralph-mission code — confirmed grep -c
+  renderCategoryHtml(c.env.DB = 0 there), while the sibling Q3 command uses
+  --worktree-root=<mission worktree>. Ran the RC runner against the mission
+  worktree (where the committed code lives) so RC-014/RC-015 evidence is TRUE.
+
+Learnings for future iterations:
+- The fourth and final orphaned-renderer wiring (home + article + page +
+  category) follows one shared pattern: make the renderer async + db-fed
+  (db as first arg), fetch site via fetchPublicLayoutSiteInfo, compose through
+  renderLayout with header/footer slots + extraHead JSON-LD, thread c.env.DB
+  in the router's render thunk.
+- public-css.ts styles `.card` (renderCard) but NOT `.home-grid` /
+  `home-categories` — the genuinely-styled "styled card" primitive is
+  renderCard (`<article class="card">`), so the listing uses renderCard inside
+  a home-grid <ul> for design parity, not a renamed bare list.
+- parse_test_output binding still requires the literal evidence-file path in a
+  PASSING test's it() title (e.g. [api/test/public-router.test.ts]).
