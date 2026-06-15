@@ -628,12 +628,82 @@ async function generateFeatureImageStep(
   };
 }
 
-// T9 — generate_15_homepage_articles
+// T6 helper — read a single site_settings value (the live seed/override).
+// Returns null when the key is absent or empty so the caller can apply a
+// deterministic fallback. Used to source the starter-article author from
+// the site's default_author_name setting.
+async function readSiteSettingValue(
+  db: D1Database,
+  site_id: string,
+  key: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      "SELECT value AS value FROM site_settings WHERE site_id = ? AND key = ? LIMIT 1",
+    )
+    .bind(site_id, key)
+    .first<{ value: string | null }>();
+  if (!row || typeof row.value !== "string") return null;
+  const v = row.value.trim();
+  return v.length > 0 ? v : null;
+}
+
+// T6 helper — read the category_ids allocated to this site (written by the
+// earlier allocate_vertical_categories step into site_categories). Ordered
+// deterministically so round-robin assignment to the 15 starter articles is
+// stable across re-runs.
+async function loadSiteCategoryIds(
+  db: D1Database,
+  site_id: string,
+): Promise<number[]> {
+  const res = await db
+    .prepare(
+      "SELECT category_id AS category_id FROM site_categories WHERE site_id = ? " +
+        "ORDER BY display_order ASC, category_id ASC",
+    )
+    .bind(site_id)
+    .all<{ category_id: number }>();
+  const rows = res && Array.isArray(res.results) ? res.results : [];
+  const ids: number[] = [];
+  for (const r of rows) {
+    if (r && typeof r.category_id === "number") ids.push(r.category_id);
+  }
+  return ids;
+}
+
+// T6 (rescue-3) — homepage placement encoding written by provisioning so
+// buildHomeViewModel (home.ts:285-315) buckets the 15 starter articles into
+// the agreed 1 hero + 4 featured + 4 trending + 6 latest split (operator
+// decision D4 / brief BCL-023 >=1 per bucket). The reader buckets PURELY
+// from is_trending / is_featured: is_trending=1 rows are pulled out first
+// (→ trending); is_featured=1 of the remainder forms the featured pool
+// (hero = first, featured = next 4); everything else falls to latest. So
+// the flag distribution below IS the placement contract:
+//   indices 0-4  → is_featured=1, is_trending=0  (featuredBucket=5 → 1 hero + 4 featured)
+//   indices 5-8  → is_trending=1, is_featured=0  (trending=4)
+//   indices 9-14 → is_featured=0, is_trending=0  (latest=6)
+function starterPlacementForIndex(
+  index: number,
+): { is_featured: number; is_trending: number } {
+  if (index < 5) return { is_featured: 1, is_trending: 0 };
+  if (index < 9) return { is_featured: 0, is_trending: 1 };
+  return { is_featured: 0, is_trending: 0 };
+}
+
+// T9 — generate_15_homepage_articles (T6 rescue-3 hardening)
 // Calls generateStarterArticlePlan (always exactly 15 items, unique
 // slugs). For each item: generateStarterArticle, then INSERT OR IGNORE
 // into articles bound to ctx.site_id. The articles table has a
 // (site_id, slug) UNIQUE index from migration 0007, so re-running the
 // step is a no-op — count stays at 15.
+//
+// T6: every starter row carries the editorial metadata the public site
+// needs — a category_id (round-robin over the site's allocated
+// site_categories), an author_name (the site's default_author_name
+// setting, falling back to a deterministic brand-derived editorial name,
+// NEVER a user email), deterministic seo_title / seo_description derived
+// from the article, and the homepage placement flags + homepage_rank that
+// drive the 1/4/4/6 home split.
 async function generate15HomepageArticlesStep(
   ctx: StepContext,
 ): Promise<StepHandlerResult> {
@@ -645,6 +715,18 @@ async function generate15HomepageArticlesStep(
       error: `sites row missing for site_id=${ctx.site_id}`,
     };
   }
+  // T6: author from the site's default_author_name setting (seeded by T7);
+  // fall back to a deterministic brand-derived editorial name — never a
+  // user email — so author_name is always non-null even before T7 seeds it.
+  const settingAuthor = await readSiteSettingValue(
+    ctx.db,
+    ctx.site_id,
+    "default_author_name",
+  );
+  const authorName =
+    settingAuthor !== null ? settingAuthor : `${info.brand_name} Editorial Team`;
+  // T6: categories allocated to this site by allocate_vertical_categories.
+  const categoryIds = await loadSiteCategoryIds(ctx.db, ctx.site_id);
   const plan = await generateStarterArticlePlan(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
@@ -652,7 +734,8 @@ async function generate15HomepageArticlesStep(
   });
   const items = plan.parsed.items ?? [];
   const written: string[] = [];
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
     const article = await generateStarterArticle(ctx.env, {
       site_id: info.site_id,
       vertical: info.vertical,
@@ -673,13 +756,39 @@ async function generate15HomepageArticlesStep(
       article.parsed.intro,
       article.parsed.sections,
     );
+    // T6: round-robin category from the site's allocated set (null only if
+    // the site somehow has no categories — allocate_vertical_categories
+    // runs earlier so this is non-empty in the normal flow).
+    const categoryId =
+      categoryIds.length > 0 ? categoryIds[i % categoryIds.length]! : null;
+    // T6: deterministic SEO fields derived from the article — both non-empty
+    // (title is validated non-empty; summary/intro back-fill the description).
+    const seoTitle = (article.parsed.title || item.title || item.slug)
+      .trim()
+      .slice(0, 70);
+    const seoDescription = (
+      item.summary ||
+      article.parsed.intro ||
+      article.parsed.title ||
+      item.title
+    )
+      .trim()
+      .slice(0, 155);
+    // T6: homepage placement flags + 1-based rank for the 1/4/4/6 split.
+    const placement = starterPlacementForIndex(i);
+    const homepageRank = i + 1;
     // INSERT OR IGNORE — second run is a no-op under (site_id, slug)
     // UNIQUE, so the article count stays at 15 across re-invocations.
+    // Column order keeps (site_id, slug, title, content_json, content_html,
+    // ai_generation_id) at the head; the T6 editorial columns follow.
     await ctx.db
       .prepare(
         "INSERT OR IGNORE INTO articles " +
-          "(site_id, slug, title, content_json, content_html, status, homepage_section, ai_generation_id, created_at, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, 'published', 'starter', ?, unixepoch(), unixepoch())",
+          "(site_id, slug, title, content_json, content_html, ai_generation_id, " +
+          "category_id, author_name, seo_title, seo_description, " +
+          "is_featured, is_trending, homepage_rank, " +
+          "status, homepage_section, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 'starter', unixepoch(), unixepoch())",
       )
       .bind(
         info.site_id,
@@ -688,6 +797,13 @@ async function generate15HomepageArticlesStep(
         contentJson,
         contentHtml,
         article.ai_generation_id,
+        categoryId,
+        authorName,
+        seoTitle,
+        seoDescription,
+        placement.is_featured,
+        placement.is_trending,
+        homepageRank,
       )
       .run();
     written.push(article.parsed.slug);
@@ -702,6 +818,9 @@ async function generate15HomepageArticlesStep(
       plan_ai_generation_id: plan.ai_generation_id,
       article_count: written.length,
       article_slugs: written,
+      author_name: authorName,
+      author_from_setting: settingAuthor !== null,
+      category_ids_available: categoryIds.length,
     }),
   };
 }
