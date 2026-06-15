@@ -281,8 +281,8 @@
       "title": "Settings tab full parity: logo upload + AI-logo panel + items_per_page + tabs + structured newsletter",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T15"
       ],

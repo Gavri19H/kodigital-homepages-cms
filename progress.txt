@@ -9917,3 +9917,81 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
     previously dropped it before renderArticleForm.
   - deploy.yml migration anchor block had drifted (0014/0016 unanchored by
     prior stories) — back-anchored alongside 0017 to keep the D1-file rule honest.
+
+## 2026-06-15 — T15 (sources: T15) — Settings tab full parity
+- Implemented: api/src/admin/templates/settings.ts — restored Settings to the
+  reference. AC1 served-markup now carries:
+  * Site Logo FILE UPLOAD (<input id="logoFileInput" type="file">) + hidden
+    name="site_logo_url"; change handler POSTs multipart `file` to /admin/media
+    (mirrors the T14b hero-image upload pattern) and reflects the returned URL
+    into site_logo_url + a preview — IN ADDITION to the existing AI-logo panel
+    (ai-logo-panel / ai-logo-generate -> POST /api/admin/ai/logo), unchanged.
+  * items_per_page number control (name="items_per_page").
+  * settings-tabs / tab-* tabbed layout (General/Logo/SEO & Files/Newsletter/
+    Advanced) grouping the legacy cards; ES5 tab-switch script (var-only).
+  * structured Newsletter fields — newsletter_enabled checkbox +
+    newsletter_provider select — REPLACING the raw newsletter_settings_json
+    textarea. A hidden input keeps the canonical newsletter_settings_json wire
+    key; submit script composes {enabled,provider} JSON into it. Render-time
+    prefill parses stored JSON (try/catch fallback to disabled/no-provider;
+    raw value preserved in the hidden input).
+  * submit script adds items_per_page + site_logo_url to the PATCH updates;
+    PATCH /api/admin/settings handler already accepts arbitrary string keys
+    (no whitelist) so no api.ts change was needed; listAdminSettings returns
+    all site_settings keys generically so no data.ts change was needed.
+- Files changed: api/src/admin/templates/settings.ts,
+  api/test/admin-settings.test.ts (+7 T15.AC1 render-output tests),
+  api/test/admin-layout-shell.test.ts (+2 T15.AC2 shell-hosts-Settings tests).
+- Self-check results:
+  - File sizes: settings.ts 587 (template module; pre-existing >200 default,
+    no story-introduced limit — same posture as articles.ts 570 on T14d),
+    admin-settings.test.ts 447, admin-layout-shell.test.ts 138 — PASS.
+  - Secret scan: PASS (SECRET_SCAN_CLEAN on all 3 changed files).
+  - Error handling: N/A (template module; no new route handler). The inline
+    script fetch()s have .catch handlers; parseNewsletter has try/catch.
+  - Migration execution: N/A (category=ui; no schema change).
+  - Parameterized queries: N/A (no SQL changed; PATCH handler unchanged).
+  - ES5 inline script: PASS — SETTINGS_SCRIPT body verified zero
+    arrow/const/let/async/await/backtick (var-only, function expressions).
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run test/admin-settings.test.ts test/admin-layout-shell.test.ts
+    -> 24 passed (9 new: 7 T15.AC1 + 2 T15.AC2), exit 0
+  - cd api && npx vitest run -> 124 files / 1147 tests passed (no regressions)
+- Q3 story_quality_checks (run_story_quality_checks.py, correct worktree-root):
+  PASS — checks_executed=4, receipts appended to story_execution_receipts.jsonl.
+- Evidence routing (D13 RC-046=T15.AC1, RC-047=T15.AC2) against the ACTUAL
+  worktree (verbatim runner_command_rendered mis-points --worktree-root at the
+  PROJECT ROOT, which lacks the new T15 code — same defect logged on
+  T12..T14d; re-ran with --worktree-root=<actual worktree>):
+  * RC-046 (T15.AC1, parse_test_output): exit_code=0, observed 17 test names
+    (incl. all 7 new T15.AC1 tests, ALL PASSING). Runner STATUS=FAIL only
+    because expected_test_name_regex='api/test/admin\-settings\.test\.ts'
+    carries an api/ prefix vitest never emits under cwd=api (it reports
+    'test/admin-settings.test.ts > ...'). Identical api/-prefix-vs-cwd=api
+    canonical-plan defect documented on T13/T14b/T14c/T14d (RC-040/RC-041).
+  * RC-047 (T15.AC2, parse_test_output): exit_code=0, observed 7 test names
+    (incl. both new T15.AC2 tests, ALL PASSING). Runner STATUS=FAIL for the
+    same reason — expected_test_name_regex='api/test/admin\-layout\-shell\.test\.ts'
+    api/ prefix under cwd=api.
+  - EVIDENCE_ROUTE_EXHAUSTED: T15/RC-046 + T15/RC-047 — underlying proofs are
+    CORRECT and PASSING (tsc 0; vitest 24/24 incl. 9 new; full suite 1147/1147).
+    Both blockers are canonical required_evidence_plan.json regex config
+    mismatches (api/-prefixed expected_test_name_regex under cwd=api). Exit
+    codes are 0, not non-zero, so re-implementing cannot change the parser
+    config — re-running verbatim re-emits the identical defect. Did NOT edit
+    required_evidence_plan.json (canonical-writer-only) and did NOT game test
+    names to embed the api/ path prefix. Finalize/reconcile resolves against
+    the raw exit-0 receipts.
+- Learnings for future iterations:
+  - The PATCH /api/admin/settings handler accepts ARBITRARY string keys (no
+    SETTING_KEYS whitelist) and UPSERTs each into site_settings — so new
+    parity keys (items_per_page, site_logo_url) persist with NO handler change.
+  - listAdminSettings (data.ts) maps every site_settings row generically, so
+    new keys round-trip into the values map with no data.ts change.
+  - Keeping a hidden input named newsletter_settings_json (the canonical key)
+    lets the structured enabled/provider UI coexist with the existing
+    "one control per canonical key" round-trip test without breaking it.
+  - Media upload endpoint for admin file uploads is POST /admin/media
+    (multipart `file`); response carries storage_key / image_url (mirror of
+    the T14b hero-image upload wiring).
