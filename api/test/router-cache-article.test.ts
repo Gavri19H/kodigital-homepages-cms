@@ -67,9 +67,44 @@ function makeDb(domains: DomainSeed[], articles: ArticleSeed[]): D1Database {
             );
             return (a ?? null) as unknown as T | null;
           }
+          // T2 (rescue-3): renderArticleHtml now composes buildArticleViewModel,
+          // whose article-detail query (bound siteId, slug) joins categories +
+          // media. Serve the seeded article as the detail row so the live
+          // render path resolves.
+          if (sql.startsWith("SELECT a.id AS id")) {
+            const siteId = captured[0] as string;
+            const slug = captured[1] as string;
+            const a = articles.find(
+              (x) => x.slug === slug && x.site_id === siteId,
+            );
+            if (!a) return null;
+            return {
+              id: a.id,
+              slug: a.slug,
+              title: a.title,
+              content_json: null,
+              content_html: a.content_html,
+              category_id: null,
+              status: a.status,
+              published_at: a.published_at,
+              updated_at: a.updated_at,
+              author_name: a.author_name,
+              featured_image_id: null,
+              is_featured: 0,
+              site_id: a.site_id,
+              category_name: null,
+              category_slug: null,
+              image_url: null,
+              image_alt: null,
+              seo_title: null,
+              seo_description: null,
+            } as unknown as T;
+          }
           return null;
         },
         async all<T = unknown>() {
+          // buildArticleViewModel's related + site_settings listings: no
+          // related articles, no per-site settings overrides for this fixture.
           return { results: [] as T[], success: true, meta: {} };
         },
         async run() {

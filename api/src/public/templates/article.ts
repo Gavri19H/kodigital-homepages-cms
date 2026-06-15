@@ -77,6 +77,14 @@ export interface RenderArticleArgs {
   newsletterHeading?: string;
   newsletterDescription?: string;
   newsletterProvider?: string | null;
+  // When false, the design body is returned WITHOUT its own inline
+  // Article / BreadcrumbList / FAQPage JSON-LD <script> blocks. The live
+  // article route (render-pages.renderArticleHtml, T2) sets this so the
+  // served page carries exactly ONE Article block — the GEO-conformant,
+  // pretty-printed payload emitted in the <head> via renderLayout.extraHead.
+  // Design-template callers (and the public-templates-article tests) omit
+  // the flag, so it defaults to true and their JSON-LD guards are unaffected.
+  emitJsonLd?: boolean;
 }
 
 function escAttr(input: string | null | undefined): string {
@@ -341,36 +349,40 @@ export function renderArticle(args: RenderArticleArgs): string {
   const s12 = `${footerHtml}${floatingHtml}`;
 
   // JSON-LD: Article + BreadcrumbList always; FAQPage only when faqs[]
-  // is non-empty (PART 6 RED LINE).
+  // is non-empty (PART 6 RED LINE). Suppressed entirely when emitJsonLd is
+  // false — the live article route (T2) carries the GEO-conformant payload
+  // in the <head> instead, so the design body must not duplicate it.
   const jsonLdBlocks: string[] = [];
-  jsonLdBlocks.push(
-    buildArticleJsonLd({
-      site: {
-        name: site.name,
-        hostname: site.hostname,
-        tagline: site.tagline,
-        description: site.description,
-        logoUrl: site.logoUrl,
-      },
-      article: {
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt,
-        imageUrl: article.imageUrl,
-        publishedAt: article.publishedAt,
-        author: article.author ?? undefined,
-        modifiedAt: article.updatedAt,
-      },
-    }),
-  );
-  jsonLdBlocks.push(
-    buildBreadcrumbJsonLd({
-      site: { name: site.name, hostname: site.hostname },
-      items: vm.breadcrumb,
-    }),
-  );
-  const faqJsonLd = buildFaqJsonLd({ faqs: vm.faqs });
-  if (faqJsonLd.length > 0) jsonLdBlocks.push(faqJsonLd);
+  if (args.emitJsonLd !== false) {
+    jsonLdBlocks.push(
+      buildArticleJsonLd({
+        site: {
+          name: site.name,
+          hostname: site.hostname,
+          tagline: site.tagline,
+          description: site.description,
+          logoUrl: site.logoUrl,
+        },
+        article: {
+          title: article.title,
+          slug: article.slug,
+          excerpt: article.excerpt,
+          imageUrl: article.imageUrl,
+          publishedAt: article.publishedAt,
+          author: article.author ?? undefined,
+          modifiedAt: article.updatedAt,
+        },
+      }),
+    );
+    jsonLdBlocks.push(
+      buildBreadcrumbJsonLd({
+        site: { name: site.name, hostname: site.hostname },
+        items: vm.breadcrumb,
+      }),
+    );
+    const faqJsonLd = buildFaqJsonLd({ faqs: vm.faqs });
+    if (faqJsonLd.length > 0) jsonLdBlocks.push(faqJsonLd);
+  }
   const jsonLdHtml = renderJsonLdScripts(jsonLdBlocks);
 
   const sections = [

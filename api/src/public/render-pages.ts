@@ -15,7 +15,7 @@ import {
   renderBreadcrumbJsonLd,
   renderFaqJsonLd,
 } from "./templates/jsonld-article";
-import { adaptBodyBlocks } from "./view-models/article";
+import { buildArticleViewModel } from "./view-models/article";
 import {
   renderHomeWebsiteJsonLd,
   renderHomeOrganizationJsonLd,
@@ -25,6 +25,7 @@ import {
 } from "./templates/jsonld-home-category-page";
 import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
+import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
 
 function wrapHtmlDocument(headHtml: string, bodyHtml: string): string {
@@ -126,50 +127,105 @@ export async function renderHomepageHtml(
   });
 }
 
-export function renderArticleHtml(
+// T2 (rescue-3): the LIVE GET /article/:slug handler composes the design
+// article shell through buildArticleViewModel + renderArticle + renderLayout
+// — NOT the rescue-2 bare `<div>${content_html}</div>` fallback. The DB is
+// threaded from c.env.DB (router.ts) so the renderer is db-fed and wired into
+// the live entry; rescue-2 served bare HTML (no design shell, no 12 §8
+// sections, no header/footer, no per-article SEO head). renderArticle owns
+// the design body (reading-progress + header + article-hero + .article-shell
+// with its 12 ordered sections + footer); renderLayout owns the <head>
+// (Nunito + /assets/public.css + the inline `--tw-*` brand-token override +
+// the per-article SEO title/description from the view-model).
+//
+// The GEO-conformant Article + root-first BreadcrumbList (+ FAQPage only when
+// the article carries FAQ blocks) JSON-LD is emitted ONCE — in the <head> via
+// renderLayout.extraHead, sourced from the view-model. renderArticle is
+// therefore composed with emitJsonLd:false so the page never carries a second
+// (compact, design-template) Article block. The canonical href is always the
+// resolved SiteContext.hostname — the admin host MUST NEVER appear (RED LINE).
+export async function renderArticleHtml(
+  db: D1Database,
   siteContext: PublicSiteContext,
-  row: ArticleRow,
-  path: string,
-): string {
-  const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
-  // GEO checklist §1: FAQ blocks in content_json drive a FAQPage payload —
-  // emitted ONLY when faqs is non-empty (empty FAQPage is a negative signal).
-  const { faqs } = adaptBodyBlocks(row.content_json, row.content_html);
-  const headBlocks = [
-    renderSeoHead({
-      canonicalHost: siteContext.hostname,
-      path,
-      title: row.title,
-      ogType: "article",
-      siteName: siteContext.hostname,
-    }),
+  slug: string,
+): Promise<string> {
+  const vm = await buildArticleViewModel(db, {
+    slug,
+    siteContext: {
+      siteId: siteContext.siteId,
+      hostname: siteContext.hostname,
+    },
+  });
+  if (vm === null) {
+    // The router's getArticleBySlug gate already proved this slug is a
+    // published article before this render thunk runs (cold-cache only), so a
+    // null view-model here is an unpublish/delete race between the two
+    // cold-cache queries. Surface it rather than caching an empty shell.
+    throw new Error(
+      `renderArticleHtml: article '${slug}' not found for site ${siteContext.siteId}`,
+    );
+  }
+
+  const canonicalUrl = vm.meta.canonicalUrl;
+
+  // GEO checklist (docs/geo-checklist.md §1–§5): one Article block whose
+  // @id + mainEntityOfPage are the canonical URL, a Person byline (or the
+  // publisher Organization for anonymous content, §3), ISO-8601
+  // datePublished/dateModified (§4 — dateModified falls back to
+  // datePublished when the row has no update). The root-first BreadcrumbList
+  // (§2) carries absolute canonical-host URLs; the FAQPage (§1) is emitted
+  // ONLY when faqs are present (an empty FAQPage is a negative signal).
+  const jsonLdHead: string[] = [
     renderArticleJsonLd({
       url: canonicalUrl,
-      headline: row.title,
-      datePublished: isoDate(row.published_at ?? row.created_at),
-      dateModified: isoDate(row.updated_at ?? row.published_at),
-      // GEO checklist §3: anonymous content sets author to the publisher
-      // Organization — never a Person-typed placeholder, never omitted.
-      authorName: row.author_name ?? siteContext.hostname,
-      authorType: row.author_name ? "Person" : "Organization",
+      headline: vm.article.title,
+      datePublished: vm.article.publishedAt,
+      dateModified:
+        vm.article.updatedAt.length > 0
+          ? vm.article.updatedAt
+          : vm.article.publishedAt,
+      authorName: vm.article.author?.name ?? siteContext.hostname,
+      authorType: vm.article.author !== null ? "Person" : "Organization",
       publisherName: siteContext.hostname,
     }),
-    // GEO checklist §2: every content route emits a root-first BreadcrumbList
-    // with absolute canonical-host URLs. The category crumb belongs to the
-    // joined view-model path (T13); this render layer has no category join.
     renderBreadcrumbJsonLd({
-      items: [
-        { name: "Home", url: buildCanonicalUrl(siteContext.hostname, "/") },
-        { name: row.title, url: canonicalUrl },
-      ],
+      items: vm.breadcrumb.map((b) => ({
+        name: b.name,
+        url: buildCanonicalUrl(siteContext.hostname, b.url),
+      })),
     }),
   ];
-  if (faqs.length > 0) {
-    headBlocks.push(renderFaqJsonLd({ questions: faqs }));
+  if (vm.faqs.length > 0) {
+    jsonLdHead.push(
+      renderFaqJsonLd({
+        questions: vm.faqs.map((f) => ({
+          question: f.question,
+          answer: f.answer,
+        })),
+      }),
+    );
   }
-  // C4 root wrapper (see renderHomepageHtml): article screen label.
-  const body = `<div data-screen-label=article-page>${row.content_html ?? ""}</div>`;
-  return wrapHtmlDocument(headBlocks.join("\n"), body);
+
+  const body = renderArticle({ vm, emitJsonLd: false });
+
+  return renderLayout({
+    site: {
+      name: vm.site.name,
+      hostname: vm.site.hostname,
+      tagline: vm.site.tagline,
+      description: vm.site.description,
+      brandTokens: vm.site.brandTokens,
+      logoUrl: vm.site.logoUrl,
+    },
+    meta: {
+      title: vm.meta.title,
+      description: vm.meta.description,
+      canonicalUrl,
+      ogImage: vm.meta.ogImage,
+    },
+    body,
+    extraHead: jsonLdHead.join("\n"),
+  });
 }
 
 export function renderCategoryHtml(

@@ -19,7 +19,6 @@ import {
 } from "../src/public/render-pages";
 import { renderHome } from "../src/public/templates/home";
 import { renderArticle } from "../src/public/templates/article";
-import type { ArticleRow } from "../src/db";
 import type { PublicSiteContext } from "../src/public/middleware";
 import type { HomeViewModel } from "../src/public/view-models/home";
 import type { ArticleViewModel } from "../src/public/view-models/article";
@@ -65,25 +64,52 @@ function makeEmptyHomeDb(): D1Database {
   } as unknown as D1Database;
 }
 
-function makeArticleRow(): ArticleRow {
-  return {
+// T2 (rescue-3): renderArticleHtml is now db-fed (it composes
+// buildArticleViewModel). A D1 stub whose article-detail query returns one
+// published article (with a category + author) and whose related/settings
+// listings return no rows is enough to exercise the design article shell and
+// its screen-label wrapper.
+function makeArticleDb(): D1Database {
+  const detailRow = {
     id: 1,
     slug: "story-one",
     title: "Story one",
-    content_json: "{}",
+    content_json: null,
     content_html: "<p>Opening paragraph.</p>",
-    category_id: null,
+    category_id: 5,
     status: "published",
     published_at: 1747562400,
-    scheduled_at: null,
+    updated_at: 1747562400,
     author_name: "Jamie Reporter",
     featured_image_id: null,
     is_featured: 0,
-    is_trending: 0,
-    created_at: 1747562400,
-    updated_at: 1747562400,
     site_id: "site-acme",
+    category_name: "Tech",
+    category_slug: "tech",
+    image_url: null,
+    image_alt: null,
+    seo_title: null,
+    seo_description: null,
   };
+  const stmt = {
+    bind() {
+      return stmt;
+    },
+    async first() {
+      return detailRow;
+    },
+    async all() {
+      return { results: [], success: true, meta: {} };
+    },
+    async run() {
+      return { success: true, meta: {} };
+    },
+  };
+  return {
+    prepare() {
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
 }
 
 function makeHomeVm(): HomeViewModel {
@@ -190,14 +216,13 @@ describe("public-screen-labels", () => {
     expect(html).toContain("theiwise-home");
   });
 
-  it("renderArticleHtml — article document body opens a root wrapper with data-screen-label=article-page", () => {
-    const html = renderArticleHtml(
-      siteContext,
-      makeArticleRow(),
-      "/article/story-one",
-    );
+  it("renderArticleHtml — article document opens the design-shell wrapper with data-screen-label=article-page", async () => {
+    const html = await renderArticleHtml(makeArticleDb(), siteContext, "story-one");
     expect(html).toContain(ARTICLE_LABEL);
-    expect(html).toContain(`<body><div ${ARTICLE_LABEL}>`);
+    // T2 (rescue-3): the screen-label wrapper now opens the design shell's
+    // <main> content region (renderLayout wraps renderArticle's body), no
+    // longer the bare <body><div> fallback.
+    expect(html).toContain(`<main id="main-content"><div ${ARTICLE_LABEL}>`);
     expect(html).toContain("article-page");
   });
 

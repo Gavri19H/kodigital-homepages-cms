@@ -116,6 +116,12 @@ router.get("/", async (c) => {
   });
 });
 
+// T2 (rescue-3): the GET /article/:slug handler passes c.env.DB into
+// renderArticleHtml so the design article shell (buildArticleViewModel +
+// renderArticle + renderLayout) is composed through the LIVE route — the
+// renderer is db-fed, not orphaned. getArticleBySlug stays as the cheap 404
+// gate (so an unknown/draft slug never enters the cache pipeline); the
+// db-fed render then runs only on a cold cache.
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
@@ -131,7 +137,7 @@ router.get("/article/:slug", async (c) => {
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderArticleHtml(siteContext, row, path),
+    render: () => renderArticleHtml(c.env.DB, siteContext, slug),
   });
 });
 

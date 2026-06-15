@@ -496,3 +496,158 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
     }
   });
 });
+
+// T2 (rescue-3): the LIVE GET /article/:slug route must compose the design
+// article shell (buildArticleViewModel + renderArticle + renderLayout) through
+// the db-fed renderArticleHtml — the rescue-2 failure was a route that served
+// bare `<div>${content_html}</div>` (no design shell / sections / header /
+// footer / per-article SEO).
+//
+// AC1: the SERVED HTML carries the .article-shell wrapper, the 12 §8
+// article-section markers, the article category (hero pill) and an author
+// byline. AC2: the head links /assets/public.css and carries the per-article
+// SEO title/description. The `api/test/public-router.test.ts` literal in the
+// title is the deterministic binding for the parse_test_output evidence route.
+const ARTICLE_SITE_ID = "site_article";
+
+const ARTICLE_DETAIL = {
+  id: 42,
+  slug: "the-feature",
+  title: "The Feature That Mattered",
+  content_json: null,
+  content_html: "<p>The opening paragraph of the feature story.</p>",
+  category_id: 3,
+  status: "published",
+  published_at: 1_700_000_000,
+  updated_at: 1_700_000_500,
+  author_name: "Jamie Reporter",
+  featured_image_id: null,
+  is_featured: 0,
+  site_id: ARTICLE_SITE_ID,
+  category_name: "Technology",
+  category_slug: "tech",
+  image_url: null,
+  image_alt: null,
+  seo_title: null,
+  seo_description: "A hand-written summary of the feature.",
+};
+
+const ARTICLE_SETTINGS = [
+  { key: "site_name", value: "Acme Daily" },
+  { key: "tagline", value: "Tomorrow's news today" },
+  {
+    key: "site_description",
+    value: "Acme Daily covers technology, world, and culture.",
+  },
+];
+
+function makeArticleDb(): D1Database {
+  return {
+    prepare(sql: string) {
+      let captured: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          captured = args;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          if (sql.startsWith("SELECT s.id AS site_id")) {
+            const host = String(captured[0] ?? "").toLowerCase();
+            if (host !== TENANT_HOST) return null;
+            return {
+              site_id: ARTICLE_SITE_ID,
+              hostname: TENANT_HOST,
+              vertical_slug: "news",
+              status: "active",
+              content_version: 7,
+              settings_version: 1,
+            } as unknown as T;
+          }
+          // getArticleBySlug 404 gate (bound slug, siteId).
+          if (
+            sql.startsWith("SELECT * FROM articles WHERE slug = ? AND site_id = ?")
+          ) {
+            const slug = captured[0] as string;
+            if (slug !== ARTICLE_DETAIL.slug) return null;
+            return { ...ARTICLE_DETAIL } as unknown as T;
+          }
+          // buildArticleViewModel article-detail query (bound siteId, slug).
+          if (sql.startsWith("SELECT a.id AS id")) {
+            const slug = captured[1] as string;
+            if (slug !== ARTICLE_DETAIL.slug) return null;
+            return { ...ARTICLE_DETAIL } as unknown as T;
+          }
+          return null;
+        },
+        async all<T = unknown>() {
+          if (sql.includes("FROM site_settings")) {
+            return {
+              results: ARTICLE_SETTINGS as unknown as T[],
+              success: true,
+              meta: {},
+            };
+          }
+          // Related-articles listing: none for this fixture.
+          return { results: [] as T[], success: true, meta: {} };
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
+describe("public-router GET /article/:slug design system (T2 rescue-3)", () => {
+  it("T2.AC1 GET /article/:slug serves the design article shell — .article-shell + 12 §8 markers + category + author byline + /assets/public.css + per-article SEO, not bare HTML [api/test/public-router.test.ts]", async () => {
+    const app = makeApp();
+    const res = await app.request(
+      `https://${TENANT_HOST}/article/the-feature`,
+      {},
+      makeEnv(makeArticleDb()),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+
+    // Full document, not the bare content fragment.
+    expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+
+    // AC4/AC1: the design article shell + its 12 §8 section markers are INLINE
+    // in the served HTML (renderArticle composed through renderLayout).
+    expect(body).toContain('class="article-shell container"');
+    const markers = body.match(/article-section:\d+ [a-z-]+/g) ?? [];
+    expect(markers.length).toBe(12);
+
+    // AC1: the article category (hero pill) + an author byline — not bare HTML.
+    expect(body).toContain('class="article-cat"');
+    expect(body).toContain(">Technology</a>");
+    expect(body).toContain('class="article-byline"');
+    expect(body).toContain("Jamie Reporter");
+
+    // AC2: the brand CSS is linked + the per-article SEO title/description are
+    // inline in the <head> (renderLayout owns the head).
+    expect(body).toContain('href="/assets/public.css"');
+    expect(body).toContain(
+      "<title>The Feature That Mattered — Acme Daily</title>",
+    );
+    expect(body).toContain(
+      '<meta name="description" content="A hand-written summary of the feature.">',
+    );
+
+    // NOT the rescue-2 bare fallback: the design header is present and the
+    // screen-label wrapper opens the <main> content region.
+    expect(body).toContain('class="site-header"');
+    expect(body).toContain(
+      '<main id="main-content"><div data-screen-label=article-page>',
+    );
+
+    // Full servePublicHtml pipeline: cache policy + strong ETag.
+    expect(res.headers.get("Cache-Control")).toBe(PUBLIC_HTML_CACHE_CONTROL);
+    expect(res.headers.get("ETag")).toMatch(/^"[0-9a-f]{16}"$/);
+
+    // Tenant-boundary RED LINE: admin host never appears on the article page.
+    expect(body).not.toContain(ADMIN_HOST);
+  });
+});
