@@ -137,8 +137,8 @@
       "title": "Correct vertical->category allocation and link articles to categories",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],

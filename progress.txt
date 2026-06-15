@@ -9235,3 +9235,73 @@ Learnings for future iterations:
     design contract teal family lives in api/src/public/assets/public-css.ts as the :root default, so
     "empty brand_tokens_json" is the correct way to get the contract colors — not a duplicate seed.
 ---
+
+## 2026-06-15 — T9 (sources: T9) — Correct vertical->category allocation and link articles to categories
+- Execution PRD entry T9 -> state="implemented", passes=true (Ralph-local
+  .ralph/execution_stories.json only; canonical prd.json NOT touched, no passes=true).
+- Root cause (brief W2.3-EXTENDED / BCL-020): the 0004 category_verticals seed mapped the
+  `parenting` vertical to family-travel + healthy-meals + wellness — vertical-MISMATCHED and
+  article_count 0 each. allocate_vertical_categories blindly echoed that matrix.
+- Fix (api/src/site-provisioning/steps.ts):
+  - Added VERTICAL_CATEGORY_PLAN — authoritative per-vertical category set. `parenting` =>
+    parenting-tips / child-development / family-activities / newborn-baby-care.
+  - allocate_vertical_categories now has a vertical-plan path: for verticals in the plan it
+    INSERT OR IGNORE INTO categories (idempotent on slug UNIQUE), resolves each id via
+    SELECT id FROM categories WHERE slug=?, and links to the site via INSERT OR IGNORE INTO
+    site_categories — INDEPENDENT of the (mismatched) category_verticals matrix. Returns
+    kind="vertical_plan", plan_categories[]. Other verticals keep the original matrix path
+    (their 0004 mappings are already vertical-appropriate: finance->personal-finance, etc.).
+  - Article linking (generate_15_homepage_articles) already round-robins category_id over the
+    allocated site_categories (T6); with the corrected allocation every allocated parenting
+    category now receives >=1 of the 15 starter articles, so article_count (SELECT join) > 0.
+  - No new migration: categories are created at provision time (idempotent), so a fresh env
+    ends up with the correct non-empty set without a separate seed migration.
+- Files changed:
+  - api/src/site-provisioning/steps.ts (VERTICAL_CATEGORY_PLAN + allocate vertical-plan path)
+  - api/test/site-provisioning-allocate-categories.test.ts (T9-AC1 + T9-AC2 behavioral tests
+    with L2_AUTO_DISAMBIGUATION:T9-AC1:RC-024 / T9-AC2:RC-025 markers; parenting fake-D1)
+- Self-check results:
+  - File sizes: steps.ts 1397 lines (pre-existing large step-registry file; +~65 lines this
+    story; no architecture.md limit for this change), test 529 lines (test, unlimited) — PASS
+  - Secret scan: PASS (no secrets)
+  - Error handling: PASS (defensive `continue` on missing category id; step returns completed)
+  - Migration execution: N/A (no new migration; categories created via idempotent INSERT OR IGNORE)
+  - Parameterized queries: PASS (all new SQL uses ? + .bind, no template-literal interpolation)
+- Tests:
+  - cd api && npx vitest run test/site-provisioning-allocate-categories.test.ts -> 6 passed
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run (full suite) -> 122 files, 1091 passed
+- Evidence (D13 runner_command_rendered for RC-024,RC-025,RC-057):
+  - VERBATIM run FAILed: the packet's runner_command_rendered baked
+    --worktree-root=/Users/.../kodigital-homepages-cms (the PROJECT ROOT / main checkout),
+    while cwd_anchor=worktree_root. Runner resolved cwd to <project_root>/api (branch
+    docs/cms-rescue-3-brief-2026-06-14, commit 5f44e1b, 0 T9 markers) and ran the OLD test
+    file -> parser_observation_pattern L2_AUTO_DISAMBIGUATION:T9-AC1:RC-024 not found -> FAIL.
+    Same infrastructure path-resolution gap documented for T2 RC-004, T3 RC-006, T4 RC-008,
+    T5 RC-010, T6 RC-012, T7 RC-014, T8 RC-016/017, ... — runner --worktree-root points at the
+    base checkout that lacks Ralph's worktree code. (Q3 command's --worktree-root was correct.)
+  - INPUT-corrected run (same command, --worktree-root set to the actual
+    .a2z/mission-state/<cid>/worktree): TOP status PASS; resolved_cwd=<worktree>/api;
+    RC-024 (T9-AC1) PASS + RC-025 (T9-AC2) PASS (both T9 markers observed); RC-057 (T5
+    production post_deploy api_check) SKIPPED_ALLOWED / DEFERRED — not a T9 develop-legal claim.
+    Conclusion: T9-AC1/AC2 are SATISFIED via the develop-legal parser_observation route; the
+    verbatim FAIL was solely the mis-rendered --worktree-root (plan-bundle render defect, not
+    product/test defect). Positive proof both sides: project-root grep=0 markers, worktree-root
+    run=PASS.
+- Q3 story_quality_checks_command_rendered (run VERBATIM, correct worktree-root):
+    PASS story=T9 checks_executed=4 -> api_check/db_check/job_check/outbound_check all
+    pass_fail=PASS exit=0 (story_execution_receipts.jsonl).
+- Learnings:
+  - allocate_vertical_categories has TWO paths now: a vertical-plan path (authoritative,
+    self-seeds categories) for verticals in VERTICAL_CATEGORY_PLAN, and the legacy
+    category_verticals matrix path for the rest. Adding a vertical to the plan overrides its
+    matrix allocation. The plan path emits kind="vertical_plan" (matrix path: "deterministic_seed").
+  - Provisioning-step tests that exercise generate_15_homepage_articles MUST set
+    OPENAI_TEXT_MODEL="gpt-5.5" / OPENAI_IMAGE_MODEL="gpt-image-2" in buildEnv overrides
+    (the AI model validator rejects placeholder model ids like "gpt-test"); with no
+    OPENAI_API_KEY the generators take the deterministic no-outbound fallback.
+  - D13 runner_command_rendered for this mission carries --worktree-root=<project_root> (wrong),
+    not the .a2z worktree. cwd_anchor=worktree_root then resolves cwd to the base checkout that
+    lacks Ralph's code. The fix is the INPUT path arg (--worktree-root=<actual worktree>), not
+    the runner. Plan-bundle render owner should align D13 --worktree-root with the Q3 command.
+---
