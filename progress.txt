@@ -8829,3 +8829,74 @@ iteration — T45 (sources: T45)
     `[api/test/<file>.test.ts]` literal IN a passing test's title (matches
     expected_test_name_regex). Add a dedicated AC test carrying that literal
     (same pattern T1 used for AC5 in public-templates-home.test.ts).
+
+## 2026-06-15 — T3 (execution story T3; sources: T3)
+Static pages render through the design layout (header + footer).
+
+What was implemented:
+- renderPageHtml (api/src/public/render-pages.ts): changed from sync 3-arg
+  (siteContext, row, path) wrapHtmlDocument bare-render to async db-fed 4-arg
+  (db, siteContext, row, path). Now fetches site settings via
+  fetchPublicLayoutSiteInfo and composes the page through renderLayout with
+  renderHeader (site-header/banner) + renderFooter (site-footer/contentinfo)
+  + /assets/public.css + inline brand-token <style>. WebPage + root-first
+  BreadcrumbList JSON-LD ride renderLayout.extraHead (article pattern; the
+  jsonld renderers already emit wrapped <script> tags, so no double-wrap).
+- router.ts servePage: render thunk now threads c.env.DB into renderPageHtml
+  (T3-AC2 wiring) — shared by GET /page/:slug and the /:slug catch-all.
+- regression: added T3.AC3 render-output test (public-templates-components)
+  and T3.AC1 live-route test (public-router); updated json-ld-article.test.ts
+  two call sites to the new async signature.
+
+Files changed: api/src/public/render-pages.ts, api/src/public/router.ts,
+api/test/public-router.test.ts, api/test/public-templates-components.test.ts,
+api/test/json-ld-article.test.ts
+
+Self-check results:
+- File sizes: render-pages.ts 355, router.ts 437 (both pre-existing multi-
+  renderer/multi-route files already >200 before T3; +49/+6 lines; split is
+  out of T3 scope) — NOTED
+- Secret scan: PASS (0 matches)
+- Error handling: N/A (render thunk; errors propagate to servePublicHtml
+  pipeline, same as renderHomepageHtml/renderArticleHtml)
+- Migration execution: N/A (category=ui; no DB write)
+- Parameterized queries: PASS (no new SQL; reuses fetchPublicLayoutSiteInfo
+  which is already .bind()-parameterized)
+
+Tests run:
+- cd api && npx tsc --noEmit -> exit 0
+- cd api && npx vitest run -> 122 files, 1079 tests PASS
+- RC evidence runner (run_required_evidence_command.py, RC-010,RC-011,RC-012)
+- Q3 story_quality_checks (run_story_quality_checks.py --story-id=T3) ->
+  PASS checks_executed=4, receipts appended
+
+Evidence:
+- RC-012 (T3-AC1 behavioral, test/public-router.test.ts): PASS
+- RC-011 (T3-AC3 behavioral, test/public-templates-components.test.ts): PASS
+- RC-010 (T3-AC2 structural, grep): code SATISFIES the claim
+  (grep -cE '\\brenderPageHtml\\b' api/src/public/router.ts = 4, i.e. router
+  imports AND calls renderPageHtml). EVIDENCE_ROUTE_EXHAUSTED: the rendered
+  evidence_command uses `grep -nE` (line-number mode) but parser_strategy is
+  parse_grep_count, which requires the first stdout line to be a bare integer
+  (`grep -cE` count mode). `-nE` output -> NON_INTEGER_OUTPUT, deterministic
+  UNSATISFIED regardless of code. This is IDENTICAL to T1 RC-002
+  (grep -nE renderHomepageHtml) and T2 RC-006 (grep -nE renderArticleHtml),
+  both of which also failed this route yet reached state=implemented. Plan-
+  generation defect (grep -nE vs parse_grep_count); a `-cE` rendering would
+  PASS (count=4 >= 1). Not a product-code defect; owned by a skill-fix session.
+
+Learnings for future iterations:
+- L-167 observed live: the RC evidence runner_command_rendered for this
+  mission passes --worktree-root=<project-root> (the brief-branch checkout at
+  5f44e1b, which LACKS the Ralph-mission code), while the sibling Q3 command
+  AND the T1/T2 receipts correctly use --worktree-root=<mission worktree>.
+  Running the RC runner verbatim would test stale base code and emit false
+  evidence; ran it against the mission worktree (where the committed code
+  lives) so RC-011/RC-012 evidence is TRUE. cwd_anchor=worktree_root for
+  Ralph-modified canonical_paths MUST resolve to the mission worktree.
+- parse_grep_count REQUIRES `grep -c` (count) output; `grep -n` is rejected.
+  The deterministic-parser test binding for parse_test_output RCs requires a
+  PASSING test whose NAME contains the literal evidence-file path
+  (e.g. [api/test/public-templates-components.test.ts]) — embed it in the it()
+  title or the claim never binds (RC-011 fix this iteration).
+---
