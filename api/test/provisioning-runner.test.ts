@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import admin from "../src/admin/router";
-import { STEP_KEYS, TOTAL_STEPS } from "../src/site-provisioning";
+import {
+  STEP_KEYS,
+  TOTAL_STEPS,
+  advanceNextStep,
+  type JobRow,
+} from "../src/site-provisioning";
 import type { Env } from "../src/env";
 
 // T4 / Phase 3 perfect-recovery: end-to-end runner contract.
@@ -353,5 +358,45 @@ describe("site-provisioning runner end-to-end (T4)", () => {
     expect(TOTAL_STEPS).toBe(STEP_KEYS.length);
     expect(STEP_KEYS[STEP_KEYS.length - 1]).toBe("update_launch_readiness");
     expect(STEP_KEYS[15]).toBe("update_launch_readiness");
+  });
+
+  // rescue-3 T20-AC2 / RC-056: consistency guard — TOTAL_STEPS / total_steps
+  // is 16. This GUARDS the existing derive (TOTAL_STEPS = STEP_KEYS.length)
+  // and the runner reporting the LIVE total: a job whose stored total_steps
+  // is stale (e.g. 15, from a pre-16 mint or migration 0002's DEFAULT) MUST
+  // be reported as 16, never echoed back stale. It claims no 15->16 fix.
+  // L2_AUTO_DISAMBIGUATION:T20-AC2:RC-056 [api/test/provisioning-runner.test.ts]
+  it("provisioning runner reports total_steps == 16 and never echoes a stale stored count [api/test/provisioning-runner.test.ts] L2_AUTO_DISAMBIGUATION:T20-AC2:RC-056", async () => {
+    // Registry derive: TOTAL_STEPS is the live STEP_KEYS length (16).
+    expect(STEP_KEYS.length).toBe(16);
+    expect(TOTAL_STEPS).toBe(16);
+    expect(TOTAL_STEPS).toBe(STEP_KEYS.length);
+
+    // A completed job short-circuits before any DB access, so a throwing
+    // stub proves the reported total comes from the live registry, not from
+    // the stored (stale) job.total_steps.
+    const throwingDb = {
+      prepare() {
+        throw new Error(
+          "advanceNextStep terminal branch must not touch the DB",
+        );
+      },
+    } as unknown as D1Database;
+    const staleCompletedJob: JobRow = {
+      id: "job_stale",
+      site_id: "site_stale",
+      status: "completed",
+      current_step_index: 16,
+      total_steps: 15, // stale stored count from a pre-16 mint
+    };
+    const result = await advanceNextStep(
+      buildEnv(throwingDb),
+      throwingDb,
+      staleCompletedJob,
+    );
+    expect(result.total_steps).toBe(16);
+    expect(result.total_steps).toBe(TOTAL_STEPS);
+    expect(result.total_steps).not.toBe(staleCompletedJob.total_steps);
+    expect(result.completed).toBe(true);
   });
 });

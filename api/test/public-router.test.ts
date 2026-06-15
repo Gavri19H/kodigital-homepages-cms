@@ -691,6 +691,51 @@ describe("public-router GET / site-status gating (T19 rescue-3)", () => {
   });
 });
 
+// T20 (rescue-3) consistency: the missing favicon. A browser requests
+// /favicon.ico automatically; the public router MUST handle it explicitly
+// rather than let the /:slug compatibility catch-all emit an unhandled 404.
+describe("public-router GET /favicon.ico (T20 rescue-3)", () => {
+  it("T20.AC1 GET /favicon.ico is handled — 204 No Content (or a served favicon), never an unhandled 404/500 [api/test/public-router.test.ts] L2_AUTO_DISAMBIGUATION:T20-AC1:RC-055", async () => {
+    const res = await makeApp().request(
+      `https://${TENANT_HOST}/favicon.ico`,
+      {},
+      makeEnv(makeDb([], [])),
+    );
+
+    // BEHAVIORAL: the favicon request is answered, not dropped into the
+    // /:slug catch-all's 404. The AC permits a served favicon (200) or a
+    // 204 No Content; this build answers 204.
+    expect([200, 204]).toContain(res.status);
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBeLessThan(500);
+
+    // A 204 carries no body and a cacheable Cache-Control so browsers stop
+    // re-requesting the favicon on every navigation.
+    if (res.status === 204) {
+      expect(await res.text()).toBe("");
+      expect(res.headers.get("Cache-Control")).toBe("public, max-age=86400");
+    }
+  });
+
+  it("favicon never collides with the /:slug catch-all — a page named 'favicon.ico' does not shadow the 204 [api/test/public-router.test.ts]", async () => {
+    // Even with a planted page row whose slug is "favicon.ico", the
+    // dedicated favicon handler (registered before the catch-all) wins, so
+    // the response stays the 204 No Content — the page body never leaks.
+    const trap: PageSeed = {
+      slug: "favicon.ico",
+      title: "Trap",
+      content_html: "<p>favicon-trap-body</p>",
+    };
+    const res = await makeApp().request(
+      `https://${TENANT_HOST}/favicon.ico`,
+      {},
+      makeEnv(makeDb([trap], [])),
+    );
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe("");
+  });
+});
+
 // T2 (rescue-3): the LIVE GET /article/:slug route must compose the design
 // article shell (buildArticleViewModel + renderArticle + renderLayout) through
 // the db-fed renderArticleHtml — the rescue-2 failure was a route that served

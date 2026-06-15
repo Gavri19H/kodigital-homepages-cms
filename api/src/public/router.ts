@@ -90,6 +90,22 @@ function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
 
 const router = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
 
+// T20 (rescue-3): /favicon.ico is answered explicitly so a browser's
+// automatic favicon request never falls through to the /:slug
+// compatibility catch-all, which would emit an unhandled 404 (the
+// "missing favicon" consistency item in the brief). No per-tenant icon
+// asset is bundled, so the route returns 204 No Content — a valid
+// "no favicon configured" response (never a 404/500). It is registered
+// BEFORE publicSiteContextMiddleware so it stays host-independent and
+// needs no tenant DB lookup: a favicon is a generic asset request, not
+// site-scoped content.
+router.get("/favicon.ico", () =>
+  new Response(null, {
+    status: 204,
+    headers: { "Cache-Control": "public, max-age=86400" },
+  }),
+);
+
 // T26: site-context resolution runs before every public route. Unmapped
 // hostnames (including ADMIN_HOST, which never resolves as a public
 // site) get a safe 404 with no admin-host leak; resolved tenant hosts
