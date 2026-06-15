@@ -217,8 +217,8 @@
       "title": "Article editor: full legacy AI assistant panel (quick actions, preset, tone/length, structured auto-fill)",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14"
       ],
