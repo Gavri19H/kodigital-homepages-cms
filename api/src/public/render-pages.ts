@@ -10,8 +10,8 @@ import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow } from "./queries";
 import { fetchPublicLayoutSiteInfo } from "./queries";
-import { renderHeader, renderFooter } from "./templates/components";
-import { renderSeoHead, buildCanonicalUrl } from "./templates/seo-head";
+import { renderHeader, renderFooter, renderCard } from "./templates/components";
+import { buildCanonicalUrl } from "./templates/seo-head";
 import {
   renderArticleJsonLd,
   renderBreadcrumbJsonLd,
@@ -29,13 +29,6 @@ import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
-
-function wrapHtmlDocument(headHtml: string, bodyHtml: string): string {
-  return (
-    `<!doctype html>\n<html><head>${headHtml}</head>` +
-    `<body>${bodyHtml}</body></html>`
-  );
-}
 
 function isoDate(seconds: number | null | undefined): string {
   if (!seconds || !Number.isFinite(seconds)) return new Date(0).toISOString();
@@ -230,13 +223,40 @@ export async function renderArticleHtml(
   });
 }
 
-export function renderCategoryHtml(
+// T4 (rescue-3): the LIVE GET /category/:slug handler composes the category
+// listing through fetchPublicLayoutSiteInfo + renderCard + renderLayout — NOT
+// the rescue-2 bare zero-style `<h1>` + flat `<a>` list. BCL-019 (W1-EXTENDED)
+// found the live /category/<slug> rendering BARE (1,279 bytes, 0 <style>); the
+// orphaned-render defect covered home + article + page + CATEGORY, and this is
+// the fourth renderer wired into the design layout. The DB is threaded from
+// c.env.DB (router.ts) so the renderer is db-fed and wired into the live entry.
+// renderLayout owns the <head> (Nunito + /assets/public.css + the inline
+// `--tw-*` brand-token override sourced from site_settings.brand_tokens_json)
+// plus the banner/contentinfo regions via its header/footer slots; the body is
+// the design card grid (renderCard → `.card` article cards using the Home
+// §4/§10 `home-grid` vocabulary), not the bare anchor list.
+//
+// Paginated category pages canonical to page 1 (no duplicate-content signal):
+// the canonical href + breadcrumb both point at /category/<slug> regardless of
+// pageNum, and the page number rides a data-page attribute only (never a
+// /category/<slug>/page/<n> URL in the body). The GEO-conformant CollectionPage
+// + root-first BreadcrumbList JSON-LD is emitted ONCE in the <head> via
+// renderLayout.extraHead (both renderers already return wrapped <script> tags).
+// The canonical href is always the resolved SiteContext.hostname — the admin
+// host MUST NEVER appear (mission RED LINE).
+export async function renderCategoryHtml(
+  db: D1Database,
   siteContext: PublicSiteContext,
   cat: PublicCategoryRow,
   articles: ArticleRow[],
   pageNum: number,
   slug: string,
-): string {
+): Promise<string> {
+  const site = await fetchPublicLayoutSiteInfo(db, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
+
   // Paginated category pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/category/${slug}`;
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, canonicalPath);
@@ -244,15 +264,15 @@ export function renderCategoryHtml(
     name: a.title,
     url: buildCanonicalUrl(siteContext.hostname, `/article/${a.slug}`),
   }));
-  const head = [
-    renderSeoHead({
-      canonicalHost: siteContext.hostname,
-      path: canonicalPath,
-      title: cat.name,
-      canonicalUrl,
-      ogType: "website",
-      siteName: siteContext.hostname,
-    }),
+
+  const headerSite = {
+    name: site.name,
+    tagline: site.tagline,
+    logoUrl: site.logoUrl,
+    hostname: site.hostname,
+  };
+
+  const jsonLdHead: string[] = [
     renderCategoryJsonLd({
       url: canonicalUrl,
       name: cat.name,
@@ -265,15 +285,53 @@ export function renderCategoryHtml(
         { name: cat.name, url: canonicalUrl },
       ],
     }),
-  ].join("\n");
+  ];
+
+  // Design card grid: renderCard emits the styled `.card` article cards; the
+  // listing rides the same `home-grid` wrapper Home uses for its card sections.
+  // pageNum is surfaced as a data-page attribute only — never a /page/<n> URL,
+  // which would be a duplicate-content signal against the page-1 canonical.
+  const cards = articles
+    .map(
+      (a) =>
+        `<li class="home-grid__item">${renderCard({
+          href: `/article/${a.slug}`,
+          title: a.title,
+          categoryName: cat.name,
+          publishedAt: a.published_at ? isoDate(a.published_at) : undefined,
+        })}</li>`,
+    )
+    .join("");
+  const listing =
+    cards.length > 0
+      ? `<ul class="home-grid home-grid--category">${cards}</ul>`
+      : `<p class="section-empty">No articles in this category yet.</p>`;
   const body =
-    `<h1>${escapeHtml(cat.name)}</h1>` +
-    `<div data-page="${pageNum}">` +
-    articleEntries
-      .map((e) => `<a href="${e.url}">${escapeHtml(e.name)}</a>`)
-      .join("") +
-    `</div>`;
-  return wrapHtmlDocument(head, body);
+    `<section class="home-section home-section--category" data-page="${pageNum}">` +
+    `<div class="container">` +
+    `<div class="section-head"><h1 class="category-title">${escapeHtml(cat.name)}</h1></div>` +
+    listing +
+    `</div></section>`;
+
+  return renderLayout({
+    site: {
+      name: site.name,
+      hostname: site.hostname,
+      tagline: site.tagline,
+      description: site.description,
+      brandTokens: site.brandTokens,
+      logoUrl: site.logoUrl,
+    },
+    meta: {
+      title: cat.name,
+      description: site.description,
+      canonicalUrl,
+    },
+    body,
+    header: renderHeader({ site: headerSite }),
+    footer: renderFooter({ site: headerSite }),
+    extraHead: jsonLdHead.join("\n"),
+  });
 }
 
 // T3 (rescue-3): the LIVE GET /page/:slug handler composes the static page

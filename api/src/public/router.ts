@@ -153,6 +153,14 @@ type CategoryCtx = Context<{
   Variables: PublicSiteVariables;
 }>;
 
+// T4 (rescue-3): the render thunk passes c.env.DB into renderCategoryHtml so
+// the category listing is composed through the design layout
+// (fetchPublicLayoutSiteInfo + renderCard + renderLayout) via the LIVE route —
+// the renderer is db-fed, not orphaned. rescue-2 served a bare zero-style
+// `<h1>` + flat `<a>` list (BCL-019: live /category/<slug> = 1,279 bytes, 0
+// <style>) because the route called renderCategoryHtml without the DB handle,
+// so the page rendered with no design shell, no /assets/public.css, no
+// header/footer regions and no styled article cards.
 async function handleCategory(
   c: CategoryCtx,
   pageNum: number,
@@ -179,7 +187,8 @@ async function handleCategory(
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderCategoryHtml(siteContext, cat, articles, pageNum, slug),
+    render: () =>
+      renderCategoryHtml(c.env.DB, siteContext, cat, articles, pageNum, slug),
   });
 }
 

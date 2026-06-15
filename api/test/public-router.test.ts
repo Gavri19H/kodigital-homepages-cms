@@ -686,3 +686,166 @@ describe("public-router GET /article/:slug design system (T2 rescue-3)", () => {
     expect(body).not.toContain(ADMIN_HOST);
   });
 });
+
+// T4 (rescue-3): the LIVE GET /category/:slug route must compose the category
+// listing through the design layout (fetchPublicLayoutSiteInfo + renderCard +
+// renderLayout) via the db-fed renderCategoryHtml — the rescue-2 failure
+// (BCL-019 W1-EXTENDED) was a route that served the bare zero-style `<h1>` +
+// flat `<a>` list (live /category/wellness = 1,279 bytes, 0 <style>).
+//
+// AC1 (RC-015): the SERVED HTML links /assets/public.css, carries the
+// site-header + site-footer regions and styled `.card` article cards inside the
+// home-grid listing, not the bare list. The `api/test/public-router.test.ts`
+// literal in the title is the deterministic binding for the parse_test_output
+// evidence route (expected_test_name_regex).
+const CATEGORY_SITE_ID = "site_category";
+
+const CATEGORY_ROW = { id: 7, slug: "wellness", name: "Wellness" };
+
+const CATEGORY_ARTICLES = [
+  {
+    id: 201,
+    slug: "sleep-better",
+    site_id: CATEGORY_SITE_ID,
+    title: "Sleep Better Tonight",
+    content_json: "{}",
+    content_html: "<p>Tips for restful sleep with enough words to read.</p>",
+    category_id: 7,
+    status: "published",
+    published_at: 1_700_000_900,
+    scheduled_at: null,
+    author_name: "Wellness Desk",
+    featured_image_id: null,
+    is_featured: 0,
+    is_trending: 0,
+    created_at: 1_699_000_000,
+    updated_at: 1_700_000_950,
+  },
+  {
+    id: 202,
+    slug: "morning-routine",
+    site_id: CATEGORY_SITE_ID,
+    title: "A Calmer Morning Routine",
+    content_json: "{}",
+    content_html: "<p>How to start the day with less stress and more focus.</p>",
+    category_id: 7,
+    status: "published",
+    published_at: 1_700_000_800,
+    scheduled_at: null,
+    author_name: "Wellness Desk",
+    featured_image_id: null,
+    is_featured: 0,
+    is_trending: 0,
+    created_at: 1_699_000_000,
+    updated_at: 1_700_000_850,
+  },
+];
+
+const CATEGORY_SETTINGS = [
+  { key: "site_name", value: "Acme Daily" },
+  { key: "tagline", value: "Tomorrow's news today" },
+  { key: "site_description", value: "Acme Daily covers wellness and more." },
+  { key: "brand_tokens_json", value: JSON.stringify({ "tw-brand": "#1ba8c8" }) },
+];
+
+function makeCategoryDb(): D1Database {
+  return {
+    prepare(sql: string) {
+      let captured: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          captured = args;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          if (sql.startsWith("SELECT s.id AS site_id")) {
+            const host = String(captured[0] ?? "").toLowerCase();
+            if (host !== TENANT_HOST) return null;
+            return {
+              site_id: CATEGORY_SITE_ID,
+              hostname: TENANT_HOST,
+              vertical_slug: "news",
+              status: "active",
+              content_version: 7,
+              settings_version: 1,
+            } as unknown as T;
+          }
+          if (sql.startsWith("SELECT id, slug, name FROM categories")) {
+            const slug = captured[0] as string;
+            if (slug !== CATEGORY_ROW.slug) return null;
+            return { ...CATEGORY_ROW } as unknown as T;
+          }
+          return null;
+        },
+        async all<T = unknown>() {
+          if (sql.startsWith("SELECT * FROM articles WHERE category_id")) {
+            return {
+              results: CATEGORY_ARTICLES as unknown as T[],
+              success: true,
+              meta: {},
+            };
+          }
+          if (sql.includes("FROM site_settings")) {
+            return {
+              results: CATEGORY_SETTINGS as unknown as T[],
+              success: true,
+              meta: {},
+            };
+          }
+          return { results: [] as T[], success: true, meta: {} };
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
+describe("public-router GET /category/:slug design system (T4 rescue-3)", () => {
+  it("T4.AC1 GET /category/:slug serves the design layout — /assets/public.css + site-header + site-footer + styled .card article cards in the home-grid listing, not the bare zero-style list [api/test/public-router.test.ts]", async () => {
+    const app = makeApp();
+    const res = await app.request(
+      `https://${TENANT_HOST}/category/wellness`,
+      {},
+      makeEnv(makeCategoryDb()),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+
+    // Full design document, not the rescue-2 bare zero-style fragment.
+    expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+    // renderLayout links the public stylesheet + the brand-token override.
+    expect(body).toContain('href="/assets/public.css"');
+    expect(body).toContain('<style data-source="brand_tokens">');
+    expect(body).toContain("--tw-brand: #1ba8c8");
+    // Header + footer regions are served (banner + contentinfo).
+    expect(body).toContain('class="site-header"');
+    expect(body).toContain('role="banner"');
+    expect(body).toContain('class="site-footer"');
+    expect(body).toContain('role="contentinfo"');
+    // Styled article cards (renderCard → <article class="card">) inside the
+    // home-grid listing — NOT the rescue-2 bare flat <a> list.
+    expect(body).toContain('<ul class="home-grid home-grid--category">');
+    expect(body).toContain('<article class="card">');
+    expect(body).toContain('class="card-title"');
+    expect(body).toContain('href="/article/sleep-better"');
+    expect(body).toContain("Sleep Better Tonight");
+    expect(body).toContain('href="/article/morning-routine"');
+    // The category name renders as the section <h1>.
+    expect(body).toContain('class="category-title"');
+    expect(body).toContain("Wellness");
+    // CollectionPage + root-first BreadcrumbList JSON-LD ride the head once.
+    expect(body).toContain('"@type": "CollectionPage"');
+    expect(body).toContain('"@type": "BreadcrumbList"');
+
+    // Full servePublicHtml pipeline: cache policy + strong ETag.
+    expect(res.headers.get("Cache-Control")).toBe(PUBLIC_HTML_CACHE_CONTROL);
+    expect(res.headers.get("ETag")).toMatch(/^"[0-9a-f]{16}"$/);
+
+    // Tenant-boundary RED LINE: admin host never appears on a content page.
+    expect(body).not.toContain(ADMIN_HOST);
+  });
+});

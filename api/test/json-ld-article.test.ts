@@ -467,7 +467,8 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
 
   it("GEO §1: FAQPage is forbidden on homepage / category / page routes", async () => {
     const home = await renderHomepageHtml(makeEmptyHomeDb(), geoSiteContext);
-    const category = renderCategoryHtml(
+    const category = await renderCategoryHtml(
+      makeEmptyHomeDb(),
       geoSiteContext,
       geoCategory,
       [makeGeoArticleRow()],
@@ -486,7 +487,8 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
   });
 
   it("GEO §2: category + page emit BreadcrumbList; homepage MUST NOT", async () => {
-    const category = renderCategoryHtml(
+    const category = await renderCategoryHtml(
+      makeEmptyHomeDb(),
       geoSiteContext,
       geoCategory,
       [makeGeoArticleRow()],
@@ -531,8 +533,9 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     expect(author.name).toBe("acme.example");
   });
 
-  it("GEO §5: paginated category pages canonical to page 1", () => {
-    const html = renderCategoryHtml(
+  it("GEO §5: paginated category pages canonical to page 1", async () => {
+    const html = await renderCategoryHtml(
+      makeEmptyHomeDb(),
       geoSiteContext,
       geoCategory,
       [makeGeoArticleRow()],
