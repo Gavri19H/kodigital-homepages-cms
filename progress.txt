@@ -10199,3 +10199,60 @@ Story: Gate public serving + indexing on sites.status='active'
 - D13 evidence: run_required_evidence_command.py --required-claim-ids=RC-054 (run with the ACTUAL --worktree-root mission worktree per root-cwd rule 7 / memory d13-parser-observation-prefix-mismatch) -> status PASS; parser matched T19 test name carrying the [api/test/public-router.test.ts] binding literal. Did NOT re-run the packet's wrong-root runner_command_rendered (would flip latest receipt to FAIL).
 - State: execution_stories.json T19 state=implemented passes=true (Ralph-local PRD); canonical prd.json T19 state=implemented passes=false (no self-cert).
 ---
+
+## 2026-06-16 — T20 (execution story T20; sources: T20)
+"Consistency: total_steps=16, favicon, and record PREVIEW_SECRET ops task"
+Required claims: RC-055 (T20-AC1), RC-056 (T20-AC2)
+
+What was implemented:
+- T20-AC1 (favicon): added an explicit `GET /favicon.ico` route to the public
+  router (api/src/public/router.ts) returning 204 No Content with
+  `Cache-Control: public, max-age=86400`. Registered BEFORE
+  publicSiteContextMiddleware so it is host-independent and needs no tenant DB
+  lookup — a browser's automatic favicon request no longer falls through to the
+  /:slug catch-all as an unhandled 404. AC permits "served favicon OR 204".
+- T20-AC2 (total_steps=16 guard): added a behavioral guard test proving the
+  provisioning runner reports total_steps == 16 (== STEP_KEYS.length ==
+  TOTAL_STEPS) and never echoes a stale stored count (advanceNextStep on a
+  completed job whose stored total_steps=15 reports 16). Guards existing
+  derive + re-sync; claims no behavior change.
+- PREVIEW_SECRET ops task: recorded as operator-owned (owner=user) in
+  openspec/changes/kodigital-cms-rescue-3-2026-06-14/ops-handoff.md. The
+  noindex/no-store draft render is already coded (preview/index.ts:147-150),
+  so NO develop code was added for the secret — only the operator config
+  (`npx wrangler secret put PREVIEW_SECRET`, user-run per deploy-safety.md).
+
+Files changed:
+- api/src/public/router.ts (favicon route)
+- api/test/public-router.test.ts (T20-AC1 favicon + catch-all non-collision tests)
+- api/test/provisioning-runner.test.ts (T20-AC2 total_steps=16 guard test)
+- openspec/changes/kodigital-cms-rescue-3-2026-06-14/ops-handoff.md (OPS-TASK-1)
+
+Self-check results:
+- File sizes: router.ts 462 / public-router.test.ts 1055 / provisioning-runner.test.ts 402.
+  All PRE-EXISTING files already > the 200-line guideline before T20 (added ~16
+  lines to router.ts for a consistency story; refactor out of scope). PASS (no
+  new oversize file introduced).
+- Secret scan: PASS (no hardcoded secrets in changed files).
+- Error handling: N/A (favicon route is a static 204; preview 500-when-unset
+  already handled upstream).
+- Migration execution: N/A (no DB story).
+- Parameterized queries: N/A (no new SQL).
+
+Tests / evidence actually run:
+- cd api && npx tsc --noEmit  -> exit 0
+- cd api && npx vitest run    -> 125 files / 1169 tests PASS (no regression)
+- D13 runner (corrected --worktree-root=<actual worktree>, per memory
+  d13-parser-observation-prefix-mismatch): RC-055 PASS, RC-056 PASS, exit 0.
+- Q3 run_story_quality_checks.py --story-id=T20 -> PASS (1 check, receipt written).
+
+Learnings for future iterations:
+- Hono: a `.get()` handler registered BEFORE a `.use("*")` middleware
+  short-circuits that middleware for its path (handler returns without
+  next()), so /favicon.ico answers 204 without site resolution on any host.
+- parse_test_output RCs in this mission: embed BOTH the
+  `[api/test/<file>.test.ts]` literal AND the
+  `L2_AUTO_DISAMBIGUATION:T<n>-AC<k>:RC-0xx` token in the it() title, and run
+  the D13 runner with the ACTUAL worktree-root (NOT the project root the packet
+  renders) — confirmed PASS for RC-055/RC-056.
+---

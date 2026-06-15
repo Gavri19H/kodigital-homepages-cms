@@ -361,8 +361,8 @@
       "title": "Consistency: total_steps=16, favicon, and record PREVIEW_SECRET ops task",
       "category": "script",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T20"
       ],
