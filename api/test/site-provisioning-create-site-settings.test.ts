@@ -323,3 +323,100 @@ describe("site-provisioning default_author_name seed (T7)", () => {
     }
   });
 });
+
+// rescue-3 T8-AC1 / RC-023 — provisioning seeds brand_tokens_json from the
+// brand contract family (teal, --tw-brand:#1ba8c8) or leaves it empty so the
+// design-system defaults apply. It MUST NEVER seed the old mismatched dark
+// palette {primary:'#0F172A', accent:'#38BDF8', neutral:'#F8FAFC'}.
+//
+// BEHAVIORAL: GIVEN create_site_settings seeds site_settings, WHEN the
+// brand_tokens_json row is SELECTed and parsed, THEN the parsed value is
+// either empty ({}) — design defaults apply — or its primary colour is in the
+// teal #1ba8c8 family; it is never the dark palette.
+describe("site-provisioning brand_tokens_json seed (T8)", () => {
+  // L2_AUTO_DISAMBIGUATION:T8-AC1:RC-023 [api/test/site-provisioning-create-site-settings.test.ts]
+  it("create_site_settings seeds brand_tokens_json as the teal contract family or empty, never the dark palette [api/test/site-provisioning-create-site-settings.test.ts] L2_AUTO_DISAMBIGUATION:T8-AC1:RC-023", async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error("fetch must not be called during create_site_settings");
+    }) as typeof fetch;
+
+    try {
+      const site = {
+        id: "st_t8_brand",
+        name: "Acme Times",
+        domain: "acme.example",
+      };
+      const { db, settings } = makeFakeDb(site);
+      const env = buildEnv(db);
+
+      const result = await STEPS.create_site_settings({
+        env,
+        db,
+        job_id: "job_t8_brand",
+        site_id: site.id,
+        step_order: 4,
+      });
+      expect(result.status).toBe("completed");
+      expect(fetchCalls).toBe(0);
+
+      // The brand_tokens_json row IS seeded (side-effect table non-empty,
+      // T19 12-key contract intact).
+      const brandRow = settings.find(
+        (r) => r.site_id === site.id && r.key === "brand_tokens_json",
+      );
+      expect(brandRow).toBeTruthy();
+      const raw = brandRow?.value ?? null;
+
+      // The old dark-palette literal must NOT be seeded, in any form.
+      const DARK_PALETTE = {
+        primary: "#0F172A",
+        accent: "#38BDF8",
+        neutral: "#F8FAFC",
+      };
+      expect(raw).not.toBe(JSON.stringify(DARK_PALETTE));
+      // Defend against case/whitespace variants of the mismatched hexes.
+      const rawLower = (raw ?? "").toLowerCase();
+      expect(rawLower).not.toContain("0f172a");
+      expect(rawLower).not.toContain("38bdf8");
+
+      // Parse with the same null/empty-tolerant semantics the public reader
+      // (parseBrandTokensJson) uses: empty/invalid -> {} (defaults apply).
+      const parsed: Record<string, string> = (() => {
+        if (raw === null || raw.length === 0) return {};
+        try {
+          const v: unknown = JSON.parse(raw);
+          if (v === null || typeof v !== "object" || Array.isArray(v)) return {};
+          const out: Record<string, string> = {};
+          for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+            if (typeof val === "string") out[k] = val;
+          }
+          return out;
+        } catch {
+          return {};
+        }
+      })();
+
+      // Never deep-equals the dark palette.
+      expect(parsed).not.toEqual(DARK_PALETTE);
+
+      // Contract: parsed value is EITHER empty (design defaults apply) OR its
+      // primary colour is in the teal #1ba8c8 family.
+      const keys = Object.keys(parsed);
+      const isEmpty = keys.length === 0;
+      const primary = (parsed.primary ?? "").toLowerCase();
+      const TEAL_FAMILY = new Set([
+        "#1ba8c8",
+        "#0f8aa6",
+        "#d6eef5",
+        "#f0f9fc",
+      ]);
+      const primaryIsTeal = TEAL_FAMILY.has(primary);
+      expect(isEmpty || primaryIsTeal).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

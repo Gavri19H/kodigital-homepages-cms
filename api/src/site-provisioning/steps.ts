@@ -285,7 +285,15 @@ async function seedDefaultSiteSettings(
     ['logo_media_id', ''],
     ['tagline', `${name} — your trusted source.`],
     ['site_description', `${name} delivers timely, trustworthy reporting at ${domain}.`],
-    ['brand_tokens_json', JSON.stringify({ primary: '#0F172A', accent: '#38BDF8', neutral: '#F8FAFC' })],
+    // T8: seed brand_tokens_json EMPTY so the design-system defaults apply.
+    // The brand contract teal family (primary --tw-brand:#1ba8c8, Nunito) lives
+    // in public-css.ts; per-site overrides are written as --tw-* keys via the
+    // Settings tab. The previous slate/sky dark palette both mismatched the
+    // contract AND mapped to inert --primary/--accent/--neutral props the
+    // stylesheet never reads, so the homepage still rendered defaults — minus
+    // an unnecessary <style> block. Empty value keeps the row (T19 12-key
+    // contract) while parseBrandTokensJson('') -> {} -> no override.
+    ['brand_tokens_json', ''],
     ['robots_txt_content', 'User-agent: *\nAllow: /\n'],
     ['ads_txt_content', ''],
     ['custom_head_html', ''],
