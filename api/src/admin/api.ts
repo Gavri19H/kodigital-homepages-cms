@@ -277,6 +277,9 @@ api.post("/api/admin/categories", async (c) => {
     name?: unknown;
     slug?: unknown;
     vertical_ids?: unknown;
+    description?: unknown;
+    display_order?: unknown;
+    show_on_homepage?: unknown;
   }
   let body: CreateCategoryBody;
   try {
@@ -292,6 +295,33 @@ api.post("/api/admin/categories", async (c) => {
   if (!siteId) return c.json({ error: "site_id is required" }, 400);
   if (!name) return c.json({ error: "name is required" }, 400);
   if (!slug) return c.json({ error: "slug is required" }, 400);
+
+  // T17: optional editor fields ported from the legacy Categories tab.
+  // description is nullable; display_order uses ?? (0 is a valid order, not a
+  // falsy default); show_on_homepage is a 0/1 flag.
+  const description =
+    typeof body.description === "string" && body.description.trim().length > 0
+      ? body.description.trim()
+      : null;
+  let displayOrder = 0;
+  if (body.display_order !== undefined && body.display_order !== null) {
+    const parsedOrder =
+      typeof body.display_order === "number"
+        ? body.display_order
+        : typeof body.display_order === "string"
+          ? parseInt(body.display_order, 10)
+          : NaN;
+    if (!Number.isFinite(parsedOrder) || parsedOrder < 0) {
+      return c.json({ error: "Invalid display_order" }, 400);
+    }
+    displayOrder = parsedOrder;
+  }
+  const showOnHomepage =
+    body.show_on_homepage === 1 ||
+    body.show_on_homepage === true ||
+    body.show_on_homepage === "1"
+      ? 1
+      : 0;
 
   if (!Array.isArray(body.vertical_ids) || body.vertical_ids.length === 0) {
     return c.json(
@@ -359,10 +389,17 @@ api.post("/api/admin/categories", async (c) => {
 
   // INSERT category first (need its generated id for the join rows).
   const inserted = await c.env.DB.prepare(
-    "INSERT INTO categories (slug, name) VALUES (?, ?) RETURNING id, slug, name",
+    "INSERT INTO categories (slug, name, description, display_order, show_on_homepage) VALUES (?, ?, ?, ?, ?) RETURNING id, slug, name, description, display_order, show_on_homepage",
   )
-    .bind(slug, name)
-    .first<{ id: number; slug: string; name: string }>();
+    .bind(slug, name, description, displayOrder, showOnHomepage)
+    .first<{
+      id: number;
+      slug: string;
+      name: string;
+      description: string | null;
+      display_order: number;
+      show_on_homepage: number;
+    }>();
   if (inserted === null || inserted === undefined) {
     return c.json({ error: "Insert failed" }, 500);
   }
@@ -381,8 +418,8 @@ api.post("/api/admin/categories", async (c) => {
   }
   statements.push(
     c.env.DB.prepare(
-      "INSERT INTO site_categories (site_id, category_id, display_order) VALUES (?, ?, 0)",
-    ).bind(siteId, categoryId),
+      "INSERT INTO site_categories (site_id, category_id, display_order) VALUES (?, ?, ?)",
+    ).bind(siteId, categoryId, displayOrder),
   );
   await c.env.DB.batch(statements);
 
@@ -393,6 +430,9 @@ api.post("/api/admin/categories", async (c) => {
       slug: inserted.slug,
       name: inserted.name,
       vertical_ids: verticalIds,
+      description: inserted.description,
+      display_order: inserted.display_order,
+      show_on_homepage: inserted.show_on_homepage,
     },
     201,
   );
