@@ -271,4 +271,74 @@ describe("public-templates-home", () => {
     expect(doc).toContain("Nunito");
     expect(doc).toContain('href="/assets/public.css"');
   });
+
+  // T13-AC4 / RC-037 — render-output: renderHome via renderLayout emits the
+  // design home sections AND surfaces the preset-driven starter articles
+  // (the articles generate_15_homepage_articles writes via the preset-driven
+  // generators; preset SELECTION is asserted by T13-AC1). Here we prove the
+  // design home shell renders those articles' cards into the ordered sections.
+  // The file-path literal in the title is the deterministic binding for the
+  // required_evidence_plan parse_test_output route.
+  it("renderHome+renderLayout emit the design home sections surfacing preset-driven articles [api/test/public-templates-home.test.ts] L2_AUTO_DISAMBIGUATION:T13-AC4:RC-037", () => {
+    // A view model whose cards stand in for the preset-driven starter set.
+    const vm = makeVm({
+      hero: makeCard({
+        id: 200,
+        slug: "preset-hero",
+        title: "Preset-Driven Hero Story",
+        href: "/article/preset-hero",
+      }),
+      featured: [
+        makeCard({ id: 21, slug: "preset-f1", title: "Preset Feature One", href: "/article/preset-f1" }),
+        makeCard({ id: 22, slug: "preset-f2", title: "Preset Feature Two", href: "/article/preset-f2" }),
+        makeCard({ id: 23, slug: "preset-f3", title: "Preset Feature Three", href: "/article/preset-f3" }),
+      ],
+      // The Latest section renders vm.latest.slice(5) (cards after the
+      // trending bucket), so seed enough to surface at least one card.
+      latest: Array.from({ length: 7 }).map((_, i) =>
+        makeCard({
+          id: 31 + i,
+          slug: `preset-l${i + 1}`,
+          title: `Preset Latest ${i + 1}`,
+          href: `/article/preset-l${i + 1}`,
+        }),
+      ),
+    });
+
+    const body = renderHome({ vm });
+    const doc = renderLayout({
+      site: {
+        name: vm.site.name,
+        hostname: vm.site.hostname,
+        tagline: vm.site.tagline,
+        description: vm.site.description,
+        brandTokens: vm.site.brandTokens,
+        logoUrl: vm.site.logoUrl,
+      },
+      meta: {
+        title: vm.meta.title,
+        description: vm.meta.description,
+        canonicalUrl: vm.meta.canonicalUrl,
+      },
+      body,
+    });
+
+    // The 13 ordered design home-section markers survive into the document.
+    const seq = extractMarkerSequence(doc);
+    expect(seq).toEqual(CONTRACT_SECTION_SEQUENCE);
+    expect(new Set(seq).size).toBe(13);
+
+    // The preset-driven articles surface as real cards (title + /article href).
+    expect(doc).toContain("Preset-Driven Hero Story");
+    expect(doc).toContain('href="/article/preset-hero"');
+    expect(doc).toContain("Preset Feature One");
+    expect(doc).toContain('href="/article/preset-f1"');
+    // The Latest section renders cards after index 5 — card 6 surfaces there.
+    expect(doc).toContain("Preset Latest 6");
+    expect(doc).toContain('href="/article/preset-l6"');
+
+    // Still inside the design shell (Nunito + public stylesheet), no dead links.
+    expect(doc).toContain('href="/assets/public.css"');
+    expect(doc).not.toContain('href="#"');
+  });
 });

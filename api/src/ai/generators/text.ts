@@ -1,5 +1,10 @@
 import type { Env } from "../../env";
-import { getTextModel } from "../models";
+import {
+  SUPPORTED_TEXT_MODELS,
+  getTextModel,
+  type SupportedTextModel,
+} from "../models";
+import { resolveCategoryPreset } from "./preset-resolver";
 import {
   createOpenAIClient,
   type GenerateTextResult,
@@ -124,6 +129,24 @@ interface RunGeneratorArgs<TContext extends FallbackContextBase, TParsed> {
   // omitted the client uses its DEFAULT_TIMEOUT_MS (30s); the article path
   // passes a larger value so a full article is not aborted at 30s.
   timeoutMs?: number;
+  // T13/AC1: per-call model override. The preset-driven path passes the
+  // resolved preset's text_model here; runTextGenerator uses it for the
+  // logged + dispatched model. When omitted (or not a SUPPORTED_TEXT_MODELS
+  // id) the registry default getTextModel(env) is used.
+  modelOverride?: string;
+}
+
+// T13/AC1: the dispatched/logged model is the preset's text_model when it is
+// a supported id, otherwise the registry default. A preset never widens the
+// SUPPORTED_TEXT_MODELS RED-LINE — an unsupported override is ignored.
+function resolveModelForRun(env: Env, override?: string): SupportedTextModel {
+  if (
+    typeof override === "string" &&
+    (SUPPORTED_TEXT_MODELS as readonly string[]).includes(override)
+  ) {
+    return override as SupportedTextModel;
+  }
+  return getTextModel(env);
 }
 
 function newId(): string {
@@ -181,6 +204,7 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
     buildFallback,
     validate,
     timeoutMs,
+    modelOverride,
   } = args;
 
   const idempotency_key = computeIdempotencyKey(
@@ -211,7 +235,9 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
   }
 
   const client = args.client ?? createOpenAIClient(env);
-  const model = getTextModel(env);
+  // T13/AC1: honor the preset-driven model override (falls back to the
+  // registry default when absent / unsupported).
+  const model = resolveModelForRun(env, modelOverride);
 
   const startRow = await startGenerationLog(env, {
     id: existing?.id ?? newId(),
@@ -493,6 +519,15 @@ export async function generateStarterArticlePlan(
   input: GenerateStarterArticlePlanInput,
 ): Promise<GenerationResult<GeneratedStarterArticlePlan>> {
   // OPENAI_API_KEY-aware; fallback returns exactly 15 unique slugs.
+  // T13/AC1: the 'outline' use-case preset (if an active row exists) drives
+  // the prompt + model; with no preset we fall back to the deterministic
+  // builder prompt + registry-default model (no crash, no stub).
+  const preset = await resolveCategoryPreset(env, "outline", {
+    vertical: input.vertical,
+    audience: input.audience,
+    brand_name: input.brand_name,
+    site_id: input.site_id,
+  });
   return runTextGenerator<
     GenerateStarterArticlePlanInput,
     GeneratedStarterArticlePlan
@@ -503,7 +538,8 @@ export async function generateStarterArticlePlan(
     target_type: "article_plan",
     target_id: input.site_id,
     context: input,
-    prompt: buildStarterArticlePlanPrompt(input),
+    prompt: preset?.prompt ?? buildStarterArticlePlanPrompt(input),
+    modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(
         "starter-article-plan",
@@ -560,6 +596,18 @@ export async function generateStarterArticle(
   // OPENAI_API_KEY-aware. idempotency_key is namespaced by (site_id, slug)
   // so generateStarterArticle('fallback-article-1', ...) called twice
   // returns the same ai_generation_id.
+  // T13/AC1: the 'content' use-case preset (if an active row exists) drives
+  // the prompt + model; with no preset we fall back to the deterministic
+  // builder prompt + registry-default model (no crash, no stub).
+  const preset = await resolveCategoryPreset(env, "content", {
+    vertical: input.vertical,
+    audience: input.audience,
+    brand_name: input.brand_name,
+    title: input.title,
+    summary: input.summary,
+    slug: input.slug,
+    site_id: input.site_id,
+  });
   return runTextGenerator<GenerateStarterArticleInput, GeneratedArticle>({
     env,
     task: "starter-article",
@@ -570,7 +618,8 @@ export async function generateStarterArticle(
     idempotency_suffix: input.slug,
     // T11/AC1: full articles need more than the 30s DEFAULT_TIMEOUT_MS.
     timeoutMs: STARTER_ARTICLE_TIMEOUT_MS,
-    prompt: buildStarterArticlePrompt(input),
+    prompt: preset?.prompt ?? buildStarterArticlePrompt(input),
+    modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(
         "starter-article",

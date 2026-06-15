@@ -4,8 +4,27 @@ import {
   fallbackSiteTagline,
   fallbackSiteDescription,
 } from "../src/ai/generators/fallback";
+import {
+  generateStarterArticle,
+  generateStarterArticlePlan,
+} from "../src/ai/generators/text";
 import type { Env } from "../src/env";
+import type { OpenAIClient } from "../src/ai/openai-client";
 import type { AiGenerationRow } from "../src/ai/generation-log";
+
+// T13: a seeded prompt_presets row, as read by
+// api/src/ai/generators/preset-resolver.ts (category-scoped lookup).
+interface PresetLookupRow {
+  id: number;
+  slug: string;
+  category: string;
+  is_active: number;
+  is_system: number;
+  prompt_template: string | null;
+  system_prompt_template: string | null;
+  user_prompt_template: string | null;
+  text_model: string | null;
+}
 
 // T9 / Phase 6: provisioning steps now call the T7/T8 AI generators with
 // deterministic fallback. The behavioural ACs we assert here:
@@ -80,6 +99,10 @@ interface FakeStore {
   next_article_id: number;
   next_media_id: number;
   insertCounts: Record<string, number>;
+  // T13: seeded preset rows + a spy capturing every category the
+  // preset-resolver queried (proves category-scoped lookup).
+  prompt_presets: PresetLookupRow[];
+  presetCategoriesQueried: string[];
 }
 
 function makeStore(site: SiteRow): FakeStore {
@@ -93,6 +116,8 @@ function makeStore(site: SiteRow): FakeStore {
     next_article_id: 1,
     next_media_id: 1,
     insertCounts: {},
+    prompt_presets: [],
+    presetCategoriesQueried: [],
   };
 }
 
@@ -119,6 +144,16 @@ function makeFakeDb(store: FakeStore): D1Database {
             const [id] = captured as [string];
             const row = store.sites.find((s) => s.id === id);
             return (row ? { id: row.id, name: row.name, domain: row.domain } : null) as unknown as T | null;
+          }
+          // T13: category-scoped prompt_presets lookup (preset-resolver).
+          if (sql.indexOf("FROM prompt_presets") >= 0 && sql.indexOf("category = ?") >= 0) {
+            const [category] = captured as [string];
+            store.presetCategoriesQueried.push(category);
+            const row =
+              store.prompt_presets.find(
+                (p) => p.category === category && p.is_active === 1,
+              ) ?? null;
+            return (row ?? null) as unknown as T | null;
           }
           // SELECT * from ai_generations by idempotency_key (full T6 shape)
           if (sql.indexOf("FROM ai_generations WHERE idempotency_key = ?") >= 0) {
@@ -642,6 +677,140 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       (r) => r.task === "feature-image",
     );
     expect(featureImageRows.length).toBe(3);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  // T13-AC1 / RC-035: presets drive generation. generateStarterArticlePlan
+  // resolves the 'outline' preset and generateStarterArticle resolves the
+  // 'content' preset (category-scoped lookup); each uses the preset's prompt
+  // (interpolated) and its text_model. With NO matching preset the generator
+  // falls back to the deterministic prompt builder — no crash, no stub. The
+  // file-path literal in the title is the deterministic binding for the
+  // required_evidence_plan parse_test_output route.
+  it("generation looks up a preset by category and uses its prompt + model; no preset → builder fallback [api/test/site-provisioning-ai-integration.test.ts] L2_AUTO_DISAMBIGUATION:T13-AC1:RC-035", async () => {
+    // A capturing client (WITH an API key) records the exact prompt the
+    // generator dispatches; the returned "{}" routes through the parser's
+    // deterministic fallback body so the run succeeds.
+    function capturingClient(prompts: string[]): OpenAIClient {
+      return {
+        hasApiKey: () => true,
+        async generateText(opts) {
+          prompts.push(opts.prompt);
+          return { text: "{}", model: "gpt-5.5", retries: 0, status: 200 };
+        },
+        async generateImage() {
+          return { skipped_no_api_key: true };
+        },
+      };
+    }
+
+    // --- 'content' preset drives generateStarterArticle ---------------------
+    const store = makeStore({
+      id: "st_t13",
+      name: "Acme Daily",
+      domain: "acme.example",
+      vertical_slug: "personal-finance",
+    });
+    store.prompt_presets.push({
+      id: 501,
+      slug: "content-preset",
+      category: "content",
+      is_active: 1,
+      is_system: 1,
+      prompt_template: "FLAT-CONTENT-FALLBACK",
+      system_prompt_template: "PRESET-CONTENT-SYS for {{brand_name}}",
+      user_prompt_template: "PRESET-CONTENT-USER write {{title}} for {{vertical}}",
+      text_model: "gpt-5.5",
+    });
+    const env = buildEnv(makeFakeDb(store));
+    const contentPrompts: string[] = [];
+    const article = await generateStarterArticle(env, {
+      site_id: "st_t13",
+      vertical: "personal finance",
+      brand_name: "Acme Daily",
+      slug: "budgeting-basics",
+      title: "Budgeting Basics",
+      summary: "How to build a first budget.",
+      client: capturingClient(contentPrompts),
+    });
+    // Category-scoped lookup happened for 'content'.
+    expect(store.presetCategoriesQueried).toContain("content");
+    // The dispatched prompt is the preset's System+User prompt, interpolated
+    // with the article context — NOT the deterministic article builder.
+    expect(contentPrompts).toHaveLength(1);
+    expect(contentPrompts[0]).toContain("PRESET-CONTENT-SYS for Acme Daily");
+    expect(contentPrompts[0]).toContain(
+      "PRESET-CONTENT-USER write Budgeting Basics for personal finance",
+    );
+    expect(contentPrompts[0]).not.toContain(
+      "Output strict JSON matching GeneratedArticle shape",
+    );
+    // The logged generation row carries the preset's text_model.
+    const articleRow = Array.from(store.ai_generations.values()).find(
+      (r) => r.task === "starter-article",
+    );
+    expect(articleRow?.model).toBe("gpt-5.5");
+
+    // --- 'outline' preset drives generateStarterArticlePlan -----------------
+    const store2 = makeStore({
+      id: "st_t13b",
+      name: "Acme Daily",
+      domain: "acme.example",
+      vertical_slug: "personal-finance",
+    });
+    store2.prompt_presets.push({
+      id: 502,
+      slug: "outline-preset",
+      category: "outline",
+      is_active: 1,
+      is_system: 1,
+      prompt_template: "FLAT-OUTLINE-FALLBACK",
+      system_prompt_template: null,
+      user_prompt_template: "PRESET-OUTLINE plan ideas for {{vertical}} at {{brand_name}}",
+      text_model: "gpt-5.5",
+    });
+    const env2 = buildEnv(makeFakeDb(store2));
+    const outlinePrompts: string[] = [];
+    await generateStarterArticlePlan(env2, {
+      site_id: "st_t13b",
+      vertical: "personal finance",
+      brand_name: "Acme Daily",
+      client: capturingClient(outlinePrompts),
+    });
+    expect(store2.presetCategoriesQueried).toContain("outline");
+    expect(outlinePrompts[0]).toContain(
+      "PRESET-OUTLINE plan ideas for personal finance at Acme Daily",
+    );
+
+    // --- no matching preset → deterministic builder fallback (no crash) -----
+    const store3 = makeStore({
+      id: "st_t13c",
+      name: "Acme Daily",
+      domain: "acme.example",
+      vertical_slug: "personal-finance",
+    });
+    // prompt_presets intentionally empty.
+    const env3 = buildEnv(makeFakeDb(store3));
+    const fallbackPrompts: string[] = [];
+    const fallbackArticle = await generateStarterArticle(env3, {
+      site_id: "st_t13c",
+      vertical: "personal finance",
+      brand_name: "Acme Daily",
+      slug: "no-preset-article",
+      title: "No Preset Article",
+      client: capturingClient(fallbackPrompts),
+    });
+    // The category was queried, found nothing, and the builder prompt was used.
+    expect(store3.presetCategoriesQueried).toContain("content");
+    expect(fallbackPrompts[0]).toContain(
+      "Output strict JSON matching GeneratedArticle shape",
+    );
+    expect(fallbackPrompts[0]).not.toContain("PRESET-CONTENT");
+    // No crash, no stub: a real GeneratedArticle came back.
+    expect(fallbackArticle.parsed.slug).toBe("no-preset-article");
+    expect(fallbackArticle.parsed.sections.length).toBeGreaterThanOrEqual(3);
+
+    // No real network egress in any branch (capturing client only).
     expect(fetchCalls).toEqual([]);
   });
 });
