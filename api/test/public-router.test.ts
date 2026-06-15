@@ -565,6 +565,132 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
   });
 });
 
+// T19 (rescue-3): public serving + indexing MUST be gated on the SITE being
+// active. The rescue-2 failure was a site stuck at status='draft' (provisioning
+// never reached the activate step) that was STILL publicly served and
+// indexable — resolveSiteByHostname filtered only on the DOMAIN status
+// (d.status='active'), so a draft site whose domain row was active resolved to
+// a live SiteContext. The fix adds `AND s.status = 'active'` to that single
+// resolver query: a non-active site resolves to null and
+// publicSiteContextMiddleware 404s it. Because router.use("*", ...) routes
+// EVERY public path (incl. /sitemap.xml + /robots.txt) through that middleware,
+// a draft site is neither served nor indexable.
+//
+// makeStatusGatedHomeDb emulates D1 evaluating the resolver WHERE clause: the
+// sites row exists with the seeded status, and the row satisfies the query only
+// when the SQL gates on s.status='active' AND that status is 'active'. Without
+// the fix the clause is absent, the draft row would resolve, and the draft
+// assertion (404) would FAIL — so the test discriminates the fix, it does not
+// merely assert the desired outcome. The `api/test/public-router.test.ts`
+// literal in the title is the deterministic binding for the parse_test_output
+// evidence route (RC-054 / T19-AC1).
+function makeStatusGatedHomeDb(siteStatus: string): D1Database {
+  return {
+    prepare(sql: string) {
+      let captured: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          captured = args;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          if (sql.startsWith("SELECT s.id AS site_id")) {
+            const host = String(captured[0] ?? "").toLowerCase();
+            if (host !== TENANT_HOST) return null;
+            // Emulate the D1 WHERE filter on the SITE status: when the
+            // resolver query gates on s.status='active' (the T19 fix), a
+            // non-active site row does not satisfy the clause → no row.
+            if (sql.includes("s.status = 'active'") && siteStatus !== "active") {
+              return null;
+            }
+            return {
+              site_id: HOME_SITE_ID,
+              hostname: TENANT_HOST,
+              vertical_slug: "news",
+              status: siteStatus,
+              content_version: 7,
+              settings_version: 1,
+            } as unknown as T;
+          }
+          return null;
+        },
+        async all<T = unknown>() {
+          if (sql.includes("FROM articles a")) {
+            return { results: HOME_ARTICLES as unknown as T[], success: true, meta: {} };
+          }
+          if (sql.includes("FROM categories c")) {
+            return { results: HOME_CATEGORIES as unknown as T[], success: true, meta: {} };
+          }
+          if (sql.includes("FROM site_settings")) {
+            return { results: HOME_SETTINGS as unknown as T[], success: true, meta: {} };
+          }
+          return { results: [] as T[], success: true, meta: {} };
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
+describe("public-router GET / site-status gating (T19 rescue-3)", () => {
+  it("T19.AC1 GET / on a draft (non-active) site -> 404 not served/indexable; an active site -> 200 served [api/test/public-router.test.ts]", async () => {
+    // Draft site: provisioning never flipped sites.status to 'active'. The
+    // resolver gate excludes it → middleware 404s → never publicly served,
+    // therefore never indexable.
+    const draftRes = await makeApp().request(
+      `https://${TENANT_HOST}/`,
+      {},
+      makeEnv(makeStatusGatedHomeDb("draft")),
+    );
+    expect(draftRes.status).toBe(404);
+    const draftBody = await draftRes.text();
+    // The 404 is the safe Not-Found payload, NOT a rendered homepage: none of
+    // the design-shell / home-section markers leak for a draft site.
+    expect(draftBody).not.toContain("home-section:");
+    expect(draftBody).not.toContain('href="/assets/public.css"');
+
+    // Active site: same fixture, status='active' → resolves → homepage served.
+    const activeRes = await makeApp().request(
+      `https://${TENANT_HOST}/`,
+      {},
+      makeEnv(makeStatusGatedHomeDb("active")),
+    );
+    expect(activeRes.status).toBe(200);
+    const activeBody = await activeRes.text();
+    expect(activeBody.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+    expect(activeBody).toContain('href="/assets/public.css"');
+  });
+
+  it("draft site 404s the indexing surfaces too — /sitemap.xml and /robots.txt [api/test/public-router.test.ts]", async () => {
+    // Every public route flows through publicSiteContextMiddleware, so the
+    // site-status gate also withholds the indexing surfaces from a draft site.
+    for (const path of ["/sitemap.xml", "/robots.txt"]) {
+      const res = await makeApp().request(
+        `https://${TENANT_HOST}${path}`,
+        {},
+        makeEnv(makeStatusGatedHomeDb("draft")),
+      );
+      expect(res.status).toBe(404);
+    }
+    // Active site serves both indexing surfaces.
+    const sitemap = await makeApp().request(
+      `https://${TENANT_HOST}/sitemap.xml`,
+      {},
+      makeEnv(makeStatusGatedHomeDb("active")),
+    );
+    expect(sitemap.status).toBe(200);
+    const robots = await makeApp().request(
+      `https://${TENANT_HOST}/robots.txt`,
+      {},
+      makeEnv(makeStatusGatedHomeDb("active")),
+    );
+    expect(robots.status).toBe(200);
+  });
+});
+
 // T2 (rescue-3): the LIVE GET /article/:slug route must compose the design
 // article shell (buildArticleViewModel + renderArticle + renderLayout) through
 // the db-fed renderArticleHtml — the rescue-2 failure was a route that served
