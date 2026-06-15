@@ -84,3 +84,83 @@ describe("admin AI assistant panel template (T28 [B8])", () => {
     expect(scripts.match(/\blet\b/g) ?? []).toHaveLength(0);
   });
 });
+
+// T14.AC1 (behavioral): the editor handler emits the FULL legacy AI assistant
+// panel — the four quick actions, the preset selector with variables +
+// prompt-preview, tone/length controls, and the structured auto-fill wiring —
+// not the prior stub. Every assertion below fails on the stub, so a green run
+// proves the port actually happened in the EMITTED HTML.
+describe("article editor: full legacy AI assistant panel (T14.AC1)", () => {
+  const editorHtml = () => articleFormPage(null, SITES, CATEGORIES, {});
+
+  it("emits the four quick-action handlers (outline, draft, rewrite, seo_meta)", () => {
+    const html = editorHtml();
+    for (const action of ["outline", "draft", "rewrite", "seo_meta"]) {
+      expect(html).toContain(`data-quick-action="${action}"`);
+    }
+    // Visible labels port the legacy quick-action panel.
+    expect(html).toContain(">Outline<");
+    expect(html).toContain(">Draft<");
+    expect(html).toContain(">Rewrite<");
+    expect(html).toContain(">SEO Meta<");
+    // The handlers fire the real chat endpoint (no orphaned buttons).
+    const scripts = extractInlineScripts(html);
+    expect(scripts).toContain("data-quick-action");
+    expect(scripts).toContain("buildQuickPrompt");
+    expect(scripts).toContain("/api/admin/ai/chat");
+  });
+
+  it("preset selector renders {{variable}} chips + a live interpolated prompt-preview", () => {
+    const html = editorHtml();
+    expect(html).toContain('id="ai-preset-select"');
+    expect(html).toContain('id="ai-preset-variables"');
+    expect(html).toContain('id="ai-preset-preview"');
+    const scripts = extractInlineScripts(html);
+    // auto-detect {{token}} variables, render an input per variable, and
+    // interpolate them into the preview on change/input.
+    expect(scripts).toContain("detectTokens");
+    expect(scripts).toContain("interpolate");
+    expect(scripts).toContain("renderPreview");
+    expect(scripts).toContain("data-var-name");
+    // the preview is driven from the preset's system/user prompt split.
+    expect(scripts).toContain("system_prompt_template");
+    expect(scripts).toContain("user_prompt_template");
+  });
+
+  it("renders tone and length controls", () => {
+    const html = editorHtml();
+    expect(html).toContain('id="ai-tone"');
+    expect(html).toContain('id="ai-length"');
+    expect(html).toContain(">Tone<");
+    expect(html).toContain(">Length<");
+    // controls feed the quick-action prompt builder.
+    const scripts = extractInlineScripts(html);
+    expect(scripts).toContain("toneEl");
+    expect(scripts).toContain("lengthEl");
+  });
+
+  it("ai-results wiring parses structured JSON and auto-fills title/excerpt/meta/author", () => {
+    const html = editorHtml();
+    expect(html).toContain('id="ai-results"');
+    const scripts = extractInlineScripts(html);
+    // structured JSON reply is parsed…
+    expect(scripts).toContain("extractStructured");
+    expect(scripts).toContain("JSON.parse");
+    expect(scripts).toContain("applyStructured");
+    // …and each declared target field is filled from it.
+    expect(scripts).toContain("#article-title");
+    expect(scripts).toContain("#article-excerpt");
+    expect(scripts).toContain("#article-seo-description");
+    expect(scripts).toContain('[name="author_name"]');
+  });
+
+  it("the {{token}} detector regex is correctly double-escaped in the ES5 string", () => {
+    // The script is exported as a template literal, so `\\{` emits `\{`; a
+    // missed escape would collapse to a bare `{{` and silently break variable
+    // detection in the browser. Assert the emitted regex source carries the
+    // escaped brace metacharacters (deterministic, no dynamic eval).
+    expect(aiAssistantScripts).toContain("TOKEN_RE");
+    expect(aiAssistantScripts).toContain("\\{\\{");
+    expect(aiAssistantScripts).toContain("\\}\\}");
+  });
+});
