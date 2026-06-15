@@ -235,6 +235,11 @@ adminUi.get('/admin/presets/:id', async (c) => {
         is_active: row.is_active,
         text_model: row.text_model,
         image_model: row.image_model,
+        name: row.name,
+        description: row.description,
+        system_prompt_template: row.system_prompt_template,
+        user_prompt_template: row.user_prompt_template,
+        content_mapping: row.content_mapping,
       }
     : null;
   return c.html(presetFormPage(preset, branding(c)));
