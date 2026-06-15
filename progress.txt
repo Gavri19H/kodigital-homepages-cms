@@ -9720,3 +9720,104 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
   - File upload for the hero card reuses POST /admin/media (multipart 'file') -> {id,
     storage_key}; same endpoint the block editor uses.
 ---
+
+## 2026-06-15 - T14c (Article editor: publish workflow + version history/restore)
+- sources: T14c | RC: RC-041, RC-042 | execution story: T14c
+- What was implemented:
+  - Ported the legacy editor publish-workflow panel + version-history/restore
+    into the article editor (edit mode), matching the reference. New modules
+    api/src/admin/templates/workflow-panel.ts (card + version-history modal
+    markup + styles) and api/src/admin/templates/workflow-panel-script.ts
+    (ES5 inline script), mirroring the ai-panel.ts / hero-image.ts
+    decomposition. Composed into articleFormPage (articles.ts) below the hero
+    image card.
+  - Publish workflow panel: five transition actions, each wired to its admin
+    endpoint (workflow-api.ts AUTHORITATIVE): Publish/Unpublish/Archive ->
+    POST /api/admin/articles/:id/{publish|unpublish|archive}; Schedule ->
+    POST /api/admin/articles/:id/schedule {scheduled_at} (datetime-local ->
+    epoch seconds; input name="scheduled_at" == endpoint body key); Cancel
+    schedule -> POST /api/admin/articles/:id/cancel-schedule. Each status-
+    mutating action reads the JSON 2xx response and reflects the new status
+    into the badge (#workflow-status-value). Card-level error + status regions.
+  - Version history modal: Version history button opens the modal, which GETs
+    /api/admin/articles/:id/versions and renders each version row (vN, status,
+    change_summary, created_by) with a Restore button. Restore -> POST
+    /api/admin/articles/:id/versions/:versionId/restore, then reloads the
+    editor so the restored content_json is shown. Modal-level error + status.
+  - Panel is OMITTED for a brand-new (unsaved) article: the transitions and
+    version endpoints need a persisted article id, matching the legacy editor.
+    renderWorkflowPanel(isEdit ? a.id : "", a.status) returns "" in new mode.
+  - articleFormPage now ships workflowPanelStyles + workflowPanelScripts.
+  - Test: api/test/editor.test.ts +5 render-output assertions (edit-mode panel
+    + all five data-workflow-action controls wired to /api/admin/articles/ +
+    scheduled_at wire; version-history modal + restore wired to /versions +
+    /restore + reload; AC2 panel composed inside #article-form with status
+    badge; panel omitted in new mode; workflow-panel inline script ES5-only).
+    No 'Phase 1 admin shell' marker.
+- Files changed: api/src/admin/templates/workflow-panel.ts (new),
+  api/src/admin/templates/workflow-panel-script.ts (new),
+  api/src/admin/templates/articles.ts, api/test/editor.test.ts
+- Self-check results:
+  - File sizes: workflow-panel.ts 121, workflow-panel-script.ts 203 (inline
+    ES5 script; == hero-image-script.ts 282 / ai-panel-script.ts pattern),
+    articles.ts 530 (template aggregator; was 520 after T14b, +10 wiring),
+    editor.test.ts 438 — PASS. Feature decomposed into own modules per
+    GUARDRAILS L-053 intent rather than inlining into articles.ts.
+  - Secret scan: PASS (no hardcoded secrets in changed files)
+  - Error handling: PASS (every fetch has a non-2xx branch + .catch; the
+    workflow endpoints already map errors to 400/404/409/500 in workflow-api.ts)
+  - Migration execution: N/A (no DB schema change; article_versions table +
+    workflow/version endpoints pre-exist from T26)
+  - Parameterized queries: N/A (no SQL in changed files)
+  - Forbidden inline tokens (.exec( / new Function(): NONE in either new module
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run test/editor.test.ts -> 33 passed (incl. 5 new T14c), exit 0
+  - cd api && npx vitest run -> 124 files / 1133 tests passed (was 124/1128; +5, no regressions)
+- Q3 story_quality_checks (run_story_quality_checks.py, correct worktree-root):
+  PASS — checks_executed=4, receipts written to story_execution_receipts.jsonl.
+- Evidence routing (D13 RC-041, RC-042):
+  - Develop-legal proof BUILT and PASSING. Verbatim runner_command_rendered
+    mis-points --worktree-root at the PROJECT ROOT (lacks T14c) -> ran the OLD
+    editor.test.ts (T14c absent from observed names). Applied the T12..T14b
+    diagnostic: re-ran with --worktree-root=<actual worktree>. Both RC commands
+    then run against the worktree (cwd=worktree/api) and EXIT 0:
+    * RC-041 (T14c-AC1): route admin-article-versions.test.ts -> 5/5 PASS,
+      exit 0 (proves the version list/get/restore endpoints the panel wires to,
+      T26.AC2). Runner STATUS=FAIL only because the sidecar
+      expected_test_name_regex='api/test/admin\-article\-versions\.test\.ts'
+      carries an api/ prefix that vitest under cwd=api never emits (it reports
+      'test/admin-article-versions.test.ts > ...'). Identical api/-prefix-vs-
+      cwd=api defect documented on T13 + T14b/RC-040.
+    * RC-042 (T14c-AC2): route editor.test.ts -> 33/33 PASS incl. the 5 new
+      T14c render-output tests, exit 0. Runner STATUS=FAIL only because the
+      parser_observation_pattern is a synthetic 'L2_AUTO_DISAMBIGUATION:
+      T14c-AC2:RC-042' token that matches no real test name.
+  - EVIDENCE_ROUTE_EXHAUSTED: T14c/RC-041 + T14c/RC-042 — underlying proof is
+    correct and PASSING (5/5 and 33/33, both exit 0). The only blockers are the
+    canonical required_evidence_plan.json parser/regex config mismatches
+    (canonical-writer-only; Ralph editing the command/parser/regex would be a
+    self-cert / write-boundary violation). Re-running verbatim re-emits the
+    identical defect; re-implementing is futile (code + tests green).
+    Finalize/reconcile resolves against the raw exit-0 receipts. Did NOT tamper
+    with required_evidence_plan.json and did NOT game test names to embed the
+    path/disambiguation regex.
+- Learnings for future iterations:
+  - The publish-workflow + version endpoints already existed (api/src/admin/
+    workflow-api.ts, T26 [B5]); T14c is purely the editor UI port that wires
+    the controls to them. Use workflow-api.ts as the AUTHORITATIVE endpoint
+    contract (path segments == data-workflow-action values).
+  - schedule expects scheduled_at as EPOCH SECONDS (workflow-api.ts parses
+    number|string). The datetime-local input converts via Math.floor(new
+    Date(value).getTime()/1000) in the browser inline script (new Date() is
+    fine in the shipped ES5 string — the Date.now/new Date ban is only for the
+    a2z workflow-engine script, not browser inline scripts).
+  - getAdminArticle (data.ts) already returns status + id, so the panel needs
+    no new SELECT; scheduled_at is NOT selected but the panel does not need it
+    (the buttons are static; status reflects post-action from the response).
+  - Both mission-wide evidence-plan defects persist on T14c unchanged:
+    (1) runner_command_rendered --worktree-root renders to <project_root>;
+    (2) one RC test route uses an api/-prefixed name regex under cwd=api;
+    (3) one RC uses an L2_AUTO_DISAMBIGUATION synthetic pattern. Raw exit-0
+    receipts are authoritative for finalize.
+---
