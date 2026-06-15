@@ -170,6 +170,9 @@ jobs:
       #   - 0011_phase9_prompt_presets_model_columns.sql
       #   - 0012_phase9_pages_admin_crud_columns.sql
       #   - 0013_phase10_media_admin_crud_columns.sql
+      #   - 0014_phase9_prompt_presets_reference_columns.sql
+      #   - 0016_phase9_seed_default_prompt_presets.sql
+      #   - 0017_phase11_articles_author_bio.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 

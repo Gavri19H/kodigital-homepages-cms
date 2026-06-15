@@ -707,7 +707,7 @@ adminApi.patch("/domains/:id", updateDomainHandler);
 //     fields applied. Updatable fields are 'site_id', 'title', 'slug',
 //     'content_json', 'category_id', 'status', 'homepage_section',
 //     'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
-//     'seo_title', 'seo_description', 'author_name'.
+//     'seo_title', 'seo_description', 'author_name', 'author_bio'.
 ((api: typeof adminApi) => {
 api.patch("/articles/:id", async (c) => {
   const idRaw = c.req.param("id");
@@ -731,6 +731,7 @@ api.patch("/articles/:id", async (c) => {
     seo_title?: unknown;
     seo_description?: unknown;
     author_name?: unknown;
+    author_bio?: unknown;
   }
   let body: PatchArticleBody;
   try {
@@ -856,7 +857,7 @@ api.patch("/articles/:id", async (c) => {
   // each one is present in this file: 'site_id', 'title', 'slug',
   // 'content_json', 'category_id', 'status', 'homepage_section',
   // 'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
-  // 'seo_title', 'seo_description', 'author_name'.
+  // 'seo_title', 'seo_description', 'author_name', 'author_bio'.
   const setClauses: string[] = [];
   const bindings: unknown[] = [];
 
@@ -936,6 +937,10 @@ api.patch("/articles/:id", async (c) => {
   if (typeof body.author_name === "string" || body.author_name === null) {
     setClauses.push("author_name = ?");
     bindings.push(body.author_name);
+  }
+  if (typeof body.author_bio === "string" || body.author_bio === null) {
+    setClauses.push("author_bio = ?");
+    bindings.push(body.author_bio);
   }
 
   if (setClauses.length === 0) {

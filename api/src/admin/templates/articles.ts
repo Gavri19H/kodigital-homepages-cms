@@ -85,6 +85,8 @@ export interface ArticleFormValues {
   seo_title?: string;
   seo_description?: string;
   published_at?: string | null;
+  author_name?: string | null;
+  author_bio?: string | null;
 }
 
 export interface ArticlesBranding {
@@ -341,7 +343,47 @@ function boolAttr(v: boolean | number | undefined): string {
   return v ? " checked" : "";
 }
 
-function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArray<SiteOption>, categories: ReadonlyArray<CategoryOption>): string {
+// T14d: Author card. Author Name pre-fills from the signed-in admin's email
+// in NEW mode (a convenience default — NOT auto-stored: it persists only when
+// the editor submits the form, which carries author_name in its JSON body). In
+// EDIT mode it shows the article's stored author_name. author_bio is the
+// optional byline blurb (DB column added in migration 0017). Field names are
+// the DB columns / handler-read keys (author_name, author_bio) — no rename.
+function renderAuthorCard(a: ArticleFormValues, isEdit: boolean, branding: ArticlesBranding): string {
+  const authorNameVal = escapeHtml(
+    a.author_name ?? (isEdit ? "" : branding.userEmail ?? ""),
+  );
+  const authorBioVal = escapeHtml(a.author_bio ?? "");
+  return `<div class="card">
+    <div class="card-header"><h3 class="card-title">Author</h3></div>
+    <div class="form-group">
+      <label for="article-author-name" class="form-label">Author name</label>
+      <input id="article-author-name" name="author_name" type="text" class="form-input" value="${authorNameVal}" />
+    </div>
+    <div class="form-group">
+      <label for="article-author-bio" class="form-label">Author bio</label>
+      <textarea id="article-author-bio" name="author_bio" class="form-textarea" rows="3">${authorBioVal}</textarea>
+    </div>
+  </div>`;
+}
+
+// T14d: clean Display Options card. is_featured surfaces the article as the
+// homepage hero; is_trending flags it for the trending rail. Field names map
+// 1:1 to the DB columns / PATCH allow-list (is_featured, is_trending) — the
+// clean labels replace the stripped "Featured"/"Trending" checkbox labels.
+function renderDisplayOptions(a: ArticleFormValues): string {
+  return `<div class="card">
+    <div class="card-header"><h3 class="card-title">Display Options</h3></div>
+    <div class="form-group">
+      <label for="article-featured" class="form-label"><input id="article-featured" name="is_featured" type="checkbox" value="1"${boolAttr(a.is_featured)} /> Homepage hero</label>
+    </div>
+    <div class="form-group">
+      <label for="article-trending" class="form-label"><input id="article-trending" name="is_trending" type="checkbox" value="1"${boolAttr(a.is_trending)} /> Trending</label>
+    </div>
+  </div>`;
+}
+
+function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArray<SiteOption>, categories: ReadonlyArray<CategoryOption>, branding: ArticlesBranding = {}): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const a: ArticleFormValues = article ?? {};
   const formMode = isEdit ? "edit" : "new";
@@ -392,6 +434,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <textarea id="article-content" name="content_json" class="form-textarea" rows="8">${contentJsonVal}</textarea>
     </div>
   </div>
+  ${renderAuthorCard(a, isEdit, branding)}
   <div class="card">
     <div class="card-header"><h3 class="card-title">Homepage placement</h3></div>
     <div class="form-group">
@@ -405,16 +448,11 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <input id="article-homepage-rank" name="homepage_rank" type="number" min="0" step="1" class="form-input" value="${escapeHtml(homepageRankVal)}" />
     </div>
     <div class="form-group">
-      <label for="article-featured" class="form-label"><input id="article-featured" name="is_featured" type="checkbox" value="1"${boolAttr(a.is_featured)} /> Featured</label>
-    </div>
-    <div class="form-group">
-      <label for="article-trending" class="form-label"><input id="article-trending" name="is_trending" type="checkbox" value="1"${boolAttr(a.is_trending)} /> Trending</label>
-    </div>
-    <div class="form-group">
       <label for="article-published-at" class="form-label">Published at</label>
       <input id="article-published-at" name="published_at" type="text" class="form-input" value="${publishedAtVal}" placeholder="YYYY-MM-DDTHH:MM:SSZ" />
     </div>
   </div>
+  ${renderDisplayOptions(a)}
   <div class="card">
     <div class="card-header"><h3 class="card-title">SEO</h3></div>
     <div class="form-group">
@@ -483,7 +521,9 @@ const ARTICLE_FORM_SCRIPT = `
       featured_image_id: fd.get('featured_image_id') ? Number(fd.get('featured_image_id')) : null,
       seo_title: fd.get('seo_title') || '',
       seo_description: fd.get('seo_description') || '',
-      published_at: fd.get('published_at') || null
+      published_at: fd.get('published_at') || null,
+      author_name: fd.get('author_name') || '',
+      author_bio: fd.get('author_bio') || ''
     };
     var url = mode === 'edit' ? '/api/admin/articles/' + articleId : '/api/admin/articles';
     var method = mode === 'edit' ? 'PATCH' : 'POST';
@@ -513,7 +553,7 @@ export function articleFormPage(
 ): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const title = isEdit ? "Edit Article" : "New Article";
-  const content = renderArticleForm(article, sites, categories) + renderAIAssistantPanel();
+  const content = renderArticleForm(article, sites, categories, branding) + renderAIAssistantPanel();
   return adminLayout({
     title,
     activePath: "/admin/articles",

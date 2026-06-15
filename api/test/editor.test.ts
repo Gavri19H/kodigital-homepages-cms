@@ -436,3 +436,67 @@ describe("article editor: publish workflow + version history/restore (T14c)", ()
     expect(wfScript.match(/\blet\b/g) ?? []).toHaveLength(0);
   });
 });
+
+describe("article editor: author Name/Bio + clean Display Options (T14d)", () => {
+  const sites = [{ id: "site-1", name: "Demo Site" }];
+  const newHtml = articleFormPage(null, sites, [], {
+    userEmail: "editor@kodigital.io",
+  });
+  const editHtml = articleFormPage(
+    {
+      id: "42",
+      title: "Existing",
+      site_id: "site-1",
+      author_name: "Jamie Reporter",
+      author_bio: "Covers wellness.",
+      is_featured: true,
+      is_trending: false,
+    },
+    sites,
+    [],
+    { userEmail: "editor@kodigital.io" },
+  );
+
+  it("BEHAVIORAL T14d-AC1: new-mode form emits author_name pre-filled from the admin email and an author_bio field", () => {
+    // author_name input exists and pre-fills from the signed-in admin email
+    // (convenience default — NOT auto-stored; persists only on submit).
+    expect(newHtml).toContain(
+      'name="author_name" type="text" class="form-input" value="editor@kodigital.io"',
+    );
+    // author_bio textarea exists (wire name == DB column author_bio).
+    expect(newHtml).toContain('name="author_bio"');
+    // No placeholder marker leaks into the rendered editor (negative_fail).
+    expect(newHtml).not.toContain("Phase 1 admin shell");
+  });
+
+  it("BEHAVIORAL T14d-AC1: clean Display Options card replaces the stripped Featured/Trending labels", () => {
+    expect(newHtml).toContain("Display Options");
+    // is_featured surfaces as the homepage hero; is_trending as trending —
+    // field names unchanged (DB columns / PATCH allow-list keys).
+    expect(newHtml).toContain('name="is_featured" type="checkbox" value="1"');
+    expect(newHtml).toContain("Homepage hero");
+    expect(newHtml).toContain('name="is_trending" type="checkbox" value="1"');
+    // The old stripped checkbox label must be gone (the homepage_section
+    // <option>Featured</option> is unaffected — different markup).
+    expect(newHtml).not.toContain("/> Featured</label>");
+  });
+
+  it("BEHAVIORAL T14d-AC1: edit mode shows the stored author fields and checked Display Options state", () => {
+    // Stored author_name wins over the email default in edit mode.
+    expect(editHtml).toContain('name="author_name" type="text" class="form-input" value="Jamie Reporter"');
+    expect(editHtml).toContain("Covers wellness.");
+    // is_featured=true renders checked; is_trending=false renders unchecked.
+    expect(editHtml).toContain('name="is_featured" type="checkbox" value="1" checked');
+    expect(editHtml).toContain('name="is_trending" type="checkbox" value="1" />');
+  });
+
+  it("STRUCTURAL T14d-AC3: the author + Display Options fields are composed into the live editor form, not an orphaned fragment", () => {
+    // The same articleFormPage the handler emits carries the article-form
+    // shell AND the author inputs + Display Options — proving integration
+    // wiring through renderArticleForm.
+    expect(newHtml).toContain('id="article-form"');
+    expect(newHtml).toContain('name="author_name"');
+    expect(newHtml).toContain('name="author_bio"');
+    expect(newHtml).toContain("Display Options");
+  });
+});
