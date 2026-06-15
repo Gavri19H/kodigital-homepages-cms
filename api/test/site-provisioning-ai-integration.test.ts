@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { STEPS } from "../src/site-provisioning/steps";
+import {
+  fallbackSiteTagline,
+  fallbackSiteDescription,
+} from "../src/ai/generators/fallback";
 import type { Env } from "../src/env";
 import type { AiGenerationRow } from "../src/ai/generation-log";
 
@@ -217,12 +221,18 @@ function makeFakeDb(store: FakeStore): D1Database {
               (r) => r.site_id === site_id && r.key === key,
             );
             if (sql.indexOf("ON CONFLICT(site_id, key) DO UPDATE") >= 0) {
-              // upsert from T9 helper — UPDATE-IF-NULL semantics
+              // upsertSiteSetting (T9 helper). The default form carries the
+              // UPDATE-IF-NULL guard (`WHERE value IS NULL OR value=''`); the
+              // T7 overwrite form drops it so the AI value replaces a non-empty
+              // stub. Model both by inspecting the rendered guard clause.
+              const guarded =
+                sql.indexOf("site_settings.value IS NULL") >= 0 ||
+                sql.indexOf("value = ''") >= 0;
               if (!existing) {
                 store.settings.push({ site_id, key, value });
                 store.insertCounts["site_settings"] =
                   (store.insertCounts["site_settings"] ?? 0) + 1;
-              } else if (existing.value === "" || existing.value === null) {
+              } else if (!guarded || existing.value === "" || existing.value === null) {
                 existing.value = value;
               }
             } else if (sql.indexOf("INSERT OR IGNORE") >= 0) {
@@ -374,6 +384,66 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(taglineSetting).toBeDefined();
     expect((taglineSetting?.value ?? "").length).toBeGreaterThan(0);
     // No fetch attempted (no API key).
+    expect(fetchCalls).toEqual([]);
+  });
+
+  // rescue-3 T7-AC1 / RC-021: the create_site_settings seed runs FIRST and
+  // writes a non-empty deterministic stub for tagline + site_description. When
+  // generate_tagline_and_site_description then runs, its AI (fallback) values
+  // MUST overwrite those stubs — the pre-T7 upsert carried a
+  // `WHERE value IS NULL OR value=''` guard that silently discarded them
+  // because the stub was already non-empty. This test pre-seeds the stubs and
+  // proves the AI value wins (it would FAIL under the guarded upsert).
+  // L2_AUTO_DISAMBIGUATION:T7-AC1:RC-021 [api/test/site-provisioning-ai-integration.test.ts]
+  it("generate_tagline_and_site_description overwrites the create_site_settings stub tagline + site_description with the AI values [api/test/site-provisioning-ai-integration.test.ts] L2_AUTO_DISAMBIGUATION:T7-AC1:RC-021", async () => {
+    const store = makeStore({
+      id: "st_t7_ac1",
+      name: "Acme Times",
+      domain: "acme.example",
+      vertical_slug: "personal-finance",
+    });
+    // create_site_settings already seeded non-empty stubs for this site.
+    const STUB_TAGLINE = "Acme Times — your trusted source.";
+    const STUB_DESCRIPTION =
+      "Acme Times delivers timely, trustworthy reporting at acme.example.";
+    store.settings.push({ site_id: "st_t7_ac1", key: "tagline", value: STUB_TAGLINE });
+    store.settings.push({
+      site_id: "st_t7_ac1",
+      key: "site_description",
+      value: STUB_DESCRIPTION,
+    });
+
+    const env = buildEnv(makeFakeDb(store));
+    const ctx = {
+      env,
+      db: env.DB,
+      job_id: "job_t7_ac1",
+      site_id: "st_t7_ac1",
+      step_order: 5,
+    };
+    const result = await STEPS["generate_tagline_and_site_description"](ctx);
+    expect(result.status).toBe("completed");
+
+    // loadSiteInfo uses vertical_slug verbatim as the generator's `vertical`.
+    const fbInput = {
+      site_id: "st_t7_ac1",
+      vertical: "personal-finance",
+      brand_name: "Acme Times",
+    };
+    const expectedTagline = fallbackSiteTagline(fbInput);
+    const expectedDescription = fallbackSiteDescription(fbInput as never);
+
+    const tagline = store.settings.find(
+      (s) => s.site_id === "st_t7_ac1" && s.key === "tagline",
+    );
+    const description = store.settings.find(
+      (s) => s.site_id === "st_t7_ac1" && s.key === "site_description",
+    );
+    // The AI (fallback) values replaced the stubs — guard no longer discards.
+    expect(tagline?.value).toBe(expectedTagline);
+    expect(tagline?.value).not.toBe(STUB_TAGLINE);
+    expect(description?.value).toBe(expectedDescription);
+    expect(description?.value).not.toBe(STUB_DESCRIPTION);
     expect(fetchCalls).toEqual([]);
   });
 

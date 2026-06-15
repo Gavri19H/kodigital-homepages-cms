@@ -224,20 +224,33 @@ async function loadSiteInfo(
   };
 }
 
-// T9 helper — upsert a single site_settings key. UPDATE-IF-NULL semantics
-// preserve any human-authored override (settings page) while still
+// T9 helper — upsert a single site_settings key.
+//
+// Default (overwrite=false): UPDATE-IF-NULL semantics preserve any
+// human-authored / prior override (settings page, logo pick) while still
 // filling an empty seed value.
+//
+// T7 (overwrite=true): the caller is the authoritative AI writer for this
+// key — its value MUST win over the deterministic stub the earlier
+// create_site_settings seed wrote. Without this, the
+// `WHERE value IS NULL OR value=''` guard silently discarded the AI-generated
+// tagline / site_description because the non-empty stub had already filled
+// the row. The overwrite branch drops the guard so the AI value replaces it.
 async function upsertSiteSetting(
   db: D1Database,
   site_id: string,
   key: string,
   value: string,
+  overwrite = false,
 ): Promise<void> {
+  const conflictClause = overwrite
+    ? "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value"
+    : "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value " +
+      "WHERE site_settings.value IS NULL OR site_settings.value = ''";
   await db
     .prepare(
       "INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?) " +
-        "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value " +
-        "WHERE site_settings.value IS NULL OR site_settings.value = ''",
+        conflictClause,
     )
     .bind(site_id, key, value)
     .run();
@@ -409,13 +422,38 @@ async function generateTaglineAndSiteDescriptionStep(
     brand_name: info.brand_name,
     tagline: tagline.parsed.tagline,
   });
-  await upsertSiteSetting(ctx.db, ctx.site_id, "tagline", tagline.parsed.tagline);
-  await upsertSiteSetting(
-    ctx.db,
-    ctx.site_id,
-    "site_description",
-    description.parsed.description,
-  );
+  // T7-AC1: the AI-owned tagline / site_description MUST overwrite the
+  // deterministic stub the earlier create_site_settings step seeded —
+  // overwrite=true drops the UPDATE-IF-NULL guard so the AI value wins.
+  // Both generators always return a non-empty value (deterministic fallback
+  // when OPENAI_API_KEY is absent), but guard on length anyway so an empty
+  // model result never wipes the good stub.
+  const taglineValue = (tagline.parsed.tagline ?? "").trim();
+  if (taglineValue.length > 0) {
+    await upsertSiteSetting(ctx.db, ctx.site_id, "tagline", taglineValue, true);
+  }
+  const descriptionValue = (description.parsed.description ?? "").trim();
+  if (descriptionValue.length > 0) {
+    await upsertSiteSetting(
+      ctx.db,
+      ctx.site_id,
+      "site_description",
+      descriptionValue,
+      true,
+    );
+  }
+  // T7-AC2: seed default_author_name so T6's generate_15_homepage_articles
+  // (a later step) sources the starter-article author from a site setting,
+  // never a user email. Kept OUT of the create_site_settings 12-key seed so
+  // the T19 "12 canonical keys" contract count is unchanged; INSERT OR IGNORE
+  // keeps it idempotent and preserves any human-authored override.
+  const defaultAuthorName = `${info.brand_name} Editorial Team`;
+  await ctx.db
+    .prepare(
+      "INSERT OR IGNORE INTO site_settings (site_id, key, value) VALUES (?, ?, ?)",
+    )
+    .bind(ctx.site_id, "default_author_name", defaultAuthorName)
+    .run();
   return {
     status: "completed",
     output: JSON.stringify({
@@ -426,6 +464,7 @@ async function generateTaglineAndSiteDescriptionStep(
       tagline_ai_generation_id: tagline.ai_generation_id,
       description_status: description.status,
       description_ai_generation_id: description.ai_generation_id,
+      default_author_name_seeded: true,
     }),
   };
 }
