@@ -74,7 +74,7 @@ function makeFakeDb(
   articles: ArticleRow[];
   settings: Array<{ site_id: string; key: string }>;
   pages: Array<{ site_id: string; slug: string }>;
-  site: { content_version: number };
+  site: { content_version: number; status: string };
 } {
   const job = {
     id: initialJob.id,
@@ -92,7 +92,9 @@ function makeFakeDb(
   // finalized by publish_starter_articles; content_version starts at 0
   // (migration 0009 DEFAULT) so the publish bump is observable as 0 -> 1.
   const articles: ArticleRow[] = [];
-  const site = { content_version: 0 };
+  // rescue-3 T5: sites.status starts 'draft' (migration 0002 DEFAULT) so the
+  // update_launch_readiness go-live flip is observable as 'draft' -> 'active'.
+  const site = { content_version: 0, status: "draft" };
   // T38: site_settings + pages writes tracked (deduped on the same
   // UNIQUE keys the real schema declares) so the smoke step's COUNT
   // reads observe what earlier steps actually inserted.
@@ -288,6 +290,9 @@ function makeFakeDb(
             }
           } else if (sql.indexOf("UPDATE sites SET content_version") >= 0) {
             site.content_version += 1;
+          } else if (sql.indexOf("UPDATE sites SET status = 'active'") >= 0) {
+            // rescue-3 T5: update_launch_readiness go-live write.
+            site.status = "active";
           }
           return { success: true, meta: {} };
         },
@@ -389,6 +394,33 @@ describe("runProvisioningToCompletion (MQAFIX-1 / RX1.AC1 + AC4)", () => {
     // Exactly one monotonic content_version bump (0 -> 1) so public
     // cache keys — which suffix content_version — roll over.
     expect(site.content_version).toBe(1);
+  });
+
+  // rescue-3 T5-AC2 / RC-017: a provisioning run driven to completion ends
+  // with the site flipped live. The site starts in status='draft' (the
+  // migration 0002 DEFAULT); after the final update_launch_readiness step
+  // runs, a SELECT of sites.status returns 'active' (the schema CHECK-allowed
+  // live value — 'launched' would be rejected by the CHECK constraint). The
+  // warm step no longer self-fetches, so the build no longer fails at step 13
+  // and actually reaches the go-live step.
+  // L2_AUTO_DISAMBIGUATION:T5-AC2:RC-017 [api/test/site-provisioning-run-to-completion.test.ts]
+  it("update_launch_readiness flips the finished site status 'draft' -> 'active' at the end of a full provisioning run [api/test/site-provisioning-run-to-completion.test.ts] L2_AUTO_DISAMBIGUATION:T5-AC2:RC-017", async () => {
+    const { db, site } = makeFakeDb({
+      id: "job_active",
+      site_id: "st_active",
+    });
+    const env = buildEnv(db);
+
+    // Precondition: the site is NOT live before provisioning completes.
+    expect(site.status).toBe("draft");
+
+    const summary = await runProvisioningToCompletion(env, db, "st_active");
+
+    // The build completed end-to-end (the warm step no longer fails at
+    // step 13) and the final step set the site live.
+    expect(summary.final_status).toBe("completed");
+    expect(summary.steps_run).toBe(TOTAL_STEPS);
+    expect(site.status).toBe("active");
   });
 
   // rescue-2 T38.AC2: the run_site_smoke_tests step performs >= 3

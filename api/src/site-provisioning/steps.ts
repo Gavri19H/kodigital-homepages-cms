@@ -27,7 +27,7 @@
 
 import { type Env, parseNumber } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
-import { warmSiteCache } from "../cache/warm";
+import { warmHomepageInProcess } from "../cache/warm";
 import {
   resolveSiteHostname,
   runCloudflareRouteMutation,
@@ -855,22 +855,24 @@ async function publishStarterArticlesStep(
   };
 }
 
-// T37 — warm_homepage_cache (step 14).
-// Delegates to the canonical warmSiteCache helper (cache/warm.ts).
-// Under SITE_PROVISIONING_DRY_RUN (the default) the helper performs
-// ZERO outbound fetches and ZERO KV puts and the step reports
-// completed_dry_run. In live mode it GETs homepage + sitemap +
-// feed:rss + feed:atom from the site's own origin
-// (https://{hostname} — no api.cloudflare.com URL is ever built) and
-// stores each body in env.CACHE under the canonical cache-keys.ts
-// key — the homepage via putCachedHtml with its computed strong ETag.
-// content_version is read live from the sites row (bumped by the
-// preceding publish_starter_articles step) so the warmed keys match
-// what the public router will look up. TTL mirrors the public
-// pipeline's parseNumber(HTML_CACHE_TTL_SECONDS, 300). The homepage
-// target is the step's namesake side-effect: a live-mode run that
-// fails to warm it marks the step failed; sitemap/feed misses stay
-// best-effort inside the helper's per-target envelope.
+// T37 + rescue-3 T5 — warm_homepage_cache (step 14, STEP_KEYS index 13).
+// Delegates to warmHomepageInProcess (cache/warm.ts). The rescue-2 step
+// self-fetched https://{hostname}/ to obtain the body — that subrequest
+// 403s in production (the origin rejects the Worker's own self-request),
+// so the step FAILED and the site stalled in status='draft' while serving
+// (user brief BCL-007: "job failed at step 13"). T5-AC1: the homepage is
+// now rendered IN-PROCESS via the same renderHomepageHtml the public GET /
+// handler uses (NO https://{host}/ self-fetch to 403) and stored via
+// putCachedHtml under the canonical htmlKey(site_id, "/", content_version)
+// with the router's strong ETag. content_version is read live from the
+// sites row (bumped by the preceding publish_starter_articles step) so the
+// warmed key matches what the public router will look up; TTL mirrors the
+// public pipeline's parseNumber(HTML_CACHE_TTL_SECONDS, 300). Under
+// SITE_PROVISIONING_DRY_RUN (the default) the helper renders nothing and
+// writes nothing and the step reports completed_dry_run (ZERO outbound
+// fetch, ZERO KV put). In live mode the homepage is the step's namesake
+// side-effect: a render/put failure marks the step failed; the happy in-
+// process path never escalates to FAILED (there is no self-request to fail).
 async function warmHomepageCacheStep(
   ctx: StepContext,
 ): Promise<StepHandlerResult> {
@@ -891,36 +893,32 @@ async function warmHomepageCacheStep(
       ? versionRow.content_version
       : 0;
   const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
-  const outcome = await warmSiteCache(ctx.env, {
+  const outcome = await warmHomepageInProcess(ctx.env, ctx.db, {
     site_id: ctx.site_id,
+    hostname,
+    vertical_slug: info.vertical,
     content_version: contentVersion,
-    originBaseUrl: `https://${hostname}`,
     expirationTtl: parseNumber(ctx.env.HTML_CACHE_TTL_SECONDS, 300),
   });
-  const homepage = outcome.results.find((r) => r.kind === "homepage");
   const output = JSON.stringify({
     step: "warm_homepage_cache",
-    kind: "cache_warm",
+    kind: "in_process_warm",
     schema_version: 1,
     site_id: ctx.site_id,
     content_version: contentVersion,
     dry_run: outcome.dry_run,
-    attempted: outcome.attempted,
     warmed: outcome.warmed,
-    failed: outcome.failed,
-    homepage_cache_key: homepage ? homepage.cacheKey : "",
-    homepage_status: homepage ? homepage.status : "failed",
+    homepage_cache_key: outcome.cacheKey,
+    homepage_status: outcome.status,
   });
   if (outcome.dry_run) {
     return { status: "completed_dry_run", output };
   }
-  if (!homepage || homepage.status !== "warmed") {
+  if (outcome.status !== "warmed") {
     return {
       status: "failed",
       output,
-      error:
-        homepage?.error ??
-        `homepage warm did not complete (status=${homepage?.status ?? "missing"}, http=${homepage?.http_status ?? "n/a"})`,
+      error: outcome.error ?? "homepage warm did not complete",
     };
   }
   return { status: "completed", output };
@@ -1024,15 +1022,17 @@ async function runSiteSmokeTestsStep(
   return { status: "completed", output };
 }
 
-// T39 — update_launch_readiness (step 16, the final step).
-// Read-only D1 rollup: collects the launch-readiness signals produced by
+// T39 + rescue-3 T5 — update_launch_readiness (step 16, the final step).
+// D1 rollup + go-live: collects the launch-readiness signals produced by
 // the earlier steps into one JSON object and persists it as this step's
 // output row (the runner writes StepHandlerResult.output into
 // site_creation_job_steps.output). GET /api/admin/sites/:id/provision
 // reads that row back and surfaces it as the response's top-level
 // `launch_readiness` field (field_contract canonical_name
 // launch_readiness: domain_attached, published_articles, media_count,
-// cache_warmed, smoke_passed, content_mode). Zero fetch in any mode.
+// cache_warmed, smoke_passed, content_mode). T5-AC2 adds the go-live D1
+// write: sites.status -> 'active' (see inline note below). Zero outbound
+// fetch in any mode.
 async function readJobStepStatus(
   db: D1Database,
   job_id: string,
@@ -1108,11 +1108,28 @@ async function updateLaunchReadinessStep(
         ? modeRow.content_mode
         : "ai",
   };
+  // rescue-3 T5 (T5-AC2): flip the finished site live. Reaching this final
+  // step means every prior step — including run_site_smoke_tests — succeeded
+  // (the runner halts the job on the first failed step, so update_launch_
+  // readiness never runs after a failure), so the site is verified-ready to
+  // serve. Set sites.status 'draft' -> 'active', the schema CHECK-allowed
+  // live value (migration 0002: CHECK (status IN ('draft','provisioning',
+  // 'active','disabled','failed'))); 'launched' is NOT in the CHECK set and
+  // would be rejected. Pure D1 write — runs in dry-run too, because the dry-
+  // run gate only suppresses outbound Cloudflare/KV mutation, not the local
+  // domain writes every other provisioning step also performs in dry-run.
+  await ctx.db
+    .prepare(
+      "UPDATE sites SET status = 'active', updated_at = unixepoch() WHERE id = ?",
+    )
+    .bind(ctx.site_id)
+    .run();
   const output = JSON.stringify({
     step: "update_launch_readiness",
     kind: "launch_readiness_rollup",
     schema_version: 1,
     site_id: ctx.site_id,
+    site_status: "active",
     launch_readiness,
   });
   return { status: "completed", output };

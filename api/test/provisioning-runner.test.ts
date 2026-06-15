@@ -340,4 +340,18 @@ describe("site-provisioning runner end-to-end (T4)", () => {
     expect(cf?.dry_run).toBe(1);
     expect(cf?.status).toBe("completed_dry_run");
   });
+
+  // rescue-3 T5-AC3 / RC-018: total_steps == STEP_KEYS.length == 16 end-to-
+  // end. This GUARDS the existing derive (TOTAL_STEPS = STEP_KEYS.length) and
+  // the runner's stale-count re-sync (runner.ts re-syncs any stored
+  // total_steps to TOTAL_STEPS); it does NOT claim a 15->16 fix. The 16th
+  // (final) step key is update_launch_readiness — the go-live step.
+  // L2_AUTO_DISAMBIGUATION:T5-AC3:RC-018 [api/test/provisioning-runner.test.ts]
+  it("provisioning registry derives total_steps == STEP_KEYS.length == 16 with update_launch_readiness as the final step [api/test/provisioning-runner.test.ts] L2_AUTO_DISAMBIGUATION:T5-AC3:RC-018", () => {
+    expect(STEP_KEYS.length).toBe(16);
+    expect(TOTAL_STEPS).toBe(16);
+    expect(TOTAL_STEPS).toBe(STEP_KEYS.length);
+    expect(STEP_KEYS[STEP_KEYS.length - 1]).toBe("update_launch_readiness");
+    expect(STEP_KEYS[15]).toBe("update_launch_readiness");
+  });
 });
