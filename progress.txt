@@ -9187,3 +9187,51 @@ Learnings for future iterations:
   resolution, root-cwd-doctrine rule 3/7), not to product code. Evidence above was collected
   via the corrected (develop-legal) invocation.
 ---
+
+## 2026-06-15 - T8 (sources: T8) - Seed brand_tokens_json from the brand contract family (not the dark palette)
+- What: (AC1) create_site_settings no longer seeds brand_tokens_json with the
+  slate/sky dark palette {primary:#0F172A, accent:#38BDF8, neutral:#F8FAFC}. That
+  value both mismatched the design contract AND mapped to inert --primary/--accent/
+  --neutral CSS props the public stylesheet never reads (it reads --tw-*), so it
+  themed nothing while contradicting the brand. Now seeded EMPTY ('') so the brand
+  contract teal family (--tw-brand:#1ba8c8, Nunito) shipped as defaults in
+  public-css.ts applies. parseBrandTokensJson('') -> {} -> renderBrandTokensStyle
+  returns "" -> no override -> defaults render the brief's #1ba8c8. Row is still
+  inserted (T19 12-key contract + db side-effect intact); admins can later set a
+  per-site --tw-* override via the Settings tab.
+- Files changed:
+  - api/src/site-provisioning/steps.ts (DEFAULT_SETTING_SEED brand_tokens_json value '#0F172A' palette -> '')
+  - api/test/site-provisioning-create-site-settings.test.ts (T8-AC1:RC-023 tagged behavioral test:
+    asserts seeded value parses to empty OR a teal-family primary; never the dark palette; no fetch)
+- Self-check results:
+  - File sizes: steps.ts 1332 lines — PRE-EXISTING large step registry (noted T7); this story +8
+    lines (an 8-line rationale comment replacing the 1 palette line). Splitting is out of T8 scope and
+    forbidden by must_not_do. NOTE (not a T8 regression). Test file 422 lines (tests are not bound by
+    the 200-line product limit).
+  - Secret scan: PASS (no hardcoded secrets in changed files)
+  - Error handling: N/A (value change in a deterministic seed array; no new route/handler)
+  - Migration execution: N/A (no schema change — brand_tokens_json is an existing site_settings row value)
+  - Parameterized queries: PASS (seed loop uses .bind() with ? placeholders, steps.ts:309 — unchanged)
+- Tests run:
+  - cd api && npx vitest run test/site-provisioning-create-site-settings.test.ts => 3 PASS (incl new T8-AC1)
+  - cd api && npm test  => 122 files / 1089 tests PASS (was 1088; +1 T8 test, no regression)
+  - cd api && npx tsc --noEmit  => exit 0
+  - Q3 story_quality_checks (canonical runner) => PASS checks_executed=4
+- Required-claim evidence (D13 canonical runner):
+  - RC-023 (T8-AC1) => PASS (parser observed L2_AUTO_DISAMBIGUATION:T8-AC1:RC-023, exit_code 0)
+  - RC-057 => DEFERRED (route=production_pending, deferred_to=ship; T5's MQA-2 revert check — not Ralph's concern)
+- RENDERED-COMMAND DEFECT (producer-side, NOT product/test — identical to T1-T7, L-167): the packet's
+  test_commands_rendered.runner_command_rendered ships
+  --worktree-root=/Users/guyhaikov/a2z-workspaces/kodigital-homepages-cms (PROJECT ROOT). With
+  cwd_anchor=worktree_root that runs vitest in <project_root>/api (the brief-branch base checkout
+  WITHOUT this mission's committed code) -> observed_test_names lacked the T8 test -> FAIL. Re-ran with
+  --worktree-root=.../mission-state/<cid>/worktree (where the committed code lives) -> TOP STATUS: PASS.
+  The sibling Q3 story_quality_checks_command_rendered already points correctly at the mission worktree.
+  Fix belongs to the rendered-command producer (run_journey_gate.expand_template / nested-project
+  worktree-root resolution, root-cwd-doctrine rule 3/7), not to product code.
+- Learnings for future iterations:
+  - brand_tokens_json keys map 1:1 to --<key> CSS custom props via renderBrandTokensStyle. To actually
+    theme a site the override must use --tw-* keys (e.g. tw-brand), not {primary,accent,neutral}. The
+    design contract teal family lives in api/src/public/assets/public-css.ts as the :root default, so
+    "empty brand_tokens_json" is the correct way to get the contract colors — not a duplicate seed.
+---

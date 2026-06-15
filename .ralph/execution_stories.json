@@ -121,8 +121,8 @@
       "title": "Seed brand_tokens_json from the brand contract family (not the dark palette)",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T8"
       ],
