@@ -10065,3 +10065,49 @@ sources: T11  | execution PRD: .ralph/execution_stories.json (state=implemented,
     vitest-backed develop-local RC in this mission will STATUS=FAIL on the
     parser while exiting 0 — finalize/reconcile is the resolution path.
 ---
+
+## 2026-06-16 - T17 (sources: T17) — Categories tab: Description / Display Order / Show-on-Homepage
+- Added Description (textarea), Display Order (number) and Show-on-Homepage (checkbox)
+  controls to the admin Categories editor form (the New Category modal in
+  categories.ts), keeping the existing multi-vertical select (name="vertical_ids").
+- Wired the three controls into the ES5 POST submit body so they persist through
+  POST /api/admin/categories.
+- api.ts POST /api/admin/categories: accepts description (nullable), display_order
+  (?? semantics — 0 is valid), show_on_homepage (0/1); persists on the categories
+  INSERT and mirrors the chosen display_order onto the site_categories row.
+- migration 0018_phase11_categories_description_show_on_homepage.sql: ALTER TABLE
+  categories ADD description TEXT + show_on_homepage INTEGER NOT NULL DEFAULT 0
+  (display_order already existed since 0001). Anchored in deploy.yml's per-migration
+  traceability list.
+- Files changed: api/src/admin/templates/categories.ts, api/src/admin/api.ts,
+  api/migrations/0018_phase11_categories_description_show_on_homepage.sql,
+  .github/workflows/deploy.yml, api/test/categories-fields.test.ts (new, T17.AC1),
+  api/test/admin-layout-shell.test.ts (T17.AC2 block), api/test/category-multi-vertical.test.ts
+  (updated INSERT-bind assertions + new T17 persistence regression).
+- **Self-check results:**
+  - File sizes: categories.ts 304 lines, api.ts 1024 (pre-existing large router),
+    migration 12, tests within norm — PASS
+  - Secret scan: PASS (no secrets in changed files)
+  - Error handling: PASS (400 invalid JSON / invalid display_order; 422 vertical mismatch)
+  - Migration execution: PASS — `wrangler d1 migrations apply kodigital-homepages-cms-db --local`
+    applied 0018 ✅; PRAGMA table_info(categories) shows description (TEXT, nullable) +
+    show_on_homepage (INTEGER NOT NULL DEFAULT 0)
+  - Parameterized queries: PASS (static SQL + .bind())
+  - ES5 inline script: PASS (only var/parseInt/ternary added; no arrow/const/let/template-literal)
+- **Tests run (all PASS, exit 0):**
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run    -> 125 files, 1162 tests PASS
+  - Q3: run_story_quality_checks.py --story-id=T17 -> PASS (4 checks, receipts written)
+- **EVIDENCE_ROUTE_EXHAUSTED: T17 RC-050,RC-051 (parser_observation route).** The D13
+  required-evidence runner returns FAIL for RC-050 (T17-AC1) and RC-051 (T17-AC2), but
+  exit_code=0 (the underlying tests PASS). Root cause is a systemic plan-side path-prefix
+  mismatch identical to every prior UI story: expected_test_name_regex is project-root-relative
+  ("api/test/<file>.test.ts") while cwd_anchor=worktree_root + cwd=api makes vitest report
+  cwd-relative names ("test/<file>.test.ts"), so the parser's literal re.search of the
+  api/-prefixed regex never matches. Verified deterministically on freshly-committed state with
+  the correct --worktree-root (runner then observed my 12/11 worktree tests, all passing).
+  RC-046/047 (T15) and RC-048/049 (T16) are ALL FAIL the same way yet are state="implemented",
+  passes=true — this is the established mission condition. Did NOT game the test name with an
+  "api/" literal and did NOT edit the evidence plan/regex/cwd (both are bypasses). The
+  develop-legal behavioral proof is the passing render-output tests. Downstream reconcile/verify
+  owns the parser_observation route; Ralph alone never sets verified.

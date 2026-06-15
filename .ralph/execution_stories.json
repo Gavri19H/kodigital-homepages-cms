@@ -313,8 +313,8 @@
       "title": "Categories tab: Description/Display Order/Show-on-Homepage (keep multi-vertical select)",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T17"
       ],
