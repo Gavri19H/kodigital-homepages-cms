@@ -8749,3 +8749,83 @@ iteration — T45 (sources: T45)
   - The worktree needs node_modules (symlink to project) before any
     tsc/vitest/runner step; and ac-checksums must be relative-path format
     or the pre-commit hook blocks every commit.
+
+## 2026-06-15 — T2 (sources: T2) — Article pages render in the design shell with category + author byline
+- Implemented: the LIVE GET /article/:slug route now composes the design
+  article shell through the db-fed renderArticleHtml (mirrors T1 for the
+  homepage). renderArticleHtml(db, siteContext, slug) is async + db-fed:
+  buildArticleViewModel + renderArticle(emitJsonLd:false) + renderLayout.
+- Files changed:
+  - api/src/public/render-pages.ts — renderArticleHtml rewritten async/db-fed;
+    GEO Article + root-first BreadcrumbList (+ FAQPage when faqs present)
+    JSON-LD emitted ONCE in <head> via renderLayout.extraHead (preserves the
+    exact GEO §1–§5 shapes the T41 tests assert). imports: adaptBodyBlocks ->
+    buildArticleViewModel; + renderArticle.
+  - api/src/public/templates/article.ts — renderArticle gains optional
+    emitJsonLd (default true); live route composes with emitJsonLd:false so the
+    page carries exactly ONE (pretty-printed, GEO-conformant) Article block.
+  - api/src/public/router.ts — GET /article/:slug threads c.env.DB into
+    renderArticleHtml (AC3 wiring); getArticleBySlug stays the cheap 404 gate.
+  - api/test/public-router.test.ts — added T2.AC1 live-served HTML test
+    (.article-shell + 12 markers + category + author byline + /assets/public.css
+    + per-article SEO) with the [api/test/public-router.test.ts] binding literal.
+  - api/test/public-templates-article.test.ts — added T2.AC4 renderArticle-via-
+    renderLayout test with the [api/test/public-templates-article.test.ts]
+    binding literal (the RC-007 parse_test_output binding).
+  - api/test/json-ld-article.test.ts — migrated the 4 T41 GEO article tests to
+    the async db-fed signature via a makeGeoArticleDb() stub (assertions
+    preserved; removed now-unused articlePath local).
+  - api/test/public-screen-labels.test.ts — migrated the article test to async
+    db-fed (makeArticleDb stub; removed unused ArticleRow import/makeArticleRow).
+  - api/test/router-cache-article.test.ts, router-canonical-host.test.ts —
+    extended the db stubs' .first() to serve buildArticleViewModel's article-
+    detail query (SELECT a.id AS id ...).
+- Test commands actually run:
+  - cd api && npx tsc --noEmit  (clean)
+  - cd api && npm test          (122 files, 1076 tests PASS)
+  - D13 runner (RC-006,007,008,009) with --worktree-root = the actual mission
+    worktree (NOT the packet's project-root value; same intent-faithful fix T1
+    documented so the proof tests the COMMITTED worktree code):
+    RC-007 PASS, RC-008 PASS, RC-009 PASS.
+  - Q3 run_story_quality_checks.py --story-id=T2 -> PASS (checks_executed=4).
+- Self-check results:
+  - File sizes: render-pages.ts 305, router.ts 430, article.ts 403 (lines).
+    Pre-existing render-module/design-template files already over the 200 JS/TS
+    soft default; this is a behavior-wiring story (same posture as T1) —
+    refactoring them is out of scope and would balloon the diff/regression. NOTED
+  - Secret scan: PASS (0 matches in changed files).
+  - Error handling: renderArticleHtml throws on a null view-model (an
+    unpublish/delete race after the 404 gate) rather than caching an empty
+    shell; route errors flow through Hono. N/A new try/catch (buildArticle
+    ViewModel already guards JSON.parse).
+  - Migration execution: N/A (ui story, no DB migration).
+  - Parameterized queries: N/A (no new SQL; buildArticleViewModel owns the
+    SELECTs, already .bind()-parameterized).
+- Known/expected: RC-006 (structural AC3) UNSATISFIED at the runner — its
+  evidence_command `grep -nE "\brenderArticleHtml\b" api/src/public/router.ts`
+  exits 0 (the wiring IS present: router.ts:71 import + :140 call passing
+  c.env.DB) but parser_strategy=parse_grep_count expects an integer count and
+  `grep -nE` emits lines -> EMPTY_STDOUT/NON_INTEGER. This is the deterministic
+  grep-RC plan/parser mismatch T1 already documented for T1..T4. Did NOT burn
+  retries and did NOT edit the canonical required_evidence_plan (forbidden
+  mechanism-dodge): the captured grep artifact (exit 0 + matching lines) + the
+  behavioral RC-008 live-route test ARE the AC3 proof; reconcile/finalize owns
+  the claim-status repair.
+- Learnings for future iterations:
+  - T2/T3/T4 mirror T1: the design renderer exists but isn't wired into the
+    live route. Wiring story = make render*Html async+db-fed (buildXViewModel +
+    renderX + renderLayout) + thread c.env.DB in router.ts.
+  - When the live route adopts renderArticle, its design-template JSON-LD
+    (seo.ts, compact) DIFFERS from the GEO-conformant jsonld-article.ts builders
+    (pretty, @id + mainEntityOfPage object, anonymous-author -> Organization)
+    that the T41 GEO tests + router-cache/router-canonical tests assert. Keep
+    GEO conformance by emitting the jsonld-article.ts payload in the <head> via
+    renderLayout.extraHead and composing renderArticle with emitJsonLd:false
+    (exactly ONE Article block, no compact-vs-pretty drift) — do NOT regress GEO.
+  - Live-route tests whose db stub only served getArticleBySlug must also serve
+    buildArticleViewModel's `SELECT a.id AS id ...` detail query (bound siteId,
+    slug) once the route goes db-fed via the view-model.
+  - The parse_test_output evidence binding requires the
+    `[api/test/<file>.test.ts]` literal IN a passing test's title (matches
+    expected_test_name_regex). Add a dedicated AC test carrying that literal
+    (same pattern T1 used for AC5 in public-templates-home.test.ts).

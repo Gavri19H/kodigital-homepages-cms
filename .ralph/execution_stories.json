@@ -25,8 +25,8 @@
       "title": "Article pages render in the design shell with category + author byline",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T2"
       ],
