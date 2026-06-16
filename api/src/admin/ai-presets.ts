@@ -25,6 +25,13 @@ export interface PresetRow {
   usage_count: number;
   text_model: string | null;
   image_model: string | null;
+  // T12 reference columns (migration 0014): display Name + Description, the
+  // split System/User prompt, and the structured content-mapping.
+  name: string | null;
+  description: string | null;
+  system_prompt_template: string | null;
+  user_prompt_template: string | null;
+  content_mapping: string | null;
 }
 
 export interface PresetBody {
@@ -36,6 +43,14 @@ export interface PresetBody {
   image_model?: string;
   is_system?: number;
   is_active?: number;
+  // T12 reference fields (migration 0014). The reference form posts the User
+  // Prompt; the handler derives prompt_template from it when prompt_template
+  // is absent (the column stays NOT NULL for legacy generation callers).
+  name?: string | null;
+  description?: string | null;
+  system_prompt_template?: string | null;
+  user_prompt_template?: string | null;
+  content_mapping?: string | null;
 }
 
 export const SELECT_PRESET_BY_ID = "SELECT * FROM prompt_presets WHERE id = ?";

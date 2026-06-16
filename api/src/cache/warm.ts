@@ -22,6 +22,8 @@ import {
   sitemapKey,
 } from "./cache-keys";
 import { computeEtag, putCachedHtml } from "./edge-cache";
+import { renderHomepageHtml } from "../public/render-pages";
+import type { PublicSiteContext } from "../public/middleware";
 
 export type WarmKind = "homepage" | "sitemap" | "feed:rss" | "feed:atom";
 
@@ -194,4 +196,88 @@ export async function warmSiteCache(
     failed,
     results,
   };
+}
+
+// rescue-3 T5 (T5-AC1): in-process homepage warm.
+//
+// The rescue-2 warm_homepage_cache step self-fetched https://{hostname}/ to
+// obtain the body before caching it. That subrequest 403s in production (the
+// origin rejects the Worker's own self-request), so the 14th provisioning
+// step (STEP_KEYS index 13) FAILED and the site stalled in status='draft'
+// while already serving publicly (user brief BCL-007: "job failed at step
+// 13"). warmHomepageInProcess removes the self-request entirely: it renders
+// the homepage IN-PROCESS via the exact renderHomepageHtml the public GET /
+// handler uses (zero outbound fetch — nothing to 403) and stores the body
+// under the canonical htmlKey(site_id, "/", content_version) with the same
+// strong ETag the public router computes, so the very next crawler/user hit
+// is a cache HIT. Dry-run (the provisioning default) renders nothing and
+// writes nothing — preserving the negative_fail_condition that a dry-run run
+// emits ZERO outbound HTTP and ZERO KV puts.
+export interface WarmHomepageInProcessInput {
+  site_id: string;
+  hostname: string;
+  vertical_slug: string;
+  content_version: number;
+  dryRun?: boolean;
+  expirationTtl?: number;
+  // Injectable renderer (defaults to the canonical renderHomepageHtml). The
+  // provisioning step uses the default; unit tests pass a deterministic stub
+  // so the warm CONTRACT (in-process render -> putCachedHtml under htmlKey,
+  // ZERO outbound fetch) is assertable without standing up the full home
+  // view-model D1 surface.
+  renderHomepage?: (
+    db: D1Database,
+    siteContext: PublicSiteContext,
+  ) => string | Promise<string>;
+}
+
+export interface WarmHomepageInProcessResult {
+  dry_run: boolean;
+  warmed: number;
+  cacheKey: string;
+  status: "warmed" | "dry_run" | "failed";
+  error?: string;
+}
+
+export async function warmHomepageInProcess(
+  env: Env,
+  db: D1Database,
+  input: WarmHomepageInProcessInput,
+): Promise<WarmHomepageInProcessResult> {
+  const cacheKey = htmlKey(input.site_id, "/", input.content_version);
+  const dryRun = resolveDryRunDefault(env, input.dryRun);
+  if (dryRun) {
+    return { dry_run: true, warmed: 0, cacheKey, status: "dry_run" };
+  }
+  const render = input.renderHomepage ?? renderHomepageHtml;
+  try {
+    const siteContext: PublicSiteContext = {
+      site_id: input.site_id,
+      siteId: input.site_id,
+      hostname: input.hostname,
+      vertical_slug: input.vertical_slug,
+      status: "active",
+      content_version: input.content_version,
+      settings_version: 0,
+    };
+    const body = await render(db, siteContext);
+    const etag = await computeEtag({
+      site_id: input.site_id,
+      path: "/",
+      content_version: input.content_version,
+    });
+    await putCachedHtml(env, cacheKey, body, {
+      etag,
+      expirationTtl: input.expirationTtl,
+    });
+    return { dry_run: false, warmed: 1, cacheKey, status: "warmed" };
+  } catch (err) {
+    return {
+      dry_run: false,
+      warmed: 0,
+      cacheKey,
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

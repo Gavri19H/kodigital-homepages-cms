@@ -6,6 +6,7 @@ import {
   isAllowedBlockType,
   sanitizeHtml,
 } from "../src/editor";
+import { articleFormPage } from "../src/admin/templates/articles";
 
 // The literal "java"+"script:" / "<scr"+"ipt>" strings below are split via
 // concatenation so this test file itself does not flag the verify scanner
@@ -292,5 +293,210 @@ describe("editor: contract blocks + ported block editor (T27 [B6])", () => {
     expect(sanitized).toContain('<aside class="affiliate-card">');
     expect(sanitized).toContain('href="https://shop.test/w"');
     expect(sanitized).toContain('rel="sponsored nofollow noopener"');
+  });
+});
+
+describe("article editor: hero image card + AI hero-image modal (T14b)", () => {
+  const sites = [{ id: "site-1", name: "Demo Site" }];
+  const newHtml = articleFormPage(null, sites, [], {});
+  const editHtml = articleFormPage(
+    {
+      id: "42",
+      title: "Existing",
+      site_id: "site-1",
+      featured_image_id: 7,
+      featured_image_url: "/media/ai/admin/site-1/abc.png",
+    },
+    sites,
+    [],
+    {},
+  );
+
+  it("BEHAVIORAL T14b-AC1: the editor emits the hero image uploader and the hero-image-ai-generate control", () => {
+    // Hero card + uploader (file input the upload label triggers) + the
+    // hero-image-ai-generate control that opens the AI hero-image modal.
+    expect(newHtml).toContain('id="hero-image-card"');
+    expect(newHtml).toContain('id="hero-image-upload"');
+    expect(newHtml).toContain('type="file"');
+    expect(newHtml).toContain("hero-image-ai-generate");
+    // No placeholder marker leaks into the rendered editor (negative_fail).
+    expect(newHtml).not.toContain("Phase 1 admin shell");
+  });
+
+  it("BEHAVIORAL T14b-AC1: the AI hero-image modal renders preset, variables, prompt-preview, size, style and quality controls", () => {
+    expect(newHtml).toContain('id="hero-ai-modal"');
+    // preset select + variables container + live prompt preview
+    expect(newHtml).toContain('id="hero-ai-preset"');
+    expect(newHtml).toContain('id="hero-ai-variables"');
+    expect(newHtml).toContain('id="hero-ai-preview"');
+    // size, style, quality controls
+    expect(newHtml).toContain('id="hero-ai-size"');
+    expect(newHtml).toContain('id="hero-ai-style"');
+    expect(newHtml).toContain('id="hero-ai-quality"');
+    // preview region + error handling (both card-level and modal-level)
+    expect(newHtml).toContain('id="hero-ai-result"');
+    expect(newHtml).toContain('id="hero-ai-error"');
+    expect(newHtml).toContain('id="hero-image-error"');
+  });
+
+  it("BEHAVIORAL T14b-AC1: generate POSTs to /api/admin/ai/image and the apply button places the image into the article", () => {
+    // Generate + apply buttons present.
+    expect(newHtml).toContain('id="hero-ai-generate-btn"');
+    expect(newHtml).toContain('id="hero-ai-apply-btn"');
+    // The hero-image wiring fires POST /api/admin/ai/image on generate.
+    expect(newHtml).toContain("/api/admin/ai/image");
+    expect(newHtml).toMatch(/method:\s*'POST'/);
+    // Apply places the chosen image into the article via the single wire
+    // name featured_image_id (handler-read field == DB column).
+    expect(newHtml).toContain('name="featured_image_id"');
+    // Upload uses the same media endpoint the block editor uses.
+    expect(newHtml).toContain("/admin/media");
+  });
+
+  it("hero-image inline script is ES5-only (no arrow/const/let inside the literal)", () => {
+    // Slice out just the hero-image script region so we don't lint unrelated
+    // template TypeScript. The script literal opens at the IIFE that grabs
+    // #hero-image-card.
+    const marker = "var card = document.getElementById('hero-image-card');";
+    const start = newHtml.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const heroScript = newHtml.slice(start);
+    expect(heroScript.match(/=>/g) ?? []).toHaveLength(0);
+    expect(heroScript.match(/\bconst\b/g) ?? []).toHaveLength(0);
+    expect(heroScript.match(/\blet\b/g) ?? []).toHaveLength(0);
+  });
+
+  it("edit mode pre-populates the hidden featured_image_id and the hero preview", () => {
+    expect(editHtml).toContain('name="featured_image_id" value="7"');
+    expect(editHtml).toContain("/media/ai/admin/site-1/abc.png");
+  });
+});
+
+describe("article editor: publish workflow + version history/restore (T14c)", () => {
+  const sites = [{ id: "site-1", name: "Demo Site" }];
+  const newHtml = articleFormPage(null, sites, [], {});
+  const editHtml = articleFormPage(
+    { id: "42", title: "Existing", site_id: "site-1", status: "draft" },
+    sites,
+    [],
+    {},
+  );
+
+  it("BEHAVIORAL T14c-AC1: the edit-mode editor emits all five publish-workflow actions, each wired to its admin endpoint", () => {
+    expect(editHtml).toContain('id="workflow-panel"');
+    expect(editHtml).toContain('data-article-id="42"');
+    // The five transition actions (data-workflow-action == endpoint segment).
+    for (const a of ["publish", "unpublish", "archive", "schedule", "cancel-schedule"]) {
+      expect(editHtml).toContain(`data-workflow-action="${a}"`);
+    }
+    // Wired to POST /api/admin/articles/:id/<action> by the inline script.
+    expect(editHtml).toContain("/api/admin/articles/");
+    expect(editHtml).toMatch(/method:\s*'POST'/);
+    // Schedule carries the scheduled_at wire (input name == endpoint body key).
+    expect(editHtml).toContain('name="scheduled_at"');
+    expect(editHtml).toContain("scheduled_at:");
+    // No placeholder marker leaks into the rendered editor (negative_fail).
+    expect(editHtml).not.toContain("Phase 1 admin shell");
+  });
+
+  it("BEHAVIORAL T14c-AC1: the version-history modal renders with a restore control wired to the restore endpoint", () => {
+    expect(editHtml).toContain('id="workflow-versions-open"');
+    expect(editHtml).toContain('id="workflow-versions-modal"');
+    expect(editHtml).toContain('id="workflow-versions-list"');
+    // List loads from GET /api/admin/articles/:id/versions; each row's Restore
+    // button POSTs to /api/admin/articles/:id/versions/:vid/restore.
+    expect(editHtml).toContain("/versions");
+    expect(editHtml).toContain("/restore");
+    expect(editHtml).toContain("workflow-restore");
+    // The restore control fires the POST (must_not_do: no close without POST).
+    expect(editHtml).toContain("window.location.reload()");
+  });
+
+  it("BEHAVIORAL T14c-AC2: the publish/version panel is composed inside the editor body", () => {
+    // The editor form and the workflow panel render together in the editor.
+    expect(editHtml).toContain('id="article-form"');
+    expect(editHtml).toContain('id="workflow-panel"');
+    // Initial badge reflects the article's current status.
+    expect(editHtml).toContain('id="workflow-status-value"');
+    expect(editHtml).toContain(">draft</span>");
+  });
+
+  it("the workflow panel is omitted for a brand-new (unsaved) article — transitions need a persisted id", () => {
+    expect(newHtml).not.toContain('id="workflow-panel"');
+    expect(newHtml).not.toContain('data-workflow-action=');
+  });
+
+  it("workflow-panel inline script is ES5-only (no arrow/const/let inside the literal)", () => {
+    const marker = "var panel = document.getElementById('workflow-panel');";
+    const start = editHtml.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const wfScript = editHtml.slice(start);
+    expect(wfScript.match(/=>/g) ?? []).toHaveLength(0);
+    expect(wfScript.match(/\bconst\b/g) ?? []).toHaveLength(0);
+    expect(wfScript.match(/\blet\b/g) ?? []).toHaveLength(0);
+  });
+});
+
+describe("article editor: author Name/Bio + clean Display Options (T14d)", () => {
+  const sites = [{ id: "site-1", name: "Demo Site" }];
+  const newHtml = articleFormPage(null, sites, [], {
+    userEmail: "editor@kodigital.io",
+  });
+  const editHtml = articleFormPage(
+    {
+      id: "42",
+      title: "Existing",
+      site_id: "site-1",
+      author_name: "Jamie Reporter",
+      author_bio: "Covers wellness.",
+      is_featured: true,
+      is_trending: false,
+    },
+    sites,
+    [],
+    { userEmail: "editor@kodigital.io" },
+  );
+
+  it("BEHAVIORAL T14d-AC1: new-mode form emits author_name pre-filled from the admin email and an author_bio field", () => {
+    // author_name input exists and pre-fills from the signed-in admin email
+    // (convenience default — NOT auto-stored; persists only on submit).
+    expect(newHtml).toContain(
+      'name="author_name" type="text" class="form-input" value="editor@kodigital.io"',
+    );
+    // author_bio textarea exists (wire name == DB column author_bio).
+    expect(newHtml).toContain('name="author_bio"');
+    // No placeholder marker leaks into the rendered editor (negative_fail).
+    expect(newHtml).not.toContain("Phase 1 admin shell");
+  });
+
+  it("BEHAVIORAL T14d-AC1: clean Display Options card replaces the stripped Featured/Trending labels", () => {
+    expect(newHtml).toContain("Display Options");
+    // is_featured surfaces as the homepage hero; is_trending as trending —
+    // field names unchanged (DB columns / PATCH allow-list keys).
+    expect(newHtml).toContain('name="is_featured" type="checkbox" value="1"');
+    expect(newHtml).toContain("Homepage hero");
+    expect(newHtml).toContain('name="is_trending" type="checkbox" value="1"');
+    // The old stripped checkbox label must be gone (the homepage_section
+    // <option>Featured</option> is unaffected — different markup).
+    expect(newHtml).not.toContain("/> Featured</label>");
+  });
+
+  it("BEHAVIORAL T14d-AC1: edit mode shows the stored author fields and checked Display Options state", () => {
+    // Stored author_name wins over the email default in edit mode.
+    expect(editHtml).toContain('name="author_name" type="text" class="form-input" value="Jamie Reporter"');
+    expect(editHtml).toContain("Covers wellness.");
+    // is_featured=true renders checked; is_trending=false renders unchecked.
+    expect(editHtml).toContain('name="is_featured" type="checkbox" value="1" checked');
+    expect(editHtml).toContain('name="is_trending" type="checkbox" value="1" />');
+  });
+
+  it("STRUCTURAL T14d-AC3: the author + Display Options fields are composed into the live editor form, not an orphaned fragment", () => {
+    // The same articleFormPage the handler emits carries the article-form
+    // shell AND the author inputs + Display Options — proving integration
+    // wiring through renderArticleForm.
+    expect(newHtml).toContain('id="article-form"');
+    expect(newHtml).toContain('name="author_name"');
+    expect(newHtml).toContain('name="author_bio"');
+    expect(newHtml).toContain("Display Options");
   });
 });

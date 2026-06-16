@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { adminLayout } from "../src/admin/templates/layout";
+import { settingsPage } from "../src/admin/templates/settings";
+import { pageFormPage } from "../src/admin/templates/pages";
+import { categoriesListPage } from "../src/admin/templates/categories";
 
 // T22 / [B1] adminLayout shell port acceptance:
 //   T22.AC2 — brand is KoDigital CMS; no TheIWise residue in the shell
@@ -101,5 +104,99 @@ describe("admin layout shell port (T22)", () => {
     expect(script).toContain("function confirmDelete");
     expect(script).toContain("function generateSlug");
     expect(script).toContain("function api");
+  });
+});
+
+// T15.AC2 — the admin layout shell (renderShell == adminLayout) wraps every
+// admin tab including Settings. Rendering the Settings page proves the admin
+// design chrome the Settings tab is composed inside actually renders, and the
+// shell marks the Settings nav entry active for the Settings activePath.
+describe("admin shell hosts the Settings tab (T15.AC2)", () => {
+  it("composes the Settings page inside the admin shell chrome", () => {
+    const html = settingsPage(
+      [{ id: "st_a", name: "Site A" }],
+      {},
+      "st_a",
+      { userEmail: "admin@example.com" },
+    );
+    // the admin design shell chrome that hosts every tab
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('data-area="admin"');
+    expect(html).toContain('class="admin-sidebar"');
+    expect(html).toContain('class="admin-content"');
+    // the shell marks Settings as the active tab when hosting Settings
+    expect(html).toContain('href="/admin/settings" class="nav-item active"');
+    // the tab-specific Settings fields live inside that shell content region
+    expect(html).toContain("settings-tabs");
+  });
+
+  it("renderShell emits the same chrome for the Settings activePath directly", () => {
+    const html = renderShell("/admin/settings");
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('href="/admin/settings" class="nav-item active"');
+    const activeCount = (html.match(/nav-item active/g) ?? []).length;
+    expect(activeCount).toBe(1);
+  });
+});
+
+// T16.AC2 — the admin layout shell (renderShell == adminLayout) wraps every
+// admin tab including Pages. Rendering the Pages editor form proves the admin
+// design chrome the Pages tab is composed inside actually renders, and the
+// shell marks the Pages nav entry active for the Pages activePath. (The
+// tab-specific layout Template select is asserted by T16.AC1's served-markup
+// test in pages-template.test.ts.)
+describe("admin shell hosts the Pages tab (T16.AC2)", () => {
+  it("composes the Pages editor form inside the admin shell chrome", () => {
+    const html = pageFormPage(null, [{ id: "st_a", name: "Site A" }], {
+      userEmail: "admin@example.com",
+    });
+    // the admin design shell chrome that hosts every tab
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('data-area="admin"');
+    expect(html).toContain('class="admin-sidebar"');
+    expect(html).toContain('class="admin-content"');
+    // the shell marks Pages as the active tab when hosting Pages
+    expect(html).toContain('href="/admin/pages" class="nav-item active"');
+    // the tab-specific Pages editor lives inside that shell content region
+    expect(html).toContain('id="page-form"');
+  });
+
+  it("renderShell emits the same chrome for the Pages activePath directly", () => {
+    const html = renderShell("/admin/pages");
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('href="/admin/pages" class="nav-item active"');
+    const activeCount = (html.match(/nav-item active/g) ?? []).length;
+    expect(activeCount).toBe(1);
+  });
+});
+
+// T17.AC2 — the admin layout shell (renderShell == adminLayout) wraps every
+// admin tab including Categories. Rendering the Categories page proves the
+// admin design chrome the Categories tab is composed inside actually renders,
+// and the shell marks the Categories nav entry active for the Categories
+// activePath. (The tab-specific Description / Display-Order / Show-on-Homepage
+// fields are asserted by T17.AC1's served-markup test in categories-fields.test.ts.)
+describe("admin shell hosts the Categories tab (T17.AC2)", () => {
+  it("composes the Categories page inside the admin shell chrome", () => {
+    const html = categoriesListPage([], [{ id: "st_a", name: "Site A" }], {
+      userEmail: "admin@example.com",
+    });
+    // the admin design shell chrome that hosts every tab
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('data-area="admin"');
+    expect(html).toContain('class="admin-sidebar"');
+    expect(html).toContain('class="admin-content"');
+    // the shell marks Categories as the active tab when hosting Categories
+    expect(html).toContain('href="/admin/categories" class="nav-item active"');
+    // the tab-specific Categories editor form lives inside that shell content region
+    expect(html).toContain('id="new-category-form"');
+  });
+
+  it("renderShell emits the same chrome for the Categories activePath directly", () => {
+    const html = renderShell("/admin/categories");
+    expect(html).toContain('data-marker="kodigital-admin-shell"');
+    expect(html).toContain('href="/admin/categories" class="nav-item active"');
+    const activeCount = (html.match(/nav-item active/g) ?? []).length;
+    expect(activeCount).toBe(1);
   });
 });

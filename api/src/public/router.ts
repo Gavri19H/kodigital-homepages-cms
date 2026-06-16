@@ -90,6 +90,22 @@ function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
 
 const router = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
 
+// T20 (rescue-3): /favicon.ico is answered explicitly so a browser's
+// automatic favicon request never falls through to the /:slug
+// compatibility catch-all, which would emit an unhandled 404 (the
+// "missing favicon" consistency item in the brief). No per-tenant icon
+// asset is bundled, so the route returns 204 No Content — a valid
+// "no favicon configured" response (never a 404/500). It is registered
+// BEFORE publicSiteContextMiddleware so it stays host-independent and
+// needs no tenant DB lookup: a favicon is a generic asset request, not
+// site-scoped content.
+router.get("/favicon.ico", () =>
+  new Response(null, {
+    status: 204,
+    headers: { "Cache-Control": "public, max-age=86400" },
+  }),
+);
+
 // T26: site-context resolution runs before every public route. Unmapped
 // hostnames (including ADMIN_HOST, which never resolves as a public
 // site) get a safe 404 with no admin-host leak; resolved tenant hosts
@@ -98,23 +114,30 @@ router.use("*", publicSiteContextMiddleware);
 
 // T11 homepage: ItemList of latest published articles + WebSite +
 // Organization JSON-LD. canonical href is https://{hostname}/.
+// T1 (rescue-3): the GET / handler passes c.env.DB into renderHomepageHtml
+// so the design homepage (buildHomeViewModel + renderHome + renderLayout) is
+// composed through the LIVE route — the renderer is db-fed, not orphaned.
+// rescue-2 served the bare fallback because the route called no db-fed
+// renderer; the served HTML now carries the 13 home sections, the inline
+// brand tokens and the design shell.
 router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";
-  const articles = await listArticles(c.env.DB, {
-    status: "published",
-    limit: 20,
-    siteId: siteContext.siteId,
-  });
   return servePublicHtml(c.env, siteContext, {
     key: htmlKey(siteContext.siteId, path, siteContext.content_version),
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderHomepageHtml(siteContext, articles),
+    render: () => renderHomepageHtml(c.env.DB, siteContext),
   });
 });
 
+// T2 (rescue-3): the GET /article/:slug handler passes c.env.DB into
+// renderArticleHtml so the design article shell (buildArticleViewModel +
+// renderArticle + renderLayout) is composed through the LIVE route — the
+// renderer is db-fed, not orphaned. getArticleBySlug stays as the cheap 404
+// gate (so an unknown/draft slug never enters the cache pipeline); the
+// db-fed render then runs only on a cold cache.
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
@@ -130,7 +153,7 @@ router.get("/article/:slug", async (c) => {
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderArticleHtml(siteContext, row, path),
+    render: () => renderArticleHtml(c.env.DB, siteContext, slug),
   });
 });
 
@@ -146,6 +169,14 @@ type CategoryCtx = Context<{
   Variables: PublicSiteVariables;
 }>;
 
+// T4 (rescue-3): the render thunk passes c.env.DB into renderCategoryHtml so
+// the category listing is composed through the design layout
+// (fetchPublicLayoutSiteInfo + renderCard + renderLayout) via the LIVE route —
+// the renderer is db-fed, not orphaned. rescue-2 served a bare zero-style
+// `<h1>` + flat `<a>` list (BCL-019: live /category/<slug> = 1,279 bytes, 0
+// <style>) because the route called renderCategoryHtml without the DB handle,
+// so the page rendered with no design shell, no /assets/public.css, no
+// header/footer regions and no styled article cards.
 async function handleCategory(
   c: CategoryCtx,
   pageNum: number,
@@ -172,7 +203,8 @@ async function handleCategory(
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderCategoryHtml(siteContext, cat, articles, pageNum, slug),
+    render: () =>
+      renderCategoryHtml(c.env.DB, siteContext, cat, articles, pageNum, slug),
   });
 }
 
@@ -180,6 +212,13 @@ async function handleCategory(
 // entry points serve the IDENTICAL full document (same pageKey cache
 // entry, same /page/<slug> canonical — the sitemap's page URL shape).
 // Returns null when no published page matches the slug.
+//
+// T3 (rescue-3): the render thunk passes c.env.DB into renderPageHtml so the
+// static page is composed through the design layout (fetchPublicLayoutSiteInfo
+// + renderHeader/renderFooter + renderLayout) via the LIVE route — the renderer
+// is db-fed, not orphaned. rescue-2 served a bare document because the route
+// called renderPageHtml without the DB handle, so the page rendered with no
+// design shell, no /assets/public.css and no header/footer regions.
 async function servePage(
   c: CategoryCtx,
   slug: string,
@@ -193,7 +232,7 @@ async function servePage(
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderPageHtml(siteContext, row, path),
+    render: () => renderPageHtml(c.env.DB, siteContext, row, path),
   });
 }
 

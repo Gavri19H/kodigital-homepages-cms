@@ -1,23 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { STEPS } from "../src/site-provisioning/steps";
 import type { StepContext } from "../src/site-provisioning/steps";
-import {
-  feedAtomKey,
-  feedRssKey,
-  htmlKey,
-  sitemapKey,
-} from "../src/cache/cache-keys";
+import { warmHomepageInProcess } from "../src/cache/warm";
+import type { PublicSiteContext } from "../src/public/middleware";
+import { htmlKey } from "../src/cache/cache-keys";
 import type { Env } from "../src/env";
 
-// rescue-2 T37 (D4): real warm_homepage_cache step.
-//
-// T37.AC2 (behavioral) — with a fake KV bound as env.CACHE and
-// SITE_PROVISIONING_DRY_RUN='false', the step fetches the homepage from
-// the site's own origin and puts the body under the canonical
-// htmlKey(site_id, "/", content_version) — the exact key the public
-// router looks up. Dry-run (the env default) performs ZERO outbound
-// fetches and ZERO KV puts (negative_fail_condition: no outbound HTTP
-// to api.cloudflare.com — we forbid ALL outbound HTTP under dry-run).
+// rescue-3 T5 (T5-AC1): the warm_homepage_cache step renders the homepage
+// IN-PROCESS and stores it via putCachedHtml — it does NOT self-fetch
+// https://{host}/ (that subrequest 403s in production, which is exactly
+// why step 13 failed and sites stalled in status='draft' while serving;
+// user brief BCL-007). These tests pin the new contract:
+//   - live mode  : the homepage body is rendered in-process (ZERO outbound
+//                  fetch) and put under htmlKey(site_id, "/", content_version)
+//                  with a strong ETag + the env-derived TTL; the step is
+//                  `completed` and never escalates to FAILED;
+//   - dry-run    : ZERO outbound fetch AND ZERO KV put; step is
+//                  `completed_dry_run`, receipt still names the key.
 
 interface KvPut {
   key: string;
@@ -45,9 +44,11 @@ function makeFakeKv(): { kv: KVNamespace; puts: KvPut[] } {
   return { kv, puts };
 }
 
-// Mini D1 fake: only the three SELECT shapes the warm step issues are
-// modelled (loadSiteInfo, the content_version read, and
-// resolveSiteHostname's domains lookup).
+// Mini D1 fake. Models the SELECT shapes the warm step + the in-process
+// home view-model issue: loadSiteInfo, the content_version read,
+// resolveSiteHostname's domains lookup, and buildHomeViewModel's three
+// `.all()` listing reads (returned EMPTY so the homepage renders the design
+// shell with no articles — enough to prove a real in-process render).
 function makeFakeDb(site: {
   site_id: string;
   domain: string;
@@ -63,6 +64,8 @@ function makeFakeDb(site: {
         },
         async first<T = unknown>(): Promise<T | null> {
           void captured;
+          // content_version read — checked BEFORE the vertical_slug shape
+          // (both contain "FROM sites WHERE id = ?").
           if (
             sql.indexOf("SELECT content_version FROM sites WHERE id = ?") >= 0
           ) {
@@ -87,6 +90,7 @@ function makeFakeDb(site: {
           return { success: true, meta: {} };
         },
         async all<T = unknown>() {
+          // buildHomeViewModel's articles / categories / settings reads.
           return { results: [] as T[], success: true, meta: {} };
         },
       };
@@ -123,33 +127,21 @@ function makeCtx(env: Env, db: D1Database, site_id: string): StepContext {
   return { env, db, job_id: "job_warm", site_id, step_order: 13 };
 }
 
-const HOME_BODY = "<html><body>warm home</body></html>";
+const STUB_HOME_BODY = "<!DOCTYPE html><html><body>stub home</body></html>";
 
-describe("warm_homepage_cache step (T37)", () => {
+describe("warm_homepage_cache step — in-process render (rescue-3 T5)", () => {
   let fetchCalls: string[];
   let originalFetch: typeof globalThis.fetch;
-  let homepageHttpStatus: number;
 
   beforeEach(() => {
     fetchCalls = [];
-    homepageHttpStatus = 200;
     originalFetch = globalThis.fetch;
+    // Any outbound fetch from the warm path is a regression — the old self-
+    // fetch is exactly the bug T5-AC1 removes. Record every call so the
+    // tests can assert ZERO outbound HTTP.
     globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
-      const url = typeof input === "string" ? input : input.toString();
-      fetchCalls.push(url);
-      if (url.indexOf("api.cloudflare.com") >= 0) {
-        throw new Error(`outbound api.cloudflare.com fetch from warm step: ${url}`);
-      }
-      if (url.endsWith("/sitemap.xml")) {
-        return new Response("<urlset/>", { status: 200 });
-      }
-      if (url.endsWith("/feed.xml")) {
-        return new Response("<rss/>", { status: 200 });
-      }
-      if (url.endsWith("/atom.xml")) {
-        return new Response("<feed/>", { status: 200 });
-      }
-      return new Response(HOME_BODY, { status: homepageHttpStatus });
+      fetchCalls.push(typeof input === "string" ? input : input.toString());
+      return new Response("unexpected", { status: 200 });
     }) as typeof globalThis.fetch;
   });
 
@@ -157,8 +149,10 @@ describe("warm_homepage_cache step (T37)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  // T37.AC2 — fake KV: htmlKey put with the correct key.
-  it("live mode puts the homepage body under htmlKey(site_id, '/', content_version)", async () => {
+  // T5-AC1 (warm contract, injectable renderer): live mode renders the
+  // homepage IN-PROCESS and stores the rendered body under htmlKey with a
+  // strong ETag + the env TTL, making ZERO outbound fetch.
+  it("warmHomepageInProcess (live) puts the in-process-rendered body under htmlKey with a strong ETag + TTL and makes ZERO outbound fetch", async () => {
     const { kv, puts } = makeFakeKv();
     const db = makeFakeDb({
       site_id: "st_warm",
@@ -167,59 +161,142 @@ describe("warm_homepage_cache step (T37)", () => {
     });
     const env = buildEnv(db, kv, { SITE_PROVISIONING_DRY_RUN: "false" });
 
-    const result = await STEPS.warm_homepage_cache(makeCtx(env, db, "st_warm"));
+    const received: { siteId: string; hostname: string; version: number } = {
+      siteId: "",
+      hostname: "",
+      version: -1,
+    };
+    const outcome = await warmHomepageInProcess(env, db, {
+      site_id: "st_warm",
+      hostname: "warm.example.test",
+      vertical_slug: "general",
+      content_version: 7,
+      expirationTtl: 60,
+      renderHomepage: async (_db, ctx: PublicSiteContext) => {
+        received.siteId = ctx.siteId;
+        received.hostname = ctx.hostname;
+        received.version = ctx.content_version;
+        return STUB_HOME_BODY;
+      },
+    });
 
-    expect(result.status).toBe("completed");
+    expect(outcome.status).toBe("warmed");
+    expect(outcome.dry_run).toBe(false);
+    expect(outcome.warmed).toBe(1);
+
+    // The renderer was invoked in-process with a tenant-scoped context.
+    expect(received.siteId).toBe("st_warm");
+    expect(received.hostname).toBe("warm.example.test");
+    expect(received.version).toBe(7);
+
+    // The rendered body — NOT a fetched body — is stored under the canonical
+    // key with a strong ETag + the supplied TTL.
     const expectedKey = htmlKey("st_warm", "/", 7);
+    expect(outcome.cacheKey).toBe(expectedKey);
     const homePut = puts.find((p) => p.key === expectedKey);
     expect(homePut).toBeDefined();
-    expect(homePut?.value).toBe(HOME_BODY);
-    // Homepage body is stored with a strong ETag + the env-derived TTL.
+    expect(homePut?.value).toBe(STUB_HOME_BODY);
     expect(homePut?.options?.metadata?.etag).toMatch(/^".+"$/);
     expect(homePut?.options?.expirationTtl).toBe(60);
 
-    // All four canonical targets were warmed under cache-keys.ts keys.
-    expect(puts.map((p) => p.key).sort()).toEqual(
-      [
-        htmlKey("st_warm", "/", 7),
-        sitemapKey("st_warm", 7),
-        feedRssKey("st_warm", 7),
-        feedAtomKey("st_warm", 7),
-      ].sort(),
-    );
+    // The defining contract: NO outbound self-fetch (the 403 bug is gone).
+    expect(fetchCalls).toHaveLength(0);
+  });
 
-    // Receipt output names the homepage key it warmed.
+  // T5-AC1 (dry-run): the provisioning default renders nothing and writes
+  // nothing — ZERO outbound fetch, ZERO KV put.
+  it("warmHomepageInProcess (dry-run) renders nothing, writes nothing, and makes ZERO outbound fetch", async () => {
+    const { kv, puts } = makeFakeKv();
+    const db = makeFakeDb({
+      site_id: "st_dry",
+      domain: "dry.example.test",
+      content_version: 3,
+    });
+    const env = buildEnv(db, kv); // SITE_PROVISIONING_DRY_RUN defaults to true
+
+    let rendered = false;
+    const outcome = await warmHomepageInProcess(env, db, {
+      site_id: "st_dry",
+      hostname: "dry.example.test",
+      vertical_slug: "general",
+      content_version: 3,
+      expirationTtl: 60,
+      renderHomepage: async () => {
+        rendered = true;
+        return STUB_HOME_BODY;
+      },
+    });
+
+    expect(outcome.status).toBe("dry_run");
+    expect(outcome.dry_run).toBe(true);
+    expect(outcome.warmed).toBe(0);
+    // Receipt still names the key a live run would warm.
+    expect(outcome.cacheKey).toBe(htmlKey("st_dry", "/", 3));
+    expect(rendered).toBe(false);
+    expect(puts).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  // T5-AC1 end-to-end through the real step + the REAL renderHomepageHtml:
+  // live mode renders the homepage design shell in-process (the body carries
+  // the renderLayout markup — /assets/public.css + a complete </html>
+  // document) and stores it under htmlKey, with ZERO outbound fetch. This is
+  // the namesake side-effect AC1 asserts. [api/test/site-provisioning-warm-homepage.test.ts]
+  it("STEPS.warm_homepage_cache (live) renders the homepage design shell in-process and stores it under htmlKey with ZERO outbound fetch [api/test/site-provisioning-warm-homepage.test.ts]", async () => {
+    const { kv, puts } = makeFakeKv();
+    const db = makeFakeDb({
+      site_id: "st_live",
+      domain: "live.example.test",
+      content_version: 5,
+    });
+    const env = buildEnv(db, kv, { SITE_PROVISIONING_DRY_RUN: "false" });
+
+    const result = await STEPS.warm_homepage_cache(makeCtx(env, db, "st_live"));
+
+    expect(result.status).toBe("completed");
+    const expectedKey = htmlKey("st_live", "/", 5);
+    const homePut = puts.find((p) => p.key === expectedKey);
+    expect(homePut).toBeDefined();
+    // The stored body is a real rendered design document, not a fetched body.
+    expect(homePut?.value).toContain("<!DOCTYPE html>");
+    expect(homePut?.value).toContain("/assets/public.css");
+    expect(homePut?.value).toContain("</html>");
+    expect(homePut?.options?.metadata?.etag).toMatch(/^".+"$/);
+    expect(homePut?.options?.expirationTtl).toBe(60);
+
     const parsed = JSON.parse(result.output) as {
       step: string;
+      kind: string;
       dry_run: boolean;
       warmed: number;
       homepage_cache_key: string;
       homepage_status: string;
     };
     expect(parsed.step).toBe("warm_homepage_cache");
+    expect(parsed.kind).toBe("in_process_warm");
     expect(parsed.dry_run).toBe(false);
-    expect(parsed.warmed).toBe(4);
+    expect(parsed.warmed).toBe(1);
     expect(parsed.homepage_cache_key).toBe(expectedKey);
     expect(parsed.homepage_status).toBe("warmed");
 
-    // Only the site's own origin was fetched — never api.cloudflare.com.
-    expect(fetchCalls.length).toBe(4);
-    for (const url of fetchCalls) {
-      expect(url.startsWith("https://warm.example.test/")).toBe(true);
-    }
+    // No self-fetch — the entire warm runs inside the Worker.
+    expect(fetchCalls).toHaveLength(0);
   });
 
-  it("dry-run (env default) performs zero outbound fetches and zero KV puts", async () => {
+  // T5-AC1 (dry-run, real step): the env default short-circuits to
+  // completed_dry_run with ZERO KV put and ZERO outbound fetch; the receipt
+  // still names the homepage key a live run would warm.
+  it("STEPS.warm_homepage_cache (dry-run env default) reports completed_dry_run with ZERO put and ZERO outbound fetch [api/test/site-provisioning-warm-homepage.test.ts]", async () => {
     const { kv, puts } = makeFakeKv();
     const db = makeFakeDb({
-      site_id: "st_warm_dry",
-      domain: "warm-dry.example.test",
-      content_version: 3,
+      site_id: "st_live_dry",
+      domain: "live-dry.example.test",
+      content_version: 2,
     });
     const env = buildEnv(db, kv);
 
     const result = await STEPS.warm_homepage_cache(
-      makeCtx(env, db, "st_warm_dry"),
+      makeCtx(env, db, "st_live_dry"),
     );
 
     expect(result.status).toBe("completed_dry_run");
@@ -232,29 +309,6 @@ describe("warm_homepage_cache step (T37)", () => {
     };
     expect(parsed.dry_run).toBe(true);
     expect(parsed.warmed).toBe(0);
-    // The receipt still names the key a live run would warm.
-    expect(parsed.homepage_cache_key).toBe(htmlKey("st_warm_dry", "/", 3));
-  });
-
-  it("live mode fails the step when the homepage target cannot be warmed", async () => {
-    homepageHttpStatus = 500;
-    const { kv, puts } = makeFakeKv();
-    const db = makeFakeDb({
-      site_id: "st_warm_err",
-      domain: "warm-err.example.test",
-      content_version: 2,
-    });
-    const env = buildEnv(db, kv, { SITE_PROVISIONING_DRY_RUN: "false" });
-
-    const result = await STEPS.warm_homepage_cache(
-      makeCtx(env, db, "st_warm_err"),
-    );
-
-    expect(result.status).toBe("failed");
-    expect(result.error).toContain("homepage warm");
-    // The homepage body was NOT cached under its key.
-    expect(
-      puts.find((p) => p.key === htmlKey("st_warm_err", "/", 2)),
-    ).toBeUndefined();
+    expect(parsed.homepage_cache_key).toBe(htmlKey("st_live_dry", "/", 2));
   });
 });

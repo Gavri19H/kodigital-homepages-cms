@@ -72,6 +72,23 @@ function isRetriableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
+// T11/AC2: a timed-out / aborted request is retriable, alongside
+// isRetriableStatus 429/5xx. fetchWithTimeout aborts via AbortController at
+// timeoutMs, which rejects with an AbortError (DOMException/Error name
+// "AbortError"); some runtimes surface a "TimeoutError" instead. We classify
+// by error name first, then fall back to message text, so a slow full-article
+// generation is retried rather than surfaced immediately as a fallback stub.
+function isAbortOrTimeoutError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const name = (err as { name?: unknown }).name;
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  const message = (err as { message?: unknown }).message;
+  return (
+    typeof message === "string" &&
+    /\b(abort(ed)?|timed?\s*out|timeout)\b/i.test(message)
+  );
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function fetchWithTimeout(
@@ -111,19 +128,34 @@ export function createOpenAIClient(env: Env): OpenAIClient {
     let attempt = 0;
     let last: Response | null = null;
     while (attempt <= maxRetries) {
-      const response = await fetchWithTimeout(
-        url,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${apiKey ?? ""}`,
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(
+          url,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${apiKey ?? ""}`,
+            },
+            body: JSON.stringify(body),
           },
-          body: JSON.stringify(body),
-        },
-        timeoutMs,
-        fetchImpl,
-      );
+          timeoutMs,
+          fetchImpl,
+        );
+      } catch (err) {
+        // T11/AC2: an aborted/timed-out call is retried (timeout/abort added
+        // to the retriable set alongside isRetriableStatus 429/5xx). If
+        // retries remain, back off and retry; otherwise rethrow so the
+        // caller's fallback path runs (surfaced in receipts). Non-abort
+        // errors are NOT retried — they propagate immediately.
+        if (isAbortOrTimeoutError(err) && attempt < maxRetries) {
+          attempt += 1;
+          await sleep(RETRY_DELAY_MS);
+          continue;
+        }
+        throw err;
+      }
       last = response;
       if (!isRetriableStatus(response.status) || attempt === maxRetries) {
         return { response, retries: attempt };
@@ -167,17 +199,22 @@ export function createOpenAIClient(env: Env): OpenAIClient {
     async generateImage(opts) {
       if (!hasKey) return { skipped_no_api_key: true };
       const model = getImageModel(env);
+      const fetchImpl = opts.fetchImpl ?? fetch;
+      const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      // T10/AC1: gpt-image-2 rejects `response_format` with a 400
+      // ("Unknown parameter: response_format"). The model id is locked by
+      // the brief and stays unchanged; the request body MUST NOT carry a
+      // response_format key.
       const { response, retries } = await callWithRetry(
         OPENAI_IMAGE_URL,
         {
           model,
           prompt: opts.prompt,
           size: opts.size ?? "1024x1024",
-          response_format: "b64_json",
         },
         opts.maxRetries ?? DEFAULT_MAX_RETRIES,
-        opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        opts.fetchImpl ?? fetch,
+        timeoutMs,
+        fetchImpl,
       );
       if (!response.ok) {
         const errText = await response.text().catch(() => "");
@@ -186,11 +223,34 @@ export function createOpenAIClient(env: Env): OpenAIClient {
         );
       }
       const json = (await response.json()) as {
-        data?: Array<{ b64_json?: string }>;
+        data?: Array<{ b64_json?: string; url?: string }>;
       };
+      // T10/AC2: read whichever shape the API returns —
+      // data[0].b64_json (inline base64) ?? fetch(data[0].url) (hosted
+      // link). Defensive regardless of which the API sends back.
+      const first = json?.data?.[0];
+      let bytes: ArrayBuffer = new ArrayBuffer(0);
+      let mime = "image/png";
+      if (first?.b64_json) {
+        bytes = base64ToArrayBuffer(first.b64_json);
+      } else if (first?.url) {
+        const imageResponse = await fetchWithTimeout(
+          first.url,
+          { method: "GET" },
+          timeoutMs,
+          fetchImpl,
+        );
+        if (!imageResponse.ok) {
+          throw new Error(
+            `OpenAI image fetch failed: status=${imageResponse.status}`,
+          );
+        }
+        bytes = await imageResponse.arrayBuffer();
+        mime = imageResponse.headers.get("content-type") ?? "image/png";
+      }
       return {
-        bytes: base64ToArrayBuffer(json?.data?.[0]?.b64_json ?? ""),
-        mime: "image/png",
+        bytes,
+        mime,
         model,
         retries,
         status: response.status,

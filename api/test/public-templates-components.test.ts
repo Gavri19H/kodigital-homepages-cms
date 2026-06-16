@@ -17,6 +17,38 @@ import {
   type CategoryChip,
 } from "../src/public/templates/components";
 import { publicCss } from "../src/public/assets/public-css";
+import { renderPageHtml, renderCategoryHtml } from "../src/public/render-pages";
+import type { PublicSiteContext } from "../src/public/middleware";
+import type { PublicPageRow, PublicCategoryRow } from "../src/public/queries";
+import type { ArticleRow } from "../src/db";
+
+// T3 (rescue-3) render-output (T3-AC3) fixture: a D1 stub whose site_settings
+// SELECT returns the seeded brand rows so renderPageHtml composes the design
+// shell (renderLayout + renderHeader/renderFooter) rather than the bare
+// document. `.all()` is the only path fetchPublicLayoutSiteInfo exercises.
+function makeSettingsDb(
+  rows: ReadonlyArray<{ key: string; value: string | null }>,
+): D1Database {
+  return {
+    prepare() {
+      const stmt = {
+        bind() {
+          return stmt;
+        },
+        async all<T = unknown>() {
+          return { results: rows as unknown as T[], success: true, meta: {} };
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          return null;
+        },
+        async run() {
+          return { success: true, meta: {} };
+        },
+      };
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
 
 describe("public-templates-components", () => {
   it("chip-rail emits /category/<slug> hrefs and never href=\"#\"", () => {
@@ -207,5 +239,128 @@ describe("public-templates-components", () => {
   it("T14.AC1/AC3: publicCss pins hero min-height clamp and container padding clamp", () => {
     expect(publicCss).toContain("min-height: clamp(340px, 42vw, 480px)");
     expect(publicCss).toContain("padding: 0 clamp(16px, 3vw, 32px)");
+  });
+
+  it("T3.AC3: renderPageHtml wraps page content in renderLayout — links /assets/public.css and carries the site-header + site-footer regions, not the bare fallback [api/test/public-templates-components.test.ts]", async () => {
+    const RAW_PAGE_BODY = "<p>about-body must-be-wrapped-in-shell</p>";
+    const siteContext = {
+      siteId: "site_T3",
+      hostname: "tenant.example.com",
+    } as unknown as PublicSiteContext;
+    const row = {
+      id: 1,
+      slug: "about",
+      title: "About Us",
+      content_html: RAW_PAGE_BODY,
+      status: "published",
+      updated_at: 1_700_000_500,
+      site_id: "site_T3",
+    } as unknown as PublicPageRow;
+    const db = makeSettingsDb([
+      { key: "site_name", value: "Acme Daily" },
+      { key: "brand_tokens_json", value: '{"tw-brand":"#0f8aa6"}' },
+    ]);
+
+    const html = await renderPageHtml(db, siteContext, row, "/page/about");
+
+    // Design shell, not the bare document.
+    expect(html.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+    expect(html).not.toBe(RAW_PAGE_BODY);
+    // renderLayout owns the stylesheet + brand-token override (db-fed shell).
+    expect(html).toContain('href="/assets/public.css"');
+    expect(html).toContain('<style data-source="brand_tokens">');
+    expect(html).toContain("--tw-brand: #0f8aa6");
+    // Header + footer regions present (banner + contentinfo).
+    expect(html).toContain('class="site-header"');
+    expect(html).toContain('role="banner"');
+    expect(html).toContain('class="site-footer"');
+    expect(html).toContain('role="contentinfo"');
+    // Brand name resolved from site_settings, surfaced in the header.
+    expect(html).toContain("Acme Daily");
+    // Page content is composed inside the shell.
+    expect(html).toContain(RAW_PAGE_BODY);
+    expect(html).toContain('class="page-title"');
+    // WebPage JSON-LD rides the head exactly once (no double-wrapped script).
+    expect(html).toContain('"@type": "WebPage"');
+    expect(html).not.toContain(
+      '<script type="application/ld+json"><script type="application/ld+json">',
+    );
+    // Tenant-boundary RED LINE: admin host never appears.
+    expect(html).not.toContain("cms.kodigital.app");
+  });
+
+  it("T4.AC3: renderCategoryHtml wraps the listing in renderLayout with styled article cards — links /assets/public.css, carries the site-header + site-footer regions and the .card / home-grid markup, not the bare zero-style list [api/test/public-templates-components.test.ts]", async () => {
+    const siteContext = {
+      siteId: "site_T4",
+      hostname: "tenant.example.com",
+    } as unknown as PublicSiteContext;
+    const cat: PublicCategoryRow = { id: 7, slug: "wellness", name: "Wellness" };
+    const articles = [
+      {
+        id: 201,
+        slug: "sleep-better",
+        title: "Sleep Better Tonight",
+        content_json: "{}",
+        content_html: "<p>Tips for restful sleep tonight.</p>",
+        category_id: 7,
+        status: "published",
+        published_at: 1_700_000_900,
+        scheduled_at: null,
+        author_name: "Wellness Desk",
+        featured_image_id: null,
+        is_featured: 0,
+        is_trending: 0,
+        created_at: 1_699_000_000,
+        updated_at: 1_700_000_950,
+        site_id: "site_T4",
+      },
+    ] as unknown as ArticleRow[];
+    const db = makeSettingsDb([
+      { key: "site_name", value: "Acme Daily" },
+      { key: "brand_tokens_json", value: '{"tw-brand":"#0f8aa6"}' },
+    ]);
+
+    const html = await renderCategoryHtml(
+      db,
+      siteContext,
+      cat,
+      articles,
+      1,
+      "wellness",
+    );
+
+    // Design shell, not the rescue-2 bare zero-style document.
+    expect(html.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
+    // renderLayout owns the stylesheet + brand-token override (db-fed shell).
+    expect(html).toContain('href="/assets/public.css"');
+    expect(html).toContain('<style data-source="brand_tokens">');
+    expect(html).toContain("--tw-brand: #0f8aa6");
+    // Header + footer regions present (banner + contentinfo).
+    expect(html).toContain('class="site-header"');
+    expect(html).toContain('role="banner"');
+    expect(html).toContain('class="site-footer"');
+    expect(html).toContain('role="contentinfo"');
+    // Brand name resolved from site_settings, surfaced in the header.
+    expect(html).toContain("Acme Daily");
+    // Styled article cards (renderCard → <article class="card">) inside the
+    // home-grid listing — NOT the rescue-2 bare flat <a> list.
+    expect(html).toContain('<ul class="home-grid home-grid--category">');
+    expect(html).toContain('<article class="card">');
+    expect(html).toContain('class="card-title"');
+    expect(html).toContain('href="/article/sleep-better"');
+    expect(html).toContain("Sleep Better Tonight");
+    // The category name renders as the section <h1>.
+    expect(html).toContain('class="category-title"');
+    expect(html).toContain("Wellness");
+    // CollectionPage + root-first BreadcrumbList JSON-LD ride the head once.
+    expect(html).toContain('"@type": "CollectionPage"');
+    expect(html).toContain('"@type": "BreadcrumbList"');
+    expect(html).not.toContain(
+      '<script type="application/ld+json"><script type="application/ld+json">',
+    );
+    // GEO §1: no FAQPage on a category route.
+    expect(html).not.toContain("FAQPage");
+    // Tenant-boundary RED LINE: admin host never appears.
+    expect(html).not.toContain("cms.kodigital.app");
   });
 });

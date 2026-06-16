@@ -30,6 +30,32 @@ function parseJsonLd(html: string): Record<string, unknown> {
   return JSON.parse(body.replace(/<\\\//g, "</")) as Record<string, unknown>;
 }
 
+// T1 (rescue-3): renderHomepageHtml is now db-fed (it composes
+// buildHomeViewModel). These GEO assertions only care about the homepage's
+// JSON-LD *shape* (no FAQPage, no BreadcrumbList), so an empty-listing D1
+// stub is sufficient — the home doc renders WebSite + Organization only.
+function makeEmptyHomeDb(): D1Database {
+  const stmt = {
+    bind() {
+      return stmt;
+    },
+    async first() {
+      return null;
+    },
+    async all() {
+      return { results: [], success: true, meta: {} };
+    },
+    async run() {
+      return { success: true, meta: {} };
+    },
+  };
+  return {
+    prepare() {
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
 describe("T9 renderArticleJsonLd: Article schema", () => {
   const baseInput = {
     url: "https://example.com/article/hello",
@@ -275,6 +301,62 @@ function makeGeoArticleRow(overrides: Partial<ArticleRow> = {}): ArticleRow {
   };
 }
 
+// T2 (rescue-3): renderArticleHtml is now db-fed (it composes
+// buildArticleViewModel + renderArticle + renderLayout). The GEO conformance
+// assertions only care about the LIVE article page's JSON-LD + canonical, so
+// a D1 stub whose article-detail query returns one published article and
+// whose related/settings listings return no rows reproduces the exact head
+// the router caches. content_json / author_name are overridable so the FAQ
+// (§1) and anonymous-author (§3) cases drive the same render path.
+function makeGeoArticleDb(
+  overrides: { content_json?: string | null; author_name?: string | null } = {},
+): D1Database {
+  const detailRow = {
+    id: 1,
+    slug: "story-one",
+    title: "Story one",
+    content_json:
+      overrides.content_json !== undefined ? overrides.content_json : "{}",
+    content_html: "<p>Opening paragraph.</p>",
+    category_id: null,
+    status: "published",
+    published_at: 1747562400,
+    updated_at: 1747566000,
+    author_name:
+      overrides.author_name !== undefined
+        ? overrides.author_name
+        : "Jamie Reporter",
+    featured_image_id: null,
+    is_featured: 0,
+    site_id: "site-acme",
+    category_name: null,
+    category_slug: null,
+    image_url: null,
+    image_alt: null,
+    seo_title: null,
+    seo_description: null,
+  };
+  const stmt = {
+    bind() {
+      return stmt;
+    },
+    async first() {
+      return detailRow;
+    },
+    async all() {
+      return { results: [], success: true, meta: {} };
+    },
+    async run() {
+      return { success: true, meta: {} };
+    },
+  };
+  return {
+    prepare() {
+      return stmt as unknown as D1PreparedStatement;
+    },
+  } as unknown as D1Database;
+}
+
 const geoCategory: PublicCategoryRow = { id: 7, slug: "news", name: "News" };
 
 const geoPage: PublicPageRow = {
@@ -288,14 +370,13 @@ const geoPage: PublicPageRow = {
 };
 
 describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
-  const articlePath = "/article/story-one";
   const articleCanonical = "https://acme.example/article/story-one";
 
-  it("T41.AC1 article render emits author + publisher + datePublished + dateModified [cd api && npx vitest run test/json-ld-article.test.ts]", () => {
-    const html = renderArticleHtml(
+  it("T41.AC1 article render emits author + publisher + datePublished + dateModified [cd api && npx vitest run test/json-ld-article.test.ts]", async () => {
+    const html = await renderArticleHtml(
+      makeGeoArticleDb(),
       geoSiteContext,
-      makeGeoArticleRow(),
-      articlePath,
+      "story-one",
     );
     const article = findByType(extractJsonLdBlocks(html), "Article")!;
     expect(article).toBeDefined();
@@ -317,13 +398,13 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     );
   });
 
-  it("T41.AC2 FAQPage emitted only when faqs non-empty [cd api && npx vitest run test/json-ld-article.test.ts]", () => {
+  it("T41.AC2 FAQPage emitted only when faqs non-empty [cd api && npx vitest run test/json-ld-article.test.ts]", async () => {
     // §1: an article whose content_json carries faq blocks emits FAQPage
     // with Question / acceptedAnswer / Answer wire names.
-    const withFaqs = renderArticleHtml(
+    const withFaqs = await renderArticleHtml(
+      makeGeoArticleDb({ content_json: FAQ_CONTENT_JSON }),
       geoSiteContext,
-      makeGeoArticleRow({ content_json: FAQ_CONTENT_JSON }),
-      articlePath,
+      "story-one",
     );
     const faqPage = findByType(extractJsonLdBlocks(withFaqs), "FAQPage")!;
     expect(faqPage).toBeDefined();
@@ -336,19 +417,19 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     expect(accepted.text).toBe("Generative engine optimization.");
     // §1: empty FAQ set -> NO FAQPage block at all (an emitted FAQPage with
     // mainEntity: [] is forbidden — engines read it as a negative signal).
-    const withoutFaqs = renderArticleHtml(
+    const withoutFaqs = await renderArticleHtml(
+      makeGeoArticleDb(),
       geoSiteContext,
-      makeGeoArticleRow(),
-      articlePath,
+      "story-one",
     );
     expect(withoutFaqs).not.toContain("FAQPage");
   });
 
-  it("T41.AC3 BreadcrumbList root-first with canonical-host URLs [cd api && npx vitest run test/json-ld-article.test.ts]", () => {
-    const html = renderArticleHtml(
+  it("T41.AC3 BreadcrumbList root-first with canonical-host URLs [cd api && npx vitest run test/json-ld-article.test.ts]", async () => {
+    const html = await renderArticleHtml(
+      makeGeoArticleDb(),
       geoSiteContext,
-      makeGeoArticleRow(),
-      articlePath,
+      "story-one",
     );
     const blocks = extractJsonLdBlocks(html);
     // §2 breadcrumbs: root-first ListItems, 1-indexed positions, absolute
@@ -384,23 +465,30 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     expect(html).not.toMatch(/cms\.kodigital\.app/);
   });
 
-  it("GEO §1: FAQPage is forbidden on homepage / category / page routes", () => {
-    const home = renderHomepageHtml(geoSiteContext, [makeGeoArticleRow()]);
-    const category = renderCategoryHtml(
+  it("GEO §1: FAQPage is forbidden on homepage / category / page routes", async () => {
+    const home = await renderHomepageHtml(makeEmptyHomeDb(), geoSiteContext);
+    const category = await renderCategoryHtml(
+      makeEmptyHomeDb(),
       geoSiteContext,
       geoCategory,
       [makeGeoArticleRow()],
       1,
       "news",
     );
-    const page = renderPageHtml(geoSiteContext, geoPage, "/about");
+    const page = await renderPageHtml(
+      makeEmptyHomeDb(),
+      geoSiteContext,
+      geoPage,
+      "/about",
+    );
     expect(home).not.toContain("FAQPage");
     expect(category).not.toContain("FAQPage");
     expect(page).not.toContain("FAQPage");
   });
 
-  it("GEO §2: category + page emit BreadcrumbList; homepage MUST NOT", () => {
-    const category = renderCategoryHtml(
+  it("GEO §2: category + page emit BreadcrumbList; homepage MUST NOT", async () => {
+    const category = await renderCategoryHtml(
+      makeEmptyHomeDb(),
       geoSiteContext,
       geoCategory,
       [makeGeoArticleRow()],
@@ -418,21 +506,26 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     >[];
     expect(categoryItems[0]!.name).toBe("Home");
     expect(categoryItems[1]!.item).toBe("https://acme.example/category/news");
-    const page = renderPageHtml(geoSiteContext, geoPage, "/about");
+    const page = await renderPageHtml(
+      makeEmptyHomeDb(),
+      geoSiteContext,
+      geoPage,
+      "/about",
+    );
     const pageCrumb = findByType(extractJsonLdBlocks(page), "BreadcrumbList")!;
     expect(pageCrumb).toBeDefined();
     const pageItems = pageCrumb.itemListElement as Record<string, unknown>[];
     expect(pageItems[1]!.item).toBe("https://acme.example/about");
     // Homepage: a one-item breadcrumb chain is a negative signal.
-    const home = renderHomepageHtml(geoSiteContext, [makeGeoArticleRow()]);
+    const home = await renderHomepageHtml(makeEmptyHomeDb(), geoSiteContext);
     expect(home).not.toContain("BreadcrumbList");
   });
 
-  it("GEO §3: anonymous article sets author to the publisher Organization", () => {
-    const html = renderArticleHtml(
+  it("GEO §3: anonymous article sets author to the publisher Organization", async () => {
+    const html = await renderArticleHtml(
+      makeGeoArticleDb({ author_name: null }),
       geoSiteContext,
-      makeGeoArticleRow({ author_name: null }),
-      articlePath,
+      "story-one",
     );
     const article = findByType(extractJsonLdBlocks(html), "Article")!;
     const author = article.author as Record<string, unknown>;
@@ -440,8 +533,9 @@ describe("T41 [F2] GEO checklist conformance (docs/geo-checklist.md)", () => {
     expect(author.name).toBe("acme.example");
   });
 
-  it("GEO §5: paginated category pages canonical to page 1", () => {
-    const html = renderCategoryHtml(
+  it("GEO §5: paginated category pages canonical to page 1", async () => {
+    const html = await renderCategoryHtml(
+      makeEmptyHomeDb(),
       geoSiteContext,
       geoCategory,
       [makeGeoArticleRow()],

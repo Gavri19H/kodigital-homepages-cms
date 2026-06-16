@@ -1,0 +1,533 @@
+{
+  "changeId": "kodigital-cms-rescue-3-2026-06-14",
+  "mainGoal": "A freshly created site ends as a CORRECT, on-brand, fully-populated site: the public homepage/article/category/page render through the design system (brand #1ba8c8 + Nunito + the 13/12 sections + hero) via the live router; the 16-step build completes and marks the site status='active'; every starter article has a category, author, hero image, SEO and a 1-hero/4-featured/4-trending/6-latest placement; AI image generation works (no response_format) and full-article text is reliable (raised timeout + retry on abort); AI presets actually drive generation; and the Presets/Editor/Settings/Pages/Categories admin tabs match the legacy reference field-by-field. This measurable, observable outcome is verified by the aggregate acceptance criteria of stories T1 through T20 (the failure criterion below is the inverse).",
+  "stories": [
+    {
+      "id": "T1",
+      "title": "Public homepage renders through the design system via the live route",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/render-pages.ts",
+        "api/src/public/router.ts",
+        "api/test/public-router.test.ts",
+        "api/test/public-templates-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the LIVE public router api/src/public/router.ts imports AND calls renderHomepageHtml (the GET / handler now passes c.env.DB into the renderer) so the design homepage is composed through the live route — proving the renderer is wired into the live entry, not orphaned (the rescue-2 failure where the route called no db-fed renderer).",
+        "render-output: renderHome+renderLayout emit the 13 home-section: markers + --tw-brand.",
+        "live GET / (renderHomepageHtml composes buildHomeViewModel+renderHome+renderLayout): SERVED HTML has INLINE the 13 home-section: markers, Nunito, /assets/public.css, a hero bg image, --tw-brand — not the bare fallback.",
+        "COHERENCE: seeding T6's is_trending/is_featured flags, GET / renders counts hero=1, featured=4, trending=4, latest=6 via buildHomeViewModel (home.ts:285-315)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T1"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/public/router.ts",
+        "imported_symbol": "renderHomepageHtml",
+        "call_site_pattern": "renderHomepageHtml("
+      }
+    },
+    {
+      "id": "T2",
+      "title": "Article pages render in the design shell with category + author byline",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/render-pages.ts",
+        "api/src/public/router.ts",
+        "api/test/public-router.test.ts",
+        "api/test/public-templates-article.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the LIVE public router api/src/public/router.ts imports AND calls renderArticleHtml (the GET /article/:slug handler now passes c.env.DB into the renderer) so the design article shell is composed through the live route — proving the renderer is wired into the live entry, not orphaned.",
+        "render-output: renderArticle via renderLayout emits the .article-shell wrapper and the 12 article-section: markers.",
+        "live router GET /article/:slug (DB handle passed; renderArticleHtml composes buildArticleViewModel+renderArticle+renderLayout): SERVED HTML carries the .article-shell wrapper, the 12 article-section: markers, the article category and an author byline — not bare HTML.",
+        "FUNCTIONAL: GET /article/:slug links /assets/public.css (the brand CSS) and carries a per-article SEO title/description in the head — markers inline in the served document."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T2"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/public/router.ts",
+        "imported_symbol": "renderArticleHtml",
+        "call_site_pattern": "renderArticleHtml("
+      }
+    },
+    {
+      "id": "T3",
+      "title": "Static pages render through the design layout (header + footer)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/render-pages.ts",
+        "api/src/public/templates/page.ts",
+        "api/src/public/router.ts",
+        "api/test/public-router.test.ts",
+        "api/test/public-templates-components.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the LIVE public router api/src/public/router.ts imports AND calls renderPageHtml (the GET /page/:slug handler now passes c.env.DB into the renderer) so the static page is composed through the design layout via the live route — proving the renderer is wired into the live entry, not orphaned.",
+        "BEHAVIORAL (render-output): renderLayout wrapping page content renders HTML that links /assets/public.css and carries the header and footer regions — the shell, not the bare fallback.",
+        "BEHAVIORAL: for a published page, the live router GET /page/:slug (passing the DB handle so the renderer composes the layout) has renderPageHtml wrap the content in renderLayout: the SERVED HTML links /assets/public.css and carries the header and footer regions instead of bare content."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T3"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/public/router.ts",
+        "imported_symbol": "renderPageHtml",
+        "call_site_pattern": "renderPageHtml("
+      }
+    },
+    {
+      "id": "T4",
+      "title": "Category listing pages render through the design layout with styled cards",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/render-pages.ts",
+        "api/src/public/templates/category.ts",
+        "api/src/public/router.ts",
+        "api/test/public-router.test.ts",
+        "api/test/public-templates-components.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the LIVE public router api/src/public/router.ts imports AND calls renderCategoryHtml (the GET /category/:slug handler now passes c.env.DB into the renderer) so the category listing is composed through the design layout via the live route — proving the renderer is wired into the live entry, not orphaned.",
+        "render-output: the layout and cards renderCategoryHtml composes emit /assets/public.css, the header+footer and the home-categories / article-card markup — not the bare zero-style list.",
+        "live router GET /category/:slug (DB handle passed): renderCategoryHtml wraps the listing in renderLayout with styled article cards: SERVED HTML links /assets/public.css and carries the header+footer and article-card / home-categories markup — not the bare zero-style list."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T4"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/public/router.ts",
+        "imported_symbol": "renderCategoryHtml",
+        "call_site_pattern": "renderCategoryHtml("
+      }
+    },
+    {
+      "id": "T5",
+      "title": "Provisioning completes: in-process warm + sites.status='active'",
+      "category": "migration",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/test/site-provisioning-warm-homepage.test.ts",
+        "api/test/site-provisioning-run-to-completion.test.ts",
+        "api/test/provisioning-runner.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the 16-step provisioning job for a new site, WHEN the warm_homepage_cache step runs (STEP_KEYS index 13, fn warmHomepageCacheStep), THEN it renders the homepage in-process and stores it via putCachedHtml (no https://{host}/ self-fetch that 403s) AND the warm step does not escalate to FAILED.",
+        "BEHAVIORAL: GIVEN provisioning runs to completion against a fake-D1, WHEN update_launch_readiness (STEP_KEYS index 15, today read-only) finishes, THEN a SELECT of sites.status for the new site returns 'active' (the schema CHECK-allowed live value; 'launched' is rejected by the CHECK constraint).",
+        "FUNCTIONAL (guard of existing behavior): GIVEN the step registry, WHEN provisioning reports progress, THEN total_steps equals STEP_KEYS.length (16) end-to-end. TOTAL_STEPS=STEP_KEYS.length is ALREADY 16 and the runner ALREADY re-syncs any stale stored count to TOTAL_STEPS (runner.ts:187-194) — this AC guards the existing derive+resync, it does NOT claim a 15-to-16 fix."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T5"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Starter articles get category, default author, SEO and 1/4/4/6 placement",
+      "category": "migration",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/test/site-provisioning-run-to-completion.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN provisioning inserts the 15 starter articles against a fake-D1, WHEN each articles row is SELECTed, THEN it has a non-null category_id (from the site's allocated site_categories), a non-null author_name (from the new default_author_name site_setting — NOT a user email), and non-null seo_title and seo_description.",
+        "BEHAVIORAL: GIVEN the 15 starter articles, WHEN their homepage placement FLAGS are SELECTed, THEN provisioning has written exactly the flag distribution the homepage reader (buildHomeViewModel) consumes to produce the agreed 1 hero + 4 featured + 4 trending + 6 latest split (operator decision D4; the brief BCL-023 requires >=1 per bucket): exactly 4 rows is_trending=1 (→ trending=4), exactly 5 OTHER rows is_featured=1 and is_trending=0 (→ featuredBucket=5 → hero=1 + featured=4), the remaining 6 rows is_featured=0 AND is_trending=0 (→ latest=6), and homepage_rank populated on all 15 for deterministic ordering. The reader buckets PURELY from is_trending/is_featured (home.ts:285-315: is_trending=1 removed from the pool first, featuredBucket=is_featured=1 from the remainder, hero=featuredBucket[0], featured=featuredBucket.slice(1), latest=the rest ordered is_featured DESC, is_trending DESC, homepage_rank ASC); homepage_section MAY be set for admin display but is admin-editor-only and the reader IGNORES it for placement, so this AC does NOT assert homepage_section as the placement encoding."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T6"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "AI tagline/site_description overwrite stubs; seed default_author_name",
+      "category": "migration",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/test/site-provisioning-ai-integration.test.ts",
+        "api/test/site-provisioning-create-site-settings.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the default settings seed has written stub tagline and site_description, WHEN the AI step produces real values and upsertSiteSetting runs, THEN a SELECT of site_settings.value for 'tagline' and 'site_description' returns the AI-generated values (the UPDATE-if-null WHERE value IS NULL OR value='' guard no longer silently discards them).",
+        "BEHAVIORAL: GIVEN provisioning seeds site settings, WHEN settings are SELECTed, THEN a default_author_name setting exists for the site (so T6 sources the article author from it, not from a user email)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T7"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Seed brand_tokens_json from the brand contract family (not the dark palette)",
+      "category": "migration",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/test/site-provisioning-create-site-settings.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN provisioning seeds site_settings, WHEN brand_tokens_json is SELECTed, THEN its parsed value is either the brand contract family (primary in the #1ba8c8 / teal family) or empty so the design defaults apply — it is NEVER the old mismatched dark palette {primary:'#0F172A', accent:'#38BDF8', neutral:'#F8FAFC'}."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T8"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Correct vertical->category allocation and link articles to categories",
+      "category": "migration",
+      "targetFiles": [
+        "api/src/site-provisioning/steps.ts",
+        "api/test/site-provisioning-allocate-categories.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN a parenting-vertical site is provisioned against a fake-D1, WHEN site_categories are SELECTed, THEN the allocated categories are parenting-appropriate (not the mismatched family-travel/healthy-meals/wellness set).",
+        "BEHAVIORAL: GIVEN the starter articles and allocated categories, WHEN each category's article_count is computed via a SELECT join, THEN articles are linked to the allocated site_categories so category_count > 0 (category pages and chips are no longer empty)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T9"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Fix AI image generation: remove response_format; parse b64_json AND url",
+      "category": "script",
+      "targetFiles": [
+        "api/src/ai/openai-client.ts",
+        "api/test/ai-openai-client.test.ts",
+        "api/test/ai-generators-image.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the image-generation client, WHEN generateImage builds the request body for gpt-image-2 (model id UNCHANGED — locked by the brief), THEN the serialized request body contains NO response_format key (the parameter gpt-image-2 rejects with 400 'Unknown parameter: response_format').",
+        "BEHAVIORAL: GIVEN an image API response, WHEN the parser reads data[0], THEN it returns image bytes for BOTH shapes: a b64_json response AND a url response (data[0].b64_json ?? fetch(data[0].url)) — defensive regardless of which the API returns."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T10"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Reliable full-article text: raise per-article timeout + retry on abort",
+      "category": "script",
+      "targetFiles": [
+        "api/src/ai/openai-client.ts",
+        "api/src/ai/generators/text.ts",
+        "api/test/ai-generators-text.test.ts",
+        "api/test/ai-openai-client.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the article-generation path, WHEN generateStarterArticle calls the text client, THEN it passes a timeoutMs larger than the 30_000ms DEFAULT_TIMEOUT_MS (using the existing timeoutMs knob) so a full article is not aborted at 30s.",
+        "BEHAVIORAL: GIVEN a text request that times out / aborts, WHEN the retry classifier runs, THEN an aborted/timed-out call is retried (timeout/abort added to the retriable set alongside isRetriableStatus 429/5xx), not surfaced immediately as a fallback stub."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T11"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "AI Presets form to reference (Name/Description/Category select/system+user prompt/chips/content-map) + migration",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/presets.ts",
+        "api/migrations/0014_phase9_prompt_presets_reference_columns.sql",
+        "api/test/admin-presets-pages.test.ts",
+        "api/test/migrations-0014-prompt-presets-reference-columns.test.ts",
+        "api/test/admin-layout-shell.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the admin presets entry api/src/admin/templates/presets.ts composes the presets screen via renderPresets, which now emits the reference preset form (name=\"category\" dropdown, system/user prompt fields, content-mapping) — proving the upgraded form is wired into the live presets template the handler emits, not an orphaned fragment.",
+        "renderPresets emits Name, Description, a REQUIRED name=\"category\" dropdown (use-case categories), System+User prompts, variable chips, Fields-to-Generate map; NOT name=\"category\" type=\"text\" NOR name=\"variables\".",
+        "new migration, local D1: PRAGMA table_info(prompt_presets) shows system_prompt_template, user_prompt_template, content_mapping.",
+        "render-output: renderShell emits the chrome hosting the Presets tab."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T12"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/admin/templates/presets.ts",
+        "imported_symbol": "renderPresets",
+        "call_site_pattern": "renderPresets("
+      },
+      "acProofClasses": {
+        "T12-AC2": "structural"
+      }
+    },
+    {
+      "id": "T13",
+      "title": "Presets drive generation: seed default presets + select a preset by use-case category and use its prompt/model/mapping",
+      "category": "migration",
+      "targetFiles": [
+        "api/src/ai/generators/text.ts",
+        "api/src/site-provisioning/steps.ts",
+        "api/migrations/0016_phase9_seed_default_prompt_presets.sql",
+        "api/test/site-provisioning-ai-integration.test.ts",
+        "api/test/migrations-0016-seed-default-prompt-presets.test.ts",
+        "api/test/public-templates-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the provisioning entry api/src/site-provisioning/steps.ts imports AND calls generateStarterArticle (ai/generators/text.ts) so the preset-driven generation path is wired into the live 16-step build — proving the preset lookup runs through the real provisioning step, not an orphaned generator.",
+        "generateStarterArticlePlan (text.ts:478) on 'outline' and generateStarterArticle (text.ts:540) on 'content' (the legacy content-path keys) each resolve a preset by category and use its prompt/model; with no preset, fall back to the existing builder (no crash, no stub).",
+        "migration 0016 on a local D1: prompt_presets has default is_system=1 presets for the FULL enum (title/excerpt/outline/content/seo/image/custom) so EVERY lookup resolves; seed idempotent (INSERT-OR-IGNORE); fresh site otherwise ZERO rows.",
+        "render-output: renderHome via renderLayout emits the design home sections surfacing preset-driven articles (selection asserted by T13-AC1)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T13"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/site-provisioning/steps.ts",
+        "imported_symbol": "generateStarterArticle",
+        "call_site_pattern": "generateStarterArticle("
+      },
+      "acProofClasses": {
+        "T13-AC2": "structural"
+      }
+    },
+    {
+      "id": "T14",
+      "title": "Article editor: full legacy AI assistant panel (quick actions, preset, tone/length, structured auto-fill)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/src/admin/templates/ai-panel.ts",
+        "api/test/admin-ai-panel-template.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the article editor entry api/src/admin/templates/articles.ts imports AND calls renderAIAssistantPanel (ai-panel.ts) so the full AI assistant panel is composed into the editor page the handler emits — proving the panel leaf is wired into the live editor template, not orphaned.",
+        "BEHAVIORAL: GIVEN the article editor route, WHEN the editor handler emits its HTML, THEN the AI assistant panel contains the four quick-action handlers (outline, draft, rewrite, seo_meta), the preset selector (ai-preset-select) with variables + prompt-preview, tone and length controls, and the ai-results wiring that auto-fills title/excerpt/meta/author from structured content — porting the legacy panel, not the current stub."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T14"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/admin/templates/articles.ts",
+        "imported_symbol": "renderAIAssistantPanel",
+        "call_site_pattern": "renderAIAssistantPanel("
+      }
+    },
+    {
+      "id": "T14b",
+      "title": "Article editor: hero image card + AI hero-image modal (wired to fixed image gen)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/test/editor.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the article editor route, WHEN the editor handler emits its HTML, THEN it contains the hero image uploader (the hero-image-ai-generate control) and the AI hero-image modal with preset, variables, prompt-preview, and size, style and quality controls, a generate button that POSTs to /api/admin/ai/image, an apply button that places the generated image into the article, and preview + error handling — matching the legacy hero card."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T14b"
+      ]
+    },
+    {
+      "id": "T14c",
+      "title": "Article editor: publish workflow + version history/restore",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/test/admin-article-versions.test.ts",
+        "api/test/editor.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the article editor route, WHEN the editor handler emits its HTML, THEN it contains the publish-workflow panel actions (publish, unpublish, archive, schedule, cancel-schedule) and the version-history modal controls with restore — each wired to its admin endpoint — matching the legacy editor.",
+        "BEHAVIORAL (render-output, ui_visual_parity): GIVEN the article editor that renders the publish workflow + version-history controls, WHEN the editor markup renders, THEN the rendered HTML emits the editor body the publish/version panel is composed inside — proving the editor design renders (the specific publish/version controls are asserted by T14c.AC1's served-markup test)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T14c"
+      ]
+    },
+    {
+      "id": "T14d",
+      "title": "Article editor: author Name/Bio + author_bio migration + clean Display Options",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/articles.ts",
+        "api/migrations/0015_phase9_articles_author_bio.sql",
+        "api/test/admin-ai-panel-template.test.ts",
+        "api/test/migrations-0015-articles-author-bio.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "STRUCTURAL (integration wiring): the article editor entry api/src/admin/templates/articles.ts composes the article form via renderArticleForm, which now emits the author_name + author_bio inputs and the clean Display Options — proving the author fields are wired into the live editor form the handler emits, not an orphaned fragment.",
+        "renderArticleForm emits name=\"author_name\" (from admin email, NOT auto-stored), name=\"author_bio\", and clean Display Options (is_featured='homepage hero', is_trending=trending); NOT the stripped labels at articles.ts:396/399.",
+        "new migration, local D1: PRAGMA table_info(articles) shows an author_bio column (author_name, featured_image_id exist)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T14d"
+      ],
+      "call_path_expectation": {
+        "entry_module": "api/src/admin/templates/articles.ts",
+        "imported_symbol": "renderArticleForm",
+        "call_site_pattern": "renderArticleForm("
+      },
+      "acProofClasses": {
+        "T14d-AC2": "structural"
+      }
+    },
+    {
+      "id": "T15",
+      "title": "Settings tab full parity: logo upload + AI-logo panel + items_per_page + tabs + structured newsletter",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/settings.ts",
+        "api/test/admin-settings.test.ts",
+        "api/test/admin-layout-shell.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the admin Settings route, WHEN the settings handler emits its HTML, THEN it contains a Site Logo file upload (logoFileInput / site_logo_url) in addition to the existing AI-logo panel (ai-logo-panel / ai-logo-generate), an items_per_page control, a settings-tabs / tab-* layout, and structured newsletter fields (enabled + provider) instead of a raw newsletter_settings_json textarea.",
+        "BEHAVIORAL (render-output, ui_visual_parity): GIVEN the admin layout shell renderShell that wraps every admin tab including Settings, WHEN the shell renders, THEN the rendered HTML emits the admin chrome the Settings page is composed inside — proving the admin design shell that hosts the Settings tab renders (the tab-specific fields are asserted by T15.AC1's served-markup test)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T15"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Pages tab: layout Template select + clean content label",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/pages.ts",
+        "api/test/pages-template.test.ts",
+        "api/test/admin-layout-shell.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the admin Pages editor route, WHEN the pages handler emits its HTML, THEN it contains a layout Template <select> with three options (default / full-width / landing) and the content field label is clean (no longer 'Content (block JSON)').",
+        "BEHAVIORAL (render-output, ui_visual_parity): GIVEN the admin layout shell renderShell that wraps every admin tab including Pages, WHEN the shell renders, THEN the rendered HTML emits the admin chrome the Pages editor is composed inside — proving the admin design shell that hosts the Pages tab renders (the tab-specific Template select is asserted by T16.AC1's served-markup test)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T16"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Categories tab: Description/Display Order/Show-on-Homepage (keep multi-vertical select)",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/admin/templates/categories.ts",
+        "api/test/category-multi-vertical.test.ts",
+        "api/test/admin-layout-shell.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the admin Categories editor route, WHEN the category-form handler emits its HTML, THEN it contains a Description field, a Display Order control, and a Show-on-Homepage control WHILE still containing the existing multi-vertical select (name=\"vertical_ids\").",
+        "BEHAVIORAL (render-output, ui_visual_parity): GIVEN the admin layout shell renderShell that wraps every admin tab including Categories, WHEN the shell renders, THEN the rendered HTML emits the admin chrome the Categories editor is composed inside — proving the admin design shell that hosts the Categories tab renders (the tab-specific Description/Display-Order/Show-on-Homepage fields are asserted by T17.AC1's served-markup test)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T17"
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "Homepage meta description from site_settings.site_description",
+      "category": "ui",
+      "targetFiles": [
+        "api/src/public/render-pages.ts",
+        "api/test/public-router.test.ts",
+        "api/test/public-templates-home.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN a provisioned site whose site_settings.site_description is set, WHEN the live router handles GET /, THEN the homepage <meta name=description> equals the site's stored site_description — not the hard-coded `Latest articles on ${hostname}` text.",
+        "BEHAVIORAL (render-output, ui_visual_parity): GIVEN the design homepage template renderHome composed by renderLayout, WHEN the home view model renders, THEN the rendered HTML head carries a <meta name=description> populated from the view model's description field (the design template emits the meta the route now feeds the real site_description into)."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T18"
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "Gate public serving + indexing on sites.status='active'",
+      "category": "script",
+      "targetFiles": [
+        "api/src/site/site-context.ts",
+        "api/test/public-router.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN a site whose status is 'draft' (not active), WHEN the live router handles GET /, THEN the request returns 404 (not served as a live public homepage, therefore inherently not indexable); GIVEN an 'active' site, WHEN GET / is handled, THEN it IS served (200). The gate is added in the single place the site is resolved — resolveSiteByHostname (site-context.ts:63) today filters only WHERE d.hostname=? AND d.status='active' (site-context.ts:83-87), gating on the DOMAIN status not the SITE status; the fix adds AND s.status='active' to that one query so a non-active site resolves to NULL, and publicSiteContextMiddleware (middleware.ts:48-58) already 404s a null context — confining the change to site-context.ts (middleware.ts/router.ts carry NO site-status logic)."
+      ],
+      "passes": false,
+      "state": "implemented",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T19"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "Consistency: total_steps=16, favicon, and record PREVIEW_SECRET ops task",
+      "category": "script",
+      "targetFiles": [
+        "api/src/public/router.ts",
+        "api/test/public-router.test.ts",
+        "api/test/provisioning-runner.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "BEHAVIORAL: GIVEN the public router, WHEN GET /favicon.ico is handled, THEN it returns a served favicon or a 204 (no unhandled 404/500).",
+        "FUNCTIONAL (guard of existing behavior): GIVEN the provisioning runner, WHEN it reports the step total, THEN TOTAL_STEPS / total_steps is 16. TOTAL_STEPS=STEP_KEYS.length is already 16 and the runner already re-syncs any stale stored count (runner.ts:187-194) — this AC guards that existing behavior. The PREVIEW_SECRET fix is recorded as an operator ops task for the ship hand-off (owner=user), with NO develop code for the secret since the noindex/no-store draft render already works."
+      ],
+      "passes": false,
+      "state": "planned",
+      "ui_kind": "operator",
+      "requirement_ids": [
+        "R-FROM-T20"
+      ]
+    }
+  ]
+}

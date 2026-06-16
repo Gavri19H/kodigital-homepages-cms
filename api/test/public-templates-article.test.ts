@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { renderArticle } from "../src/public/templates/article";
+import { renderLayout } from "../src/public/templates/layout";
 import type {
   ArticleViewModel,
   ArticleCard,
@@ -225,5 +226,63 @@ describe("public-templates-article", () => {
     expect(html).toContain('"Tech"');
     // PART 8: the category link stays a real URL (now via the hero pill).
     expect(html).toContain('href="/category/tech"');
+  });
+
+  // T2 (rescue-3) AC4 / RC-007 — render-output: renderArticle composed
+  // through renderLayout emits the .article-shell wrapper AND the 12 §8
+  // article-section markers. This is the design-system render contract the
+  // live article route (renderArticleHtml) composes; the bare rescue-2
+  // fallback emitted neither. The body is composed with emitJsonLd:false (the
+  // live route owns the GEO JSON-LD in the <head>) — the shell + markers come
+  // from renderArticle itself. The file-path literal in the title is the
+  // deterministic binding for the required_evidence_plan parse_test_output
+  // route (expected_test_name_regex = api/test/public-templates-article.test.ts).
+  it("T2.AC4 render-output: renderArticle via renderLayout emits the .article-shell wrapper + the 12 article-section markers [api/test/public-templates-article.test.ts]", () => {
+    const vm = makeVm({
+      site: {
+        site_id: "site-acme",
+        name: "Acme Daily",
+        hostname: "acme.example",
+        tagline: "Tomorrow's news today",
+        description: "Acme Daily covers technology, world, and culture.",
+        logoUrl: null,
+        brandTokens: { "tw-brand": "#1ba8c8" },
+      },
+    });
+
+    const body = renderArticle({ vm, emitJsonLd: false });
+    // renderArticle owns the .article-shell wrapper + the 12 ordered §8
+    // sections (contract §8).
+    expect(body).toContain('class="article-shell container"');
+    const bodySeq = extractMarkerSequence(body);
+    expect(bodySeq).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(new Set(bodySeq).size).toBe(12);
+
+    const doc = renderLayout({
+      site: {
+        name: vm.site.name,
+        hostname: vm.site.hostname,
+        tagline: vm.site.tagline,
+        description: vm.site.description,
+        brandTokens: vm.site.brandTokens,
+        logoUrl: vm.site.logoUrl,
+      },
+      meta: {
+        title: vm.meta.title,
+        description: vm.meta.description,
+        canonicalUrl: vm.meta.canonicalUrl,
+      },
+      body,
+    });
+
+    // The .article-shell wrapper + all 12 markers survive into the full
+    // document (renderLayout wraps the renderArticle body verbatim in <main>).
+    expect(doc).toContain('class="article-shell container"');
+    expect(extractMarkerSequence(doc)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
+    // Design-system scaffold: Nunito font + the public stylesheet.
+    expect(doc).toContain("Nunito");
+    expect(doc).toContain('href="/assets/public.css"');
   });
 });

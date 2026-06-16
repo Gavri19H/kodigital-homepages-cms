@@ -43,6 +43,12 @@ interface PresetRow {
   usage_count: number;
   text_model: string | null;
   image_model: string | null;
+  // T12 reference columns (migration 0014).
+  name: string | null;
+  description: string | null;
+  system_prompt_template: string | null;
+  user_prompt_template: string | null;
+  content_mapping: string | null;
 }
 
 interface PreparedCall {
@@ -69,6 +75,11 @@ function makeFakeDb() {
       usage_count: row.usage_count ?? 0,
       text_model: row.text_model ?? null,
       image_model: row.image_model ?? null,
+      name: row.name ?? null,
+      description: row.description ?? null,
+      system_prompt_template: row.system_prompt_template ?? null,
+      user_prompt_template: row.user_prompt_template ?? null,
+      content_mapping: row.content_mapping ?? null,
     };
     rows.set(id, full);
     return full;
@@ -108,7 +119,8 @@ function makeFakeDb() {
         if (sql.startsWith("INSERT INTO prompt_presets")) {
           // Bind order (ai-presets-write.ts): slug, prompt_template,
           // category, variables, text_model, image_model, is_system,
-          // is_active.
+          // is_active, name, description, system_prompt_template,
+          // user_prompt_template, content_mapping.
           const created = seed({
             slug: String(captured[0]),
             prompt_template: String(captured[1]),
@@ -118,6 +130,11 @@ function makeFakeDb() {
             image_model: captured[5] as string | null,
             is_system: Number(captured[6]),
             is_active: Number(captured[7]),
+            name: captured[8] as string | null,
+            description: captured[9] as string | null,
+            system_prompt_template: captured[10] as string | null,
+            user_prompt_template: captured[11] as string | null,
+            content_mapping: captured[12] as string | null,
           });
           last_row_id = created.id;
         }
@@ -131,8 +148,9 @@ function makeFakeDb() {
         }
         if (sql.includes("COALESCE")) {
           // Bind order: slug, prompt_template, category, variables,
-          // text_model, image_model, is_active, id.
-          const row = rows.get(Number(captured[7]));
+          // text_model, image_model, is_active, name, description,
+          // system_prompt_template, user_prompt_template, content_mapping, id.
+          const row = rows.get(Number(captured[12]));
           if (row) {
             if (captured[0] != null) row.slug = String(captured[0]);
             if (captured[1] != null) row.prompt_template = String(captured[1]);
@@ -141,6 +159,15 @@ function makeFakeDb() {
             if (captured[4] != null) row.text_model = String(captured[4]);
             if (captured[5] != null) row.image_model = String(captured[5]);
             if (captured[6] != null) row.is_active = Number(captured[6]);
+            if (captured[7] != null) row.name = String(captured[7]);
+            if (captured[8] != null) row.description = String(captured[8]);
+            if (captured[9] != null) {
+              row.system_prompt_template = String(captured[9]);
+            }
+            if (captured[10] != null) {
+              row.user_prompt_template = String(captured[10]);
+            }
+            if (captured[11] != null) row.content_mapping = String(captured[11]);
           }
         }
         if (sql.startsWith("DELETE FROM prompt_presets")) {
@@ -325,6 +352,66 @@ describe("POST /api/admin/ai/presets (T21.AC2 create)", () => {
       env,
     );
     expect(dup.status).toBe(409);
+  });
+});
+
+describe("T12 reference columns round-trip (wire consistency)", () => {
+  it("create persists name/description/system+user prompts/content_mapping and derives prompt_template from the User Prompt", async () => {
+    const { db } = makeFakeDb();
+    // The reference form posts the User Prompt (no flat prompt_template).
+    const res = await admin.request(
+      BASE,
+      jsonInit("POST", {
+        slug: "ref-preset",
+        name: "Reference Preset",
+        description: "A reference-shaped preset",
+        category: "content",
+        system_prompt_template: "You are an editor.",
+        user_prompt_template: "Write about {{topic}}",
+        variables: '["topic"]',
+        content_mapping: '{"content":true,"title":true}',
+      }),
+      buildEnv(db),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { item: PresetRow };
+    expect(body.item.name).toBe("Reference Preset");
+    expect(body.item.description).toBe("A reference-shaped preset");
+    expect(body.item.system_prompt_template).toBe("You are an editor.");
+    expect(body.item.user_prompt_template).toBe("Write about {{topic}}");
+    expect(body.item.content_mapping).toBe('{"content":true,"title":true}');
+    // prompt_template stays NOT NULL — derived from the User Prompt.
+    expect(body.item.prompt_template).toBe("Write about {{topic}}");
+  });
+
+  it("create 400s when neither prompt_template nor user_prompt_template is sent", async () => {
+    const { db, calls } = makeFakeDb();
+    const res = await admin.request(
+      BASE,
+      jsonInit("POST", { slug: "no-prompt", name: "No Prompt" }),
+      buildEnv(db),
+    );
+    expect(res.status).toBe(400);
+    expect(calls.filter((c) => c.sql.startsWith("INSERT"))).toHaveLength(0);
+  });
+
+  it("update persists the reference columns", async () => {
+    const { db, seed } = makeFakeDb();
+    const row = seed({ slug: "edit-ref", category: "content" });
+    const res = await admin.request(
+      `${BASE}/${row.id}`,
+      jsonInit("PUT", {
+        description: "updated desc",
+        system_prompt_template: "New system prompt",
+        content_mapping: '{"seo":true}',
+      }),
+      buildEnv(db),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { item: PresetRow };
+    expect(body.item.description).toBe("updated desc");
+    expect(body.item.system_prompt_template).toBe("New system prompt");
+    expect(body.item.content_mapping).toBe('{"seo":true}');
   });
 });
 

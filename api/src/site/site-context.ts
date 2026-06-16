@@ -78,13 +78,22 @@ export async function resolveSiteByHostname(
   // T7 SELECT: project s.content_version + s.settings_version on
   // separate source lines so the AC3 grep `s\.content_version|s\.
   // settings_version` counts both lines (parse_grep_count >= 2).
+  //
+  // T19 site-status gate: the WHERE clause gates on the SITE status
+  // (`s.status = 'active'`), not only the DOMAIN status. A site that is
+  // still 'draft' (e.g. provisioning never reached the activate step) is
+  // therefore NOT resolved — resolveSiteByHostname returns null and
+  // publicSiteContextMiddleware 404s the request, so a non-active site is
+  // never publicly served (and, since every public route — including
+  // /sitemap.xml + /robots.txt — flows through the same middleware, never
+  // indexable) until provisioning flips sites.status to 'active'.
   const stmt = db
     .prepare(
       "SELECT s.id AS site_id, d.hostname AS hostname, s.vertical_slug AS vertical_slug, s.status AS status, " +
         "s.content_version AS content_version, " +
         "s.settings_version AS settings_version " +
         "FROM domains d INNER JOIN sites s ON s.id = d.site_id " +
-        "WHERE d.hostname = ? AND d.status = 'active' LIMIT 1",
+        "WHERE d.hostname = ? AND d.status = 'active' AND s.status = 'active' LIMIT 1",
     )
     .bind(normalized);
   const row = await stmt.first<SiteContextRow>();

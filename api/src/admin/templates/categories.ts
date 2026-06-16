@@ -142,6 +142,17 @@ function renderModal(sites: ReadonlyArray<SiteOption>): string {
         <label for="new-category-verticals" class="form-label">Verticals (select at least one)</label>
         <select id="new-category-verticals" name="vertical_ids" class="form-select" multiple data-multi="true" size="4" required></select>
       </div>
+      <div class="form-group">
+        <label for="new-category-description" class="form-label">Description</label>
+        <textarea id="new-category-description" name="description" class="form-textarea" rows="3" placeholder="Optional category blurb"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="new-category-display-order" class="form-label">Display Order</label>
+        <input id="new-category-display-order" name="display_order" type="number" class="form-input" value="0" min="0" />
+      </div>
+      <div class="form-group">
+        <label for="new-category-show-on-homepage" class="form-label"><input id="new-category-show-on-homepage" name="show_on_homepage" type="checkbox" value="1" /> Show on homepage</label>
+      </div>
       <p id="new-category-error" class="alert alert-error" hidden role="alert"></p>
       <div class="modal-actions">
         <button type="submit" class="btn btn-primary">Create category</button>
@@ -250,12 +261,17 @@ const CATEGORIES_LIST_SCRIPT = `
         if (select.options[j].selected) { verticalIds.push(parseInt(select.options[j].value, 10)); }
       }
     }
+    var description = (document.getElementById('new-category-description') || {}).value || '';
+    var orderEl = document.getElementById('new-category-display-order');
+    var displayOrder = orderEl ? (parseInt(orderEl.value, 10) || 0) : 0;
+    var homepageEl = document.getElementById('new-category-show-on-homepage');
+    var showOnHomepage = (homepageEl && homepageEl.checked) ? 1 : 0;
     if (!siteId) { setError('Select a site'); return; }
     if (verticalIds.length === 0) { setError('Select at least one vertical'); return; }
     fetch('/api/admin/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ site_id: siteId, name: name, slug: slug, vertical_ids: verticalIds }),
+      body: JSON.stringify({ site_id: siteId, name: name, slug: slug, vertical_ids: verticalIds, description: description, display_order: displayOrder, show_on_homepage: showOnHomepage }),
       credentials: 'same-origin'
     }).then(function (r) {
       return r.json().then(function (b) { return { ok: r.ok, status: r.status, body: b }; });

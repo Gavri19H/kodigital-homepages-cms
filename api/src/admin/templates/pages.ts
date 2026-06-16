@@ -51,6 +51,7 @@ export interface PageFormValues {
   site_id?: string | null;
   page_type?: string;
   status?: string;
+  template?: string;
   show_in_footer?: boolean | number;
   display_order?: number;
   content_json?: string;
@@ -78,6 +79,15 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "pending", label: "Pending" },
   { value: "published", label: "Published" },
   { value: "archived", label: "Archived" },
+];
+
+// Layout Template chooser — the legacy Pages reference exposes three
+// layout templates. Values mirror the `pages.template` column
+// (DEFAULT 'default'); labels are the reference's display strings.
+const LAYOUT_TEMPLATES: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "default", label: "Default" },
+  { value: "full-width", label: "Full-Width" },
+  { value: "landing", label: "Landing" },
 ];
 
 const LEGAL_PAGE_TYPES: ReadonlyArray<string> = [
@@ -124,6 +134,12 @@ function renderStatusOptions(selected?: string | null, includeBlank?: boolean): 
     return `<option value="${s.value}"${selectedAttr(selected ?? "", s.value)}>${escapeHtml(s.label)}</option>`;
   }).join("");
   return blank + opts;
+}
+
+function renderTemplateOptions(selected?: string | null): string {
+  return LAYOUT_TEMPLATES.map(function (t): string {
+    return `<option value="${t.value}"${selectedAttr(selected ?? "default", t.value)}>${escapeHtml(t.label)}</option>`;
+  }).join("");
 }
 
 function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
@@ -247,6 +263,7 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
   const seoTitleVal = escapeHtml(p.seo_title ?? "");
   const seoDescVal = escapeHtml(p.seo_description ?? "");
   const pageTypeVal = p.page_type ?? "generic";
+  const templateVal = p.template ?? "default";
   const legal = isLegalPageType(pageTypeVal);
   const siteRequiredAttr = legal ? "" : " required";
   const siteAriaRequired = legal ? "false" : "true";
@@ -283,6 +300,12 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
       </select>
     </div>
     <div class="form-group">
+      <label for="page-template" class="form-label">Template</label>
+      <select id="page-template" name="template" class="form-select" data-field="template">
+        ${renderTemplateOptions(templateVal)}
+      </select>
+    </div>
+    <div class="form-group">
       <label for="page-show-in-footer" class="form-label"><input id="page-show-in-footer" name="show_in_footer" type="checkbox" value="1"${boolAttr(p.show_in_footer)} /> Show in footer</label>
     </div>
     <div class="form-group">
@@ -290,7 +313,7 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
       <input id="page-display-order" name="display_order" type="number" class="form-input" value="${escapeHtml(p.display_order ?? 0)}" min="0" />
     </div>
     <div class="form-group">
-      <label for="page-content" class="form-label">Content (block JSON)</label>
+      <label for="page-content" class="form-label">Content</label>
       <textarea id="page-content" name="content_json" class="form-textarea" rows="8">${contentJsonVal}</textarea>
     </div>
   </div>
@@ -373,6 +396,7 @@ const PAGE_FORM_SCRIPT = `
       site_id: fd.get('site_id') || null,
       page_type: fd.get('page_type') || 'generic',
       status: fd.get('status') || 'draft',
+      template: fd.get('template') || 'default',
       show_in_footer: fd.get('show_in_footer') ? 1 : 0,
       display_order: parseInt(fd.get('display_order'), 10) || 0,
       content_json: fd.get('content_json') || '',

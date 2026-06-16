@@ -260,17 +260,82 @@ describe("POST /api/admin/categories writes category_verticals rows", () => {
     expect(cvInserts[2]?.binds).toEqual([101, 3, 2]);
 
     // site_categories row is also written in the same batch so the
-    // site sees the category in its allocation list.
+    // site sees the category in its allocation list. T17 binds the chosen
+    // display_order (default 0 when the body omits it) instead of a literal.
     const sc = findBatchCalls(batches, "INSERT INTO site_categories");
     expect(sc).toHaveLength(1);
-    expect(sc[0]?.binds).toEqual(["st_demo", 101]);
+    expect(sc[0]?.binds).toEqual(["st_demo", 101, 0]);
 
-    // Sanity: the categories INSERT ran (top-level, not in the batch).
+    // Sanity: the categories INSERT ran (top-level, not in the batch). T17
+    // extended it with description / display_order / show_on_homepage — this
+    // body omits them so they default to (null, 0, 0).
     const catInsert = calls.find(
       (c) => c.sql.indexOf("INSERT INTO categories") >= 0,
     );
     expect(catInsert).toBeDefined();
-    expect(catInsert?.binds).toEqual(["best-of", "Best Of"]);
+    expect(catInsert?.binds).toEqual(["best-of", "Best Of", null, 0, 0]);
+  });
+
+  it("persists description / display_order / show_on_homepage from the body (T17)", async () => {
+    const { db, calls, batches } = makeFakeDb(
+      [
+        { match: "FROM sites WHERE id = ?", row: { id: "st_demo" } },
+        {
+          match: "INSERT INTO categories",
+          row: {
+            id: 202,
+            slug: "guides",
+            name: "Guides",
+            description: "Helpful guides",
+            display_order: 5,
+            show_on_homepage: 1,
+          },
+        },
+      ],
+      [{ match: "FROM verticals WHERE id IN", results: [{ id: 1 }] }],
+    );
+    const res = await admin.request(
+      "/api/admin/categories",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: "st_demo",
+          name: "Guides",
+          slug: "guides",
+          vertical_ids: [1],
+          description: "Helpful guides",
+          display_order: 5,
+          show_on_homepage: 1,
+        }),
+      },
+      buildEnv(db),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      description: string | null;
+      display_order: number;
+      show_on_homepage: number;
+    };
+    expect(body.description).toBe("Helpful guides");
+    expect(body.display_order).toBe(5);
+    expect(body.show_on_homepage).toBe(1);
+
+    // The new editor fields flow into the categories INSERT binds (would fail
+    // if only the form HTML changed but the handler was never wired)...
+    const catInsert = calls.find(
+      (c) => c.sql.indexOf("INSERT INTO categories") >= 0,
+    );
+    expect(catInsert?.binds).toEqual([
+      "guides",
+      "Guides",
+      "Helpful guides",
+      5,
+      1,
+    ]);
+    // ...and the chosen display_order is mirrored onto the site_categories row.
+    const sc = findBatchCalls(batches, "INSERT INTO site_categories");
+    expect(sc[0]?.binds).toEqual(["st_demo", 202, 5]);
   });
 
   it("returns 422 with zero category_verticals inserts when vertical_ids=[1,4] but site allowed=[1,2,3] (T7.AC2)", async () => {

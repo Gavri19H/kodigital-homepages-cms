@@ -27,7 +27,7 @@
 
 import { type Env, parseNumber } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
-import { warmSiteCache } from "../cache/warm";
+import { warmHomepageInProcess } from "../cache/warm";
 import {
   resolveSiteHostname,
   runCloudflareRouteMutation,
@@ -224,20 +224,33 @@ async function loadSiteInfo(
   };
 }
 
-// T9 helper — upsert a single site_settings key. UPDATE-IF-NULL semantics
-// preserve any human-authored override (settings page) while still
+// T9 helper — upsert a single site_settings key.
+//
+// Default (overwrite=false): UPDATE-IF-NULL semantics preserve any
+// human-authored / prior override (settings page, logo pick) while still
 // filling an empty seed value.
+//
+// T7 (overwrite=true): the caller is the authoritative AI writer for this
+// key — its value MUST win over the deterministic stub the earlier
+// create_site_settings seed wrote. Without this, the
+// `WHERE value IS NULL OR value=''` guard silently discarded the AI-generated
+// tagline / site_description because the non-empty stub had already filled
+// the row. The overwrite branch drops the guard so the AI value replaces it.
 async function upsertSiteSetting(
   db: D1Database,
   site_id: string,
   key: string,
   value: string,
+  overwrite = false,
 ): Promise<void> {
+  const conflictClause = overwrite
+    ? "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value"
+    : "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value " +
+      "WHERE site_settings.value IS NULL OR site_settings.value = ''";
   await db
     .prepare(
       "INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?) " +
-        "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value " +
-        "WHERE site_settings.value IS NULL OR site_settings.value = ''",
+        conflictClause,
     )
     .bind(site_id, key, value)
     .run();
@@ -272,7 +285,15 @@ async function seedDefaultSiteSettings(
     ['logo_media_id', ''],
     ['tagline', `${name} — your trusted source.`],
     ['site_description', `${name} delivers timely, trustworthy reporting at ${domain}.`],
-    ['brand_tokens_json', JSON.stringify({ primary: '#0F172A', accent: '#38BDF8', neutral: '#F8FAFC' })],
+    // T8: seed brand_tokens_json EMPTY so the design-system defaults apply.
+    // The brand contract teal family (primary --tw-brand:#1ba8c8, Nunito) lives
+    // in public-css.ts; per-site overrides are written as --tw-* keys via the
+    // Settings tab. The previous slate/sky dark palette both mismatched the
+    // contract AND mapped to inert --primary/--accent/--neutral props the
+    // stylesheet never reads, so the homepage still rendered defaults — minus
+    // an unnecessary <style> block. Empty value keeps the row (T19 12-key
+    // contract) while parseBrandTokensJson('') -> {} -> no override.
+    ['brand_tokens_json', ''],
     ['robots_txt_content', 'User-agent: *\nAllow: /\n'],
     ['ads_txt_content', ''],
     ['custom_head_html', ''],
@@ -303,17 +324,40 @@ async function seedDefaultSiteSettings(
   };
 }
 
+// T9 (rescue-3) — authoritative per-vertical category allocation.
+// brief W2.3-EXTENDED: the 0004 category_verticals seed mapped the
+// `parenting` vertical to a mismatched leftover set (family-travel,
+// healthy-meals, wellness) that was ALSO empty — vertical-mismatched AND
+// article_count 0. For any vertical listed here the allocate step is
+// AUTHORITATIVE: it ensures the parenting-appropriate categories exist
+// (INSERT OR IGNORE INTO categories, idempotent on the slug UNIQUE),
+// resolves their autoincrement ids, and links them to the site —
+// INDEPENDENT of the (mismatched) category_verticals matrix. Verticals
+// NOT listed here keep the matrix-driven path below; their 0004 mappings
+// are already vertical-appropriate (finance→personal-finance, etc.).
+const VERTICAL_CATEGORY_PLAN: Readonly<
+  Record<string, ReadonlyArray<{ slug: string; name: string }>>
+> = {
+  parenting: [
+    { slug: "parenting-tips", name: "Parenting Tips" },
+    { slug: "child-development", name: "Child Development" },
+    { slug: "family-activities", name: "Family Activities" },
+    { slug: "newborn-baby-care", name: "Newborn & Baby Care" },
+  ],
+};
+
 // MQAFIX-1 handler: allocate categories to a freshly-created site based
-// on the site's vertical_slug → category_verticals matrix. Before this
-// fix the step was a deterministic stub that returned `completed`
-// without writing any rows, so production sites had 0 site_categories
-// (REQ-026 unsatisfied). The fix: walk the category_verticals matrix
-// for the site's vertical and INSERT OR IGNORE INTO site_categories
-// (site_id, category_id, display_order). The operation is idempotent
-// under the (site_id, category_id) PRIMARY KEY declared in
-// migration 0002, and the same code path runs in dry-run and live —
-// the step never makes a Cloudflare call, so there is no diverging
-// branch between dry-run and prod.
+// on the site's vertical_slug. Before this fix the step was a
+// deterministic stub that returned `completed` without writing any rows,
+// so production sites had 0 site_categories (REQ-026 unsatisfied). The
+// step has two paths: (1) T9 vertical-plan path — for verticals in
+// VERTICAL_CATEGORY_PLAN, allocate the authoritative parenting-appropriate
+// set; (2) the original category_verticals matrix path for every other
+// vertical. Both INSERT OR IGNORE INTO site_categories
+// (site_id, category_id, display_order), idempotent under the
+// (site_id, category_id) PRIMARY KEY declared in migration 0002, and run
+// identically in dry-run and live — the step never makes a Cloudflare
+// call, so there is no diverging branch between dry-run and prod.
 async function allocateVerticalCategoriesStep(
   ctx: StepContext,
 ): Promise<StepHandlerResult> {
@@ -335,6 +379,48 @@ async function allocateVerticalCategoriesStep(
         allocated: 0,
         vertical_slug: "",
         reason: "no_vertical_slug_on_site",
+      }),
+    };
+  }
+  // T9 vertical-plan path: allocate the authoritative, vertical-appropriate
+  // category set instead of the (possibly mismatched) matrix. The categories
+  // are created on demand so a fresh environment that never seeded them still
+  // ends up with a non-empty, correct site_categories set.
+  const plan = VERTICAL_CATEGORY_PLAN[slug];
+  if (plan && plan.length > 0) {
+    const allocatedSlugs: string[] = [];
+    for (let i = 0; i < plan.length; i++) {
+      const cat = plan[i]!;
+      await ctx.db
+        .prepare(
+          "INSERT OR IGNORE INTO categories (slug, name, display_order) " +
+            "VALUES (?, ?, ?)",
+        )
+        .bind(cat.slug, cat.name, i)
+        .run();
+      const row = await ctx.db
+        .prepare("SELECT id AS id FROM categories WHERE slug = ? LIMIT 1")
+        .bind(cat.slug)
+        .first<{ id: number }>();
+      if (!row || typeof row.id !== "number") continue;
+      await ctx.db
+        .prepare(
+          "INSERT OR IGNORE INTO site_categories " +
+            "(site_id, category_id, display_order) VALUES (?, ?, ?)",
+        )
+        .bind(ctx.site_id, row.id, i)
+        .run();
+      allocatedSlugs.push(cat.slug);
+    }
+    return {
+      status: "completed",
+      output: JSON.stringify({
+        step: "allocate_vertical_categories",
+        kind: "vertical_plan",
+        schema_version: 1,
+        allocated: allocatedSlugs.length,
+        vertical_slug: slug,
+        plan_categories: allocatedSlugs,
       }),
     };
   }
@@ -409,13 +495,38 @@ async function generateTaglineAndSiteDescriptionStep(
     brand_name: info.brand_name,
     tagline: tagline.parsed.tagline,
   });
-  await upsertSiteSetting(ctx.db, ctx.site_id, "tagline", tagline.parsed.tagline);
-  await upsertSiteSetting(
-    ctx.db,
-    ctx.site_id,
-    "site_description",
-    description.parsed.description,
-  );
+  // T7-AC1: the AI-owned tagline / site_description MUST overwrite the
+  // deterministic stub the earlier create_site_settings step seeded —
+  // overwrite=true drops the UPDATE-IF-NULL guard so the AI value wins.
+  // Both generators always return a non-empty value (deterministic fallback
+  // when OPENAI_API_KEY is absent), but guard on length anyway so an empty
+  // model result never wipes the good stub.
+  const taglineValue = (tagline.parsed.tagline ?? "").trim();
+  if (taglineValue.length > 0) {
+    await upsertSiteSetting(ctx.db, ctx.site_id, "tagline", taglineValue, true);
+  }
+  const descriptionValue = (description.parsed.description ?? "").trim();
+  if (descriptionValue.length > 0) {
+    await upsertSiteSetting(
+      ctx.db,
+      ctx.site_id,
+      "site_description",
+      descriptionValue,
+      true,
+    );
+  }
+  // T7-AC2: seed default_author_name so T6's generate_15_homepage_articles
+  // (a later step) sources the starter-article author from a site setting,
+  // never a user email. Kept OUT of the create_site_settings 12-key seed so
+  // the T19 "12 canonical keys" contract count is unchanged; INSERT OR IGNORE
+  // keeps it idempotent and preserves any human-authored override.
+  const defaultAuthorName = `${info.brand_name} Editorial Team`;
+  await ctx.db
+    .prepare(
+      "INSERT OR IGNORE INTO site_settings (site_id, key, value) VALUES (?, ?, ?)",
+    )
+    .bind(ctx.site_id, "default_author_name", defaultAuthorName)
+    .run();
   return {
     status: "completed",
     output: JSON.stringify({
@@ -426,6 +537,7 @@ async function generateTaglineAndSiteDescriptionStep(
       tagline_ai_generation_id: tagline.ai_generation_id,
       description_status: description.status,
       description_ai_generation_id: description.ai_generation_id,
+      default_author_name_seeded: true,
     }),
   };
 }
@@ -628,12 +740,82 @@ async function generateFeatureImageStep(
   };
 }
 
-// T9 — generate_15_homepage_articles
+// T6 helper — read a single site_settings value (the live seed/override).
+// Returns null when the key is absent or empty so the caller can apply a
+// deterministic fallback. Used to source the starter-article author from
+// the site's default_author_name setting.
+async function readSiteSettingValue(
+  db: D1Database,
+  site_id: string,
+  key: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      "SELECT value AS value FROM site_settings WHERE site_id = ? AND key = ? LIMIT 1",
+    )
+    .bind(site_id, key)
+    .first<{ value: string | null }>();
+  if (!row || typeof row.value !== "string") return null;
+  const v = row.value.trim();
+  return v.length > 0 ? v : null;
+}
+
+// T6 helper — read the category_ids allocated to this site (written by the
+// earlier allocate_vertical_categories step into site_categories). Ordered
+// deterministically so round-robin assignment to the 15 starter articles is
+// stable across re-runs.
+async function loadSiteCategoryIds(
+  db: D1Database,
+  site_id: string,
+): Promise<number[]> {
+  const res = await db
+    .prepare(
+      "SELECT category_id AS category_id FROM site_categories WHERE site_id = ? " +
+        "ORDER BY display_order ASC, category_id ASC",
+    )
+    .bind(site_id)
+    .all<{ category_id: number }>();
+  const rows = res && Array.isArray(res.results) ? res.results : [];
+  const ids: number[] = [];
+  for (const r of rows) {
+    if (r && typeof r.category_id === "number") ids.push(r.category_id);
+  }
+  return ids;
+}
+
+// T6 (rescue-3) — homepage placement encoding written by provisioning so
+// buildHomeViewModel (home.ts:285-315) buckets the 15 starter articles into
+// the agreed 1 hero + 4 featured + 4 trending + 6 latest split (operator
+// decision D4 / brief BCL-023 >=1 per bucket). The reader buckets PURELY
+// from is_trending / is_featured: is_trending=1 rows are pulled out first
+// (→ trending); is_featured=1 of the remainder forms the featured pool
+// (hero = first, featured = next 4); everything else falls to latest. So
+// the flag distribution below IS the placement contract:
+//   indices 0-4  → is_featured=1, is_trending=0  (featuredBucket=5 → 1 hero + 4 featured)
+//   indices 5-8  → is_trending=1, is_featured=0  (trending=4)
+//   indices 9-14 → is_featured=0, is_trending=0  (latest=6)
+function starterPlacementForIndex(
+  index: number,
+): { is_featured: number; is_trending: number } {
+  if (index < 5) return { is_featured: 1, is_trending: 0 };
+  if (index < 9) return { is_featured: 0, is_trending: 1 };
+  return { is_featured: 0, is_trending: 0 };
+}
+
+// T9 — generate_15_homepage_articles (T6 rescue-3 hardening)
 // Calls generateStarterArticlePlan (always exactly 15 items, unique
 // slugs). For each item: generateStarterArticle, then INSERT OR IGNORE
 // into articles bound to ctx.site_id. The articles table has a
 // (site_id, slug) UNIQUE index from migration 0007, so re-running the
 // step is a no-op — count stays at 15.
+//
+// T6: every starter row carries the editorial metadata the public site
+// needs — a category_id (round-robin over the site's allocated
+// site_categories), an author_name (the site's default_author_name
+// setting, falling back to a deterministic brand-derived editorial name,
+// NEVER a user email), deterministic seo_title / seo_description derived
+// from the article, and the homepage placement flags + homepage_rank that
+// drive the 1/4/4/6 home split.
 async function generate15HomepageArticlesStep(
   ctx: StepContext,
 ): Promise<StepHandlerResult> {
@@ -645,6 +827,18 @@ async function generate15HomepageArticlesStep(
       error: `sites row missing for site_id=${ctx.site_id}`,
     };
   }
+  // T6: author from the site's default_author_name setting (seeded by T7);
+  // fall back to a deterministic brand-derived editorial name — never a
+  // user email — so author_name is always non-null even before T7 seeds it.
+  const settingAuthor = await readSiteSettingValue(
+    ctx.db,
+    ctx.site_id,
+    "default_author_name",
+  );
+  const authorName =
+    settingAuthor !== null ? settingAuthor : `${info.brand_name} Editorial Team`;
+  // T6: categories allocated to this site by allocate_vertical_categories.
+  const categoryIds = await loadSiteCategoryIds(ctx.db, ctx.site_id);
   const plan = await generateStarterArticlePlan(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
@@ -652,7 +846,8 @@ async function generate15HomepageArticlesStep(
   });
   const items = plan.parsed.items ?? [];
   const written: string[] = [];
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
     const article = await generateStarterArticle(ctx.env, {
       site_id: info.site_id,
       vertical: info.vertical,
@@ -673,13 +868,39 @@ async function generate15HomepageArticlesStep(
       article.parsed.intro,
       article.parsed.sections,
     );
+    // T6: round-robin category from the site's allocated set (null only if
+    // the site somehow has no categories — allocate_vertical_categories
+    // runs earlier so this is non-empty in the normal flow).
+    const categoryId =
+      categoryIds.length > 0 ? categoryIds[i % categoryIds.length]! : null;
+    // T6: deterministic SEO fields derived from the article — both non-empty
+    // (title is validated non-empty; summary/intro back-fill the description).
+    const seoTitle = (article.parsed.title || item.title || item.slug)
+      .trim()
+      .slice(0, 70);
+    const seoDescription = (
+      item.summary ||
+      article.parsed.intro ||
+      article.parsed.title ||
+      item.title
+    )
+      .trim()
+      .slice(0, 155);
+    // T6: homepage placement flags + 1-based rank for the 1/4/4/6 split.
+    const placement = starterPlacementForIndex(i);
+    const homepageRank = i + 1;
     // INSERT OR IGNORE — second run is a no-op under (site_id, slug)
     // UNIQUE, so the article count stays at 15 across re-invocations.
+    // Column order keeps (site_id, slug, title, content_json, content_html,
+    // ai_generation_id) at the head; the T6 editorial columns follow.
     await ctx.db
       .prepare(
         "INSERT OR IGNORE INTO articles " +
-          "(site_id, slug, title, content_json, content_html, status, homepage_section, ai_generation_id, created_at, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, 'published', 'starter', ?, unixepoch(), unixepoch())",
+          "(site_id, slug, title, content_json, content_html, ai_generation_id, " +
+          "category_id, author_name, seo_title, seo_description, " +
+          "is_featured, is_trending, homepage_rank, " +
+          "status, homepage_section, created_at, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 'starter', unixepoch(), unixepoch())",
       )
       .bind(
         info.site_id,
@@ -688,6 +909,13 @@ async function generate15HomepageArticlesStep(
         contentJson,
         contentHtml,
         article.ai_generation_id,
+        categoryId,
+        authorName,
+        seoTitle,
+        seoDescription,
+        placement.is_featured,
+        placement.is_trending,
+        homepageRank,
       )
       .run();
     written.push(article.parsed.slug);
@@ -702,6 +930,9 @@ async function generate15HomepageArticlesStep(
       plan_ai_generation_id: plan.ai_generation_id,
       article_count: written.length,
       article_slugs: written,
+      author_name: authorName,
+      author_from_setting: settingAuthor !== null,
+      category_ids_available: categoryIds.length,
     }),
   };
 }
@@ -855,22 +1086,24 @@ async function publishStarterArticlesStep(
   };
 }
 
-// T37 — warm_homepage_cache (step 14).
-// Delegates to the canonical warmSiteCache helper (cache/warm.ts).
-// Under SITE_PROVISIONING_DRY_RUN (the default) the helper performs
-// ZERO outbound fetches and ZERO KV puts and the step reports
-// completed_dry_run. In live mode it GETs homepage + sitemap +
-// feed:rss + feed:atom from the site's own origin
-// (https://{hostname} — no api.cloudflare.com URL is ever built) and
-// stores each body in env.CACHE under the canonical cache-keys.ts
-// key — the homepage via putCachedHtml with its computed strong ETag.
-// content_version is read live from the sites row (bumped by the
-// preceding publish_starter_articles step) so the warmed keys match
-// what the public router will look up. TTL mirrors the public
-// pipeline's parseNumber(HTML_CACHE_TTL_SECONDS, 300). The homepage
-// target is the step's namesake side-effect: a live-mode run that
-// fails to warm it marks the step failed; sitemap/feed misses stay
-// best-effort inside the helper's per-target envelope.
+// T37 + rescue-3 T5 — warm_homepage_cache (step 14, STEP_KEYS index 13).
+// Delegates to warmHomepageInProcess (cache/warm.ts). The rescue-2 step
+// self-fetched https://{hostname}/ to obtain the body — that subrequest
+// 403s in production (the origin rejects the Worker's own self-request),
+// so the step FAILED and the site stalled in status='draft' while serving
+// (user brief BCL-007: "job failed at step 13"). T5-AC1: the homepage is
+// now rendered IN-PROCESS via the same renderHomepageHtml the public GET /
+// handler uses (NO https://{host}/ self-fetch to 403) and stored via
+// putCachedHtml under the canonical htmlKey(site_id, "/", content_version)
+// with the router's strong ETag. content_version is read live from the
+// sites row (bumped by the preceding publish_starter_articles step) so the
+// warmed key matches what the public router will look up; TTL mirrors the
+// public pipeline's parseNumber(HTML_CACHE_TTL_SECONDS, 300). Under
+// SITE_PROVISIONING_DRY_RUN (the default) the helper renders nothing and
+// writes nothing and the step reports completed_dry_run (ZERO outbound
+// fetch, ZERO KV put). In live mode the homepage is the step's namesake
+// side-effect: a render/put failure marks the step failed; the happy in-
+// process path never escalates to FAILED (there is no self-request to fail).
 async function warmHomepageCacheStep(
   ctx: StepContext,
 ): Promise<StepHandlerResult> {
@@ -891,36 +1124,32 @@ async function warmHomepageCacheStep(
       ? versionRow.content_version
       : 0;
   const hostname = await resolveSiteHostname(ctx.db, ctx.site_id);
-  const outcome = await warmSiteCache(ctx.env, {
+  const outcome = await warmHomepageInProcess(ctx.env, ctx.db, {
     site_id: ctx.site_id,
+    hostname,
+    vertical_slug: info.vertical,
     content_version: contentVersion,
-    originBaseUrl: `https://${hostname}`,
     expirationTtl: parseNumber(ctx.env.HTML_CACHE_TTL_SECONDS, 300),
   });
-  const homepage = outcome.results.find((r) => r.kind === "homepage");
   const output = JSON.stringify({
     step: "warm_homepage_cache",
-    kind: "cache_warm",
+    kind: "in_process_warm",
     schema_version: 1,
     site_id: ctx.site_id,
     content_version: contentVersion,
     dry_run: outcome.dry_run,
-    attempted: outcome.attempted,
     warmed: outcome.warmed,
-    failed: outcome.failed,
-    homepage_cache_key: homepage ? homepage.cacheKey : "",
-    homepage_status: homepage ? homepage.status : "failed",
+    homepage_cache_key: outcome.cacheKey,
+    homepage_status: outcome.status,
   });
   if (outcome.dry_run) {
     return { status: "completed_dry_run", output };
   }
-  if (!homepage || homepage.status !== "warmed") {
+  if (outcome.status !== "warmed") {
     return {
       status: "failed",
       output,
-      error:
-        homepage?.error ??
-        `homepage warm did not complete (status=${homepage?.status ?? "missing"}, http=${homepage?.http_status ?? "n/a"})`,
+      error: outcome.error ?? "homepage warm did not complete",
     };
   }
   return { status: "completed", output };
@@ -1024,15 +1253,17 @@ async function runSiteSmokeTestsStep(
   return { status: "completed", output };
 }
 
-// T39 — update_launch_readiness (step 16, the final step).
-// Read-only D1 rollup: collects the launch-readiness signals produced by
+// T39 + rescue-3 T5 — update_launch_readiness (step 16, the final step).
+// D1 rollup + go-live: collects the launch-readiness signals produced by
 // the earlier steps into one JSON object and persists it as this step's
 // output row (the runner writes StepHandlerResult.output into
 // site_creation_job_steps.output). GET /api/admin/sites/:id/provision
 // reads that row back and surfaces it as the response's top-level
 // `launch_readiness` field (field_contract canonical_name
 // launch_readiness: domain_attached, published_articles, media_count,
-// cache_warmed, smoke_passed, content_mode). Zero fetch in any mode.
+// cache_warmed, smoke_passed, content_mode). T5-AC2 adds the go-live D1
+// write: sites.status -> 'active' (see inline note below). Zero outbound
+// fetch in any mode.
 async function readJobStepStatus(
   db: D1Database,
   job_id: string,
@@ -1108,11 +1339,28 @@ async function updateLaunchReadinessStep(
         ? modeRow.content_mode
         : "ai",
   };
+  // rescue-3 T5 (T5-AC2): flip the finished site live. Reaching this final
+  // step means every prior step — including run_site_smoke_tests — succeeded
+  // (the runner halts the job on the first failed step, so update_launch_
+  // readiness never runs after a failure), so the site is verified-ready to
+  // serve. Set sites.status 'draft' -> 'active', the schema CHECK-allowed
+  // live value (migration 0002: CHECK (status IN ('draft','provisioning',
+  // 'active','disabled','failed'))); 'launched' is NOT in the CHECK set and
+  // would be rejected. Pure D1 write — runs in dry-run too, because the dry-
+  // run gate only suppresses outbound Cloudflare/KV mutation, not the local
+  // domain writes every other provisioning step also performs in dry-run.
+  await ctx.db
+    .prepare(
+      "UPDATE sites SET status = 'active', updated_at = unixepoch() WHERE id = ?",
+    )
+    .bind(ctx.site_id)
+    .run();
   const output = JSON.stringify({
     step: "update_launch_readiness",
     kind: "launch_readiness_rollup",
     schema_version: 1,
     site_id: ctx.site_id,
+    site_status: "active",
     launch_readiness,
   });
   return { status: "completed", output };

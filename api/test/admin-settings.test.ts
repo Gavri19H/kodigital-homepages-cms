@@ -359,3 +359,89 @@ describe("settings template (T32 settings port per-site)", () => {
     expect(html).toContain("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 });
+
+// T15.AC1 — Settings tab full parity: the served Settings markup carries a
+// Site Logo file upload (logoFileInput / site_logo_url) IN ADDITION to the
+// existing AI-logo panel, an items_per_page control, a settings-tabs / tab-*
+// layout, and structured newsletter fields (enabled + provider) instead of a
+// raw newsletter_settings_json textarea.
+describe("settings tab full parity (T15.AC1)", () => {
+  const sites = [{ id: "st_a", name: "Site A" }];
+
+  it("renders a Site Logo file upload (logoFileInput / site_logo_url) alongside the AI-logo panel", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    // file upload control
+    expect(html).toMatch(/<input[^>]*id="logoFileInput"[^>]*type="file"/);
+    expect(html).toContain('name="site_logo_url"');
+    // existing AI-logo panel is still present (not replaced)
+    expect(html).toContain('class="ai-logo-panel"');
+    expect(html).toContain('id="ai-logo-generate"');
+  });
+
+  it("renders an items_per_page control", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    expect(html).toMatch(/<input[^>]*name="items_per_page"[^>]*type="number"/);
+  });
+
+  it("renders a settings-tabs / tab-* tabbed layout", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    expect(html).toContain('class="settings-tabs"');
+    expect(html).toMatch(/id="tab-[a-z]+"/);
+    // every tab panel is reachable via a tab button
+    expect(html).toMatch(/class="settings-tablist"/);
+  });
+
+  it("renders structured newsletter fields (enabled + provider), not a raw newsletter_settings_json textarea", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    expect(html).toMatch(/id="newsletter_enabled"[^>]*type="checkbox"|type="checkbox"[^>]*id="newsletter_enabled"/);
+    expect(html).toContain('id="newsletter_provider"');
+    // the raw JSON textarea must be gone (a hidden input keeps the wire key)
+    expect(html).not.toMatch(/<textarea[^>]*name="newsletter_settings_json"/);
+    expect(html).toMatch(/<input type="hidden"[^>]*name="newsletter_settings_json"/);
+  });
+
+  it("prefills structured newsletter fields from stored newsletter_settings_json", () => {
+    const html = settingsPage(
+      sites,
+      { newsletter_settings_json: '{"enabled":true,"provider":"mailchimp"}' },
+      "st_a",
+      {},
+    );
+    expect(html).toMatch(/id="newsletter_enabled"[^>]*checked/);
+    expect(html).toMatch(/<option value="mailchimp" selected/);
+  });
+
+  it("tolerates corrupt newsletter_settings_json (falls back to disabled / no provider)", () => {
+    const html = settingsPage(
+      sites,
+      { newsletter_settings_json: "not-json-at-all" },
+      "st_a",
+      {},
+    );
+    // no crash; checkbox unchecked, provider defaults to the blank option
+    expect(html).not.toMatch(/id="newsletter_enabled"[^>]*checked/);
+    expect(html).toMatch(/<option value="" selected/);
+    // raw value still preserved in the hidden round-trip input
+    expect(html).toContain('value="not-json-at-all"');
+  });
+
+  it("submit script sends items_per_page + site_logo_url and composes the structured newsletter into newsletter_settings_json", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    // parity keys are collected by the submit script
+    expect(html).toContain("'items_per_page'");
+    expect(html).toContain("'site_logo_url'");
+    // newsletter is composed from the structured controls, not the raw input
+    expect(html).toContain("nlEnabled ? !!nlEnabled.checked : false");
+    expect(html).toContain("nlProvider ? nlProvider.value : ''");
+    // still the T24 wire shape to the settings endpoint
+    expect(html).toContain("'/api/admin/settings'");
+    expect(html).toContain("{ site_id: hidden.value, updates: updates }");
+  });
+
+  it("wires the logo file upload to POST /admin/media (multipart) and reflects the result", () => {
+    const html = settingsPage(sites, {}, "st_a", {});
+    expect(html).toContain("'/admin/media'");
+    expect(html).toContain("fd.append('file', file)");
+    expect(html).toContain("logoFileInput");
+  });
+});
