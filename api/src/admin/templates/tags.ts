@@ -191,14 +191,15 @@ function renderTagRow(t: TagListEntry): string {
     ? escapeHtml(t.site ?? t.site_id ?? "")
     : `<span class="badge global-template" data-global="true">Global</span>`;
   const count = escapeHtml(t.article_count ?? 0);
-  const editHref = id ? `/admin/tags/${id}/edit` : "/admin/tags";
+  // T31: tags match the reference — create + delete only, NO edit. The
+  // /admin/tags/:id/edit route was never registered (dead link), so the
+  // Edit action is removed entirely; the Actions cell is delete-only.
   return `<tr data-tag-id="${id}">
   <td>${name}</td>
   <td>${slug}</td>
   <td>${siteCell}</td>
   <td>${count}</td>
   <td>
-    <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
     <button type="button" class="btn btn-danger btn-sm" data-delete-tag="${id}" data-tag-name="${name}">Delete</button>
   </td>
 </tr>`;
