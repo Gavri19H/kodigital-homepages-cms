@@ -29,6 +29,7 @@ import {
   normalizeHostname,
 } from "../safety/protected-domains";
 import { runProvisioningToCompletion, TOTAL_STEPS } from "../site-provisioning";
+import { runCloudflareSiteTeardown } from "../site-provisioning/cloudflare-interfaces";
 
 interface SiteRow {
   id: string;
@@ -355,4 +356,132 @@ export async function updateSiteHandler(
     .bind(id)
     .first<SiteRow>();
   return c.json({ resource: row });
+}
+
+// T37 [BCL-021] — DELETE /api/admin/sites/:id. The real Delete-site
+// operation. It (1) tears down the Cloudflare Worker route + purges the
+// site's cache through the dry-run-gated boundary (zero outbound fetch in
+// dry-run mode) and (2) cascade-removes every child row the site owns so
+// the domain frees for reuse (a subsequent POST /sites for the same
+// hostname no longer 409s).
+//
+// The cascade is issued as EXPLICIT, ordered DELETE statements rather than
+// relying on FK ON DELETE CASCADE — D1/SQLite only enforces FK cascades
+// when `PRAGMA foreign_keys=ON`, so explicit deletes are the deterministic,
+// testable contract. Child rows are removed before the parent sites row.
+// ai_generations is detached (site_id := NULL) to mirror its declared
+// `ON DELETE SET NULL` semantics (the generation history is preserved).
+// Every statement is `prepare(<static SQL>).bind(...)` — no template SQL.
+//
+// CF teardown is resolved BEFORE the domains row is deleted (it needs the
+// primary hostname + cf_route_id). Teardown errors do not abort the DB
+// cascade — the row removal is what frees the domain, and a halted CF call
+// is logged to cache_purge_log for a later reconcile.
+export async function deleteSiteHandler(
+  c: Context<{ Bindings: Env }>,
+): Promise<Response> {
+  const id = c.req.param("id");
+  if (typeof id !== "string" || id.length === 0) {
+    return c.json({ error: "Invalid site id" }, 400);
+  }
+
+  const site = await c.env.DB.prepare(
+    "SELECT id, domain FROM sites WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<{ id: string; domain: string | null }>();
+  if (site === null || site === undefined) {
+    return c.json({ error: "Site not found" }, 404);
+  }
+
+  // Resolve the primary domain + its attached CF route BEFORE the domains
+  // row is deleted. Fall back to sites.domain when no domains row exists.
+  const primaryDomain = await c.env.DB.prepare(
+    "SELECT hostname, cf_route_id FROM domains WHERE site_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1",
+  )
+    .bind(id)
+    .first<{ hostname: string; cf_route_id: string | null }>();
+  const hostname =
+    primaryDomain !== null && primaryDomain !== undefined
+      ? primaryDomain.hostname
+      : (site.domain ?? "");
+  const cfRouteId =
+    primaryDomain !== null && primaryDomain !== undefined
+      ? primaryDomain.cf_route_id
+      : null;
+
+  // (1) Cloudflare route/DNS teardown + cache purge (dry-run gated).
+  let teardownStatus = "skipped";
+  let teardownOutbound = 0;
+  if (hostname.length > 0) {
+    const teardown = await runCloudflareSiteTeardown(
+      { env: c.env, db: c.env.DB },
+      { site_id: id, hostname, cf_route_id: cfRouteId },
+    );
+    teardownStatus = teardown.status;
+    teardownOutbound = teardown.outbound_calls;
+  }
+
+  // (2) Cascade-delete every child row, then the site itself. Child-first so
+  // no orphan rows survive even with FK enforcement off. Job steps are keyed
+  // by job_id, so they are removed via the active jobs of this site first.
+  try {
+    await c.env.DB.prepare(
+      "DELETE FROM site_creation_job_steps WHERE job_id IN (SELECT id FROM site_creation_jobs WHERE site_id = ?)",
+    )
+      .bind(id)
+      .run();
+    await c.env.DB.prepare(
+      "DELETE FROM site_creation_jobs WHERE site_id = ?",
+    )
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM domains WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM site_categories WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM site_settings WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM articles WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM pages WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM media WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM tags WHERE site_id = ?")
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM redirects WHERE site_id = ?")
+      .bind(id)
+      .run();
+    // Detach (not delete) the AI generation log — mirrors the schema's
+    // declared ON DELETE SET NULL for ai_generations.
+    await c.env.DB.prepare(
+      "UPDATE ai_generations SET site_id = NULL WHERE site_id = ?",
+    )
+      .bind(id)
+      .run();
+    await c.env.DB.prepare("DELETE FROM sites WHERE id = ?").bind(id).run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "delete failed";
+    return c.json({ error: `failed to delete site: ${message}` }, 500);
+  }
+
+  return c.json({
+    resource: {
+      id,
+      deleted: true,
+      hostname,
+      teardown: {
+        status: teardownStatus,
+        outbound_calls: teardownOutbound,
+      },
+    },
+  });
 }

@@ -17,6 +17,7 @@ import {
   createSiteHandler,
   getSiteHandler,
   updateSiteHandler,
+  deleteSiteHandler,
 } from "./sites-handlers";
 import {
   listVerticalsHandler,
@@ -798,6 +799,11 @@ adminApi.get("/sites", listSitesHandler);
 adminApi.post("/sites", createSiteHandler);
 adminApi.get("/sites/:id", getSiteHandler);
 adminApi.patch("/sites/:id", updateSiteHandler);
+// T37: real Delete-site — cascade DB removal + Cloudflare route/DNS
+// teardown + cache purge (dry-run gated). `.delete(` does NOT match the
+// T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites` so the four-hit
+// count there is unaffected.
+adminApi.delete("/sites/:id", deleteSiteHandler);
 // T17: site-provisioning runner — advances the active site_creation_job
 // by one step per call. Route literal `/sites/:id/provision/next`
 // still matches the T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites`
