@@ -537,8 +537,8 @@
       "title": "Admin domains list shows all domains",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T34"
       ],

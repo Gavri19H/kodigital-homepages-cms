@@ -11585,3 +11585,26 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
     the #content-editor element it falls through to the legacy bare-textarea
     BlockEditor, so a visible raw-JSON textarea is NOT the rich editor the brief
     wants — the markup, not just the script include, is the contract.
+
+## 2026-06-18 - T34 (sources: T34) — Admin domains list shows all domains
+- Removed `WHERE d.is_primary = 1` from listAdminDomains (api/src/admin/data.ts)
+  so the admin Domains tab surfaces alias (non-primary) domains, not only the
+  canonical one. Added `d.is_primary DESC` to ORDER BY so primary sorts first.
+- Files changed: api/src/admin/data.ts, api/test/domains-list-all.test.ts (new)
+- Self-check results:
+  - File sizes: domains-list-all.test.ts 187 lines PASS; data.ts 1008 lines
+    (pre-existing large file; +7 comment lines + 1 SQL line — no T34 refactor)
+  - Secret scan: PASS (none)
+  - Error handling: N/A (no new route handler)
+  - Migration execution: N/A (category=api, no schema change)
+  - Parameterized queries: PASS (static SQL, no interpolation/user binds)
+- Tests run:
+  - cd api && npx vitest run test/domains-list-all.test.ts test/admin-domains.test.ts test/admin-data-wiring.test.ts  -> 19 passed
+  - cd api && npx tsc --noEmit  -> exit 0
+  - RC-058 runner (run_required_evidence_command.py) -> status PASS
+  - Q3 story_quality_checks (run_story_quality_checks.py) -> PASS, 2 checks, receipts written
+- Learnings:
+  - listDomainsHandler (api endpoint, domains-verticals-handlers.ts) was already
+    unfiltered; the is_primary=1 hiding bug lived in the SERVER-RENDER data
+    helper listAdminDomains (data.ts) that powers the /admin/domains tab.
+  - admin-data-wiring.test.ts mocks listAdminDomains, so changing its SQL is safe.
