@@ -11416,3 +11416,52 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
     querySelectorAll (not panel-scoped), so redistributing cards across panels
     leaves behavior intact.
 ---
+
+## 2026-06-18 - T30 (sources: T30) - Category edit route + full update + homepage toggle + order + slug guard
+- What: completed the category edit lifecycle so EVERY field round-trips (BCL-014).
+  Three real gaps closed:
+  1. updateCategoryHandler now persists description + show_on_homepage on EDIT
+     (the PUT previously updated only slug/name/parent_id/featured_image_id/
+     display_order — the two 0018-migration columns were silently dropped).
+     Absent keys RETAIN; a present description of null/"" clears; show_on_homepage
+     coerces to the 0/1 flag (same truthy set as the CREATE path).
+  2. Added GET /api/admin/categories/:id detail route (T30.AC1) returning the
+     single record incl. description + show_on_homepage for edit-screen hydration.
+  3. Public home chip-rail gated by `c.show_on_homepage = 1` (T30.AC2) so flipping
+     the homepage toggle is reflected publicly. SELECT prefix unchanged → existing
+     view-model fakes still match; the column defaults to 0 (opt-in per migration 0018).
+  Slug-collision 409 guard already existed in the PUT — now covered by a test.
+- Files changed:
+  - api/src/admin/taxonomy-crud-handlers.ts — CategoryCrudRow + CATEGORY_COLUMNS +
+    CategoryUpdateBody gain description/show_on_homepage; getCategoryHandler (GET
+    detail); updateCategoryHandler persists the two fields (retain/clear/coerce).
+  - api/src/admin/api.ts — import + register GET /api/admin/categories/:id.
+  - api/src/public/view-models/home.ts — Query 2 WHERE adds AND c.show_on_homepage = 1.
+  - api/test/category-edit.test.ts (NEW) — stateful-D1 round-trip proofs backing
+    RC-052 (T30-AC1) and RC-053 (T30-AC2); one shared store drives admin GET/PUT
+    AND public buildHomeViewModel so the toggle is OBSERVED end-to-end.
+  - api/test/category-multi-vertical.test.ts — updated the T30.AC1 PUT bind
+    expectation to the extended UPDATE shape (description/show_on_homepage retained).
+- Self-check results:
+  - File sizes: taxonomy-crud-handlers.ts 456 (pre-existing >200 scaffold; additive
+    ~60 lines), api.ts 1113 (pre-existing 39KB scaffold; +5), home.ts 389 (pre-existing
+    large VM; +8), category-edit.test.ts 293 (test file — stateful fake + thorough
+    round-trip assertions; sibling category-multi-vertical.test.ts is 653) — PASS
+  - Secret scan: PASS (none)
+  - Error handling: PASS — GET/PUT return typed 400/404/409; PUT body parse is try/catch
+  - Migration execution: N/A — no schema change (description/show_on_homepage exist via 0018)
+  - Parameterized queries: PASS — all prepare() use static SQL + positional ? + .bind()
+- Tests run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npm test -> 155 files / 1302 tests passed (no regressions)
+  - D13 run_required_evidence_command.py --required-claim-ids=RC-052,RC-053 -> status PASS
+    (both observations matched: T30-AC1:RC-052, T30-AC2:RC-053)
+  - Q3 run_story_quality_checks.py --story-id=T30 -> PASS (checks_executed=2, receipts written)
+- Learnings:
+  - The categories table carries NO site_id; site scoping flows through the
+    site_categories allocation join. The public home chip-rail therefore gates on
+    BOTH sc.site_id (tenant) AND c.show_on_homepage (per-category opt-in).
+  - A single stateful fake D1 (categories Map + site_categories list) can back the
+    admin write handlers (.first/.run) AND buildHomeViewModel (.all) at once — the
+    methods don't collide (admin detail uses .first, the home join uses .all), giving
+    a genuine PUT-then-observe-publicly proof rather than a bind-shape echo.

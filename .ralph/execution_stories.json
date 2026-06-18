@@ -473,8 +473,8 @@
       "title": "Category edit route + full update + homepage toggle + order + slug guard",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T30"
       ],
