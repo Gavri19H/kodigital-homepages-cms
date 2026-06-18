@@ -10894,3 +10894,58 @@ source_story_ids: T14
   The site-provisioning test already had a not.toContain("0f172a") guard that this
   fix now satisfies.
 ---
+
+## 2026-06-18 - T18 (sources: T18) — Homepage hero: mechanism + visual (full-bleed .hero-bg)
+- Defect (BCL-056): no site-level hero-image setting; the homepage hero could
+  only borrow a featured article's image, so a tenant without a suitable lead
+  article had an imageless banner. Build refs: public/templates/home.ts:126-139,
+  components.ts:167-177.
+- Mechanism (T18-AC1 / RC-032):
+  - view-models/home.ts: read `hero_image_media_id` from the EXISTING site_settings
+    query (Query 3) and resolve via mediaUrl() -> /media/<storage_key>; exposed as
+    optional vm.heroImageUrl. NO 4th D1 statement — the T12.AC3 <=3-prepared-statements
+    invariant is preserved (asserted in the new test).
+  - templates/home.ts §2: .hero-bg image = vm.heroImageUrl ?? lead-article image.
+    When no article exists, the no-hero branch now also paints the site hero
+    (previously imageless). renderHero already emits .hero-bg before .hero-content
+    (.hero-title + .hero-search), so the contract §11 DOM holds.
+  - heroImageUrl is OPTIONAL on HomeViewModel so the ~6 test vm-literal factories
+    (makeVm/homeVm/makeHomeVm) still type-check; buildHomeViewModel always sets it.
+- Migration (T18-AC2 / RC-033):
+  - api/migrations/0021_rescue4_hero_image_setting.sql: materialise the per-site
+    `hero_image_media_id` key (INSERT OR IGNORE ... SELECT id,'hero_image_media_id','' FROM sites).
+    Idempotent; empty default -> mediaUrl()=null -> fall back to lead article.
+    Applied locally: `npx wrangler d1 migrations apply kodigital-homepages-cms-db --local` -> 0021 ✅.
+  - Anchored in .github/workflows/deploy.yml migration-traceability comment block.
+- T18-AC3 is SHIP-DEFERRED (Playwright full-bleed visual parity at 375/1280 @ a2z-ship).
+- New test api/test/hero-image.test.ts (RC-032): behavioral set/unset/empty-value +
+  no-4th-query proofs against buildHomeViewModel + renderHome; it() titles embed
+  [api/test/hero-image.test.ts] for the parse_test_output route.
+- Self-check results:
+  - File sizes: view-models/home.ts 350 (+14: interface comment + resolve + return field),
+    templates/home.ts 261 (+9: comment + image-source), hero-image.test.ts 170,
+    migration 26. The two public modules were already over the 200 default (consolidated
+    public-module pattern, documented T16/T17) — additions are comments + minimal
+    mechanism, NO new oversize, no override in packet. — PASS (no regression)
+  - Secret scan: PASS (none)
+  - Error handling: N/A (view-model + template, no new route handler)
+  - Migration execution: PASS (0021 applied to local D1; PRAGMA table_info(site_settings)
+    -> [id, site_id, key, value], the migration's declared columns present)
+  - Parameterized queries: PASS (view-model SQL unchanged/.bind(); migration is static
+    SQL, no template interpolation; the lone grep hit is a docstring comment)
+- Evidence:
+  - D13 runner RC-032 (vitest_text) -> PASS (4/4 it() matched expected_test_name_regex)
+  - D13 runner RC-033 (parse_grep_count) -> PASS (grep_count=1 in deploy.yml)
+  - Q3 run_story_quality_checks.py --story-id=T18 -> PASS (checks_executed=4, all exit 0)
+  - tsc --noEmit -> exit 0; home regression (10 files / 65 tests) -> all passed
+- Learnings:
+  - Site-level visual settings live in site_settings key/value (logo_media_id,
+    brand_tokens_json, newsletter_settings_json, tagline) — hero follows the same
+    pattern as a `hero_image_media_id` key, NOT a sites column. Read it off the
+    settings dict already fetched by Query 3 to keep the <=3-statement cap.
+  - AC1 requires .hero-bg to carry /media/<key>: run the stored storage_key through
+    mediaUrl() in the view-model (logo_media_id currently does NOT — that's T24's
+    fix, out of scope here).
+  - Adding a field to a widely-constructed view-model interface: make it OPTIONAL or
+    the many test vm-literal factories fail tsc (and Q3's `npm test`).
+---
