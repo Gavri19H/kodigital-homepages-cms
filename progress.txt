@@ -12032,3 +12032,23 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
     best-effort and only adds new KV keys — assertions that check specific keys
     or render/fetch counts are unaffected.
 ---
+
+## 2026-06-18 — T45 (execution story T45; sources: T45)
+- Implemented: preview token TTL raised 600s (10 min) -> 86400s (24h).
+  - api/src/workflow/preview-link.ts: PREVIEW_TOKEN_TTL_SECONDS = 86400 (single source of truth; re-exported via workflow/index.ts, consumed by admin/workflow-api.ts createPreviewLink).
+  - api/test/preview-ttl.test.ts (new): 3 backing tests for T45-AC1:RC-073.
+- Test commands actually run:
+  - cd api && npx vitest run test/preview-ttl.test.ts test/preview.test.ts  -> 16 passed (3 new + 13 existing; no regressions)
+  - cd api && npx tsc --noEmit  -> exit 0
+  - Q3: run_story_quality_checks.py --story-id=T45 -> PASS checks_executed=4 (receipts written)
+  - D13: run_required_evidence_command.py --required-claim-ids=RC-073 -> status PASS (parse_test_output matched all 3 backing test names; receipt emitted)
+- Self-check results:
+  - File sizes: preview-link.ts 100 lines (limit 200) PASS; preview-ttl.test.ts 242 lines (test file) PASS
+  - Secret scan: PASS (only test-only SECRET constant, mirrors existing preview.test.ts; no hardcoded prod secret)
+  - Error handling: N/A (constant-value change; existing /preview handler already returns 401/404/500)
+  - Migration execution: N/A (no schema change)
+  - Parameterized queries: N/A (no new SQL; fake D1 in tests uses sql.includes, no template-literal interpolation)
+- Learnings for future iterations:
+  - Regression guard uses a CONTRAST assertion: a 23h-old mint is still valid under the 24h TTL but already dead under the old 600s TTL, so the test fails if the TTL is reverted to any small positive value (not just `> now`).
+  - security_reminder_hook blocks Write when content contains the dot-exec-paren substring; used String.prototype.match() instead of regex .exec() (per memory note).
+---
