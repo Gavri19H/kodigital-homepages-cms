@@ -11384,3 +11384,35 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
 - Learnings:
   - The public `.site-footer` is owned by renderFooter (components.ts), not layout.ts — all 5 public surfaces (home/article via body, category/tag/page via renderLayout footer arg) route through it.
   - Per-platform key/value social settings reuse the existing arbitrary-key PATCH route + the settings.ts submit-script `keys` array; new keys must be added to BOTH ALLOWED_SETTINGS_KEYS and that array, and (for footer render) SOCIAL_PLATFORMS.
+
+## 2026-06-18 - T29 (sources: T29) - Settings IA completeness (tabs)
+- What: expanded the admin Settings IA from 5 tabs to the full reference set of
+  seven (General/Logo/SEO/Ads/Social/Newsletter/Advanced). Ads (ads.txt) and
+  Social (profile links) are now first-class tabs of their own (were folded into
+  SEO/General); Brand Tokens moved into the Logo (visual-identity) tab. Relabeled
+  "SEO & Files" -> "SEO".
+- Files changed: api/src/admin/templates/settings.ts (SETTINGS_TABS 5->7,
+  renderTabs panel distribution), api/test/settings-ia.test.ts (new, RC-051
+  render-output proof).
+- Self-check results:
+  - File sizes: settings.ts 943 lines (pre-existing template module; +~10 net
+    lines this story, not the cause of size) ; settings-ia.test.ts 98 lines — PASS
+  - Secret scan: PASS (clean)
+  - Error handling: N/A (pure render template + test, no new handlers)
+  - Migration execution: N/A (no DB change)
+  - Parameterized queries: N/A (no SQL)
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run test/settings-ia.test.ts test/admin-settings.test.ts
+    test/social-links.test.ts test/brand-tokens.test.ts test/newsletter-provider.test.ts
+    test/logo-panel.test.ts test/admin-layout-shell.test.ts -> 47 passed
+  - D13 runner RC-051 (run_required_evidence_command.py) -> status PASS
+  - Q3 run_story_quality_checks.py --story-id=T29 -> PASS (checks_executed=2)
+- Learnings:
+  - Cards are tab-agnostic: moving a render*Card() between tab panels does not
+    change the card HTML, so sibling story tests (T25/T26/T27/T28) that assert on
+    settingsPage() output by id/name are unaffected by tab reorganization.
+  - The inline tab/newsletter/logo JS uses document-global getElementById /
+    querySelectorAll (not panel-scoped), so redistributing cards across panels
+    leaves behavior intact.
+---
