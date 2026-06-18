@@ -90,17 +90,85 @@ function cardFromVm(c: HomeArticleCard): string {
   });
 }
 
-function gridSection(
-  heading: string,
-  modifier: string,
-  cards: ReadonlyArray<HomeArticleCard>,
-  emptyLabel: string,
-): string {
+function dedupeByHref(cards: ReadonlyArray<HomeArticleCard>): HomeArticleCard[] {
+  const seen = new Set<string>();
+  const out: HomeArticleCard[] = [];
+  for (const c of cards) {
+    if (seen.has(c.href)) continue;
+    seen.add(c.href);
+    out.push(c);
+  }
+  return out;
+}
+
+// §4 — Featured. Contract §7 root selector `.container.section > .featured`;
+// the grid holds up to 3 cards (design §12 featured[3], first = hero). CSS
+// (.featured .card:first-child) enlarges the lead card across two rows.
+function renderFeaturedSection(cards: ReadonlyArray<HomeArticleCard>): string {
+  const head = `<div class="section-head"><h2>Featured</h2></div>`;
   if (cards.length === 0) {
-    return `<div class="section-head"><h2>${escText(heading)}</h2></div><p class="section-empty">${escText(emptyLabel)}</p>`;
+    return `<div class="container section">${head}<p class="section-empty">No featured stories yet.</p></div>`;
+  }
+  const grid = cards.map(cardFromVm).join("");
+  return `<div class="container section">${head}<div class="featured"><div class="grid">${grid}</div></div></div>`;
+}
+
+// §6 — Editor's picks. Contract §7 root selector `.container.section >
+// .picks-grid` (design §12 editorsPicks { hero, thumbs[3] } = 4 cards). The
+// first pick fills the `.picks-hero` column; the next three render as compact
+// `.story-row` items (children: img, .body, .meta — contract §11 vocabulary).
+function renderStoryRow(c: HomeArticleCard): string {
+  const img =
+    c.imageUrl !== null && c.imageUrl.length > 0
+      ? `<img src="${escAttr(c.imageUrl)}" alt="${escAttr(c.imageAlt ?? "")}" width="88" height="64" loading="lazy" decoding="async">`
+      : "";
+  const meta = c.categoryName.length > 0 ? `<p class="meta">${escText(c.categoryName)}</p>` : "";
+  return `<a class="story-row" href="${escAttr(c.href)}">${img}<div class="body"><h4>${escText(c.title)}</h4>${meta}</div></a>`;
+}
+
+function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>): string {
+  const head = `<div class="section-head"><h2>Editor's picks</h2></div>`;
+  const lead = cards[0];
+  if (lead === undefined) {
+    return `<div class="container section">${head}<p class="section-empty">Editor's picks coming soon.</p></div>`;
+  }
+  const heroImg =
+    lead.imageUrl !== null && lead.imageUrl.length > 0
+      ? `<img class="card-img" src="${escAttr(lead.imageUrl)}" alt="${escAttr(lead.imageAlt ?? "")}" width="640" height="360" loading="lazy" decoding="async">`
+      : "";
+  const heroExcerpt =
+    lead.excerpt.length > 0 ? `<p class="picks-excerpt">${escText(lead.excerpt)}</p>` : "";
+  const picksHero = `<article class="picks-hero"><a href="${escAttr(lead.href)}">${heroImg}<h3 class="card-title">${escText(lead.title)}</h3>${heroExcerpt}</a></article>`;
+  const rows = cards.slice(1, 4).map(renderStoryRow).join("");
+  return `<div class="container section">${head}<div class="picks-grid">${picksHero}<div class="picks-rows">${rows}</div></div></div>`;
+}
+
+// §8 — Spotlight. Contract §7 root selector `.section.section--soft >
+// .grid.grid-4` (design §12 spotlight items[4]). A soft-background 4-column
+// card grid surfacing the spotlight bucket.
+function renderSpotlightSection(
+  heading: string,
+  cards: ReadonlyArray<HomeArticleCard>,
+): string {
+  const head = `<div class="section-head"><h2>${escText(heading)}</h2></div>`;
+  if (cards.length === 0) {
+    return `<section class="section section--soft"><div class="container">${head}<p class="section-empty">Spotlight stories coming soon.</p></div></section>`;
+  }
+  const grid = cards.slice(0, 4).map(cardFromVm).join("");
+  return `<section class="section section--soft"><div class="container">${head}<div class="grid grid-4">${grid}</div></div></section>`;
+}
+
+// §10 — Latest. Contract §7 root selector `.container.section > .grid.grid-3`.
+// Renders the FULL vm.latest bucket (T16/BCL-057: never slice the head off —
+// every non-featured article must surface). Each card is a `.home-grid__item`
+// grid cell so the home-bucketing count assertion still holds.
+function renderLatestSection(cards: ReadonlyArray<HomeArticleCard>): string {
+  const head = `<div class="section-head"><h2>Latest</h2></div>`;
+  if (cards.length === 0) {
+    return `<div class="container section">${head}<p class="section-empty">More stories on the way.</p></div>`;
   }
   const items = cards.map((c) => `<li class="home-grid__item">${cardFromVm(c)}</li>`).join("");
-  return `<div class="section-head"><h2>${escText(heading)}</h2></div><ul class="home-grid home-grid--${modifier}">${items}</ul>`;
+  return `<div class="container section">${head}<ul class="grid grid-3 home-grid home-grid--latest">${items}</ul></div>`;
 }
 
 export function renderHome(args: RenderHomeArgs): string {
@@ -155,16 +223,27 @@ export function renderHome(args: RenderHomeArgs): string {
   }));
   const s3 = renderChipRail({ chips, label: "Browse by topic" });
 
-  // §4 — featured grid (up to 3 cards, first enlarged by CSS)
-  const featured = vm.featured.slice(0, 3);
-  const s4 = gridSection("Featured", "featured", featured, "No featured stories yet.");
+  // §4 — featured. Design §12 featured[3], first = hero: the lead story heads
+  // the featured grid (also the §2 hero banner), then the next featured cards.
+  const featuredCards = (vm.hero !== null ? [vm.hero, ...vm.featured] : [...vm.featured]).slice(
+    0,
+    3,
+  );
+  const s4 = renderFeaturedSection(featuredCards);
 
   // §5 — ad slot, leaderboard surface
   const s5 = renderAdSlot({ type: "leaderboard", slotId: "home-leaderboard", surface: "home" });
 
-  // §6 — editor's picks (re-promote up to 4 featured for the picks rail)
-  const picks = vm.featured.slice(0, 4);
-  const s6 = gridSection("Editor's picks", "picks", picks, "Editor's picks coming soon.");
+  // §6 — editor's picks. Design §12 editorsPicks{ hero, thumbs[3] } = 4 cards.
+  // Prefer the view-model's curated picks bucket; fall back to hero + featured.
+  const picksCards = (
+    vm.picks.length > 0
+      ? vm.picks
+      : vm.hero !== null
+        ? [vm.hero, ...vm.featured]
+        : [...vm.featured]
+  ).slice(0, 4);
+  const s6 = renderPicksSection(picksCards);
 
   // §7 — trending (vm.trending bucket = is_trending rows, contract: 5 items;
   // dark full-bleed strip, .trending-section root, ranked 01..05 numerals)
@@ -178,15 +257,22 @@ export function renderHome(args: RenderHomeArgs): string {
     })),
   });
 
-  // §8 — category spotlight (each category linked, PART 8 real URLs)
-  const s8 = vm.categories.length > 0
-    ? `<div class="section-head"><h2>Explore by category</h2></div><ul class="home-categories">${vm.categories
-        .map(
-          (c) =>
-            `<li class="home-categories__item"><a class="home-categories__link" href="${escAttr(c.href)}">${escText(c.name)}</a></li>`,
-        )
-        .join("")}</ul>`
-    : `<p class="section-empty">Categories will appear here.</p>`;
+  // §8 — spotlight. Design §12 spotlight items[4]: a soft-background 4-card
+  // grid. Prefer the view-model's spotlight bucket (a by-category lens built
+  // in buildHomeViewModel); fall back to a deduped featured+latest slice so
+  // the section is populated even for view-model literals that omit it. The
+  // heading names the spotlight category when known.
+  const spotlightCards = (
+    vm.spotlight !== undefined && vm.spotlight.length > 0
+      ? vm.spotlight
+      : dedupeByHref([...vm.featured, ...vm.latest])
+  ).slice(0, 4);
+  const spotlightLead = spotlightCards[0];
+  const spotlightHeading =
+    spotlightLead !== undefined && spotlightLead.categoryName.length > 0
+      ? spotlightLead.categoryName
+      : "Spotlight";
+  const s8 = renderSpotlightSection(spotlightHeading, spotlightCards);
 
   // §9 — ad slot, in-feed surface
   const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home" });
@@ -199,8 +285,7 @@ export function renderHome(args: RenderHomeArgs): string {
   // non-featured articles (a false "remaining after trending" assumption:
   // trending is a separate is_trending bucket, never the head of vm.latest),
   // so those stories appeared in NO home section. Render the full bucket.
-  const latest = vm.latest;
-  const s10 = gridSection("Latest", "latest", latest, "More stories on the way.");
+  const s10 = renderLatestSection(vm.latest);
 
   // §11 — newsletter
   const s11 = renderNewsletter({
@@ -239,13 +324,13 @@ export function renderHome(args: RenderHomeArgs): string {
     `${marker(1, "site-header")}\n${s1}`,
     `${marker(2, "hero")}\n${s2}`,
     `${marker(3, "chip-rail")}\n${s3.length > 0 ? `<div class="container">${s3}</div>` : ""}`,
-    `${marker(4, "featured")}\n<section class="home-section home-section--featured">${s4}</section>`,
+    `${marker(4, "featured")}\n${s4}`,
     `${marker(5, "ad-leaderboard")}\n${s5}`,
-    `${marker(6, "editors-picks")}\n<section class="home-section home-section--picks" id="picks">${s6}</section>`,
+    `${marker(6, "editors-picks")}\n<div id="picks">${s6}</div>`,
     `${marker(7, "trending")}\n<section class="home-section home-section--trending trending-section" id="trending">${s7}</section>`,
-    `${marker(8, "spotlight")}\n<section class="home-section home-section--spotlight">${s8}</section>`,
+    `${marker(8, "spotlight")}\n${s8}`,
     `${marker(9, "ad-in-feed")}\n${s9}`,
-    `${marker(10, "latest")}\n<section class="home-section home-section--latest">${s10}</section>`,
+    `${marker(10, "latest")}\n${s10}`,
     `${marker(11, "newsletter")}\n${s11}`,
     `${marker(12, "site-footer")}\n${s12}`,
     `${marker(13, "floating-next")}\n${s13}`,

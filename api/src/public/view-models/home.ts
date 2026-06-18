@@ -91,6 +91,13 @@ export interface HomeViewModel {
   featured: HomeArticleCard[];
   picks: HomeArticleCard[];
   trending: HomeArticleCard[];
+  // T19 (design contract §12 `spotlight { cat, desc, items[4] }`): the §8
+  // Spotlight bucket — a by-category lens over the already-fetched article
+  // pool (4 items). Optional so existing view-model literals in tests need
+  // not declare it; buildHomeViewModel always populates it. Overlap with
+  // featured/latest is intentional — spotlight is a category view, NOT a
+  // mutually-exclusive bucket like trending.
+  spotlight?: HomeArticleCard[];
   latest: HomeArticleCard[];
   categories: HomeCategoryChip[];
   newsletter: HomeNewsletter;
@@ -131,6 +138,7 @@ const FEATURED_LIMIT = 8;
 const LATEST_LIMIT = 18;
 const TRENDING_LIMIT = 5;
 const PICKS_LIMIT = 4;
+const SPOTLIGHT_LIMIT = 4;
 const CATEGORY_LIMIT = 12;
 
 function parseBrandTokens(raw: string | null | undefined): Readonly<Record<string, string>> {
@@ -338,6 +346,22 @@ export async function buildHomeViewModel(
     href: `/category/${row.slug}`,
   }));
 
+  // T19 §8 spotlight (design contract §12 `spotlight { cat, desc, items[4] }`):
+  // surface the first site category that has >=1 published article in the
+  // pool and show its 4 most-recent cards. Sourced from `cards` (the pool
+  // already mapped above) so NO 4th prepared statement is added — T12.AC3
+  // caps buildHomeViewModel at 3 D1 reads. When no category match exists the
+  // 4 most-recent pool cards stand in so the section is never empty.
+  let spotlight: HomeArticleCard[] = [];
+  for (const cat of categories) {
+    const inCat = cards.filter((c) => c.categorySlug === cat.slug).slice(0, SPOTLIGHT_LIMIT);
+    if (inCat.length > 0) {
+      spotlight = inCat;
+      break;
+    }
+  }
+  if (spotlight.length === 0) spotlight = cards.slice(0, SPOTLIGHT_LIMIT);
+
   const newsletter = parseNewsletter(settings.newsletter_settings_json);
 
   const meta: HomeMeta = {
@@ -346,5 +370,5 @@ export async function buildHomeViewModel(
     canonicalUrl: `https://${site.hostname}/`,
   };
 
-  return { site, hero, heroImageUrl, featured, picks, trending, latest, categories, newsletter, meta };
+  return { site, hero, heroImageUrl, featured, picks, trending, spotlight, latest, categories, newsletter, meta };
 }
