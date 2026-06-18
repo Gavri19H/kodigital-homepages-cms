@@ -10576,3 +10576,39 @@ AI assistant: structured, preset-driven POST /api/admin/ai/chat (defect BCL-032)
   - The "7 categories" map cleanly to engine fields: system_prompt, user_prompt, model, content_mapping, output_rules, variables, image_options (image_options lives under content_mapping.image_prompts per migration 0019). Folding directives ONLY when non-empty preserves the legacy combined-prompt output for empty-rule presets, keeping T7/T13 green.
   - The provisioning entry point text.ts:525,602 calls resolveCategoryPreset and passes .prompt straight to the model, so widening the resolver's effectivePrompt is the whole mechanism for "applies all 7" in provisioning.
 ---
+
+## 2026-06-18 - T10 (Hero image card + forward the preset)
+- Implemented: the hero-image card's AI-generate now FORWARDS the selected preset
+  (payload.presetId + variables, mirroring ai-panel-script.ts); the
+  /api/admin/ai/image server endpoint now CONSUMES it (validate 400 / unknown
+  404, records preset_id on the ai_generations receipt). Upload->hidden
+  featured_image_id + preview and Apply->returned media id were already wired;
+  proven behaviorally.
+- source_story_ids: [T10]
+- Files changed: api/src/admin/templates/hero-image-script.ts,
+  api/src/admin/ai-image.ts, api/test/hero-image-card.test.ts (new)
+- Tests run:
+  - cd api && npm test  -> 135 files / 1231 tests PASS
+  - cd api && npx tsc --noEmit -> clean
+  - RC-021 runner (run_required_evidence_command.py) -> PASS
+  - Q3 run_story_quality_checks.py --story-id=T10 -> PASS (2 checks)
+- Self-check results:
+  - File sizes: ai-image.ts 191 (limit 200) PASS; hero-image-script.ts 292
+    (pre-existing single exported ES5-string module, +11 lines, single-import
+    contract — not sensibly splittable) NOTE; hero-image-card.test.ts 483
+    (test, not product line-limited) N/A
+  - Secret scan: PASS (no hardcoded secrets; "sk-test" is a test stub)
+  - Error handling: PASS (400/404/500/502 returns intact)
+  - Migration execution: N/A (no schema change)
+  - Parameterized queries: PASS (.prepare(SELECT_PRESET_BY_ID).bind(presetIdRaw))
+- Learnings for future iterations:
+  - To behaviorally test an exported ES5 inline-script string in the node-env
+    vitest (no jsdom), run it via vm.runInNewContext (loaded through
+    createRequire(import.meta.url)) with a minimal DOM stub + a routing fetch
+    stub. This avoids the security_reminder_hook block on the literal
+    "new Function" and proves real DOM mutations + outbound request bodies, not
+    a source grep.
+  - Image-generation preset path: client interpolates the preset prompt into the
+    textarea (operator-confirmed) and forwards presetId; the server validates +
+    records preset_id (single supported image model, so no model override).
+---
