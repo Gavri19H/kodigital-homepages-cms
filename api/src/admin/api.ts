@@ -26,6 +26,7 @@ import {
 import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
 import {
+  getPageHandler,
   createPageHandler,
   updatePageHandler,
   deletePageHandler,
@@ -310,6 +311,7 @@ api.get("/api/admin/pages", async (c) => {
 // calls (pageFormPage submit script POSTs /api/admin/pages, PATCHes
 // /api/admin/pages/:id; the list's Delete row action DELETEs
 // /api/admin/pages/:id). Handlers live in ./pages-crud-handlers.ts.
+api.get("/api/admin/pages/:id", getPageHandler);
 api.post("/api/admin/pages", createPageHandler);
 api.patch("/api/admin/pages/:id", updatePageHandler);
 api.delete("/api/admin/pages/:id", deletePageHandler);

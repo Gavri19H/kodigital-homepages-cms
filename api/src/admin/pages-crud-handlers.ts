@@ -1,6 +1,7 @@
 // T29 ([B8] Pages port + CRUD): admin pages write handlers.
 //
-// Backs the three route registrations in ./api.ts:
+// Backs the route registrations in ./api.ts:
+//   GET    /api/admin/pages/:id  -> getPageHandler     (T33.AC1 detail)
 //   POST   /api/admin/pages      -> createPageHandler
 //   PATCH  /api/admin/pages/:id  -> updatePageHandler
 //   DELETE /api/admin/pages/:id  -> deletePageHandler
@@ -148,6 +149,31 @@ async function assertGlobalSlugFree(
           .bind(slug, excludeId)
           .first<{ id: number }>();
   return row === null || row === undefined;
+}
+
+// GET /api/admin/pages/:id — the edit-screen detail route (T33.AC1).
+// Returns the SINGLE page record with every editable column (content_json
+// included) so the edit form can hydrate what it will later PATCH back.
+// Mirrors getCategoryHandler: 400 invalid id; 404 unknown page; 200
+// { item } on success.
+export async function getPageHandler(
+  c: Context<{ Bindings: Env }>,
+): Promise<Response> {
+  const id = parseInt(c.req.param("id") ?? "", 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid id" }, 400);
+  }
+
+  const row = await c.env.DB.prepare(
+    "SELECT " + PAGE_COLUMNS + " FROM pages WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<PageCrudRow>();
+  if (row === null || row === undefined) {
+    return c.json({ error: "Page not found" }, 404);
+  }
+
+  return c.json({ item: row });
 }
 
 // POST /api/admin/pages — create a page (site-scoped or global legal
