@@ -11867,3 +11867,67 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
     spy on the fake DB proves "resolves by task key" through the real step path
     even with NO api key (resolution runs before the client check).
 ---
+
+## 2026-06-18 - T41 (sources: T41) — Provisioned end-state correctness + matches the design
+- What: prove a freshly provisioned site ends correct + complete (active; 15
+  PUBLISHED, categorized/authored/SEO'd/image-bearing articles; logo + hero +
+  brand seeded) AND its LIVE home renders the populated 13-section design.
+- Product change (small, in-pattern): generate_feature_image now persists the
+  generated hero as site_settings.hero_image_media_id (upsertSiteSetting,
+  UPDATE-IF-NULL, only when media_id>0 — mirrors the logo step). Before this
+  the step generated a hero image that NOTHING referenced; buildHomeViewModel
+  reads hero_image_media_id (home.ts:323 / T18), so the homepage .hero-bg
+  banner silently fell back to the lead article image and "hero set" was not
+  actually true. No-key runs are unchanged (media_id=0 -> branch skipped).
+- Files changed:
+  - api/src/site-provisioning/steps.ts (generateFeatureImageStep: hero setting persist)
+  - api/test/provisioning-endstate.test.ts (NEW — T41-AC1/RC-068 + T41-AC2/RC-069)
+- How proven (hermetic e2e, zero network): vi.mock replaces createOpenAIClient
+  with a deterministic fake (hasApiKey=true; generateImage -> bytes, NO fetch;
+  generateText -> skipped so every text generator takes its deterministic
+  fallback builder — only IMAGES change, exactly AC1's image clauses). A
+  stateful in-memory D1 fake models every table on the provision+render path
+  (sites/jobs/steps/settings/domains/categories/site_categories/articles/media/
+  pages/ai_generations). runProvisioningToCompletion under
+  SITE_PROVISIONING_DRY_RUN=true; a global-fetch spy asserts 0 outbound (and 0
+  to api.cloudflare.com). AC1 D1-selects status=active, COUNT published=15, and
+  asserts per-article category/author(no @)/SEO/featured_image_id + logo_media_id
+  + hero_image_media_id + brand_tokens_json seeded. AC2 renders the SHIPPED
+  renderHomepageHtml from the provisioned state: all 13 <!-- home-section:N -->
+  markers + data-screen-label=theiwise-home + >=5 /article/ refs + /media/ refs
+  present, and NONE of the empty-state markers (html_negative: "No featured
+  stories yet."/"Editor's picks coming soon."/"Spotlight stories coming soon."/
+  "More stories on the way.").
+- Self-check results:
+  - File sizes: steps.ts 1438 (pre-existing large file; additive ~21 lines
+    mirroring the logo step; no per-story maxFileLines) — NOTE. test file 769
+    lines (test, not product code) — N/A.
+  - Secret scan: PASS (no hardcoded secrets; the test env's OPENAI_API_KEY is a
+    fake sentinel the mock never uses).
+  - Error handling: PASS (no new route handler; upsertSiteSetting awaited;
+    runs inside the runner's per-step try/catch).
+  - Migration execution: N/A (no new migration).
+  - Parameterized queries: PASS (new product SQL is via upsertSiteSetting —
+    static text + .bind(); no template-literal interpolation).
+- Tests run:
+  - cd api && npx vitest run test/provisioning-endstate.test.ts  => 2 passed
+  - cd api && npx tsc --noEmit                                   => exit 0
+  - cd api && npx vitest run (full suite)                        => 166 files, 1348 passed
+  - D13 runner_command_rendered (RC-068, RC-069)                 => PASS (parse_test_output; both assertions observed)
+  - Q3 story_quality_checks_command_rendered (T41)              => PASS (4 checks; receipts written)
+- Learnings:
+  - The provisioning image steps only set featured_image_id/logo when the image
+    client returns media_id>0 (real key); the no-key path intentionally writes
+    NO media (T1 no-silent-stub red line). To prove the PRODUCTION end-state
+    deterministically with ZERO network, vi.mock createOpenAIClient: hasApiKey
+    true + generateImage returning bytes (no fetch) makes the image path write
+    media rows; generateText returning the skipped sentinel keeps all TEXT on
+    the proven deterministic fallback. cf_dry_run's "0 outbound" is about
+    api.cloudflare.com — a faked (non-fetching) image client keeps total
+    outbound at 0 while still exercising the real media/featured_image_id wiring.
+  - The image PROMPT generators (runPromptGenerator) never call generateText —
+    they build a deterministic prompt and log success/fallback purely on
+    hasApiKey(); so a hasApiKey=true mock does not need a real text response.
+  - warmHomepageInProcess short-circuits to dry_run under SITE_PROVISIONING_DRY_RUN
+    (no render during provisioning), so the live-home render assertion is made
+    by calling renderHomepageHtml explicitly against the provisioned state.

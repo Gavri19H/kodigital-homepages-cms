@@ -649,8 +649,8 @@
       "title": "Provisioned end-state correctness + matches the design",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T41"
       ],
