@@ -69,6 +69,7 @@ import {
   buildFaqJsonLd,
 } from "./seo";
 import { responsiveImg } from "./responsive-img";
+import type { AdsConfig } from "../ads";
 
 export interface RenderArticleArgs {
   vm: ArticleViewModel;
@@ -78,6 +79,9 @@ export interface RenderArticleArgs {
   newsletterHeading?: string;
   newsletterDescription?: string;
   newsletterProvider?: string | null;
+  // T22: the per-site ad config. When present + AdSense is live the §11
+  // sidebar rectangle slot emits its real <ins> unit; omitted = placeholder.
+  ads?: AdsConfig;
   // When false, the design body is returned WITHOUT its own inline
   // Article / BreadcrumbList / FAQPage JSON-LD <script> blocks. The live
   // article route (render-pages.renderArticleHtml, T2) sets this so the
@@ -250,7 +254,7 @@ function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
 // `.sidebar-ad.ad-slot--rect` contract selector matches; the inner
 // renderAdSlot node carries the data-ad-slot/data-ad-type attributes the
 // ad-slot regression asserts.
-function renderSidebar(vm: ArticleViewModel): string {
+function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
   const tocItems = vm.article.body
     .filter((b) => b.type === "heading")
     .map((b, i) => `<li><a href="#article-heading-${i + 1}">${escText((b as { text: string }).text)}</a></li>`)
@@ -260,7 +264,7 @@ function renderSidebar(vm: ArticleViewModel): string {
       ? `<aside class="sidebar-card toc"><h3>On this page</h3><ol>${tocItems}</ol></aside>`
       : "";
   const newsletterHtml = `<aside class="sidebar-card sidebar-newsletter"><h3>Newsletter</h3><p>Get the best stories in your inbox.</p><a class="btn-primary" href="#newsletter-heading">Subscribe</a></aside>`;
-  const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article" })}</aside>`;
+  const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article", ads })}</aside>`;
   // Contract §11 sidebar-popular: 60×60 thumbs (`pop-img`). The thumb is a
   // responsive image (srcset + blur-up LQIP + /media/ src, T21) at the design
   // dimensions; below-fold, so loading="lazy".
@@ -377,7 +381,7 @@ export function renderArticle(args: RenderArticleArgs): string {
 </div>
   </article>
   ${marker(9, "article-sidebar")}
-  ${renderSidebar(vm)}
+  ${renderSidebar(vm, args.ads)}
 </div>`;
 
   const s10 = `<section class="related-section section--soft" aria-labelledby="related-heading"><div class="section-head"><h2 id="related-heading">Related stories</h2></div>${renderRelated(vm.related)}</section>`;

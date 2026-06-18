@@ -29,7 +29,8 @@ import {
   renderAtomFeed,
   type FeedSiteInfo,
 } from "./feeds";
-import { renderSitemap, buildRobotsTxt, ADS_TXT_DEFAULT } from "./sitemap";
+import { renderSitemap, buildRobotsTxt } from "./sitemap";
+import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
   type PublicSiteContext,
@@ -497,7 +498,9 @@ router.get("/ads.txt", async (c) => {
     siteContext.siteId,
     "ads_txt",
   );
-  const body = override ?? ADS_TXT_DEFAULT;
+  // T22: the ads subsystem owns the /ads.txt body resolution — an operator
+  // override wins, else the documented default placeholder.
+  const body = resolveAdsTxt({ override });
   await cacheSet(env, key, body, {
     expirationTtl: parseNumber(
       env.HTML_CACHE_TTL_SECONDS,

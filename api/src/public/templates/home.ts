@@ -47,12 +47,16 @@ import {
   type NavLink,
 } from "./components";
 import { renderTrending } from "./trending";
+import type { AdsConfig } from "../ads";
 
 export interface RenderHomeArgs {
   vm: HomeViewModel;
   nav?: ReadonlyArray<NavLink>;
   footerLinks?: ReadonlyArray<NavLink>;
   legalLinks?: ReadonlyArray<NavLink>;
+  // T22: the per-site ad config. When present + AdSense is live the §5/§9
+  // ad slots emit their real <ins> units; omitted = reserved placeholders.
+  ads?: AdsConfig;
 }
 
 function escAttr(input: string | null | undefined): string {
@@ -232,7 +236,7 @@ export function renderHome(args: RenderHomeArgs): string {
   const s4 = renderFeaturedSection(featuredCards);
 
   // §5 — ad slot, leaderboard surface
-  const s5 = renderAdSlot({ type: "leaderboard", slotId: "home-leaderboard", surface: "home" });
+  const s5 = renderAdSlot({ type: "leaderboard", slotId: "home-leaderboard", surface: "home", ads: args.ads });
 
   // §6 — editor's picks. Design §12 editorsPicks{ hero, thumbs[3] } = 4 cards.
   // Prefer the view-model's curated picks bucket; fall back to hero + featured.
@@ -275,7 +279,7 @@ export function renderHome(args: RenderHomeArgs): string {
   const s8 = renderSpotlightSection(spotlightHeading, spotlightCards);
 
   // §9 — ad slot, in-feed surface
-  const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home" });
+  const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home", ads: args.ads });
 
   // §10 — latest. T16/BCL-057: render EVERY non-featured article. vm.latest
   // is already the deduplicated tail — buildHomeViewModel removes the

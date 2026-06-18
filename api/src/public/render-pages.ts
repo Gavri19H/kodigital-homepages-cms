@@ -10,7 +10,14 @@ import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
 import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE } from "./queries";
-import { renderHeader, renderFooter, renderCard } from "./templates/components";
+import { renderHeader, renderFooter, renderCard, renderAdSlot } from "./templates/components";
+import {
+  loadAdsConfig,
+  shouldShowAds,
+  renderAdProviderHead,
+  renderAdManagerScript,
+  type AdsConfig,
+} from "./ads";
 import { buildCanonicalUrl } from "./templates/seo-head";
 import {
   renderArticleJsonLd,
@@ -42,6 +49,15 @@ function escapeHtml(input: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// T22: the ad <head> payload — the provider library script + the AdManager
+// client JS — emitted ONLY when ads are live for this page (shouldShowAds).
+// Returns "" otherwise so the <head> composition is byte-identical on
+// no-ads pages (disabled config, excluded page, or signed-in viewer).
+function adHeadHtml(config: AdsConfig, on: boolean): string {
+  if (!on) return "";
+  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config)}`;
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
@@ -101,7 +117,14 @@ export async function renderHomepageHtml(
     );
   }
 
-  const body = renderHome({ vm });
+  // T22: home is one of the ad-bearing surfaces. Load the per-site ad config
+  // and gate on shouldShowAds("/") — the §5 leaderboard + §9 in-feed slots
+  // carry real <ins> units and the head loads the provider + AdManager JS.
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, { path: "/", loggedIn: false });
+  const adHead = adHeadHtml(adsConfig, adsOn);
+
+  const body = renderHome({ vm, ads: adsOn ? adsConfig : undefined });
   return renderLayout({
     site: {
       name: vm.site.name,
@@ -119,6 +142,7 @@ export async function renderHomepageHtml(
       jsonLd,
     },
     body,
+    extraHead: adHead.length > 0 ? adHead : undefined,
   });
 }
 
@@ -201,7 +225,21 @@ export async function renderArticleHtml(
     );
   }
 
-  const body = renderArticle({ vm, emitJsonLd: false });
+  // T22: article is an ad-bearing surface. Gate on shouldShowAds for this
+  // article path so the §11 sidebar rectangle carries its real <ins> unit and
+  // the head loads the provider + AdManager JS (appended after the JSON-LD).
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, {
+    path: `/article/${slug}`,
+    loggedIn: false,
+  });
+  const adHead = adHeadHtml(adsConfig, adsOn);
+
+  const body = renderArticle({
+    vm,
+    emitJsonLd: false,
+    ads: adsOn ? adsConfig : undefined,
+  });
 
   return renderLayout({
     site: {
@@ -230,7 +268,10 @@ export async function renderArticleHtml(
       articleAuthor: vm.article.author?.name,
     },
     body,
-    extraHead: jsonLdHead.join("\n"),
+    extraHead:
+      adHead.length > 0
+        ? `${jsonLdHead.join("\n")}\n${adHead}`
+        : jsonLdHead.join("\n"),
   });
 }
 
@@ -317,10 +358,29 @@ export async function renderCategoryHtml(
     cards.length > 0
       ? `<ul class="home-grid home-grid--category">${cards}</ul>`
       : `<p class="section-empty">No articles in this category yet.</p>`;
+  // T22: category is an ad-bearing surface. Gate on shouldShowAds for this
+  // category path; when live, a leaderboard slot rides above the listing and
+  // the head loads the provider + AdManager JS.
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, {
+    path: `/category/${slug}`,
+    loggedIn: false,
+  });
+  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adSlot = adsOn
+    ? renderAdSlot({
+        type: "leaderboard",
+        slotId: "category-leaderboard",
+        surface: "category",
+        ads: adsConfig,
+      })
+    : "";
+
   const body =
     `<section class="home-section home-section--category" data-page="${pageNum}">` +
     `<div class="container">` +
     `<div class="section-head"><h1 class="category-title">${escapeHtml(cat.name)}</h1></div>` +
+    adSlot +
     listing +
     `</div></section>`;
 
@@ -372,7 +432,10 @@ export async function renderCategoryHtml(
     body,
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite }),
-    extraHead: jsonLdHead.join("\n"),
+    extraHead:
+      adHead.length > 0
+        ? `${jsonLdHead.join("\n")}\n${adHead}`
+        : jsonLdHead.join("\n"),
   });
 }
 

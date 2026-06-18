@@ -18,6 +18,12 @@
 import { escAttr, escText, imgTag } from "./esc";
 import { iconBrandMark, iconChevronDown, iconSearch } from "./icons";
 import { responsiveImg } from "./responsive-img";
+import {
+  AD_SLOT_DIMENSIONS,
+  renderAdSenseUnit,
+  type AdsConfig,
+  type AdSlotType,
+} from "../ads";
 
 export interface SiteRef {
   name: string;
@@ -94,9 +100,13 @@ export interface FooterArgs {
 }
 
 export interface AdSlotArgs {
-  type: "leaderboard" | "in-feed" | "rect";
+  type: AdSlotType;
   slotId: string;
   surface?: string;
+  // T22: when present + AdSense is live (provider + publisher id), the slot
+  // emits its real <ins class="adsbygoogle"> unit. Omitted (or AdSense off) =
+  // an empty reserved placeholder, exactly as before.
+  ads?: AdsConfig;
 }
 
 export interface FloatingNextArgs {
@@ -304,7 +314,23 @@ export function renderAdSlot(args: AdSlotArgs): string {
     args.surface !== undefined && args.surface.length > 0
       ? ` data-ad-surface="${escAttr(args.surface)}"`
       : "";
-  return `<aside class="ad-slot ad-slot--${adType}" data-ad-slot="${slotId}" data-ad-type="${adType}"${surfaceAttr} aria-label="Advertisement"></aside>`;
+  // T22: design-doc reserved dimensions (970×90 leaderboard, 728×90 in-feed,
+  // 300×250 rect). The box is held open before the ad library injects — both
+  // inline AND via data-w/data-h so a deferred stylesheet can never collapse
+  // it (no CLS). When AdSense is live the slot carries its real <ins> unit;
+  // otherwise it stays an empty reserved placeholder.
+  const dims = AD_SLOT_DIMENSIONS[args.type];
+  const dimStyle =
+    `min-width:${dims.width}px;min-height:${dims.height}px;` +
+    `width:${dims.width}px;height:${dims.height}px`;
+  const unit =
+    args.ads !== undefined ? renderAdSenseUnit(args.ads, args.type) : "";
+  return (
+    `<aside class="ad-slot ad-slot--${adType}" data-ad-slot="${slotId}" ` +
+    `data-ad-type="${adType}"${surfaceAttr} style="${dimStyle}" ` +
+    `data-w="${dims.width}" data-h="${dims.height}" ` +
+    `aria-label="Advertisement">${unit}</aside>`
+  );
 }
 
 export function renderFloatingNext(args: FloatingNextArgs): string {
