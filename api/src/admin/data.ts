@@ -356,9 +356,16 @@ export async function listAdminSites(env: Env): Promise<SiteDto[]> {
 // Hostname column is `domains.hostname`; we re-project it into the DTO
 // as `domain` so the existing DomainEntry-consuming template (T4) keeps
 // working without churn.
+//
+// T34 (G5 "Admin domains list shows all domains"): this list MUST surface
+// EVERY domain row — alias (non-primary) hostnames included — not only the
+// `is_primary = 1` canonical one. The earlier `WHERE d.is_primary = 1`
+// predicate hid every secondary domain from the admin Domains tab; it is
+// removed so each domain (primary + alias) gets its own row. Primary rows
+// still sort first within a site via the `d.is_primary DESC` order key.
 export async function listAdminDomains(env: Env): Promise<DomainRowDto[]> {
-  const primary = await env.DB.prepare(
-    "SELECT d.hostname, s.id AS site_id, s.name AS site_name, s.vertical_slug, s.activity, s.status, s.created_at, s.last_provisioned_at FROM domains d INNER JOIN sites s ON s.id = d.site_id WHERE d.is_primary = 1 ORDER BY s.created_at DESC, d.id DESC LIMIT 500",
+  const rows = await env.DB.prepare(
+    "SELECT d.hostname, s.id AS site_id, s.name AS site_name, s.vertical_slug, s.activity, s.status, s.created_at, s.last_provisioned_at FROM domains d INNER JOIN sites s ON s.id = d.site_id ORDER BY s.created_at DESC, d.is_primary DESC, d.id DESC LIMIT 500",
   ).all<DomainJoinedRecord>();
   const counts = await env.DB.prepare(
     "SELECT site_id, COUNT(*) AS n FROM articles WHERE site_id IS NOT NULL GROUP BY site_id",
@@ -367,7 +374,7 @@ export async function listAdminDomains(env: Env): Promise<DomainRowDto[]> {
   for (const c of counts.results ?? []) {
     countBySite.set(c.site_id, c.n);
   }
-  return (primary.results ?? []).map((r) => ({
+  return (rows.results ?? []).map((r) => ({
     domain: r.hostname,
     site_name: r.site_name,
     vertical: r.vertical_slug,
