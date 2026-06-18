@@ -10612,3 +10612,47 @@ AI assistant: structured, preset-driven POST /api/admin/ai/chat (defect BCL-032)
     textarea (operator-confirmed) and forwards presetId; the server validates +
     records preset_id (single supported image model, so no model override).
 ---
+
+## 2026-06-18 - T11 (Author fields + Display Options cleanup, no homepage_section)
+- Implemented in the article editor form (api/src/admin/templates/articles.ts):
+  - author_name <input> now carries `required` (native constraint validation
+    blocks submit when empty); the new-mode admin-email pre-fill and the
+    edit-mode stored value still survive (T14d behaviour preserved).
+  - Removed the homepage_section <select> control (the whole "Homepage section"
+    form-group) AND the `homepage_section` key from the client submit body —
+    no homepage_section control anywhere in the editor.
+  - Removed the now-dead HOMEPAGE_SECTIONS const + renderHomepageSectionOptions()
+    helper (only the removed select used them).
+  - Featured (is_featured) + Trending (is_trending) toggles and the
+    homepage_rank number input were already present; kept + asserted.
+- source_story_ids: [T11]
+- Files changed: api/src/admin/templates/articles.ts (622->600 lines),
+  api/test/article-display-options.test.ts (NEW, RC-022 proof)
+- Tests run:
+  - cd api && npx vitest run test/article-display-options.test.ts test/editor.test.ts
+    test/admin-article-create.test.ts test/admin-articles-list.test.ts -> 50 passed
+  - cd api && npm test -> 136 files / 1233 tests PASS
+  - cd api && npx tsc --noEmit -> exit 0
+  - RC-022 via run_required_evidence_command.py -> status PASS
+    (parse_test_output; both it() titles carry the [api/test/...] file literal)
+  - Q3 run_story_quality_checks.py --story-id=T11 -> PASS (checks_executed=2)
+- Self-check results:
+  - File sizes: articles.ts 600 (single cohesive template module; repo-norm,
+    no maxFileLines set for this mission; the change REDUCED line count) NOTE;
+    article-display-options.test.ts 89 (test) N/A
+  - Secret scan: PASS (no matches in changed files)
+  - Error handling: N/A (template render change; no new route handlers)
+  - Migration execution: N/A (no schema change)
+  - Parameterized queries: N/A (no SQL touched)
+- Scope note: the remaining `homepage_section` references (articles.ts:63,80,189)
+  are the ARTICLES LIST interface fields + a read-only <td> display column, NOT
+  a form control. AC scopes "control" to the editor form (story_intent: "the
+  article form ... removes the old placement field"); a list <td> is display,
+  not an interactive control. Left untouched to stay minimal — list cleanup is
+  a separate concern (T32 list filters).
+- Learnings for future iterations:
+  - Adding an HTML attribute AFTER value="..." (e.g. `... value="x" required />`)
+    keeps any existing `name=... value="x"` substring assertions green — only
+    appended, not reordered. Safe way to satisfy "mark field required" without
+    breaking sibling tests (T14d editor.test.ts stayed green).
+---

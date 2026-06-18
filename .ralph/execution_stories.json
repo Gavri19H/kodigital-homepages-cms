@@ -169,8 +169,8 @@
       "title": "Author fields + Display Options cleanup (no homepage_section)",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T11"
       ],
