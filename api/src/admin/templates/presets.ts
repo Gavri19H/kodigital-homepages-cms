@@ -24,6 +24,9 @@ import {
   SUPPORTED_IMAGE_MODELS,
   SUPPORTED_TEXT_MODELS,
 } from "../../ai/models";
+// T8: the inline client assets (styles + ES5 behaviour) for the rebuilt
+// 2-column form live in their own module so this file stays render-only.
+import { PRESET_FORM_SCRIPT, PRESET_FORM_STYLES } from "./presets-form-script";
 
 export interface PresetListEntry {
   id?: string;
@@ -50,6 +53,11 @@ export interface PresetFormEntry {
   system_prompt_template: string | null;
   user_prompt_template: string | null;
   content_mapping: string | null;
+  // T4 reference columns (migration 0019). Optional so legacy callers that
+  // build a PresetFormEntry without them still type-check; the form reads them
+  // for the Custom Variables + Output Rules sections (T8).
+  variables_schema?: string | null;
+  output_rules?: string | null;
 }
 
 export interface PresetsBranding {
@@ -69,17 +77,32 @@ const USE_CASE_CATEGORIES: ReadonlyArray<[string, string]> = [
   ["custom", "Custom"],
 ];
 
-// "Fields to Generate" content-mapping: which TEXT outputs a preset produces
-// (legacy content-mapping :411-429). Stored as boolean flags in content_mapping.
-// Image fields are NOT booleans here — they live in the Image options widget
-// below and persist under content_mapping.image_prompts (each carries an
-// operator-authored prompt, not just an on/off flag).
+// "Content Preset Mapping" (T8 reference set, legacy content-mapping
+// :411-429): which outputs a preset produces. Stored as boolean flags in
+// content_mapping. Image fields are NOT booleans here — they live in the Image
+// options widget below and persist under content_mapping.image_prompts (each
+// carries an operator-authored prompt, not just an on/off flag). The numeric
+// Paragraph-count field is rendered separately (renderContentMap) and persists
+// at content_mapping.paragraph_count.
 const CONTENT_MAP_FIELDS: ReadonlyArray<[string, string]> = [
   ["title", "Title"],
   ["excerpt", "Excerpt"],
   ["content", "Body content"],
-  ["meta_description", "SEO meta description"],
+  ["meta_title", "Meta Title"],
+  ["meta_description", "Meta Description"],
+  ["author_name", "Author Name"],
+  ["author_bio", "Author Bio"],
+  ["generate_h2_subtitles", "Generate H2 Subtitles"],
   ["tags", "Tags"],
+  ["enforce_json_schema", "Enforce JSON Schema"],
+];
+
+// Paragraph-type options for the Output Rules section (legacy preset form).
+const PARAGRAPH_TYPE_OPTIONS: ReadonlyArray<[string, string]> = [
+  ["", "—"],
+  ["short", "Short paragraphs"],
+  ["standard", "Standard paragraphs"],
+  ["long", "Long-form paragraphs"],
 ];
 
 // T4 operator image options. Each is a checkbox that reveals a user-prompt box;
@@ -210,10 +233,166 @@ function renderContentMap(
     const checked = selected[field] ? " checked" : "";
     return `<label class="cmap-item"><input type="checkbox" class="cmap-field" data-field="${escapeHtml(field)}" id="cmap-${escapeHtml(field)}"${checked}${dis} /> ${escapeHtml(label)}</label>`;
   }).join("");
+  const pcRaw = selected.paragraph_count;
+  const pcValue = typeof pcRaw === "number" && Number.isFinite(pcRaw)
+    ? String(pcRaw)
+    : "";
   return `<div class="form-group">
-  <label class="form-label">Fields to Generate</label>
+  <label class="form-label">Content Preset Mapping</label>
   <div class="content-map" id="preset-content-map">${items}</div>
+  <div class="cmap-paragraph-count">
+    <label for="cmap-paragraph_count" class="form-label">Paragraph count</label>
+    <input id="cmap-paragraph_count" type="number" min="0" class="form-input" value="${escapeHtml(pcValue)}"${dis} />
+  </div>
   <p class="form-help">Select which outputs this preset generates (content-mapping).</p>
+</div>`;
+}
+
+// T8 Custom Variables: a repeatable editor for the declared {{variable}}
+// contract (key / description / default / required). Persists to the
+// variables_schema column as a JSON array of
+// {key, description, default, required}. New mode renders one empty row so the
+// four sub-fields are always visible; edit mode pre-fills rows from the stored
+// variables_schema (corrupt JSON falls back to one empty row).
+interface VariableSchemaEntry {
+  key?: unknown;
+  description?: unknown;
+  default?: unknown;
+  required?: unknown;
+}
+
+function parseVariablesSchema(
+  raw: string | null | undefined,
+): VariableSchemaEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as VariableSchemaEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function renderVariableRow(entry: VariableSchemaEntry, dis: string): string {
+  const key = typeof entry.key === "string" ? entry.key : "";
+  const desc = typeof entry.description === "string" ? entry.description : "";
+  const def = typeof entry.default === "string" ? entry.default : "";
+  const req = entry.required === true ? " checked" : "";
+  return `<div class="cv-row">
+  <input type="text" class="form-input cv-key" placeholder="key" value="${escapeHtml(key)}"${dis} />
+  <input type="text" class="form-input cv-desc" placeholder="description" value="${escapeHtml(desc)}"${dis} />
+  <input type="text" class="form-input cv-default" placeholder="default" value="${escapeHtml(def)}"${dis} />
+  <label class="cv-required"><input type="checkbox" class="cv-required-input"${req}${dis} /> required</label>
+  <button type="button" class="cv-remove" aria-label="Remove variable"${dis}>✕</button>
+</div>`;
+}
+
+function renderCustomVariables(
+  schema: string | null | undefined,
+  dis: string,
+): string {
+  const entries = parseVariablesSchema(schema);
+  const rows = (entries.length > 0 ? entries : [{}])
+    .map((e) => renderVariableRow(e, dis))
+    .join("");
+  return `<div class="form-group">
+  <label class="form-label">Custom Variables</label>
+  <div class="cv-list" id="preset-variables-schema">${rows}</div>
+  <div class="toolbar">
+    <button type="button" id="preset-add-variable" class="btn btn-secondary"${dis}>+ Add variable</button>
+  </div>
+  <p class="form-help">Declared {{variable}} contract: key, description, default, required.</p>
+</div>`;
+}
+
+// T8 Output Rules (paragraph-type / min / max / style / JSON-schema).
+// Persists to output_rules as a one-element JSON array; edit mode reads the
+// first rule object back into the fields.
+interface OutputRule {
+  paragraph_type?: unknown;
+  min?: unknown;
+  max?: unknown;
+  style?: unknown;
+  json_schema?: unknown;
+}
+
+function parseFirstOutputRule(raw: string | null | undefined): OutputRule {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0] && typeof parsed[0] === "object") {
+      return parsed[0] as OutputRule;
+    }
+  } catch {
+    return {};
+  }
+  return {};
+}
+
+function renderOutputRules(
+  rules: string | null | undefined,
+  dis: string,
+): string {
+  const rule = parseFirstOutputRule(rules);
+  const pt = typeof rule.paragraph_type === "string" ? rule.paragraph_type : "";
+  const min = typeof rule.min === "number" ? String(rule.min) : "";
+  const max = typeof rule.max === "number" ? String(rule.max) : "";
+  const style = typeof rule.style === "string" ? rule.style : "";
+  const schema = typeof rule.json_schema === "string" ? rule.json_schema : "";
+  const ptOptions = PARAGRAPH_TYPE_OPTIONS.map(([val, label]) => {
+    const sel = val === pt ? " selected" : "";
+    return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(label)}</option>`;
+  }).join("");
+  return `<div class="form-group">
+  <label class="form-label">Output Rules</label>
+  <div class="output-rules-grid">
+    <div>
+      <label for="or-paragraph-type" class="form-label">Paragraph type</label>
+      <select id="or-paragraph-type" class="form-select"${dis}>${ptOptions}</select>
+    </div>
+    <div>
+      <label for="or-style" class="form-label">Style</label>
+      <input id="or-style" type="text" class="form-input" value="${escapeHtml(style)}" placeholder="e.g. journalistic"${dis} />
+    </div>
+    <div>
+      <label for="or-min" class="form-label">Min</label>
+      <input id="or-min" type="number" min="0" class="form-input" value="${escapeHtml(min)}"${dis} />
+    </div>
+    <div>
+      <label for="or-max" class="form-label">Max</label>
+      <input id="or-max" type="number" min="0" class="form-input" value="${escapeHtml(max)}"${dis} />
+    </div>
+    <div class="or-wide">
+      <label for="or-json-schema" class="form-label">JSON schema</label>
+      <textarea id="or-json-schema" class="form-textarea" placeholder='{"type":"object"}'${dis}>${escapeHtml(schema)}</textarea>
+    </div>
+  </div>
+  <p class="form-help">Post-generation formatting + validation rules.</p>
+</div>`;
+}
+
+// T8 Preview Variables: the {{token}} sample-value inputs the Test Preset
+// button feeds. Populated client-side from the Custom Variables + detected
+// prompt tokens; renders a placeholder note until variables exist.
+function renderPreviewVariables(): string {
+  return `<div class="form-group">
+  <label class="form-label">Preview Variables</label>
+  <div class="preview-vars" id="preset-preview-variables"></div>
+  <p class="form-help">Sample values used by Test Preset to interpolate {{tokens}}.</p>
+</div>`;
+}
+
+// T8 Test Preset: runs a sample generation against POST /api/admin/ai/chat
+// using the User Prompt interpolated with the Preview Variables. The result
+// (or error) lands in #preset-test-output.
+function renderTestPreset(): string {
+  return `<div class="form-group">
+  <label class="form-label">Test Preset</label>
+  <div class="toolbar">
+    <button type="button" id="preset-test-run" class="btn btn-secondary">Run sample generation</button>
+  </div>
+  <pre class="test-output" id="preset-test-output" hidden aria-live="polite"></pre>
+  <p class="form-help">Generates a sample with the current prompt + preview variables.</p>
 </div>`;
 }
 
@@ -280,6 +459,7 @@ export function renderPresets(preset: PresetFormEntry | null): string {
     : "";
   return `<div class="card">
 ${systemNotice}<form id="preset-form" data-preset-id="${presetId}">
+  <div class="preset-form-grid">
   <div class="form-group">
     <label for="preset-name" class="form-label">Name <span class="required">*</span></label>
     <input id="preset-name" name="name" type="text" class="form-input" value="${isEdit ? escapeHtml(preset.name) : ""}" required${dis} />
@@ -298,17 +478,21 @@ ${systemNotice}<form id="preset-form" data-preset-id="${presetId}">
     <select id="preset-category" name="category" class="form-select" required${dis}>${renderCategoryOptions(isEdit ? preset.category : null)}</select>
     <p class="form-help">Use-case category — the routing key generation selects this preset by.</p>
   </div>
-  <div class="form-group">
+  <div class="form-group span-2">
     <label for="preset-system-prompt" class="form-label">System Prompt</label>
     <textarea id="preset-system-prompt" name="system_prompt_template" class="form-textarea" data-prompt-field${dis}>${isEdit ? escapeHtml(preset.system_prompt_template) : ""}</textarea>
   </div>
-  <div class="form-group">
+  <div class="form-group span-2">
     <label for="preset-user-prompt" class="form-label">User Prompt</label>
     <textarea id="preset-user-prompt" name="user_prompt_template" class="form-textarea" data-prompt-field${dis}>${userPrompt}</textarea>
   </div>
-  ${renderVariableChips(dis)}
-  ${renderContentMap(isEdit ? preset.content_mapping : null, dis)}
-  ${renderImageOptions(isEdit ? preset.content_mapping : null, dis)}
+  <div class="span-2">${renderVariableChips(dis)}</div>
+  <div class="span-2">${renderCustomVariables(isEdit ? preset.variables_schema : null, dis)}</div>
+  <div class="span-2">${renderOutputRules(isEdit ? preset.output_rules : null, dis)}</div>
+  <div class="span-2">${renderContentMap(isEdit ? preset.content_mapping : null, dis)}</div>
+  <div class="span-2">${renderImageOptions(isEdit ? preset.content_mapping : null, dis)}</div>
+  <div>${renderPreviewVariables()}</div>
+  <div>${renderTestPreset()}</div>
   <div class="form-group">
     <label for="preset-text-model" class="form-label">Text model</label>
     <select id="preset-text-model" name="text_model" class="form-select"${dis}>${renderModelOptions(SUPPORTED_TEXT_MODELS, isEdit ? preset.text_model : DEFAULT_TEXT_MODEL)}</select>
@@ -320,6 +504,7 @@ ${systemNotice}<form id="preset-form" data-preset-id="${presetId}">
   <div class="form-group">
     <label class="form-label" for="preset-is-active"><input id="preset-is-active" name="is_active" type="checkbox"${activeChecked} /> Active</label>
   </div>
+  </div>
   <p id="preset-form-error" class="alert alert-error" hidden role="alert"></p>
   <div class="toolbar">
     <button type="submit" class="btn btn-primary">${isEdit ? "Save preset" : "Create preset"}</button>
@@ -329,167 +514,6 @@ ${systemNotice}<form id="preset-form" data-preset-id="${presetId}">
 </form>
 </div>`;
 }
-
-// Scoped styles for the chips + content-map widgets, injected via the layout's
-// `styles` slot so the shared admin layout stylesheet is untouched.
-const PRESET_FORM_STYLES = `
-.required{color:var(--c-error)}
-.var-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}
-.var-chip{font-family:monospace;font-size:12px;padding:4px 10px;border:1px solid var(--c-border);border-radius:9999px;background:var(--c-bg-alt);color:var(--c-primary);cursor:pointer}
-.var-chip:hover{background:var(--c-primary-light)}
-.var-chip:disabled{opacity:.5;cursor:not-allowed}
-.detected-vars{font-family:monospace;color:var(--c-text)}
-.content-map{display:flex;flex-wrap:wrap;gap:12px}
-.cmap-item{display:flex;align-items:center;gap:6px;font-weight:400}
-.image-options{display:flex;flex-direction:column;gap:12px}
-.img-opt{display:flex;flex-direction:column;gap:6px}
-.img-opt-toggle{display:flex;align-items:center;gap:6px;font-weight:400}
-.img-opt-prompt[hidden]{display:none}
-`;
-
-// ES5-only inline submit script (var/function/promise chains — no
-// const/let/arrow/optional-chaining/template-literals). New mode (empty
-// data-preset-id) POSTs /api/admin/ai/presets; edit mode PUTs
-// /api/admin/ai/presets/:id. Name auto-derives the slug (until the slug is
-// edited); {{var}} chips insert into the focused prompt; variables are
-// auto-detected from both prompts; the content-map checkboxes serialize to
-// content_mapping. The submit button is disabled while in flight; errors land
-// in the #preset-form-error alert. Delete confirms, DELETEs, returns to list.
-const PRESET_FORM_SCRIPT = `(function(){
-var form=document.getElementById("preset-form");
-if(!form){return;}
-var errorEl=document.getElementById("preset-form-error");
-function setError(msg){if(errorEl){errorEl.hidden=!msg;errorEl.textContent=msg||"";}}
-function fieldValue(id){var el=document.getElementById(id);return el?el.value:"";}
-var nameEl=document.getElementById("preset-name");
-var slugEl=document.getElementById("preset-slug");
-if(nameEl&&slugEl){
-nameEl.addEventListener("input",function(){
-if(slugEl.getAttribute("data-touched")==="1"){return;}
-if(window.generateSlug){slugEl.value=window.generateSlug(nameEl.value);}
-});
-slugEl.addEventListener("input",function(){slugEl.setAttribute("data-touched","1");});
-}
-var lastPrompt=document.getElementById("preset-user-prompt");
-function detectVarList(){
-var text=fieldValue("preset-system-prompt")+" "+fieldValue("preset-user-prompt");
-var matches=text.match(/\\{\\{\\s*[\\w.-]+\\s*\\}\\}/g)||[];
-var found=[];var k;
-for(k=0;k<matches.length;k++){
-var varName=matches[k].replace(/[{}\\s]/g,"");
-if(varName&&found.indexOf(varName)<0){found.push(varName);}
-}
-return found;
-}
-function refreshDetected(){
-var el=document.getElementById("preset-detected-vars");
-if(!el){return;}
-var list=detectVarList();
-el.textContent=list.length?list.join(", "):"none";
-}
-var prompts=form.querySelectorAll("[data-prompt-field]");
-var pi;
-for(pi=0;pi<prompts.length;pi++){
-(function(t){
-t.addEventListener("focus",function(){lastPrompt=t;});
-t.addEventListener("input",refreshDetected);
-}(prompts[pi]));
-}
-var chips=form.querySelectorAll(".var-chip");
-var ci;
-for(ci=0;ci<chips.length;ci++){
-chips[ci].addEventListener("click",function(e){
-var chip=e.currentTarget;
-var token="{{"+(chip.getAttribute("data-var")||"")+"}}";
-if(lastPrompt){
-var start=lastPrompt.selectionStart;
-if(typeof start==="number"){
-var v=lastPrompt.value;
-lastPrompt.value=v.slice(0,start)+token+v.slice(lastPrompt.selectionEnd);
-lastPrompt.selectionStart=lastPrompt.selectionEnd=start+token.length;
-}else{lastPrompt.value=lastPrompt.value+token;}
-lastPrompt.focus();
-}
-refreshDetected();
-});
-}
-refreshDetected();
-function collectContentMap(){
-var boxes=form.querySelectorAll(".cmap-field");
-var map={};var any=false;var bi;
-for(bi=0;bi<boxes.length;bi++){
-var f=boxes[bi].getAttribute("data-field");
-if(f){map[f]=boxes[bi].checked?true:false;if(boxes[bi].checked){any=true;}}
-}
-var imgBoxes=form.querySelectorAll(".img-opt-field");
-var imgMap={};var imgAny=false;var ib;
-for(ib=0;ib<imgBoxes.length;ib++){
-var key=imgBoxes[ib].getAttribute("data-image");
-if(key&&imgBoxes[ib].checked){
-var ta=form.querySelector('[data-image-prompt="'+key+'"]');
-imgMap[key]=ta?ta.value:"";
-imgAny=true;
-}
-}
-if(imgAny){map.image_prompts=imgMap;any=true;}
-return any?JSON.stringify(map):null;
-}
-function wireImageOptions(){
-var imgBoxes=form.querySelectorAll(".img-opt-field");
-var ii;
-for(ii=0;ii<imgBoxes.length;ii++){
-(function(box){
-function sync(){
-var key=box.getAttribute("data-image");
-var ta=form.querySelector('[data-image-prompt="'+key+'"]');
-if(ta){ta.hidden=!box.checked;}
-}
-box.addEventListener("change",sync);
-sync();
-}(imgBoxes[ii]));
-}
-}
-wireImageOptions();
-function collectVariables(){
-var list=detectVarList();
-return list.length?JSON.stringify(list):null;
-}
-form.addEventListener("submit",function(e){
-e.preventDefault();
-setError("");
-var presetId=form.getAttribute("data-preset-id")||"";
-var isEdit=presetId!=="";
-var activeEl=document.getElementById("preset-is-active");
-var body={name:fieldValue("preset-name")||null,slug:fieldValue("preset-slug"),description:fieldValue("preset-description")||null,category:fieldValue("preset-category")||null,system_prompt_template:fieldValue("preset-system-prompt")||null,user_prompt_template:fieldValue("preset-user-prompt")||null,variables:collectVariables(),content_mapping:collectContentMap(),text_model:fieldValue("preset-text-model"),image_model:fieldValue("preset-image-model"),is_active:(activeEl&&activeEl.checked)?1:0};
-var url=isEdit?"/api/admin/ai/presets/"+encodeURIComponent(presetId):"/api/admin/ai/presets";
-var method=isEdit?"PUT":"POST";
-var submit=form.querySelector("button[type=submit]");
-if(submit){submit.disabled=true;}
-fetch(url,{method:method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body),credentials:"same-origin"})
-.then(function(r){return r.json().then(function(j){return{ok:r.ok,status:r.status,body:j};},function(){return{ok:r.ok,status:r.status,body:null};});})
-.then(function(res){
-if(submit){submit.disabled=false;}
-if(res.ok){window.location.href="/admin/presets";}
-else{setError((res.body&&res.body.error)||("Error: "+res.status));}
-})
-.catch(function(){if(submit){submit.disabled=false;}setError("Network error");});
-});
-var del=document.getElementById("preset-delete");
-if(del){del.addEventListener("click",function(){
-var presetId=form.getAttribute("data-preset-id")||"";
-if(!presetId){return;}
-if(!window.confirm("Delete this preset?")){return;}
-setError("");
-del.disabled=true;
-fetch("/api/admin/ai/presets/"+encodeURIComponent(presetId),{method:"DELETE",credentials:"same-origin"})
-.then(function(r){
-if(r.ok){window.location.href="/admin/presets";return;}
-del.disabled=false;
-return r.json().then(function(j){setError((j&&j.error)||("Error: "+r.status));},function(){setError("Error: "+r.status);});
-})
-.catch(function(){del.disabled=false;setError("Network error");});
-});}
-}());`;
 
 export function presetFormPage(
   preset: PresetFormEntry | null,

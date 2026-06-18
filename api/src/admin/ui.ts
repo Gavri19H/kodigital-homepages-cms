@@ -240,6 +240,8 @@ adminUi.get('/admin/presets/:id', async (c) => {
         system_prompt_template: row.system_prompt_template,
         user_prompt_template: row.user_prompt_template,
         content_mapping: row.content_mapping,
+        variables_schema: row.variables_schema,
+        output_rules: row.output_rules,
       }
     : null;
   return c.html(presetFormPage(preset, branding(c)));
