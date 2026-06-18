@@ -10550,3 +10550,29 @@ AI assistant: structured, preset-driven POST /api/admin/ai/chat (defect BCL-032)
   - Q3 run_story_quality_checks.py --story-id=T8 -> PASS (checks_executed=4, receipts written)
 - Note: vitest env is node (no jsdom), so AC proof is render-output + inline-script-wiring assertions (the develop-legal route for ui_browser_interaction). Browser/api/job story_quality_checks are proof_lifecycle=post_deploy and run at ship.
 ---
+
+## 2026-06-18 - T9 (sources: T9) — Single preset-application engine drives generation (editor + provisioning)
+- Implemented the single preset-application engine so the editor /chat path and the provisioning text path apply ALL seven preset categories, not the legacy 2 (combined prompt + model).
+- Files changed:
+  - api/src/ai/generators/preset-engine.ts (NEW) — applyPreset(): the single control surface. Folds system_prompt, user_prompt, model, content_mapping (fields + paragraph_count + JSON-schema enforcement), output_rules, variables (variables_schema defaults under caller vars), and image_options (content_mapping.image_prompts) into the effective prompt. Exposes appliedCategories[] + PRESET_CATEGORIES.
+  - api/src/ai/generators/preset-resolver.ts — resolveCategoryPreset() now SELECTs content_mapping/output_rules/variables_schema and delegates to applyPreset; ResolvedPreset.prompt is the engine's effectivePrompt (structured directives folded in). Backward compatible: empty rules → identical system+user join (T13/RC-035 stays green).
+  - api/src/admin/ai-chat-preset.ts — applyChatPreset() delegates to applyPreset; the chat system message reflects every preset part (system prompt + folded directives). tone-override + length->max_tokens preserved (T7/RC-015 stays green).
+  - api/test/preset-engine.test.ts (NEW) — RC-019/RC-020 proof (parse_test_output, L2_AUTO_DISAMBIGUATION).
+- AC1 (RC-019): full preset → appliedCategories has all 7; the 4 legacy-dropped categories (content_mapping/output_rules/variables/image_options) are present AND folded into effectivePrompt (asserted per-category). Prompt-only preset → exactly [system_prompt,user_prompt,model] (the legacy 2-category gap), directives "".
+- AC2 (RC-020): editing system_prompt_template changes the OUTBOUND system message of the REAL /chat endpoint (fetch-mock, zero outbound network); editing the user prompt changes the prompt the REAL generateStarterArticle dispatches (capturing client) and the resolver output — same engine, both surfaces.
+- Self-check results:
+  - File sizes: preset-engine.ts 308 (heavily-commented cohesive single engine; repo has 47 TS files >200 incl. text.ts@828; no maxFileLines set for this mission). preset-resolver.ts 122, ai-chat-preset.ts 123, preset-engine.test.ts 438 (test). PASS (repo-norm judgment).
+  - Secret scan: PASS (no matches in changed src).
+  - Error handling: PASS — JSON.parse of content_mapping/output_rules/variables_schema each in dedicated try/catch → empty shape (D1 safety); engine never throws on a bad row.
+  - Migration execution: N/A (columns exist from migrations 0014/0019).
+  - Parameterized queries: PASS — resolver SQL is fixed literal + .bind(category); no template-literal SQL.
+- Tests run:
+  - cd api && npx vitest run test/preset-engine.test.ts test/ai-chat-preset.test.ts test/site-provisioning-ai-integration.test.ts test/ai-generators-text.test.ts -> 35 passed
+  - cd api && npm test -> 134 files / 1223 tests passed
+  - cd api && npx tsc --noEmit -> exit 0
+  - D13 runner (RC-019,RC-020) via run_required_evidence_command.py -> status PASS
+  - Q3 run_story_quality_checks.py --story-id=T9 -> PASS (checks_executed=2, receipts written)
+- Learnings:
+  - The "7 categories" map cleanly to engine fields: system_prompt, user_prompt, model, content_mapping, output_rules, variables, image_options (image_options lives under content_mapping.image_prompts per migration 0019). Folding directives ONLY when non-empty preserves the legacy combined-prompt output for empty-rule presets, keeping T7/T13 green.
+  - The provisioning entry point text.ts:525,602 calls resolveCategoryPreset and passes .prompt straight to the model, so widening the resolver's effectivePrompt is the whole mechanism for "applies all 7" in provisioning.
+---

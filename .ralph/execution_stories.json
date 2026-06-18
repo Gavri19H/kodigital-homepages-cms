@@ -137,8 +137,8 @@
       "title": "Single preset-application engine drives generation (editor + provisioning)",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T9"
       ],
