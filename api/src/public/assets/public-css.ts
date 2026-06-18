@@ -7,15 +7,15 @@
 export const publicCss: string = `
 :root {
   /* PART 3 -- color tokens */
-  --tw-ink: #0f172a;
-  --tw-text: #1f2937;
-  --tw-text-muted: #475569;
-  --tw-text-light: #94a3b8;
-  --tw-rule: #e2e8f0;
-  --tw-rule-soft: #f1f5f9;
+  --tw-ink: #1a1d23;
+  --tw-text: #2a2f38;
+  --tw-text-muted: #5a6270;
+  --tw-text-light: #8a93a3;
+  --tw-rule: #e8ecf2;
+  --tw-rule-soft: #f1f4f8;
   --tw-bg: #ffffff;
-  --tw-bg-soft: #f8fafc;
-  --tw-bg-tint: #eef2f7;
+  --tw-bg-soft: #f7f9fc;
+  --tw-bg-tint: #eef5f8;
   --tw-brand: #1ba8c8;
   --tw-brand-deep: #0f8aa6;
   --tw-brand-soft: #d6eef5;
@@ -46,7 +46,7 @@ export const publicCss: string = `
   --tw-shadow: 0 2px 8px rgba(20,30,50,0.05), 0 1px 2px rgba(20,30,50,0.04);
   --tw-shadow-md: 0 8px 24px rgba(20,30,50,0.08), 0 2px 4px rgba(20,30,50,0.04);
   --tw-header-h: 72px;
-  --tw-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --tw-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --tw-dur: 200ms;
 }
 
