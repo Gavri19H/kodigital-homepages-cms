@@ -17,6 +17,7 @@
 
 import { escAttr, escText, imgTag } from "./esc";
 import { iconBrandMark, iconChevronDown, iconSearch } from "./icons";
+import { responsiveImg } from "./responsive-img";
 
 export interface SiteRef {
   name: string;
@@ -204,7 +205,17 @@ export function renderChipRail(args: ChipRailArgs): string {
 
 export function renderCard(args: CardArgs): string {
   const href = args.href.length > 0 ? args.href : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' class="card-img" width="640" height="360" loading="lazy" decoding="async"');
+  // Contract §11: card image is the 16/10 treatment (640×400). Responsive:
+  // srcset + blur-up LQIP + /media/ src (T21). Below-fold → loading="lazy".
+  const img = responsiveImg({
+    src: args.imageUrl,
+    alt: args.imageAlt,
+    width: 640,
+    height: 400,
+    className: "card-img",
+    loading: "lazy",
+    sizes: "(max-width: 560px) 100vw, (max-width: 1080px) 50vw, 25vw",
+  });
   const categoryHtml =
     args.categoryName !== undefined && args.categoryName.length > 0
       ? `<p class="card-cat">${escText(args.categoryName)}</p>`

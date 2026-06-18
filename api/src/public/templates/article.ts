@@ -68,6 +68,7 @@ import {
   buildBreadcrumbJsonLd,
   buildFaqJsonLd,
 } from "./seo";
+import { responsiveImg } from "./responsive-img";
 
 export interface RenderArticleArgs {
   vm: ArticleViewModel;
@@ -122,10 +123,19 @@ function isSafeHref(url: string): boolean {
 }
 
 function renderArticleHero(article: ArticleViewModel["article"]): string {
-  const heroImg =
-    article.imageUrl !== null && article.imageUrl.length > 0
-      ? `<img class="article-hero-img" src="${escAttr(article.imageUrl)}" alt="${escAttr(article.imageAlt ?? "")}" width="1200" height="630" loading="eager" fetchpriority="high" decoding="async">`
-      : "";
+  // §3 hero is the LCP candidate: responsive (srcset + blur-up LQIP +
+  // /media/ src, T21) at the design dimensions (1200×630), loaded eager with
+  // fetchpriority="high". responsiveImg returns "" when imageUrl is absent.
+  const heroImg = responsiveImg({
+    src: article.imageUrl,
+    alt: article.imageAlt,
+    width: 1200,
+    height: 630,
+    className: "article-hero-img",
+    loading: "eager",
+    fetchpriority: "high",
+    sizes: "100vw",
+  });
   const categoryHtml =
     article.categoryName.length > 0
       ? `<a class="article-cat" href="${escAttr(article.categoryHref)}">${escText(article.categoryName)}</a>`
@@ -251,9 +261,23 @@ function renderSidebar(vm: ArticleViewModel): string {
       : "";
   const newsletterHtml = `<aside class="sidebar-card sidebar-newsletter"><h3>Newsletter</h3><p>Get the best stories in your inbox.</p><a class="btn-primary" href="#newsletter-heading">Subscribe</a></aside>`;
   const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article" })}</aside>`;
+  // Contract §11 sidebar-popular: 60×60 thumbs (`pop-img`). The thumb is a
+  // responsive image (srcset + blur-up LQIP + /media/ src, T21) at the design
+  // dimensions; below-fold, so loading="lazy".
   const popularItems = vm.related
     .slice(0, 3)
-    .map((c) => `<li><a href="${escAttr(c.href)}">${escText(c.title)}</a></li>`)
+    .map((c) => {
+      const thumb = responsiveImg({
+        src: c.imageUrl,
+        alt: c.imageAlt,
+        width: 60,
+        height: 60,
+        className: "pop-img",
+        loading: "lazy",
+        sizes: "60px",
+      });
+      return `<li class="pop-item"><a href="${escAttr(c.href)}">${thumb}<span class="pop-title">${escText(c.title)}</span></a></li>`;
+    })
     .join("");
   const popularHtml =
     popularItems.length > 0
