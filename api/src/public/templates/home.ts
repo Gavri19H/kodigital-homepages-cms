@@ -45,6 +45,7 @@ import {
   renderNewsletter,
   type CategoryChip,
   type NavLink,
+  type SocialLink,
 } from "./components";
 import { renderTrending } from "./trending";
 import type { AdsConfig } from "../ads";
@@ -54,6 +55,8 @@ export interface RenderHomeArgs {
   nav?: ReadonlyArray<NavLink>;
   footerLinks?: ReadonlyArray<NavLink>;
   legalLinks?: ReadonlyArray<NavLink>;
+  // T28: operator-set social-media links rendered in the §12 site-footer.
+  socialLinks?: ReadonlyArray<SocialLink>;
   // T22: the per-site ad config. When present + AdSense is live the §5/§9
   // ad slots emit their real <ins> units; omitted = reserved placeholders.
   ads?: AdsConfig;
@@ -309,6 +312,7 @@ export function renderHome(args: RenderHomeArgs): string {
     },
     links: args.footerLinks,
     legalLinks: args.legalLinks,
+    socialLinks: args.socialLinks,
   });
 
   // §13 — floating "Read next" button (contract §11: fixed 64×64 circle,

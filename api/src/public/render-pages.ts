@@ -10,7 +10,14 @@ import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
 import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE } from "./queries";
-import { renderHeader, renderFooter, renderCard, renderAdSlot } from "./templates/components";
+import {
+  renderHeader,
+  renderFooter,
+  renderCard,
+  renderAdSlot,
+  buildSocialLinks,
+  type SocialLink,
+} from "./templates/components";
 import {
   loadAdsConfig,
   shouldShowAds,
@@ -45,7 +52,11 @@ import { renderCustomHead, renderCustomFooter } from "../settings/custom-html";
 async function loadCustomLayoutHtml(
   db: D1Database,
   siteId: string,
-): Promise<{ customHead?: string; customFooter?: string }> {
+): Promise<{
+  customHead?: string;
+  customFooter?: string;
+  socialLinks: SocialLink[];
+}> {
   const result = await db
     .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
     .bind(siteId)
@@ -56,9 +67,14 @@ async function loadCustomLayoutHtml(
   }
   const customHead = renderCustomHead(settings);
   const customFooter = renderCustomFooter(settings);
+  // T28: the same settings map drives the footer social links (social_*_url),
+  // so they render on every public surface that already loads custom layout
+  // HTML — no extra query.
+  const socialLinks = buildSocialLinks(settings);
   return {
     customHead: customHead.length > 0 ? customHead : undefined,
     customFooter: customFooter.length > 0 ? customFooter : undefined,
+    socialLinks,
   };
 }
 
@@ -150,7 +166,11 @@ export async function renderHomepageHtml(
   const adHead = adHeadHtml(adsConfig, adsOn);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
-  const body = renderHome({ vm, ads: adsOn ? adsConfig : undefined });
+  const body = renderHome({
+    vm,
+    ads: adsOn ? adsConfig : undefined,
+    socialLinks: customHtml.socialLinks,
+  });
   return renderLayout({
     site: {
       name: vm.site.name,
@@ -268,6 +288,7 @@ export async function renderArticleHtml(
     vm,
     emitJsonLd: false,
     ads: adsOn ? adsConfig : undefined,
+    socialLinks: customHtml.socialLinks,
   });
 
   return renderLayout({
@@ -464,7 +485,7 @@ export async function renderCategoryHtml(
     },
     body,
     header: renderHeader({ site: headerSite }),
-    footer: renderFooter({ site: headerSite }),
+    footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
     customHead: customHtml.customHead,
     customFooter: customHtml.customFooter,
     extraHead:
@@ -593,7 +614,7 @@ export async function renderTagHtml(
     },
     body,
     header: renderHeader({ site: headerSite }),
-    footer: renderFooter({ site: headerSite }),
+    footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
     customHead: customHtml.customHead,
     customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
@@ -674,7 +695,7 @@ export async function renderPageHtml(
     },
     body,
     header: renderHeader({ site: headerSite }),
-    footer: renderFooter({ site: headerSite }),
+    footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
     customHead: customHtml.customHead,
     customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),

@@ -173,6 +173,9 @@ img { max-width: 100%; height: auto; }
 .site-footer { padding: 2rem 0; background: var(--tw-ink); color: #cbd5e1; margin-top: 3rem; }
 .site-footer a { color: #e2e8f0; }
 .site-footer .grid-4 { grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 2rem; }
+.site-footer__social ul { display: flex; flex-wrap: wrap; gap: 1rem; list-style: none; margin: 1rem 0 0; padding: 0; }
+.site-footer__social-link { text-decoration: none; opacity: 0.85; }
+.site-footer__social-link:hover { opacity: 1; text-decoration: underline; }
 
 .floating-next { position: fixed; right: 1.5rem; bottom: 1.5rem; background: var(--tw-brand); color: #fff; padding: 0.75rem 1rem; border-radius: var(--tw-radius-pill); box-shadow: var(--tw-shadow-md); z-index: 30; }
 

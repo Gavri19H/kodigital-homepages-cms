@@ -113,6 +113,23 @@ const LOGO_STYLE_OPTIONS: ReadonlyArray<[string, string]> = [
   ["elegant", "Elegant"],
 ];
 
+// T28: social-media profile URL fields. Keys MUST match SOCIAL_PLATFORMS in
+// public/templates/components.ts + ALLOWED_SETTINGS_KEYS; a non-empty https
+// value renders as a link in the public site footer.
+interface SocialLinkField {
+  key: string;
+  label: string;
+  placeholder: string;
+}
+
+const SOCIAL_LINK_FIELDS: ReadonlyArray<SocialLinkField> = [
+  { key: "social_twitter_url", label: "Twitter / X URL", placeholder: "https://twitter.com/yourhandle" },
+  { key: "social_facebook_url", label: "Facebook URL", placeholder: "https://facebook.com/yourpage" },
+  { key: "social_instagram_url", label: "Instagram URL", placeholder: "https://instagram.com/yourhandle" },
+  { key: "social_linkedin_url", label: "LinkedIn URL", placeholder: "https://linkedin.com/company/yourcompany" },
+  { key: "social_youtube_url", label: "YouTube URL", placeholder: "https://youtube.com/@yourchannel" },
+];
+
 interface NewsletterConfig {
   enabled: boolean;
   provider: string;
@@ -243,6 +260,26 @@ function renderDisplayCard(values: SettingsValueMap): string {
       <small class="form-hint">Number of articles shown per page on listing and category pages.</small>
     </div>`,
   );
+}
+
+// T28: Social Links card — one URL field per platform. The values are
+// persisted through the same arbitrary-key PATCH route (the submit script
+// lists the keys); the public footer renders any non-empty https value.
+function renderSocialLinkField(field: SocialLinkField, values: SettingsValueMap): string {
+  const safeKey = escapeHtml(field.key);
+  const value = settingValue(values, field.key);
+  return `<div class="form-group" data-setting-key="${safeKey}">
+    <label for="setting-${safeKey}" class="form-label">${escapeHtml(field.label)}</label>
+    <input id="setting-${safeKey}" name="${safeKey}" type="url" class="form-input" data-field="setting_value" data-key="${safeKey}" value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder)}" />
+  </div>`;
+}
+
+function renderSocialLinksCard(values: SettingsValueMap): string {
+  const fields = SOCIAL_LINK_FIELDS.map(function (f: SocialLinkField): string {
+    return renderSocialLinkField(f, values);
+  }).join("");
+  const hint = `<p class="form-hint">Add your social profile URLs; non-empty links render in the public site footer.</p>`;
+  return renderCard("Social Links", hint + fields);
 }
 
 function renderSiteLogoCard(values: SettingsValueMap): string {
@@ -560,7 +597,11 @@ function renderTabPanel(key: string, first: boolean, body: string): string {
 
 function renderTabs(values: SettingsValueMap): string {
   const panels =
-    renderTabPanel("general", true, renderSiteInformationCard(values) + renderDisplayCard(values)) +
+    renderTabPanel(
+      "general",
+      true,
+      renderSiteInformationCard(values) + renderDisplayCard(values) + renderSocialLinksCard(values),
+    ) +
     renderTabPanel("logo", false, renderSiteLogoCard(values)) +
     renderTabPanel(
       "seo",
@@ -688,7 +729,7 @@ export const SETTINGS_SCRIPT = `
     }
     var fd = new FormData(form);
     var updates = {};
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url'];
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);

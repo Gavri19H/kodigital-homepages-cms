@@ -186,10 +186,64 @@ export function buildNewsletterForm(
   }
 }
 
+// T28: a resolved social-media link rendered in the footer. `platform` is the
+// machine key (twitter/facebook/…) used for the `data-social` hook + the
+// accessible label; `href` is the operator-supplied profile URL.
+export interface SocialLink {
+  platform: string;
+  label: string;
+  href: string;
+}
+
+// T28: the social platforms the operator can wire. `key` is the site_settings
+// key (also the ALLOWED_SETTINGS_KEYS entry + the admin form field name); the
+// order here is the footer render order. Twitter + Facebook are the AC pair;
+// the rest round out the common set the legacy reference exposed.
+export interface SocialPlatformDef {
+  key: string;
+  platform: string;
+  label: string;
+}
+
+export const SOCIAL_PLATFORMS: ReadonlyArray<SocialPlatformDef> = [
+  { key: "social_twitter_url", platform: "twitter", label: "Twitter" },
+  { key: "social_facebook_url", platform: "facebook", label: "Facebook" },
+  { key: "social_instagram_url", platform: "instagram", label: "Instagram" },
+  { key: "social_linkedin_url", platform: "linkedin", label: "LinkedIn" },
+  { key: "social_youtube_url", platform: "youtube", label: "YouTube" },
+];
+
+// Only http(s) profile URLs are ever turned into an href — a javascript:/data:
+// value (or any other scheme) is dropped so a stored setting can never become
+// a footer XSS vector (mirrors the custom-html.ts boundary discipline).
+function isSafeSocialUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+// buildSocialLinks — map a raw site_settings record onto the ordered footer
+// links. Empty/whitespace/unsafe values contribute nothing, so the footer
+// social nav only appears once at least one valid URL is set.
+export function buildSocialLinks(
+  settings: Readonly<Record<string, string>>,
+): SocialLink[] {
+  const out: SocialLink[] = [];
+  for (const def of SOCIAL_PLATFORMS) {
+    const raw = settings[def.key];
+    if (typeof raw !== "string") continue;
+    const url = raw.trim();
+    if (url.length === 0 || !isSafeSocialUrl(url)) continue;
+    out.push({ platform: def.platform, label: def.label, href: url });
+  }
+  return out;
+}
+
 export interface FooterArgs {
   site: SiteRef;
   links?: ReadonlyArray<NavLink>;
   legalLinks?: ReadonlyArray<NavLink>;
+  // T28: operator-set social-media profile links, rendered as a
+  // `.site-footer__social` nav inside the design `.site-footer`.
+  socialLinks?: ReadonlyArray<SocialLink>;
   copyrightYear?: number;
 }
 
@@ -415,11 +469,26 @@ export function renderFooter(args: FooterArgs): string {
       : `<nav class="site-footer__legal" aria-label="Legal"><ul>${legalLinks
           .map((n) => `<li><a href="${escAttr(n.href)}">${escText(n.label)}</a></li>`)
           .join("")}</ul></nav>`;
+  // T28: social profile links — only rendered when the operator has set at
+  // least one (buildSocialLinks already dropped empty/unsafe values). Each
+  // anchor opens in a new tab with rel="noopener noreferrer me" and carries a
+  // data-social hook so a deferred stylesheet can paint platform glyphs.
+  const socialLinks = args.socialLinks ?? [];
+  const socialNavHtml =
+    socialLinks.length === 0
+      ? ""
+      : `<nav class="site-footer__social" aria-label="Social media"><ul>${socialLinks
+          .map(
+            (s) =>
+              `<li><a class="site-footer__social-link" data-social="${escAttr(s.platform)}" href="${escAttr(s.href)}" target="_blank" rel="noopener noreferrer me">${escText(s.label)}</a></li>`,
+          )
+          .join("")}</ul></nav>`;
   return `<footer class="site-footer" role="contentinfo">
   <div class="site-footer__inner">
     <p class="site-footer__brand">${escText(site.name)}</p>
     ${primaryNavHtml}
     ${legalNavHtml}
+    ${socialNavHtml}
     <p class="site-footer__copyright">&copy; ${year} ${escText(site.name)}</p>
   </div>
 </footer>`;

@@ -62,6 +62,7 @@ import {
   renderHeader,
   renderNewsletter,
   type NavLink,
+  type SocialLink,
 } from "./components";
 import {
   buildArticleJsonLd,
@@ -76,6 +77,8 @@ export interface RenderArticleArgs {
   nav?: ReadonlyArray<NavLink>;
   footerLinks?: ReadonlyArray<NavLink>;
   legalLinks?: ReadonlyArray<NavLink>;
+  // T28: operator-set social-media links rendered in the §12 site-footer.
+  socialLinks?: ReadonlyArray<SocialLink>;
   newsletterHeading?: string;
   newsletterDescription?: string;
   newsletterProvider?: string | null;
@@ -407,6 +410,7 @@ export function renderArticle(args: RenderArticleArgs): string {
     },
     links: args.footerLinks,
     legalLinks: args.legalLinks,
+    socialLinks: args.socialLinks,
   });
   // floating-next is a fixed-position overlay (§11), not a §8 section; it
   // rides inside §12 so the marker count stays exactly 12.

@@ -45,6 +45,13 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   // T15 parity keys persisted through the same PATCH route
   "items_per_page",
   "site_logo_url",
+  // T28: social-media profile URLs (rendered as footer links). Keys MUST match
+  // SOCIAL_PLATFORMS in public/templates/components.ts and the admin form.
+  "social_twitter_url",
+  "social_facebook_url",
+  "social_instagram_url",
+  "social_linkedin_url",
+  "social_youtube_url",
   // T23: custom analytics / ad-header script snippets (this story)
   "analytics_script",
   "ad_header_script",
