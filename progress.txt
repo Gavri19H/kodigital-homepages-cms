@@ -10985,3 +10985,69 @@ source_story_ids: T14
   mismatch. parse_test_output → vitest_text matches the verbose-reporter test
   name; embed [api/test/<file>.test.ts] in the it() title.
 ---
+
+## 2026-06-18 - T20 (sources: T20) — Article page renders the full 12-section theiwise design
+- AC1 (RC-036): renderArticle already composes the 12 §8 contract section
+  classes in order under the design shell; the new test proves the class order
+  (.reading-progress → .site-header → .article-hero → .article-shell →
+  .share-rail → .article-body → .faq-section → .article-share-bottom →
+  .article-sidebar → .related-section → .newsletter → .site-footer) +
+  data-screen-label=article-page + the .article-shell 60px minmax(0,1fr) 320px
+  grid + not-the-bare-fallback (renderLayout <main id="main-content"> + linked
+  /assets/public.css). The §7 .faq-section class is conditional on faqs[] — the
+  AC1 test supplies faqs so the class renders.
+- AC2 (RC-037): extended the public body-block pipeline to the full §12
+  TIW_ARTICLE vocabulary (p/h2/ul/pullquote/image/callout/affiliate):
+  - api/src/public/view-models/article.ts — added paragraph/callout/affiliate
+    BodyBlock variants; adaptBodyBlocks maps the FLAT TIW_ARTICLE shape (the AI
+    generators' shape): p/paragraph/text→paragraph, pullquote alias→quote,
+    callout, affiliate (cta default "Learn more"); blockToPlainText handles them.
+    p now yields a real <p> (was a div-wrapped html block) so the drop-cap lands.
+  - api/src/public/templates/article.ts — renderBlockHtml emits <p> (paragraph),
+    .callout-box (+.callout-title), .affiliate-card (+ protocol-gated
+    sponsored/nofollow CTA via isSafeHref); switch stays exhaustive (tsc-checked).
+  - api/src/public/assets/public-css.ts — added §11 lede drop-cap
+    (.article-body > p:first-of-type::first-letter, 4.2em weight 900 brand) and
+    replaced the 6px dot bullet with the §11 16x2px brand dash + li padding-left
+    28px; styled the new callout/affiliate sub-elements.
+  - api/test/article-design.test.ts — adaptBodyBlocks maps all 7 flat types in
+    order; renderArticle emits <p>/<h2>/<ul><li>/blockquote.pullquote/
+    figure.article-figure/aside.callout-box/aside.affiliate-card; publicCss
+    carries the drop-cap + dash bullet rules. it() titles embed
+    [api/test/article-design.test.ts] for the parse_test_output route.
+- T20-AC3 is SHIP-DEFERRED (Playwright 375/1280 parity; reading-progress scroll;
+  share-rail hide <1080; sidebar drop <800 @ a2z-ship).
+- Self-check results:
+  - File sizes: templates/article.ts 448, view-models/article.ts 612,
+    public-css.ts 281 (CSS-in-TS), article-design.test.ts 247. The public HTML/CSS
+    template modules follow the consolidated over-200 pattern documented T16-T19
+    (sibling home.ts 346); additions are minimal mechanism, no override in packet
+    — PASS (no new oversize beyond the established pattern).
+  - Secret scan: PASS (no matches in changed files).
+  - Error handling: N/A (pure render transforms + CSS string).
+  - Migration execution: N/A (ui category — no schema change).
+  - Parameterized queries: N/A (view-model SQL unchanged; no new SQL).
+- Evidence:
+  - cd api && npx tsc --noEmit → exit 0.
+  - cd api && npm test → 145 files / 1273 tests PASS (no regressions; +2 new).
+  - D13 runner RC-036,RC-037 (run_required_evidence_command.py, parse_test_output)
+    → status PASS (both observed assertions matched expected_test_name_regex
+    api/test/article-design.test.ts).
+  - Q3 run_story_quality_checks.py --story-id=T20 → PASS (checks_executed=4;
+    receipts written to story_execution_receipts.jsonl).
+- Learnings:
+  - The article template ALREADY used the §8 contract classes (unlike the home
+    template T19, which still emitted legacy class names) — so AC1 needed only a
+    contract-order proof, not a re-wire. The §7 .faq-section CLASS is conditional
+    on faqs[] (the marker always renders for the count); an AC1 class-order test
+    must supply faqs.
+  - There are two content-block conventions: the EDITOR stores nested
+    {type,data:{...}} → content_html via api/src/editor/blocks.ts, while the AI
+    generators + the §12 TIW_ARTICLE reference use the FLAT {type,text?/items?}
+    shape that the public adaptBodyBlocks reads. T20 aligned the public renderer
+    to the flat contract shape and reused the editor's design classes
+    (.callout-box/.affiliate-card/.pullquote) so storage + public render agree.
+  - Drop-cap needs the lede paragraph to be a DIRECT <p> child of .article-body
+    (`> p:first-of-type`); the old html-block wrapper (<div>) would have applied
+    the cap per-wrapper. Rendering p blocks as bare <p> fixes this.
+---

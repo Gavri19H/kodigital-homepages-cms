@@ -313,8 +313,8 @@
       "title": "Article page renders the full 12-section theiwise design",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T20"
       ],
