@@ -182,8 +182,15 @@ export function renderHome(args: RenderHomeArgs): string {
   // §9 — ad slot, in-feed surface
   const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home" });
 
-  // §10 — latest (remaining cards after trending)
-  const latest = vm.latest.slice(5);
+  // §10 — latest. T16/BCL-057: render EVERY non-featured article. vm.latest
+  // is already the deduplicated tail — buildHomeViewModel removes the
+  // is_trending rows from the pool and excludes hero + featured by id before
+  // cutting `latest` — so the §7 trending strip and §10 latest grid share no
+  // article. The previous `vm.latest.slice(5)` silently dropped the first 5
+  // non-featured articles (a false "remaining after trending" assumption:
+  // trending is a separate is_trending bucket, never the head of vm.latest),
+  // so those stories appeared in NO home section. Render the full bucket.
+  const latest = vm.latest;
   const s10 = gridSection("Latest", "latest", latest, "More stories on the way.");
 
   // §11 — newsletter

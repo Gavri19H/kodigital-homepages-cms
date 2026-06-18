@@ -222,8 +222,13 @@ function renderSidebar(vm: ArticleViewModel): string {
   return `<aside class="article-sidebar">${tocHtml}${newsletterHtml}${adHtml}${popularHtml}</aside>`;
 }
 
-function renderShareRail(article: ArticleViewModel["article"]): string {
-  const url = escAttr(`https://__SITE__${article.href}`);
+// T16/BCL-057: the share URL MUST resolve to the tenant's real address.
+// `hostname` is vm.site.hostname (= siteContext.hostname, the live request
+// host); article.href is `/article/<slug>`, so the rail URL equals the page's
+// canonicalUrl. The previous `https://__SITE__<href>` placeholder shipped a
+// copy/share link pointing at a literal `__SITE__` host — broken for users.
+function renderShareRail(article: ArticleViewModel["article"], hostname: string): string {
+  const url = escAttr(`https://${hostname}${article.href}`);
   return `<aside class="share-rail" aria-label="Share this story">
   <button class="share-btn" type="button" data-share-action="copy" data-share-url="${url}" aria-label="Copy link">🔗</button>
   <button class="share-btn" type="button" data-share-action="native" data-share-url="${url}" aria-label="Share">↗</button>
@@ -295,7 +300,7 @@ export function renderArticle(args: RenderArticleArgs): string {
   // still records the column contract (PART 4 RED LINE).
   const s4 = `<div class="article-shell container" data-grid="60px minmax(0, 1fr) 320px">
   ${marker(5, "share-rail")}
-  ${renderShareRail(article)}
+  ${renderShareRail(article, site.hostname)}
   ${marker(6, "article-body")}
   <article class="article-body" id="article-content">
     ${renderArticleBodyBlocks(article)}
