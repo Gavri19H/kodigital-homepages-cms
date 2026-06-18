@@ -10398,3 +10398,39 @@ INFRA/SKILL-BUG SURFACED (for ship/learn, NOT a product blocker):
   - Product is correct and independently verified: the anchor IS present (grep -c = 1 from worktree root). I did NOT edit required_evidence_plan.json (canonical/protected) and did NOT hack a duplicate deploy.yml under api/.
   - Classification: SKILL_OWNED plan-generation cwd defect — RC-010 cwd should be "." like its siblings. Owner: evidence-plan generator (root-cwd-doctrine "nested-project cwd hazard", L-161). Surfaced for the evaluator / skill-fix; T4 implementation is complete and the AC1 assertion is satisfied by RC-009 + live-D1 PRAGMA.
 ---
+
+## 2026-06-18 - T5 (sources: T5)
+- Implemented: seed editable is_system=1 prompt_presets for every automatic provisioning task key.
+- Files changed:
+  - api/migrations/0020_rescue4_seed_system_presets.sql (NEW) — INSERT OR IGNORE seeds 6 presets:
+    starter-articles, tagline, site-description (text/gpt-5.5); logo, hero-image, feature-image
+    (image/gpt-image-2). category = task key (resolvable), slug = system-<task-key> (UNIQUE → idempotent),
+    is_system=1, is_active=1, real flat prompt_template + reference System/User split. variables_schema/
+    output_rules left to the 0019 DEFAULT '[]'.
+  - api/test/seed-system-presets.test.ts (NEW) — RC-011 (T5-AC1): parses the seed SQL into structured
+    rows (portable, CI Node-20 floor) + a live node:sqlite idempotency proof (createRequire; skips when
+    node:sqlite absent). 7 tests.
+  - .github/workflows/deploy.yml — grep-anchored 0020_rescue4_seed_system_presets.sql (RC-012 / T5-AC2).
+- Self-check results:
+  - File sizes: 0020...sql 86 lines (SQL limit 100) PASS; seed-system-presets.test.ts 277 lines
+    (test file — same convention as preset-schema.test.ts 279) PASS.
+  - Secret scan: PASS (no matches).
+  - Error handling: N/A (migration seed + test).
+  - Migration execution: PASS — `npx wrangler d1 migrations apply kodigital-homepages-cms-db --local`
+    applied 0020; SELECT shows 6 is_system=1 rows; re-applying the seed kept COUNT=6 (live idempotent).
+  - Parameterized queries: PASS — test data query uses .all(key); CREATE TABLE is a static string (no
+    template-literal interpolation); migration is a static seed.
+- Tests run:
+  - cd api && npx vitest run test/seed-system-presets.test.ts → 7 passed
+  - cd api && npx tsc --noEmit → clean (exit 0)
+  - cd api && npx vitest run → 1190 passed / 130 files (no regressions)
+  - Q3: run_story_quality_checks.py --story-id=T5 → PASS (db_check receipt)
+  - Evidence runner RC-011,RC-012 → OVERALL PASS (RC-011 7 obs PASS; RC-012 grep_count=1)
+- Learnings:
+  - Provisioning task-key presets use category=<task-key> (mirrors resolveCategoryPreset's
+    is_system DESC lookup) + slug=system-<task-key>; namespace does not collide with the 0016
+    use-case enum presets (title/excerpt/outline/content/seo/image/custom). T40 will wire resolution.
+  - CI floor is Node 20 (api/package.json engines >=20) — no node:sqlite/better-sqlite3. Migration
+    tests parse the SQL text (matches 0019 test); a node:sqlite live check must be loaded via
+    createRequire (vite SSR cannot resolve the bare `node:sqlite` dynamic import) and skip-guarded.
+---
