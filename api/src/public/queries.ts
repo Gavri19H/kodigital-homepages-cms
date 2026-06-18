@@ -29,6 +29,12 @@ export interface PublicCategoryRow {
   name: string;
 }
 
+export interface PublicTagRow {
+  id: number;
+  slug: string;
+  name: string;
+}
+
 export const PUBLIC_PAGE_SIZE = 20;
 
 export async function fetchPublishedPage(
@@ -71,6 +77,45 @@ export async function fetchCategoryArticles(
         "ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
     )
     .bind(categoryId, siteId, PUBLIC_PAGE_SIZE, offset)
+    .all<ArticleRow>();
+  return result.results ?? [];
+}
+
+// T14: tag listing pages. tags carry a phase-3 `site_id` column, so the tag
+// lookup is tenant-scoped exactly like the per-site article queries (a NULL
+// site_id stays globally reachable for legacy/shared tags). The article
+// listing joins `article_tags` and is ALWAYS scoped by `a.site_id = ?` so a
+// tag page can never leak another tenant's articles.
+export async function fetchTag(
+  db: D1Database,
+  slug: string,
+  siteId: string,
+): Promise<PublicTagRow | null> {
+  const row = await db
+    .prepare(
+      "SELECT id, slug, name FROM tags WHERE slug = ? " +
+        "AND (site_id = ? OR site_id IS NULL) LIMIT 1",
+    )
+    .bind(slug, siteId)
+    .first<PublicTagRow>();
+  return row ?? null;
+}
+
+export async function fetchTagArticles(
+  db: D1Database,
+  tagId: number,
+  siteId: string,
+  page: number,
+): Promise<ArticleRow[]> {
+  const offset = Math.max(0, (page - 1) * PUBLIC_PAGE_SIZE);
+  const result = await db
+    .prepare(
+      "SELECT a.* FROM articles a " +
+        "JOIN article_tags atg ON atg.article_id = a.id " +
+        "WHERE atg.tag_id = ? AND a.site_id = ? AND a.status = 'published' " +
+        "ORDER BY a.published_at DESC, a.id DESC LIMIT ? OFFSET ?",
+    )
+    .bind(tagId, siteId, PUBLIC_PAGE_SIZE, offset)
     .all<ArticleRow>();
   return result.results ?? [];
 }

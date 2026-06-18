@@ -39,6 +39,8 @@ import {
   fetchPublishedPage,
   fetchCategory,
   fetchCategoryArticles,
+  fetchTag,
+  fetchTagArticles,
   fetchSitemapPages,
   fetchSiteSetting,
 } from "./queries";
@@ -70,8 +72,10 @@ import {
   renderHomepageHtml,
   renderArticleHtml,
   renderCategoryHtml,
+  renderTagHtml,
   renderPageHtml,
 } from "./render-pages";
+import { renderErrorPage } from "./render-error";
 import { renderSeoHead } from "./templates/seo-head";
 import { renderArticleJsonLd } from "./templates/jsonld-article";
 import {
@@ -89,6 +93,38 @@ function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
 }
 
 const router = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
+
+// T14-AC2: public-content misses (bad URL) and unexpected server errors are
+// answered with a styled HTML page rendered through the design shell
+// (renderErrorPage → renderLayout) — never bare `{"error":"Not Found"}` JSON
+// or hono's default "Internal Server Error" text. The renderer is DB-free so
+// a 500 caused by the DB itself still produces a branded page. Hostname comes
+// from the resolved tenant siteContext (or the request URL as a fallback when
+// the error fired before the site-context middleware ran) — the admin host is
+// never used here.
+function publicErrorResponse(
+  c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
+  status: 404 | 500,
+): Response {
+  const siteContext = c.get("siteContext") as PublicSiteContext | undefined;
+  let hostname =
+    siteContext !== undefined && typeof siteContext.hostname === "string"
+      ? siteContext.hostname
+      : "";
+  if (hostname.length === 0) {
+    try {
+      hostname = new URL(c.req.url).hostname;
+    } catch {
+      hostname = "";
+    }
+  }
+  return c.html(renderErrorPage({ hostname, status }), status);
+}
+
+// A thrown error in ANY public-content handler renders the styled 500. A
+// mounted sub-app's onError fires under the parent app (verified against
+// hono 4.x), so this is the live mechanism for the deployed worker too.
+router.onError((_err, c) => publicErrorResponse(c, 500));
 
 // T20 (rescue-3): /favicon.ico is answered explicitly so a browser's
 // automatic favicon request never falls through to the /:slug
@@ -145,7 +181,7 @@ router.get("/article/:slug", async (c) => {
     siteId: siteContext.siteId,
   });
   if (!row || row.status !== "published") {
-    return c.json({ error: "Not Found" }, 404);
+    return publicErrorResponse(c, 404);
   }
   const path = `/article/${slug}`;
   return servePublicHtml(c.env, siteContext, {
@@ -160,8 +196,31 @@ router.get("/article/:slug", async (c) => {
 router.get("/category/:slug", (c) => handleCategory(c, 1));
 
 router.get("/category/:slug/page/:page", (c) => {
+  const slug = c.req.param("slug") as string;
   const pageNum = Math.max(1, parseInt(c.req.param("page") ?? "1", 10) || 1);
+  // T14: /category/<slug>/page/1 (and any non->=2 value, e.g. /page/0) 301s to
+  // the bare canonical /category/<slug>. Page 1 IS the canonical listing, so a
+  // /page/1 URL is a duplicate that must redirect — never render a second copy.
+  if (pageNum === 1) {
+    return c.redirect(`/category/${encodeURIComponent(slug)}`, 301);
+  }
   return handleCategory(c, pageNum);
+});
+
+// T14: /tag/:slug renders the styled topic listing (renderTagHtml) — a tag is
+// a styled collection of its published articles, not a missing/raw route.
+// Pagination mirrors category: page 1 301s to the bare canonical, page >= 2 is
+// noindex,follow. Registered before the /:slug catch-all (two segments never
+// collide with the single-segment catch-all, but kept with the other listings).
+router.get("/tag/:slug", (c) => handleTag(c, 1));
+
+router.get("/tag/:slug/page/:page", (c) => {
+  const slug = c.req.param("slug") as string;
+  const pageNum = Math.max(1, parseInt(c.req.param("page") ?? "1", 10) || 1);
+  if (pageNum === 1) {
+    return c.redirect(`/tag/${encodeURIComponent(slug)}`, 301);
+  }
+  return handleTag(c, pageNum);
 });
 
 type CategoryCtx = Context<{
@@ -184,7 +243,7 @@ async function handleCategory(
   const slug = c.req.param("slug") as string;
   const siteContext = c.get("siteContext");
   const cat = await fetchCategory(c.env.DB, slug);
-  if (!cat) return c.json({ error: "Not Found" }, 404);
+  if (!cat) return publicErrorResponse(c, 404);
   const articles = await fetchCategoryArticles(
     c.env.DB,
     cat.id,
@@ -205,6 +264,32 @@ async function handleCategory(
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () =>
       renderCategoryHtml(c.env.DB, siteContext, cat, articles, pageNum, slug),
+  });
+}
+
+// T14: tag listing handler. Tenant-scoped (fetchTag + fetchTagArticles both
+// scope by siteId); an unknown tag renders the styled 404. The cache key uses
+// the generic htmlKey(siteId, path, content_version) so each tag/page gets a
+// distinct entry that a content_version bump orphans on publish.
+async function handleTag(c: CategoryCtx, pageNum: number): Promise<Response> {
+  const slug = c.req.param("slug") as string;
+  const siteContext = c.get("siteContext");
+  const tag = await fetchTag(c.env.DB, slug, siteContext.siteId);
+  if (!tag) return publicErrorResponse(c, 404);
+  const articles = await fetchTagArticles(
+    c.env.DB,
+    tag.id,
+    siteContext.siteId,
+    pageNum,
+  );
+  const path = pageNum === 1 ? `/tag/${slug}` : `/tag/${slug}/page/${pageNum}`;
+  return servePublicHtml(c.env, siteContext, {
+    key: htmlKey(siteContext.siteId, path, siteContext.content_version),
+    path,
+    ifNoneMatch: c.req.header("If-None-Match"),
+    headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
+    render: () =>
+      renderTagHtml(c.env.DB, siteContext, tag, articles, pageNum, slug),
   });
 }
 
@@ -239,7 +324,7 @@ async function servePage(
 router.get("/page/:slug", async (c) => {
   const slug = c.req.param("slug");
   const res = await servePage(c, slug);
-  return res ?? c.json({ error: "Not Found" }, 404);
+  return res ?? publicErrorResponse(c, 404);
 });
 
 // T12: /sitemap.xml, /feed.xml, /atom.xml all share the same KV-cache discipline:
@@ -252,7 +337,11 @@ router.get("/page/:slug", async (c) => {
 // regenerate the XML on every request — that's the public-feed cost driver.
 const FEED_CACHE_TTL_SECONDS = 300;
 
-router.get("/feed.xml", async (c) => {
+// T14: the RSS body + its KV cache discipline live in one place so /feed.xml
+// and its conventional alias /rss serve the IDENTICAL feed from the SAME cache
+// entry (feedRssKey). Shared helper rather than a 301 so /rss is a true alias
+// — a subscriber pointed at /rss gets the feed directly, not a redirect hop.
+async function serveRssFeed(c: CategoryCtx): Promise<Response> {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = feedRssKey(siteContext.siteId, siteContext.content_version);
@@ -279,7 +368,12 @@ router.get("/feed.xml", async (c) => {
       contentType: "application/rss+xml; charset=utf-8",
     }),
   });
-});
+}
+
+router.get("/feed.xml", (c) => serveRssFeed(c));
+
+// T14: /rss is an alias of /feed.xml (same RSS body, same cache entry).
+router.get("/rss", (c) => serveRssFeed(c));
 
 router.get("/atom.xml", async (c) => {
   const env = c.env;
@@ -431,7 +525,7 @@ router.get("/health", (c) =>
 router.get("/:slug", async (c) => {
   const slug = c.req.param("slug");
   if (isReservedPath(slug)) {
-    return c.json({ error: "Not Found" }, 404);
+    return publicErrorResponse(c, 404);
   }
   const page = await servePage(c, slug);
   if (page) return page;
@@ -442,7 +536,7 @@ router.get("/:slug", async (c) => {
   if (article && article.status === "published") {
     return c.redirect(`/article/${encodeURIComponent(slug)}`, 301);
   }
-  return c.json({ error: "Not Found" }, 404);
+  return publicErrorResponse(c, 404);
 });
 
 // Re-export the SEO + JSON-LD + edge-cache primitives so downstream

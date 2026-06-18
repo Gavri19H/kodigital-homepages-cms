@@ -8,7 +8,7 @@
 
 import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
-import type { PublicPageRow, PublicCategoryRow } from "./queries";
+import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
 import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE } from "./queries";
 import { renderHeader, renderFooter, renderCard } from "./templates/components";
 import { buildCanonicalUrl } from "./templates/seo-head";
@@ -364,6 +364,128 @@ export async function renderCategoryHtml(
     },
     meta: {
       title: cat.name,
+      description: site.description,
+      canonicalUrl,
+      robots: pageNum > 1 ? "noindex, follow" : undefined,
+      links: paginationLinks.length > 0 ? paginationLinks : undefined,
+    },
+    body,
+    header: renderHeader({ site: headerSite }),
+    footer: renderFooter({ site: headerSite }),
+    extraHead: jsonLdHead.join("\n"),
+  });
+}
+
+// T14: the LIVE GET /tag/:slug handler composes the tag listing through the
+// same design layout the category listing uses (fetchPublicLayoutSiteInfo +
+// renderCard + renderLayout) — a topic page is a styled collection of the
+// published articles carrying that tag, not a bare list. Mirrors
+// renderCategoryHtml: the canonical href is always /tag/<slug> (page 1), the
+// page number rides a data-page attribute only, paginated pages (page >= 2)
+// are noindex,follow with rel=prev/next, and the CollectionPage +
+// root-first BreadcrumbList JSON-LD ride the head once. The canonical href is
+// always the resolved SiteContext.hostname — the admin host MUST NEVER appear
+// (mission RED LINE).
+export async function renderTagHtml(
+  db: D1Database,
+  siteContext: PublicSiteContext,
+  tag: PublicTagRow,
+  articles: ArticleRow[],
+  pageNum: number,
+  slug: string,
+): Promise<string> {
+  const site = await fetchPublicLayoutSiteInfo(db, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
+
+  // Paginated tag pages canonical to page 1 (no duplicate-content signal).
+  const canonicalPath = `/tag/${slug}`;
+  const canonicalUrl = buildCanonicalUrl(siteContext.hostname, canonicalPath);
+  const articleEntries = articles.map((a) => ({
+    name: a.title,
+    url: buildCanonicalUrl(siteContext.hostname, `/article/${a.slug}`),
+  }));
+
+  const headerSite = {
+    name: site.name,
+    tagline: site.tagline,
+    logoUrl: site.logoUrl,
+    hostname: site.hostname,
+  };
+
+  const jsonLdHead: string[] = [
+    renderCategoryJsonLd({
+      url: canonicalUrl,
+      name: tag.name,
+      articles: articleEntries,
+    }),
+    renderBreadcrumbJsonLd({
+      items: [
+        { name: "Home", url: buildCanonicalUrl(siteContext.hostname, "/") },
+        { name: tag.name, url: canonicalUrl },
+      ],
+    }),
+  ];
+
+  const cards = articles
+    .map(
+      (a) =>
+        `<li class="home-grid__item">${renderCard({
+          href: `/article/${a.slug}`,
+          title: a.title,
+          publishedAt: a.published_at ? isoDate(a.published_at) : undefined,
+        })}</li>`,
+    )
+    .join("");
+  const listing =
+    cards.length > 0
+      ? `<ul class="home-grid home-grid--tag">${cards}</ul>`
+      : `<p class="section-empty">No articles tagged "${escapeHtml(tag.name)}" yet.</p>`;
+  const body =
+    `<section class="home-section home-section--tag" data-page="${pageNum}">` +
+    `<div class="container">` +
+    `<div class="section-head"><h1 class="tag-title">${escapeHtml(tag.name)}</h1></div>` +
+    listing +
+    `</div></section>`;
+
+  // page >= 2 is noindex,follow (the page-1 canonical owns the index entry)
+  // and carries rel=prev/next so the crawler walks the series.
+  const prevPath =
+    pageNum > 1
+      ? pageNum - 1 === 1
+        ? `/tag/${slug}`
+        : `/tag/${slug}/page/${pageNum - 1}`
+      : null;
+  const nextPath =
+    articles.length >= PUBLIC_PAGE_SIZE
+      ? `/tag/${slug}/page/${pageNum + 1}`
+      : null;
+  const paginationLinks: Array<{ rel: string; href: string }> = [];
+  if (prevPath !== null) {
+    paginationLinks.push({
+      rel: "prev",
+      href: buildCanonicalUrl(siteContext.hostname, prevPath),
+    });
+  }
+  if (nextPath !== null) {
+    paginationLinks.push({
+      rel: "next",
+      href: buildCanonicalUrl(siteContext.hostname, nextPath),
+    });
+  }
+
+  return renderLayout({
+    site: {
+      name: site.name,
+      hostname: site.hostname,
+      tagline: site.tagline,
+      description: site.description,
+      brandTokens: site.brandTokens,
+      logoUrl: site.logoUrl,
+    },
+    meta: {
+      title: tag.name,
       description: site.description,
       canonicalUrl,
       robots: pageNum > 1 ? "noindex, follow" : undefined,
