@@ -19,8 +19,12 @@
 //      we return 200 with the existing site instead of inserting a second
 //      row (matches the schema's UNIQUE(idempotency_key) constraint).
 //   4. Newly-created sites land with status='draft' and a paired
-//      site_creation_jobs row (status='pending', current_step_index=0)
-//      that the T17 runner advances through all TOTAL_STEPS steps.
+//      site_creation_jobs row (status='pending', current_step_index=0).
+//      T38: the runner is driven ASYNCHRONOUSLY in the background (via the
+//      request ExecutionContext's waitUntil) so POST /sites returns
+//      immediately; the build advances one idempotent step at a time until
+//      the final step flips the site to status='active'. A killed step is
+//      persisted failed + resumable (never swallowed).
 
 import type { Context } from "hono";
 import type { Env } from "../env";
@@ -28,7 +32,11 @@ import {
   assertNotProtectedDomain,
   normalizeHostname,
 } from "../safety/protected-domains";
-import { runProvisioningToCompletion, TOTAL_STEPS } from "../site-provisioning";
+import {
+  scheduleBackgroundProvisioning,
+  TOTAL_STEPS,
+  type WaitUntilCtx,
+} from "../site-provisioning";
 import { runCloudflareSiteTeardown } from "../site-provisioning/cloudflare-interfaces";
 
 interface SiteRow {
@@ -247,18 +255,28 @@ export async function createSiteHandler(
     return c.json({ error: `failed to create site: ${message}` }, 500);
   }
 
-  // MQAFIX-1: drive the provisioning runner to completion inline so the
-  // freshly-created site reaches the final step within the AC4 60-second
-  // budget without relying on a manual UI driver. All steps are
-  // deterministic + dry-run gated for Cloudflare mutations, so the loop
-  // completes in milliseconds against D1. Errors are swallowed — the
-  // site row is already committed and a halted job can be retried via
-  // the /provision/next endpoint.
+  // T38 [BCL-074]: provisioning runs ASYNCHRONOUSLY in the background so
+  // this create request returns immediately instead of blocking on the
+  // full 16-step build. We hand the driver to the request's
+  // ExecutionContext (waitUntil) when one is present — the Workers runtime
+  // always provides it — so the loop runs after the response is flushed;
+  // each tick calls the idempotent advanceNextStep until the final step
+  // flips the site to status='active'. A killed step is persisted
+  // failed + resumable (advanceNextStep records last_error and leaves the
+  // job pointed at the failed step; never swallowed), so a stalled build
+  // can be resumed from the UI (T39) or POST .../provision/next without
+  // re-creating the site. The site row is already committed, so a
+  // background hiccup never fails this request.
+  let execCtx: WaitUntilCtx | undefined;
   try {
-    await runProvisioningToCompletion(c.env, c.env.DB, siteId);
-  } catch (err) {
-    void err;
+    execCtx = c.executionCtx;
+  } catch {
+    // No ExecutionContext on this request (e.g. a direct unit-test
+    // invocation): scheduleBackgroundProvisioning falls back to an inline
+    // best-effort drive.
+    execCtx = undefined;
   }
+  await scheduleBackgroundProvisioning(execCtx, c.env, c.env.DB, siteId);
 
   return c.json(
     { resource: { id: siteId, domain, status: "draft" } },

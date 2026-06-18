@@ -41,9 +41,11 @@ import {
   findActiveJobForSite,
   ProvisioningError,
   runProvisioningToCompletion,
+  scheduleBackgroundProvisioning,
   type AdvanceResult,
   type JobRow,
   type ProvisioningRunSummary,
+  type WaitUntilCtx,
 } from "./runner";
 
 export {
@@ -54,8 +56,15 @@ export {
   findActiveJobForSite,
   ProvisioningError,
   runProvisioningToCompletion,
+  scheduleBackgroundProvisioning,
 };
-export type { AdvanceResult, JobRow, ProvisioningRunSummary, StepKey };
+export type {
+  AdvanceResult,
+  JobRow,
+  ProvisioningRunSummary,
+  StepKey,
+  WaitUntilCtx,
+};
 
 interface LatestStepRow {
   step_key: string;

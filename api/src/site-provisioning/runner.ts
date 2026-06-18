@@ -167,6 +167,49 @@ export async function runProvisioningToCompletion(
   return { steps_run, final_status, last_step_status };
 }
 
+// T38 [BCL-074] — the only ExecutionContext capability the async driver
+// needs is waitUntil. Declaring the structural subset (rather than the
+// Workers `ExecutionContext`) keeps this module runtime-agnostic and lets a
+// unit test hand in a plain `{ waitUntil }` capturing fake.
+export interface WaitUntilCtx {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+// T38 [BCL-074] — drive provisioning ASYNCHRONOUSLY so the create request
+// returns immediately. Background work advances the build one idempotent
+// step at a time (runProvisioningToCompletion loops advanceNextStep); the
+// final update_launch_readiness step flips the site to status='active'. A
+// killed or failing step is persisted as failed + resumable by
+// advanceNextStep (the job row keeps current_step_index pointed at the
+// failed step and records last_error — never swallowed) and can be resumed
+// from the UI (T39) or via POST /api/admin/sites/:id/provision/next.
+//
+// When an ExecutionContext is present — the Workers runtime always provides
+// one — the loop is handed to ctx.waitUntil so it runs AFTER the response is
+// flushed (the request is NOT blocked on the build). When it is absent (a
+// direct unit-test invocation that passes no executionCtx) we await the loop
+// inline as a best-effort fallback: there is no background channel to defer
+// to, and the freshly-created site should still finish provisioning. Either
+// path is non-throwing: the site row is already committed and a halted job
+// is resumable, so a background hiccup surfaces as the job's last_error, not
+// as an unhandled rejection that would fail the user's create request.
+export async function scheduleBackgroundProvisioning(
+  ctx: WaitUntilCtx | undefined,
+  env: Env,
+  db: D1Database,
+  site_id: string,
+): Promise<void> {
+  const drive = runProvisioningToCompletion(env, db, site_id).then(
+    () => undefined,
+    () => undefined,
+  );
+  if (ctx !== undefined && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(drive);
+    return;
+  }
+  await drive;
+}
+
 export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Promise<AdvanceResult> {
   if (job.status === "completed" || job.status === "failed") {
     return {
