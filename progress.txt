@@ -11166,3 +11166,33 @@ Custom head/footer HTML + analytics/ad-header scripts: render + sanitize.
   - Event-handler regex anchors on [\s/] before `on` so substrings like
     `person=` / `reason=` / `data-icon=` are NOT false-positives.
 ---
+
+## 2026-06-18 - T24 (Logo: render fix + operator-directed panel)
+sources: T24  |  RC-043 (T24-AC1), RC-044 (T24-AC2)
+- AC1 render fix: public view-models now resolve logo_media_id via mediaUrl()
+  (src/public/queries.ts, view-models/home.ts, view-models/article.ts) so the
+  design .brand <img> loads via /media/<key>. Settings logo upload now also
+  writes the uploaded storage_key into logo_media_id (was site_logo_url only),
+  closing the public-reads-vs-admin-writes mismatch.
+- AC2 directed panel: AI-logo panel gains description/style/colorScheme inputs;
+  Generate POSTs a LogoRequest {prompt,style,colorScheme} to /api/admin/ai/logo
+  (src/admin/templates/settings.ts). ai-logo.ts forwards the direction into
+  buildLogoPrompt (src/ai/prompts/logo.ts) and echoes applied_direction.
+  Direction is additive — undirected click stays { site_id } (default prompt
+  byte-identical), so T20's server contract (numeric media_id write) is intact.
+- Files: src/ai/prompts/logo.ts, src/admin/ai-logo.ts,
+  src/admin/templates/settings.ts, src/public/queries.ts,
+  src/public/view-models/home.ts, src/public/view-models/article.ts,
+  test/logo-panel.test.ts (new), test/admin-settings.test.ts (POST body assert
+  updated to the new LogoRequest contract).
+- Self-checks: file sizes — edits are minimal additions to pre-existing large
+  template/view-model modules (settings.ts 643, article.ts 612, home.ts 374);
+  no NEW oversized files. Secret scan PASS. Error handling PASS (ai-logo.ts
+  try/catch + 400/404/500/501/502). Migration N/A (category=ui). Param queries
+  PASS (all .bind, no interpolation).
+- Tests run: cd api && npm test -> 1287 passed (149 files); cd api && npx tsc
+  --noEmit -> clean.
+- Evidence (D13): run_required_evidence_command.py --required-claim-ids=
+  RC-043,RC-044 -> status PASS (parser matched L2_AUTO_DISAMBIGUATION markers).
+- Q3: run_story_quality_checks.py --story-id=T24 -> PASS (4 checks, receipts
+  written to story_execution_receipts.jsonl).
