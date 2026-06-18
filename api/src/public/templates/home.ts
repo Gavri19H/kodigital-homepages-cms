@@ -123,12 +123,20 @@ export function renderHome(args: RenderHomeArgs): string {
   // collapsed and the section count remains 13). Both branches go through
   // renderHero so the §11 contract DOM (.hero-bg + .hero-content >
   // h1.hero-title > span.tagline + form.hero-search) holds either way.
+  //
+  // T18 (BCL-056): the full-bleed .hero-bg image is the operator-set
+  // site-level hero image (vm.heroImageUrl, already /media/<key>) when one is
+  // configured — it fills the banner behind the title + search regardless of
+  // which article leads. When unset it falls back to the lead article's
+  // featured image, and when there are no articles the site hero still paints
+  // the banner (the previous behaviour rendered an imageless hero).
   const hero = vm.hero;
+  const siteHeroImageUrl = vm.heroImageUrl ?? null;
   const s2 = hero !== null
     ? renderHero({
         title: hero.title,
         excerpt: hero.excerpt,
-        imageUrl: hero.imageUrl,
+        imageUrl: siteHeroImageUrl ?? hero.imageUrl,
         imageAlt: hero.imageAlt,
         href: hero.href,
         kicker: hero.categoryName.length > 0 ? hero.categoryName : undefined,
@@ -136,6 +144,7 @@ export function renderHome(args: RenderHomeArgs): string {
     : renderHero({
         title: site.name,
         excerpt: site.tagline.length > 0 ? site.tagline : undefined,
+        imageUrl: siteHeroImageUrl,
       });
 
   // §3 — chip-rail (categories)

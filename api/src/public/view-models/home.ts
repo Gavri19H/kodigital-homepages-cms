@@ -81,6 +81,13 @@ export interface HomeMeta {
 export interface HomeViewModel {
   site: HomeViewModelSite;
   hero: HomeArticleCard | null;
+  // T18 (BCL-056): the site-level hero image. Sourced from the
+  // `hero_image_media_id` site setting and resolved to its public /media/<key>
+  // web address (mediaUrl). When the operator has set one it fills the
+  // homepage .hero-bg banner; when unset it is null and the hero falls back
+  // to the lead article's featured image. Optional so view-model literals in
+  // tests need not declare it — buildHomeViewModel always populates it.
+  heroImageUrl?: string | null;
   featured: HomeArticleCard[];
   picks: HomeArticleCard[];
   trending: HomeArticleCard[];
@@ -285,6 +292,13 @@ export async function buildHomeViewModel(
     brandTokens: parseBrandTokens(settings.brand_tokens_json),
   };
 
+  // T18 (BCL-056): resolve the site-level hero image from the same settings
+  // read (no 4th D1 statement — T12.AC3 caps the build at 3 prepared
+  // statements). The stored value is a bare media.storage_key, so mediaUrl()
+  // turns it into /media/<key>; an unset/empty key resolves to null and the
+  // template falls back to the lead article's image.
+  const heroImageUrl = mediaUrl(settings.hero_image_media_id);
+
   // T12 buckets: rows flagged is_trending = 1 go to vm.trending ONLY —
   // they are removed from the pool BEFORE hero/featured/latest are cut so
   // a trending card never duplicates into another bucket.
@@ -332,5 +346,5 @@ export async function buildHomeViewModel(
     canonicalUrl: `https://${site.hostname}/`,
   };
 
-  return { site, hero, featured, picks, trending, latest, categories, newsletter, meta };
+  return { site, hero, heroImageUrl, featured, picks, trending, latest, categories, newsletter, meta };
 }
