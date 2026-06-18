@@ -11931,3 +11931,27 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
   - warmHomepageInProcess short-circuits to dry_run under SITE_PROVISIONING_DRY_RUN
     (no render during provisioning), so the live-home render assertion is made
     by calling renderHomepageHtml explicitly against the provisioned state.
+
+## 2026-06-18 — T42 (Scheduled-publishing cron) [sources: T42]
+- Implemented: scheduled-publishing cron. Added processScheduledArticles engine + wired the Workers `scheduled` handler + [triggers] crons.
+- Files changed:
+  - api/src/workflow/scheduled.ts (NEW) — processScheduledArticles(env, now): SELECT status='scheduled' AND scheduled_at<=now, publish() each via canonical path, per-article try/catch (failures recorded, never abort batch).
+  - api/src/workflow/index.ts — export processScheduledArticles + ProcessScheduledResult.
+  - api/src/index.ts — attach `scheduled` to the Hono app via Object.assign (keeps app.fetch for runtime + app.request for tests; adds cron entry point). Handler registers work on ctx.waitUntil AND awaits it.
+  - api/wrangler.toml — [triggers] crons = ["*/5 * * * *"] at top level + [env.staging.triggers] + [env.production.triggers] (triggers are NOT inherited by named envs).
+  - api/test/scheduled-publish.test.ts (NEW) — drives the shipped `scheduled` handler over a STATEFUL in-process D1 fake; D1 SELECT confirms a due article flips status->published; future-dated article untouched; failing(phantom) row never aborts the batch; dry-run asserts 0 outbound fetches to api.cloudflare.com.
+- Self-check results:
+  - File sizes: scheduled.ts 74 (limit 200) PASS; index.ts 168 (limit 200) PASS; workflow/index.ts 39 PASS; test 268 PASS.
+  - Secret scan: PASS (none).
+  - Error handling: PASS (per-article try/catch in engine; handler awaits work).
+  - Migration execution: N/A (articles table already has status + scheduled_at; no new migration).
+  - Parameterized queries: PASS (SELECT uses .bind(?), no template-literal SQL).
+- Tests run:
+  - cd api && npx tsc --noEmit -> clean
+  - cd api && npx vitest run -> 167 files / 1351 tests pass (no regression from entry-point change)
+  - D13 runner RC-070 (npx vitest run test/scheduled-publish.test.ts) -> status PASS (parse_test_output)
+  - Q3 run_story_quality_checks.py --story-id=T42 -> PASS checks_executed=4 (receipts written)
+- Learnings:
+  - To add a Workers `scheduled` cron handler without breaking the existing Hono `app.request(...)` test suite: `Object.assign(app, { scheduled })` and export that — keeps .fetch/.request, adds .scheduled. A plain ExportedHandler literal ({fetch: app.fetch, scheduled}) drops .request and breaks ~all admin tests.
+  - wrangler [triggers] crons are NOT inherited by [env.*]; redeclare per env (same as bindings).
+---

@@ -665,8 +665,8 @@
       "title": "Scheduled-publishing cron",
       "category": "infra",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T42"
       ],
