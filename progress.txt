@@ -10312,3 +10312,41 @@ INFRA/SKILL-BUG SURFACED (for ship/learn, NOT a product blocker):
   (use a relative `find acceptance-tests`, or cd into worktree root before find).
 
 ---
+
+## 2026-06-18 - T2 (sources: T2)
+- iteration 2 — execution story T2 (/media/<storage_key> prefix on all public images)
+- Implemented: every public image url now flows through the /media/ route.
+  - NEW api/src/public/view-models/media-url.ts — mediaUrl() helper: bare
+    storage_key -> "/media/<key>"; null/empty -> null (no "/media/null");
+    already-rooted ("/..."/http(s)/data:) urls returned unchanged (no double prefix).
+  - api/src/public/view-models/home.ts — toCard() uses mediaUrl(row.image_url)
+    so hero + featured + picks + trending + latest cards emit /media/ urls.
+    (render-pages home og:image derives from vm.hero.imageUrl -> fixed in lockstep.)
+  - api/src/public/view-models/article.ts — article-hero (article.imageUrl) +
+    related cards (toRelatedCard) + body-image src (adaptBodyBlocks) via mediaUrl();
+    meta.ogImage derives from article.imageUrl so og:image is fixed too.
+  - NEW api/test/public-view-models-media.test.ts — T2-AC1/RC-005 (home hero+cards)
+    and T2-AC2/RC-006 (article-hero + og:image + body-image + null->null + no double-prefix).
+- Files changed: api/src/public/view-models/{media-url.ts(new),home.ts,article.ts},
+  api/test/public-view-models-media.test.ts(new)
+- Self-check results:
+  - File sizes: media-url.ts 39 (limit 200) PASS; home.ts 337, article.ts 556
+    (pre-existing >200; this story added <=9 lines each, minimal) ; test 240 (N/A) — PASS
+  - Secret scan: PASS (clean)
+  - Error handling: N/A (pure helper + view-model wiring; existing try/catch preserved)
+  - Migration execution: N/A (category=api, no schema delta)
+  - Parameterized queries: N/A (no SQL added; existing .bind() queries untouched)
+- Tests run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run -> 127 files / 1174 tests PASS (no regressions)
+  - D13 runner RC-005,RC-006 -> status: PASS (resolved_cwd = worktree api/)
+  - Q3 run_story_quality_checks.py --story-id=T2 -> PASS checks_executed=2
+- Learnings for future iterations:
+  - Public templates (templates/components.ts, templates/article.ts) render
+    imageUrl/ogImage/body src VERBATIM (no prefixing) — the view model is the single
+    /media/ normalization point. Template tests already assume "/media/..."-prefixed
+    view-model output, confirming this contract.
+  - D13 parse_test_output binding: embed the literal "[api/test/<file>.test.ts]" in the
+    it() title; the packet's runner_command_rendered already carries the correct
+    --worktree-root (mission worktree), so the rescue-3 wrong-root failure mode does not recur here.
+---
