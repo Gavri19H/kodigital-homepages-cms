@@ -11242,3 +11242,68 @@ sources: T24  |  RC-043 (T24-AC1), RC-044 (T24-AC2)
     (createRequire for node:vm); fire the form 'submit' listener and parse the
     captured PATCH body. See api/test/logo-panel.test.ts for the same pattern.
 ---
+
+## 2026-06-18 - T26 (sources: T26) - Newsletter: real per-provider integration
+- What was implemented:
+  - Public renderNewsletter now posts to each provider's REAL hosted-form
+    action. New exported buildNewsletterForm(provider, config) registry maps:
+    mailchimp -> https://<server>.list-manage.com/subscribe/post?u=<u>&id=<list_id>
+    (email field EMAIL); convertkit -> app.convertkit.com/forms/<id>/subscriptions
+    (email_address); buttondown -> buttondown.email/api/emails/embed-subscribe/<user>
+    (+ hidden embed=1); substack -> <handle>.substack.com/api/v1/free; custom ->
+    operator https:// action (L-041 scheme guard, email_field override). Missing
+    required config => returns null and the form falls back to the generic
+    enabled endpoint (so a provider-only selection is never a dead control and
+    the existing "enabled when provider set" test still holds).
+  - renderNewsletter rebuilt as the design-contract two-column card (copy col +
+    action col); switched the label to the real .newsletter-label-sr sr-only class.
+  - public-css .newsletter is now the 2-col card: grid-template-columns 1fr 1fr,
+    border 1px solid var(--tw-brand-soft), background var(--tw-brand-tint),
+    border-radius var(--tw-radius-lg); stacks to 1 col at the 760px breakpoint.
+  - Home view-model HomeNewsletter + parseNewsletter now carry/parse config;
+    home.ts forwards vm.newsletter.config to renderNewsletter.
+  - Admin Settings: NewsletterConfig + parseNewsletter parse stored config; the
+    card renders one hidden field group per provider (data-newsletter-provider);
+    an ES5 reveal handler shows only the selected provider's group; the submit
+    script composes the visible group's [data-newsletter-cfg-key] inputs into
+    newsletter_settings_json.config. Kept the T15-tested submit substrings.
+- Files changed: api/src/public/templates/components.ts,
+  api/src/public/assets/public-css.ts, api/src/public/view-models/home.ts,
+  api/src/public/templates/home.ts, api/src/admin/templates/settings.ts,
+  api/test/newsletter-provider.test.ts (new).
+- Self-check results:
+  - File sizes: components.ts 462, public-css.ts 293, home(vm) 383, home(tpl) 351,
+    settings.ts 891, newsletter-provider.test.ts 122. The two template modules
+    are pre-existing large files (incremental additions only); no architecture.md
+    maxFileLines for this mission. New test file 122 (< limit). PASS.
+  - Secret scan: PASS (no hardcoded secrets; provider keys are operator-supplied
+    at runtime, stored per-site in site_settings).
+  - Error handling: PASS — both parseNewsletter parsers wrap JSON.parse in
+    try/catch; buildNewsletterForm returns null on incomplete/unknown provider.
+  - Migration execution: N/A (UI story, no DB changes).
+  - Parameterized queries: N/A (no SQL in changed files).
+  - ES5 inline-script additions (reveal + submit config): no arrow/let/const/
+    template-literal. PASS (L-014).
+- Tests run:
+  - cd api && npx vitest run test/newsletter-provider.test.ts -> 2 passed
+    (AC1 buildNewsletterForm + renderNewsletter action/switch + admin reveal;
+     AC2 .newsletter 2-col/brand-soft/brand-tint/radius-lg + 760 stack)
+  - cd api && npm test -> 1293 passed (151 files; no regressions)
+  - cd api && npx tsc --noEmit -> clean
+  - D13 runner (RC-046,RC-047): run_required_evidence_command.py -> status: PASS
+    (parse_test_output, resolved_cwd = worktree/api, both backing tests observed)
+  - Q3: run_story_quality_checks.py --story-id=T26 -> PASS (checks_executed=4,
+    all slots pass_fail=PASS via Q6U substitution to `cd api && npm test`)
+- Learnings for future iterations:
+  - Per-provider newsletter actions are the real hosted-form embeds (no local
+    DB row / no /api/newsletter/subscribe route exists). The behavioral proof is
+    buildNewsletterForm + the rendered form action, NOT a DB SELECT — the packet
+    db_check is a generic placeholder template that Q6U substitutes to npm test.
+  - renderNewsletter keeps the provider-set-but-unconfigured case ENABLED with a
+    generic action (preserves public-templates-components.test "enabled when a
+    provider is configured"); only provider null/empty is the disabled+notice stub.
+  - design-contract-values declarations() helper greps the bare `.newsletter {`
+    block; BEM children (.newsletter__*) never collide because the regex needs
+    `.newsletter` immediately followed by whitespace+`{`. Put the card's
+    grid/border/bg ON `.newsletter` itself so the AC2 selector match is exact.
+---
