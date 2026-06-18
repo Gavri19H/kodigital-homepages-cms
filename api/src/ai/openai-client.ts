@@ -13,6 +13,12 @@ import {
 const OPENAI_TEXT_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/generations";
 const DEFAULT_TIMEOUT_MS = 30_000;
+// T1/AC1: image generation is far slower than text completion — gpt-image-2
+// routinely takes 60-90s. The 30s text default aborts a healthy image
+// request mid-flight and surfaces it as a (silent) failure, so the image
+// path gets its own ≥120s budget. Every image call defaults to this unless
+// the caller passes an explicit (larger) timeoutMs.
+const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 250;
 const REDACTED = "[REDACTED]";
@@ -66,6 +72,33 @@ export function redactApiKey(key: string | undefined): string {
 
 export function redactSecretsFromText(input: string): string {
   return input ? input.replace(SK_KEY_PATTERN, REDACTED) : input;
+}
+
+// T1/AC2: gpt-image-2 only accepts three sizes — 1024x1024 (square),
+// 1536x1024 (landscape) and 1024x1536 (portrait). DALL·E-era sizes
+// (1792x1024, 1024x1792, 512x512, 256x256, …) 400 the request. We map any
+// requested size to the nearest supported aspect BEFORE building the
+// request body so an unsupported size never reaches the OpenAI client.
+const GPT_IMAGE_2_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
+const DEFAULT_IMAGE_SIZE: (typeof GPT_IMAGE_2_SIZES)[number] = "1024x1024";
+
+export function normalizeImageSize(requested: string | undefined): string {
+  if (!requested) return DEFAULT_IMAGE_SIZE;
+  const trimmed = requested.trim();
+  if ((GPT_IMAGE_2_SIZES as readonly string[]).includes(trimmed)) {
+    return trimmed;
+  }
+  const match = trimmed.match(/^(\d+)\s*[x×]\s*(\d+)$/i);
+  if (!match) return DEFAULT_IMAGE_SIZE;
+  const w = Number(match[1]);
+  const h = Number(match[2]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return DEFAULT_IMAGE_SIZE;
+  }
+  const ratio = w / h;
+  if (ratio > 1.15) return "1536x1024"; // landscape (e.g. 1792x1024, 16:9)
+  if (ratio < 0.87) return "1024x1536"; // portrait (e.g. 1024x1792)
+  return "1024x1024"; // square-ish
 }
 
 function isRetriableStatus(status: number): boolean {
@@ -200,7 +233,12 @@ export function createOpenAIClient(env: Env): OpenAIClient {
       if (!hasKey) return { skipped_no_api_key: true };
       const model = getImageModel(env);
       const fetchImpl = opts.fetchImpl ?? fetch;
-      const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      // T1/AC1: the image path defaults to DEFAULT_IMAGE_TIMEOUT_MS (≥120s),
+      // never the 30s text default — a caller may only raise it.
+      const timeoutMs = opts.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS;
+      // T1/AC2: normalize the requested size to a gpt-image-2-supported value
+      // so an unsupported size (e.g. 1792x1024) never reaches the API.
+      const size = normalizeImageSize(opts.size);
       // T10/AC1: gpt-image-2 rejects `response_format` with a 400
       // ("Unknown parameter: response_format"). The model id is locked by
       // the brief and stays unchanged; the request body MUST NOT carry a
@@ -210,7 +248,7 @@ export function createOpenAIClient(env: Env): OpenAIClient {
         {
           model,
           prompt: opts.prompt,
-          size: opts.size ?? "1024x1024",
+          size,
         },
         opts.maxRetries ?? DEFAULT_MAX_RETRIES,
         timeoutMs,

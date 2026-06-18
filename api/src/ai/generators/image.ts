@@ -459,28 +459,20 @@ async function runImageGenerator(
   try {
     imageResult = await client.generateImage({ prompt: args.prompt, size: args.size });
   } catch (err) {
+    // T1/AC3: a real image failure WITH a key present surfaces as
+    // failed/retryable — NEVER a silent 'fallback' stub presented as a
+    // benign 0-media result. Only the failure receipt is written (no
+    // 'fallback' parsed_json), and 'failed' is deliberately NOT in the
+    // idempotency short-circuit set above, so the caller (or a later run)
+    // can retry. The model id stays gpt-image-2 (imageModel is locked).
     await finishGenerationLogFailure(args.env, {
       idempotency_key,
-      error_message: err instanceof Error ? err.message : String(err),
-    });
-    const payload = {
-      media_id: 0,
-      storage_key,
-      mime: "image/png",
-      size_bytes: 0,
-      meta: meta(args.task, imageModel, args.prompt_version, ai_generation_id, "fallback"),
-    };
-    await finishGenerationLogFallback(args.env, {
-      idempotency_key,
-      parsed_json: redactSecretsFromPayload(payload as unknown),
-      target_type: args.target_type,
-      target_id: args.target_id,
       error_message: err instanceof Error ? err.message : String(err),
     });
     return {
       ai_generation_id,
       idempotency_key,
-      status: "fallback",
+      status: "failed",
       media_id: 0,
       storage_key,
       prompt: args.prompt,
