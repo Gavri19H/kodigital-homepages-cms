@@ -68,8 +68,12 @@ export async function createPreset(c: PresetCtx) {
     return c.json({ error: "A preset with this slug already exists" }, 409);
   }
 
+  // variables_schema/output_rules (migration 0019) are appended LAST so the
+  // existing leading column order is untouched. Absent fields bind the same
+  // '[]' empty-array literal the column DEFAULT declares, so a created preset
+  // reads back '[]' rather than NULL.
   const result = await c.env.DB.prepare(
-    "INSERT INTO prompt_presets (slug, prompt_template, category, variables, text_model, image_model, is_system, is_active, name, description, system_prompt_template, user_prompt_template, content_mapping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO prompt_presets (slug, prompt_template, category, variables, text_model, image_model, is_system, is_active, name, description, system_prompt_template, user_prompt_template, content_mapping, variables_schema, output_rules) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   )
     .bind(
       slug,
@@ -85,6 +89,8 @@ export async function createPreset(c: PresetCtx) {
       systemPrompt,
       userPrompt,
       body.content_mapping ?? null,
+      body.variables_schema ?? "[]",
+      body.output_rules ?? "[]",
     )
     .run();
 
@@ -150,8 +156,11 @@ export async function updatePreset(c: PresetCtx) {
     typeof body.prompt_template === "string" && body.prompt_template.trim() !== ""
       ? body.prompt_template.trim()
       : newUserPrompt;
+  // variables_schema/output_rules COALESCE clauses are appended LAST (before
+  // WHERE id = ?); a partial PUT that omits them leaves the stored value
+  // untouched. The id bind therefore lands after the two new placeholders.
   await c.env.DB.prepare(
-    "UPDATE prompt_presets SET slug = COALESCE(?, slug), prompt_template = COALESCE(?, prompt_template), category = COALESCE(?, category), variables = COALESCE(?, variables), text_model = COALESCE(?, text_model), image_model = COALESCE(?, image_model), is_active = COALESCE(?, is_active), name = COALESCE(?, name), description = COALESCE(?, description), system_prompt_template = COALESCE(?, system_prompt_template), user_prompt_template = COALESCE(?, user_prompt_template), content_mapping = COALESCE(?, content_mapping) WHERE id = ?",
+    "UPDATE prompt_presets SET slug = COALESCE(?, slug), prompt_template = COALESCE(?, prompt_template), category = COALESCE(?, category), variables = COALESCE(?, variables), text_model = COALESCE(?, text_model), image_model = COALESCE(?, image_model), is_active = COALESCE(?, is_active), name = COALESCE(?, name), description = COALESCE(?, description), system_prompt_template = COALESCE(?, system_prompt_template), user_prompt_template = COALESCE(?, user_prompt_template), content_mapping = COALESCE(?, content_mapping), variables_schema = COALESCE(?, variables_schema), output_rules = COALESCE(?, output_rules) WHERE id = ?",
   )
     .bind(
       newSlug !== "" ? newSlug : null,
@@ -166,6 +175,8 @@ export async function updatePreset(c: PresetCtx) {
       trimToNull(body.system_prompt_template),
       newUserPrompt,
       body.content_mapping ?? null,
+      body.variables_schema ?? null,
+      body.output_rules ?? null,
       id,
     )
     .run();

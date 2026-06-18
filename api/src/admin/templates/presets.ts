@@ -69,15 +69,25 @@ const USE_CASE_CATEGORIES: ReadonlyArray<[string, string]> = [
   ["custom", "Custom"],
 ];
 
-// "Fields to Generate" content-mapping: which outputs a preset produces
-// (legacy content-mapping :411-429). Stored as a JSON object in content_mapping.
+// "Fields to Generate" content-mapping: which TEXT outputs a preset produces
+// (legacy content-mapping :411-429). Stored as boolean flags in content_mapping.
+// Image fields are NOT booleans here — they live in the Image options widget
+// below and persist under content_mapping.image_prompts (each carries an
+// operator-authored prompt, not just an on/off flag).
 const CONTENT_MAP_FIELDS: ReadonlyArray<[string, string]> = [
   ["title", "Title"],
   ["excerpt", "Excerpt"],
   ["content", "Body content"],
   ["meta_description", "SEO meta description"],
-  ["hero_image", "Hero image"],
   ["tags", "Tags"],
+];
+
+// T4 operator image options. Each is a checkbox that reveals a user-prompt box;
+// when enabled the prompt persists at content_mapping.image_prompts.<key> and
+// generation routes that field through POST /api/admin/ai/image.
+const IMAGE_PROMPT_FIELDS: ReadonlyArray<[string, string]> = [
+  ["hero_image", "Hero image"],
+  ["above_subheadline_image", "Above-subheadline image"],
 ];
 
 // {{variable}} click-to-insert chips (legacy auto-detect Preview). Clicking a
@@ -207,6 +217,46 @@ function renderContentMap(
 </div>`;
 }
 
+// T4 image options: hero_image + above_subheadline_image. Each enabled field
+// reveals a user-prompt box; the prompts persist at
+// content_mapping.image_prompts.{hero_image,above_subheadline_image}. Pre-fills
+// from a stored content_mapping.image_prompts object on edit.
+function renderImageOptions(
+  mapping: string | null | undefined,
+  dis: string,
+): string {
+  let prompts: Record<string, unknown> = {};
+  if (mapping) {
+    try {
+      const parsed = JSON.parse(mapping);
+      const ip = parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>).image_prompts
+        : null;
+      if (ip && typeof ip === "object") {
+        prompts = ip as Record<string, unknown>;
+      }
+    } catch {
+      prompts = {};
+    }
+  }
+  const items = IMAGE_PROMPT_FIELDS.map(([field, label]) => {
+    const raw = prompts[field];
+    const enabled = typeof raw === "string";
+    const promptText = typeof raw === "string" ? raw : "";
+    const checked = enabled ? " checked" : "";
+    const hidden = enabled ? "" : " hidden";
+    return `<div class="img-opt">
+  <label class="img-opt-toggle"><input type="checkbox" class="img-opt-field" data-image="${escapeHtml(field)}" id="imgopt-${escapeHtml(field)}"${checked}${dis} /> ${escapeHtml(label)}</label>
+  <textarea class="img-opt-prompt form-textarea" data-image-prompt="${escapeHtml(field)}" id="imgprompt-${escapeHtml(field)}" placeholder="Image prompt for ${escapeHtml(label.toLowerCase())}"${hidden}${dis}>${escapeHtml(promptText)}</textarea>
+</div>`;
+  }).join("");
+  return `<div class="form-group">
+  <label class="form-label">Image options</label>
+  <div class="image-options" id="preset-image-options">${items}</div>
+  <p class="form-help">Enable an image field to reveal its prompt; saved as content_mapping.image_prompts and generated via /api/admin/ai/image.</p>
+</div>`;
+}
+
 // Reference preset form body (Name/Description/Category select/System+User
 // prompts/{{var}} chips/content-map + model selects). AC3: presetFormPage
 // composes the presets screen via renderPresets so the upgraded form is wired
@@ -258,6 +308,7 @@ ${systemNotice}<form id="preset-form" data-preset-id="${presetId}">
   </div>
   ${renderVariableChips(dis)}
   ${renderContentMap(isEdit ? preset.content_mapping : null, dis)}
+  ${renderImageOptions(isEdit ? preset.content_mapping : null, dis)}
   <div class="form-group">
     <label for="preset-text-model" class="form-label">Text model</label>
     <select id="preset-text-model" name="text_model" class="form-select"${dis}>${renderModelOptions(SUPPORTED_TEXT_MODELS, isEdit ? preset.text_model : DEFAULT_TEXT_MODEL)}</select>
@@ -290,6 +341,10 @@ const PRESET_FORM_STYLES = `
 .detected-vars{font-family:monospace;color:var(--c-text)}
 .content-map{display:flex;flex-wrap:wrap;gap:12px}
 .cmap-item{display:flex;align-items:center;gap:6px;font-weight:400}
+.image-options{display:flex;flex-direction:column;gap:12px}
+.img-opt{display:flex;flex-direction:column;gap:6px}
+.img-opt-toggle{display:flex;align-items:center;gap:6px;font-weight:400}
+.img-opt-prompt[hidden]{display:none}
 `;
 
 // ES5-only inline submit script (var/function/promise chains — no
@@ -366,8 +421,35 @@ for(bi=0;bi<boxes.length;bi++){
 var f=boxes[bi].getAttribute("data-field");
 if(f){map[f]=boxes[bi].checked?true:false;if(boxes[bi].checked){any=true;}}
 }
+var imgBoxes=form.querySelectorAll(".img-opt-field");
+var imgMap={};var imgAny=false;var ib;
+for(ib=0;ib<imgBoxes.length;ib++){
+var key=imgBoxes[ib].getAttribute("data-image");
+if(key&&imgBoxes[ib].checked){
+var ta=form.querySelector('[data-image-prompt="'+key+'"]');
+imgMap[key]=ta?ta.value:"";
+imgAny=true;
+}
+}
+if(imgAny){map.image_prompts=imgMap;any=true;}
 return any?JSON.stringify(map):null;
 }
+function wireImageOptions(){
+var imgBoxes=form.querySelectorAll(".img-opt-field");
+var ii;
+for(ii=0;ii<imgBoxes.length;ii++){
+(function(box){
+function sync(){
+var key=box.getAttribute("data-image");
+var ta=form.querySelector('[data-image-prompt="'+key+'"]');
+if(ta){ta.hidden=!box.checked;}
+}
+box.addEventListener("change",sync);
+sync();
+}(imgBoxes[ii]));
+}
+}
+wireImageOptions();
 function collectVariables(){
 var list=detectVarList();
 return list.length?JSON.stringify(list):null;

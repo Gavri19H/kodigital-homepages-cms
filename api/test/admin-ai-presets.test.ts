@@ -49,6 +49,9 @@ interface PresetRow {
   system_prompt_template: string | null;
   user_prompt_template: string | null;
   content_mapping: string | null;
+  // T4 reference columns (migration 0019).
+  variables_schema: string | null;
+  output_rules: string | null;
 }
 
 interface PreparedCall {
@@ -80,6 +83,8 @@ function makeFakeDb() {
       system_prompt_template: row.system_prompt_template ?? null,
       user_prompt_template: row.user_prompt_template ?? null,
       content_mapping: row.content_mapping ?? null,
+      variables_schema: row.variables_schema ?? "[]",
+      output_rules: row.output_rules ?? "[]",
     };
     rows.set(id, full);
     return full;
@@ -120,7 +125,8 @@ function makeFakeDb() {
           // Bind order (ai-presets-write.ts): slug, prompt_template,
           // category, variables, text_model, image_model, is_system,
           // is_active, name, description, system_prompt_template,
-          // user_prompt_template, content_mapping.
+          // user_prompt_template, content_mapping, variables_schema,
+          // output_rules.
           const created = seed({
             slug: String(captured[0]),
             prompt_template: String(captured[1]),
@@ -135,6 +141,8 @@ function makeFakeDb() {
             system_prompt_template: captured[10] as string | null,
             user_prompt_template: captured[11] as string | null,
             content_mapping: captured[12] as string | null,
+            variables_schema: captured[13] as string | null,
+            output_rules: captured[14] as string | null,
           });
           last_row_id = created.id;
         }
@@ -149,8 +157,9 @@ function makeFakeDb() {
         if (sql.includes("COALESCE")) {
           // Bind order: slug, prompt_template, category, variables,
           // text_model, image_model, is_active, name, description,
-          // system_prompt_template, user_prompt_template, content_mapping, id.
-          const row = rows.get(Number(captured[12]));
+          // system_prompt_template, user_prompt_template, content_mapping,
+          // variables_schema, output_rules, id.
+          const row = rows.get(Number(captured[14]));
           if (row) {
             if (captured[0] != null) row.slug = String(captured[0]);
             if (captured[1] != null) row.prompt_template = String(captured[1]);
@@ -168,6 +177,8 @@ function makeFakeDb() {
               row.user_prompt_template = String(captured[10]);
             }
             if (captured[11] != null) row.content_mapping = String(captured[11]);
+            if (captured[12] != null) row.variables_schema = String(captured[12]);
+            if (captured[13] != null) row.output_rules = String(captured[13]);
           }
         }
         if (sql.startsWith("DELETE FROM prompt_presets")) {
