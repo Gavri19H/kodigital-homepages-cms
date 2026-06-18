@@ -9,7 +9,7 @@
 import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow } from "./queries";
-import { fetchPublicLayoutSiteInfo } from "./queries";
+import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE } from "./queries";
 import { renderHeader, renderFooter, renderCard } from "./templates/components";
 import { buildCanonicalUrl } from "./templates/seo-head";
 import {
@@ -217,6 +217,17 @@ export async function renderArticleHtml(
       description: vm.meta.description,
       canonicalUrl,
       ogImage: vm.meta.ogImage,
+      // T13-AC1: an article render's head carries og:type=article +
+      // article:published_time/modified_time (+ section/author) + twitter:card
+      // + canonical. The article:* namespace is emitted by renderSeoHead only
+      // because ogType is "article" here.
+      ogType: "article",
+      articlePublishedTime: vm.meta.publishedAt,
+      articleModifiedTime: vm.meta.modifiedAt,
+      articleSection: vm.article.categoryName.length > 0
+        ? vm.article.categoryName
+        : undefined,
+      articleAuthor: vm.article.author?.name,
     },
     body,
     extraHead: jsonLdHead.join("\n"),
@@ -313,6 +324,35 @@ export async function renderCategoryHtml(
     listing +
     `</div></section>`;
 
+  // T13-AC2: paginated category pages (page >= 2) are noindex,follow — the
+  // page-1 canonical owns the index entry while the crawler still follows the
+  // article links — and carry rel=prev/next so the crawler walks the series.
+  // prev points at page 1 as the bare /category/<slug> (its canonical shape);
+  // next is emitted only when the current page is full (likely more to come).
+  const prevPath =
+    pageNum > 1
+      ? pageNum - 1 === 1
+        ? `/category/${slug}`
+        : `/category/${slug}/page/${pageNum - 1}`
+      : null;
+  const nextPath =
+    articles.length >= PUBLIC_PAGE_SIZE
+      ? `/category/${slug}/page/${pageNum + 1}`
+      : null;
+  const paginationLinks: Array<{ rel: string; href: string }> = [];
+  if (prevPath !== null) {
+    paginationLinks.push({
+      rel: "prev",
+      href: buildCanonicalUrl(siteContext.hostname, prevPath),
+    });
+  }
+  if (nextPath !== null) {
+    paginationLinks.push({
+      rel: "next",
+      href: buildCanonicalUrl(siteContext.hostname, nextPath),
+    });
+  }
+
   return renderLayout({
     site: {
       name: site.name,
@@ -326,6 +366,8 @@ export async function renderCategoryHtml(
       title: cat.name,
       description: site.description,
       canonicalUrl,
+      robots: pageNum > 1 ? "noindex, follow" : undefined,
+      links: paginationLinks.length > 0 ? paginationLinks : undefined,
     },
     body,
     header: renderHeader({ site: headerSite }),
