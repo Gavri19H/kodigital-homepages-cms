@@ -286,17 +286,137 @@ function renderRobotsTxtCard(values: SettingsValueMap): string {
   );
 }
 
+// T25: friendly brand pickers instead of a raw brand_tokens_json textarea.
+// The operator picks brand-family colors + fonts; the submit script composes
+// them into brand_tokens_json (consumed by public/assets/public-css.ts via
+// renderLayout's renderBrandTokensStyle). Per BCL-047 the per-site tokens
+// OVERRIDE ONLY the brand family — primary/accent/background/text + heading/
+// body fonts; every OTHER --tw-* token (sizes, radius, shadow, ink, rules,
+// derived brand shades) stays the design-contract.md contract (E6). The
+// contract defaults below MUST mirror public-css.ts; a value equal to the
+// default composes to NO key, so that token stays the contract.
+interface BrandColorField {
+  key: string;
+  id: string;
+  label: string;
+  def: string;
+}
+
+const BRAND_COLOR_FIELDS: ReadonlyArray<BrandColorField> = [
+  { key: "tw-brand", id: "brand-color-primary", label: "Primary color", def: "#1ba8c8" },
+  { key: "tw-accent", id: "brand-color-accent", label: "Accent color", def: "#f0a830" },
+  { key: "tw-bg", id: "brand-color-background", label: "Background color", def: "#ffffff" },
+  { key: "tw-text", id: "brand-color-text", label: "Text color", def: "#2a2f38" },
+];
+
+interface BrandFontField {
+  key: string;
+  id: string;
+  label: string;
+}
+
+const BRAND_FONT_FIELDS: ReadonlyArray<BrandFontField> = [
+  { key: "tw-font-display", id: "brand-font-heading", label: "Heading font" },
+  { key: "tw-font-sans", id: "brand-font-body", label: "Body font" },
+];
+
+// Curated font stacks. The first option ("Theme default") composes to NO
+// brand_tokens_json key, so the public --tw-font-* token stays the contract.
+const BRAND_FONT_OPTIONS: ReadonlyArray<[string, string]> = [
+  ["", "Theme default"],
+  [`"Nunito", "Nunito Sans", system-ui`, "Nunito"],
+  [`"Nunito Sans", "Inter", system-ui`, "Nunito Sans"],
+  [`"Inter", system-ui, sans-serif`, "Inter"],
+  [`Georgia, "Times New Roman", serif`, "Georgia"],
+  [`"Playfair Display", Georgia, serif`, "Playfair Display"],
+  [`system-ui, -apple-system, "Segoe UI", sans-serif`, "System UI"],
+];
+
+// Parse the stored brand_tokens_json (string) into a flat string map. Corrupt
+// / non-object JSON falls back to {} (the hidden raw field still round-trips
+// the original text). Non-string values are dropped — they cannot be a CSS
+// token value anyway.
+function parseBrandTokens(raw: string): Record<string, string> {
+  if (raw.length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// A brand token may be stored with or without the leading `--` (both forms
+// map onto the same CSS custom property in renderBrandTokensStyle).
+function brandTokenValue(parsed: Record<string, string>, key: string): string | undefined {
+  return parsed[key] ?? parsed["--" + key];
+}
+
+// The color picker (<input type="color">) requires a 6-digit hex; fall back to
+// the contract default when the stored value is absent or not a simple hex.
+function effectiveBrandColor(parsed: Record<string, string>, field: BrandColorField): string {
+  const raw = brandTokenValue(parsed, field.key);
+  if (typeof raw === "string" && /^#[0-9a-fA-F]{6}$/.test(raw)) {
+    return raw.toLowerCase();
+  }
+  return field.def;
+}
+
+function renderBrandColorPicker(field: BrandColorField, parsed: Record<string, string>): string {
+  const value = effectiveBrandColor(parsed, field);
+  const id = escapeHtml(field.id);
+  const safeKey = escapeHtml(field.key);
+  return `<div class="form-group brand-token-field" data-setting-key="${safeKey}">
+    <label for="${id}" class="form-label">${escapeHtml(field.label)}</label>
+    <input id="${id}" type="color" class="form-color" data-brand-key="${safeKey}" value="${escapeHtml(value)}" />
+  </div>`;
+}
+
+function renderBrandFontSelect(field: BrandFontField, parsed: Record<string, string>): string {
+  const value = brandTokenValue(parsed, field.key) ?? "";
+  const id = escapeHtml(field.id);
+  const safeKey = escapeHtml(field.key);
+  const known = BRAND_FONT_OPTIONS.some(function (o: [string, string]): boolean {
+    return o[0] === value;
+  });
+  const opts = BRAND_FONT_OPTIONS.map(function (pair: [string, string]): string {
+    const sel = pair[0] === value ? " selected" : "";
+    return `<option value="${escapeHtml(pair[0])}"${sel}>${escapeHtml(pair[1])}</option>`;
+  }).join("");
+  // Preserve a custom (non-curated) stored font so it round-trips and stays
+  // selected instead of being silently clobbered to the theme default.
+  const extra = value.length > 0 && !known
+    ? `<option value="${escapeHtml(value)}" selected>${escapeHtml(value)} (custom)</option>`
+    : "";
+  return `<div class="form-group brand-token-field" data-setting-key="${safeKey}">
+    <label for="${id}" class="form-label">${escapeHtml(field.label)}</label>
+    <select id="${id}" class="form-select" data-brand-key="${safeKey}">${opts}${extra}</select>
+  </div>`;
+}
+
 function renderBrandTokensCard(values: SettingsValueMap): string {
+  const raw = settingValue(values, "brand_tokens_json");
+  const parsed = parseBrandTokens(raw);
+  const colors = BRAND_COLOR_FIELDS.map(function (f: BrandColorField): string {
+    return renderBrandColorPicker(f, parsed);
+  }).join("");
+  const fonts = BRAND_FONT_FIELDS.map(function (f: BrandFontField): string {
+    return renderBrandFontSelect(f, parsed);
+  }).join("");
+  const hint = `<p class="form-hint">Pick brand colors and fonts. These override only the brand family on the public site; every other design token stays the theme contract.</p>`;
+  // Hidden raw field preserves UNKNOWN brand_tokens_json keys for round-trip;
+  // the submit script composes the pickers over it (no raw JSON editing).
+  const hidden = `<input type="hidden" id="setting-brand_tokens_json" name="brand_tokens_json" data-field="setting_value" data-key="brand_tokens_json" value="${escapeHtml(raw)}" />`;
   return renderCard(
     "Brand Tokens",
-    renderTextareaField(
-      "brand_tokens_json",
-      "Brand Tokens (JSON)",
-      settingValue(values, "brand_tokens_json"),
-      6,
-      "Per-site design token overrides as JSON.",
-      true,
-    ),
+    hint + `<div class="brand-token-grid">${colors}${fonts}</div>` + hidden,
   );
 }
 
@@ -420,6 +540,9 @@ const SETTINGS_STYLES = `
 .settings-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 16px; font-size: 14px; font-weight: 500; color: var(--c-muted, #6b7280); cursor: pointer; }
 .settings-tab:hover { color: var(--c-text, #111827); }
 .settings-tab.active { color: var(--c-primary, #2563eb); border-bottom-color: var(--c-primary, #2563eb); }
+.brand-token-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.brand-token-field .form-color { width: 56px; height: 36px; padding: 2px; border: 1px solid var(--c-border, #d9dde3); border-radius: 6px; cursor: pointer; background: #fff; }
+@media (max-width: 600px) { .brand-token-grid { grid-template-columns: 1fr; } }
 `;
 
 // Exported so the inline client behavior (logo upload alignment + the directed
@@ -431,6 +554,19 @@ export const SETTINGS_SCRIPT = `
   var hidden = document.getElementById('settings-site-id');
   var status = document.getElementById('settings-editor-status');
   var errEl = document.getElementById('settings-form-error');
+
+  // T25: brand-family fields. id -> brand_tokens_json key + the design-contract
+  // default. A color equal to its default (or an empty font select) composes to
+  // NO key, so that token keeps the public-css.ts contract value. The keys
+  // mirror BRAND_COLOR_FIELDS / BRAND_FONT_FIELDS in this module.
+  var BRAND_FIELDS = [
+    { id: 'brand-color-primary', key: 'tw-brand', def: '#1ba8c8' },
+    { id: 'brand-color-accent', key: 'tw-accent', def: '#f0a830' },
+    { id: 'brand-color-background', key: 'tw-bg', def: '#ffffff' },
+    { id: 'brand-color-text', key: 'tw-text', def: '#2a2f38' },
+    { id: 'brand-font-heading', key: 'tw-font-display', def: '' },
+    { id: 'brand-font-body', key: 'tw-font-sans', def: '' }
+  ];
 
   // ---- Tabbed layout (settings-tabs / tab-*) ----
   var tabs = document.querySelectorAll('.settings-tab');
@@ -490,6 +626,28 @@ export const SETTINGS_SCRIPT = `
       enabled: nlEnabled ? !!nlEnabled.checked : false,
       provider: nlProvider ? nlProvider.value : ''
     });
+    // T25: compose brand_tokens_json from the brand pickers (no raw JSON
+    // editing). Start from the stored raw value so UNKNOWN keys round-trip;
+    // write a brand-family key ONLY when the operator picked a non-default
+    // value, so every other design token stays the theme contract.
+    var brandHidden = document.getElementById('setting-brand_tokens_json');
+    var brandObj = {};
+    if (brandHidden && brandHidden.value) {
+      try {
+        var brandParsed = JSON.parse(brandHidden.value);
+        if (brandParsed && typeof brandParsed === 'object') { brandObj = brandParsed; }
+      } catch (be) { brandObj = {}; }
+    }
+    for (var bi = 0; bi < BRAND_FIELDS.length; bi = bi + 1) {
+      var bf = BRAND_FIELDS[bi];
+      var bel = document.getElementById(bf.id);
+      // Drop any prior form of this brand key so we never leave a duplicate.
+      if (brandObj.hasOwnProperty(bf.key)) { delete brandObj[bf.key]; }
+      if (brandObj.hasOwnProperty('--' + bf.key)) { delete brandObj['--' + bf.key]; }
+      var bv = bel ? String(bel.value || '') : '';
+      if (bv && bv !== bf.def) { brandObj[bf.key] = bv; }
+    }
+    updates['brand_tokens_json'] = JSON.stringify(brandObj);
     var body = { site_id: hidden.value, updates: updates };
     fetch('/api/admin/settings', {
       method: 'PATCH',
