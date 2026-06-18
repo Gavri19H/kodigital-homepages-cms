@@ -175,6 +175,7 @@ jobs:
       #   - 0017_phase11_articles_author_bio.sql
       #   - 0018_phase11_categories_description_show_on_homepage.sql
       #   - 0019_rescue4_preset_columns.sql
+      #   - 0020_rescue4_seed_system_presets.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 
