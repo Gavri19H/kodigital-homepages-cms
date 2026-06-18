@@ -11978,3 +11978,57 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
     [api/test/<file>.test.ts] and L2_AUTO_DISAMBIGUATION:T<id>-AC<n>:RC-<nnn>.
   - D1 .run() meta.changes gives the deleted-row count for the confirmation payload.
 ---
+
+## 2026-06-18 - T44 (sources: T44) — Cache hit/miss monitoring + /cache/stats
+- Implemented: cache hit/miss monitoring with an admin stats view + reset.
+  Every cache READ path now records exactly one hit/miss into two durable KV
+  counters; GET /api/admin/cache/stats reports {hits, misses, total, hit_rate}
+  and POST /api/admin/cache/stats/reset zeroes them.
+- Files changed:
+  - api/src/cache/cache-stats.ts (NEW) — recordCacheHit/recordCacheMiss
+    (best-effort KV counter bump, try/catch wrapped so a stats write never
+    breaks a cache read), readCacheStats (derives hit_rate = hits/(hits+misses),
+    4-dp rounded, 0 when total==0), resetCacheStats (deletes both counters).
+    Counter keys live under "cachestat:" (distinct from "feed:" so
+    invalidateFeeds never wipes them) and are read via the RAW env.CACHE.get
+    (NOT cacheGet) so recording can't recurse or self-count.
+  - api/src/cache/index.ts — cacheGet (the feed/page KV read chokepoint) now
+    records a hit (value present) or miss (null) per read.
+  - api/src/cache/edge-cache.ts — getCachedHtml records a hit/miss per public-
+    HTML read so the monitor reflects the HTML path too, not just feeds.
+  - api/src/admin/cache-stats-handler.ts (NEW) — cacheStatsHandler +
+    cacheStatsResetHandler (KV-only, no D1, no outbound HTTP).
+  - api/src/admin/api.ts — registered adminApi.get("/cache/stats") +
+    adminApi.post("/cache/stats/reset") (under /api/admin). Route literals do
+    not match the /sites or /(verticals|domains) fixed-count greps.
+  - api/test/cache-stats.test.ts (NEW) — drives REAL hits/misses through the
+    shipped cacheGet + getCachedHtml, reads them back through the shipped admin
+    router (admin.request), asserts hit_rate after 2 hits + 1 miss (0.6667) and
+    that reset zeroes every counter durably; a fetch spy asserts ZERO outbound
+    calls to api.cloudflare.com (dry-run zero-outbound).
+- Self-check results:
+  - File sizes: cache-stats.ts 80, cache-stats-handler.ts 31, cache/index.ts 73,
+    edge-cache.ts 194 (limit 200) — all PASS. admin/api.ts 1142 — PRE-EXISTING
+    oversized shared admin aggregator (every admin story appends to it; +10
+    lines here); splitting it is out of T44 scope.
+  - Secret scan: PASS (no matches).
+  - Error handling: PASS — handlers throw -> Hono default 500 (mirrors
+    purge-cache); counter bump + JSON.parse-equivalent (parseInt) guarded.
+  - Migration execution: N/A (no schema change; KV-only monitoring).
+  - Parameterized queries: N/A (no D1/SQL in the new code).
+- Tests run:
+  - cd api && npx tsc --noEmit — exit 0
+  - cd api && npx vitest run — 169 files / 1357 tests pass (no regression from
+    instrumenting the shared cacheGet/getCachedHtml read paths)
+  - D13 runner RC-072 (run_required_evidence_command.py, parse_test_output) — PASS
+  - Q3 run_story_quality_checks.py --story-id=T44 — PASS (4 checks, receipts written)
+- Learnings:
+  - To add cache hit/miss monitoring without recursion: read the counter keys
+    via the RAW KV binding (env.CACHE.get), never via cacheGet — otherwise the
+    recorder counts its own reads. Keep the counters under a non-"feed:" prefix
+    so invalidateFeeds() leaves them alone.
+  - Instrumenting a SHARED read helper (cacheGet) + the HTML wrapper
+    (getCachedHtml) is safe for the existing suite as long as recording is
+    best-effort and only adds new KV keys — assertions that check specific keys
+    or render/fetch counts are unaffected.
+---
