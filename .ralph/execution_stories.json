@@ -217,8 +217,8 @@
       "title": "Missing public routes: tag, 404/500, redirects, /rss, pagination 301",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T14"
       ],

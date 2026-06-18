@@ -10730,3 +10730,45 @@ iteration 10 — T12 (sources: T12)
   The two ACs (article social/search tags + paginated noindex/prev-next) are
   fully satisfied.
 ---
+
+## 2026-06-18 - T14 (Missing public routes: tag, 404/500, redirects, /rss, pagination 301)
+source_story_ids: T14
+- Implemented:
+  - api/src/public/router.ts: GET /tag/:slug (+ /tag/:slug/page/:n) -> handleTag;
+    /category/:slug/page/1 (and any non->=2 page) 301 -> bare canonical;
+    /tag/:slug/page/1 301 -> bare canonical; serveRssFeed helper + /rss alias of
+    /feed.xml (same feedRssKey cache entry); router.onError -> styled HTML 500;
+    all public-content 404s now render the styled HTML page (publicErrorResponse).
+  - api/src/public/render-error.ts (NEW): renderErrorPage(404|500) -> design shell
+    via renderLayout + header/footer; DB-free (robust on a DB-caused 500);
+    noindex,follow; tenant-host only (no admin-host leak).
+  - api/src/public/render-pages.ts: renderTagHtml (mirrors renderCategoryHtml;
+    /tag/<slug> canonical, page>=2 noindex,follow + rel=prev/next, CollectionPage
+    + BreadcrumbList JSON-LD).
+  - api/src/public/queries.ts: fetchTag + fetchTagArticles (tenant-scoped,
+    parameterized .bind(); articles JOIN article_tags, always scoped by a.site_id).
+  - api/test/public-routes.test.ts (NEW): backing tests for RC-027 (T14-AC1) and
+    RC-028 (T14-AC2), each it() embeds [api/test/public-routes.test.ts] + the
+    L2_AUTO_DISAMBIGUATION marker.
+  - api/test/reserved-path.test.ts: reserved /api 404 assertion updated to the new
+    styled-404 behavior (asserts impostor-not-served; no bare-JSON envelope).
+- Self-check results:
+  - File sizes: render-error.ts 95 (limit 200) PASS; queries.ts 213, render-pages.ts
+    577, router.ts 556 — pre-existing consolidated public modules (T1-T13 pattern),
+    no new oversize file; additions are cohesive. PASS (no refactor in scope).
+  - Secret scan: PASS (no hardcoded secrets in changed src).
+  - Error handling: PASS (router.onError 500 + explicit styled 404s; all DB reads awaited).
+  - Migration execution: N/A (api category, no schema change).
+  - Parameterized queries: PASS (fetchTag/fetchTagArticles use ? + .bind()).
+- Tests run:
+  - cd api && npx vitest run test/public-routes.test.ts  -> 7 passed
+  - cd api && npm test                                    -> 1251 passed (139 files)
+  - cd api && npx tsc --noEmit                            -> clean
+  - D13 runner (RC-027,RC-028)                            -> status PASS (parse_test_output)
+  - Q3 run_story_quality_checks (T14)                     -> PASS, 2 receipts written
+- Learnings:
+  - hono 4.6.3: a mounted sub-app's onError DOES fire under the parent app (so the
+    public router's onError is the live 500 mechanism), but its notFound does NOT —
+    use explicit c.html(...) 404 returns inside matched routes, not router.notFound.
+  - Category noindex for page>=2 was already wired in T13 (renderCategoryHtml
+    robots: noindex,follow); T14 reused the same pattern for tag pages.
