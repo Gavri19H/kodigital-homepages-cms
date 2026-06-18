@@ -633,8 +633,8 @@
       "title": "Provisioning generation is preset-governed",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T40"
       ],

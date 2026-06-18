@@ -11811,3 +11811,59 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
     substring BEFORE the generic `UPDATE site_creation_jobs SET` branch
     (advanceJobPointer), else the 1-bind reset is mis-destructured.
 ---
+
+## 2026-06-18 - T40 (sources: T40) — Provisioning generation is preset-governed
+- Implemented: every automatic AI step during site setup now resolves + fully
+  applies its editable system preset BY TASK KEY (seeded is_system by migration
+  0020), so editing a preset changes the produced content on the next setup.
+  Step -> task key (category) mapping:
+    generate_15_homepage_articles (plan) -> 'starter-articles'
+    generate_tagline_and_site_description -> 'tagline' + 'site-description'
+    generate_logo_mark                    -> 'logo'
+    generate_feature_image (homepage hero)-> 'hero-image'
+    generate_or_assign_article_images     -> 'feature-image' (per article)
+- Files changed:
+  - api/src/ai/generators/preset-resolver.ts (export PROVISIONING_PRESET_CATEGORIES — single source of truth for the 6 task keys)
+  - api/src/ai/generators/text.ts (generateSiteTagline + generateSiteDescription resolve their task-key preset; generateStarterArticlePlan accepts presetCategory, default 'outline')
+  - api/src/ai/generators/image.ts (resolveImagePresetPrompt; generateLogoPrompt/Image + generateFeatureImagePrompt/Image resolve their task-key preset, use its interpolated prompt; image MODEL stays gpt-image-2)
+  - api/src/site-provisioning/steps.ts (each generate step passes its task key; hero step passes the DISTINCT 'hero-image' key + brand_name)
+  - api/test/provisioning-presets.test.ts (NEW — 4 behavioral tests, T40-AC1/RC-067)
+- Design note: additive + backward compatible. With no matching preset every
+  generator falls back to the deterministic builder (no crash, no stub).
+  Generator DEFAULTS preserve behaviour for direct callers, so the T13
+  'outline'/'content' generator contract is unchanged (its test still passes).
+  The plan (not the per-article content) is governed by 'starter-articles'
+  because the 0020 seed is a PLANNING prompt; editing it changes the
+  titles/topics the next provisioning run produces.
+- Self-check results:
+  - File sizes: preset-resolver.ts 141 (limit 200) — PASS. text.ts 869,
+    image.ts 658, steps.ts 1417 — all pre-existing files already above the 200
+    TS soft default; additions are modest + in-pattern (mirror the existing
+    article-generator preset resolution), no per-story maxFileLines declared.
+    FLAG: text.ts/image.ts/steps.ts large — split candidates. — NOTE
+  - Secret scan: PASS (no hardcoded secrets in changed product files).
+  - Error handling: PASS (resolveCategoryPreset wraps the DB read in try/catch
+    -> null -> builder fallback; resolveImagePresetPrompt delegates to it; no
+    new route handlers).
+  - Migration execution: N/A (no new migration; resolves the 0020 task-key seed).
+  - Parameterized queries: PASS (no new product SQL; resolveCategoryPreset uses
+    .bind(); no template-literal SQL).
+- Tests run:
+  - cd api && npx vitest run test/provisioning-presets.test.ts  => 4 passed
+  - cd api && npx tsc --noEmit                                  => exit 0
+  - cd api && npx vitest run (full suite)                       => 165 files, 1346 passed
+  - D13 runner_command_rendered (RC-067)                        => PASS (parse_test_output)
+  - Q3 story_quality_checks_command_rendered (T40)             => PASS (4 checks: api/db/job/outbound, receipts written)
+- Learnings:
+  - migration 0020 (T5) stores the provisioning TASK KEY in prompt_presets.category
+    (starter-articles / tagline / site-description / logo / hero-image /
+    feature-image) — distinct from the 0016 use-case categories
+    (outline/content/image/...). T40 wires provisioning to the 0020 keys while
+    leaving the generator defaults on the 0016 keys for direct/editor callers.
+  - To prove "editing a preset changes the output" without a real model, seed
+    the preset with a UNIQUE sentinel in user_prompt_template and assert the
+    dispatched prompt (captured via a WITH-key capturing OpenAIClient) contains
+    it; run twice (ALPHA vs BETA) to prove the edit propagates. presetCategoriesQueried
+    spy on the fake DB proves "resolves by task key" through the real step path
+    even with NO api key (resolution runs before the client check).
+---
