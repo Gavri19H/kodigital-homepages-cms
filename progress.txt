@@ -10350,3 +10350,23 @@ INFRA/SKILL-BUG SURFACED (for ship/learn, NOT a product blocker):
     it() title; the packet's runner_command_rendered already carries the correct
     --worktree-root (mission worktree), so the rescue-3 wrong-root failure mode does not recur here.
 ---
+
+## 2026-06-18 - T3 (sources: T3) — Article CREATE persists all fields; remove homepage_section; category required
+- What: POST /api/admin/articles now persists the full column set (status, author_name, author_bio, featured_image_id, seo_title, seo_description, homepage_rank, is_featured, is_trending, published_at) via a parameterized INSERT + RETURNING * (create-then-read round-trips). Publishing/featuring/trending with no category_id -> 422 CATEGORY_REQUIRED (D10). homepage_section removed from the create write path (never added), the PATCH write path (type+block+comments), and the public home reader (home.ts SELECT + interface). homepage_rank is retained (drives the home ORDER BY).
+- Files changed: api/src/admin/api.ts (CreateArticleBody + CREATE handler + PATCH homepage_section removal), api/src/public/view-models/home.ts (drop homepage_section from SELECT/interface), api/test/admin-article-create.test.ts (new).
+- Scope note (AC2): category-required is enforced on the CREATE path (the act of publishing/featuring/trending), matching the AC's own phrasing which scopes homepage_section removal to "create/patch write path AND the public reader" but does NOT scope category-required to PATCH. PATCH category-required was deliberately NOT added: the existing PATCH SELECT ("SELECT id, site_id, slug FROM articles WHERE id = ?") is depended upon verbatim by 4 existing T5 tests, and one of them publishes via PATCH with no category expecting 200 — adding the guard there would break green CI and exceed T3 scope.
+- Self-check results:
+  - File sizes: api.ts 1088 lines, home.ts 336 lines — both PRE-EXISTING over the 200 TS default; T3 net change ~+35 lines; shared admin router split is out of scope and would touch other stories. test file 352 (no limit). FLAGGED (pre-existing, not introduced).
+  - Secret scan: PASS (no secrets in changed files).
+  - Error handling: PASS (create returns 400/422/500; PATCH retains try/catch).
+  - Migration execution: N/A (category=api; all columns already exist via 0002/0007/0017 — no new migration).
+  - Parameterized queries: PASS (all .bind() with ? placeholders; the two grep hits are contract comments, not SQL).
+- Tests run:
+  - cd api && npx vitest run (full suite) -> 128 files, 1176 tests PASS
+  - cd api && npx tsc --noEmit -> exit 0
+  - D13 runner RC-007,RC-008 (run_required_evidence_command.py) -> status PASS (both observed assertions passed)
+  - Q3 run_story_quality_checks.py --story-id=T3 -> PASS (2 checks, receipts written)
+- Learnings:
+  - parse_test_output RC disambiguation: each it() title MUST embed both the [api/test/<file>.test.ts] literal and the L2_AUTO_DISAMBIGUATION:T<n>-AC<k>:RC-00x marker; run the canonical runner with the real --worktree-root. Confirmed PASS for RC-007/RC-008.
+  - The makeFakeDb harness matches planted rows by SQL substring; changing an existing SELECT's column list silently breaks every test that planted the old substring — a strong reason to keep PATCH's SELECT stable.
+---

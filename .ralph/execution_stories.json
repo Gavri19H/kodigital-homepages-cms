@@ -41,8 +41,8 @@
       "title": "Article CREATE persists all fields; remove homepage_section; category required for published/featured/trending",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T3"
       ],
