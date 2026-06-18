@@ -10520,3 +10520,33 @@ AI assistant: structured, preset-driven POST /api/admin/ai/chat (defect BCL-032)
   [api/test/<file>.test.ts] AND the L2_AUTO_DISAMBIGUATION:T7-ACx:RC literal, run via the
   canonical runner with the real --worktree-root.
 ---
+
+## 2026-06-18 - T8 (sources: T8) — Rebuild the preset form to the reference (full 2-column)
+- Implemented the missing reference sections in the AI preset editor and laid it out as a full 2-column grid (BCL-038):
+  - Custom Variables (key/desc/default/required) -> serialized to variables_schema (JSON array of {key,description,default,required}); repeatable rows with add/remove.
+  - Output Rules (paragraph-type/min/max/style/JSON-schema) -> serialized to output_rules (one-element JSON array); edit mode reads rule[0] back.
+  - Content Preset Mapping expanded to the reference fields: Title/Excerpt/Meta Title/Meta Description/Author Name/Author Bio/Generate-H2-Subtitles/Enforce-JSON-Schema (checkboxes) + Paragraph-count (number) -> content_mapping. Kept legacy content/tags fields. Section renamed "Fields to Generate" -> "Content Preset Mapping".
+  - Preview Variables: client-built {{token}} sample-value inputs (from Custom Variables + detected prompt tokens).
+  - Test Preset: POSTs /api/admin/ai/chat with the user prompt interpolated by the preview variables; result/error rendered to #preset-test-output (never closes silently).
+- Files changed:
+  - api/src/admin/templates/presets.ts (render: grid + new sections; PresetFormEntry +variables_schema/+output_rules; CONTENT_MAP_FIELDS expanded)
+  - api/src/admin/templates/presets-form-script.ts (NEW: split-out PRESET_FORM_STYLES + ES5 PRESET_FORM_SCRIPT, extended with collectVariablesSchema/collectOutputRules/preview+test wiring)
+  - api/src/admin/ui.ts (edit route flows row.variables_schema/output_rules into PresetFormEntry)
+  - api/test/preset-form.test.ts (NEW: RC-017/RC-018 backing tests, title-literal bound)
+  - api/test/admin-presets-pages.test.ts (updated stale T12 assertion: "Fields to Generate" -> "Content Preset Mapping")
+- Write layer unchanged: ai-presets-write.ts already persists variables_schema/output_rules (T4, migration 0019). No new migration.
+- Self-check results:
+  - File sizes: presets.ts 532, presets-form-script.ts 313, ui.ts 349, preset-form.test.ts 162 — template/JS-string asset files (presets.ts was already 508; split client assets out to contain growth). PASS (template-file judgment; no maxFileLines set for T8).
+  - Secret scan: PASS (no matches).
+  - Error handling: N/A (template render) / script uses promise .catch + JSON.parse fallbacks. PASS.
+  - Migration execution: N/A (columns exist from migration 0019/T4).
+  - Parameterized queries: N/A (no SQL added).
+  - Forbidden-substring scan (.exec( / innerHTML): PASS (none) — preview rows built via createElement+textContent; detection uses String.match.
+- Tests run:
+  - cd api && npx vitest run test/preset-form.test.ts test/preset-schema.test.ts test/admin-presets-pages.test.ts -> 23 passed
+  - cd api && npx vitest run -> 133 files / 1218 tests passed
+  - cd api && npx tsc --noEmit -> exit 0
+  - D13 runner (RC-017,RC-018) via run_required_evidence_command.py -> status PASS
+  - Q3 run_story_quality_checks.py --story-id=T8 -> PASS (checks_executed=4, receipts written)
+- Note: vitest env is node (no jsdom), so AC proof is render-output + inline-script-wiring assertions (the develop-legal route for ui_browser_interaction). Browser/api/job story_quality_checks are proof_lifecycle=post_deploy and run at ship.
+---
