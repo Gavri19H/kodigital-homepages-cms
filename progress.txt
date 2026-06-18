@@ -11547,3 +11547,41 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
   site_id; pages page_type/status; categories site/verticals; tags site_id);
   read-only filters so no DB-column write mismatch.
 ---
+
+## 2026-06-18 - T33 (sources: T33) — Pages content block editor + GET-by-id endpoints
+- Ported the contenteditable WYSIWYG block editor (the articleFormPage trio:
+  #content-editor-toolbar + #content-editor contenteditable + HIDDEN
+  textarea#content_json) into the Pages form, replacing the visible raw-JSON
+  <textarea name="content_json" class="form-textarea"> (BCL-028: pages use the
+  same rich editor as articles). editorScripts()'s initContentEditors() mounts
+  ContentEditor on this trio.
+- Added GET /api/admin/pages/:id (getPageHandler) returning a single { item }
+  record (400 invalid id / 404 unknown / 200 hit), mirroring the existing
+  getCategoryHandler. GET /api/admin/categories/:id already existed (T30).
+- Files changed:
+  - api/src/admin/templates/pages.ts (block-editor field + styles wired into
+    pageFormPage; removed contentJsonVal)
+  - api/src/admin/pages-crud-handlers.ts (getPageHandler)
+  - api/src/admin/api.ts (route: api.get /api/admin/pages/:id)
+  - api/test/pages-editor.test.ts (NEW — RC-057 backing test)
+  - api/test/pages-template.test.ts (updated T6-era content-label unit
+    assertion to the new block-editor markup; intent preserved/strengthened)
+- Self-check results:
+  - File sizes: pages.ts 517, pages-crud-handlers.ts 542, api.ts 1115,
+    pages-editor.test.ts 185 — consistent with the admin-template precedent
+    (articles.ts 611). PASS
+  - Secret scan: PASS (none)
+  - Error handling: getPageHandler returns 400/404/200, no swallowed errors. PASS
+  - Migration execution: N/A (ui story, no schema change)
+  - Parameterized queries: PASS — "SELECT " + PAGE_COLUMNS + " ... WHERE id = ? LIMIT 1" with .bind(id); static column constant, no user interpolation
+- Tests run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run -> 158 files / 1307 tests pass
+  - RC-057 runner (run_required_evidence_command.py) -> PASS (parse_test_output, exit 0)
+  - run_story_quality_checks.py --story-id=T33 -> PASS (checks_executed=2, receipts written)
+- Learnings:
+  - The Pages form already imported editorScripts(); the only missing piece was
+    the #content-editor markup trio that initContentEditors() requires. Without
+    the #content-editor element it falls through to the legacy bare-textarea
+    BlockEditor, so a visible raw-JSON textarea is NOT the rich editor the brief
+    wants — the markup, not just the script include, is the contract.

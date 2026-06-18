@@ -521,8 +521,8 @@
       "title": "Pages content block editor + GET-by-id endpoints",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T33"
       ],
