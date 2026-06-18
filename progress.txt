@@ -11955,3 +11955,26 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
   - To add a Workers `scheduled` cron handler without breaking the existing Hono `app.request(...)` test suite: `Object.assign(app, { scheduled })` and export that — keeps .fetch/.request, adds .scheduled. A plain ExportedHandler literal ({fetch: app.fetch, scheduled}) drops .request and breaks ~all admin tests.
   - wrangler [triggers] crons are NOT inherited by [env.*]; redeclare per env (same as bindings).
 ---
+
+## 2026-06-18 - T43 (sources: T43) — CCPA DELETE /api/privacy/data
+- Implemented: DELETE /api/privacy/data in api/src/privacy/index.ts — computes the
+  caller's sha256(`<ip>|<ua>`) identifier hash, deletes every privacy_opt_outs row
+  for that hash, expires the ccpa_opt_out cookie, returns {deleted:true, rows_deleted:n}.
+- Files changed: api/src/privacy/index.ts (+DELETE route, header comment), api/test/privacy-delete.test.ts (new, backs RC-071/T43-AC1).
+- Self-check results:
+  - File sizes: api/src/privacy/index.ts 124 lines (limit 200) — PASS; test 190 lines — PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: matches existing module pattern (Hono default 500 on throw; status/opt-out/opt-in identical) — N/A
+  - Migration execution: N/A (uses existing privacy_opt_outs table, migration 0001)
+  - Parameterized queries: PASS (.bind() + ? placeholder, no template interpolation)
+- Tests run:
+  - cd api && npx vitest run test/privacy-delete.test.ts — 3 passed
+  - cd api && npx vitest run test/privacy.test.ts — 7 passed (regression)
+  - cd api && npx tsc --noEmit — exit 0
+  - D13 runner RC-071 (run_required_evidence_command.py, parse_test_output) — PASS
+  - Q3 run_story_quality_checks.py --story-id=T43 — PASS (4 checks, receipts written)
+- Learnings:
+  - parse_test_output RCs require the it() title to embed BOTH the literal
+    [api/test/<file>.test.ts] and L2_AUTO_DISAMBIGUATION:T<id>-AC<n>:RC-<nnn>.
+  - D1 .run() meta.changes gives the deleted-row count for the confirmation payload.
+---

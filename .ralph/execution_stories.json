@@ -681,8 +681,8 @@
       "title": "CCPA DELETE /api/privacy/data",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T43"
       ],
