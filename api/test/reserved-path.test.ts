@@ -196,8 +196,12 @@ describe("reserved-path guard", () => {
     const app = buildWiredApp();
     const res = await app.request("/api", {}, buildEnv(db));
     expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("Not Found");
+    // T14-AC2: the reserved-path catch-all now renders the styled HTML 404
+    // (design shell) rather than a bare JSON envelope. The security intent is
+    // unchanged and re-asserted here: the planted impostor page row MUST NOT be
+    // served at the reserved slug.
+    const body = await res.text();
+    expect(body).not.toContain("impostor api page");
   });
 
   it("/:slug serves a non-reserved published page", async () => {

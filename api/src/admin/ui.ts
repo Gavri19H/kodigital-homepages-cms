@@ -68,6 +68,23 @@ async function resolveSiteId(
   return first !== undefined ? first.id : null;
 }
 
+// T32: list-filter query-param helpers. A request is "filtered" when any of
+// the named params is present and non-empty; the route then routes through the
+// buildWhereClause-backed data.ts reader instead of the legacy listing path.
+function parsePositiveInt(raw: string | undefined): number | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function hasAnyFilter(c: AdminContext, names: ReadonlyArray<string>): boolean {
+  for (const name of names) {
+    const v = c.req.query(name);
+    if (typeof v === 'string' && v.length > 0) return true;
+  }
+  return false;
+}
+
 // 1/13 — Dashboard. KoDigital CMS shell with 7-card stats grid +
 // Recent Articles + Quick Actions.
 adminUi.get('/admin', async (c) => {
@@ -105,17 +122,45 @@ adminUi.get('/admin/articles', async (c) => {
   const sites = await data.listAdminSites(c.env);
   const verticals = await data.listAdminVerticals(c.env);
   const categories = await data.listAdminCategories(c.env);
-  const siteId = await resolveSiteId(c, sites);
-  const articles = siteId !== null
-    ? await data.listArticlesForSite(c.env, siteId)
-    : await data.listAdminArticles(c.env);
+  // T32: when any list filter (search/category/status/featured/trending/
+  // published/page/per_page) is active, route through the buildWhereClause-
+  // backed filtered reader so the server query actually honors the params.
+  // A bare list (or a plain ?site_id= switch) keeps the legacy per-site
+  // wrapper path so the existing T2 wiring contract is preserved.
+  const explicitSiteId = c.req.query('site_id');
+  const useFiltered = hasAnyFilter(c, [
+    'search', 'category', 'status', 'featured', 'trending', 'published', 'page', 'per_page',
+  ]);
+  let articles: data.ArticleRowDto[];
+  let pageMeta: data.ListPageMeta | undefined;
+  let roundTripSiteId: string | undefined;
+  if (useFiltered) {
+    const listed = await data.listAdminArticlesFiltered(c.env, {
+      site_id: explicitSiteId ?? null,
+      search: c.req.query('search'),
+      category: c.req.query('category'),
+      status: c.req.query('status'),
+      featured: c.req.query('featured'),
+      trending: c.req.query('trending'),
+      published: c.req.query('published'),
+      page: parsePositiveInt(c.req.query('page')),
+      per_page: parsePositiveInt(c.req.query('per_page')),
+    });
+    articles = listed.rows;
+    pageMeta = { page: listed.page, per_page: listed.per_page, total: listed.total };
+    roundTripSiteId = explicitSiteId && explicitSiteId.length > 0 ? explicitSiteId : undefined;
+  } else {
+    const siteId = await resolveSiteId(c, sites);
+    articles = siteId !== null
+      ? await data.listArticlesForSite(c.env, siteId)
+      : await data.listAdminArticles(c.env);
+    roundTripSiteId = siteId ?? undefined;
+  }
   // Active filter state round-trips into the toolbar so selects render
-  // their selected option after a filter-driven reload (?site_id= is the
-  // wire name resolveSiteId consumes; the rest are URL params the
-  // toolbar script maintains).
+  // their selected option after a filter-driven reload.
   return c.html(
     articlesListPage(articles, sites, verticals, categories, branding(c), {
-      site_id: siteId ?? undefined,
+      site_id: roundTripSiteId,
       search: c.req.query('search'),
       vertical: c.req.query('vertical'),
       category: c.req.query('category'),
@@ -123,7 +168,7 @@ adminUi.get('/admin/articles', async (c) => {
       featured: c.req.query('featured'),
       trending: c.req.query('trending'),
       published: c.req.query('published'),
-    }),
+    }, pageMeta),
   );
 });
 
@@ -154,8 +199,34 @@ adminUi.get('/admin/articles/:id/edit', renderArticleEdit);
 // 6/13 — Pages list (Site filter, Page-type filter, Global template
 // badge for legal pages).
 adminUi.get('/admin/pages', async (c) => {
-  const pages = await data.listAdminPages(c.env);
   const sites = await data.listAdminSites(c.env);
+  const useFiltered = hasAnyFilter(c, [
+    'search', 'site_id', 'page_type', 'status', 'page', 'per_page',
+  ]);
+  const filterState = {
+    site_id: c.req.query('site_id'),
+    search: c.req.query('search'),
+    page_type: c.req.query('page_type'),
+    status: c.req.query('status'),
+  };
+  if (useFiltered) {
+    const listed = await data.listAdminPagesFiltered(c.env, {
+      site_id: filterState.site_id,
+      search: filterState.search,
+      page_type: filterState.page_type,
+      status: filterState.status,
+      page: parsePositiveInt(c.req.query('page')),
+      per_page: parsePositiveInt(c.req.query('per_page')),
+    });
+    return c.html(
+      pagesListPage(listed.rows, sites, branding(c), filterState, {
+        page: listed.page,
+        per_page: listed.per_page,
+        total: listed.total,
+      }),
+    );
+  }
+  const pages = await data.listAdminPages(c.env);
   return c.html(pagesListPage(pages, sites, branding(c)));
 });
 
@@ -181,15 +252,59 @@ adminUi.get('/admin/pages/:id/edit', renderPageEdit);
 
 // 9/13 — Categories list (Site filter, Vertical multi-select).
 adminUi.get('/admin/categories', async (c) => {
-  const categories = await data.listAdminCategories(c.env);
   const sites = await data.listAdminSites(c.env);
+  const useFiltered = hasAnyFilter(c, [
+    'search', 'site', 'verticals', 'vertical', 'page', 'per_page',
+  ]);
+  const filterState = {
+    site: c.req.query('site'),
+    search: c.req.query('search'),
+    vertical: c.req.query('verticals') ?? c.req.query('vertical'),
+  };
+  if (useFiltered) {
+    const listed = await data.listAdminCategoriesFiltered(c.env, {
+      site: filterState.site,
+      search: filterState.search,
+      vertical: filterState.vertical,
+      page: parsePositiveInt(c.req.query('page')),
+      per_page: parsePositiveInt(c.req.query('per_page')),
+    });
+    return c.html(
+      categoriesListPage(listed.rows, sites, branding(c), filterState, {
+        page: listed.page,
+        per_page: listed.per_page,
+        total: listed.total,
+      }),
+    );
+  }
+  const categories = await data.listAdminCategories(c.env);
   return c.html(categoriesListPage(categories, sites, branding(c)));
 });
 
 // 10/13 — Tags list (Site filter, Global indicator).
 adminUi.get('/admin/tags', async (c) => {
-  const tags = await data.listAdminTags(c.env);
   const sites = await data.listAdminSites(c.env);
+  const useFiltered = hasAnyFilter(c, ['search', 'site_id', 'page', 'per_page']);
+  const filterState = {
+    site_id: c.req.query('site_id'),
+    search: c.req.query('search'),
+  };
+  if (useFiltered) {
+    const listed = await data.listAdminTagsFiltered(c.env, {
+      site_id: filterState.site_id,
+      search: filterState.search,
+      page: parsePositiveInt(c.req.query('page')),
+      per_page: parsePositiveInt(c.req.query('per_page')),
+    });
+    return c.html(
+      tagsListPage(listed.rows, sites, branding(c), filterState, {
+        page: listed.page,
+        per_page: listed.per_page,
+        total: listed.total,
+      }),
+    );
+  }
+  const tags = await data.listAdminTags(c.env);
   return c.html(tagsListPage(tags, sites, branding(c)));
 });
 
@@ -240,6 +355,8 @@ adminUi.get('/admin/presets/:id', async (c) => {
         system_prompt_template: row.system_prompt_template,
         user_prompt_template: row.user_prompt_template,
         content_mapping: row.content_mapping,
+        variables_schema: row.variables_schema,
+        output_rules: row.output_rules,
       }
     : null;
   return c.html(presetFormPage(preset, branding(c)));

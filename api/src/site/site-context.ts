@@ -132,3 +132,48 @@ export async function resolveSiteContextFromRequest(
   if (isAdminHost(hostname, env)) return null;
   return resolveSiteByHostname(db, hostname, env);
 }
+
+// T36 (status semantics): resolve the SITE status for a hostname WITHOUT the
+// `s.status = 'active'` gate that resolveSiteByHostname applies. The public
+// middleware uses this only on the not-served path — once active resolution
+// has already returned null — so it can tell a *disabled* site (HTTP 410 Gone:
+// the resource existed and was intentionally retired) apart from a draft /
+// provisioning / failed / unmapped host (HTTP 404 Not Found: never publicly
+// served). It is NOT a second round-trip on the hot path: an active site is
+// resolved by resolveSiteByHostname and this never runs for it.
+//
+// Mirrors the resolveSiteByHostname contract: admin host short-circuits to
+// null, hostnames are normalized, and the lookup is parameterized via .bind().
+export async function resolveSiteStatusByHostname(
+  db: D1Database,
+  hostname: string,
+  env?: Env,
+): Promise<string | null> {
+  const normalized = normalizeHostname(hostname);
+  if (normalized.length === 0) return null;
+  if (env !== undefined && isAdminHost(normalized, env)) return null;
+  const row = await db
+    .prepare(
+      "SELECT s.status AS status FROM domains d INNER JOIN sites s ON s.id = d.site_id " +
+        "WHERE d.hostname = ? LIMIT 1",
+    )
+    .bind(normalized)
+    .first<{ status: string }>();
+  if (row === null || row === undefined) return null;
+  return typeof row.status === "string" ? row.status : null;
+}
+
+export async function resolveSiteStatusFromRequest(
+  request: Request,
+  db: D1Database,
+  env: Env,
+): Promise<string | null> {
+  let hostname = "";
+  try {
+    hostname = new URL(request.url).hostname;
+  } catch {
+    return null;
+  }
+  if (isAdminHost(hostname, env)) return null;
+  return resolveSiteStatusByHostname(db, hostname, env);
+}

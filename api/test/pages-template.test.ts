@@ -93,7 +93,11 @@ describe("pages editor form exposes the layout Template select + clean content l
   it("labels the content field cleanly — no longer 'Content (block JSON)'", () => {
     const html = pageFormPage(null, [{ id: "siteA", name: "Site A" }]);
     expect(html).not.toContain("Content (block JSON)");
-    expect(html).toContain('<label for="page-content" class="form-label">Content</label>');
+    // T33: content uses the contenteditable WYSIWYG block editor (the
+    // articleFormPage contract), so the label points at #content-editor and
+    // there is no visible raw-JSON form-textarea for content_json.
+    expect(html).toContain('<label for="content-editor" class="form-label">Content</label>');
+    expect(html).not.toContain('<textarea id="page-content" name="content_json" class="form-textarea"');
   });
 
   it("wires the Template select into the submit body so the layout persists", () => {

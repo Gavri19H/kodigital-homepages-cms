@@ -122,7 +122,7 @@ function makeFakeDb(initial: {
           if (sql.indexOf("vertical_slug FROM sites WHERE id = ?") >= 0 && sql.indexOf("SELECT id") >= 0) {
             return ({ id: initial.site_id, name: initial.site_name, domain: initial.domain, vertical_slug: "general" } as unknown as T);
           }
-          if (sql.indexOf("SELECT primary_domain AS hostname FROM sites") >= 0) {
+          if (sql.indexOf("SELECT domain AS hostname FROM sites") >= 0) {
             return ({ hostname: initial.domain } as unknown as T);
           }
           if (sql.indexOf("FROM site_creation_jobs WHERE site_id = ?") >= 0) {

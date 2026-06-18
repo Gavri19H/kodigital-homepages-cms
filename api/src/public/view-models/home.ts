@@ -23,6 +23,8 @@
 // matches `^public-view-models-home.*site[_-]?isolation` per the
 // implementation digest.
 
+import { mediaUrl } from "./media-url";
+
 export interface HomeSiteContext {
   siteId: string;
   hostname: string;
@@ -63,6 +65,9 @@ export interface HomeNewsletter {
   heading: string;
   description: string;
   provider: string | null;
+  // T26: per-provider connection settings (Mailchimp audience/account/server,
+  // ConvertKit form id, Buttondown username, Substack handle, custom action).
+  config?: Readonly<Record<string, string>>;
 }
 
 export interface HomeMeta {
@@ -79,9 +84,23 @@ export interface HomeMeta {
 export interface HomeViewModel {
   site: HomeViewModelSite;
   hero: HomeArticleCard | null;
+  // T18 (BCL-056): the site-level hero image. Sourced from the
+  // `hero_image_media_id` site setting and resolved to its public /media/<key>
+  // web address (mediaUrl). When the operator has set one it fills the
+  // homepage .hero-bg banner; when unset it is null and the hero falls back
+  // to the lead article's featured image. Optional so view-model literals in
+  // tests need not declare it — buildHomeViewModel always populates it.
+  heroImageUrl?: string | null;
   featured: HomeArticleCard[];
   picks: HomeArticleCard[];
   trending: HomeArticleCard[];
+  // T19 (design contract §12 `spotlight { cat, desc, items[4] }`): the §8
+  // Spotlight bucket — a by-category lens over the already-fetched article
+  // pool (4 items). Optional so existing view-model literals in tests need
+  // not declare it; buildHomeViewModel always populates it. Overlap with
+  // featured/latest is intentional — spotlight is a category view, NOT a
+  // mutually-exclusive bucket like trending.
+  spotlight?: HomeArticleCard[];
   latest: HomeArticleCard[];
   categories: HomeCategoryChip[];
   newsletter: HomeNewsletter;
@@ -99,7 +118,6 @@ interface ArticleListingRow {
   featured_image_id: number | null;
   is_featured: number;
   is_trending: number;
-  homepage_section: string | null;
   homepage_rank: number | null;
   site_id: string | null;
   category_name: string | null;
@@ -120,9 +138,15 @@ interface SettingsRow {
 }
 
 const FEATURED_LIMIT = 8;
+// Design §12 featured[3,first=hero] + editorsPicks{hero,thumbs[3]} (=4): when NO
+// article is is_featured, the fallback fills the featured strip with the lead +
+// next 3 cards ONLY — using FEATURED_LIMIT (8) here swallowed the whole pool into
+// `featured`, leaving vm.latest empty (the §10 grid-3 'Latest' section vanished).
+const FEATURED_FALLBACK_FILL = 4;
 const LATEST_LIMIT = 18;
 const TRENDING_LIMIT = 5;
 const PICKS_LIMIT = 4;
+const SPOTLIGHT_LIMIT = 4;
 const CATEGORY_LIMIT = 12;
 
 function parseBrandTokens(raw: string | null | undefined): Readonly<Record<string, string>> {
@@ -164,7 +188,13 @@ function parseNewsletter(raw: string | null | undefined): HomeNewsletter {
     const provider = typeof obj.provider === "string" && obj.provider.length > 0
       ? obj.provider
       : null;
-    return { heading, description, provider };
+    const config: Record<string, string> = {};
+    if (obj.config !== null && typeof obj.config === "object" && !Array.isArray(obj.config)) {
+      for (const [k, v] of Object.entries(obj.config as Record<string, unknown>)) {
+        if (typeof v === "string") config[k] = v;
+      }
+    }
+    return { heading, description, provider, config };
   } catch {
     return fallback;
   }
@@ -202,7 +232,9 @@ function toCard(row: ArticleListingRow): HomeArticleCard {
     title: row.title,
     excerpt: excerptFromHtml(row.content_html),
     href: `/article/${row.slug}`,
-    imageUrl: row.image_url ?? null,
+    // T2: row.image_url is the bare media.storage_key — serve it through the
+    // /media/ route so the card image actually loads (null stays null).
+    imageUrl: mediaUrl(row.image_url),
     imageAlt: row.image_alt ?? null,
     publishedAt: formatPublishedAt(row.published_at),
     categoryName: row.category_name ?? "",
@@ -226,14 +258,14 @@ export async function buildHomeViewModel(
         "a.category_id AS category_id, a.status AS status, a.published_at AS published_at, " +
         "a.featured_image_id AS featured_image_id, a.is_featured AS is_featured, " +
         "a.is_trending AS is_trending, " +
-        "a.homepage_section AS homepage_section, a.homepage_rank AS homepage_rank, " +
+        "a.homepage_rank AS homepage_rank, " +
         "a.site_id AS site_id, " +
         "c.name AS category_name, c.slug AS category_slug, " +
         "m.storage_key AS image_url, m.alt_text AS image_alt " +
         "FROM articles a " +
         "LEFT JOIN categories c ON c.id = a.category_id " +
         "LEFT JOIN media m ON m.id = a.featured_image_id " +
-        "WHERE site_id = ? AND a.status = 'published' " +
+        "WHERE a.site_id = ? AND a.status = 'published' " +
         "ORDER BY a.is_featured DESC, a.is_trending DESC, a.homepage_rank ASC, a.published_at DESC, a.id DESC " +
         "LIMIT ?",
     )
@@ -242,12 +274,18 @@ export async function buildHomeViewModel(
   const articleRows = articlesResult.results ?? [];
 
   // Query 2 — categories assigned to this site (via the vertical join).
+  // T30.AC2: the per-category Show-on-homepage toggle (categories
+  // .show_on_homepage, migration 0018) gates the public chip-rail —
+  // `AND c.show_on_homepage = 1` makes flipping the toggle in the admin
+  // editor reflected publicly. The column defaults to 0, so a category is
+  // opt-in to the homepage; the SELECT prefix is unchanged so the existing
+  // view-model fakes still match.
   const categoriesResult = await db
     .prepare(
       "SELECT c.id AS id, c.slug AS slug, c.name AS name " +
         "FROM categories c " +
         "INNER JOIN site_categories sc ON sc.category_id = c.id " +
-        "WHERE sc.site_id = ? " +
+        "WHERE sc.site_id = ? AND c.show_on_homepage = 1 " +
         "ORDER BY sc.display_order ASC, c.name ASC " +
         "LIMIT ?",
     )
@@ -276,11 +314,18 @@ export async function buildHomeViewModel(
     hostname: siteContext.hostname,
     tagline: settings.tagline ?? "",
     description: settings.site_description ?? "",
-    logoUrl: settings.logo_media_id !== undefined && settings.logo_media_id.length > 0
-      ? settings.logo_media_id
-      : null,
+    // T24: logo_media_id holds a bare media.storage_key; mediaUrl() resolves it
+    // to the public /media/<key> address the design .brand <img> loads.
+    logoUrl: mediaUrl(settings.logo_media_id),
     brandTokens: parseBrandTokens(settings.brand_tokens_json),
   };
+
+  // T18 (BCL-056): resolve the site-level hero image from the same settings
+  // read (no 4th D1 statement — T12.AC3 caps the build at 3 prepared
+  // statements). The stored value is a bare media.storage_key, so mediaUrl()
+  // turns it into /media/<key>; an unset/empty key resolves to null and the
+  // template falls back to the lead article's image.
+  const heroImageUrl = mediaUrl(settings.hero_image_media_id);
 
   // T12 buckets: rows flagged is_trending = 1 go to vm.trending ONLY —
   // they are removed from the pool BEFORE hero/featured/latest are cut so
@@ -300,7 +345,7 @@ export async function buildHomeViewModel(
   const hero = featuredBucket[0] ?? cards[0] ?? null;
   const featured = featuredBucket.length > 0
     ? featuredBucket.slice(hero === featuredBucket[0] ? 1 : 0)
-    : cards.slice(1, FEATURED_LIMIT);
+    : cards.slice(1, FEATURED_FALLBACK_FILL);
 
   // Editor's picks: curated re-promotion of the featured pool — the lead
   // story plus the next 3 featured cards (contract §12 editorsPicks
@@ -321,6 +366,22 @@ export async function buildHomeViewModel(
     href: `/category/${row.slug}`,
   }));
 
+  // T19 §8 spotlight (design contract §12 `spotlight { cat, desc, items[4] }`):
+  // surface the first site category that has >=1 published article in the
+  // pool and show its 4 most-recent cards. Sourced from `cards` (the pool
+  // already mapped above) so NO 4th prepared statement is added — T12.AC3
+  // caps buildHomeViewModel at 3 D1 reads. When no category match exists the
+  // 4 most-recent pool cards stand in so the section is never empty.
+  let spotlight: HomeArticleCard[] = [];
+  for (const cat of categories) {
+    const inCat = cards.filter((c) => c.categorySlug === cat.slug).slice(0, SPOTLIGHT_LIMIT);
+    if (inCat.length > 0) {
+      spotlight = inCat;
+      break;
+    }
+  }
+  if (spotlight.length === 0) spotlight = cards.slice(0, SPOTLIGHT_LIMIT);
+
   const newsletter = parseNewsletter(settings.newsletter_settings_json);
 
   const meta: HomeMeta = {
@@ -329,5 +390,5 @@ export async function buildHomeViewModel(
     canonicalUrl: `https://${site.hostname}/`,
   };
 
-  return { site, hero, featured, picks, trending, latest, categories, newsletter, meta };
+  return { site, hero, heroImageUrl, featured, picks, trending, spotlight, latest, categories, newsletter, meta };
 }

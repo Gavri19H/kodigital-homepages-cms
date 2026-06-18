@@ -73,7 +73,7 @@ export interface CloudflareCallContext {
 }
 
 // Canonical hostname resolver for a site: primary domains-table row
-// first, sites.primary_domain as fallback, "" when neither exists. Both
+// first, sites.domain as fallback, "" when neither exists. Both
 // the runner and the steps registry import THIS resolver so live and
 // dry-run paths can never disagree on which hostname a CF call targets.
 export async function resolveSiteHostname(
@@ -91,7 +91,7 @@ export async function resolveSiteHostname(
     return dom.hostname;
   }
   const sr = await db
-    .prepare("SELECT primary_domain AS hostname FROM sites WHERE id = ? LIMIT 1")
+    .prepare("SELECT domain AS hostname FROM sites WHERE id = ? LIMIT 1")
     .bind(site_id)
     .first<{ hostname: string | null }>();
   return sr && typeof sr.hostname === "string" && sr.hostname.length > 0
@@ -388,6 +388,258 @@ export async function runCloudflareRouteMutation(
       attached: true,
       cf_route_id: routeId,
       zone_id: zone.zone_id,
+    }),
+  };
+}
+
+// T37 [BCL-021] — site teardown boundary. The real Delete-site flow tears
+// the Worker route down and purges the site's cache. Like every other call
+// in this file it is dry-run gated: under SITE_PROVISIONING_DRY_RUN (the
+// default) it records the two teardown actions to cache_purge_log and emits
+// ZERO outbound fetch to api.cloudflare.com. The live path runs ONLY when
+// dry-run is off AND mutation is allowed AND the token is present AND the
+// hostname is not a protected legacy-production domain.
+export interface CloudflareSiteTeardownInput {
+  site_id: string;
+  hostname: string;
+  cf_route_id: string | null;
+}
+
+export interface CloudflareSiteTeardownOutcome {
+  status: "completed" | "completed_dry_run" | "failed";
+  // The teardown actions attempted, in order. Always
+  // ["teardown_route", "purge_cache"] so a postmortem can prove BOTH the
+  // route/DNS teardown and the cache purge were issued.
+  actions: string[];
+  // Count of real fetch() calls issued. MUST be 0 in dry-run mode (the
+  // negative_fail_condition: dry-run must not touch api.cloudflare.com).
+  outbound_calls: number;
+  output: string;
+  error?: string;
+}
+
+const SITE_TEARDOWN_ACTIONS: ReadonlyArray<string> = [
+  "teardown_route",
+  "purge_cache",
+];
+
+export async function runCloudflareSiteTeardown(
+  ctx: CloudflareCallContext,
+  input: CloudflareSiteTeardownInput,
+): Promise<CloudflareSiteTeardownOutcome> {
+  const dryRun = isDryRunProvisioning(ctx.env);
+  const allowRouteMutation = isRouteMutationAllowed(ctx.env);
+  const actions = [...SITE_TEARDOWN_ACTIONS];
+
+  // Defense-in-depth: never act on a protected legacy-production hostname.
+  if (isProtectedDomain(input.hostname)) {
+    await recordCachePurgeLog(
+      ctx,
+      {
+        site_id: input.site_id,
+        hostname: input.hostname,
+        action: "teardown_route",
+        payload: { reason: "protected_domain" },
+      },
+      {
+        status: "failed",
+        response: JSON.stringify({ refused: true, reason: "protected_domain" }),
+      },
+    );
+    return {
+      status: "failed",
+      actions,
+      outbound_calls: 0,
+      output: "",
+      error: `Refusing to tear down protected hostname: ${input.hostname}`,
+    };
+  }
+
+  // Dry-run (the default in dev + tests): record BOTH teardown actions and
+  // emit zero outbound fetch.
+  if (dryRun || !allowRouteMutation) {
+    for (const action of actions) {
+      await recordCachePurgeLog(
+        ctx,
+        {
+          site_id: input.site_id,
+          hostname: input.hostname,
+          action,
+          payload: { mode: "dry_run", cf_route_id: input.cf_route_id },
+        },
+        {
+          status: "completed_dry_run",
+          response: JSON.stringify({
+            skipped: true,
+            reason: "dry_run_or_disallowed",
+          }),
+        },
+      );
+    }
+    return {
+      status: "completed_dry_run",
+      actions,
+      outbound_calls: 0,
+      output: JSON.stringify({
+        mode: "dry_run",
+        site_id: input.site_id,
+        hostname: input.hostname,
+        actions,
+        dry_run: dryRun,
+        allow_route_mutation: allowRouteMutation,
+      }),
+    };
+  }
+
+  // Live path (gated). Resolve the token + zone, delete the Worker route the
+  // attach step created (if any), then purge the cache.
+  const token = getProvisioningToken(ctx.env);
+  if (token === null) {
+    await recordCachePurgeLog(
+      ctx,
+      {
+        site_id: input.site_id,
+        hostname: input.hostname,
+        action: "teardown_route",
+        payload: {},
+      },
+      {
+        status: "failed",
+        response: JSON.stringify({ error: "missing_provisioning_token" }),
+      },
+    );
+    return {
+      status: "failed",
+      actions,
+      outbound_calls: 0,
+      output: "",
+      error: `${CLOUDFLARE_PROVISIONING_API_TOKEN} binding is not set`,
+    };
+  }
+
+  let outbound = 0;
+  const zone = await lookupZoneId(token, input.hostname);
+  outbound += 1;
+  if (!zone.ok) {
+    await recordCachePurgeLog(
+      ctx,
+      {
+        site_id: input.site_id,
+        hostname: input.hostname,
+        action: "teardown_route",
+        payload: {},
+      },
+      {
+        status: "failed",
+        response: JSON.stringify({ error: zone.error ?? "zone lookup failed" }),
+      },
+    );
+    return {
+      status: "failed",
+      actions,
+      outbound_calls: outbound,
+      output: "",
+      error: zone.error,
+    };
+  }
+  if (zone.zone_id === null) {
+    // No active zone — nothing to tear down on the CF side. The DB cascade
+    // still frees the domain; treat as completed (not a failure).
+    await recordCachePurgeLog(
+      ctx,
+      {
+        site_id: input.site_id,
+        hostname: input.hostname,
+        action: "teardown_route",
+        payload: {},
+      },
+      {
+        status: "completed",
+        response: JSON.stringify({ torn_down: false, reason: "zone_not_found" }),
+      },
+    );
+    return {
+      status: "completed",
+      actions,
+      outbound_calls: outbound,
+      output: JSON.stringify({
+        mode: "live",
+        site_id: input.site_id,
+        hostname: input.hostname,
+        torn_down: false,
+        reason: "zone_not_found",
+      }),
+    };
+  }
+
+  // 1) DELETE the Worker route (only when one was attached).
+  let routeDeleted = false;
+  if (typeof input.cf_route_id === "string" && input.cf_route_id.length > 0) {
+    const routeRes = await fetch(
+      `${CLOUDFLARE_API_BASE}/zones/${zone.zone_id}/workers/routes/${input.cf_route_id}`,
+      {
+        method: "DELETE",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+      },
+    );
+    outbound += 1;
+    routeDeleted = routeRes.ok;
+  }
+  await recordCachePurgeLog(
+    ctx,
+    {
+      site_id: input.site_id,
+      hostname: input.hostname,
+      action: "teardown_route",
+      payload: { cf_route_id: input.cf_route_id, zone_id: zone.zone_id },
+    },
+    {
+      status: "completed",
+      response: JSON.stringify({ route_deleted: routeDeleted }),
+    },
+  );
+
+  // 2) Purge the zone cache.
+  const purgeRes = await fetch(
+    `${CLOUDFLARE_API_BASE}/zones/${zone.zone_id}/purge_cache`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ purge_everything: true }),
+    },
+  );
+  outbound += 1;
+  await recordCachePurgeLog(
+    ctx,
+    {
+      site_id: input.site_id,
+      hostname: input.hostname,
+      action: "purge_cache",
+      payload: { zone_id: zone.zone_id },
+    },
+    {
+      status: "completed",
+      response: JSON.stringify({ cache_purged: purgeRes.ok }),
+    },
+  );
+
+  return {
+    status: "completed",
+    actions,
+    outbound_calls: outbound,
+    output: JSON.stringify({
+      mode: "live",
+      site_id: input.site_id,
+      hostname: input.hostname,
+      zone_id: zone.zone_id,
+      route_deleted: routeDeleted,
+      cache_purged: purgeRes.ok,
     }),
   };
 }

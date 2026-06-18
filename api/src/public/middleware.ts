@@ -30,7 +30,10 @@
 import type { Context, Next } from "hono";
 import type { Env } from "../env";
 import type { SiteContext } from "../site/site-context";
-import { resolveSiteContextFromRequest } from "../site/site-context";
+import {
+  resolveSiteContextFromRequest,
+  resolveSiteStatusFromRequest,
+} from "../site/site-context";
 
 // PublicSiteContext: the T27 wire-into-handlers view of SiteContext.
 // Mirrors the canonical SiteContext (snake_case `site_id`) and adds a
@@ -51,6 +54,23 @@ export async function publicSiteContextMiddleware(
 ): Promise<Response | void> {
   const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env);
   if (site === null) {
+    // T36 (status semantics): a site that was provisioned and is now
+    // intentionally retired (sites.status = 'disabled') returns 410 Gone —
+    // distinct from the 404 Not Found a draft / provisioning / failed / never-
+    // mapped host gets. 410 tells crawlers the URL is permanently gone, so the
+    // disabled site DROPS from the index — every public route flows through
+    // this middleware, including /sitemap.xml and /robots.txt, so those are
+    // Gone too (no sitemap to crawl, no robots to honor). The status lookup
+    // bypasses the active-gate and runs ONLY on this already-not-served path,
+    // never on the hot path of an active tenant.
+    const status = await resolveSiteStatusFromRequest(
+      c.req.raw,
+      c.env.DB,
+      c.env,
+    );
+    if (status === "disabled") {
+      return c.json({ error: "Gone" }, 410);
+    }
     return c.json({ error: "Not Found" }, 404);
   }
   c.set("site", site);

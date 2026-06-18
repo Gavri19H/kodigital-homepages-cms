@@ -167,6 +167,137 @@ export async function runProvisioningToCompletion(
   return { steps_run, final_status, last_step_status };
 }
 
+// T39 [BCL-013] — resume a STALLED provisioning job from the operator UI.
+// A build can halt two ways: (1) the background ctx.waitUntil driver was
+// killed mid-step, leaving the job 'running'/'pending' parked at
+// current_step_index < TOTAL_STEPS (advanceNextStep resumes these as-is);
+// (2) a step returned 'failed', parking the job 'failed' with last_error set
+// and advanceNextStep short-circuiting (so the per-step /provision/next is a
+// no-op against it). Resume handles BOTH: a 'failed' job is first reset to
+// 'running' (last_error cleared) so the parked step re-attempts, then the
+// idempotent advanceNextStep loop (runProvisioningToCompletion) drives the
+// build to completion — the final update_launch_readiness step flips the site
+// to status='active'. A site with no job is a no-op the caller maps to 404;
+// an already-completed job is a no-op that reports completed. Dry-run-safe:
+// it reuses the SAME runner the create path uses, so it emits ZERO outbound
+// fetch under SITE_PROVISIONING_DRY_RUN.
+export interface ResumeResult {
+  resumed: boolean;
+  reason: "no_job" | "already_completed" | null;
+  job_id: string | null;
+  site_id: string;
+  steps_run: number;
+  final_status: string;
+  last_step_status: StepHandlerResult["status"] | null;
+  site_status: string | null;
+}
+
+async function readSiteStatus(db: D1Database, siteId: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT status FROM sites WHERE id = ? LIMIT 1")
+    .bind(siteId)
+    .first<{ status: string }>();
+  return row?.status ?? null;
+}
+
+export async function resumeProvisioning(
+  env: Env,
+  db: D1Database,
+  site_id: string,
+): Promise<ResumeResult> {
+  const job = await findActiveJobForSite(db, site_id);
+  if (job === null) {
+    return {
+      resumed: false,
+      reason: "no_job",
+      job_id: null,
+      site_id,
+      steps_run: 0,
+      final_status: "no_job",
+      last_step_status: null,
+      site_status: null,
+    };
+  }
+  if (job.status === "completed") {
+    return {
+      resumed: false,
+      reason: "already_completed",
+      job_id: job.id,
+      site_id,
+      steps_run: 0,
+      final_status: "completed",
+      last_step_status: null,
+      site_status: await readSiteStatus(db, site_id),
+    };
+  }
+  // A parked 'failed' job is reset to 'running' (last_error cleared) so the
+  // failed step re-attempts on the next advanceNextStep; 'running'/'pending'
+  // jobs resume untouched (their pointer already sits on the un-run step).
+  if (job.status === "failed") {
+    await db
+      .prepare(
+        "UPDATE site_creation_jobs SET status = 'running', last_error = NULL, " +
+          "updated_at = unixepoch() WHERE id = ?",
+      )
+      .bind(job.id)
+      .run();
+  }
+  const summary = await runProvisioningToCompletion(env, db, site_id);
+  return {
+    resumed: true,
+    reason: null,
+    job_id: job.id,
+    site_id,
+    steps_run: summary.steps_run,
+    final_status: summary.final_status,
+    last_step_status: summary.last_step_status,
+    site_status: await readSiteStatus(db, site_id),
+  };
+}
+
+// T38 [BCL-074] — the only ExecutionContext capability the async driver
+// needs is waitUntil. Declaring the structural subset (rather than the
+// Workers `ExecutionContext`) keeps this module runtime-agnostic and lets a
+// unit test hand in a plain `{ waitUntil }` capturing fake.
+export interface WaitUntilCtx {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+// T38 [BCL-074] — drive provisioning ASYNCHRONOUSLY so the create request
+// returns immediately. Background work advances the build one idempotent
+// step at a time (runProvisioningToCompletion loops advanceNextStep); the
+// final update_launch_readiness step flips the site to status='active'. A
+// killed or failing step is persisted as failed + resumable by
+// advanceNextStep (the job row keeps current_step_index pointed at the
+// failed step and records last_error — never swallowed) and can be resumed
+// from the UI (T39) or via POST /api/admin/sites/:id/provision/next.
+//
+// When an ExecutionContext is present — the Workers runtime always provides
+// one — the loop is handed to ctx.waitUntil so it runs AFTER the response is
+// flushed (the request is NOT blocked on the build). When it is absent (a
+// direct unit-test invocation that passes no executionCtx) we await the loop
+// inline as a best-effort fallback: there is no background channel to defer
+// to, and the freshly-created site should still finish provisioning. Either
+// path is non-throwing: the site row is already committed and a halted job
+// is resumable, so a background hiccup surfaces as the job's last_error, not
+// as an unhandled rejection that would fail the user's create request.
+export async function scheduleBackgroundProvisioning(
+  ctx: WaitUntilCtx | undefined,
+  env: Env,
+  db: D1Database,
+  site_id: string,
+): Promise<void> {
+  const drive = runProvisioningToCompletion(env, db, site_id).then(
+    () => undefined,
+    () => undefined,
+  );
+  if (ctx !== undefined && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(drive);
+    return;
+  }
+  await drive;
+}
+
 export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Promise<AdvanceResult> {
   if (job.status === "completed" || job.status === "failed") {
     return {

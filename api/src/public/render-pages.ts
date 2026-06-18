@@ -8,9 +8,23 @@
 
 import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
-import type { PublicPageRow, PublicCategoryRow } from "./queries";
-import { fetchPublicLayoutSiteInfo } from "./queries";
-import { renderHeader, renderFooter, renderCard } from "./templates/components";
+import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
+import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE } from "./queries";
+import {
+  renderHeader,
+  renderFooter,
+  renderCard,
+  renderAdSlot,
+  buildSocialLinks,
+  type SocialLink,
+} from "./templates/components";
+import {
+  loadAdsConfig,
+  shouldShowAds,
+  renderAdProviderHead,
+  renderAdManagerScript,
+  type AdsConfig,
+} from "./ads";
 import { buildCanonicalUrl } from "./templates/seo-head";
 import {
   renderArticleJsonLd,
@@ -29,6 +43,40 @@ import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
+import { renderCustomHead, renderCustomFooter } from "../settings/custom-html";
+
+// T23: load the per-site operator snippets (custom_head_html / analytics_script
+// / ad_header_script / custom_footer_html) and return the SANITIZED <head>/
+// footer fragments renderLayout injects into the LIVE page. Every public
+// surface calls this so the stored snippets finally render (BCL-045) — safely.
+async function loadCustomLayoutHtml(
+  db: D1Database,
+  siteId: string,
+): Promise<{
+  customHead?: string;
+  customFooter?: string;
+  socialLinks: SocialLink[];
+}> {
+  const result = await db
+    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
+    .bind(siteId)
+    .all<{ key: string; value: string | null }>();
+  const settings: Record<string, string> = {};
+  for (const row of result.results ?? []) {
+    if (typeof row.value === "string") settings[row.key] = row.value;
+  }
+  const customHead = renderCustomHead(settings);
+  const customFooter = renderCustomFooter(settings);
+  // T28: the same settings map drives the footer social links (social_*_url),
+  // so they render on every public surface that already loads custom layout
+  // HTML — no extra query.
+  const socialLinks = buildSocialLinks(settings);
+  return {
+    customHead: customHead.length > 0 ? customHead : undefined,
+    customFooter: customFooter.length > 0 ? customFooter : undefined,
+    socialLinks,
+  };
+}
 
 function isoDate(seconds: number | null | undefined): string {
   if (!seconds || !Number.isFinite(seconds)) return new Date(0).toISOString();
@@ -42,6 +90,15 @@ function escapeHtml(input: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// T22: the ad <head> payload — the provider library script + the AdManager
+// client JS — emitted ONLY when ads are live for this page (shouldShowAds).
+// Returns "" otherwise so the <head> composition is byte-identical on
+// no-ads pages (disabled config, excluded page, or signed-in viewer).
+function adHeadHtml(config: AdsConfig, on: boolean): string {
+  if (!on) return "";
+  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config)}`;
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
@@ -101,7 +158,19 @@ export async function renderHomepageHtml(
     );
   }
 
-  const body = renderHome({ vm });
+  // T22: home is one of the ad-bearing surfaces. Load the per-site ad config
+  // and gate on shouldShowAds("/") — the §5 leaderboard + §9 in-feed slots
+  // carry real <ins> units and the head loads the provider + AdManager JS.
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, { path: "/", loggedIn: false });
+  const adHead = adHeadHtml(adsConfig, adsOn);
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+
+  const body = renderHome({
+    vm,
+    ads: adsOn ? adsConfig : undefined,
+    socialLinks: customHtml.socialLinks,
+  });
   return renderLayout({
     site: {
       name: vm.site.name,
@@ -119,6 +188,9 @@ export async function renderHomepageHtml(
       jsonLd,
     },
     body,
+    extraHead: adHead.length > 0 ? adHead : undefined,
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
   });
 }
 
@@ -201,7 +273,23 @@ export async function renderArticleHtml(
     );
   }
 
-  const body = renderArticle({ vm, emitJsonLd: false });
+  // T22: article is an ad-bearing surface. Gate on shouldShowAds for this
+  // article path so the §11 sidebar rectangle carries its real <ins> unit and
+  // the head loads the provider + AdManager JS (appended after the JSON-LD).
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, {
+    path: `/article/${slug}`,
+    loggedIn: false,
+  });
+  const adHead = adHeadHtml(adsConfig, adsOn);
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+
+  const body = renderArticle({
+    vm,
+    emitJsonLd: false,
+    ads: adsOn ? adsConfig : undefined,
+    socialLinks: customHtml.socialLinks,
+  });
 
   return renderLayout({
     site: {
@@ -217,9 +305,25 @@ export async function renderArticleHtml(
       description: vm.meta.description,
       canonicalUrl,
       ogImage: vm.meta.ogImage,
+      // T13-AC1: an article render's head carries og:type=article +
+      // article:published_time/modified_time (+ section/author) + twitter:card
+      // + canonical. The article:* namespace is emitted by renderSeoHead only
+      // because ogType is "article" here.
+      ogType: "article",
+      articlePublishedTime: vm.meta.publishedAt,
+      articleModifiedTime: vm.meta.modifiedAt,
+      articleSection: vm.article.categoryName.length > 0
+        ? vm.article.categoryName
+        : undefined,
+      articleAuthor: vm.article.author?.name,
     },
     body,
-    extraHead: jsonLdHead.join("\n"),
+    extraHead:
+      adHead.length > 0
+        ? `${jsonLdHead.join("\n")}\n${adHead}`
+        : jsonLdHead.join("\n"),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
   });
 }
 
@@ -251,11 +355,13 @@ export async function renderCategoryHtml(
   articles: ArticleRow[],
   pageNum: number,
   slug: string,
+  pageSize: number = PUBLIC_PAGE_SIZE,
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
     hostname: siteContext.hostname,
   });
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   // Paginated category pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/category/${slug}`;
@@ -306,12 +412,60 @@ export async function renderCategoryHtml(
     cards.length > 0
       ? `<ul class="home-grid home-grid--category">${cards}</ul>`
       : `<p class="section-empty">No articles in this category yet.</p>`;
+  // T22: category is an ad-bearing surface. Gate on shouldShowAds for this
+  // category path; when live, a leaderboard slot rides above the listing and
+  // the head loads the provider + AdManager JS.
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, {
+    path: `/category/${slug}`,
+    loggedIn: false,
+  });
+  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adSlot = adsOn
+    ? renderAdSlot({
+        type: "leaderboard",
+        slotId: "category-leaderboard",
+        surface: "category",
+        ads: adsConfig,
+      })
+    : "";
+
   const body =
     `<section class="home-section home-section--category" data-page="${pageNum}">` +
     `<div class="container">` +
     `<div class="section-head"><h1 class="category-title">${escapeHtml(cat.name)}</h1></div>` +
+    adSlot +
     listing +
     `</div></section>`;
+
+  // T13-AC2: paginated category pages (page >= 2) are noindex,follow — the
+  // page-1 canonical owns the index entry while the crawler still follows the
+  // article links — and carry rel=prev/next so the crawler walks the series.
+  // prev points at page 1 as the bare /category/<slug> (its canonical shape);
+  // next is emitted only when the current page is full (likely more to come).
+  const prevPath =
+    pageNum > 1
+      ? pageNum - 1 === 1
+        ? `/category/${slug}`
+        : `/category/${slug}/page/${pageNum - 1}`
+      : null;
+  const nextPath =
+    articles.length >= pageSize
+      ? `/category/${slug}/page/${pageNum + 1}`
+      : null;
+  const paginationLinks: Array<{ rel: string; href: string }> = [];
+  if (prevPath !== null) {
+    paginationLinks.push({
+      rel: "prev",
+      href: buildCanonicalUrl(siteContext.hostname, prevPath),
+    });
+  }
+  if (nextPath !== null) {
+    paginationLinks.push({
+      rel: "next",
+      href: buildCanonicalUrl(siteContext.hostname, nextPath),
+    });
+  }
 
   return renderLayout({
     site: {
@@ -326,10 +480,143 @@ export async function renderCategoryHtml(
       title: cat.name,
       description: site.description,
       canonicalUrl,
+      robots: pageNum > 1 ? "noindex, follow" : undefined,
+      links: paginationLinks.length > 0 ? paginationLinks : undefined,
     },
     body,
     header: renderHeader({ site: headerSite }),
-    footer: renderFooter({ site: headerSite }),
+    footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
+    extraHead:
+      adHead.length > 0
+        ? `${jsonLdHead.join("\n")}\n${adHead}`
+        : jsonLdHead.join("\n"),
+  });
+}
+
+// T14: the LIVE GET /tag/:slug handler composes the tag listing through the
+// same design layout the category listing uses (fetchPublicLayoutSiteInfo +
+// renderCard + renderLayout) — a topic page is a styled collection of the
+// published articles carrying that tag, not a bare list. Mirrors
+// renderCategoryHtml: the canonical href is always /tag/<slug> (page 1), the
+// page number rides a data-page attribute only, paginated pages (page >= 2)
+// are noindex,follow with rel=prev/next, and the CollectionPage +
+// root-first BreadcrumbList JSON-LD ride the head once. The canonical href is
+// always the resolved SiteContext.hostname — the admin host MUST NEVER appear
+// (mission RED LINE).
+export async function renderTagHtml(
+  db: D1Database,
+  siteContext: PublicSiteContext,
+  tag: PublicTagRow,
+  articles: ArticleRow[],
+  pageNum: number,
+  slug: string,
+  pageSize: number = PUBLIC_PAGE_SIZE,
+): Promise<string> {
+  const site = await fetchPublicLayoutSiteInfo(db, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+
+  // Paginated tag pages canonical to page 1 (no duplicate-content signal).
+  const canonicalPath = `/tag/${slug}`;
+  const canonicalUrl = buildCanonicalUrl(siteContext.hostname, canonicalPath);
+  const articleEntries = articles.map((a) => ({
+    name: a.title,
+    url: buildCanonicalUrl(siteContext.hostname, `/article/${a.slug}`),
+  }));
+
+  const headerSite = {
+    name: site.name,
+    tagline: site.tagline,
+    logoUrl: site.logoUrl,
+    hostname: site.hostname,
+  };
+
+  const jsonLdHead: string[] = [
+    renderCategoryJsonLd({
+      url: canonicalUrl,
+      name: tag.name,
+      articles: articleEntries,
+    }),
+    renderBreadcrumbJsonLd({
+      items: [
+        { name: "Home", url: buildCanonicalUrl(siteContext.hostname, "/") },
+        { name: tag.name, url: canonicalUrl },
+      ],
+    }),
+  ];
+
+  const cards = articles
+    .map(
+      (a) =>
+        `<li class="home-grid__item">${renderCard({
+          href: `/article/${a.slug}`,
+          title: a.title,
+          publishedAt: a.published_at ? isoDate(a.published_at) : undefined,
+        })}</li>`,
+    )
+    .join("");
+  const listing =
+    cards.length > 0
+      ? `<ul class="home-grid home-grid--tag">${cards}</ul>`
+      : `<p class="section-empty">No articles tagged "${escapeHtml(tag.name)}" yet.</p>`;
+  const body =
+    `<section class="home-section home-section--tag" data-page="${pageNum}">` +
+    `<div class="container">` +
+    `<div class="section-head"><h1 class="tag-title">${escapeHtml(tag.name)}</h1></div>` +
+    listing +
+    `</div></section>`;
+
+  // page >= 2 is noindex,follow (the page-1 canonical owns the index entry)
+  // and carries rel=prev/next so the crawler walks the series.
+  const prevPath =
+    pageNum > 1
+      ? pageNum - 1 === 1
+        ? `/tag/${slug}`
+        : `/tag/${slug}/page/${pageNum - 1}`
+      : null;
+  const nextPath =
+    articles.length >= pageSize
+      ? `/tag/${slug}/page/${pageNum + 1}`
+      : null;
+  const paginationLinks: Array<{ rel: string; href: string }> = [];
+  if (prevPath !== null) {
+    paginationLinks.push({
+      rel: "prev",
+      href: buildCanonicalUrl(siteContext.hostname, prevPath),
+    });
+  }
+  if (nextPath !== null) {
+    paginationLinks.push({
+      rel: "next",
+      href: buildCanonicalUrl(siteContext.hostname, nextPath),
+    });
+  }
+
+  return renderLayout({
+    site: {
+      name: site.name,
+      hostname: site.hostname,
+      tagline: site.tagline,
+      description: site.description,
+      brandTokens: site.brandTokens,
+      logoUrl: site.logoUrl,
+    },
+    meta: {
+      title: tag.name,
+      description: site.description,
+      canonicalUrl,
+      robots: pageNum > 1 ? "noindex, follow" : undefined,
+      links: paginationLinks.length > 0 ? paginationLinks : undefined,
+    },
+    body,
+    header: renderHeader({ site: headerSite }),
+    footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
   });
 }
@@ -361,6 +648,7 @@ export async function renderPageHtml(
     siteId: siteContext.siteId,
     hostname: siteContext.hostname,
   });
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
 
   const headerSite = {
@@ -407,7 +695,9 @@ export async function renderPageHtml(
     },
     body,
     header: renderHeader({ site: headerSite }),
-    footer: renderFooter({ site: headerSite }),
+    footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
   });
 }

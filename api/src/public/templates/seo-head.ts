@@ -54,12 +54,22 @@ export interface SeoHeadInput {
   twitterSite?: string;
 
   // robots policy. Defaults to "index, follow" — call with "noindex, nofollow"
-  // for staging, draft, or unmapped-host responses.
+  // for staging, draft, or unmapped-host responses; paginated category pages
+  // (page >= 2) pass "noindex, follow" so the page-1 canonical owns the index
+  // entry while the crawler still follows through to the article links.
   robots?: string;
 
   // Optional locale / siteName for richer OG cards.
   locale?: string;
   siteName?: string;
+
+  // article:* Open Graph tags. Emitted ONLY when ogType === "article" (the
+  // article:* namespace is meaningless on a website-typed card). published/
+  // modified are ISO-8601 strings; section/author are free text.
+  articlePublishedTime?: string;
+  articleModifiedTime?: string;
+  articleSection?: string;
+  articleAuthor?: string;
 }
 
 const DEFAULT_OG_TYPE: OgType = "website";
@@ -149,6 +159,31 @@ export function renderSeoHead(input: SeoHeadInput): string {
     tags.push(
       `<meta property="og:locale" content="${escapeHtml(input.locale)}">`,
     );
+  }
+
+  // article:* tags — valid only on an og:type=article card (T13-AC1). Each on
+  // its own source line so a per-tag grep counts it once.
+  if (ogType === "article") {
+    if (input.articlePublishedTime) {
+      tags.push(
+        `<meta property="article:published_time" content="${escapeHtml(input.articlePublishedTime)}">`,
+      );
+    }
+    if (input.articleModifiedTime) {
+      tags.push(
+        `<meta property="article:modified_time" content="${escapeHtml(input.articleModifiedTime)}">`,
+      );
+    }
+    if (input.articleSection) {
+      tags.push(
+        `<meta property="article:section" content="${escapeHtml(input.articleSection)}">`,
+      );
+    }
+    if (input.articleAuthor) {
+      tags.push(
+        `<meta property="article:author" content="${escapeHtml(input.articleAuthor)}">`,
+      );
+    }
   }
 
   // Twitter Card. twitter:card on its own line for AC2 alternation.

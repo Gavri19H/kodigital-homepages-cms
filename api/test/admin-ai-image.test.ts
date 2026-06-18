@@ -446,12 +446,13 @@ describe("POST /api/admin/ai/logo (T20)", () => {
     expect(mediaInsert!.binds[6]).toBe("site-a");
     expect(mediaInsert!.binds[7]).toBe(body.ai_generation_id);
 
-    // site_settings upsert: exactly one write, (site-a, logo_media_id, "7").
+    // site_settings upsert: exactly one write, (site-a, logo_media_id, <bare storage_key>)
+    // — the public-resolvable key the /media route serves, NOT the numeric media id.
     const settingWrites = calls.filter((c) =>
       c.sql.startsWith("INSERT INTO site_settings"),
     );
     expect(settingWrites).toHaveLength(1);
-    expect(settingWrites[0]?.binds).toEqual(["site-a", "logo_media_id", "7"]);
+    expect(settingWrites[0]?.binds).toEqual(["site-a", "logo_media_id", "ai/site-a/logo/site-a.png"]);
 
     // Tenant guard: NO call of any kind carries the other tenant's id.
     for (const c of calls) {
@@ -469,7 +470,7 @@ describe("POST /api/admin/ai/logo (T20)", () => {
     expect(rows[0]?.target_id).toBe("site-a");
   });
 
-  it("returns 502 and writes NO setting when OpenAI errors (fallback receipt)", async () => {
+  it("returns 502 and writes NO setting when OpenAI errors (failed receipt)", async () => {
     const { db, calls, aiRows } = makeFakeDb({ sites: TWO_SITES });
     const { media, puts } = makeFakeMedia();
     // 400 is non-retriable so the client throws immediately (no retry sleep).
@@ -486,7 +487,9 @@ describe("POST /api/admin/ai/logo (T20)", () => {
     ).toHaveLength(0);
     const rows = [...aiRows.values()];
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe("fallback");
+    // T1/AC3: a real OpenAI failure with a key present is a 'failed'
+    // (retryable) receipt, never a silent 'fallback' stub.
+    expect(rows[0]?.status).toBe("failed");
   });
 
   it("is gated by accessAuth (401 without bypass)", async () => {

@@ -345,7 +345,13 @@ describe("settings template (T32 settings port per-site)", () => {
     expect(html).toContain("method: 'PATCH'");
     expect(html).toContain("{ site_id: hidden.value, updates: updates }");
     expect(html).toContain("'/api/admin/ai/logo'");
-    expect(html).toContain("JSON.stringify({ site_id: hidden.value })");
+    // T24: the AI-logo button now POSTs an operator-directed LogoRequest. The
+    // body starts from { site_id } and conditionally carries prompt / style /
+    // colorScheme (was a fixed JSON.stringify({ site_id: hidden.value })).
+    expect(html).toContain("var logoBody = { site_id: hidden.value }");
+    expect(html).toContain("JSON.stringify(logoBody)");
+    expect(html).toContain("logoBody.prompt = desc");
+    expect(html).toContain("logoBody.colorScheme = col");
   });
 
   it("escapes setting values so stored content cannot break out of the form HTML", () => {

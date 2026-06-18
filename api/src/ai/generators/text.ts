@@ -410,6 +410,11 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
 export interface GenerateSiteTaglineInput
   extends BuildSiteTaglinePromptInput {
   client?: OpenAIClient;
+  // T40 [BCL-077]: the provisioning step passes its task-key category
+  // ('tagline') so this generator resolves + applies the editable system
+  // preset. Absent → the 'tagline' default keeps the behaviour for direct
+  // callers; with no matching preset the deterministic builder is used.
+  presetCategory?: string;
 }
 
 export async function generateSiteTagline(
@@ -418,6 +423,19 @@ export async function generateSiteTagline(
 ): Promise<GenerationResult<{ tagline: string }>> {
   // OPENAI_API_KEY is consulted by runTextGenerator. idempotency_key is
   // (site_id:site-tagline:site-tagline:v1).
+  // T40: resolve the 'tagline' preset (editable, is_system seeded by 0020).
+  // When a preset exists its interpolated prompt + text_model drive the
+  // generation; with no preset we fall back to the deterministic builder.
+  const preset = await resolveCategoryPreset(
+    env,
+    input.presetCategory ?? "tagline",
+    {
+      vertical: input.vertical,
+      audience: input.audience,
+      brand_name: input.brand_name,
+      site_id: input.site_id,
+    },
+  );
   return runTextGenerator<GenerateSiteTaglineInput, { tagline: string }>({
     env,
     task: "site-tagline",
@@ -425,7 +443,8 @@ export async function generateSiteTagline(
     target_type: "site_settings",
     target_id: input.site_id,
     context: input,
-    prompt: buildSiteTaglinePrompt(input),
+    prompt: preset?.prompt ?? buildSiteTaglinePrompt(input),
+    modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => ({ tagline: raw.trim().split("\n")[0] ?? "" }),
     buildFallback: () => ({ tagline: fallbackSiteTagline(input) }),
     validate: (p) =>
@@ -437,6 +456,9 @@ export async function generateSiteTagline(
 export interface GenerateSiteDescriptionInput
   extends BuildSiteDescriptionPromptInput {
   client?: OpenAIClient;
+  // T40 [BCL-077]: provisioning passes 'site-description' so the editable
+  // system preset governs the generated meta description.
+  presetCategory?: string;
 }
 
 export async function generateSiteDescription(
@@ -444,6 +466,18 @@ export async function generateSiteDescription(
   input: GenerateSiteDescriptionInput,
 ): Promise<GenerationResult<{ description: string }>> {
   // OPENAI_API_KEY-aware; deterministic idempotency_key per site.
+  // T40: resolve the 'site-description' preset (is_system seeded by 0020).
+  const preset = await resolveCategoryPreset(
+    env,
+    input.presetCategory ?? "site-description",
+    {
+      vertical: input.vertical,
+      audience: input.audience,
+      brand_name: input.brand_name,
+      tagline: input.tagline,
+      site_id: input.site_id,
+    },
+  );
   return runTextGenerator<
     GenerateSiteDescriptionInput,
     { description: string }
@@ -454,7 +488,8 @@ export async function generateSiteDescription(
     target_type: "site_settings",
     target_id: input.site_id,
     context: input,
-    prompt: buildSiteDescriptionPrompt(input),
+    prompt: preset?.prompt ?? buildSiteDescriptionPrompt(input),
+    modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => ({ description: raw.trim() }),
     buildFallback: () => ({ description: fallbackSiteDescription(input) }),
     validate: (p) =>
@@ -512,6 +547,11 @@ export async function generateAboutPage(
 export interface GenerateStarterArticlePlanInput
   extends BuildStarterArticlePlanPromptInput {
   client?: OpenAIClient;
+  // T40 [BCL-077]: the generate_15_homepage_articles provisioning step passes
+  // 'starter-articles' so the editable starter-articles system preset governs
+  // the article plan — editing it changes the titles/topics the next setup
+  // produces. Direct callers default to the 'outline' use-case preset (T13).
+  presetCategory?: string;
 }
 
 export async function generateStarterArticlePlan(
@@ -519,10 +559,11 @@ export async function generateStarterArticlePlan(
   input: GenerateStarterArticlePlanInput,
 ): Promise<GenerationResult<GeneratedStarterArticlePlan>> {
   // OPENAI_API_KEY-aware; fallback returns exactly 15 unique slugs.
-  // T13/AC1: the 'outline' use-case preset (if an active row exists) drives
-  // the prompt + model; with no preset we fall back to the deterministic
-  // builder prompt + registry-default model (no crash, no stub).
-  const preset = await resolveCategoryPreset(env, "outline", {
+  // T13/AC1 + T40: the resolved preset (the provisioning 'starter-articles'
+  // task key, else the 'outline' use-case default) drives the prompt + model;
+  // with no preset we fall back to the deterministic builder prompt +
+  // registry-default model (no crash, no stub).
+  const preset = await resolveCategoryPreset(env, input.presetCategory ?? "outline", {
     vertical: input.vertical,
     audience: input.audience,
     brand_name: input.brand_name,

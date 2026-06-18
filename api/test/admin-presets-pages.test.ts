@@ -3,7 +3,7 @@
 // The reference form (MISSION W4) carries Name* (auto-derives slug) +
 // Description, a REQUIRED name="category" use-case <select> (NOT a text
 // input), split System/User prompt textareas, {{variable}} click-to-insert
-// chips (NO raw name="variables" field), a "Fields to Generate" content-map,
+// chips (NO raw name="variables" field), a "Content Preset Mapping" content-map,
 // and model selects sourced ONLY from the SUPPORTED_*_MODELS registry. New
 // mode targets POST /api/admin/ai/presets; edit mode targets PUT
 // /api/admin/ai/presets/:id.
@@ -116,8 +116,9 @@ describe("T12 renderPresets reference form (AC1/AC3)", () => {
     expect(html).toContain('class="var-chip"');
     expect(html).toContain("{{topic}}");
     expect(html).toContain('id="preset-detected-vars"');
-    // Fields-to-Generate content map
-    expect(html).toContain("Fields to Generate");
+    // Content Preset Mapping content map (T8 renamed the section to the
+    // reference label; the cmap-field / data-field contract is unchanged).
+    expect(html).toContain("Content Preset Mapping");
     expect(html).toContain('class="cmap-field"');
     expect(html).toContain('data-field="content"');
   });

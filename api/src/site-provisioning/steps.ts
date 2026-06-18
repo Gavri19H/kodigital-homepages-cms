@@ -46,6 +46,10 @@ import {
   generateFeatureImagePrompt,
   generateFeatureImage,
 } from "../ai/generators/image";
+// T40 [BCL-077]: every provisioning AI step resolves its editable system
+// preset by task key (seeded is_system by migration 0020). PROVISIONING_PRESET_CATEGORIES
+// is the single source of truth for those task keys.
+import { PROVISIONING_PRESET_CATEGORIES } from "../ai/generators/preset-resolver";
 
 export type StepKey =
   | "validate_domain_in_cloudflare"
@@ -488,12 +492,14 @@ async function generateTaglineAndSiteDescriptionStep(
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.tagline,
   });
   const description = await generateSiteDescription(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
     tagline: tagline.parsed.tagline,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.siteDescription,
   });
   // T7-AC1: the AI-owned tagline / site_description MUST overwrite the
   // deterministic stub the earlier create_site_settings step seeded —
@@ -665,11 +671,13 @@ async function generateLogoMarkStep(
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.logo,
   });
   const imageResult = await generateLogoImage(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.logo,
   });
   if (imageResult.media_id > 0) {
     await upsertSiteSetting(
@@ -712,18 +720,44 @@ async function generateFeatureImageStep(
   }
   const title = `${info.brand_name} hero`;
   const slug = "site-hero";
+  // T40: the homepage hero image is governed by the editable 'hero-image'
+  // system preset (distinct from the per-article 'feature-image' preset).
   const promptResult = await generateFeatureImagePrompt(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     article_title: title,
     article_slug: slug,
+    brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.heroImage,
   });
   const imageResult = await generateFeatureImage(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     article_title: title,
     article_slug: slug,
+    brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.heroImage,
   });
+  // T41 [BCL-078] — persist the generated hero as the site-level hero image so
+  // the provisioned end-state actually has its hero SET. buildHomeViewModel
+  // (home.ts:323) sources the full-bleed homepage .hero-bg banner from
+  // site_settings.hero_image_media_id (T18/BCL-056); before this write the
+  // step generated a hero image that NOTHING referenced, so the banner
+  // silently fell back to the lead article's image and "hero set" was not
+  // actually true. UPDATE-IF-NULL via upsertSiteSetting preserves any
+  // operator-picked hero, and the write only fires when a media row was really
+  // created (media_id > 0 — never under the no-key skip), mirroring the logo
+  // step exactly.
+  let heroSettingWritten = false;
+  if (imageResult.media_id > 0) {
+    await upsertSiteSetting(
+      ctx.db,
+      ctx.site_id,
+      "hero_image_media_id",
+      String(imageResult.media_id),
+    );
+    heroSettingWritten = true;
+  }
   return {
     status: "completed",
     output: JSON.stringify({
@@ -736,6 +770,7 @@ async function generateFeatureImageStep(
       image_ai_generation_id: imageResult.ai_generation_id,
       media_id: imageResult.media_id,
       storage_key: imageResult.storage_key,
+      hero_image_media_id_set: heroSettingWritten,
     }),
   };
 }
@@ -839,10 +874,14 @@ async function generate15HomepageArticlesStep(
     settingAuthor !== null ? settingAuthor : `${info.brand_name} Editorial Team`;
   // T6: categories allocated to this site by allocate_vertical_categories.
   const categoryIds = await loadSiteCategoryIds(ctx.db, ctx.site_id);
+  // T40-AC1: the starter-article PLAN is governed by the editable
+  // 'starter-articles' system preset — editing it changes the titles/topics
+  // the next provisioning run produces.
   const plan = await generateStarterArticlePlan(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.starterArticles,
   });
   const items = plan.parsed.items ?? [];
   const written: string[] = [];
@@ -992,6 +1031,8 @@ async function generateOrAssignArticleImagesStep(
       vertical: info.vertical,
       article_title: row.title,
       article_slug: row.slug,
+      brand_name: info.brand_name,
+      presetCategory: PROVISIONING_PRESET_CATEGORIES.featureImage,
     });
     if (image.media_id > 0) {
       // UPDATE-IF-NULL — only assign the AI-generated image when the

@@ -9,25 +9,39 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import type { ArticleRow, MediaRow, CategoryRow } from "../db";
+// T23: settings PATCH boundary hardening — key allow-list + per-field script
+// validation that rejects stored-XSS vectors before they are ever persisted.
+import { ALLOWED_SETTINGS_KEYS, validateScriptField } from "../settings/custom-html";
 import {
   listSitesHandler,
   createSiteHandler,
   getSiteHandler,
   updateSiteHandler,
+  deleteSiteHandler,
 } from "./sites-handlers";
 import {
   listVerticalsHandler,
   listDomainsHandler,
   updateDomainHandler,
 } from "./domains-verticals-handlers";
-import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
+import {
+  provisionNextHandler,
+  provisionResumeHandler,
+  provisionStatusHandler,
+} from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
 import {
+  cacheStatsHandler,
+  cacheStatsResetHandler,
+} from "./cache-stats-handler";
+import {
+  getPageHandler,
   createPageHandler,
   updatePageHandler,
   deletePageHandler,
 } from "./pages-crud-handlers";
 import {
+  getCategoryHandler,
   updateCategoryHandler,
   deleteCategoryHandler,
   createTagHandler,
@@ -83,6 +97,19 @@ interface CreateArticleBody {
   title?: string;
   content_json?: string;
   category_id?: number | string | null;
+  // T3: the create form persists the full author/SEO/placement column set
+  // (no longer silently dropped). homepage_section is intentionally NOT part
+  // of the create contract — it is being removed (T3-AC2).
+  status?: string;
+  author_name?: string | null;
+  author_bio?: string | null;
+  featured_image_id?: number | null;
+  seo_title?: string | null;
+  seo_description?: string | null;
+  homepage_rank?: number | null;
+  is_featured?: number | boolean;
+  is_trending?: number | boolean;
+  published_at?: number | null;
 }
 
 const api = new Hono<{ Bindings: Env }>();
@@ -185,18 +212,72 @@ api.post("/api/admin/articles", async (c) => {
     categoryId = parsed;
   }
 
+  // T3-AC1: normalize the full author/SEO/placement column set so CREATE
+  // persists every field the editor sends (create-then-read round-trips).
+  // status is constrained to the schema CHECK set; numeric/flag fields use
+  // explicit type guards (never `||`, so 0 / null survive). homepage_section
+  // is intentionally absent from this write path (T3-AC2) — it keeps its
+  // schema-level 'none' default.
+  const status =
+    typeof body.status === "string" &&
+    ["draft", "published", "scheduled", "archived"].includes(body.status)
+      ? body.status
+      : "draft";
+  const isFeatured =
+    body.is_featured === 1 || body.is_featured === true ? 1 : 0;
+  const isTrending =
+    body.is_trending === 1 || body.is_trending === true ? 1 : 0;
+  const authorName =
+    typeof body.author_name === "string" ? body.author_name : null;
+  const authorBio =
+    typeof body.author_bio === "string" ? body.author_bio : null;
+  const seoTitle = typeof body.seo_title === "string" ? body.seo_title : null;
+  const seoDescription =
+    typeof body.seo_description === "string" ? body.seo_description : null;
+  const featuredImageId =
+    typeof body.featured_image_id === "number" ? body.featured_image_id : null;
+  const homepageRank =
+    typeof body.homepage_rank === "number" ? body.homepage_rank : null;
+  const publishedAt =
+    typeof body.published_at === "number" ? body.published_at : null;
+
+  // T3-AC2 (D10): an article cannot be published, featured, or marked
+  // trending without a category — anything shown publicly must have one.
+  if (
+    (status === "published" || isFeatured === 1 || isTrending === 1) &&
+    categoryId === null
+  ) {
+    return c.json(
+      {
+        error:
+          "category_id is required to publish, feature, or mark an article trending",
+        code: "CATEGORY_REQUIRED",
+      },
+      422,
+    );
+  }
+
   const row = await c.env.DB.prepare(
-    "INSERT INTO articles (site_id, slug, title, content_json, category_id, status) VALUES (?, ?, ?, ?, ?, 'draft') RETURNING id, site_id, slug, title, category_id, status",
+    "INSERT INTO articles (site_id, slug, title, content_json, category_id, status, author_name, author_bio, featured_image_id, seo_title, seo_description, homepage_rank, is_featured, is_trending, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
   )
-    .bind(siteId, slug, title, contentJson, categoryId)
-    .first<{
-      id: number;
-      site_id: string | null;
-      slug: string;
-      title: string;
-      category_id: number | null;
-      status: string;
-    }>();
+    .bind(
+      siteId,
+      slug,
+      title,
+      contentJson,
+      categoryId,
+      status,
+      authorName,
+      authorBio,
+      featuredImageId,
+      seoTitle,
+      seoDescription,
+      homepageRank,
+      isFeatured,
+      isTrending,
+      publishedAt,
+    )
+    .first<ArticleRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
   return c.json({ article: row }, 201);
 });
@@ -239,6 +320,7 @@ api.get("/api/admin/pages", async (c) => {
 // calls (pageFormPage submit script POSTs /api/admin/pages, PATCHes
 // /api/admin/pages/:id; the list's Delete row action DELETEs
 // /api/admin/pages/:id). Handlers live in ./pages-crud-handlers.ts.
+api.get("/api/admin/pages/:id", getPageHandler);
 api.post("/api/admin/pages", createPageHandler);
 api.patch("/api/admin/pages/:id", updatePageHandler);
 api.delete("/api/admin/pages/:id", deletePageHandler);
@@ -443,6 +525,10 @@ api.post("/api/admin/categories", async (c) => {
 // admin-side edits PUT/DELETE /api/admin/categories/:id; tagsListPage
 // create modal POSTs /api/admin/tags, row Delete DELETEs
 // /api/admin/tags/:id). Handlers live in ./taxonomy-crud-handlers.ts.
+// T30.AC1: GET detail route — the edit screen loads one record (incl.
+// description + show_on_homepage) before PUTting it back. Distinct path
+// segment from the GET list above, so no Hono route collision.
+api.get("/api/admin/categories/:id", getCategoryHandler);
 api.put("/api/admin/categories/:id", updateCategoryHandler);
 api.delete("/api/admin/categories/:id", deleteCategoryHandler);
 api.post("/api/admin/tags", createTagHandler);
@@ -556,6 +642,16 @@ api.patch("/api/admin/settings", async (c) => {
     return c.json({ error: "updates must contain at least one key" }, 400);
   }
 
+  // T23 (AC2): enforce the settings key allow-list. An unknown key never
+  // reaches the D1 batch — this stops arbitrary-key writes (the old handler
+  // UPSERTed any key the caller sent) and is the first half of the
+  // ALLOWED_SETTINGS_KEYS + validateScriptField boundary.
+  for (const key of keys) {
+    if (!ALLOWED_SETTINGS_KEYS.has(key)) {
+      return c.json({ error: `unknown setting key: '${key}'` }, 400);
+    }
+  }
+
   const existingSite = await c.env.DB.prepare(
     "SELECT id, settings_version FROM sites WHERE id = ? LIMIT 1",
   )
@@ -576,6 +672,13 @@ api.patch("/api/admin/settings", async (c) => {
         { error: `value for '${key}' must be a string` },
         400,
       );
+    }
+    // T23 (AC2): reject the XSS vectors (inline event handlers, javascript:
+    // URIs, and <script> inside the pure-HTML fields) before the value is
+    // stored. Render-time sanitizeSettingsHtml is the defence-in-depth layer.
+    const verdict = validateScriptField(key, raw);
+    if (!verdict.ok) {
+      return c.json({ error: verdict.reason }, 400);
     }
     statements.push(
       c.env.DB.prepare(
@@ -704,11 +807,23 @@ adminApi.get("/sites", listSitesHandler);
 adminApi.post("/sites", createSiteHandler);
 adminApi.get("/sites/:id", getSiteHandler);
 adminApi.patch("/sites/:id", updateSiteHandler);
+// T37: real Delete-site — cascade DB removal + Cloudflare route/DNS
+// teardown + cache purge (dry-run gated). `.delete(` does NOT match the
+// T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites` so the four-hit
+// count there is unaffected.
+adminApi.delete("/sites/:id", deleteSiteHandler);
 // T17: site-provisioning runner — advances the active site_creation_job
 // by one step per call. Route literal `/sites/:id/provision/next`
 // still matches the T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites`
 // (operator >= 4, so a 5th hit is safe).
 adminApi.post("/sites/:id/provision/next", provisionNextHandler);
+// T39 [BCL-013]: resume a STALLED build — drives the job to completion
+// (resets a parked 'failed' job, then loops advanceNextStep) so a halted
+// site reaches status='active' from the operator "Resume" UI action. Route
+// literal `/sites/:id/provision/resume` is distinct from `/provision/next`
+// (different trailing segment) and still matches the T13.AC1 grep
+// `admin(Api)?\.(get|post|patch)\("/sites` (operator >= 4).
+adminApi.post("/sites/:id/provision/resume", provisionResumeHandler);
 // WARN-FIX-1: read-only provisioning status — does not advance the job.
 // Route literal `/sites/:id/provision` is the exact match required by the
 // WARN-FIX-1 grep `admin(Api)?\.(get)\("/sites/:id/provision"` (the
@@ -720,6 +835,12 @@ adminApi.get("/sites/:id/provision", provisionStatusHandler);
 // returning {resource:{purge_id, status}}. Route literal matches the
 // WARN-FIX-2.AC1 grep `admin(Api)?\.(post)\("/sites/:id/purge-cache"`.
 adminApi.post("/sites/:id/purge-cache", purgeCacheHandler);
+// T44 [BCL-020]: cache hit/miss monitoring view. GET reports the live
+// counters + derived hit_rate; POST .../reset zeroes them. KV-only (no D1,
+// no outbound HTTP). Route literals do not match the /sites or
+// /(verticals|domains) greps so the fixed-count ACs above stay intact.
+adminApi.get("/cache/stats", cacheStatsHandler);
+adminApi.post("/cache/stats/reset", cacheStatsResetHandler);
 // T14: verticals (read-only global) + domains (list + status/kind patch).
 // The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
 // exactly 3 hits — the three lines below — to satisfy T14.AC1.
@@ -745,9 +866,10 @@ adminApi.patch("/domains/:id", updateDomainHandler);
 //     → 422 CATEGORY_INVALID_FOR_SITE (validateCategoryForSite returns false).
 //   * Otherwise 200 with refreshed updated_at and the requested allow-list
 //     fields applied. Updatable fields are 'site_id', 'title', 'slug',
-//     'content_json', 'category_id', 'status', 'homepage_section',
+//     'content_json', 'category_id', 'status',
 //     'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
 //     'seo_title', 'seo_description', 'author_name', 'author_bio'.
+//     (T3: homepage_section is removed from the admin write path.)
 ((api: typeof adminApi) => {
 api.patch("/articles/:id", async (c) => {
   const idRaw = c.req.param("id");
@@ -763,7 +885,6 @@ api.patch("/articles/:id", async (c) => {
     content_json?: unknown;
     category_id?: unknown;
     status?: unknown;
-    homepage_section?: unknown;
     homepage_rank?: unknown;
     is_featured?: unknown;
     is_trending?: unknown;
@@ -895,9 +1016,10 @@ api.patch("/articles/:id", async (c) => {
   // Allow-listed UPDATE — build SET clause from supplied keys only.
   // Field literals appear as single-quoted strings so T13.AC5 can assert
   // each one is present in this file: 'site_id', 'title', 'slug',
-  // 'content_json', 'category_id', 'status', 'homepage_section',
+  // 'content_json', 'category_id', 'status',
   // 'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
   // 'seo_title', 'seo_description', 'author_name', 'author_bio'.
+  // (T3: homepage_section removed from the admin write path.)
   const setClauses: string[] = [];
   const bindings: unknown[] = [];
 
@@ -930,10 +1052,6 @@ api.patch("/articles/:id", async (c) => {
   if (typeof body.status === "string") {
     setClauses.push("status = ?");
     bindings.push(body.status);
-  }
-  if (typeof body.homepage_section === "string") {
-    setClauses.push("homepage_section = ?");
-    bindings.push(body.homepage_section);
   }
   if (
     typeof body.homepage_rank === "number" ||

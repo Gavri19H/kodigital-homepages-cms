@@ -12,9 +12,11 @@
 //     featured_image_id + the card preview,
 //   - the AI hero-image modal: open/close, preset selector (variables +
 //     live interpolated prompt-preview), Generate -> POST /api/admin/ai/image
-//     {prompt, site_id?, size, style, quality, alt_text}, a preview of the
-//     generated image + an error region, and Apply -> place the generated
-//     image into the article (set featured_image_id + preview, close modal).
+//     {prompt, site_id?, size, style, quality, alt_text, presetId?, variables?}
+//     (the selected preset is forwarded so the server applies/records it),
+//     a preview of the generated image + an error region, and Apply -> place
+//     the generated image into the article (set featured_image_id + preview,
+//     close modal).
 
 export const heroImageScripts = `
 (function () {
@@ -244,6 +246,14 @@ export const heroImageScripts = `
       if (sizeEl && sizeEl.value) { payload.size = sizeEl.value; }
       if (styleEl && styleEl.value) { payload.style = styleEl.value; }
       if (qualityEl && qualityEl.value) { payload.quality = qualityEl.value; }
+      // T10 [BCL-011]: forward the selected preset so the server resolves and
+      // records the editable SYSTEM preset that governs this hero-image
+      // generation (no hardcoded image path). The preset's interpolated prompt
+      // is already in 'prompt'; presetId + its {{variable}} values ride along.
+      if (activePreset) {
+        payload.presetId = activePreset.id;
+        payload.variables = variableValues();
+      }
       fetch('/api/admin/ai/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

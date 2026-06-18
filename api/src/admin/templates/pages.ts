@@ -24,8 +24,15 @@
 // Do NOT rename the Site filter select away from the canonical wire
 // name without also updating both wire contracts.
 
-import { adminLayout, escapeHtml } from "./layout";
+import {
+  adminLayout,
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  type ListPagerMeta,
+} from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
+import { EDITOR_TOOLBAR, blocksToHtml } from "../../editor";
 
 export interface SiteOption {
   id: string;
@@ -142,16 +149,24 @@ function renderTemplateOptions(selected?: string | null): string {
   }).join("");
 }
 
-function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
+export interface PageListFilters {
+  site_id?: string;
+  search?: string;
+  page_type?: string;
+  status?: string;
+}
+
+function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: PageListFilters = {}): string {
+  const globalSel = filters.site_id === "__global__" ? " selected" : "";
   return `<div class="toolbar">
-  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search pages..." /></div>
+  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search pages..." value="${escapeHtml(filters.search ?? "")}" /></div>
   <div class="toolbar-filters">
     <select name="site_id" class="form-select" aria-label="Site filter">
-      ${renderSiteOptions(sites, "", true, "All sites")}
-      <option value="__global__">Global only (templates)</option>
+      ${renderSiteOptions(sites, filters.site_id ?? "", true, "All sites")}
+      <option value="__global__"${globalSel}>Global only (templates)</option>
     </select>
-    <select name="page_type" class="form-select" aria-label="Page type filter">${renderPageTypeOptions("", true)}</select>
-    <select name="status" class="form-select" aria-label="Status filter">${renderStatusOptions("", true)}</select>
+    <select name="page_type" class="form-select" aria-label="Page type filter">${renderPageTypeOptions(filters.page_type ?? "", true)}</select>
+    <select name="status" class="form-select" aria-label="Status filter">${renderStatusOptions(filters.status ?? "", true)}</select>
   </div>
   <a href="/admin/pages/new" class="btn btn-primary">+ New Page</a>
 </div>`;
@@ -237,19 +252,83 @@ export function pagesListPage(
   pages: ReadonlyArray<PageListEntry>,
   sites: ReadonlyArray<SiteOption>,
   branding: PagesBranding = {},
+  filters: PageListFilters = {},
+  pageMeta?: ListPagerMeta,
 ): string {
-  const content = `${renderToolbar(sites)}${renderPagesTable(pages)}`;
+  const pager = renderListPager(pageMeta, {
+    site_id: filters.site_id,
+    search: filters.search,
+    page_type: filters.page_type,
+    status: filters.status,
+  });
+  const content = `${renderToolbar(sites, filters)}${renderPagesTable(pages)}${pager}`;
   return adminLayout({
     title: "Pages",
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
-    scripts: PAGES_LIST_SCRIPT,
+    scripts: PAGES_LIST_SCRIPT + listFilterScript,
   });
 }
 
 function boolAttr(v: boolean | number | undefined): string {
   return v ? " checked" : "";
+}
+
+// T33: the Pages content field uses the SAME contenteditable WYSIWYG block
+// editor as articles (BCL-028: "Page content uses the same rich editor as
+// articles"). The markup is the articleFormPage contract: a toolbar
+// (#content-editor-toolbar) above a visible contenteditable surface
+// (#content-editor) paired with a HIDDEN textarea#content_json the submit
+// reads. editorScripts()'s initContentEditors() mounts ContentEditor on this
+// trio (it claims #content-editor before the legacy bare-textarea path), so
+// there is no raw JSON textarea on the page.
+const CONTENT_EDITOR_STYLES = `
+.content-editor-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding:8px; border:1px solid #d0d5dd; border-bottom:0; border-radius:6px 6px 0 0; background:#f9fafb; }
+.content-editor-toolbar .editor-tool { padding:4px 10px; border:1px solid #d0d5dd; background:#fff; border-radius:4px; cursor:pointer; font-size:13px; line-height:1.2; }
+.content-editor-toolbar .editor-tool:hover { background:#f2f4f7; }
+.content-editor { min-height:240px; padding:12px 14px; border:1px solid #d0d5dd; border-radius:0 0 6px 6px; background:#fff; line-height:1.6; }
+.content-editor:focus { outline:2px solid #1ba8c8; outline-offset:-1px; }
+.content-editor > * { margin:0 0 12px; }
+.content-editor blockquote { border-left:3px solid #d0d5dd; padding-left:12px; color:#475467; }
+.content-editor blockquote.pullquote { border-left-color:#1ba8c8; font-style:italic; }
+.content-editor .editor-preserved { border:1px dashed #d0d5dd; border-radius:6px; padding:8px; background:#f9fafb; }
+.content-editor .editor-preserved-label { font-size:11px; text-transform:uppercase; color:#667085; }
+.content-editor img { max-width:100%; height:auto; border-radius:4px; }
+`;
+
+// Toolbar rendered from the shared EDITOR_TOOLBAR config (single source of
+// truth with the client script); each button carries the data-* attributes
+// the editor script reads. Mirrors articleFormPage's renderEditorToolbar.
+function renderEditorToolbar(): string {
+  const buttons = EDITOR_TOOLBAR.map((item) => {
+    const attrs = [
+      `type="button"`,
+      `class="editor-tool"`,
+      `data-editor-cmd="${item.group}"`,
+      `aria-label="${escapeHtml(item.ariaLabel)}"`,
+      `title="${escapeHtml(item.ariaLabel)}"`,
+    ];
+    if (item.blockType) attrs.push(`data-block-type="${item.blockType}"`);
+    if (item.level != null) attrs.push(`data-level="${item.level}"`);
+    if (item.style) attrs.push(`data-style="${item.style}"`);
+    if (item.command) attrs.push(`data-command="${item.command}"`);
+    if (item.prompt) attrs.push(`data-prompt="1"`);
+    return `<button ${attrs.join(" ")}>${escapeHtml(item.label)}</button>`;
+  }).join("");
+  return `<div class="content-editor-toolbar" id="content-editor-toolbar" role="toolbar" aria-label="Formatting toolbar">${buttons}</div>`;
+}
+
+function renderContentEditorField(contentJson: string | undefined): string {
+  const raw = contentJson ?? "";
+  const initialHtml = blocksToHtml(raw);
+  const jsonVal = escapeHtml(raw);
+  return `<div class="form-group">
+      <label for="content-editor" class="form-label">Content</label>
+      ${renderEditorToolbar()}
+      <div id="content-editor" class="content-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Page content" data-content-editor="1">${initialHtml}</div>
+      <textarea id="content_json" name="content_json" class="content-json-input" hidden aria-hidden="true">${jsonVal}</textarea>
+    </div>`;
 }
 
 function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOption>): string {
@@ -259,7 +338,6 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
   const pageId = escapeHtml(p.id ?? "");
   const titleVal = escapeHtml(p.title ?? "");
   const slugVal = escapeHtml(p.slug ?? "");
-  const contentJsonVal = escapeHtml(p.content_json ?? "");
   const seoTitleVal = escapeHtml(p.seo_title ?? "");
   const seoDescVal = escapeHtml(p.seo_description ?? "");
   const pageTypeVal = p.page_type ?? "generic";
@@ -312,10 +390,7 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
       <label for="page-display-order" class="form-label">Display Order</label>
       <input id="page-display-order" name="display_order" type="number" class="form-input" value="${escapeHtml(p.display_order ?? 0)}" min="0" />
     </div>
-    <div class="form-group">
-      <label for="page-content" class="form-label">Content</label>
-      <textarea id="page-content" name="content_json" class="form-textarea" rows="8">${contentJsonVal}</textarea>
-    </div>
+    ${renderContentEditorField(p.content_json)}
   </div>
   <div class="card">
     <div class="card-header"><h3 class="card-title">SEO</h3></div>
@@ -436,6 +511,7 @@ export function pageFormPage(
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
+    styles: CONTENT_EDITOR_STYLES,
     scripts: editorScripts() + PAGE_FORM_SCRIPT,
   });
 }

@@ -36,6 +36,7 @@ export const aiAssistantScripts = `
   var presetSelect = document.getElementById('ai-preset-select');
   var presetVars = document.getElementById('ai-preset-variables');
   var presetPreview = document.getElementById('ai-preset-preview');
+  var systemPreview = document.getElementById('ai-system-preview');
   var toneEl = document.getElementById('ai-tone');
   var lengthEl = document.getElementById('ai-length');
   var promptEl = document.getElementById('ai-prompt');
@@ -176,7 +177,20 @@ export const aiAssistantScripts = `
       return (values && values[name] !== undefined && values[name] !== '') ? values[name] : whole;
     });
   }
+  // T7/AC2: a dedicated system-prompt preview that updates on preset select
+  // (and on every variable edit). It shows the interpolated
+  // system_prompt_template the server will apply, so the operator sees the
+  // voice the preset overrides the tone with.
+  function renderSystemPreview() {
+    if (!systemPreview) { return; }
+    if (!activePreset || !activePreset.system_prompt_template) {
+      systemPreview.textContent = '';
+      return;
+    }
+    systemPreview.textContent = interpolate(activePreset.system_prompt_template, variableValues());
+  }
   function renderPreview() {
+    renderSystemPreview();
     if (!presetPreview) { return; }
     if (!activePreset) { presetPreview.textContent = ''; return; }
     var prompt = interpolate(presetTemplate(activePreset), variableValues());
@@ -291,6 +305,17 @@ export const aiAssistantScripts = `
     var payload = { prompt: text };
     var siteId = readSiteId();
     if (siteId) { payload.site_id = siteId; }
+    // T7/AC2: send the tone/length options and, when a preset is selected, the
+    // presetId + its {{variable}} values so the server applies the preset
+    // system_prompt_template, overrides the tone, and maps length->max_tokens.
+    payload.options = {
+      tone: toneEl && toneEl.value ? toneEl.value : '',
+      length: lengthEl && lengthEl.value ? lengthEl.value : ''
+    };
+    if (activePreset) {
+      payload.presetId = activePreset.id;
+      payload.variables = variableValues();
+    }
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

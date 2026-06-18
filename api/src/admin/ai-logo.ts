@@ -17,8 +17,21 @@ import type { Env } from "../env";
 import { getImageModel } from "../ai/models";
 import { generateLogoImage } from "../ai/generators/image";
 
+// T24: the admin AI-logo panel posts a LogoRequest — the operator's free-text
+// description (wire field `prompt`), a `style` keyword, and a `colorScheme`.
+// These are creative DIRECTION (not tenant identity), so they are read from the
+// request body; the site's brand inputs are still read from its own sites row.
 interface LogoBody {
   site_id?: string;
+  prompt?: string;
+  style?: string;
+  colorScheme?: string;
+}
+
+// Operator-direction inputs are length-capped so a hostile body cannot bloat
+// the outbound prompt; an empty/whitespace value is treated as absent.
+function directedField(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().slice(0, 500) : "";
 }
 
 const LOGO_SETTING_KEY = "logo_media_id";
@@ -61,11 +74,21 @@ export async function handleAdminAiLogo(c: Context<{ Bindings: Env }>) {
       ? site.vertical_slug
       : "general topics";
 
+  // T24: forward the operator's direction (LogoRequest) into the prompt. Each
+  // field refines the mark only when present; absent, generateLogoImage builds
+  // the undirected default exactly as before.
+  const description = directedField(body.prompt);
+  const style = directedField(body.style);
+  const colorScheme = directedField(body.colorScheme);
+
   try {
     const outcome = await generateLogoImage(c.env, {
       site_id,
       vertical,
       brand_name,
+      ...(description ? { description } : {}),
+      ...(style ? { style } : {}),
+      ...(colorScheme ? { colorScheme } : {}),
     });
     if (outcome.status === "skipped_no_api_key") {
       // Unreachable (key presence checked above) but kept for the 501
@@ -89,7 +112,7 @@ export async function handleAdminAiLogo(c: Context<{ Bindings: Env }>) {
       "INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?) " +
         "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value",
     )
-      .bind(site_id, LOGO_SETTING_KEY, String(outcome.media_id))
+      .bind(site_id, LOGO_SETTING_KEY, outcome.storage_key)
       .run();
 
     return c.json({
@@ -99,6 +122,10 @@ export async function handleAdminAiLogo(c: Context<{ Bindings: Env }>) {
       image_url: `/media/${outcome.storage_key}`,
       ai_generation_id: outcome.ai_generation_id,
       setting_key: LOGO_SETTING_KEY,
+      // T24: echo the direction that was applied so the panel (and tests) can
+      // confirm a DIRECTED regenerate, not a fixed-prompt one.
+      directed: Boolean(description || style || colorScheme),
+      applied_direction: { prompt: description, style, colorScheme },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

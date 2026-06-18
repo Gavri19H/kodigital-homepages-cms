@@ -8,11 +8,31 @@
 
 export {
   ALLOWED_BLOCK_TYPES,
-  contentJsonToHtml,
   isAllowedBlockType,
   renderBlock,
 } from "./blocks";
 export type { BaseBlock, BlockType, ContentDocument } from "./blocks";
+
+// Document-level publish render (T6): the canonical blocksToHtml plus the
+// historical contentJsonToHtml alias publish.ts / preview import.
+export { blocksToHtml, contentJsonToHtml } from "./blocks-to-html";
+
+// Editor block model + pure transforms (T6 contenteditable WYSIWYG port).
+export {
+  EDITOR_TOOLBAR,
+  blockText,
+  convertBlock,
+  documentToContentJson,
+  migrateMarkdownToHtml,
+  parseContentJson,
+  sanitizeBlockHtml,
+} from "./types";
+export type {
+  EditorBlock,
+  EditorBlockType,
+  EditorDocument,
+  EditorToolbarItem,
+} from "./types";
 
 export { escapeHtml, isSafeUrl, sanitizeHtml } from "./sanitize";
 

@@ -12,6 +12,7 @@
 
 import type { ArticleRow } from "../db";
 import type { SitemapPageRow } from "./sitemap";
+import { mediaUrl } from "./view-models/media-url";
 
 export interface PublicPageRow {
   id: number;
@@ -24,6 +25,12 @@ export interface PublicPageRow {
 }
 
 export interface PublicCategoryRow {
+  id: number;
+  slug: string;
+  name: string;
+}
+
+export interface PublicTagRow {
   id: number;
   slug: string;
   name: string;
@@ -58,19 +65,77 @@ export async function fetchCategory(
   return row ?? null;
 }
 
+// T27 (BCL-049): the operator-configured `items_per_page` site setting was
+// dead — category/tag listings hardcoded PUBLIC_PAGE_SIZE=20. resolvePageSize
+// reads the setting (via the same fetchSiteSetting reader the public router
+// uses) and clamps it to the 1..100 range the admin number control enforces
+// (admin/templates/settings.ts: min=1 max=100). Falls back to the
+// PUBLIC_PAGE_SIZE default when the setting is unset or non-numeric.
+export async function resolvePageSize(
+  db: D1Database,
+  siteId: string,
+): Promise<number> {
+  const raw = await fetchSiteSetting(db, siteId, "items_per_page");
+  if (raw === null) return PUBLIC_PAGE_SIZE;
+  const parsed = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return PUBLIC_PAGE_SIZE;
+  return Math.min(parsed, 100);
+}
+
 export async function fetchCategoryArticles(
   db: D1Database,
   categoryId: number,
   siteId: string,
   page: number,
+  pageSize: number = PUBLIC_PAGE_SIZE,
 ): Promise<ArticleRow[]> {
-  const offset = Math.max(0, (page - 1) * PUBLIC_PAGE_SIZE);
+  const offset = Math.max(0, (page - 1) * pageSize);
   const result = await db
     .prepare(
       "SELECT * FROM articles WHERE category_id = ? AND site_id = ? AND status = 'published' " +
         "ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
     )
-    .bind(categoryId, siteId, PUBLIC_PAGE_SIZE, offset)
+    .bind(categoryId, siteId, pageSize, offset)
+    .all<ArticleRow>();
+  return result.results ?? [];
+}
+
+// T14: tag listing pages. tags carry a phase-3 `site_id` column, so the tag
+// lookup is tenant-scoped exactly like the per-site article queries (a NULL
+// site_id stays globally reachable for legacy/shared tags). The article
+// listing joins `article_tags` and is ALWAYS scoped by `a.site_id = ?` so a
+// tag page can never leak another tenant's articles.
+export async function fetchTag(
+  db: D1Database,
+  slug: string,
+  siteId: string,
+): Promise<PublicTagRow | null> {
+  const row = await db
+    .prepare(
+      "SELECT id, slug, name FROM tags WHERE slug = ? " +
+        "AND (site_id = ? OR site_id IS NULL) LIMIT 1",
+    )
+    .bind(slug, siteId)
+    .first<PublicTagRow>();
+  return row ?? null;
+}
+
+export async function fetchTagArticles(
+  db: D1Database,
+  tagId: number,
+  siteId: string,
+  page: number,
+  pageSize: number = PUBLIC_PAGE_SIZE,
+): Promise<ArticleRow[]> {
+  const offset = Math.max(0, (page - 1) * pageSize);
+  const result = await db
+    .prepare(
+      "SELECT a.* FROM articles a " +
+        "JOIN article_tags atg ON atg.article_id = a.id " +
+        "WHERE atg.tag_id = ? AND a.site_id = ? AND a.status = 'published' " +
+        "ORDER BY a.published_at DESC, a.id DESC LIMIT ? OFFSET ?",
+    )
+    .bind(tagId, siteId, pageSize, offset)
     .all<ArticleRow>();
   return result.results ?? [];
 }
@@ -105,6 +170,36 @@ export async function fetchSiteSetting(
     .bind(siteId, key)
     .first<SiteSettingRow>();
   return row?.value ?? null;
+}
+
+export interface RedirectRow {
+  destination_path: string;
+  status_code: number;
+}
+
+// T15: the operator-managed `redirects` table, finally wired into the public
+// router. A matching, ACTIVE row on the request path resolves to an HTTP
+// 301/302 to its destination — issued by /:slug BEFORE any page/article lookup
+// so a stored legacy redirect is honored even when a slug now occupies the
+// same path. Scoped by site_id (with a global `site_id IS NULL` fallback so a
+// cross-site legacy rewrite still applies); the site-specific row wins over a
+// global one via `ORDER BY site_id IS NULL`. `source_path` is UNIQUE so this
+// stays a single-row lookup.
+export async function checkRedirect(
+  db: D1Database,
+  sourcePath: string,
+  siteId: string,
+): Promise<RedirectRow | null> {
+  const row = await db
+    .prepare(
+      "SELECT destination_path, status_code FROM redirects " +
+        "WHERE source_path = ? AND is_active = 1 " +
+        "AND (site_id = ? OR site_id IS NULL) " +
+        "ORDER BY site_id IS NULL LIMIT 1",
+    )
+    .bind(sourcePath, siteId)
+    .first<RedirectRow>();
+  return row ?? null;
 }
 
 export interface PublicLayoutSiteInfo {
@@ -159,10 +254,11 @@ export async function fetchPublicLayoutSiteInfo(
     hostname: siteContext.hostname,
     tagline: settings.tagline ?? "",
     description: settings.site_description ?? "",
-    logoUrl:
-      settings.logo_media_id !== undefined && settings.logo_media_id.length > 0
-        ? settings.logo_media_id
-        : null,
+    // T24: the uploaded/applied logo is stored as a bare media.storage_key in
+    // the logo_media_id setting; mediaUrl() turns it into the public
+    // /media/<key> web address so the design .brand <img> actually loads.
+    // (Historically the bare key was rendered verbatim into src="" → broken.)
+    logoUrl: mediaUrl(settings.logo_media_id),
     brandTokens: parseBrandTokensJson(settings.brand_tokens_json),
   };
 }

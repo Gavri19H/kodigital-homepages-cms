@@ -32,6 +32,11 @@ export interface PresetRow {
   system_prompt_template: string | null;
   user_prompt_template: string | null;
   content_mapping: string | null;
+  // T4 reference columns (migration 0019): the declared {{variable}} contract
+  // (variables_schema) and the post-generation output_rules. Both default to
+  // the JSON empty-array literal '[]' at the schema level.
+  variables_schema: string | null;
+  output_rules: string | null;
 }
 
 export interface PresetBody {
@@ -51,6 +56,10 @@ export interface PresetBody {
   system_prompt_template?: string | null;
   user_prompt_template?: string | null;
   content_mapping?: string | null;
+  // T4 (migration 0019): the structured variables_schema + output_rules the
+  // reference preset persists alongside content_mapping.
+  variables_schema?: string | null;
+  output_rules?: string | null;
 }
 
 export const SELECT_PRESET_BY_ID = "SELECT * FROM prompt_presets WHERE id = ?";

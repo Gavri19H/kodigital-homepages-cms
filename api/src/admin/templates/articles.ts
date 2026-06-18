@@ -17,8 +17,9 @@
 // below the form — preset select fed by GET /api/admin/ai/presets, generate
 // actions on POST /api/admin/ai/chat and /api/admin/ai/image.
 
-import { adminLayout, escapeHtml } from "./layout";
+import { adminLayout, escapeHtml, renderListPager, type ListPagerMeta } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
+import { EDITOR_TOOLBAR, blocksToHtml } from "../../editor";
 import {
   aiAssistantScripts,
   aiAssistantStyles,
@@ -107,14 +108,6 @@ export interface ArticleListFilters {
   published?: string;
 }
 
-const HOMEPAGE_SECTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "", label: "— None —" },
-  { value: "hero", label: "Hero" },
-  { value: "featured", label: "Featured" },
-  { value: "trending", label: "Trending" },
-  { value: "secondary", label: "Secondary" },
-];
-
 const STATUS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "draft", label: "Draft" },
   { value: "published", label: "Published" },
@@ -163,13 +156,6 @@ function renderStatusOptions(selected?: string, includeBlank?: boolean): string 
     return `<option value="${s.value}"${selectedAttr(selected, s.value)}>${escapeHtml(s.label)}</option>`;
   }).join("");
   return blank + opts;
-}
-
-function renderHomepageSectionOptions(selected?: string | null): string {
-  return HOMEPAGE_SECTIONS.map((s) => {
-    const sel = (selected ?? "") === s.value ? " selected" : "";
-    return `<option value="${s.value}"${sel}>${escapeHtml(s.label)}</option>`;
-  }).join("");
 }
 
 function renderToolbar(sites: ReadonlyArray<SiteOption>, verticals: ReadonlyArray<VerticalOption>, categories: ReadonlyArray<CategoryOption>, filters: ArticleListFilters): string {
@@ -327,8 +313,19 @@ export function articlesListPage(
   categories: ReadonlyArray<CategoryOption>,
   branding: ArticlesBranding = {},
   filters: ArticleListFilters = {},
+  pageMeta?: ListPagerMeta,
 ): string {
-  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles)}`;
+  const pager = renderListPager(pageMeta, {
+    site_id: filters.site_id,
+    search: filters.search,
+    vertical: filters.vertical,
+    category: filters.category,
+    status: filters.status,
+    featured: filters.featured,
+    trending: filters.trending,
+    published: filters.published,
+  });
+  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles)}${pager}`;
   return adminLayout({
     title: "Articles",
     activePath: "/admin/articles",
@@ -358,7 +355,7 @@ function renderAuthorCard(a: ArticleFormValues, isEdit: boolean, branding: Artic
     <div class="card-header"><h3 class="card-title">Author</h3></div>
     <div class="form-group">
       <label for="article-author-name" class="form-label">Author name</label>
-      <input id="article-author-name" name="author_name" type="text" class="form-input" value="${authorNameVal}" />
+      <input id="article-author-name" name="author_name" type="text" class="form-input" value="${authorNameVal}" required />
     </div>
     <div class="form-group">
       <label for="article-author-bio" class="form-label">Author bio</label>
@@ -383,6 +380,61 @@ function renderDisplayOptions(a: ArticleFormValues): string {
   </div>`;
 }
 
+// T6: contenteditable editor presentation. The toolbar sits above the
+// #content-editor surface; preserved (non-rich-editable) blocks render as a
+// labelled placeholder that round-trips via their data-block-json attribute.
+const CONTENT_EDITOR_STYLES = `
+.content-editor-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding:8px; border:1px solid #d0d5dd; border-bottom:0; border-radius:6px 6px 0 0; background:#f9fafb; }
+.content-editor-toolbar .editor-tool { padding:4px 10px; border:1px solid #d0d5dd; background:#fff; border-radius:4px; cursor:pointer; font-size:13px; line-height:1.2; }
+.content-editor-toolbar .editor-tool:hover { background:#f2f4f7; }
+.content-editor { min-height:240px; padding:12px 14px; border:1px solid #d0d5dd; border-radius:0 0 6px 6px; background:#fff; line-height:1.6; }
+.content-editor:focus { outline:2px solid #1ba8c8; outline-offset:-1px; }
+.content-editor > * { margin:0 0 12px; }
+.content-editor blockquote { border-left:3px solid #d0d5dd; padding-left:12px; color:#475467; }
+.content-editor blockquote.pullquote { border-left-color:#1ba8c8; font-style:italic; }
+.content-editor .editor-preserved { border:1px dashed #d0d5dd; border-radius:6px; padding:8px; background:#f9fafb; }
+.content-editor .editor-preserved-label { font-size:11px; text-transform:uppercase; color:#667085; }
+.content-editor img { max-width:100%; height:auto; border-radius:4px; }
+`;
+
+// T6: the contenteditable WYSIWYG editor field. The toolbar is rendered from
+// the shared EDITOR_TOOLBAR config (single source of truth with the client
+// script); each button carries data-* attributes the editor script reads to
+// convert the focused block (block group), run a formatting command (inline
+// group), or insert a block (insert group). The visible surface is the
+// #content-editor contenteditable; the canonical state lives in the HIDDEN
+// textarea#content_json the form submit reads (no visible block-JSON box).
+function renderEditorToolbar(): string {
+  const buttons = EDITOR_TOOLBAR.map((item) => {
+    const attrs = [
+      `type="button"`,
+      `class="editor-tool"`,
+      `data-editor-cmd="${item.group}"`,
+      `aria-label="${escapeHtml(item.ariaLabel)}"`,
+      `title="${escapeHtml(item.ariaLabel)}"`,
+    ];
+    if (item.blockType) attrs.push(`data-block-type="${item.blockType}"`);
+    if (item.level != null) attrs.push(`data-level="${item.level}"`);
+    if (item.style) attrs.push(`data-style="${item.style}"`);
+    if (item.command) attrs.push(`data-command="${item.command}"`);
+    if (item.prompt) attrs.push(`data-prompt="1"`);
+    return `<button ${attrs.join(" ")}>${escapeHtml(item.label)}</button>`;
+  }).join("");
+  return `<div class="content-editor-toolbar" id="content-editor-toolbar" role="toolbar" aria-label="Formatting toolbar">${buttons}</div>`;
+}
+
+function renderContentEditorField(contentJson: string | undefined): string {
+  const raw = contentJson ?? "";
+  const initialHtml = blocksToHtml(raw);
+  const jsonVal = escapeHtml(raw);
+  return `<div class="form-group">
+      <label for="content-editor" class="form-label">Content</label>
+      ${renderEditorToolbar()}
+      <div id="content-editor" class="content-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Article content" data-content-editor="1">${initialHtml}</div>
+      <textarea id="content_json" name="content_json" class="content-json-input" hidden aria-hidden="true">${jsonVal}</textarea>
+    </div>`;
+}
+
 function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArray<SiteOption>, categories: ReadonlyArray<CategoryOption>, branding: ArticlesBranding = {}): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const a: ArticleFormValues = article ?? {};
@@ -391,7 +443,6 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
   const titleVal = escapeHtml(a.title ?? "");
   const slugVal = escapeHtml(a.slug ?? "");
   const excerptVal = escapeHtml(a.excerpt ?? "");
-  const contentJsonVal = escapeHtml(a.content_json ?? "");
   const seoTitleVal = escapeHtml(a.seo_title ?? "");
   const seoDescVal = escapeHtml(a.seo_description ?? "");
   const homepageRankVal = a.homepage_rank == null ? "" : String(a.homepage_rank);
@@ -429,20 +480,11 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <label for="article-excerpt" class="form-label">Excerpt</label>
       <textarea id="article-excerpt" name="excerpt" class="form-textarea" rows="2">${excerptVal}</textarea>
     </div>
-    <div class="form-group">
-      <label for="article-content" class="form-label">Content (block JSON)</label>
-      <textarea id="article-content" name="content_json" class="form-textarea" rows="8">${contentJsonVal}</textarea>
-    </div>
+    ${renderContentEditorField(a.content_json)}
   </div>
   ${renderAuthorCard(a, isEdit, branding)}
   <div class="card">
     <div class="card-header"><h3 class="card-title">Homepage placement</h3></div>
-    <div class="form-group">
-      <label for="article-homepage-section" class="form-label">Homepage section</label>
-      <select id="article-homepage-section" name="homepage_section" class="form-select">
-        ${renderHomepageSectionOptions(a.homepage_section)}
-      </select>
-    </div>
     <div class="form-group">
       <label for="article-homepage-rank" class="form-label">Homepage rank</label>
       <input id="article-homepage-rank" name="homepage_rank" type="number" min="0" step="1" class="form-input" value="${escapeHtml(homepageRankVal)}" />
@@ -514,7 +556,6 @@ const ARTICLE_FORM_SCRIPT = `
       status: fd.get('status') || 'draft',
       excerpt: fd.get('excerpt') || '',
       content_json: fd.get('content_json') || '',
-      homepage_section: fd.get('homepage_section') || null,
       homepage_rank: fd.get('homepage_rank') ? Number(fd.get('homepage_rank')) : null,
       is_featured: toBool(fd.get('is_featured')) ? 1 : 0,
       is_trending: toBool(fd.get('is_trending')) ? 1 : 0,
@@ -559,7 +600,7 @@ export function articleFormPage(
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
-    styles: aiAssistantStyles + heroImageStyles + workflowPanelStyles,
+    styles: CONTENT_EDITOR_STYLES + aiAssistantStyles + heroImageStyles + workflowPanelStyles,
     scripts:
       editorScripts() +
       ARTICLE_FORM_SCRIPT +

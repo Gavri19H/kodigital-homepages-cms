@@ -36,12 +36,48 @@ import {
 } from "../ai/generation-log";
 import { handleAdminAiImage, IMAGE_BODY_LIMIT_BYTES } from "./ai-image";
 import { handleAdminAiLogo } from "./ai-logo";
-import { getPreset, listPresets, usePreset } from "./ai-presets";
+import {
+  getPreset,
+  isValidPresetId,
+  listPresets,
+  SELECT_PRESET_BY_ID,
+  usePreset,
+  type PresetRow,
+} from "./ai-presets";
 import { createPreset, deletePreset, updatePreset } from "./ai-presets-write";
+import { applyChatPreset, type ChatOptions } from "./ai-chat-preset";
 
 interface ChatBody {
   prompt?: string;
   site_id?: string | null;
+  // T7 [BCL-032]: structured, preset-driven chat. The panel posts the chosen
+  // preset, the tone/length options, the {{variable}} values, and optional
+  // per-action context. The server applies them (preset system prompt + tone
+  // override + length->max_tokens) instead of reading only body.prompt.
+  presetId?: number | string | null;
+  options?: ChatOptions | null;
+  variables?: Record<string, unknown> | null;
+  context?: Record<string, unknown> | null;
+}
+
+// Coerce the posted variables (and the lower-priority per-action context) into
+// a flat string map for {{token}} interpolation. Nested objects / null are
+// skipped; explicit `variables` win over `context`.
+function coerceStringMap(
+  variables: Record<string, unknown> | null | undefined,
+  context: Record<string, unknown> | null | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const merge = (src: Record<string, unknown> | null | undefined) => {
+    if (!src || typeof src !== "object") return;
+    for (const [k, v] of Object.entries(src)) {
+      if (v === undefined || v === null || typeof v === "object") continue;
+      out[k] = String(v);
+    }
+  };
+  merge(context);
+  merge(variables);
+  return out;
 }
 
 const CHAT_TASK = "admin-chat";
@@ -71,6 +107,31 @@ aiApi.post("/api/admin/ai/chat", async (c) => {
   const site_id =
     typeof body.site_id === "string" && body.site_id !== "" ? body.site_id : null;
 
+  // T7 [BCL-032]: load the selected preset (if any) then resolve the system
+  // prompt + max_tokens budget. A presetId that is malformed -> 400; one that
+  // resolves to no row -> 404 (the panel sent a preset that no longer exists);
+  // absent presetId -> the per-action default.
+  let preset: PresetRow | null = null;
+  const presetIdRaw =
+    body.presetId === undefined || body.presetId === null
+      ? ""
+      : String(body.presetId).trim();
+  if (presetIdRaw !== "") {
+    if (!isValidPresetId(presetIdRaw)) {
+      return c.json({ error: "Invalid preset ID" }, 400);
+    }
+    preset = await c.env.DB.prepare(SELECT_PRESET_BY_ID)
+      .bind(presetIdRaw)
+      .first<PresetRow>();
+    if (!preset) return c.json({ error: "Preset not found" }, 404);
+  }
+
+  const applied = applyChatPreset({
+    preset,
+    options: body.options ?? null,
+    variables: coerceStringMap(body.variables, body.context),
+  });
+
   let model: string;
   try {
     model = getTextModel(c.env);
@@ -93,14 +154,25 @@ aiApi.post("/api/admin/ai/chat", async (c) => {
     prompt_version: CHAT_PROMPT_VERSION,
     idempotency_key,
     provider: "openai",
-    request_json: { prompt },
+    request_json: {
+      prompt,
+      preset_id: preset ? preset.id : null,
+      tone: applied.toneApplied,
+      length: typeof body.options?.length === "string" ? body.options.length : null,
+      max_tokens: applied.maxTokens,
+      system_prompt: applied.systemPrompt,
+    },
     target_type: null,
     target_id: null,
   });
 
   const client = createOpenAIClient(c.env);
   try {
-    const result = await client.generateText({ prompt });
+    const result = await client.generateText({
+      prompt,
+      systemPrompt: applied.systemPrompt,
+      maxTokens: applied.maxTokens,
+    });
     if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
       // Unreachable (key presence checked above) but type-required; keep the
       // 501 contract rather than inventing a fake success.

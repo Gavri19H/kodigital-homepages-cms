@@ -1,9 +1,12 @@
 // Privacy module — CCPA / "Do Not Sell My Personal Information" opt-out.
 //
-// Three unauthenticated public routes:
-//   GET  /api/privacy/status   — read current opt-out state for this client.
-//   POST /api/privacy/opt-out  — record opt-out + set ccpa_opt_out=1 cookie.
-//   POST /api/privacy/opt-in   — clear opt-out + expire ccpa_opt_out cookie.
+// Four unauthenticated public routes:
+//   GET    /api/privacy/status   — read current opt-out state for this client.
+//   POST   /api/privacy/opt-out  — record opt-out + set ccpa_opt_out=1 cookie.
+//   POST   /api/privacy/opt-in   — clear opt-out + expire ccpa_opt_out cookie.
+//   DELETE /api/privacy/data     — CCPA right-to-delete: remove the caller's
+//                                  stored privacy row(s) (by hash) + expire the
+//                                  cookie, returning a deletion confirmation.
 //
 // The client identifier is sha256(`<ip>|<ua>`) computed via Web Crypto
 // (subtle.digest('SHA-256', ...)). The hex digest is stored in
@@ -96,6 +99,26 @@ privacy.post("/api/privacy/opt-in", async (c) => {
     .run();
   c.header("Set-Cookie", buildCookie("", 0));
   return c.json({ opted_out: false });
+});
+
+// Route: DELETE /api/privacy/data — CCPA right-to-delete.
+// Removes every privacy_opt_outs row keyed by this caller's identifier hash
+// (the same sha256(`<ip>|<ua>`) used by the other routes) and expires the
+// ccpa_opt_out cookie so no stored state survives the request. Returns a
+// confirmation including how many rows were removed (0 is a valid result for
+// a caller who never opted out — the right-to-delete is still honored).
+privacy.delete("/api/privacy/data", async (c) => {
+  const { ip, ua } = clientFingerprint(c.req.raw);
+  const id = await hashIdentifier(ip, ua);
+  const result = await c.env.DB.prepare(
+    "DELETE FROM privacy_opt_outs WHERE identifier_hash = ?",
+  )
+    .bind(id)
+    .run();
+  const deletedCount = result?.meta?.changes ?? 0;
+  // Expire the cookie regardless: the caller's stored state is being erased.
+  c.header("Set-Cookie", buildCookie("", 0));
+  return c.json({ deleted: true, rows_deleted: deletedCount });
 });
 
 export default privacy;

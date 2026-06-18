@@ -75,12 +75,19 @@ export function sitemapBaseUrlForSite(siteContext: PublicSiteContext): string {
   return `https://${siteContext.hostname}`;
 }
 
+// T27 (BCL-049): the default robots body MUST explicitly Allow the public
+// surface and Disallow the JSON API. Crawlers index every public route by
+// default, but `Allow: /` makes the public-content intent explicit and
+// `Disallow: /api` keeps the headless API endpoints out of the index
+// alongside the existing /admin/ + /preview/ refusals.
 export function buildRobotsTxt(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, "");
   return [
     "User-agent: *",
+    "Allow: /",
     "Disallow: /admin/",
     "Disallow: /preview/",
+    "Disallow: /api",
     `Sitemap: ${base}/sitemap.xml`,
     "",
   ].join("\n");

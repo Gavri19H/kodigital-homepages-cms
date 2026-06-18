@@ -61,16 +61,26 @@ function asBoolean(value: unknown): boolean {
   return value === true;
 }
 
+// Inline formatting: a block produced by the contenteditable editor may carry
+// `data.html` (bold/italic/link spans the author created via the toolbar).
+// When present it is rendered through the tag-whitelist sanitizer; otherwise
+// the plain `data.text` is HTML-escaped. Blocks with only `text` (the legacy
+// shape test/editor.test.ts pins) take the escape path byte-for-byte.
+function inlineBody(data: Record<string, unknown>): string {
+  if (typeof data.html === "string" && data.html.trim() !== "") {
+    return sanitizeHtml(data.html);
+  }
+  return escapeHtml(asString(data.text));
+}
+
 function renderParagraph(data: Record<string, unknown>): string {
-  const text = escapeHtml(asString(data.text));
-  return `<p>${text}</p>`;
+  return `<p>${inlineBody(data)}</p>`;
 }
 
 function renderHeading(data: Record<string, unknown>): string {
   const rawLevel = asNumber(data.level, 2);
   const level = Math.min(6, Math.max(1, Math.trunc(rawLevel)));
-  const text = escapeHtml(asString(data.text));
-  return `<h${level}>${text}</h${level}>`;
+  return `<h${level}>${inlineBody(data)}</h${level}>`;
 }
 
 function renderList(data: Record<string, unknown>): string {
@@ -84,10 +94,10 @@ function renderList(data: Record<string, unknown>): string {
 }
 
 function renderQuote(data: Record<string, unknown>): string {
-  const text = escapeHtml(asString(data.text));
+  const inner = inlineBody(data);
   const cite = asString(data.cite).trim();
-  if (cite === "") return `<blockquote><p>${text}</p></blockquote>`;
-  return `<blockquote><p>${text}</p><cite>${escapeHtml(cite)}</cite></blockquote>`;
+  if (cite === "") return `<blockquote><p>${inner}</p></blockquote>`;
+  return `<blockquote><p>${inner}</p><cite>${escapeHtml(cite)}</cite></blockquote>`;
 }
 
 function renderImage(data: Record<string, unknown>): string {
@@ -114,11 +124,13 @@ function renderDivider(): string {
 // classes (.pullquote / .callout-box / .affiliate-card in public-css.ts).
 
 function renderPullquote(data: Record<string, unknown>): string {
+  const hasHtml = typeof data.html === "string" && data.html.trim() !== "";
   const text = escapeHtml(asString(data.text));
-  if (text === "") return "";
+  if (!hasHtml && text === "") return "";
+  const inner = inlineBody(data);
   const cite = asString(data.cite).trim();
   const citeHtml = cite === "" ? "" : `<cite>${escapeHtml(cite)}</cite>`;
-  return `<blockquote class="pullquote"><p>${text}</p>${citeHtml}</blockquote>`;
+  return `<blockquote class="pullquote"><p>${inner}</p>${citeHtml}</blockquote>`;
 }
 
 function renderCallout(data: Record<string, unknown>): string {
@@ -186,21 +198,6 @@ export function renderBlock(block: BaseBlock): string {
   return BLOCK_RENDERERS[block.type](data);
 }
 
-export function contentJsonToHtml(doc: ContentDocument | string | null | undefined): string {
-  if (doc === null || doc === undefined) return "";
-  const parsed = typeof doc === "string" ? safeParseDocument(doc) : doc;
-  if (!parsed || !Array.isArray(parsed.blocks)) return "";
-  return parsed.blocks.map(renderBlock).join("");
-}
-
-function safeParseDocument(json: string): ContentDocument | null {
-  try {
-    const parsed = JSON.parse(json) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const blocks = (parsed as { blocks?: unknown }).blocks;
-    if (!Array.isArray(blocks)) return null;
-    return { blocks: blocks as BaseBlock[] };
-  } catch {
-    return null;
-  }
-}
+// Document-level rendering (contentJsonToHtml / blocksToHtml) lives in
+// ./blocks-to-html.ts — the publish/preview entry points import it from there
+// (re-exported through ./index). This module owns per-block markup only.

@@ -65,6 +65,23 @@
     return d.innerHTML;
   }
 
+  // T35 [BCL-068]: the Actions-menu cell appended to every newly-created
+  // row, byte-identical to the server render in
+  // api/src/admin/templates/domains.ts (renderRow -> actionsCell()). The
+  // delegated handler in DOMAINS_ACTIONS_SCRIPT wires each data-action to
+  // its existing /api/admin/sites/:id endpoint.
+  function actionsCellHtml() {
+    return '<td class="actions-cell">' +
+      '<button type="button" class="btn btn-sm btn-secondary" data-row-action="toggle-actions" aria-haspopup="true" aria-expanded="false">Actions</button>' +
+      '<ul class="actions-menu" data-actions-menu role="menu" hidden>' +
+      '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="edit">Edit</button></li>' +
+      '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="change-status">Change status</button></li>' +
+      '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="reprovision">Re-provision</button></li>' +
+      '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="purge-cache">Purge cache</button></li>' +
+      '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="delete">Delete</button></li>' +
+      '</ul></td>';
+  }
+
   function appendDomainRow(d) {
     var tbody = document.getElementById("domains-list-body");
     if (!tbody) {
@@ -83,7 +100,7 @@
       "</td><td>" + escapeText(d.vertical_slug) +
       "</td><td>" + escapeText(d.activity || "main") +
       "</td><td>provisioning</td><td>0</td><td>" + escapeText(d.created) +
-      "</td><td></td><td></td>";
+      "</td><td></td>" + actionsCellHtml();
     tbody.appendChild(tr);
   }
 

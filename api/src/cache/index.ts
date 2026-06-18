@@ -8,6 +8,7 @@
 // every feed entry in one pass after a publish/unpublish event.
 
 import { parseBoolean, type Env } from "../env";
+import { recordCacheHit, recordCacheMiss } from "./cache-stats";
 
 const FEED_PREFIX = "feed:";
 
@@ -15,8 +16,19 @@ export interface CacheSetOptions {
   expirationTtl?: number;
 }
 
+// cacheGet is the KV read chokepoint for feed/page bodies. T44 [BCL-020]:
+// every read records exactly one hit (value present) or miss (null) into the
+// monitoring counters so /api/admin/cache/stats reflects real cache activity.
+// Recording is best-effort and reads its own counter keys via the raw KV
+// binding, so it never recurses through cacheGet or counts itself.
 export async function cacheGet(env: Env, key: string): Promise<string | null> {
-  return env.CACHE.get(key);
+  const value = await env.CACHE.get(key);
+  if (value === null) {
+    await recordCacheMiss(env);
+  } else {
+    await recordCacheHit(env);
+  }
+  return value;
 }
 
 export async function cacheSet(

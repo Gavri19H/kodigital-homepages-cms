@@ -5,11 +5,22 @@
 // column. GET /api/admin/tags?site_id=<id> returns site tags + globals;
 // site_id=__global__ returns NULL-only.
 
-import { adminLayout, escapeHtml } from "./layout";
+import {
+  adminLayout,
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  type ListPagerMeta,
+} from "./layout";
 
 export interface SiteOption {
   id: string;
   name?: string;
+}
+
+export interface TagListFilters {
+  site_id?: string;
+  search?: string;
 }
 
 export interface TagListEntry {
@@ -26,7 +37,8 @@ export interface TagsBranding {
 }
 
 function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string | null): string {
-  const head = `<option value="">All sites</option><option value="__global__">Global only</option>`;
+  const globalSel = selected === "__global__" ? " selected" : "";
+  const head = `<option value="">All sites</option><option value="__global__"${globalSel}>Global only</option>`;
   const opts = sites.map(function (s: SiteOption): string {
     const sel = (selected ?? "") === s.id ? " selected" : "";
     return `<option value="${escapeHtml(s.id)}"${sel}>${escapeHtml(s.name ?? s.id)}</option>`;
@@ -34,12 +46,12 @@ function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string |
   return head + opts;
 }
 
-function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
+function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: TagListFilters = {}): string {
   return `<div class="toolbar">
-  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search tags..." /></div>
+  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search tags..." value="${escapeHtml(filters.search ?? "")}" /></div>
   <div class="toolbar-filters">
     <select id="filter-site" name="site_id" class="form-select" data-filter="site" aria-label="Site filter">
-      ${renderSiteOptions(sites, "")}
+      ${renderSiteOptions(sites, filters.site_id ?? "")}
     </select>
   </div>
   <button type="button" id="open-new-tag-modal" class="btn btn-primary">+ New Tag</button>
@@ -191,14 +203,15 @@ function renderTagRow(t: TagListEntry): string {
     ? escapeHtml(t.site ?? t.site_id ?? "")
     : `<span class="badge global-template" data-global="true">Global</span>`;
   const count = escapeHtml(t.article_count ?? 0);
-  const editHref = id ? `/admin/tags/${id}/edit` : "/admin/tags";
+  // T31: tags match the reference — create + delete only, NO edit. The
+  // /admin/tags/:id/edit route was never registered (dead link), so the
+  // Edit action is removed entirely; the Actions cell is delete-only.
   return `<tr data-tag-id="${id}">
   <td>${name}</td>
   <td>${slug}</td>
   <td>${siteCell}</td>
   <td>${count}</td>
   <td>
-    <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
     <button type="button" class="btn btn-danger btn-sm" data-delete-tag="${id}" data-tag-name="${name}">Delete</button>
   </td>
 </tr>`;
@@ -228,14 +241,20 @@ export function tagsListPage(
   tags: ReadonlyArray<TagListEntry>,
   sites: ReadonlyArray<SiteOption>,
   branding: TagsBranding = {},
+  filters: TagListFilters = {},
+  pageMeta?: ListPagerMeta,
 ): string {
-  const content = `${renderToolbar(sites)}${renderTagsTable(tags)}${renderModal(sites)}`;
+  const pager = renderListPager(pageMeta, {
+    site_id: filters.site_id,
+    search: filters.search,
+  });
+  const content = `${renderToolbar(sites, filters)}${renderTagsTable(tags)}${renderModal(sites)}${pager}`;
   return adminLayout({
     title: "Tags",
     activePath: "/admin/tags",
     userEmail: branding.userEmail,
     content,
     styles: MODAL_STYLES,
-    scripts: TAGS_LIST_SCRIPT,
+    scripts: TAGS_LIST_SCRIPT + listFilterScript,
   });
 }

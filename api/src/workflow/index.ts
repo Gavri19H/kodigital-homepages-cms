@@ -35,3 +35,5 @@ export {
   PREVIEW_TOKEN_TTL_SECONDS,
 } from "./preview-link";
 export type { PreviewLink } from "./preview-link";
+export { processScheduledArticles } from "./scheduled";
+export type { ProcessScheduledResult } from "./scheduled";

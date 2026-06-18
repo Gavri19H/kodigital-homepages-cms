@@ -30,6 +30,7 @@ import type {
   GeneratedStatus,
 } from "../schemas";
 import { computeIdempotencyKey } from "./text";
+import { resolveCategoryPreset } from "./preset-resolver";
 
 // T8: Image generators (logo prompt+image, feature-image prompt+image).
 //
@@ -112,6 +113,28 @@ export function buildAiStorageKey(opts: {
   return `ai/${safeSite}/${opts.target_kind}/${targetId}.${ext}`;
 }
 
+// T40 [BCL-077]: provisioning image generation is preset-governed. Each image
+// step resolves its editable system preset by TASK KEY (logo / hero-image /
+// feature-image, seeded is_system by migration 0020) and uses the preset's
+// interpolated prompt as the image description, so editing the preset changes
+// the generated image on the next setup. The image MODEL stays locked to
+// SUPPORTED_IMAGE_MODELS (getImageModel) — a preset never widens that red line,
+// so only the prompt is taken from the preset. With no matching preset the
+// deterministic builder prompt is used (no crash, byte-identical to legacy).
+async function resolveImagePresetPrompt(
+  env: Env,
+  category: string | undefined,
+  fallbackCategory: string,
+  vars: Record<string, string | undefined>,
+): Promise<string | null> {
+  const preset = await resolveCategoryPreset(
+    env,
+    category ?? fallbackCategory,
+    vars,
+  );
+  return preset?.prompt ?? null;
+}
+
 function readMediaArtifactFromRow(
   row: AiGenerationRow | null,
 ): MediaArtifactRecord | null {
@@ -146,12 +169,25 @@ function readMediaArtifactFromRow(
 
 export interface GenerateLogoPromptInput extends BuildLogoPromptInput {
   client?: OpenAIClient;
+  // T40 [BCL-077]: provisioning passes 'logo' so the editable system preset
+  // governs the logo image description.
+  presetCategory?: string;
 }
 
 export async function generateLogoPrompt(
   env: Env,
   input: GenerateLogoPromptInput,
 ): Promise<GenerateImagePromptResult> {
+  const presetPrompt = await resolveImagePresetPrompt(
+    env,
+    input.presetCategory,
+    "logo",
+    {
+      vertical: input.vertical,
+      brand_name: input.brand_name,
+      site_id: input.site_id,
+    },
+  );
   return runPromptGenerator({
     env,
     task: LOGO_PROMPT_TASK,
@@ -161,7 +197,7 @@ export async function generateLogoPrompt(
     target_kind: "logo",
     site_id: input.site_id,
     size: LOGO_SIZE,
-    prompt: buildLogoPrompt(input),
+    prompt: presetPrompt ?? buildLogoPrompt(input),
     client: input.client,
   });
 }
@@ -170,6 +206,11 @@ export interface GenerateFeatureImagePromptInput
   extends BuildFeatureImagePromptInput {
   client?: OpenAIClient;
   article_slug?: string;
+  // T40 [BCL-077]: provisioning passes its task key — 'hero-image' for the
+  // homepage hero step, 'feature-image' for per-article images — plus the
+  // brand_name the hero-image preset interpolates ({{brand_name}}).
+  presetCategory?: string;
+  brand_name?: string;
 }
 
 export async function generateFeatureImagePrompt(
@@ -177,6 +218,17 @@ export async function generateFeatureImagePrompt(
   input: GenerateFeatureImagePromptInput,
 ): Promise<GenerateImagePromptResult> {
   const targetId = input.article_slug ?? input.article_title;
+  const presetPrompt = await resolveImagePresetPrompt(
+    env,
+    input.presetCategory,
+    "feature-image",
+    {
+      title: input.article_title,
+      vertical: input.vertical,
+      brand_name: input.brand_name,
+      site_id: input.site_id,
+    },
+  );
   return runPromptGenerator({
     env,
     task: FEATURE_IMAGE_PROMPT_TASK,
@@ -186,7 +238,7 @@ export async function generateFeatureImagePrompt(
     target_kind: "feature_image",
     site_id: input.site_id,
     size: FEATURE_IMAGE_SIZE,
-    prompt: buildFeatureImagePrompt(input),
+    prompt: presetPrompt ?? buildFeatureImagePrompt(input),
     idempotency_suffix: targetId,
     client: input.client,
   });
@@ -299,13 +351,26 @@ function parseStoredPrompt(
 
 export interface GenerateLogoImageInput extends BuildLogoPromptInput {
   client?: OpenAIClient;
+  // T40 [BCL-077]: provisioning passes 'logo' so the editable system preset
+  // governs the logo image description (model stays gpt-image-2).
+  presetCategory?: string;
 }
 
 export async function generateLogoImage(
   env: Env,
   input: GenerateLogoImageInput,
 ): Promise<GenerateImageOutcome> {
-  const prompt = buildLogoPrompt(input);
+  const presetPrompt = await resolveImagePresetPrompt(
+    env,
+    input.presetCategory,
+    "logo",
+    {
+      vertical: input.vertical,
+      brand_name: input.brand_name,
+      site_id: input.site_id,
+    },
+  );
+  const prompt = presetPrompt ?? buildLogoPrompt(input);
   return runImageGenerator({
     env,
     task: LOGO_TASK,
@@ -326,13 +391,29 @@ export async function generateLogoImage(
 export interface GenerateFeatureImageInput extends BuildFeatureImagePromptInput {
   article_slug: string;
   client?: OpenAIClient;
+  // T40 [BCL-077]: provisioning passes 'hero-image' (homepage hero) or
+  // 'feature-image' (per-article) so the editable system preset governs the
+  // image description; brand_name feeds the hero-image preset's {{brand_name}}.
+  presetCategory?: string;
+  brand_name?: string;
 }
 
 export async function generateFeatureImage(
   env: Env,
   input: GenerateFeatureImageInput,
 ): Promise<GenerateImageOutcome> {
-  const prompt = buildFeatureImagePrompt(input);
+  const presetPrompt = await resolveImagePresetPrompt(
+    env,
+    input.presetCategory,
+    "feature-image",
+    {
+      title: input.article_title,
+      vertical: input.vertical,
+      brand_name: input.brand_name,
+      site_id: input.site_id,
+    },
+  );
+  const prompt = presetPrompt ?? buildFeatureImagePrompt(input);
   return runImageGenerator({
     env,
     task: FEATURE_IMAGE_TASK,
@@ -459,28 +540,20 @@ async function runImageGenerator(
   try {
     imageResult = await client.generateImage({ prompt: args.prompt, size: args.size });
   } catch (err) {
+    // T1/AC3: a real image failure WITH a key present surfaces as
+    // failed/retryable — NEVER a silent 'fallback' stub presented as a
+    // benign 0-media result. Only the failure receipt is written (no
+    // 'fallback' parsed_json), and 'failed' is deliberately NOT in the
+    // idempotency short-circuit set above, so the caller (or a later run)
+    // can retry. The model id stays gpt-image-2 (imageModel is locked).
     await finishGenerationLogFailure(args.env, {
       idempotency_key,
-      error_message: err instanceof Error ? err.message : String(err),
-    });
-    const payload = {
-      media_id: 0,
-      storage_key,
-      mime: "image/png",
-      size_bytes: 0,
-      meta: meta(args.task, imageModel, args.prompt_version, ai_generation_id, "fallback"),
-    };
-    await finishGenerationLogFallback(args.env, {
-      idempotency_key,
-      parsed_json: redactSecretsFromPayload(payload as unknown),
-      target_type: args.target_type,
-      target_id: args.target_id,
       error_message: err instanceof Error ? err.message : String(err),
     });
     return {
       ai_generation_id,
       idempotency_key,
-      status: "fallback",
+      status: "failed",
       media_id: 0,
       storage_key,
       prompt: args.prompt,

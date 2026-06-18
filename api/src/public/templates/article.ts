@@ -62,21 +62,29 @@ import {
   renderHeader,
   renderNewsletter,
   type NavLink,
+  type SocialLink,
 } from "./components";
 import {
   buildArticleJsonLd,
   buildBreadcrumbJsonLd,
   buildFaqJsonLd,
 } from "./seo";
+import { responsiveImg } from "./responsive-img";
+import type { AdsConfig } from "../ads";
 
 export interface RenderArticleArgs {
   vm: ArticleViewModel;
   nav?: ReadonlyArray<NavLink>;
   footerLinks?: ReadonlyArray<NavLink>;
   legalLinks?: ReadonlyArray<NavLink>;
+  // T28: operator-set social-media links rendered in the §12 site-footer.
+  socialLinks?: ReadonlyArray<SocialLink>;
   newsletterHeading?: string;
   newsletterDescription?: string;
   newsletterProvider?: string | null;
+  // T22: the per-site ad config. When present + AdSense is live the §11
+  // sidebar rectangle slot emits its real <ins> unit; omitted = placeholder.
+  ads?: AdsConfig;
   // When false, the design body is returned WITHOUT its own inline
   // Article / BreadcrumbList / FAQPage JSON-LD <script> blocks. The live
   // article route (render-pages.renderArticleHtml, T2) sets this so the
@@ -109,11 +117,32 @@ function marker(n: number, name: string): string {
   return `<!-- article-section:${n} ${name} -->`;
 }
 
+// Affiliate CTA href guard: only well-formed web/mail/relative URLs are emitted
+// as a link; anything else (javascript:, data:, …) drops the outbound anchor.
+function isSafeHref(url: string): boolean {
+  const u = url.trim().toLowerCase();
+  return (
+    u.startsWith("https://") ||
+    u.startsWith("http://") ||
+    u.startsWith("mailto:") ||
+    u.startsWith("/")
+  );
+}
+
 function renderArticleHero(article: ArticleViewModel["article"]): string {
-  const heroImg =
-    article.imageUrl !== null && article.imageUrl.length > 0
-      ? `<img class="article-hero-img" src="${escAttr(article.imageUrl)}" alt="${escAttr(article.imageAlt ?? "")}" width="1200" height="630" loading="eager" fetchpriority="high" decoding="async">`
-      : "";
+  // §3 hero is the LCP candidate: responsive (srcset + blur-up LQIP +
+  // /media/ src, T21) at the design dimensions (1200×630), loaded eager with
+  // fetchpriority="high". responsiveImg returns "" when imageUrl is absent.
+  const heroImg = responsiveImg({
+    src: article.imageUrl,
+    alt: article.imageAlt,
+    width: 1200,
+    height: 630,
+    className: "article-hero-img",
+    loading: "eager",
+    fetchpriority: "high",
+    sizes: "100vw",
+  });
   const categoryHtml =
     article.categoryName.length > 0
       ? `<a class="article-cat" href="${escAttr(article.categoryHref)}">${escText(article.categoryName)}</a>`
@@ -151,6 +180,10 @@ function renderBlockHtml(
   headingIndex: number,
 ): string {
   switch (block.type) {
+    case "paragraph":
+      // §12 `p` — a real <p> direct child of `.article-body` so the drop-cap
+      // (`.article-body > p:first-of-type::first-letter`) lands on the lede.
+      return block.text.length > 0 ? `<p>${escText(block.text)}</p>` : "";
     case "html":
       return block.html.length > 0 ? `<div class="article-body__html">${block.html}</div>` : "";
     case "heading": {
@@ -179,6 +212,30 @@ function renderBlockHtml(
     }
     case "code":
       return `<pre><code${block.language !== null ? ` class="language-${escAttr(block.language)}"` : ""}>${escText(block.code)}</code></pre>`;
+    case "callout": {
+      // §12 `callout` → `.callout-box` (brand-tint box, public-css.ts).
+      const title =
+        block.title !== null && block.title.length > 0
+          ? `<strong class="callout-title">${escText(block.title)}</strong>`
+          : "";
+      return `<aside class="callout-box">${title}<p>${escText(block.text)}</p></aside>`;
+    }
+    case "affiliate": {
+      // §12 `affiliate` → `.affiliate-card` with a sponsored/nofollow CTA.
+      const title =
+        block.title !== null && block.title.length > 0
+          ? `<strong class="affiliate-card-title">${escText(block.title)}</strong>`
+          : "";
+      const desc =
+        block.description !== null && block.description.length > 0
+          ? `<p class="affiliate-card-desc">${escText(block.description)}</p>`
+          : "";
+      const cta =
+        block.url !== null && isSafeHref(block.url)
+          ? `<a class="affiliate-card-cta" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${escText(block.cta)}</a>`
+          : "";
+      return `<aside class="affiliate-card">${title}${desc}${cta}</aside>`;
+    }
     case "faq":
       return `<details class="article-body__faq"><summary>${escText(block.question)}</summary><div>${escText(block.answer)}</div></details>`;
   }
@@ -200,7 +257,7 @@ function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
 // `.sidebar-ad.ad-slot--rect` contract selector matches; the inner
 // renderAdSlot node carries the data-ad-slot/data-ad-type attributes the
 // ad-slot regression asserts.
-function renderSidebar(vm: ArticleViewModel): string {
+function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
   const tocItems = vm.article.body
     .filter((b) => b.type === "heading")
     .map((b, i) => `<li><a href="#article-heading-${i + 1}">${escText((b as { text: string }).text)}</a></li>`)
@@ -210,10 +267,24 @@ function renderSidebar(vm: ArticleViewModel): string {
       ? `<aside class="sidebar-card toc"><h3>On this page</h3><ol>${tocItems}</ol></aside>`
       : "";
   const newsletterHtml = `<aside class="sidebar-card sidebar-newsletter"><h3>Newsletter</h3><p>Get the best stories in your inbox.</p><a class="btn-primary" href="#newsletter-heading">Subscribe</a></aside>`;
-  const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article" })}</aside>`;
+  const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article", ads })}</aside>`;
+  // Contract §11 sidebar-popular: 60×60 thumbs (`pop-img`). The thumb is a
+  // responsive image (srcset + blur-up LQIP + /media/ src, T21) at the design
+  // dimensions; below-fold, so loading="lazy".
   const popularItems = vm.related
     .slice(0, 3)
-    .map((c) => `<li><a href="${escAttr(c.href)}">${escText(c.title)}</a></li>`)
+    .map((c) => {
+      const thumb = responsiveImg({
+        src: c.imageUrl,
+        alt: c.imageAlt,
+        width: 60,
+        height: 60,
+        className: "pop-img",
+        loading: "lazy",
+        sizes: "60px",
+      });
+      return `<li class="pop-item"><a href="${escAttr(c.href)}">${thumb}<span class="pop-title">${escText(c.title)}</span></a></li>`;
+    })
     .join("");
   const popularHtml =
     popularItems.length > 0
@@ -222,8 +293,13 @@ function renderSidebar(vm: ArticleViewModel): string {
   return `<aside class="article-sidebar">${tocHtml}${newsletterHtml}${adHtml}${popularHtml}</aside>`;
 }
 
-function renderShareRail(article: ArticleViewModel["article"]): string {
-  const url = escAttr(`https://__SITE__${article.href}`);
+// T16/BCL-057: the share URL MUST resolve to the tenant's real address.
+// `hostname` is vm.site.hostname (= siteContext.hostname, the live request
+// host); article.href is `/article/<slug>`, so the rail URL equals the page's
+// canonicalUrl. The previous `https://__SITE__<href>` placeholder shipped a
+// copy/share link pointing at a literal `__SITE__` host — broken for users.
+function renderShareRail(article: ArticleViewModel["article"], hostname: string): string {
+  const url = escAttr(`https://${hostname}${article.href}`);
   return `<aside class="share-rail" aria-label="Share this story">
   <button class="share-btn" type="button" data-share-action="copy" data-share-url="${url}" aria-label="Copy link">🔗</button>
   <button class="share-btn" type="button" data-share-action="native" data-share-url="${url}" aria-label="Share">↗</button>
@@ -295,7 +371,7 @@ export function renderArticle(args: RenderArticleArgs): string {
   // still records the column contract (PART 4 RED LINE).
   const s4 = `<div class="article-shell container" data-grid="60px minmax(0, 1fr) 320px">
   ${marker(5, "share-rail")}
-  ${renderShareRail(article)}
+  ${renderShareRail(article, site.hostname)}
   ${marker(6, "article-body")}
   <article class="article-body" id="article-content">
     ${renderArticleBodyBlocks(article)}
@@ -308,7 +384,7 @@ export function renderArticle(args: RenderArticleArgs): string {
 </div>
   </article>
   ${marker(9, "article-sidebar")}
-  ${renderSidebar(vm)}
+  ${renderSidebar(vm, args.ads)}
 </div>`;
 
   const s10 = `<section class="related-section section--soft" aria-labelledby="related-heading"><div class="section-head"><h2 id="related-heading">Related stories</h2></div>${renderRelated(vm.related)}</section>`;
@@ -334,6 +410,7 @@ export function renderArticle(args: RenderArticleArgs): string {
     },
     links: args.footerLinks,
     legalLinks: args.legalLinks,
+    socialLinks: args.socialLinks,
   });
   // floating-next is a fixed-position overlay (§11), not a §8 section; it
   // rides inside §12 so the marker count stays exactly 12.

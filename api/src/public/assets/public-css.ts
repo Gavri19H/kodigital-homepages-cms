@@ -7,15 +7,15 @@
 export const publicCss: string = `
 :root {
   /* PART 3 -- color tokens */
-  --tw-ink: #0f172a;
-  --tw-text: #1f2937;
-  --tw-text-muted: #475569;
-  --tw-text-light: #94a3b8;
-  --tw-rule: #e2e8f0;
-  --tw-rule-soft: #f1f5f9;
+  --tw-ink: #1a1d23;
+  --tw-text: #2a2f38;
+  --tw-text-muted: #5a6270;
+  --tw-text-light: #8a93a3;
+  --tw-rule: #e8ecf2;
+  --tw-rule-soft: #f1f4f8;
   --tw-bg: #ffffff;
-  --tw-bg-soft: #f8fafc;
-  --tw-bg-tint: #eef2f7;
+  --tw-bg-soft: #f7f9fc;
+  --tw-bg-tint: #eef5f8;
   --tw-brand: #1ba8c8;
   --tw-brand-deep: #0f8aa6;
   --tw-brand-soft: #d6eef5;
@@ -46,7 +46,7 @@ export const publicCss: string = `
   --tw-shadow: 0 2px 8px rgba(20,30,50,0.05), 0 1px 2px rgba(20,30,50,0.04);
   --tw-shadow-md: 0 8px 24px rgba(20,30,50,0.08), 0 2px 4px rgba(20,30,50,0.04);
   --tw-header-h: 72px;
-  --tw-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --tw-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --tw-dur: 200ms;
 }
 
@@ -133,7 +133,7 @@ img { max-width: 100%; height: auto; }
 
 .card { background: var(--tw-bg); border: 1px solid var(--tw-rule); border-radius: var(--tw-radius-lg); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow var(--tw-dur) var(--tw-ease); }
 .card:hover { box-shadow: var(--tw-shadow); }
-.card-img { aspect-ratio: 16/9; object-fit: cover; width: 100%; background: var(--tw-bg-tint); }
+.card-img { aspect-ratio: 16/10; object-fit: cover; width: 100%; background: var(--tw-bg-tint); }
 .card-title { font-family: var(--tw-font-display); font-size: var(--tw-fs-md); color: var(--tw-ink); margin: 0.75rem 1rem 0.25rem; line-height: 1.3; }
 .card-foot { display: flex; justify-content: space-between; padding: 0.5rem 1rem 1rem; color: var(--tw-text-muted); font-size: var(--tw-fs-xs); }
 .card-byline { color: var(--tw-text-muted); }
@@ -157,16 +157,25 @@ img { max-width: 100%; height: auto; }
 .pulse-dot::after { content: ""; position: absolute; inset: 0; border-radius: var(--tw-radius-pill); background: var(--tw-brand); animation: pulse 1.6s ease-out infinite; }
 @keyframes pulse { 0% { transform: scale(0.6); opacity: 0.5; } 100% { transform: scale(1.6); opacity: 0; } }
 
-.newsletter { padding: 2.5rem 0; background: var(--tw-bg-tint); }
-.newsletter form { display: flex; gap: 0.5rem; max-width: 480px; }
-.newsletter input { flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); font-size: var(--tw-fs-base); }
-.newsletter button { padding: 0.75rem 1.25rem; border: 0; border-radius: var(--tw-radius); background: var(--tw-ink); color: #fff; font-weight: 600; }
-.newsletter button[aria-disabled="true"] { background: var(--tw-text-light); cursor: not-allowed; }
+/* §11 Newsletter — design-contract §4/§10: a two-column (1fr 1fr) card with a
+   brand-soft border on a brand-tint background, radius-lg. Stacks to one column
+   at 760px (see breakpoint block). */
+.newsletter { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: center; max-width: var(--tw-container); margin: 2.5rem auto; padding: 2rem clamp(16px, 3vw, 32px); background: var(--tw-brand-tint); border: 1px solid var(--tw-brand-soft); border-radius: var(--tw-radius-lg); }
+.newsletter__heading { font-family: var(--tw-font-display); font-size: var(--tw-fs-2xl); font-weight: 800; line-height: 1.18; margin: 0 0 0.5rem; }
+.newsletter__description { color: var(--tw-text-muted); margin: 0; }
+.newsletter__form { display: flex; gap: 0.5rem; }
+.newsletter__input { flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); font-size: var(--tw-fs-base); background: var(--tw-bg); }
+.newsletter__cta { padding: 0.75rem 1.25rem; border: 0; border-radius: var(--tw-radius); background: var(--tw-brand); color: #fff; font-weight: 600; cursor: pointer; }
+.newsletter__cta[aria-disabled="true"], .newsletter__input[aria-disabled="true"] { background: var(--tw-text-light); cursor: not-allowed; }
+.newsletter__notice { margin: 0.75rem 0 0; color: var(--tw-text-muted); font-size: var(--tw-fs-sm); }
 .newsletter-label-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 
 .site-footer { padding: 2rem 0; background: var(--tw-ink); color: #cbd5e1; margin-top: 3rem; }
 .site-footer a { color: #e2e8f0; }
 .site-footer .grid-4 { grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 2rem; }
+.site-footer__social ul { display: flex; flex-wrap: wrap; gap: 1rem; list-style: none; margin: 1rem 0 0; padding: 0; }
+.site-footer__social-link { text-decoration: none; opacity: 0.85; }
+.site-footer__social-link:hover { opacity: 1; text-decoration: underline; }
 
 .floating-next { position: fixed; right: 1.5rem; bottom: 1.5rem; background: var(--tw-brand); color: #fff; padding: 0.75rem 1rem; border-radius: var(--tw-radius-pill); box-shadow: var(--tw-shadow-md); z-index: 30; }
 
@@ -201,10 +210,15 @@ img { max-width: 100%; height: auto; }
    1.75rem/1.2 weight 800 — literal values, NOT the fs tokens (fs-md is 17px). */
 .article-body { font-size: 1.125rem; line-height: 1.7; color: var(--tw-text); }
 .article-body p { margin: 0 0 1.25em; }
+/* Contract section 11: drop cap on the lede paragraph — 4.2em display weight 900
+   brand colour. Scoped to the first top-level <p> so only the opening paragraph
+   gets it (body blocks render as direct .article-body children). */
+.article-body > p:first-of-type::first-letter { float: left; font-family: var(--tw-font-display); font-size: 4.2em; font-weight: 900; line-height: 0.78; color: var(--tw-brand); padding-right: 0.08em; margin-top: 0.04em; }
 .article-body h2 { font-family: var(--tw-font-display); font-size: 1.75rem; line-height: 1.2; font-weight: 800; color: var(--tw-ink); margin: 2em 0 0.5em; }
-.article-body ul { padding-left: 1.25em; list-style: none; }
-.article-body ul > li { position: relative; padding-left: 1em; }
-.article-body ul > li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 6px; height: 6px; background: var(--tw-brand); border-radius: var(--tw-radius-pill); }
+/* Contract section 11: ul bullets are a 16x2px brand dash, li padding-left 28px. */
+.article-body ul { padding-left: 0; list-style: none; }
+.article-body ul > li { position: relative; padding-left: 28px; margin: 0 0 0.5em; }
+.article-body ul > li::before { content: ""; position: absolute; left: 0; top: 0.7em; width: 16px; height: 2px; background: var(--tw-brand); border-radius: var(--tw-radius-sm); }
 .article-body ol { padding-left: 1.25em; }
 .sponsor-disclosure { font-size: var(--tw-fs-xs); color: var(--tw-text-muted); border-left: 3px solid var(--tw-accent); padding: 0.25em 0.75em; margin: 0 0 1em; }
 .pullquote { font-family: var(--tw-font-display); font-size: var(--tw-fs-xl); color: var(--tw-ink); border-left: 4px solid var(--tw-brand); padding: 0.5em 1em; margin: 1.5em 0; }
@@ -212,7 +226,13 @@ img { max-width: 100%; height: auto; }
 .article-figure img { border-radius: var(--tw-radius); }
 .article-figure figcaption { color: var(--tw-text-muted); font-size: var(--tw-fs-sm); margin-top: 0.5em; }
 .callout-box { background: var(--tw-bg-tint); border-radius: var(--tw-radius); padding: 1em 1.25em; margin: 1.5em 0; }
+.callout-box .callout-title { display: block; font-family: var(--tw-font-display); font-weight: 800; color: var(--tw-ink); margin-bottom: 0.25em; }
+.callout-box p:last-child { margin-bottom: 0; }
 .affiliate-card { background: var(--tw-bg); border: 1px solid var(--tw-rule); border-radius: var(--tw-radius-lg); padding: 1em; margin: 1.5em 0; box-shadow: var(--tw-shadow-sm); }
+.affiliate-card .affiliate-card-title { display: block; font-family: var(--tw-font-display); font-weight: 800; color: var(--tw-ink); }
+.affiliate-card .affiliate-card-desc { color: var(--tw-text-muted); margin: 0.25em 0 0.75em; }
+.affiliate-card .affiliate-card-cta { display: inline-block; background: var(--tw-brand); color: #fff; border-radius: var(--tw-radius-pill); padding: 9px 22px; font-weight: 700; font-size: var(--tw-fs-sm); }
+.affiliate-card .affiliate-card-cta:hover { background: var(--tw-brand-deep); text-decoration: none; }
 
 .faq-section { padding: 2rem 0; }
 .faq-section details { border-top: 1px solid var(--tw-rule); padding: 0.75rem 0; }
@@ -225,7 +245,12 @@ img { max-width: 100%; height: auto; }
 .toc ol { padding-left: 1.25em; margin: 0.25em 0 0; }
 .sidebar-newsletter input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); }
 .sidebar-ad { padding: 0; background: transparent; border: 0; }
-.sidebar-popular ol { padding-left: 1.25em; margin: 0; }
+.sidebar-popular ol { padding-left: 0; margin: 0; list-style: none; }
+.pop-item { padding: 0.5rem 0; border-top: 1px solid var(--tw-rule-soft); }
+.pop-item:first-child { border-top: 0; padding-top: 0; }
+.pop-item a { display: flex; align-items: center; gap: 0.625rem; color: inherit; text-decoration: none; }
+.pop-img { width: 60px; height: 60px; flex: 0 0 60px; object-fit: cover; border-radius: var(--tw-radius-sm); background: var(--tw-bg-tint); }
+.pop-title { font-size: var(--tw-fs-sm); line-height: 1.3; }
 
 .related-section { padding: 2.5rem 0; }
 
@@ -255,7 +280,8 @@ img { max-width: 100%; height: auto; }
   .site-footer .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width:760px) {
-  .newsletter form { flex-direction: column; }
+  .newsletter { grid-template-columns: 1fr; }
+  .newsletter__form { flex-direction: column; }
 }
 @media (max-width:560px) {
   .grid-3 { grid-template-columns: minmax(0, 1fr); }

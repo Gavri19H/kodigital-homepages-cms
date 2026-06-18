@@ -8,6 +8,12 @@
 // renderLayout emits one `<style data-source="brand_tokens">` block that
 // overrides the `--tw-*` CSS variables defined in public-css.ts (T1).
 // When the map is empty or omitted, the style block is omitted entirely.
+//
+// T13: the document <head>'s SEO meta block is delegated to renderSeoHead
+// (templates/seo-head.ts) so robots / og:type / og:url / twitter:* /
+// article:* all flow through the LIVE route — the helper is no longer dead.
+
+import { renderSeoHead } from "./seo-head";
 
 export interface LayoutSite {
   name: string;
@@ -25,10 +31,27 @@ export interface LayoutMeta {
   description?: string;
   canonicalUrl?: string;
   ogImage?: string | null;
+  // T13: the full SEO head is built by renderSeoHead (templates/seo-head.ts)
+  // — previously this layout hand-rolled only title/description/og:site_name/
+  // og:title/og:description (+optional image/canonical) and renderSeoHead was
+  // dead code (BCL-055). These fields drive the now-wired head:
+  //   ogType                 -> og:type (default "website"; "article" pages)
+  //   robots                 -> meta robots (default "index, follow")
+  //   articlePublishedTime.. -> article:* tags, emitted only when ogType=article
+  //   twitterCard/twitterSite-> twitter:* card
+  ogType?: "website" | "article";
+  robots?: string;
+  twitterCard?: "summary" | "summary_large_image";
+  twitterSite?: string;
+  articlePublishedTime?: string;
+  articleModifiedTime?: string;
+  articleSection?: string;
+  articleAuthor?: string;
   // Raw, already-stringified JSON-LD blobs from templates/seo.ts (T6).
   // Each entry is emitted as its own `<script type="application/ld+json">`.
   jsonLd?: ReadonlyArray<string>;
-  // Optional `<link rel>` tuples (e.g. alternate feeds).
+  // Optional `<link rel>` tuples (e.g. alternate feeds, rel=prev/next
+  // pagination links for paginated category pages — T13-AC2).
   links?: ReadonlyArray<{ rel: string; href: string; type?: string }>;
 }
 
@@ -39,9 +62,17 @@ export interface RenderLayoutArgs {
   header?: string;
   footer?: string;
   bodyClass?: string;
-  // Extra `<head>` HTML the caller assembled (already escaped). Used by
-  // T15 to inject site_settings.custom_head_html.
+  // Extra `<head>` HTML the caller assembled (already escaped). Used for the
+  // ad provider/manager scripts and JSON-LD.
   extraHead?: string;
+  // T23: operator custom-HTML/script snippets, ALREADY sanitized by
+  // renderCustomHead / renderCustomFooter (settings/custom-html.ts).
+  //   customHead   -> emitted at the END of <head> (custom_head_html +
+  //                   analytics_script + ad_header_script).
+  //   customFooter -> emitted just before </body> (custom_footer_html).
+  // These close BCL-045: the snippets were stored but never rendered.
+  customHead?: string;
+  customFooter?: string;
 }
 
 function escapeHtmlAttr(input: string): string {
@@ -51,13 +82,6 @@ function escapeHtmlAttr(input: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function escapeHtmlText(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 // CSS-token sanitiser: brand_tokens_json comes from the admin UI so we
@@ -134,6 +158,9 @@ export function renderLayout(args: RenderLayoutArgs): string {
   const footer = args.footer ?? "";
   const bodyClass = args.bodyClass ?? "";
   const extraHead = args.extraHead ?? "";
+  // T23: pre-sanitized operator snippets (renderCustomHead/renderCustomFooter).
+  const customHead = args.customHead ?? "";
+  const customFooter = args.customFooter ?? "";
 
   // brandTokens (camelCase) is the canonical view-model shape; brand_tokens
   // (snake_case) is the legacy alias from older callers. Prefer camelCase
@@ -141,15 +168,35 @@ export function renderLayout(args: RenderLayoutArgs): string {
   const tokens = site.brandTokens ?? site.brand_tokens;
   const styleBlock = renderBrandTokensStyle(tokens);
 
-  const safeTitle = escapeHtmlText(meta.title);
-  const safeDescription = escapeHtmlAttr(meta.description ?? site.description ?? "");
-  const safeSiteName = escapeHtmlAttr(site.name);
-  const canonicalLink = meta.canonicalUrl !== undefined && meta.canonicalUrl.length > 0
-    ? `<link rel="canonical" href="${escapeHtmlAttr(meta.canonicalUrl)}">`
-    : "";
-  const ogImageMeta = meta.ogImage !== undefined && meta.ogImage !== null && meta.ogImage.length > 0
-    ? `<meta property="og:image" content="${escapeHtmlAttr(meta.ogImage)}">`
-    : "";
+  // T13: the SEO meta block (title, description, robots, canonical, og:*,
+  // twitter:*, article:*) is built ONCE by renderSeoHead so the live <head>
+  // carries the complete search/social tag set — not just the legacy
+  // title/description/og:site_name subset (BCL-055). canonicalUrl, when the
+  // caller supplies it, overrides the host+path derivation; site.hostname is
+  // the tenant host (the admin host MUST NEVER appear — mission RED LINE).
+  const seoHead = renderSeoHead({
+    canonicalHost: site.hostname,
+    path: "/",
+    canonicalUrl:
+      meta.canonicalUrl !== undefined && meta.canonicalUrl.length > 0
+        ? meta.canonicalUrl
+        : undefined,
+    title: meta.title,
+    description: meta.description ?? site.description,
+    ogImage:
+      meta.ogImage !== undefined && meta.ogImage !== null && meta.ogImage.length > 0
+        ? meta.ogImage
+        : undefined,
+    siteName: site.name,
+    ogType: meta.ogType,
+    robots: meta.robots,
+    twitterCard: meta.twitterCard,
+    twitterSite: meta.twitterSite,
+    articlePublishedTime: meta.articlePublishedTime,
+    articleModifiedTime: meta.articleModifiedTime,
+    articleSection: meta.articleSection,
+    articleAuthor: meta.articleAuthor,
+  });
   const jsonLdBlocks = renderJsonLdBlocks(meta.jsonLd);
   const linkTags = renderLinks(meta.links);
 
@@ -158,13 +205,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${safeTitle}</title>
-<meta name="description" content="${safeDescription}">
-<meta property="og:site_name" content="${safeSiteName}">
-<meta property="og:title" content="${escapeHtmlAttr(meta.title)}">
-<meta property="og:description" content="${safeDescription}">
-${ogImageMeta}
-${canonicalLink}
+${seoHead}
 ${linkTags}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -173,6 +214,7 @@ ${linkTags}
 ${styleBlock}
 ${jsonLdBlocks}
 ${extraHead}
+${customHead}
 </head>
 <body class="${escapeHtmlAttr(bodyClass)}">
 <a class="skip-to-content" href="#main-content">Skip to content</a>
@@ -180,6 +222,7 @@ ${header}
 <main id="main-content">${body}</main>
 ${footer}
 <script src="/assets/public.js" defer></script>
+${customFooter}
 </body>
 </html>`;
 }
