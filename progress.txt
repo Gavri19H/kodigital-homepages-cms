@@ -10656,3 +10656,39 @@ AI assistant: structured, preset-driven POST /api/admin/ai/chat (defect BCL-032)
     appended, not reordered. Safe way to satisfy "mark field required" without
     breaking sibling tests (T14d editor.test.ts stayed green).
 ---
+
+## 2026-06-18 - T12 (Publish workflow: edit-only but functional (D9))
+iteration 10 — T12 (sources: T12)
+- What: behavioral proof that the SHIPPED edit-only publish workflow functions.
+  AC1 (RC-023): publish panel is edit-only — articleFormPage(null,...) renders
+  NO panel; an edit context renders id="workflow-panel" + the publish/unpublish/
+  archive/schedule/cancel-schedule controls (renderWorkflowPanel(isEdit?id:"",...)).
+  AC2 (RC-024): the shipped ES5 workflowPanelScripts (run in vm + DOM/fetch stub)
+  POSTs Publish->/publish and Schedule->/schedule {scheduled_at epoch} and reflects
+  the returned status into the badge; the REAL /publish + /schedule routes
+  (admin.request + fake D1) flip the article to published / set scheduled_at, and
+  an illegal transition is rejected 409. No product-code change was required — the
+  workflow surface (workflow-panel.ts, workflow-panel-script.ts, workflow-api.ts,
+  workflow/publish.ts + transitions.ts, articles.ts edit-only composition) already
+  ships; T12 adds the executable behavioral proof.
+- Files changed: api/test/publish-workflow.test.ts (new)
+- Self-check results:
+  - File sizes: api/test/publish-workflow.test.ts 341 lines (test file; peers e.g.
+    hero-image-card.test.ts=484 — 200 limit targets product source) — PASS
+  - Secret scan: PASS (no secrets)
+  - Error handling: N/A (test-only; no new route handlers)
+  - Migration execution: N/A (category=ui; no schema change)
+  - Parameterized queries: N/A (no new SQL; asserts on existing parameterized SQL)
+- Evidence:
+  - runner: run_required_evidence_command.py --required-claim-ids=RC-023,RC-024 -> status=PASS (both RCs)
+  - Q3: run_story_quality_checks.py --story-id=T12 -> PASS (checks_executed=2, receipts written)
+  - test: cd api && npx vitest run test/publish-workflow.test.ts (8 passed)
+  - typecheck: cd api && npx tsc --noEmit (exit 0)
+- Learnings:
+  - parse_test_output routing: each it() title must embed BOTH the literal
+    [api/test/<file>.test.ts] AND L2_AUTO_DISAMBIGUATION:T<id>-AC<n>:RC-<nnn>;
+    RC<->AC mapping comes from required_evidence_plan.json (RC-023=AC1, RC-024=AC2).
+  - The workflow panel script uses panel.querySelectorAll('.workflow-action')
+    (class selector) — the generic FakeNode.querySelectorAll (attribute-only) does
+    NOT match it; tailor querySelectorAll to return the action buttons.
+---

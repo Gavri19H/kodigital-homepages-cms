@@ -185,8 +185,8 @@
       "title": "Publish workflow: edit-only but functional (D9)",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T12"
       ],
