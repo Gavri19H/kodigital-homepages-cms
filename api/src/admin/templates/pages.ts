@@ -31,8 +31,8 @@ import {
   listFilterScript,
   type ListPagerMeta,
 } from "./layout";
-import { editorScripts } from "../../editor/editor-scripts";
-import { EDITOR_TOOLBAR, blocksToHtml } from "../../editor";
+import { editorScripts, editorStyles } from "../../editor/editor-scripts";
+import { blocksToHtml } from "../../editor";
 
 export interface SiteOption {
   id: string;
@@ -283,50 +283,22 @@ function boolAttr(v: boolean | number | undefined): string {
 // reads. editorScripts()'s initContentEditors() mounts ContentEditor on this
 // trio (it claims #content-editor before the legacy bare-textarea path), so
 // there is no raw JSON textarea on the page.
-const CONTENT_EDITOR_STYLES = `
-.content-editor-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding:8px; border:1px solid #d0d5dd; border-bottom:0; border-radius:6px 6px 0 0; background:#f9fafb; }
-.content-editor-toolbar .editor-tool { padding:4px 10px; border:1px solid #d0d5dd; background:#fff; border-radius:4px; cursor:pointer; font-size:13px; line-height:1.2; }
-.content-editor-toolbar .editor-tool:hover { background:#f2f4f7; }
-.content-editor { min-height:240px; padding:12px 14px; border:1px solid #d0d5dd; border-radius:0 0 6px 6px; background:#fff; line-height:1.6; }
-.content-editor:focus { outline:2px solid #1ba8c8; outline-offset:-1px; }
-.content-editor > * { margin:0 0 12px; }
-.content-editor blockquote { border-left:3px solid #d0d5dd; padding-left:12px; color:#475467; }
-.content-editor blockquote.pullquote { border-left-color:#1ba8c8; font-style:italic; }
-.content-editor .editor-preserved { border:1px dashed #d0d5dd; border-radius:6px; padding:8px; background:#f9fafb; }
-.content-editor .editor-preserved-label { font-size:11px; text-transform:uppercase; color:#667085; }
-.content-editor img { max-width:100%; height:auto; border-radius:4px; }
+const EDITOR_COLOR_TOKENS = `
+:root{--color-bg:#ffffff;--color-bg-alt:#f9fafb;--color-bg-dark:#f3f4f6;--color-border:#e5e7eb;--color-text:#111827;--color-text-muted:#6b7280;--color-primary:#2563eb;--color-primary-light:#dbeafe;--color-primary-dark:#1d4ed8;--color-error:#ef4444;--color-success:#10b981;--color-warning:#f59e0b;}
 `;
 
-// Toolbar rendered from the shared EDITOR_TOOLBAR config (single source of
-// truth with the client script); each button carries the data-* attributes
-// the editor script reads. Mirrors articleFormPage's renderEditorToolbar.
-function renderEditorToolbar(): string {
-  const buttons = EDITOR_TOOLBAR.map((item) => {
-    const attrs = [
-      `type="button"`,
-      `class="editor-tool"`,
-      `data-editor-cmd="${item.group}"`,
-      `aria-label="${escapeHtml(item.ariaLabel)}"`,
-      `title="${escapeHtml(item.ariaLabel)}"`,
-    ];
-    if (item.blockType) attrs.push(`data-block-type="${item.blockType}"`);
-    if (item.level != null) attrs.push(`data-level="${item.level}"`);
-    if (item.style) attrs.push(`data-style="${item.style}"`);
-    if (item.command) attrs.push(`data-command="${item.command}"`);
-    if (item.prompt) attrs.push(`data-prompt="1"`);
-    return `<button ${attrs.join(" ")}>${escapeHtml(item.label)}</button>`;
-  }).join("");
-  return `<div class="content-editor-toolbar" id="content-editor-toolbar" role="toolbar" aria-label="Formatting toolbar">${buttons}</div>`;
-}
+// NOTE (DRY-debt, flagged for the final simplify pass): EDITOR_COLOR_TOKENS +
+// EDITOR_INIT_SCRIPT + this empty-#content-editor field mirror articles.ts;
+// they will be extracted into one shared editor/mount helper used by both.
+const EDITOR_INIT_SCRIPT = `
+(function(){window._inlineAIImagePresets=window._inlineAIImagePresets||[];function boot(){if(window.initBlockEditor){window.initBlockEditor("content-editor",{hiddenInputId:"content_json",placeholder:"Start writing your page..."});}}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}}());
+`;
 
 function renderContentEditorField(contentJson: string | undefined): string {
-  const raw = contentJson ?? "";
-  const initialHtml = blocksToHtml(raw);
-  const jsonVal = escapeHtml(raw);
+  const jsonVal = escapeHtml(contentJson ?? "");
   return `<div class="form-group">
       <label for="content-editor" class="form-label">Content</label>
-      ${renderEditorToolbar()}
-      <div id="content-editor" class="content-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Page content" data-content-editor="1">${initialHtml}</div>
+      <div id="content-editor"></div>
       <textarea id="content_json" name="content_json" class="content-json-input" hidden aria-hidden="true">${jsonVal}</textarea>
     </div>`;
 }
@@ -511,7 +483,7 @@ export function pageFormPage(
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
-    styles: CONTENT_EDITOR_STYLES,
-    scripts: editorScripts() + PAGE_FORM_SCRIPT,
+    styles: EDITOR_COLOR_TOKENS + editorStyles,
+    scripts: editorScripts + EDITOR_INIT_SCRIPT + PAGE_FORM_SCRIPT,
   });
 }

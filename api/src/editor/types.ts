@@ -1,18 +1,19 @@
 // Editor block model + pure transforms (T6 — contenteditable WYSIWYG port).
 //
 // This module is the SINGLE SOURCE OF TRUTH for the article block editor's
-// data shapes and the toolbar/conversion/markdown-migration logic. The
-// client-side editor script (editor-scripts.ts) mirrors these transforms in
-// ES5 string form; vitest tests (test/editor-blocks.test.ts) import and
-// exercise the TypeScript versions here directly (the proof route runs in the
-// node test environment, so the logic must be DOM-free and pure).
+// data shapes and the conversion/markdown-migration logic. The client-side
+// editor script (editor-scripts.ts) mirrors these transforms in ES5 string
+// form and builds its own toolbar client-side; vitest tests
+// (test/editor-blocks.test.ts) import and exercise the TypeScript versions
+// here directly (the proof route runs in the node test environment, so the
+// logic must be DOM-free and pure).
 //
-// Block types match the server renderer in ./blocks.ts. The toolbar offers
-// the reference feature set: paragraph / heading(H2–H4) / list / quote / image
-// / divider block conversions plus inline bold / italic / link via the
-// browser's document formatting command API. Inline formatting is carried on a
-// block's optional `html` field, which ./blocks.ts renders through the
-// tag-whitelist sanitizer.
+// Block types match the server renderer in ./blocks.ts. The editor offers the
+// reference feature set: paragraph / heading(H2–H4) / list / quote / image /
+// divider block conversions plus inline bold / italic / link via the browser's
+// document formatting command API. Inline formatting is carried on a block's
+// optional `html` field, which ./blocks.ts renders through the tag-whitelist
+// sanitizer.
 
 import { sanitizeHtml } from "./sanitize";
 
@@ -37,37 +38,6 @@ export interface EditorDocument {
   version?: number;
   blocks: EditorBlock[];
 }
-
-// Toolbar config consumed by BOTH the rendered toolbar markup (articles.ts)
-// and the client editor script. `group` selects the click behavior:
-//   block  → convert the focused block in place to `blockType` (keep text)
-//   inline → run the browser formatting command `command` on the selection
-//   insert → insert a fresh block (image)
-export interface EditorToolbarItem {
-  id: string;
-  label: string;
-  group: "block" | "inline" | "insert";
-  ariaLabel: string;
-  blockType?: EditorBlockType;
-  level?: number;
-  style?: "ordered" | "unordered";
-  command?: string;
-  prompt?: boolean;
-}
-
-export const EDITOR_TOOLBAR: ReadonlyArray<EditorToolbarItem> = [
-  { id: "paragraph", label: "¶", group: "block", blockType: "paragraph", ariaLabel: "Paragraph" },
-  { id: "h2", label: "H2", group: "block", blockType: "heading", level: 2, ariaLabel: "Heading 2" },
-  { id: "h3", label: "H3", group: "block", blockType: "heading", level: 3, ariaLabel: "Heading 3" },
-  { id: "h4", label: "H4", group: "block", blockType: "heading", level: 4, ariaLabel: "Heading 4" },
-  { id: "list", label: "• List", group: "block", blockType: "list", style: "unordered", ariaLabel: "Bulleted list" },
-  { id: "quote", label: "“ Quote", group: "block", blockType: "quote", ariaLabel: "Blockquote" },
-  { id: "bold", label: "B", group: "inline", command: "bold", ariaLabel: "Bold" },
-  { id: "italic", label: "I", group: "inline", command: "italic", ariaLabel: "Italic" },
-  { id: "link", label: "Link", group: "inline", command: "createLink", prompt: true, ariaLabel: "Insert link" },
-  { id: "image", label: "Image", group: "insert", blockType: "image", ariaLabel: "Insert image" },
-  { id: "divider", label: "— Divider", group: "block", blockType: "divider", ariaLabel: "Divider" },
-];
 
 function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;

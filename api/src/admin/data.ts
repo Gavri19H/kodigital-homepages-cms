@@ -90,6 +90,12 @@ interface CategoryRecord {
   name: string;
   slug: string;
   article_count: number;
+  display_order: number;
+  show_on_homepage: number;
+  // Correlated group_concat of the category's vertical slugs (NULL when the
+  // category belongs to no vertical). Populated by the category_verticals →
+  // verticals join in the list SELECTs below.
+  verticals: string | null;
 }
 
 interface TagRecord {
@@ -227,6 +233,9 @@ export interface CategoryRowDto {
   name: string;
   slug: string;
   article_count: number;
+  display_order: number;
+  show_on_homepage: number;
+  verticals: string[];
 }
 
 export interface TagRowDto {
@@ -251,10 +260,23 @@ export type SettingsValueMap = { [key: string]: string };
 
 export interface PresetRowDto {
   id: string;
+  slug: string;
   label: string;
+  // Human display name (prompt_presets.name). Falls back to the slug when the
+  // row has no name (legacy/system rows seeded before migration 0014).
+  name: string;
+  // The configured text model (prompt_presets.text_model); empty string when
+  // the row has no model set.
   model: string;
   scope: string;
+  category: string;
   description: string;
+  usageCount: number;
+  // Count of declared entries in the parsed variables_schema JSON (0 on absent
+  // or corrupt JSON).
+  variableCount: number;
+  isActive: boolean;
+  isSystem: boolean;
 }
 
 interface PresetRecord {
@@ -263,6 +285,12 @@ interface PresetRecord {
   category: string | null;
   is_system: number;
   is_active: number;
+  // Reference columns: text_model (migration 0011), name (0014),
+  // variables_schema (0019), usage_count (0001).
+  name: string | null;
+  text_model: string | null;
+  usage_count: number;
+  variables_schema: string | null;
 }
 
 function fmtDate(unixSeconds: number | null | undefined): string {
@@ -525,17 +553,36 @@ export async function getAdminPage(
   };
 }
 
+// Per-category vertical slugs are folded in via a correlated subquery
+// (group_concat over the category_verticals → verticals join, ordered by
+// the join's display_order) so the list keeps a single round-trip and no
+// extra .bind() params — sidestepping the 100-binding cap (d1-database-safety).
+const CATEGORY_VERTICALS_SUBQUERY =
+  "(SELECT group_concat(v.slug, ',') FROM category_verticals cv " +
+  "INNER JOIN verticals v ON v.id = cv.vertical_id " +
+  "WHERE cv.category_id = categories.id ORDER BY cv.display_order ASC) AS verticals";
+
+function splitVerticals(raw: string | null): string[] {
+  if (typeof raw !== "string" || raw.length === 0) return [];
+  return raw.split(",").filter((s) => s.length > 0);
+}
+
 export async function listAdminCategories(
   env: Env,
 ): Promise<CategoryRowDto[]> {
   const result = await env.DB.prepare(
-    "SELECT id, name, slug, article_count FROM categories ORDER BY display_order ASC, name ASC LIMIT 500",
+    "SELECT id, name, slug, article_count, display_order, show_on_homepage, " +
+      CATEGORY_VERTICALS_SUBQUERY +
+      " FROM categories ORDER BY display_order ASC, name ASC LIMIT 500",
   ).all<CategoryRecord>();
   return (result.results ?? []).map((r) => ({
     id: String(r.id),
     name: r.name,
     slug: r.slug,
     article_count: r.article_count,
+    display_order: r.display_order,
+    show_on_homepage: r.show_on_homepage,
+    verticals: splitVerticals(r.verticals),
   }));
 }
 
@@ -632,17 +679,42 @@ export async function listMediaForSite(
   }));
 }
 
+// The admin AI-presets list. Returns ALL presets (active AND inactive) so the
+// list-page Status column can surface inactive rows and the operator can
+// reactivate them — the earlier `WHERE is_active = 1` filter hid every
+// deactivated preset from the only screen that can toggle it back on.
 export async function listAdminPresets(env: Env): Promise<PresetRowDto[]> {
   const result = await env.DB.prepare(
-    "SELECT id, slug, category, is_system, is_active FROM prompt_presets WHERE is_active = 1 ORDER BY slug ASC, id ASC LIMIT 500",
+    "SELECT id, slug, category, is_system, is_active, name, text_model, usage_count, variables_schema FROM prompt_presets ORDER BY is_system DESC, slug ASC, id ASC LIMIT 500",
   ).all<PresetRecord>();
   return (result.results ?? []).map((r) => ({
     id: String(r.id),
-    label: r.slug,
-    model: "",
+    slug: r.slug,
+    // Prefer the human name; fall back to the slug when absent.
+    label: r.name && r.name.length > 0 ? r.name : r.slug,
+    name: r.name && r.name.length > 0 ? r.name : r.slug,
+    model: r.text_model ?? "",
     scope: r.is_system === 1 ? "system" : "user",
+    category: r.category ?? "",
     description: r.category ?? "",
+    usageCount: r.usage_count ?? 0,
+    variableCount: countVariablesSchema(r.variables_schema),
+    isActive: r.is_active === 1,
+    isSystem: r.is_system === 1,
   }));
+}
+
+// Count declared variables in a stored variables_schema JSON. The column is a
+// JSON array of {key,...} entries (migration 0019). Corrupt/non-array JSON or
+// a NULL column yields 0 (guarded parse — never throws during a list render).
+function countVariablesSchema(raw: string | null | undefined): number {
+  if (typeof raw !== "string" || raw.length === 0) return 0;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function listAdminSettings(
@@ -932,7 +1004,9 @@ export async function listAdminCategoriesFiltered(
   const total = countRow ? Number(countRow.n) : 0;
 
   const result = await env.DB.prepare(
-    "SELECT id, name, slug, article_count FROM categories WHERE " +
+    "SELECT id, name, slug, article_count, display_order, show_on_homepage, " +
+      CATEGORY_VERTICALS_SUBQUERY +
+      " FROM categories WHERE " +
       clause +
       " ORDER BY display_order ASC, name ASC LIMIT ? OFFSET ?",
   )
@@ -945,6 +1019,9 @@ export async function listAdminCategoriesFiltered(
       name: r.name,
       slug: r.slug,
       article_count: r.article_count,
+      display_order: r.display_order,
+      show_on_homepage: r.show_on_homepage,
+      verticals: splitVerticals(r.verticals),
     })),
     page,
     per_page: perPage,

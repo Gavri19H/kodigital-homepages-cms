@@ -242,7 +242,11 @@ describe("T32 admin list filters", () => {
         buildEnv(db),
       );
       expect(res.status).toBe(200);
-      const main = findCall(calls, "id, name, slug, article_count FROM categories WHERE");
+      // The categories list SELECT now also carries display_order/show_on_homepage
+      // (+ a verticals subquery); match on the stable column prefix that is
+      // unique to the list query (the COUNT(*) query does not contain it).
+      const main = findCall(calls, "article_count, display_order, show_on_homepage,");
+      expect(main?.sql).toContain("FROM categories WHERE");
       expect(main?.sql).toContain("name LIKE ?");
       expect(main?.sql).toContain("site_categories WHERE site_id = ?");
       expect(main?.binds).toContain("%ne%");

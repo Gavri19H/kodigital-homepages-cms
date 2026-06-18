@@ -25,6 +25,7 @@ export const heroImageScripts = `
   var TOKEN_RE = /\\{\\{\\s*([\\w.\\-]+)\\s*\\}\\}/g;
   var hiddenInput = document.getElementById('hero-image-input');
   var preview = document.getElementById('hero-image-preview');
+  var previewWrap = document.getElementById('hero-image-preview-wrap');
   var emptyMsg = document.getElementById('hero-image-empty');
   var uploadInput = document.getElementById('hero-image-upload');
   var aiGenerateOpen = document.getElementById('hero-image-ai-generate');
@@ -70,9 +71,10 @@ export const heroImageScripts = `
   function showHeroImage(mediaId, url) {
     if (hiddenInput) { hiddenInput.value = mediaId == null ? '' : String(mediaId); }
     if (preview) {
-      if (url) { preview.src = url; preview.hidden = false; }
-      else { preview.removeAttribute('src'); preview.hidden = true; }
+      if (url) { preview.src = url; }
+      else { preview.removeAttribute('src'); }
     }
+    if (previewWrap) { previewWrap.hidden = !url; }
     if (emptyMsg) { emptyMsg.hidden = !!url; }
     if (removeBtn) { removeBtn.hidden = !url; }
   }

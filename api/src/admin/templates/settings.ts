@@ -348,6 +348,144 @@ function renderAdsTxtCard(values: SettingsValueMap): string {
   );
 }
 
+// T22: Ad-network configuration card. Ported from the reference Ads tab, but
+// every name/data-key is bound to the keys the public renderer + allow-list
+// actually read (public/ads.ts parseAdsConfig + settings/custom-html.ts
+// ALLOWED_SETTINGS_KEYS): ads_enabled, ad_provider ("adsense"|"none"),
+// adsense_publisher_id, ad_unit_leaderboard/in_feed/rect, the integer
+// ad_in_content_position, ad_lazy_load + ad_lazy_load_margin (string e.g.
+// "200px"), ad_disable_logged_in, ad_excluded_pages. Booleans are persisted as
+// "1"/"" (parseBool reads "1"/"true"/"yes"/"on"). Without this UI the renderer
+// reads keys that no surface can set, so ads can never be turned on.
+function renderAdCheckbox(
+  key: string,
+  label: string,
+  value: string,
+  hint?: string,
+): string {
+  const safeKey = escapeHtml(key);
+  const checked = value === "1" || value === "true" ? " checked" : "";
+  const hintHtml = hint ? `<small class="form-hint">${escapeHtml(hint)}</small>` : "";
+  return `<div class="form-group" data-setting-key="${safeKey}">
+      <label class="form-check">
+        <input type="checkbox" id="setting-${safeKey}" name="${safeKey}" data-field="setting_checkbox" data-key="${safeKey}"${checked} />
+        <span>${escapeHtml(label)}</span>
+      </label>
+      ${hintHtml}
+    </div>`;
+}
+
+const AD_PROVIDER_OPTIONS: ReadonlyArray<[string, string]> = [
+  ["none", "None (ads off)"],
+  ["adsense", "Google AdSense"],
+];
+
+// In-content slot anchor is an integer paragraph index (parseIntOr in ads.ts);
+// the reference's "after-paragraph-N" strings are mapped to the integer N.
+const AD_IN_CONTENT_POSITION_OPTIONS: ReadonlyArray<[string, string]> = [
+  ["3", "After 3rd paragraph"],
+  ["5", "After 5th paragraph"],
+  ["7", "After 7th paragraph"],
+];
+
+function renderAdSelect(
+  key: string,
+  label: string,
+  options: ReadonlyArray<[string, string]>,
+  value: string,
+  hint?: string,
+): string {
+  const safeKey = escapeHtml(key);
+  const opts = options.map(function (pair: [string, string]): string {
+    const sel = value === pair[0] ? " selected" : "";
+    return `<option value="${escapeHtml(pair[0])}"${sel}>${escapeHtml(pair[1])}</option>`;
+  }).join("");
+  const hintHtml = hint ? `<small class="form-hint">${escapeHtml(hint)}</small>` : "";
+  return `<div class="form-group" data-setting-key="${safeKey}">
+    <label for="setting-${safeKey}" class="form-label">${escapeHtml(label)}</label>
+    <select id="setting-${safeKey}" name="${safeKey}" class="form-select" data-field="setting_value" data-key="${safeKey}">${opts}</select>
+    ${hintHtml}
+  </div>`;
+}
+
+function renderAdConfigCard(values: SettingsValueMap): string {
+  // Default the in-content position select to the contract default (3) when unset.
+  const positionRaw = settingValue(values, "ad_in_content_position");
+  const positionValue = positionRaw.length > 0 ? positionRaw : "3";
+  // Default the provider select to "none" when unset.
+  const providerRaw = settingValue(values, "ad_provider");
+  const providerValue = providerRaw.length > 0 ? providerRaw : "none";
+  const body =
+    renderAdCheckbox(
+      "ads_enabled",
+      "Enable advertisements on public pages",
+      settingValue(values, "ads_enabled"),
+    ) +
+    renderAdSelect(
+      "ad_provider",
+      "Ad Network Provider",
+      AD_PROVIDER_OPTIONS,
+      providerValue,
+      "AdSense renders only when a provider is selected and a publisher ID is set.",
+    ) +
+    renderTextField(
+      "adsense_publisher_id",
+      "AdSense Publisher ID",
+      settingValue(values, "adsense_publisher_id"),
+      'Your Google AdSense publisher ID (starts with "ca-pub-").',
+    ) +
+    renderTextField(
+      "ad_unit_leaderboard",
+      "Leaderboard Unit ID (970×90)",
+      settingValue(values, "ad_unit_leaderboard"),
+      "Home header leaderboard slot. Leave blank for auto-ads.",
+    ) +
+    renderTextField(
+      "ad_unit_in_feed",
+      "In-Feed Unit ID (728×90)",
+      settingValue(values, "ad_unit_in_feed"),
+      "Home in-feed slot. Leave blank for auto-ads.",
+    ) +
+    renderTextField(
+      "ad_unit_rect",
+      "Rectangle Unit ID (300×250)",
+      settingValue(values, "ad_unit_rect"),
+      "Article sidebar / in-content rectangle slot. Leave blank for auto-ads.",
+    ) +
+    renderAdSelect(
+      "ad_in_content_position",
+      "In-Content Ad Position",
+      AD_IN_CONTENT_POSITION_OPTIONS,
+      positionValue,
+      "Paragraph the in-content ad is inserted after.",
+    ) +
+    renderAdCheckbox(
+      "ad_lazy_load",
+      "Lazy-load below-fold ads",
+      settingValue(values, "ad_lazy_load"),
+      "Loads ads only when they are about to enter the viewport (improves initial load).",
+    ) +
+    renderTextField(
+      "ad_lazy_load_margin",
+      "Lazy Load Margin",
+      settingValue(values, "ad_lazy_load_margin"),
+      'Distance from the viewport to start loading ads, e.g. "200px".',
+    ) +
+    renderAdCheckbox(
+      "ad_disable_logged_in",
+      "Disable ads for logged-in users",
+      settingValue(values, "ad_disable_logged_in"),
+    ) +
+    renderTextareaField(
+      "ad_excluded_pages",
+      "Excluded Pages",
+      settingValue(values, "ad_excluded_pages"),
+      3,
+      "Page paths where ads never show (one per line or comma-separated).",
+    );
+  return renderCard("Ad Configuration", body);
+}
+
 function renderRobotsTxtCard(values: SettingsValueMap): string {
   return renderCard(
     "robots.txt",
@@ -567,6 +705,33 @@ function renderCustomHtmlCard(values: SettingsValueMap): string {
   );
 }
 
+// T23: analytics_script + ad_header_script editors. Both are allow-listed,
+// sanitized (validateScriptField + sanitizeSettingsHtml with allowScript:true),
+// and injected into <head> by renderCustomHead (settings/custom-html.ts). The
+// keys MUST match SCRIPT_SETTINGS_KEYS. <script> is permitted in these fields
+// (unlike custom_head_html); inline event handlers + javascript: URIs are not.
+function renderScriptInjectionCard(values: SettingsValueMap): string {
+  return renderCard(
+    "Analytics & Ad Header Scripts",
+    renderTextareaField(
+      "analytics_script",
+      "Analytics Script",
+      settingValue(values, "analytics_script"),
+      6,
+      "Analytics loader (e.g. Google Analytics, Plausible). Injected into <head> on every public page.",
+      true,
+    ) +
+      renderTextareaField(
+        "ad_header_script",
+        "Ad Header Script",
+        settingValue(values, "ad_header_script"),
+        6,
+        "Ad-network loader that must live in <head> (e.g. Google AdSense). Injected into <head> on every public page.",
+        true,
+      ),
+  );
+}
+
 interface TabDef {
   key: string;
   label: string;
@@ -617,10 +782,18 @@ function renderTabs(values: SettingsValueMap): string {
       renderSiteLogoCard(values) + renderBrandTokensCard(values),
     ) +
     renderTabPanel("seo", false, renderRobotsTxtCard(values)) +
-    renderTabPanel("ads", false, renderAdsTxtCard(values)) +
+    renderTabPanel(
+      "ads",
+      false,
+      renderAdConfigCard(values) + renderAdsTxtCard(values),
+    ) +
     renderTabPanel("social", false, renderSocialLinksCard(values)) +
     renderTabPanel("newsletter", false, renderNewsletterCard(values)) +
-    renderTabPanel("advanced", false, renderCustomHtmlCard(values));
+    renderTabPanel(
+      "advanced",
+      false,
+      renderScriptInjectionCard(values) + renderCustomHtmlCard(values),
+    );
   return `<div class="settings-tabs" data-component="settings-tabs">
     ${renderTablist()}
     ${panels}
@@ -740,10 +913,21 @@ export const SETTINGS_SCRIPT = `
     }
     var fd = new FormData(form);
     var updates = {};
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url'];
+    // T22 ad-config (select/text) + T23 script keys ride the same value path as
+    // the canonical keys (collected via fd.get). The three T22 ad checkboxes
+    // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
+    // they persist as '1'/'' (the form on the renderer + round-trip expect).
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','analytics_script','ad_header_script'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);
+    }
+    // T22: ad-config checkboxes -> '1' when checked, '' otherwise (parseBool in
+    // public/ads.ts reads '1'/'true'; renderAdCheckbox re-checks '1'/'true').
+    var adCheckboxKeys = ['ads_enabled','ad_lazy_load','ad_disable_logged_in'];
+    for (var ac = 0; ac < adCheckboxKeys.length; ac = ac + 1) {
+      var cbEl = document.getElementById('setting-' + adCheckboxKeys[ac]);
+      updates[adCheckboxKeys[ac]] = cbEl && cbEl.checked ? '1' : '';
     }
     // T15: compose the structured newsletter fields into the canonical
     // newsletter_settings_json value (overrides the hidden raw input).
