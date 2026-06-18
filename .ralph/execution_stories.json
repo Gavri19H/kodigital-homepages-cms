@@ -105,8 +105,8 @@
       "title": "AI assistant: structured, preset-driven /chat (preset overrides tone, length->max_tokens)",
       "category": "api",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T7"
       ],

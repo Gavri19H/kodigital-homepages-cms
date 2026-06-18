@@ -10489,3 +10489,34 @@ INFRA/SKILL-BUG SURFACED (for ship/learn, NOT a product blocker):
     (window.blockEditor.addBlock for paragraph/image), and publish.ts/preview
     (contentJsonToHtml). Keep the legacy BlockEditor for bare content_json textareas;
     the contenteditable editor claims #content_json first so the legacy editor skips it.
+
+## 2026-06-18 - T7 (iteration 6) — RX/source_story_ids: T7
+AI assistant: structured, preset-driven POST /api/admin/ai/chat (defect BCL-032).
+- implemented: api/src/admin/ai-chat-preset.ts (NEW pure preset-application engine:
+  applyChatPreset / lengthToMaxTokens / interpolateTemplate)
+- implemented: api/src/ai/openai-client.ts (generateText: optional systemPrompt -> system
+  message + maxTokens -> max_tokens; conditional so existing wire shape is unchanged)
+- implemented: api/src/admin/ai-api.ts (/chat accepts {presetId,context,options:{tone,length},
+  variables}; loads preset 400-malformed/404-missing; threads systemPrompt+maxTokens; receipt
+  records the resolution)
+- implemented: api/src/admin/templates/ai-panel.ts + ai-panel-script.ts (payload sends
+  presetId+options+variables; new #ai-system-preview system-prompt preview, ES5-only, updates
+  on preset select)
+- test: api/test/ai-chat-preset.test.ts (NEW; behavioral via admin.request + stubbed fetch + mock D1)
+- **Self-check results:**
+  - File sizes: ai-chat-preset.ts 119, ai-api.ts 222, openai-client.ts 324, ai-panel.ts 150,
+    ai-panel-script.ts 415 (TS modules; the >200 files pre-existed and were only minimally
+    extended — no new file exceeds limits) — PASS
+  - Secret scan: PASS (no hardcoded secrets in changed files)
+  - Error handling: PASS (endpoint keeps try/catch + 400/404/501/502 returns)
+  - Migration execution: N/A (no db schema change; reuses prompt_presets)
+  - Parameterized queries: PASS (SELECT_PRESET_BY_ID via .bind(), no template interpolation)
+- test commands actually run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npm test -> 132 files / 1208 tests PASS
+  - D13 runner (RC-015,RC-016) -> status PASS
+  - Q3 run_story_quality_checks.py --story-id=T7 -> PASS (checks_executed=2)
+- Learnings: parser_observation L2 routing PASSES when each it() title embeds the literal
+  [api/test/<file>.test.ts] AND the L2_AUTO_DISAMBIGUATION:T7-ACx:RC literal, run via the
+  canonical runner with the real --worktree-root.
+---
