@@ -75,15 +75,29 @@ export function renderHeroImageCard(
   return `<section class="card hero-image-card" id="hero-image-card">
   <div class="card-header"><h3 class="card-title">Hero image</h3></div>
   <input type="hidden" id="hero-image-input" name="featured_image_id" value="${escapeHtml(idVal)}" />
-  <div class="hero-image-preview-wrap">
-    <img id="hero-image-preview" class="hero-image-preview" src="${previewSrc}" alt="Hero image preview"${previewHidden} />
-    <p id="hero-image-empty" class="hero-image-empty"${previewSrc ? " hidden" : ""}>No hero image selected.</p>
-  </div>
-  <div class="hero-image-actions">
-    <label for="hero-image-upload" class="btn btn-secondary btn-sm">Upload image</label>
-    <input id="hero-image-upload" type="file" accept="image/*" class="hero-image-upload-input" hidden />
-    <button type="button" id="hero-image-ai-generate" class="btn btn-primary btn-sm hero-image-ai-generate">Generate with AI</button>
-    <button type="button" id="hero-image-remove" class="btn btn-danger btn-sm" hidden>Remove</button>
+  <div id="heroImageContainer" class="hero-image-container">
+    <div id="hero-image-preview-wrap" class="hero-image-preview-wrap"${previewSrc ? "" : " hidden"}>
+      <img id="hero-image-preview" class="hero-image-preview" src="${previewSrc}" alt="Hero image preview" />
+      <div class="hero-image-overlay">
+        <button type="button" id="hero-image-remove" class="btn btn-sm btn-danger hero-image-remove-btn">Remove</button>
+      </div>
+    </div>
+    <div id="hero-image-empty" class="hero-image-uploader"${previewSrc ? " hidden" : ""}>
+      <input id="hero-image-upload" type="file" accept="image/*" class="hero-image-upload-input" hidden />
+      <div class="hero-image-options">
+        <label for="hero-image-upload" class="hero-image-dropzone">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+          <p>Upload Image</p>
+          <small>Click or drag</small>
+        </label>
+        <div id="hero-image-ai-generate" class="hero-image-ai-generate">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <p>Generate with AI</p>
+          <small>Use presets</small>
+        </div>
+      </div>
+      <small class="hero-image-hint">Recommended: 1200×630px (landscape)</small>
+    </div>
   </div>
   <p id="hero-image-error" class="alert alert-error" hidden role="alert"></p>
   <p id="hero-image-status" class="form-status" role="status" aria-live="polite"></p>
@@ -132,10 +146,21 @@ export function renderHeroImageCard(
 
 export const heroImageStyles = `
 .hero-image-card{margin-top:16px}
-.hero-image-preview-wrap{margin:8px 0}
-.hero-image-preview{max-width:100%;border-radius:6px;display:block}
-.hero-image-empty{color:var(--c-muted);font-size:13px;margin:8px 0}
-.hero-image-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.hero-image-container{margin:8px 0}
+.hero-image-preview-wrap{position:relative;border-radius:8px;overflow:hidden}
+.hero-image-preview-wrap[hidden]{display:none}
+.hero-image-preview{display:block;width:100%;height:auto;border-radius:8px}
+.hero-image-overlay{position:absolute;top:8px;right:8px;opacity:0;transition:opacity .2s}
+.hero-image-preview-wrap:hover .hero-image-overlay{opacity:1}
+.hero-image-uploader[hidden]{display:none}
+.hero-image-options{display:flex;gap:12px}
+.hero-image-dropzone,.hero-image-ai-generate{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px 16px;border:2px dashed var(--color-border,#e5e7eb);border-radius:8px;cursor:pointer;text-align:center;color:var(--color-text-muted,#6b7280);transition:border-color .2s,background .2s}
+.hero-image-dropzone:hover{border-color:var(--color-primary,#2563eb);background:var(--color-primary-light,#dbeafe)}
+.hero-image-ai-generate{background:linear-gradient(135deg,rgba(147,51,234,.05),rgba(59,130,246,.05))}
+.hero-image-ai-generate:hover{border-color:#9333ea}
+.hero-image-dropzone p,.hero-image-ai-generate p{margin:0;font-weight:600;font-size:13px;color:var(--color-text,#111827)}
+.hero-image-dropzone small,.hero-image-ai-generate small{font-size:11px}
+.hero-image-hint{display:block;margin-top:8px;font-size:12px;color:var(--color-text-muted,#6b7280)}
 .hero-image-status{font-size:13px;color:var(--c-muted);min-height:1em;margin:8px 0 0}
 .hero-ai-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:1000}
 .hero-ai-overlay[hidden]{display:none}

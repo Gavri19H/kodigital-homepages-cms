@@ -30,10 +30,18 @@ import { PRESET_FORM_SCRIPT, PRESET_FORM_STYLES } from "./presets-form-script";
 
 export interface PresetListEntry {
   id?: string;
+  slug?: string;
   label: string;
+  // Human display name (falls back to slug in the data layer).
+  name?: string;
   model?: string;
   scope?: string;
+  category?: string;
   description?: string;
+  usageCount?: number;
+  variableCount?: number;
+  isActive?: boolean;
+  isSystem?: boolean;
 }
 
 // Mirrors the PresetRow wire shape from ./ai-presets (the prompt_presets
@@ -125,35 +133,102 @@ const VARIABLE_CHIPS: ReadonlyArray<string> = [
   "keyword",
 ];
 
+// Use-case category -> human label (mirrors USE_CASE_CATEGORIES). Unknown
+// values fall through to the raw category string.
+function getCategoryLabel(category: string): string {
+  for (const [val, label] of USE_CASE_CATEGORIES) {
+    if (val === category) return label;
+  }
+  return category;
+}
+
+// Use-case category -> layout.ts badge palette class (ported from the legacy
+// reference's getCategoryBadgeClass). Falls back to `badge-draft` (the neutral
+// grey badge) for unknown / empty categories.
+function getCategoryBadgeClass(category: string): string {
+  switch (category) {
+    case "title":
+    case "excerpt":
+    case "content":
+      return "badge-published";
+    case "outline":
+    case "seo":
+      return "badge-scheduled";
+    case "image":
+    case "custom":
+    default:
+      return "badge-draft";
+  }
+}
+
+// One AI-presets list row (ported 1:1 from the legacy reference
+// templates/presets.ts:90-115): Name (+ description snippet + System badge) /
+// Category badge / Model / Variables / Uses / Status badge / Actions. User
+// presets get Edit + Clone + Delete; system presets get only an
+// Activate/Deactivate toggle (the write handler rejects every other field).
 function renderPresetRow(p: PresetListEntry): string {
   const id = escapeHtml(p.id ?? "");
-  const label = escapeHtml(p.label);
+  const name = escapeHtml(p.name ?? p.label);
   const model = escapeHtml(p.model ?? "");
-  const scope = escapeHtml(p.scope ?? "");
-  const description = escapeHtml(p.description ?? "");
-  const labelCell = id !== ""
-    ? `<a href="/admin/presets/${id}">${label}</a>`
-    : label;
+  const category = p.category ?? "";
+  const description = p.description ?? "";
+  const usageCount = escapeHtml(p.usageCount ?? 0);
+  const variableCount = escapeHtml(p.variableCount ?? 0);
+  const isActive = !!p.isActive;
+  const isSystem = !!p.isSystem;
+
+  const descSnippet = description !== ""
+    ? `<div class="preset-desc">${escapeHtml(description.substring(0, 60))}${description.length > 60 ? "…" : ""}</div>`
+    : "";
+  const systemBadge = isSystem
+    ? `<span class="badge badge-draft preset-system-badge">System</span>`
+    : "";
+  const nameCell = id !== ""
+    ? `<a href="/admin/presets/${id}">${name}</a>`
+    : name;
+  const categoryCell = category !== ""
+    ? `<span class="badge ${getCategoryBadgeClass(category)}">${escapeHtml(getCategoryLabel(category))}</span>`
+    : "";
+  const statusCell = isActive
+    ? `<span class="badge badge-published">Active</span>`
+    : `<span class="badge badge-draft">Inactive</span>`;
+  const actionsCell = isSystem
+    ? `<button type="button" class="btn btn-secondary btn-sm" data-toggle-active="${id}" data-current-active="${isActive ? "1" : "0"}">${isActive ? "Deactivate" : "Activate"}</button>`
+    : `<a href="/admin/presets/${id}" class="btn btn-secondary btn-sm">Edit</a>
+      <button type="button" class="btn btn-secondary btn-sm" data-clone-preset="${id}">Clone</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-toggle-active="${id}" data-current-active="${isActive ? "1" : "0"}">${isActive ? "Deactivate" : "Activate"}</button>
+      <button type="button" class="btn btn-danger btn-sm" data-delete-preset="${id}" data-preset-name="${name}">Delete</button>`;
+
   return `<tr data-preset-id="${id}">
-  <td>${labelCell}</td>
-  <td>${model}</td>
-  <td>${scope}</td>
-  <td>${description}</td>
+  <td>
+    <div class="preset-name">${nameCell}</div>
+    ${descSnippet}
+    ${systemBadge}
+  </td>
+  <td>${categoryCell}</td>
+  <td class="preset-model">${model}</td>
+  <td>${variableCount}</td>
+  <td>${usageCount}</td>
+  <td>${statusCell}</td>
+  <td class="table-actions">${actionsCell}</td>
 </tr>`;
 }
 
 function renderPresetsTable(presets: ReadonlyArray<PresetListEntry>): string {
   const rows = presets.length === 0
-    ? `<tr><td colspan="4" class="empty-state">No presets registered yet</td></tr>`
+    ? `<tr><td colspan="7" class="empty-state">No presets registered yet</td></tr>`
     : presets.map(renderPresetRow).join("");
   return `<div class="card">
   <div class="table-wrapper">
     <table class="table presets-list" aria-label="AI presets list">
       <thead><tr>
-        <th scope="col">Label</th>
+        <th scope="col">Name</th>
+        <th scope="col">Category</th>
         <th scope="col">Model</th>
-        <th scope="col">Scope</th>
-        <th scope="col">Description</th>
+        <th scope="col">Variables</th>
+        <th scope="col">Uses</th>
+        <th scope="col">Status</th>
+        <th scope="col">Actions</th>
       </tr></thead>
       <tbody id="presets-list-body" data-empty="No presets registered yet">${rows}</tbody>
     </table>
@@ -161,11 +236,103 @@ function renderPresetsTable(presets: ReadonlyArray<PresetListEntry>): string {
 </div>`;
 }
 
+// TODO: the reference list also has a search-box + category-filter toolbar.
+// That needs a route change (GET /admin/presets must accept ?search / ?category
+// query params and pass them through to listAdminPresets) — out of scope here.
 function renderListToolbar(): string {
   return `<div class="toolbar">
   <a href="/admin/presets/new" class="btn btn-primary">+ New Preset</a>
 </div>`;
 }
+
+// Inline behaviour for the list-page Actions (ES5 — matches ADMIN_SCRIPTS).
+// Activate/Deactivate -> PUT /api/admin/ai/presets/:id { is_active };
+// Clone -> GET the preset then POST /api/admin/ai/presets with a duplicated
+// body; Delete -> DELETE /api/admin/ai/presets/:id (after confirmDelete).
+// All three are registered in ai-api.ts (T21 [E4] CRUD route patterns).
+const PRESETS_LIST_SCRIPT = `
+(function () {
+  function toggleActive(id, current) {
+    var next = current === '1' ? 0 : 1;
+    fetch('/api/admin/ai/presets/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: next })
+    }).then(function (response) {
+      if (response.ok) { window.location.reload(); return; }
+      return response.json().then(function (data) {
+        alert('Error: ' + ((data && data.error) || 'Failed to update preset'));
+      });
+    }).catch(function () { alert('Error: Failed to update preset'); });
+  }
+
+  function duplicatePreset(id) {
+    fetch('/api/admin/ai/presets/' + id).then(function (response) {
+      if (!response.ok) { throw new Error('Failed to fetch preset'); }
+      return response.json();
+    }).then(function (data) {
+      var preset = data.item;
+      var newPreset = {
+        name: (preset.name || preset.slug) + ' (Copy)',
+        slug: preset.slug + '-copy',
+        description: preset.description,
+        category: preset.category,
+        prompt_template: preset.prompt_template,
+        system_prompt_template: preset.system_prompt_template,
+        user_prompt_template: preset.user_prompt_template,
+        variables: preset.variables,
+        variables_schema: preset.variables_schema,
+        output_rules: preset.output_rules,
+        content_mapping: preset.content_mapping,
+        text_model: preset.text_model,
+        image_model: preset.image_model,
+        is_active: 0
+      };
+      return fetch('/api/admin/ai/presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPreset)
+      }).then(function (createResponse) {
+        return createResponse.json().then(function (body) {
+          if (createResponse.ok && body && body.item) {
+            window.location.href = '/admin/presets/' + body.item.id;
+          } else {
+            alert('Error: ' + ((body && body.error) || 'Failed to duplicate preset'));
+          }
+        });
+      });
+    }).catch(function () { alert('Error: Failed to duplicate preset'); });
+  }
+
+  function deletePreset(id, name) {
+    if (!window.confirmDelete('Are you sure you want to delete "' + name + '"?')) { return; }
+    fetch('/api/admin/ai/presets/' + id, { method: 'DELETE' }).then(function (response) {
+      if (response.ok || response.status === 204) { window.location.reload(); return; }
+      return response.json().then(function (data) {
+        alert('Error: ' + ((data && data.error) || 'Failed to delete preset'));
+      });
+    }).catch(function () { alert('Error: Failed to delete preset'); });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) { return; }
+    var toggleId = t.getAttribute('data-toggle-active');
+    if (toggleId) { toggleActive(toggleId, t.getAttribute('data-current-active') || '0'); return; }
+    var cloneId = t.getAttribute('data-clone-preset');
+    if (cloneId) { duplicatePreset(cloneId); return; }
+    var deleteId = t.getAttribute('data-delete-preset');
+    if (deleteId) { deletePreset(deleteId, t.getAttribute('data-preset-name') || ''); return; }
+  });
+})();
+`;
+
+const PRESETS_LIST_STYLES = `
+.preset-name{font-weight:500}
+.preset-desc{font-size:12px;color:var(--c-muted);margin-top:2px}
+.preset-system-badge{font-size:10px;margin-top:4px}
+.preset-model{font-size:12px;color:var(--c-muted)}
+`;
 
 export function presetsListPage(
   presets: ReadonlyArray<PresetListEntry>,
@@ -177,6 +344,8 @@ export function presetsListPage(
     activePath: "/admin/presets",
     userEmail: branding.userEmail,
     content,
+    styles: PRESETS_LIST_STYLES,
+    scripts: PRESETS_LIST_SCRIPT,
   });
 }
 

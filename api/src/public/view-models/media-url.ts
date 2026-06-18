@@ -19,7 +19,7 @@ const MEDIA_PREFIX = "/media/";
  *  - null / undefined / empty            -> null  (no "/media/null", no broken <img>)
  *  - already rooted ("/...") or absolute -> returned unchanged. Body-image src
  *    persisted by the block editor is already "/media/<key>" (see
- *    editor/editor-script-media.ts), and an external "http(s)://" / "data:"
+ *    editor/editor-scripts.ts), and an external "http(s)://" / "data:"
  *    image URL must never be rewritten into a broken /media/ path.
  *  - a bare storage key                  -> "/media/<storage_key>"
  */

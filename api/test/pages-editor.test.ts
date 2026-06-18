@@ -7,10 +7,11 @@
 //
 // Two behavioral proofs, not bind-shape echoes:
 //   1. pageFormPage renders the SAME contenteditable WYSIWYG block editor
-//      as articleFormPage — the #content-editor surface + #content-editor-
-//      toolbar + a HIDDEN textarea#content_json trio that editorScripts()'s
-//      initContentEditors() mounts on — and NOT a visible raw-JSON
-//      <textarea name="content_json" class="form-textarea">.
+//      as articleFormPage — an empty #content-editor mount div paired with a
+//      HIDDEN textarea#content_json. The block editor is mounted client-side
+//      by window.initBlockEditor (via the shared mount script) onto that div,
+//      building the contenteditable surface + toolbar in the browser — and
+//      NOT a visible raw-JSON <textarea name="content_json" class="form-textarea">.
 //   2. GET /api/admin/pages/:id and GET /api/admin/categories/:id each
 //      return a SINGLE record ({ item }) on a hit, 404 on an unknown id,
 //      and 400 on a non-numeric id — served through the real admin router
@@ -133,14 +134,16 @@ function seedCat(): CatRecord {
 
 describe("T33 pages content block editor + GET-by-id endpoints", () => {
   it("[api/test/pages-editor.test.ts] L2_AUTO_DISAMBIGUATION:T33-AC1:RC-057 page form uses the block editor (no raw JSON textarea) and GET /pages/:id + GET /categories/:id return a single record", async () => {
-    // --- Proof 1: the contenteditable WYSIWYG block editor, not a raw JSON box.
+    // --- Proof 1: the block-based WYSIWYG editor, not a raw JSON box.
     const html = pageFormPage(null, [{ id: "siteA", name: "Site A" }]);
 
-    // The articleFormPage editor trio is present.
-    expect(html).toContain('id="content-editor-toolbar"');
-    expect(html).toContain('id="content-editor"');
+    // The same block-editor surface articleFormPage uses: an empty
+    // #content-editor mount div that the client editor script populates via
+    // initBlockEditor(). (The toolbar is built in the browser, not server-rendered.)
+    expect(html).toContain('<div id="content-editor"></div>');
+    expect(html).toContain("initBlockEditor");
+    // The embedded editor wiring drives the contenteditable blocks client-side.
     expect(html).toContain('contenteditable="true"');
-    expect(html).toContain('data-content-editor="1"');
     // The canonical state lives in a HIDDEN textarea the submit reads.
     expect(html).toMatch(
       /<textarea id="content_json" name="content_json" class="content-json-input" hidden/,
@@ -149,6 +152,7 @@ describe("T33 pages content block editor + GET-by-id endpoints", () => {
     expect(html).not.toMatch(/<textarea[^>]*name="content_json"[^>]*class="form-textarea"/);
     // The label points at the editable surface, not the retired #page-content.
     expect(html).toContain('<label for="content-editor" class="form-label">Content</label>');
+    expect(html).not.toContain('id="page-content"');
 
     // --- Proof 2: single-record detail routes through the real admin router.
     const db = makeDb([seedPage()], [seedCat()]);

@@ -31,6 +31,9 @@ export interface CategoryListEntry {
   slug?: string;
   verticals?: ReadonlyArray<string>;
   article_count?: number;
+  display_order?: number;
+  show_on_homepage?: number;
+  description?: string | null;
   site?: string;
   site_id?: string | null;
 }
@@ -73,14 +76,27 @@ function renderCategoryRow(c: CategoryListEntry): string {
   const slug = escapeHtml(c.slug ?? "");
   const verticals = (c.verticals ?? []).map(escapeHtml).join(", ");
   const count = escapeHtml(c.article_count ?? 0);
-  const editHref = id ? `/admin/categories/${id}/edit` : "/admin/categories";
+  const order = escapeHtml(c.display_order ?? 0);
+  const onHomepage = !!c.show_on_homepage;
+  // description is hydrated into the edit modal; carried as a data-attribute
+  // (HTML-escaped) so the inline edit form round-trips it through PUT.
+  const description = escapeHtml(c.description ?? "");
+  const toggleClass = onHomepage ? "toggle-btn toggle-on" : "toggle-btn toggle-off";
+  const toggleLabel = onHomepage ? "Yes" : "No";
+  const toggleTitle = onHomepage
+    ? "Click to hide from homepage"
+    : "Click to show on homepage";
   return `<tr data-category-id="${id}">
   <td>${name}</td>
   <td>${slug}</td>
   <td>${verticals}</td>
   <td>${count}</td>
+  <td>${order}</td>
   <td>
-    <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
+    <button type="button" class="${toggleClass}" data-toggle-homepage="${id}" data-show-on-homepage="${onHomepage ? "1" : "0"}" title="${toggleTitle}">${toggleLabel}</button>
+  </td>
+  <td>
+    <button type="button" class="btn btn-sm btn-secondary" data-edit-category="${id}" data-category-name="${name}" data-category-slug="${slug}" data-category-description="${description}" data-category-order="${order}" data-category-homepage="${onHomepage ? "1" : "0"}">Edit</button>
     <button type="button" class="btn btn-danger btn-sm" data-delete-category="${id}" data-category-name="${name}">Delete</button>
   </td>
 </tr>`;
@@ -88,7 +104,7 @@ function renderCategoryRow(c: CategoryListEntry): string {
 
 function renderCategoriesTable(categories: ReadonlyArray<CategoryListEntry>): string {
   const rows = categories.length === 0
-    ? `<tr><td colspan="5" class="empty-state">No categories yet</td></tr>`
+    ? `<tr><td colspan="7" class="empty-state">No categories yet</td></tr>`
     : categories.map(renderCategoryRow).join("");
   return `<div class="card">
   <div class="table-wrapper">
@@ -98,6 +114,8 @@ function renderCategoriesTable(categories: ReadonlyArray<CategoryListEntry>): st
         <th scope="col">Slug</th>
         <th scope="col">Verticals</th>
         <th scope="col">Articles</th>
+        <th scope="col">Order</th>
+        <th scope="col">Homepage</th>
         <th scope="col">Actions</th>
       </tr></thead>
       <tbody id="categories-list-body" data-empty="No categories yet">${rows}</tbody>
@@ -177,11 +195,61 @@ function renderModal(sites: ReadonlyArray<SiteOption>): string {
 </div>`;
 }
 
+// Inline Edit modal (ported from the reference editCategory(...) pattern —
+// the reference uses a MODAL, not a page route; the build had a dead
+// /admin/categories/:id/edit link that 404'd). Hydrated client-side from the
+// clicked row's data-* attributes (name/slug/description/order/homepage) and
+// submitted to PUT /api/admin/categories/:id (updateCategoryHandler does a
+// partial update: name, slug, description, display_order, show_on_homepage).
+// No site/verticals fields — the PUT handler does not edit allocation/join
+// membership; those stay owned by create + the (separate) allocation paths.
+function renderEditModal(): string {
+  return `<div id="edit-category-modal" class="modal hidden" style="display:none;" role="dialog" aria-labelledby="edit-category-modal-title" aria-hidden="true">
+  <div class="modal-content">
+    <h2 id="edit-category-modal-title" class="modal-title">Edit Category</h2>
+    <form id="edit-category-form" data-action="submit-edit-category">
+      <input type="hidden" id="edit-category-id" name="id" value="" />
+      <div class="form-group">
+        <label for="edit-category-name" class="form-label">Name</label>
+        <input id="edit-category-name" name="name" type="text" class="form-input" autocomplete="off" required />
+      </div>
+      <div class="form-group">
+        <label for="edit-category-slug" class="form-label">Slug</label>
+        <input id="edit-category-slug" name="slug" type="text" class="form-input" autocomplete="off" required />
+      </div>
+      <div class="form-group">
+        <label for="edit-category-description" class="form-label">Description</label>
+        <textarea id="edit-category-description" name="description" class="form-textarea" rows="3" placeholder="Optional category blurb"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="edit-category-display-order" class="form-label">Display Order</label>
+        <input id="edit-category-display-order" name="display_order" type="number" class="form-input" value="0" min="0" />
+      </div>
+      <div class="form-group">
+        <label for="edit-category-show-on-homepage" class="form-label"><input id="edit-category-show-on-homepage" name="show_on_homepage" type="checkbox" value="1" /> Show on homepage</label>
+      </div>
+      <p id="edit-category-error" class="alert alert-error" hidden role="alert"></p>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <button type="button" id="edit-category-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>`;
+}
+
 const MODAL_STYLES = '.modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1000}'
   + '.modal.hidden{display:none}'
   + '.modal-content{background:#fff;border-radius:8px;padding:24px;max-width:520px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,0.15)}'
   + '.modal-title{margin-bottom:16px;font-size:18px;font-weight:600}'
-  + '.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}';
+  + '.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}'
+  // Homepage inline-toggle button (ported from the reference toggle-btn styles).
+  + '.toggle-btn{padding:4px 12px;border-radius:4px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.15s ease}'
+  + '.toggle-btn.toggle-on{background:#dcfce7;color:#16a34a}'
+  + '.toggle-btn.toggle-on:hover{background:#bbf7d0}'
+  + '.toggle-btn.toggle-off{background:#f1f5f9;color:#64748b}'
+  + '.toggle-btn.toggle-off:hover{background:#e2e8f0}'
+  + '.toggle-btn:disabled{opacity:0.5;cursor:not-allowed}';
 
 // T30: list-page script — New Category modal (POST /api/admin/categories)
 // + row Delete (DELETE /api/admin/categories/:id, with the active site
@@ -255,6 +323,140 @@ const CATEGORIES_LIST_SCRIPT = `
     deleteButtons[i].addEventListener('click', onDeleteClick);
   }
 
+  // --- Homepage inline toggle (ported from the reference toggleHomepage):
+  // optimistic UI flip -> PUT /api/admin/categories/:id { show_on_homepage }
+  // -> success toast, or rollback + error toast on failure. ---
+  function onToggleHomepage() {
+    var btn = this;
+    var id = btn.getAttribute('data-toggle-homepage');
+    if (!id) { return; }
+    var current = btn.getAttribute('data-show-on-homepage') === '1';
+    var next = current ? 0 : 1;
+    var originalClass = btn.className;
+    var originalText = btn.textContent;
+    var originalTitle = btn.title;
+
+    btn.disabled = true;
+    btn.className = next ? 'toggle-btn toggle-on' : 'toggle-btn toggle-off';
+    btn.textContent = next ? 'Yes' : 'No';
+    btn.title = next ? 'Click to hide from homepage' : 'Click to show on homepage';
+
+    fetch('/api/admin/categories/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ show_on_homepage: next }),
+      credentials: 'same-origin'
+    }).then(function (r) {
+      return r.json().then(function (b) { return { ok: r.ok, body: b }; });
+    }).then(function (res) {
+      if (res.ok) {
+        btn.setAttribute('data-show-on-homepage', next ? '1' : '0');
+        btn.disabled = false;
+        window.showToast(next ? 'Category will show on homepage' : 'Category hidden from homepage', 'success');
+      } else {
+        btn.className = originalClass;
+        btn.textContent = originalText;
+        btn.title = originalTitle;
+        btn.disabled = false;
+        window.showToast('Error: ' + ((res.body && res.body.error) || 'Failed to update category'), 'error');
+      }
+    }).catch(function () {
+      btn.className = originalClass;
+      btn.textContent = originalText;
+      btn.title = originalTitle;
+      btn.disabled = false;
+      window.showToast('Error: Failed to update category', 'error');
+    });
+  }
+
+  var toggleButtons = document.querySelectorAll('button[data-toggle-homepage]');
+  for (i = 0; i < toggleButtons.length; i++) {
+    toggleButtons[i].addEventListener('click', onToggleHomepage);
+  }
+
+  // --- Inline Edit modal (ported from the reference editCategory modal):
+  // hydrate from the clicked row's data-* attributes, submit via
+  // PUT /api/admin/categories/:id (partial update). Self-contained — runs
+  // independently of the New Category create modal below. ---
+  var editModal = document.getElementById('edit-category-modal');
+  var editForm = document.getElementById('edit-category-form');
+  var editCancel = document.getElementById('edit-category-cancel');
+
+  function openEditModal() {
+    if (!editModal) { return; }
+    editModal.style.display = 'flex';
+    editModal.classList.remove('hidden');
+    editModal.setAttribute('aria-hidden', 'false');
+  }
+  function closeEditModal() {
+    if (!editModal) { return; }
+    editModal.style.display = 'none';
+    editModal.classList.add('hidden');
+    editModal.setAttribute('aria-hidden', 'true');
+  }
+  function setEditError(msg) {
+    var err = document.getElementById('edit-category-error');
+    if (err) { err.hidden = !msg; err.textContent = msg || ''; }
+  }
+  function setVal(elId, value) {
+    var el = document.getElementById(elId);
+    if (el) { el.value = value; }
+  }
+  function onEditClick() {
+    if (!editModal || !editForm) { return; }
+    setEditError('');
+    setVal('edit-category-id', this.getAttribute('data-edit-category') || '');
+    setVal('edit-category-name', this.getAttribute('data-category-name') || '');
+    setVal('edit-category-slug', this.getAttribute('data-category-slug') || '');
+    setVal('edit-category-description', this.getAttribute('data-category-description') || '');
+    setVal('edit-category-display-order', this.getAttribute('data-category-order') || '0');
+    var homepageEl = document.getElementById('edit-category-show-on-homepage');
+    if (homepageEl) { homepageEl.checked = this.getAttribute('data-category-homepage') === '1'; }
+    openEditModal();
+  }
+
+  var editButtons = document.querySelectorAll('button[data-edit-category]');
+  for (i = 0; i < editButtons.length; i++) {
+    editButtons[i].addEventListener('click', onEditClick);
+  }
+
+  if (editModal && editForm) {
+    if (editCancel) { editCancel.addEventListener('click', closeEditModal); }
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeEditModal(); } });
+    editModal.addEventListener('click', function (e) { if (e.target === editModal) { closeEditModal(); } });
+
+    editForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      setEditError('');
+      var id = (document.getElementById('edit-category-id') || {}).value || '';
+      var name = (document.getElementById('edit-category-name') || {}).value || '';
+      var slug = (document.getElementById('edit-category-slug') || {}).value || '';
+      var description = (document.getElementById('edit-category-description') || {}).value || '';
+      var orderEl = document.getElementById('edit-category-display-order');
+      var displayOrder = orderEl ? (parseInt(orderEl.value, 10) || 0) : 0;
+      var homepageEl = document.getElementById('edit-category-show-on-homepage');
+      var showOnHomepage = (homepageEl && homepageEl.checked) ? 1 : 0;
+      if (!id) { setEditError('Missing category id'); return; }
+      if (!name) { setEditError('Name is required'); return; }
+      if (!slug) { setEditError('Slug is required'); return; }
+      fetch('/api/admin/categories/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, slug: slug, description: description, display_order: displayOrder, show_on_homepage: showOnHomepage }),
+        credentials: 'same-origin'
+      }).then(function (r) {
+        return r.json().then(function (b) { return { ok: r.ok, status: r.status, body: b }; });
+      }).then(function (res) {
+        if (res.ok) {
+          closeEditModal();
+          window.location.reload();
+        } else {
+          setEditError((res.body && res.body.error) || ('Error: ' + res.status));
+        }
+      }).catch(function () { setEditError('Network error'); });
+    });
+  }
+
   if (!modal || !opener || !form) { return; }
   opener.addEventListener('click', function () { setError(''); loadVerticals(); openModal(); });
   if (cancel) { cancel.addEventListener('click', closeModal); }
@@ -313,7 +515,7 @@ export function categoriesListPage(
     search: filters.search,
     verticals: filters.vertical,
   });
-  const content = `${renderToolbar(sites, filters)}${renderCategoriesTable(categories)}${renderModal(sites)}${pager}`;
+  const content = `${renderToolbar(sites, filters)}${renderCategoriesTable(categories)}${renderModal(sites)}${renderEditModal()}${pager}`;
   return adminLayout({
     title: "Categories",
     activePath: "/admin/categories",

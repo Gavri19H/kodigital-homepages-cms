@@ -19,7 +19,6 @@ export { blocksToHtml, contentJsonToHtml } from "./blocks-to-html";
 
 // Editor block model + pure transforms (T6 contenteditable WYSIWYG port).
 export {
-  EDITOR_TOOLBAR,
   blockText,
   convertBlock,
   documentToContentJson,
@@ -31,7 +30,6 @@ export type {
   EditorBlock,
   EditorBlockType,
   EditorDocument,
-  EditorToolbarItem,
 } from "./types";
 
 export { escapeHtml, isSafeUrl, sanitizeHtml } from "./sanitize";
@@ -43,5 +41,5 @@ export { editorScripts, editorStyles } from "./editor-scripts";
 // that, when embedded in a `<script>` tag, mounts BlockEditor on every
 // `textarea[name="content_json"]` in the document.
 export function createEditor(): string {
-  return _editorScripts();
+  return _editorScripts;
 }

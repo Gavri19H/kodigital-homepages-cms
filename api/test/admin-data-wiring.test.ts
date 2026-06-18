@@ -267,6 +267,9 @@ describe("admin ui handlers pass real data to templates", () => {
         name: "Categories-Wiring-Probe",
         slug: "wiring-probe",
         article_count: 3,
+        display_order: 0,
+        show_on_homepage: 0,
+        verticals: [],
       },
     ]);
     vi.mocked(data.listAdminSites).mockResolvedValue([
@@ -348,10 +351,17 @@ describe("admin ui handlers pass real data to templates", () => {
     vi.mocked(data.listAdminPresets).mockResolvedValue([
       {
         id: "1",
+        slug: "wiring-probe",
         label: "Presets-Wiring-Probe",
+        name: "Presets-Wiring-Probe",
         model: "",
         scope: "system",
+        category: "title",
         description: "summary",
+        usageCount: 0,
+        variableCount: 0,
+        isActive: true,
+        isSystem: true,
       },
     ]);
 

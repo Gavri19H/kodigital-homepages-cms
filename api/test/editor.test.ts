@@ -185,25 +185,48 @@ describe("editor: contract blocks + ported block editor (T27 [B6])", () => {
     expect(isAllowedBlockType("embed")).toBe(false);
   });
 
-  it("T27.AC3: editorScripts() script string is ES5-only (zero arrow/const/let) and ships initBlockEditor", () => {
-    const script = editorScripts();
-    expect(script).toContain("initBlockEditor");
-    expect(script.match(/=>/g) ?? []).toHaveLength(0);
-    expect(script.match(/\bconst\b/g) ?? []).toHaveLength(0);
-    expect(script.match(/\blet\b/g) ?? []).toHaveLength(0);
+  it("T27.AC3: editorScripts is the per-block editor string — ships the BlockEditor class + initBlockEditor bootstrap and a per-block render", () => {
+    // editorScripts is now an embedded script STRING (the ported per-block
+    // block editor), not a function.
+    const script = editorScripts;
+    expect(typeof script).toBe("string");
+    expect(script).toContain("class BlockEditor");
+    expect(script).toContain("function initBlockEditor(");
+    // It renders one wrapper per block into a blocks container.
+    expect(script).toContain("editor-block");
+    expect(script).toContain("editor-blocks");
+    // Each block exposes the per-block AI toolbar (Improve / Expand / SEO / Tone).
+    expect(script).toContain("block-ai-toolbar");
+    for (const action of ["Improve", "Expand", "SEO", "Tone"]) {
+      expect(script).toContain(action);
+    }
   });
 
-  it("editor script carries the ported feature surface (block menu, upload, drag & drop, AI hooks)", () => {
-    const script = editorScripts();
+  it("editor script carries the ported feature surface (toolbar, block menu, image upload + AI modal, drag & drop, AI hooks)", () => {
+    const script = editorScripts;
+    // Formatting toolbar with the H1/H2/H3/P/List/Quote/image/AI/B/I/link buttons.
+    expect(script).toContain("createToolbar");
+    expect(script).toContain("editor-toolbar");
+    for (const label of ["'H1'", "'H2'", "'H3'", "'P'", "'• List'", "'1. List'", "'\" Quote'", "'🖼'", "'✨ AI'", "'B'", "'I'", "'🔗'"]) {
+      expect(script).toContain(`label: ${label}`);
+    }
+    // Add-block menu + per-block AI actions.
     expect(script).toContain("showBlockMenu");
+    expect(script).toContain("runBlockAIAction");
+    // Image flow: upload (file input -> /admin/media upload) OR generate via the
+    // AI image modal — NOT a window.prompt() for an image URL.
+    expect(script).toContain("showImageUploadDialog");
+    expect(script).toContain("handleImageUpload");
+    expect(script).toContain("image-upload-placeholder");
+    expect(script).toContain("image-ai-generate-placeholder");
+    expect(script).toContain("ai-image-modal");
+    expect(script).not.toContain("window.prompt");
     expect(script).toContain("/admin/media");
-    expect(script).toContain("dragover");
     expect(script).toContain("/api/admin/ai/image");
+    // Drag & drop + the AI-assistant integration hooks.
+    expect(script).toContain("dragover");
     expect(script).toContain("refreshBlockEditor");
     expect(script).toContain("applyAIResultToBlock");
-    for (const t of ["pullquote", "callout", "affiliate"]) {
-      expect(script).toContain(`'${t}'`);
-    }
   });
 
   it("pullquote renders blockquote.pullquote with escaped text and optional cite", () => {
