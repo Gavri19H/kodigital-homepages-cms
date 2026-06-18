@@ -572,10 +572,16 @@ interface TabDef {
   label: string;
 }
 
+// T29: the full reference tab set — the Settings IA renders all seven tabs
+// (General/Logo/SEO/Ads/Social/Newsletter/Advanced). Ads (ads.txt) and Social
+// (social profile links) are first-class tabs of their own rather than being
+// folded into SEO/General as before.
 const SETTINGS_TABS: ReadonlyArray<TabDef> = [
   { key: "general", label: "General" },
   { key: "logo", label: "Logo" },
-  { key: "seo", label: "SEO & Files" },
+  { key: "seo", label: "SEO" },
+  { key: "ads", label: "Ads" },
+  { key: "social", label: "Social" },
   { key: "newsletter", label: "Newsletter" },
   { key: "advanced", label: "Advanced" },
 ];
@@ -596,18 +602,23 @@ function renderTabPanel(key: string, first: boolean, body: string): string {
 }
 
 function renderTabs(values: SettingsValueMap): string {
+  // T29: one panel per reference tab. Site Logo + Brand Tokens share the Logo
+  // (visual identity) tab; ads.txt has its own Ads tab and the social profile
+  // links have their own Social tab (was: folded into SEO/General).
   const panels =
     renderTabPanel(
       "general",
       true,
-      renderSiteInformationCard(values) + renderDisplayCard(values) + renderSocialLinksCard(values),
+      renderSiteInformationCard(values) + renderDisplayCard(values),
     ) +
-    renderTabPanel("logo", false, renderSiteLogoCard(values)) +
     renderTabPanel(
-      "seo",
+      "logo",
       false,
-      renderAdsTxtCard(values) + renderRobotsTxtCard(values) + renderBrandTokensCard(values),
+      renderSiteLogoCard(values) + renderBrandTokensCard(values),
     ) +
+    renderTabPanel("seo", false, renderRobotsTxtCard(values)) +
+    renderTabPanel("ads", false, renderAdsTxtCard(values)) +
+    renderTabPanel("social", false, renderSocialLinksCard(values)) +
     renderTabPanel("newsletter", false, renderNewsletterCard(values)) +
     renderTabPanel("advanced", false, renderCustomHtmlCard(values));
   return `<div class="settings-tabs" data-component="settings-tabs">
