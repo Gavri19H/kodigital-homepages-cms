@@ -11089,3 +11089,36 @@ source_story_ids: T14
     has transformations disabled, so the /media/ src fallback is never broken.
   - parse_test_output RC binds when the it() title embeds the literal evidence path
     [api/test/<file>.test.ts] AND the runner runs with the real --worktree-root.
+
+## 2026-06-18 - T22 (Port the ads subsystem: logic + config + slots + provider scripts)
+source_story_ids: T22
+- Added api/src/public/ads.ts: AdsConfig + parseAdsConfig/loadAdsConfig, shouldShowAds
+  (excluded-pages + disable-for-logged-in gating), hasAdsense, renderAdProviderHead
+  (AdSense adsbygoogle.js library, async+crossorigin, keyed to publisher id),
+  renderAdSenseUnit, renderAdManagerScript (ES5 lazy-load via IntersectionObserver +
+  adsbygoogle push, rootMargin = ad_lazy_load_margin), AD_SLOT_DIMENSIONS
+  (970x90 leaderboard / 728x90 in-feed / 300x250 rect), resolveAdsTxt.
+- components.renderAdSlot is now config-aware: always reserves the design dims inline +
+  data-w/data-h; emits the real <ins class=adsbygoogle> unit (publisher client id + per-slot
+  unit id) when AdSense is live. Backward compatible (no ads arg = reserved placeholder).
+- Threaded the per-site ad config into home/article/category render paths (render-pages.ts),
+  gated by shouldShowAds(path); the <head> loads the provider + AdManager JS only when live.
+- /ads.txt now resolves through resolveAdsTxt (operator override wins, else ADS_TXT_DEFAULT).
+- Files: api/src/public/ads.ts (new), api/src/public/templates/components.ts,
+  api/src/public/templates/home.ts, api/src/public/templates/article.ts,
+  api/src/public/render-pages.ts, api/src/public/router.ts, api/test/ads-subsystem.test.ts (new).
+- Self-check results:
+  - File sizes: ads.ts 275 lines (within this codebase's de-facto norm; render-pages.ts 640,
+    article.ts 476, router.ts 572). No story/architecture maxFileLines override.
+  - Secret scan: PASS (no hardcoded secrets in changed files).
+  - Error handling: N/A (no new route handler); loadAdsConfig mirrors fetchPublicLayoutSiteInfo,
+    errors propagate to the existing route error wrapper.
+  - Parameterized queries: PASS (ads.loadAdsConfig uses .prepare(...WHERE site_id = ?).bind(siteId)).
+- Tests run:
+  - cd api && npx tsc --noEmit  -> clean
+  - cd api && npx vitest run    -> 147 files / 1277 tests PASS (no regressions)
+  - npx vitest run test/ads-subsystem.test.ts -> 2 PASS (T22-AC1, T22-AC2)
+  - Q3 run_story_quality_checks.py --story-id=T22 -> PASS (4 checks, receipts written)
+  - D13 run_required_evidence_command.py --required-claim-ids=RC-039,RC-040 -> status: PASS
+    (both L2_AUTO_DISAMBIGUATION assertions observed, cwd=worktree/api)
+---
