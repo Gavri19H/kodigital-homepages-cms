@@ -21,6 +21,25 @@ import type { Env } from "../../env";
 import type { SupportedTextModel } from "../models";
 import { applyPreset } from "./preset-engine";
 
+// T40 [BCL-077]: provisioning generation is preset-governed. Every automatic
+// AI step during site setup resolves + fully applies its system preset by
+// TASK KEY — the `category` value migration 0020 seeds one is_system default
+// per provisioning task. Editing any of these presets through the admin AI
+// Presets UI changes the produced content on the next setup. The keys below
+// are the single source of truth shared by the provisioning steps (steps.ts)
+// and the generators that resolve them (text.ts / image.ts).
+export const PROVISIONING_PRESET_CATEGORIES = {
+  // generate_15_homepage_articles → the starter-article PLAN (which articles
+  // the new site gets) is governed by this preset. Editing it changes the
+  // titles/topics the next provisioning run produces.
+  starterArticles: "starter-articles",
+  tagline: "tagline",
+  siteDescription: "site-description",
+  logo: "logo",
+  heroImage: "hero-image",
+  featureImage: "feature-image",
+} as const;
+
 export interface ResolvedPreset {
   // The effective prompt: the split System/User prompt (reference form,
   // migration 0014) joined with a blank line, else the flat prompt_template.
