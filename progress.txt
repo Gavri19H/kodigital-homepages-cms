@@ -10809,3 +10809,46 @@ source_story_ids: T14
     "before the article lookup". Proved ordering behaviorally by asserting the
     articles table is never queried when a redirect matches.
 ---
+
+## 2026-06-18 - T16 (Home bucketing + article share token)
+- iteration 14 — T16 (sources: T16)
+- Implemented two user-facing fixes:
+  1. Home §10 latest: removed `vm.latest.slice(5)` → render the FULL bucket.
+     vm.latest is already deduplicated against hero/featured/trending in
+     buildHomeViewModel (trending is a separate is_trending bucket removed
+     from the pool; hero+featured excluded by id). The slice(5) was a false
+     "remaining after trending" assumption and silently dropped the first 5
+     non-featured articles from EVERY home section.
+  2. Article share-rail URL: `https://__SITE__<href>` → `https://<site.hostname><href>`.
+     renderShareRail now takes site.hostname (= siteContext.hostname); the URL
+     equals the page canonicalUrl. The __SITE__ placeholder shipped a broken
+     copy/share link.
+- Files changed:
+  - api/src/public/templates/home.ts (§10 latest renders full vm.latest)
+  - api/src/public/templates/article.ts (renderShareRail(article, hostname))
+  - api/test/home-bucketing.test.ts (new — 3 behavioral cases, render-output)
+- Tests run:
+  - cd api && npx vitest run test/home-bucketing.test.ts test/public-templates-home.test.ts test/public-templates-article.test.ts → 23 passed
+  - cd api && npm test → 1260 passed (141 files)
+  - cd api && npx tsc --noEmit → exit 0
+  - D13 runner RC-030 (run_required_evidence_command.py) → status PASS (parse_test_output, 3 observed tests)
+  - Q3 run_story_quality_checks.py --story-id=T16 → PASS (2 checks, receipts written)
+- Self-check results:
+  - File sizes: home.ts 252 (was 246, +6 comment), article.ts 393 (+7 comment),
+    home-bucketing.test.ts 195 (test file). No maxFileLines override; both src
+    files were already near the consolidated public-module size (T1-T13 pattern),
+    additions are comments + a param. — PASS (no new oversize, no regression)
+  - Secret scan: PASS (none)
+  - Error handling: N/A (pure template functions; no new route handler)
+  - Migration execution: N/A (api category, no schema change)
+  - Parameterized queries: N/A (no SQL touched; view-model queries unchanged)
+- Learnings for future iterations:
+  - "Home bucketing" stories: the dedup lives in buildHomeViewModel (view-model),
+    NOT the template. vm.latest/featured/trending are already disjoint by id, so
+    any further slice() in home.ts is a silent drop, not a dedup. Verify the
+    view-model's filter set before assuming a template slice is "remaining after X".
+  - Share/canonical URLs: site.hostname (= siteContext.hostname) is the single
+    source of the real host; article canonicalUrl already uses it. Build share
+    links from the same source — never a `__SITE__`-style placeholder meant for
+    later substitution (nothing substitutes it).
+---
