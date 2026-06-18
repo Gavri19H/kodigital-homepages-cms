@@ -489,8 +489,8 @@
       "title": "Tag edit: remove the dead link (match reference)",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T31"
       ],

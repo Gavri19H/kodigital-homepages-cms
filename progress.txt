@@ -11465,3 +11465,40 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
     admin write handlers (.first/.run) AND buildHomeViewModel (.all) at once — the
     methods don't collide (admin detail uses .first, the home join uses .all), giving
     a genuine PUT-then-observe-publicly proof rather than a bind-shape echo.
+---
+## 2026-06-18 - T31 (sources: T31) — Tag edit: remove the dead link (match reference)
+- What: removed the dead Edit link from the admin Tags list rows so tags match
+  the reference (create + delete only). The /admin/tags/:id/edit route was never
+  registered (verified: api/src/admin/api.ts has only DELETE /api/admin/tags/:id;
+  no GET edit route, no adminUi.get('/admin/tags/:id/edit')), so the Edit anchor
+  was a 404 link. Removed the anchor and the now-unused editHref in
+  renderTagRow(); the Actions cell is delete-only.
+- Files changed:
+  - api/src/admin/templates/tags.ts (renderTagRow — drop Edit <a> + editHref)
+  - api/test/tag-edit-removed.test.ts (new regression; render-output assertion)
+- Self-check results:
+  - File sizes: tags.ts 242 lines (HTML/CSS template module — 300 limit),
+    tag-edit-removed.test.ts 46 lines — PASS
+  - Secret scan: PASS (none)
+  - Error handling: N/A — template-only change, no new route handler
+  - Migration execution: N/A — no schema change
+  - Parameterized queries: N/A — no SQL touched
+- Tests run:
+  - cd api && npx tsc --noEmit -> exit 0
+  - cd api && npx vitest run test/tag-edit-removed.test.ts -> 2/2 passed
+  - cd api && npx vitest run test/tags-media-filter.test.ts -> 5/5 passed (no regression)
+  - D13 run_required_evidence_command.py --required-claim-ids=RC-054 -> status PASS
+    (observation matched expected_test_name_regex api/test/tag-edit-removed.test.ts;
+    T31-AC1:RC-054)
+  - Q3 run_story_quality_checks.py --story-id=T31 -> PASS (checks_executed=2, receipts written)
+- Learnings:
+  - T31's packet carried a generic db_proof goal_class + db/api story_quality_checks,
+    but the AC is purely a render-output assertion (no DB write). The
+    run_story_quality_checks runner handled the lifecycle (phase_b vs post_deploy)
+    and PASSed with 2 receipts — no hand-run of the underlying check commands needed.
+  - D13 parser-observation RCs (parse_test_output) bind the test file to the
+    sidecar's expected_test_file: the test file MUST be named exactly
+    api/test/tag-edit-removed.test.ts AND each it() title must embed the literal
+    [api/test/tag-edit-removed.test.ts] so the observed test name matches
+    expected_test_name_regex. A differently-named file makes vitest exit 1
+    (file not found) -> RC FAIL even though the assertions are correct.
