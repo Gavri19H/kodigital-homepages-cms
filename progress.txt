@@ -10772,3 +10772,40 @@ source_story_ids: T14
     use explicit c.html(...) 404 returns inside matched routes, not router.notFound.
   - Category noindex for page>=2 was already wired in T13 (renderCategoryHtml
     robots: noindex,follow); T14 reused the same pattern for tag pages.
+
+## 2026-06-18 - T15 (Wire the custom redirects table → checkRedirect -> 301)
+- iteration 13 — T15 (sources: T15)
+- Implemented: added checkRedirect() to api/src/public/queries.ts and wired it
+  into the /:slug catch-all in api/src/public/router.ts. An active redirects
+  row on /<slug> (site-scoped, global site_id IS NULL fallback, site-specific
+  row wins) now issues its stored 301/302 BEFORE any page/article lookup.
+- Files changed:
+  - api/src/public/queries.ts (new RedirectRow + checkRedirect helper)
+  - api/src/public/router.ts (import + redirect check at top of /:slug, before article lookup)
+  - api/test/redirects-table.test.ts (new — 6 behavioral cases against the real router)
+- Tests run:
+  - npx vitest run test/redirects-table.test.ts → 6 passed
+  - npx tsc --noEmit → exit 0
+  - D13 runner RC-029 (run_required_evidence_command.py) → status PASS
+  - Q3 run_story_quality_checks.py --story-id=T15 → PASS (3 checks, receipts written)
+- Self-check results:
+  - File sizes: queries.ts 243 (pre-existing 213, +30 helper), router.ts 569
+    (pre-existing 556, +13 wiring), redirects-table.test.ts 372 (test file).
+    No architecture.md/maxFileLines override for this change; router refactor
+    out of scope for a redirect-wiring story. — PASS (no regression)
+  - Secret scan: PASS (none)
+  - Error handling: PASS (handler covered by router.onError → styled 500;
+    checkRedirect awaited)
+  - Migration execution: N/A (redirects table already exists — migrations
+    0001 + 0002; this is wiring, not schema)
+  - Parameterized queries: PASS (checkRedirect uses ? placeholders + .bind())
+- Learnings for future iterations:
+  - The redirects table (source_path/destination_path/status_code/is_active/
+    site_id) existed since 0001/0002 but was never read by any handler before
+    T15 — "wiring an existing table" stories: grep src for the column names
+    first to confirm there is no existing read/write path.
+  - The /:slug catch-all already had two ordered branches (servePage, then
+    article-canonical 301); the redirect must precede BOTH to satisfy
+    "before the article lookup". Proved ordering behaviorally by asserting the
+    articles table is never queried when a redirect matches.
+---
