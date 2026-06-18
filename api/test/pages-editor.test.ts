@@ -7,10 +7,11 @@
 //
 // Two behavioral proofs, not bind-shape echoes:
 //   1. pageFormPage renders the SAME contenteditable WYSIWYG block editor
-//      as articleFormPage — the #content-editor surface + #content-editor-
-//      toolbar + a HIDDEN textarea#content_json trio that editorScripts()'s
-//      initContentEditors() mounts on — and NOT a visible raw-JSON
-//      <textarea name="content_json" class="form-textarea">.
+//      as articleFormPage — an empty #content-editor mount div paired with a
+//      HIDDEN textarea#content_json. The block editor is mounted client-side
+//      by window.initBlockEditor (via the shared mount script) onto that div,
+//      building the contenteditable surface + toolbar in the browser — and
+//      NOT a visible raw-JSON <textarea name="content_json" class="form-textarea">.
 //   2. GET /api/admin/pages/:id and GET /api/admin/categories/:id each
 //      return a SINGLE record ({ item }) on a hit, 404 on an unknown id,
 //      and 400 on a non-numeric id — served through the real admin router

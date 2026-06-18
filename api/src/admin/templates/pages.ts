@@ -32,7 +32,11 @@ import {
   type ListPagerMeta,
 } from "./layout";
 import { editorScripts, editorStyles } from "../../editor/editor-scripts";
-import { blocksToHtml } from "../../editor";
+import {
+  BLOCK_EDITOR_COLOR_TOKENS,
+  blockEditorMountScript,
+  renderBlockEditorField,
+} from "../../editor/mount";
 
 export interface SiteOption {
   id: string;
@@ -277,31 +281,13 @@ function boolAttr(v: boolean | number | undefined): string {
 
 // T33: the Pages content field uses the SAME contenteditable WYSIWYG block
 // editor as articles (BCL-028: "Page content uses the same rich editor as
-// articles"). The markup is the articleFormPage contract: a toolbar
-// (#content-editor-toolbar) above a visible contenteditable surface
-// (#content-editor) paired with a HIDDEN textarea#content_json the submit
-// reads. editorScripts()'s initContentEditors() mounts ContentEditor on this
-// trio (it claims #content-editor before the legacy bare-textarea path), so
-// there is no raw JSON textarea on the page.
-const EDITOR_COLOR_TOKENS = `
-:root{--color-bg:#ffffff;--color-bg-alt:#f9fafb;--color-bg-dark:#f3f4f6;--color-border:#e5e7eb;--color-text:#111827;--color-text-muted:#6b7280;--color-primary:#2563eb;--color-primary-light:#dbeafe;--color-primary-dark:#1d4ed8;--color-error:#ef4444;--color-success:#10b981;--color-warning:#f59e0b;}
-`;
-
-// NOTE (DRY-debt, flagged for the final simplify pass): EDITOR_COLOR_TOKENS +
-// EDITOR_INIT_SCRIPT + this empty-#content-editor field mirror articles.ts;
-// they will be extracted into one shared editor/mount helper used by both.
-const EDITOR_INIT_SCRIPT = `
-(function(){window._inlineAIImagePresets=window._inlineAIImagePresets||[];function boot(){if(window.initBlockEditor){window.initBlockEditor("content-editor",{hiddenInputId:"content_json",placeholder:"Start writing your page..."});}}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}}());
-`;
-
-function renderContentEditorField(contentJson: string | undefined): string {
-  const jsonVal = escapeHtml(contentJson ?? "");
-  return `<div class="form-group">
-      <label for="content-editor" class="form-label">Content</label>
-      <div id="content-editor"></div>
-      <textarea id="content_json" name="content_json" class="content-json-input" hidden aria-hidden="true">${jsonVal}</textarea>
-    </div>`;
-}
+// articles"). The server renders only an empty #content-editor mount div
+// paired with a HIDDEN textarea#content_json (see renderBlockEditorField in
+// ../../editor/mount). The shared mount script (blockEditorMountScript) runs
+// client-side and calls window.initBlockEditor("content-editor", ...) to build
+// the contenteditable surface + toolbar in the browser and sync edits back
+// into the hidden textarea#content_json the submit reads — so there is no raw
+// JSON textarea on the page.
 
 function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOption>): string {
   const isEdit = page !== null && typeof page.id === "string" && page.id.length > 0;
@@ -362,7 +348,7 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
       <label for="page-display-order" class="form-label">Display Order</label>
       <input id="page-display-order" name="display_order" type="number" class="form-input" value="${escapeHtml(p.display_order ?? 0)}" min="0" />
     </div>
-    ${renderContentEditorField(p.content_json)}
+    ${renderBlockEditorField(p.content_json)}
   </div>
   <div class="card">
     <div class="card-header"><h3 class="card-title">SEO</h3></div>
@@ -483,7 +469,7 @@ export function pageFormPage(
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
-    styles: EDITOR_COLOR_TOKENS + editorStyles,
-    scripts: editorScripts + EDITOR_INIT_SCRIPT + PAGE_FORM_SCRIPT,
+    styles: BLOCK_EDITOR_COLOR_TOKENS + editorStyles,
+    scripts: editorScripts + blockEditorMountScript("Start writing your page...") + PAGE_FORM_SCRIPT,
   });
 }

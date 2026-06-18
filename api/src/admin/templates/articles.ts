@@ -19,7 +19,11 @@
 
 import { adminLayout, escapeHtml, renderListPager, type ListPagerMeta } from "./layout";
 import { editorScripts, editorStyles } from "../../editor/editor-scripts";
-import { blocksToHtml } from "../../editor";
+import {
+  BLOCK_EDITOR_COLOR_TOKENS,
+  blockEditorMountScript,
+  renderBlockEditorField,
+} from "../../editor/mount";
 import {
   aiAssistantScripts,
   aiAssistantStyles,
@@ -380,15 +384,6 @@ function renderDisplayOptions(a: ArticleFormValues): string {
   </div>`;
 }
 
-function renderContentEditorField(contentJson: string | undefined): string {
-  const jsonVal = escapeHtml(contentJson ?? "");
-  return `<div class="form-group">
-      <label for="content-editor" class="form-label">Content</label>
-      <div id="content-editor"></div>
-      <textarea id="content_json" name="content_json" class="content-json-input" hidden aria-hidden="true">${jsonVal}</textarea>
-    </div>`;
-}
-
 function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArray<SiteOption>, categories: ReadonlyArray<CategoryOption>, branding: ArticlesBranding = {}): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const a: ArticleFormValues = article ?? {};
@@ -434,7 +429,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <label for="article-excerpt" class="form-label">Excerpt</label>
       <textarea id="article-excerpt" name="excerpt" class="form-textarea" rows="2">${excerptVal}</textarea>
     </div>
-    ${renderContentEditorField(a.content_json)}
+    ${renderBlockEditorField(a.content_json)}
   </div>
   ${renderAuthorCard(a, isEdit, branding)}
   <div class="card">
@@ -540,14 +535,6 @@ const ARTICLE_FORM_SCRIPT = `
 }());
 `;
 
-const EDITOR_COLOR_TOKENS = `
-:root{--color-bg:#ffffff;--color-bg-alt:#f9fafb;--color-bg-dark:#f3f4f6;--color-border:#e5e7eb;--color-text:#111827;--color-text-muted:#6b7280;--color-primary:#2563eb;--color-primary-light:#dbeafe;--color-primary-dark:#1d4ed8;--color-error:#ef4444;--color-success:#10b981;--color-warning:#f59e0b;}
-`;
-
-const EDITOR_INIT_SCRIPT = `
-(function(){window._inlineAIImagePresets=window._inlineAIImagePresets||[];function boot(){if(window.initBlockEditor){window.initBlockEditor("content-editor",{hiddenInputId:"content_json",placeholder:"Start writing your article..."});}}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}}());
-`;
-
 export function articleFormPage(
   article: ArticleFormValues | null,
   sites: ReadonlyArray<SiteOption>,
@@ -562,10 +549,10 @@ export function articleFormPage(
     activePath: "/admin/articles",
     userEmail: branding.userEmail,
     content,
-    styles: EDITOR_COLOR_TOKENS + editorStyles + aiAssistantStyles + heroImageStyles + workflowPanelStyles,
+    styles: BLOCK_EDITOR_COLOR_TOKENS + editorStyles + aiAssistantStyles + heroImageStyles + workflowPanelStyles,
     scripts:
       editorScripts +
-      EDITOR_INIT_SCRIPT +
+      blockEditorMountScript("Start writing your article...") +
       ARTICLE_FORM_SCRIPT +
       aiAssistantScripts +
       heroImageScripts +
