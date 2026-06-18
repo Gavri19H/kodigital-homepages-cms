@@ -11502,3 +11502,48 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
     [api/test/tag-edit-removed.test.ts] so the observed test name matches
     expected_test_name_regex. A differently-named file makes vitest exit 1
     (file not found) -> RC FAIL even though the assertions are correct.
+
+## 2026-06-18 - T32 (sources: T32) — Wire the dead list filters (Articles/Categories/Tags/Pages)
+- Defect: Articles search reloaded but the server query ignored all params
+  (hardcoded WHERE/LIMIT); Categories/Tags/Pages toolbar filter controls had
+  NO change listeners (dead); pagination dropped.
+- Implemented:
+  - api/src/admin/data.ts: listAdmin{Articles,Pages,Categories,Tags}Filtered +
+    ListPage/ListPageMeta. Each builds its WHERE via buildWhereClause
+    (./query-filters) from FIXED-literal fragments; user values bound only.
+    Pagination = LIMIT ?/OFFSET ? (bound); count query for total. Categories
+    site scope via site_categories subquery; vertical via category_verticals.
+  - api/src/admin/ui.ts: the four list routes dispatch to the filtered reader
+    when a filter param is present, else keep the legacy listing/per-site path
+    (preserves the T2 listArticlesForSite wiring contract). site_id-only on
+    /admin/articles still uses the legacy per-site wrapper.
+  - api/src/admin/templates/layout.ts: shared renderListPager + listFilterScript
+    (ES5; change-on-select + Enter-on-search) added to Categories/Tags/Pages.
+  - templates articles/pages/categories/tags.ts: round-trip active filter state
+    into the toolbar selects + render the pager.
+- Tests: api/test/admin-list-filters.test.ts (new). Part A = route-level bound
+  predicate proof across all four lists + pagination LIMIT/OFFSET (Node-20
+  portable). Part B = real node:sqlite executes the production SQL and proves
+  rows are actually filtered (search 'bui' -> {Building, Rebuilding};
+  status/category/site/combo; page/per_page slices).
+- Test commands actually run:
+  - cd api && npx vitest run test/admin-list-filters.test.ts  (2 passed)
+  - cd api && npx tsc --noEmit  (clean)
+  - cd api && npx vitest run  (157 files / 1306 tests passed — no regressions)
+  - D13: run_required_evidence_command.py --required-claim-ids=RC-055,RC-056 -> PASS
+  - Q3: run_story_quality_checks.py --story-id=T32 -> PASS (3 checks)
+- Self-check results:
+  - File sizes: data.ts 1001 / ui.ts 464 / layout.ts 393 / articles.ts 611 /
+    pages.ts 463 / categories.ts 325 / tags.ts 260 / test 321 — all pre-existing
+    helper/template modules; additions kept cohesive — PASS
+  - Secret scan: PASS (none)
+  - Error handling: N/A (read routes; Hono returns 500 on throw; data fns
+    propagate)
+  - Migration execution: N/A (category=api; uses existing tables, no schema delta)
+  - Parameterized queries: PASS (all .bind(); only fixed-literal clause string
+    is concatenated — no user-data interpolation)
+- negative_fail_conditions: none observable — filter control names match the
+  params the routes read (search/category/status/featured/trending/published/
+  site_id; pages page_type/status; categories site/verticals; tags site_id);
+  read-only filters so no DB-column write mismatch.
+---
