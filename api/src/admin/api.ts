@@ -31,6 +31,10 @@ import {
 } from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
 import {
+  cacheStatsHandler,
+  cacheStatsResetHandler,
+} from "./cache-stats-handler";
+import {
   getPageHandler,
   createPageHandler,
   updatePageHandler,
@@ -831,6 +835,12 @@ adminApi.get("/sites/:id/provision", provisionStatusHandler);
 // returning {resource:{purge_id, status}}. Route literal matches the
 // WARN-FIX-2.AC1 grep `admin(Api)?\.(post)\("/sites/:id/purge-cache"`.
 adminApi.post("/sites/:id/purge-cache", purgeCacheHandler);
+// T44 [BCL-020]: cache hit/miss monitoring view. GET reports the live
+// counters + derived hit_rate; POST .../reset zeroes them. KV-only (no D1,
+// no outbound HTTP). Route literals do not match the /sites or
+// /(verticals|domains) greps so the fixed-count ACs above stay intact.
+adminApi.get("/cache/stats", cacheStatsHandler);
+adminApi.post("/cache/stats/reset", cacheStatsResetHandler);
 // T14: verticals (read-only global) + domains (list + status/kind patch).
 // The grep `admin(Api)?\.(get|patch)\("/(verticals|domains)` MUST count
 // exactly 3 hits — the three lines below — to satisfy T14.AC1.

@@ -20,6 +20,7 @@
 
 import { parseBoolean, type Env } from "../env";
 import { TEMPLATE_VERSION } from "./cache-keys";
+import { recordCacheHit, recordCacheMiss } from "./cache-stats";
 
 export interface CachedHtmlEntry {
   body: string;
@@ -81,7 +82,18 @@ export function getCachedHtml(
   env: Env,
   key: string,
 ): Promise<CachedHtmlEntry | null> {
-  return getCachedHtmlImpl(env, key);
+  // T44 [BCL-020]: record one hit (entry present, from either Cache API or
+  // KV) or miss (null) per public-HTML read so the cache monitor reflects the
+  // HTML path too, not just feeds. Best-effort; the entry is returned
+  // unchanged.
+  return getCachedHtmlImpl(env, key).then(async (entry) => {
+    if (entry === null) {
+      await recordCacheMiss(env);
+    } else {
+      await recordCacheHit(env);
+    }
+    return entry;
+  });
 }
 
 async function getCachedHtmlImpl(
