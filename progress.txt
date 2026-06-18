@@ -10949,3 +10949,39 @@ source_story_ids: T14
   - Adding a field to a widely-constructed view-model interface: make it OPTIONAL or
     the many test vm-literal factories fail tsc (and Q3's `npm test`).
 ---
+
+## 2026-06-18 - T19 (sources: T19) — Homepage renders the full 13-section theiwise design
+- Wired the public Home template to the design-contract §7 root selectors so the
+  T17 design-system CSS actually applies (template previously used legacy
+  home-section--*/home-grid--* classes no CSS rule targeted).
+- Files changed:
+  - api/src/public/templates/home.ts — §4 .container.section>.featured
+    (featured[3], first=hero); §6 .container.section>.picks-grid (.picks-hero +
+    3 .story-row); §8 .section.section--soft>.grid.grid-4 (spotlight[4]); §10
+    .container.section>.grid.grid-3 rendering the FULL vm.latest bucket (T16/
+    BCL-057 preserved; .home-grid__item per card). #picks anchor preserved.
+  - api/src/public/view-models/home.ts — added optional vm.spotlight bucket
+    (by-category lens over the already-fetched pool; NO 4th D1 statement —
+    T12.AC3 holds).
+  - api/test/home-design.test.ts — AC1 (RC-034) 13 contract classes in §7 order
+    + data-screen-label=theiwise-home + inline --tw-brand + no about/bare
+    markers; AC2 (RC-035) each §12 bucket populates its section.
+- Self-check results:
+  - File sizes: home.ts 346, view-models/home.ts 374, home-design.test.ts 190 —
+    PASS (HTML-template modules; consistent with sibling article.ts:408).
+  - Secret scan: PASS (no matches). Parameterized queries: PASS (no new SQL —
+    spotlight derives from already-fetched rows). Error handling: N/A (pure
+    render transforms).
+- Tests run:
+  - cd api && npx tsc --noEmit — clean.
+  - cd api && npm test — 144 files / 1271 tests PASS (no regressions).
+  - D13 runner RC-034,RC-035 — PASS (matched expected_test_name_regex,
+    api/test/home-design.test.ts).
+  - Q3 run_story_quality_checks.py --story-id=T19 — PASS (4 checks; receipts
+    written).
+- Learnings: T17 added the contract CSS (.featured/.picks-grid/.grid-3/.grid-4/
+  .section--soft) but the home template still emitted the legacy class names, so
+  none of it applied; AC1's contract-class-order check is what surfaces that
+  mismatch. parse_test_output → vitest_text matches the verbose-reporter test
+  name; embed [api/test/<file>.test.ts] in the it() title.
+---
