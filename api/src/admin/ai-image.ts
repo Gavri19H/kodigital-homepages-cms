@@ -17,12 +17,23 @@ import {
   finishGenerationLogSuccess,
   startGenerationLog,
 } from "../ai/generation-log";
+import {
+  isValidPresetId,
+  SELECT_PRESET_BY_ID,
+  type PresetRow,
+} from "./ai-presets";
 
 interface ImageBody {
   prompt?: string;
   site_id?: string | null;
   size?: string;
   alt_text?: string;
+  // T10 [BCL-011]: the hero-image card forwards the selected editable SYSTEM
+  // preset so generation is preset-governed (no hardcoded image path). The
+  // operator-confirmed interpolated prompt arrives in `prompt`; presetId names
+  // the governing preset and `variables` carries its {{token}} values.
+  presetId?: number | string | null;
+  variables?: Record<string, unknown> | null;
 }
 
 const IMAGE_TASK = "admin-image";
@@ -55,6 +66,27 @@ export async function handleAdminAiImage(c: Context<{ Bindings: Env }>) {
     typeof body.site_id === "string" && body.site_id !== "" ? body.site_id : null;
   const size = typeof body.size === "string" && body.size !== "" ? body.size : undefined;
 
+  // T10 [BCL-011]: resolve the forwarded preset so hero-image generation is
+  // preset-governed and traceable to the preset that drove it. Malformed -> 400,
+  // unknown -> 404 (mirrors the chat endpoint); absent presetId keeps the
+  // per-request default (no preset). The preset's interpolated prompt already
+  // arrives in `prompt`, so the row is resolved to validate it and record its
+  // id on the receipt — never to silently swap in a hardcoded prompt.
+  let preset: PresetRow | null = null;
+  const presetIdRaw =
+    body.presetId === undefined || body.presetId === null
+      ? ""
+      : String(body.presetId).trim();
+  if (presetIdRaw !== "") {
+    if (!isValidPresetId(presetIdRaw)) {
+      return c.json({ error: "Invalid preset ID" }, 400);
+    }
+    preset = await c.env.DB.prepare(SELECT_PRESET_BY_ID)
+      .bind(presetIdRaw)
+      .first<PresetRow>();
+    if (!preset) return c.json({ error: "Preset not found" }, 404);
+  }
+
   let model: string;
   try {
     model = getImageModel(c.env);
@@ -77,7 +109,7 @@ export async function handleAdminAiImage(c: Context<{ Bindings: Env }>) {
     prompt_version: IMAGE_PROMPT_VERSION,
     idempotency_key,
     provider: "openai",
-    request_json: { prompt, size: size ?? null },
+    request_json: { prompt, size: size ?? null, preset_id: preset ? preset.id : null },
     target_type: null,
     target_id: null,
   });
