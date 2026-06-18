@@ -12,6 +12,7 @@
 
 import type { ArticleRow } from "../db";
 import type { SitemapPageRow } from "./sitemap";
+import { mediaUrl } from "./view-models/media-url";
 
 export interface PublicPageRow {
   id: number;
@@ -234,10 +235,11 @@ export async function fetchPublicLayoutSiteInfo(
     hostname: siteContext.hostname,
     tagline: settings.tagline ?? "",
     description: settings.site_description ?? "",
-    logoUrl:
-      settings.logo_media_id !== undefined && settings.logo_media_id.length > 0
-        ? settings.logo_media_id
-        : null,
+    // T24: the uploaded/applied logo is stored as a bare media.storage_key in
+    // the logo_media_id setting; mediaUrl() turns it into the public
+    // /media/<key> web address so the design .brand <img> actually loads.
+    // (Historically the bare key was rendered verbatim into src="" → broken.)
+    logoUrl: mediaUrl(settings.logo_media_id),
     brandTokens: parseBrandTokensJson(settings.brand_tokens_json),
   };
 }

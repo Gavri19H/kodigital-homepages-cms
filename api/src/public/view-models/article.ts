@@ -534,9 +534,9 @@ export async function buildArticleViewModel(
     hostname: args.siteContext.hostname,
     tagline: settings.tagline ?? "",
     description: settings.site_description ?? "",
-    logoUrl: settings.logo_media_id !== undefined && settings.logo_media_id.length > 0
-      ? settings.logo_media_id
-      : null,
+    // T24: logo_media_id holds a bare media.storage_key; mediaUrl() resolves it
+    // to the public /media/<key> address the design .brand <img> loads.
+    logoUrl: mediaUrl(settings.logo_media_id),
     brandTokens: parseBrandTokens(settings.brand_tokens_json),
   };
 

@@ -69,6 +69,19 @@ const NEWSLETTER_PROVIDERS: ReadonlyArray<[string, string]> = [
   ["custom", "Custom"],
 ];
 
+// T24: curated style keywords for the operator-directed AI logo panel. The
+// first option is empty so "no style preference" stays the default (the request
+// then omits `style` and the prompt is undirected).
+const LOGO_STYLE_OPTIONS: ReadonlyArray<[string, string]> = [
+  ["", "Default"],
+  ["minimalist", "Minimalist"],
+  ["modern", "Modern"],
+  ["geometric", "Geometric"],
+  ["vintage", "Vintage"],
+  ["playful", "Playful"],
+  ["elegant", "Elegant"],
+];
+
 interface NewsletterConfig {
   enabled: boolean;
   provider: string;
@@ -207,8 +220,27 @@ function renderSiteLogoCard(values: SettingsValueMap): string {
     <div id="logo-upload-preview" class="site-logo-preview" aria-hidden="false">${previewImg}</div>
     <small class="form-hint">Upload a logo image; it is stored in the media library and applied to this site.</small>
   </div>`;
+  // T24: operator-directed AI logo panel. The operator describes the logo and
+  // picks a style + color scheme; "Generate with AI" POSTs a LogoRequest
+  // ({prompt, style, colorScheme}) to /api/admin/ai/logo, which regenerates and
+  // applies a directed mark. (Was: a single button POSTing only {site_id}.)
+  const styleOpts = LOGO_STYLE_OPTIONS.map(function (pair: [string, string]): string {
+    return `<option value="${escapeHtml(pair[0])}">${escapeHtml(pair[1])}</option>`;
+  }).join("");
   const aiPanel = `<div class="ai-logo-panel" data-panel="ai-logo">
-    <p class="form-hint">Generate a logo with AI for the selected site. The generated image is saved to the media library and applied to this site automatically.</p>
+    <p class="form-hint">Describe the logo and pick a style and colors; AI generates a mark, saves it to the media library, and applies it to the selected site.</p>
+    <div class="form-group" data-setting-key="ai_logo_prompt">
+      <label class="form-label" for="ai-logo-prompt">Describe the logo</label>
+      <textarea id="ai-logo-prompt" class="form-textarea" rows="3" placeholder="e.g. a minimalist mountain peak inside a circle"></textarea>
+    </div>
+    <div class="form-group" data-setting-key="ai_logo_style">
+      <label class="form-label" for="ai-logo-style">Style</label>
+      <select id="ai-logo-style" class="form-select">${styleOpts}</select>
+    </div>
+    <div class="form-group" data-setting-key="ai_logo_colors">
+      <label class="form-label" for="ai-logo-colors">Color scheme</label>
+      <input id="ai-logo-colors" type="text" class="form-input" placeholder="e.g. deep blue and gold" />
+    </div>
     <div class="form-actions">
       <button type="button" id="ai-logo-generate" class="btn btn-secondary" data-action="generate-logo">Generate with AI</button>
     </div>
@@ -390,7 +422,9 @@ const SETTINGS_STYLES = `
 .settings-tab.active { color: var(--c-primary, #2563eb); border-bottom-color: var(--c-primary, #2563eb); }
 `;
 
-const SETTINGS_SCRIPT = `
+// Exported so the inline client behavior (logo upload alignment + the directed
+// AI-logo LogoRequest POST, T24) can be exercised in a vm with a DOM stub.
+export const SETTINGS_SCRIPT = `
 (function(){
   var form = document.getElementById('settings-editor-form');
   var filter = document.getElementById('filter-site');
@@ -499,6 +533,15 @@ const SETTINGS_SCRIPT = `
           if (res.ok && res.body) {
             var url = res.body.storage_key ? '/media/' + res.body.storage_key : (res.body.image_url || res.body.url || '');
             if (logoUrlHidden) { logoUrlHidden.value = String(url); }
+            // T24 render-fix: the public site reads logo_media_id, so write the
+            // uploaded media reference there too (was only site_logo_url, which
+            // the public side never read -> uploaded logo never showed). Store
+            // the bare storage_key; the public mediaUrl() turns it into
+            // /media/<key>.
+            var logoIdInput = document.getElementById('setting-logo_media_id');
+            if (logoIdInput) {
+              logoIdInput.value = res.body.storage_key ? String(res.body.storage_key) : String(url);
+            }
             if (logoUploadPreview) {
               while (logoUploadPreview.firstChild) { logoUploadPreview.removeChild(logoUploadPreview.firstChild); }
               if (url) {
@@ -522,6 +565,9 @@ const SETTINGS_SCRIPT = `
   var logoStatus = document.getElementById('ai-logo-status');
   var logoPreview = document.getElementById('ai-logo-preview');
   var logoInput = document.getElementById('setting-logo_media_id');
+  var logoPromptEl = document.getElementById('ai-logo-prompt');
+  var logoStyleEl = document.getElementById('ai-logo-style');
+  var logoColorsEl = document.getElementById('ai-logo-colors');
   function setLogoStatus(msg) {
     if (!logoStatus) { return; }
     while (logoStatus.firstChild) { logoStatus.removeChild(logoStatus.firstChild); }
@@ -538,10 +584,20 @@ const SETTINGS_SCRIPT = `
       }
       logoBtn.disabled = true;
       setLogoStatus('Generating logo...');
+      // T24: build the LogoRequest. site_id stays; the operator's description
+      // (wire field 'prompt'), style, and colorScheme ride the body only when
+      // set, so an undirected click is backward-compatible ({ site_id }).
+      var logoBody = { site_id: hidden.value };
+      var desc = logoPromptEl ? String(logoPromptEl.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+      var sty = logoStyleEl ? String(logoStyleEl.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+      var col = logoColorsEl ? String(logoColorsEl.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+      if (desc) { logoBody.prompt = desc; }
+      if (sty) { logoBody.style = sty; }
+      if (col) { logoBody.colorScheme = col; }
       fetch('/api/admin/ai/logo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ site_id: hidden.value }),
+        body: JSON.stringify(logoBody),
         credentials: 'same-origin'
       }).then(function (r) {
         return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
