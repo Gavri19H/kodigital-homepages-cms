@@ -11712,3 +11712,43 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
     + Part B real node:sqlite (skip-guarded on CI floor) for true cascade/reuse — keeps the file
     green on Node-20 CI while the local D13 receipt is generated with Part B running for real.
 ---
+
+## 2026-06-18 - T38 (sources: T38) — Make provisioning asynchronous + resumable + chunked
+- Implemented: POST /sites no longer awaits the 16-step build inline. The
+  create handler reads the request ExecutionContext and hands the idempotent
+  advanceNextStep loop to ctx.waitUntil (the brief's "ctx.waitUntil +
+  self-re-enqueue" develop-legal path), so create returns 201 immediately and
+  the build advances to status=active in the background. No ExecutionContext
+  (direct unit-test) => documented inline best-effort fallback.
+- New: scheduleBackgroundProvisioning(ctx, env, db, site_id) + WaitUntilCtx in
+  site-provisioning/runner.ts (exported via index.ts). Non-throwing: a
+  background hiccup surfaces as the job's last_error, never an unhandled
+  rejection that would fail the user's create request.
+- Resumable + never-swallow: advanceNextStep already persists a failed step
+  ('failed' + last_error) and parks the job pointer on it; an interrupted
+  build resumes from the persisted current_step_index. No status auto-retry
+  in advanceNextStep (a terminal 'failed' job is resumed by the operator/T39).
+- Files changed:
+  - api/src/admin/sites-handlers.ts (POST /sites async dispatch)
+  - api/src/site-provisioning/runner.ts (scheduleBackgroundProvisioning + WaitUntilCtx)
+  - api/src/site-provisioning/index.ts (re-export)
+  - api/test/provisioning-async.test.ts (NEW — 4 behavioral tests)
+- Design note: chose ctx.waitUntil over a Cloudflare Queue/Cron binding — the
+  brief offers it as the explicit alternative, it needs no wrangler.toml queue
+  binding (deploy-safety: a queue binding without the queue provisioned in CF
+  would break deploy), and it is fully verifiable pre-deploy. The per-step
+  advance IS the chunk boundary (one idempotent step per background tick).
+- Self-check results:
+  - File sizes: runner.ts 295, index.ts 191, sites-handlers.ts 505 (all
+    pre-existing files already above the 200 TS soft default; additions are
+    modest + in-pattern, no split warranted), provisioning-async.test.ts 708 (test).
+  - Secret scan: PASS (no hardcoded secrets in changed product files).
+  - Error handling: PASS (try/catch around c.executionCtx access; non-throwing driver).
+  - Parameterized queries: N/A (no new product SQL; existing queries are .bind()-parameterized).
+- Tests run:
+  - cd api && npx vitest run test/provisioning-async.test.ts  => 4 passed
+  - cd api && npx tsc --noEmit                                  => exit 0
+  - cd api && npx vitest run (full suite)                       => 163 files, 1334 passed
+  - D13 runner_command_rendered (RC-065)                        => PASS
+  - Q3 story_quality_checks_command_rendered (T38)              => PASS (4 checks, receipts written)
+---
