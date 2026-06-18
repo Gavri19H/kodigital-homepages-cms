@@ -1,13 +1,13 @@
 {
-  "changeId": "kodigital-cms-rescue-3-2026-06-14",
+  "changeId": "kodigital-cms-rescue-4-2026-06-17",
   "mainGoal": "Ralph-local execution projection (identity_projection_no_cycle_signal)",
   "_ralph_local_execution_projection": true,
   "_cycle_type": "normal",
   "stories": [
     {
       "id": "T1",
-      "title": "Public homepage renders through the design system via the live route",
-      "category": "ui",
+      "title": "AI image generation: timeout >=120s, gpt-image-2 size normalization, no silent fallback",
+      "category": "api",
       "priority": null,
       "state": "implemented",
       "passes": true,
@@ -22,11 +22,11 @@
     },
     {
       "id": "T2",
-      "title": "Article pages render in the design shell with category + author byline",
-      "category": "ui",
+      "title": "/media/<storage_key> prefix on all public images",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T2"
       ],
@@ -38,11 +38,11 @@
     },
     {
       "id": "T3",
-      "title": "Static pages render through the design layout (header + footer)",
-      "category": "ui",
+      "title": "Article CREATE persists all fields; remove homepage_section; category required for published/featured/trending",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T3"
       ],
@@ -54,11 +54,11 @@
     },
     {
       "id": "T4",
-      "title": "Category listing pages render through the design layout with styled cards",
-      "category": "ui",
+      "title": "Preset schema: add variables_schema + output_rules; align content-mapping; image options",
+      "category": "migration",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T4"
       ],
@@ -70,11 +70,11 @@
     },
     {
       "id": "T5",
-      "title": "Provisioning completes: in-process warm + sites.status='active'",
+      "title": "Seed editable is_system=1 presets for every automatic task (idempotent)",
       "category": "migration",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T5"
       ],
@@ -86,11 +86,11 @@
     },
     {
       "id": "T6",
-      "title": "Starter articles get category, default author, SEO and 1/4/4/6 placement",
-      "category": "migration",
+      "title": "Port the contenteditable WYSIWYG block editor + formatting toolbar",
+      "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T6"
       ],
@@ -102,11 +102,11 @@
     },
     {
       "id": "T7",
-      "title": "AI tagline/site_description overwrite stubs; seed default_author_name",
-      "category": "migration",
+      "title": "AI assistant: structured, preset-driven /chat (preset overrides tone, length->max_tokens)",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T7"
       ],
@@ -118,11 +118,11 @@
     },
     {
       "id": "T8",
-      "title": "Seed brand_tokens_json from the brand contract family (not the dark palette)",
-      "category": "migration",
+      "title": "Rebuild the preset form to the reference (full 2-column)",
+      "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T8"
       ],
@@ -134,11 +134,11 @@
     },
     {
       "id": "T9",
-      "title": "Correct vertical->category allocation and link articles to categories",
-      "category": "migration",
+      "title": "Single preset-application engine drives generation (editor + provisioning)",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T9"
       ],
@@ -150,11 +150,11 @@
     },
     {
       "id": "T10",
-      "title": "Fix AI image generation: remove response_format; parse b64_json AND url",
-      "category": "script",
+      "title": "Hero image card + forward the preset",
+      "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T10"
       ],
@@ -166,11 +166,11 @@
     },
     {
       "id": "T11",
-      "title": "Reliable full-article text: raise per-article timeout + retry on abort",
-      "category": "script",
+      "title": "Author fields + Display Options cleanup (no homepage_section)",
+      "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T11"
       ],
@@ -182,11 +182,11 @@
     },
     {
       "id": "T12",
-      "title": "AI Presets form to reference (Name/Description/Category select/system+user prompt/chips/content-map) + migration",
+      "title": "Publish workflow: edit-only but functional (D9)",
       "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T12"
       ],
@@ -198,11 +198,11 @@
     },
     {
       "id": "T13",
-      "title": "Presets drive generation: seed default presets + select a preset by use-case category and use its prompt/model/mapping",
-      "category": "migration",
+      "title": "Wire the full SEO head (renderSeoHead)",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T13"
       ],
@@ -214,11 +214,11 @@
     },
     {
       "id": "T14",
-      "title": "Article editor: full legacy AI assistant panel (quick actions, preset, tone/length, structured auto-fill)",
-      "category": "ui",
+      "title": "Missing public routes: tag, 404/500, redirects, /rss, pagination 301",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T14"
       ],
@@ -229,60 +229,12 @@
       ]
     },
     {
-      "id": "T14b",
-      "title": "Article editor: hero image card + AI hero-image modal (wired to fixed image gen)",
-      "category": "ui",
-      "priority": null,
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "T14b"
-      ],
-      "scoped_quality_commands": [],
-      "packet_path": ".ralph/story/T14b.json",
-      "packet_paths": [
-        ".ralph/story/T14b.json"
-      ]
-    },
-    {
-      "id": "T14c",
-      "title": "Article editor: publish workflow + version history/restore",
-      "category": "ui",
-      "priority": null,
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "T14c"
-      ],
-      "scoped_quality_commands": [],
-      "packet_path": ".ralph/story/T14c.json",
-      "packet_paths": [
-        ".ralph/story/T14c.json"
-      ]
-    },
-    {
-      "id": "T14d",
-      "title": "Article editor: author Name/Bio + author_bio migration + clean Display Options",
-      "category": "ui",
-      "priority": null,
-      "state": "implemented",
-      "passes": true,
-      "source_story_ids": [
-        "T14d"
-      ],
-      "scoped_quality_commands": [],
-      "packet_path": ".ralph/story/T14d.json",
-      "packet_paths": [
-        ".ralph/story/T14d.json"
-      ]
-    },
-    {
       "id": "T15",
-      "title": "Settings tab full parity: logo upload + AI-logo panel + items_per_page + tabs + structured newsletter",
-      "category": "ui",
+      "title": "Wire the custom redirects table (checkRedirect -> 301)",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T15"
       ],
@@ -294,11 +246,11 @@
     },
     {
       "id": "T16",
-      "title": "Pages tab: layout Template select + clean content label",
-      "category": "ui",
+      "title": "Home bucketing + article share token",
+      "category": "api",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T16"
       ],
@@ -310,11 +262,11 @@
     },
     {
       "id": "T17",
-      "title": "Categories tab: Description/Display Order/Show-on-Homepage (keep multi-vertical select)",
+      "title": "Design tokens + system match the design contract",
       "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T17"
       ],
@@ -326,11 +278,11 @@
     },
     {
       "id": "T18",
-      "title": "Homepage meta description from site_settings.site_description",
+      "title": "Homepage hero: mechanism + visual (full-bleed .hero-bg)",
       "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T18"
       ],
@@ -342,11 +294,11 @@
     },
     {
       "id": "T19",
-      "title": "Gate public serving + indexing on sites.status='active'",
-      "category": "script",
+      "title": "Homepage renders the full 13-section theiwise design",
+      "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T19"
       ],
@@ -358,11 +310,11 @@
     },
     {
       "id": "T20",
-      "title": "Consistency: total_steps=16, favicon, and record PREVIEW_SECRET ops task",
-      "category": "script",
+      "title": "Article page renders the full 12-section theiwise design",
+      "category": "ui",
       "priority": null,
-      "state": "implemented",
-      "passes": true,
+      "state": "planned",
+      "passes": false,
       "source_story_ids": [
         "T20"
       ],
@@ -370,6 +322,406 @@
       "packet_path": ".ralph/story/T20.json",
       "packet_paths": [
         ".ralph/story/T20.json"
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Responsive images: mechanism + design display",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T21"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T21.json",
+      "packet_paths": [
+        ".ralph/story/T21.json"
+      ]
+    },
+    {
+      "id": "T22",
+      "title": "Port the ads subsystem: logic + config + slots + provider scripts",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T22"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T22.json",
+      "packet_paths": [
+        ".ralph/story/T22.json"
+      ]
+    },
+    {
+      "id": "T23",
+      "title": "Custom head/footer HTML + analytics/ad-header scripts: render + sanitize",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T23"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T23.json",
+      "packet_paths": [
+        ".ralph/story/T23.json"
+      ]
+    },
+    {
+      "id": "T24",
+      "title": "Logo: render fix + operator-directed panel",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T24"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T24.json",
+      "packet_paths": [
+        ".ralph/story/T24.json"
+      ]
+    },
+    {
+      "id": "T25",
+      "title": "Brand tokens: UX pickers, not JSON",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T25"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T25.json",
+      "packet_paths": [
+        ".ralph/story/T25.json"
+      ]
+    },
+    {
+      "id": "T26",
+      "title": "Newsletter: real per-provider integration",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T26"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T26.json",
+      "packet_paths": [
+        ".ralph/story/T26.json"
+      ]
+    },
+    {
+      "id": "T27",
+      "title": "robots.txt / ads.txt key-mismatch + items_per_page",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T27"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T27.json",
+      "packet_paths": [
+        ".ralph/story/T27.json"
+      ]
+    },
+    {
+      "id": "T28",
+      "title": "Social links",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T28"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T28.json",
+      "packet_paths": [
+        ".ralph/story/T28.json"
+      ]
+    },
+    {
+      "id": "T29",
+      "title": "Settings IA completeness (tabs)",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T29"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T29.json",
+      "packet_paths": [
+        ".ralph/story/T29.json"
+      ]
+    },
+    {
+      "id": "T30",
+      "title": "Category edit route + full update + homepage toggle + order + slug guard",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T30"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T30.json",
+      "packet_paths": [
+        ".ralph/story/T30.json"
+      ]
+    },
+    {
+      "id": "T31",
+      "title": "Tag edit: remove the dead link (match reference)",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T31"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T31.json",
+      "packet_paths": [
+        ".ralph/story/T31.json"
+      ]
+    },
+    {
+      "id": "T32",
+      "title": "Wire the dead list filters (Articles/Categories/Tags/Pages)",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T32"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T32.json",
+      "packet_paths": [
+        ".ralph/story/T32.json"
+      ]
+    },
+    {
+      "id": "T33",
+      "title": "Pages content block editor + GET-by-id endpoints",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T33"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T33.json",
+      "packet_paths": [
+        ".ralph/story/T33.json"
+      ]
+    },
+    {
+      "id": "T34",
+      "title": "Admin domains list shows all domains",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T34"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T34.json",
+      "packet_paths": [
+        ".ralph/story/T34.json"
+      ]
+    },
+    {
+      "id": "T35",
+      "title": "Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal",
+      "category": "ui",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T35"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T35.json",
+      "packet_paths": [
+        ".ralph/story/T35.json"
+      ]
+    },
+    {
+      "id": "T36",
+      "title": "Status semantics + transition legality",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T36"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T36.json",
+      "packet_paths": [
+        ".ralph/story/T36.json"
+      ]
+    },
+    {
+      "id": "T37",
+      "title": "Real Delete-site (cascade DB + CF teardown + cache purge)",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T37"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T37.json",
+      "packet_paths": [
+        ".ralph/story/T37.json"
+      ]
+    },
+    {
+      "id": "T38",
+      "title": "Make provisioning asynchronous + resumable + chunked",
+      "category": "infra",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T38"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T38.json",
+      "packet_paths": [
+        ".ralph/story/T38.json"
+      ]
+    },
+    {
+      "id": "T39",
+      "title": "Resume a stalled provisioning job from the UI",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T39"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T39.json",
+      "packet_paths": [
+        ".ralph/story/T39.json"
+      ]
+    },
+    {
+      "id": "T40",
+      "title": "Provisioning generation is preset-governed",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T40"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T40.json",
+      "packet_paths": [
+        ".ralph/story/T40.json"
+      ]
+    },
+    {
+      "id": "T41",
+      "title": "Provisioned end-state correctness + matches the design",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T41"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T41.json",
+      "packet_paths": [
+        ".ralph/story/T41.json"
+      ]
+    },
+    {
+      "id": "T42",
+      "title": "Scheduled-publishing cron",
+      "category": "infra",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T42"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T42.json",
+      "packet_paths": [
+        ".ralph/story/T42.json"
+      ]
+    },
+    {
+      "id": "T43",
+      "title": "CCPA DELETE /api/privacy/data",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T43"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T43.json",
+      "packet_paths": [
+        ".ralph/story/T43.json"
+      ]
+    },
+    {
+      "id": "T44",
+      "title": "Cache hit/miss monitoring + /cache/stats",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T44"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T44.json",
+      "packet_paths": [
+        ".ralph/story/T44.json"
+      ]
+    },
+    {
+      "id": "T45",
+      "title": "Preview token TTL -> 24h",
+      "category": "api",
+      "priority": null,
+      "state": "planned",
+      "passes": false,
+      "source_story_ids": [
+        "T45"
+      ],
+      "scoped_quality_commands": [],
+      "packet_path": ".ralph/story/T45.json",
+      "packet_paths": [
+        ".ralph/story/T45.json"
       ]
     }
   ]

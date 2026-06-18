@@ -10256,3 +10256,59 @@ Learnings for future iterations:
   the D13 runner with the ACTUAL worktree-root (NOT the project root the packet
   renders) — confirmed PASS for RC-055/RC-056.
 ---
+
+## 2026-06-18 - T1 (iteration 1) — AI image generation hardening
+sources: T1  |  execution story: T1  |  state -> implemented (Ralph-local execution PRD passes=true; canonical reconcile owns verified)
+
+What was implemented (3 behavioural ACs):
+- T1-AC1 (RC-002): image generation path now defaults to DEFAULT_IMAGE_TIMEOUT_MS
+  (120000ms) in openai-client.generateImage, never the 30s text default. A caller
+  may only RAISE it. Proven with fake timers: request survives past 30s, aborts at
+  exactly 120000ms.
+- T1-AC2 (RC-003): added normalizeImageSize() — maps any requested size to a
+  gpt-image-2-supported value (1024x1024 / 1536x1024 / 1024x1536) BEFORE the
+  request body is built, so an unsupported size (e.g. 1792x1024 -> 1536x1024)
+  never reaches the OpenAI client. model id stays gpt-image-2.
+- T1-AC3 (RC-004): generators/image.ts runImageGenerator catch now surfaces a real
+  failure (key present) as status='failed' (retryable; NOT idempotency-short-
+  circuited) instead of a silent 'fallback' stub with 0 media. Only a failure
+  receipt is written; no media row / no R2 put.
+
+Files changed:
+- api/src/ai/openai-client.ts (DEFAULT_IMAGE_TIMEOUT_MS + normalizeImageSize + use in generateImage)
+- api/src/ai/generators/image.ts (catch: fallback -> failed)
+- api/test/ai-image-gen.test.ts (NEW — RC-002/003/004 observation tests)
+- api/test/admin-ai-image.test.ts (corrected OpenAI-error receipt expectation fallback -> failed, matches AC3)
+
+Self-check results:
+- File sizes: openai-client.ts 298 (pre-existing >200, +38 here), image.ts 577 (-9 here),
+  ai-image-gen.test.ts 308 (test), admin-ai-image.test.ts 504 (test) — both src files were
+  already over the 200 JS/TS default BEFORE this story; T1 is a targeted bugfix, no
+  architecture.md/maxFileLines for this change, so no refactor-split. NOTE.
+- Secret scan: PASS (only hit is pre-existing `Bearer ${apiKey}` reading env.OPENAI_API_KEY;
+  redactApiKey/redactSecretsFromText scrub it from logs — not a hardcoded secret).
+- Error handling: PASS (catch logs failure + returns typed failed status; admin handlers keep 501/400/404/500/502).
+- Migration execution: N/A (not a db story; no schema change; 'failed' already in ai_generations CHECK set).
+- Parameterized queries: PASS (no new SQL; existing image.ts INSERT uses .bind()).
+
+Tests actually run (from worktree api/):
+- npx tsc --noEmit                                   -> exit 0
+- npm test (vitest run)                              -> 126 files, 1172 tests PASS
+- D13 runner RC-002,RC-003,RC-004 (run_required_evidence_command.py) -> status PASS
+- Q3 run_story_quality_checks.py --story-id=T1       -> PASS (2 checks, receipts written)
+
+INFRA/SKILL-BUG SURFACED (for ship/learn, NOT a product blocker):
+- The pre-commit AC-integrity hook blocked the FIRST commit with
+  "INTEGRITY VIOLATION: acceptance-tests/ scripts modified in working tree", but
+  acceptance-tests/ was git-clean and UNTAMPERED (sha256 hashes byte-identical).
+  Root cause: scripts/a2z_install_ac_hooks.sh:26 writes the baseline
+  (.a2z/mission-state/ac-checksums) with ABSOLUTE paths (find "$ac_dir" ...), while
+  the generated hook (line 107) verifies with RELATIVE paths (find acceptance-tests ...)
+  -> guaranteed mismatch, blocking every commit on the happy path. Faithful repair
+  applied: regenerated the baseline in the hook's relative-path format from the
+  unchanged .sh files (hash values identical; tamper-protection intact). Old baseline
+  kept at .a2z/mission-state/ac-checksums.absolute-path-bak. SKILL FIX NEEDED:
+  align a2z_install_ac_hooks.sh baseline-gen path format with the verifier
+  (use a relative `find acceptance-tests`, or cd into worktree root before find).
+
+---
