@@ -57,8 +57,8 @@
       "title": "Preset schema: add variables_schema + output_rules; align content-mapping; image options",
       "category": "migration",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T4"
       ],
