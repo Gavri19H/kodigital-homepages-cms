@@ -11122,3 +11122,47 @@ source_story_ids: T22
   - D13 run_required_evidence_command.py --required-claim-ids=RC-039,RC-040 -> status: PASS
     (both L2_AUTO_DISAMBIGUATION assertions observed, cwd=worktree/api)
 ---
+
+## 2026-06-18 — T23 (sources: T23)
+Custom head/footer HTML + analytics/ad-header scripts: render + sanitize.
+- Implemented:
+  - NEW api/src/settings/custom-html.ts — sanitizeSettingsHtml (strips inline
+    event handlers + javascript: URIs; strips <script> for pure-HTML fields),
+    validateScriptField (PATCH-boundary gate), ALLOWED_SETTINGS_KEYS /
+    HTML_SETTINGS_KEYS / SCRIPT_SETTINGS_KEYS, renderCustomHead /
+    renderCustomFooter (sanitized <head>/footer composers).
+  - api/src/public/templates/layout.ts — renderLayout now emits customHead
+    (end of <head>) + customFooter (before </body>); stale "T15 to inject"
+    comment removed (BCL-045).
+  - api/src/public/render-pages.ts — loadCustomLayoutHtml() loads per-site
+    settings + composes sanitized snippets; wired into ALL 5 public render
+    surfaces (home, article, category, tag, page).
+  - api/src/admin/api.ts — PATCH /api/admin/settings enforces
+    ALLOWED_SETTINGS_KEYS (unknown key -> 400, no batch) + validateScriptField
+    (XSS vector -> 400) before any D1 write.
+  - NEW api/test/custom-html-sanitize.test.ts — RC-041 (AC1 render+sanitize)
+    + RC-042 (AC2 strip/reject + PATCH boundary, live Hono + fake D1).
+- Self-checks:
+  - File sizes: custom-html.ts 196 (limit 200) PASS; test 230 (test file);
+    layout/render-pages/admin api pre-existing large, additions small. PASS
+  - Secret scan: PASS (no matches)
+  - Error handling: PATCH returns 400 with reason on unknown key / XSS. PASS
+  - Migration execution: N/A (api category; site_settings is key/value, no DDL)
+  - Parameterized queries: PASS (new SELECT uses ? + .bind(); no template SQL)
+- Tests run:
+  - cd api && npx vitest run test/custom-html-sanitize.test.ts (2 passed)
+  - cd api && npx tsc --noEmit (clean)
+  - cd api && npx vitest run (full suite: 148 files / 1279 tests passed)
+  - D13 runner RC-041,RC-042 -> status PASS
+  - Q3 run_story_quality_checks.py --story-id=T23 -> PASS (4 checks, receipts)
+- Learnings:
+  - Two field families: HTML fields (custom_head_html/custom_footer_html) ban
+    <script>; script fields (analytics_script/ad_header_script) allow a clean
+    <script> but never inline event handlers / javascript: URIs. sanitize is
+    render-time defence; validateScriptField is the PATCH-boundary reject.
+  - sanitize uses String.replace()/RegExp.test() only — no RegExp.exec (the
+    PreToolUse security hook drops Write/Edit containing the dot-exec-paren
+    substring).
+  - Event-handler regex anchors on [\s/] before `on` so substrings like
+    `person=` / `reason=` / `data-icon=` are NOT false-positives.
+---
