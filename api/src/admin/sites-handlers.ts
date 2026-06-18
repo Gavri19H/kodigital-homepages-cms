@@ -61,13 +61,45 @@ interface JobLookupRow {
   site_id: string;
 }
 
-const ALLOWED_STATUS_TRANSITIONS: ReadonlySet<string> = new Set([
+// The five legal status VALUES (mirrors the sites.status CHECK constraint in
+// 0002_phase3_multi_site_schema.sql). An input outside this set is a 400.
+const VALID_SITE_STATUSES: ReadonlySet<string> = new Set([
   "draft",
   "provisioning",
   "active",
   "disabled",
   "failed",
 ]);
+
+// T36 [BCL-070] — status semantics + transition legality.
+//
+// The prior ALLOWED_STATUS_TRANSITIONS was a flat set of valid VALUES, so it
+// accepted ANY value-to-value change (e.g. draft -> active, jumping straight
+// past provisioning). That enforced no from->to legality. This map is keyed by
+// the CURRENT status and lists the statuses it may legally move to, encoding
+// the provisioning lifecycle as a state machine:
+//   draft        -> provisioning | disabled | failed
+//   provisioning -> active | failed | disabled
+//   active       -> disabled
+//   disabled     -> active | draft        (re-enable; active re-checks below)
+//   failed       -> provisioning | draft | disabled   (retry / reset)
+// A same->same change is an idempotent no-op (handled in the caller). Anything
+// not listed here is rejected (HTTP 409) so an illegal transition can never
+// land in the sites table.
+const ALLOWED_STATUS_TRANSITIONS: ReadonlyMap<string, ReadonlySet<string>> =
+  new Map([
+    ["draft", new Set(["provisioning", "disabled", "failed"])],
+    ["provisioning", new Set(["active", "failed", "disabled"])],
+    ["active", new Set(["disabled"])],
+    ["disabled", new Set(["active", "draft"])],
+    ["failed", new Set(["provisioning", "draft", "disabled"])],
+  ]);
+
+function isLegalStatusTransition(from: string, to: string): boolean {
+  if (from === to) return true; // idempotent no-op
+  const allowed = ALLOWED_STATUS_TRANSITIONS.get(from);
+  return allowed !== undefined && allowed.has(to);
+}
 
 function shortId(prefix: string): string {
   const uuid = crypto.randomUUID().replace(/-/g, "");
@@ -259,8 +291,49 @@ export async function updateSiteHandler(
   const nextName = stringField(body.name);
   const nextStatus = stringField(body.status);
   const nextActivity = stringField(body.activity);
-  if (nextStatus.length > 0 && !ALLOWED_STATUS_TRANSITIONS.has(nextStatus)) {
-    return c.json({ error: `invalid status: ${nextStatus}` }, 400);
+  if (nextStatus.length > 0) {
+    // (1) value validity — an unknown status string is a 400.
+    if (!VALID_SITE_STATUSES.has(nextStatus)) {
+      return c.json({ error: `invalid status: ${nextStatus}` }, 400);
+    }
+    // (2) from->to legality — an illegal transition (e.g. draft -> active,
+    // skipping provisioning) is rejected with 409 Conflict; the sites row is
+    // left untouched.
+    if (!isLegalStatusTransition(existing.status, nextStatus)) {
+      return c.json(
+        {
+          error: `illegal status transition: ${existing.status} -> ${nextStatus}`,
+        },
+        409,
+      );
+    }
+    // (3) active implies a servable (reconciled) domain. Dry-run provisioning
+    // leaves the domain row at status='pending', so a site whose domain never
+    // reconciled cannot be served — refuse to mark it active. A domain is
+    // reconciled once the route-attach step promotes it to status='active'
+    // (site-provisioning/cloudflare-interfaces.ts markDomainAttached).
+    if (nextStatus === "active" && existing.status !== "active") {
+      const reconciled = await c.env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM domains WHERE site_id = ? AND status = 'active'",
+      )
+        .bind(id)
+        .first<{ n: number }>();
+      const reconciledCount =
+        reconciled !== null &&
+        reconciled !== undefined &&
+        typeof reconciled.n === "number"
+          ? reconciled.n
+          : 0;
+      if (reconciledCount < 1) {
+        return c.json(
+          {
+            error:
+              "cannot activate: site has no reconciled (servable) domain",
+          },
+          409,
+        );
+      }
+    }
   }
   if (nextActivity.length > 0 && nextActivity !== "main") {
     return c.json({ error: "activity must be 'main'" }, 400);
