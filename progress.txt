@@ -11358,3 +11358,29 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
     the resolved pageSize through renderCategoryHtml/renderTagHtml (optional
     param defaulting to PUBLIC_PAGE_SIZE keeps all prior callers/tests intact).
 ---
+
+## 2026-06-18 — T28 (Social links) [sources: T28]
+- Implemented operator-settable social profile URLs that render as footer links in the design .site-footer.
+- Files changed:
+  - api/src/public/templates/components.ts — SocialLink type + SOCIAL_PLATFORMS + buildSocialLinks (http(s)-only safety guard) + renderFooter `.site-footer__social` nav.
+  - api/src/public/templates/home.ts, article.ts — thread socialLinks -> renderFooter (§12 footer).
+  - api/src/public/render-pages.ts — loadCustomLayoutHtml builds socialLinks from the per-site site_settings map (no extra query); wired into home/article/category/tag/page.
+  - api/src/settings/custom-html.ts — ALLOWED_SETTINGS_KEYS accepts social_twitter_url/social_facebook_url/social_instagram_url/social_linkedin_url/social_youtube_url.
+  - api/src/admin/templates/settings.ts — Social Links card (General tab) + submit-script keys.
+  - api/src/public/assets/public-css.ts — .site-footer__social styling.
+  - api/test/social-links.test.ts — behavioral proof (RC-050 / T28-AC1), L2 binding embedded.
+- Self-check results:
+  - File sizes: social-links.test.ts 115 (limit 200) PASS; modified modules (components 531, article 480, render-pages 703, settings 932, custom-html 203) are pre-existing large files from prior stories — additions small/additive, refactor out of scope for T28.
+  - Secret scan: PASS (no secrets).
+  - Error handling: N/A (pure template renderers); added http(s)-only URL guard so a stored value can't become a footer XSS vector.
+  - Migration execution: N/A (no schema change; social links are key/value site_settings rows).
+  - Parameterized queries: PASS (loadCustomLayoutHtml uses .bind(); no new SQL).
+- Tests run:
+  - cd api && npx vitest run test/social-links.test.ts → 3 passed
+  - cd api && npm test → 153 files / 1298 tests passed (no regressions)
+  - cd api && npx tsc --noEmit → exit 0
+  - Q3: run_story_quality_checks.py --story-id=T28 → PASS (4 checks, receipts written)
+  - D13: run_required_evidence_command.py --required-claim-ids=RC-050 → status PASS
+- Learnings:
+  - The public `.site-footer` is owned by renderFooter (components.ts), not layout.ts — all 5 public surfaces (home/article via body, category/tag/page via renderLayout footer arg) route through it.
+  - Per-platform key/value social settings reuse the existing arbitrary-key PATCH route + the settings.ts submit-script `keys` array; new keys must be added to BOTH ALLOWED_SETTINGS_KEYS and that array, and (for footer render) SOCIAL_PLATFORMS.
