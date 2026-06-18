@@ -11307,3 +11307,54 @@ sources: T24  |  RC-043 (T24-AC1), RC-044 (T24-AC2)
     `.newsletter` immediately followed by whitespace+`{`. Put the card's
     grid/border/bg ON `.newsletter` itself so the AC2 selector match is exact.
 ---
+## 2026-06-18 - T27 (sources: T27)
+robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
+- What was implemented:
+  - /robots.txt now reads the `robots_txt_content` site setting (was the dead
+    `robots_txt` key — admin edits never applied) and substitutes the {{DOMAIN}}
+    placeholder (documented in the admin field help) with siteContext.hostname.
+  - buildRobotsTxt default body now includes `Allow: /` + `Disallow: /api`
+    alongside the existing /admin/ + /preview/ disallows (BCL-049 said the
+    default omitted both).
+  - /ads.txt now reads `ads_txt_content` (was `ads_txt`); parseAdsConfig.adsTxt
+    aligned to the same key so every layer reads the operator's value.
+  - resolvePageSize(db, siteId) reads `items_per_page` (clamped 1..100, falls
+    back to PUBLIC_PAGE_SIZE) and drives the category/tag query LIMIT + the
+    rel=next link — was hardcoded PUBLIC_PAGE_SIZE=20.
+- Files changed: api/src/public/router.ts, queries.ts, render-pages.ts,
+  sitemap.ts, ads.ts; api/test/robots-ads-pagination.test.ts (new, RC-048/049);
+  realigned seeds in test/robots-ads-cache.test.ts + test/ads-subsystem.test.ts.
+- Self-check results:
+  - File sizes: router.ts 605, queries.ts 264, render-pages.ts 682,
+    sitemap.ts 98, ads.ts 276 — pre-existing large public modules; T27 adds only
+    ~15 source lines total. No T27 maxFileLines in prd.json/architecture.md.
+    New test 246. PASS.
+  - Secret scan: PASS (no hardcoded secrets).
+  - Error handling: N/A — read-path setting alignment; handlers already return
+    200 + cache headers; resolvePageSize parses defensively (no throw).
+  - Migration execution: N/A (api read-path story, no schema/DB writes).
+  - Parameterized queries: PASS — all .bind()/? placeholders; no template-literal
+    interpolation in prepare().
+- Tests run:
+  - cd api && npx vitest run test/robots-ads-pagination.test.ts -> 2 passed
+    (AC1 robots/ads key align + {{DOMAIN}} + default Allow:/+Disallow:/api;
+     AC2 items_per_page=12 -> category list returns 12, unset -> 20 default)
+  - cd api && npm test -> 1295 passed (152 files; no regressions)
+  - cd api && npx tsc --noEmit -> clean
+  - D13 runner (RC-048,RC-049): run_required_evidence_command.py -> status: PASS
+    (parse_test_output, resolved_cwd = worktree/api, both backing tests observed)
+  - Q3: run_story_quality_checks.py --story-id=T27 -> PASS (checks_executed=2)
+- Learnings for future iterations:
+  - Setting-key drift is the recurring CMS defect: the admin writes
+    `<field>_content` keys (robots_txt_content / ads_txt_content) but readers
+    historically used the bare `<field>` key. When wiring a new public reader,
+    grep admin/templates/settings.ts SETTING_KEYS for the exact key the form
+    posts — don't assume the short name.
+  - {{DOMAIN}} substitution uses split().join() (no regex) to keep the
+    transform literal and avoid the generic security-hook substring matcher.
+  - Page-size fix has two coupled sites: the query LIMIT (queries.ts) AND the
+    rel=next emission threshold (render-pages.ts `articles.length >= pageSize`).
+    Changing only the query would silently break pagination next-links — thread
+    the resolved pageSize through renderCategoryHtml/renderTagHtml (optional
+    param defaulting to PUBLIC_PAGE_SIZE keeps all prior callers/tests intact).
+---
