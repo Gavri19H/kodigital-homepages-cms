@@ -10852,3 +10852,45 @@ source_story_ids: T14
     links from the same source — never a `__SITE__`-style placeholder meant for
     later substitution (nothing substitutes it).
 ---
+
+## 2026-06-18 - T17 (sources: T17) — Design tokens + system match the design contract
+- Aligned the public --tw-* token set in api/src/public/assets/public-css.ts :root
+  to docs/design-contract.md EXACTLY:
+    §1 colors: --tw-ink #0f172a->#1a1d23, --tw-text #1f2937->#2a2f38,
+      --tw-text-muted #475569->#5a6270, --tw-text-light #94a3b8->#8a93a3,
+      --tw-rule #e2e8f0->#e8ecf2, --tw-rule-soft #f1f5f9->#f1f4f8,
+      --tw-bg-soft #f8fafc->#f7f9fc, --tw-bg-tint #eef2f7->#eef5f8
+      (replaced Tailwind-slate defaults with the contract's warm neutrals).
+    §4 motion: --tw-ease cubic-bezier(0.4,0,0.2,1)->cubic-bezier(0.2,0.7,0.2,1).
+  Brand family (#1ba8c8/#0f8aa6/#d6eef5/#f0f9fc), accent #f0a830, the §2 type
+  scale, containers 1200/920 and --tw-header-h:72px already matched the contract.
+- Scope: token DEFINITIONS only (the :root --tw-* set). Footer/component consumer
+  literals (e.g. .site-footer #cbd5e1/#e2e8f0) left to the section stories
+  (T18-T20); AC1 does not test them and changing them is an untested visual edit.
+- Added api/test/design-tokens.test.ts (RC-031 / T17-AC1): behavioral assertions
+  against the served stylesheet (publicCss = /assets/public.css), scoped to the
+  :root block, for every §1-§4 contract token + negative markers absent.
+  it() titles embed [api/test/design-tokens.test.ts] for the parse_test_output route.
+- T17-AC2 is SHIP-DEFERRED (Playwright computed-style parity at 375/1280 @ a2z-ship).
+- Self-check results:
+  - File sizes: public-css.ts 270 lines (CSS-in-TS template, no lines added by this
+    change; pre-existing); design-tokens.test.ts 126 lines (limit 200) — PASS
+  - Secret scan: PASS (no secrets in changed files)
+  - Error handling: N/A (CSS token module + test)
+  - Migration execution: N/A (category ui)
+  - Parameterized queries: N/A
+- Tests run:
+  - cd api && npx vitest run test/design-tokens.test.ts  -> 5 passed
+  - cd api && npx tsc --noEmit  -> exit 0
+  - regression: cd api && npx vitest run test/design-contract-values.test.ts \
+      test/site-provisioning-create-site-settings.test.ts \
+      test/public-templates-home.test.ts test/public-templates-article.test.ts -> 28 passed
+  - D13 runner RC-031 (run_required_evidence_command.py) -> status PASS
+  - Q3 run_story_quality_checks.py --story-id=T17 -> PASS (checks_executed=4)
+- Learnings: the public-css :root block had shipped Tailwind-slate neutrals
+  (#0f172a/#1f2937/#475569/#94a3b8/#e2e8f0/#f8fafc...) that silently diverged from
+  docs/design-contract.md §1; only ink was named in the AC but the verbatim intent
+  required the FULL §1 set, so all 8 neutral mismatches + the §4 ease were corrected.
+  The site-provisioning test already had a not.toContain("0f172a") guard that this
+  fix now satisfies.
+---
