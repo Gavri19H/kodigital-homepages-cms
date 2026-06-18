@@ -229,7 +229,7 @@ export function createOpenAIClient(env: Env): OpenAIClient {
         Number.isFinite(opts.maxTokens) &&
         opts.maxTokens > 0
       ) {
-        requestBody.max_tokens = opts.maxTokens;
+        requestBody.max_completion_tokens = opts.maxTokens;
       }
       const { response, retries } = await callWithRetry(
         OPENAI_TEXT_URL,

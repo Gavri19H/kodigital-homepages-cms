@@ -240,7 +240,7 @@ function makeStore(): Store {
           if (sql.indexOf("content_version FROM sites") >= 0) {
             return { content_version: store.site.content_version } as unknown as T;
           }
-          if (sql.indexOf("primary_domain AS hostname FROM sites") >= 0) {
+          if (sql.indexOf("domain AS hostname FROM sites") >= 0) {
             return { hostname: store.site.primary_domain } as unknown as T;
           }
           if (sql.indexOf("status FROM sites WHERE id = ?") >= 0) {

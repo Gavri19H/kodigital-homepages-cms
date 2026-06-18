@@ -195,7 +195,7 @@ function makeDb(world: World): D1Database {
             const s = world.sites.get(id);
             return ({ name: s?.name ?? id, domain: s?.domain ?? "" } as unknown) as T;
           }
-          if (sql.indexOf("SELECT primary_domain AS hostname FROM sites") >= 0) {
+          if (sql.indexOf("SELECT domain AS hostname FROM sites") >= 0) {
             const [id] = captured as [string];
             const s = world.sites.get(id);
             return ({ hostname: s?.domain ?? "" } as unknown) as T;

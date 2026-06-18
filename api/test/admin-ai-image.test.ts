@@ -446,12 +446,13 @@ describe("POST /api/admin/ai/logo (T20)", () => {
     expect(mediaInsert!.binds[6]).toBe("site-a");
     expect(mediaInsert!.binds[7]).toBe(body.ai_generation_id);
 
-    // site_settings upsert: exactly one write, (site-a, logo_media_id, "7").
+    // site_settings upsert: exactly one write, (site-a, logo_media_id, <bare storage_key>)
+    // — the public-resolvable key the /media route serves, NOT the numeric media id.
     const settingWrites = calls.filter((c) =>
       c.sql.startsWith("INSERT INTO site_settings"),
     );
     expect(settingWrites).toHaveLength(1);
-    expect(settingWrites[0]?.binds).toEqual(["site-a", "logo_media_id", "7"]);
+    expect(settingWrites[0]?.binds).toEqual(["site-a", "logo_media_id", "ai/site-a/logo/site-a.png"]);
 
     // Tenant guard: NO call of any kind carries the other tenant's id.
     for (const c of calls) {

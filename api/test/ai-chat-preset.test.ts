@@ -142,7 +142,7 @@ function stubOpenAIFetch(content = "model output"): ReturnType<typeof vi.fn> {
 interface SentChat {
   model: string;
   messages: Array<{ role: string; content: string }>;
-  max_tokens?: number;
+  max_completion_tokens?: number;
 }
 
 function lastSentBody(spy: ReturnType<typeof vi.fn>): SentChat {
@@ -225,7 +225,7 @@ describe("T7-AC1: preset-driven /chat applies system prompt + tone override + le
         buildEnv(db),
       );
       expect(res.status).toBe(200);
-      expect(lastSentBody(fetchSpy).max_tokens).toBe(expected);
+      expect(lastSentBody(fetchSpy).max_completion_tokens).toBe(expected);
       vi.unstubAllGlobals();
     }
   });
@@ -244,7 +244,7 @@ describe("T7-AC1: preset-driven /chat applies system prompt + tone override + le
     expect(system?.role).toBe("system");
     expect(system?.content ?? "").toContain("friendly");
     // No length given -> medium default budget.
-    expect(sent.max_tokens).toBe(1067);
+    expect(sent.max_completion_tokens).toBe(1067);
   });
 
   it("[api/test/ai-chat-preset.test.ts] T7-AC1: a presetId that resolves to no row is a 404 (panel sent a preset that no longer exists) L2_AUTO_DISAMBIGUATION:T7-AC1:RC-015", async () => {

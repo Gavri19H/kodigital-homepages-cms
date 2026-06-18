@@ -488,12 +488,14 @@ describe("T24-AC2 server consumes the directed LogoRequest (RC-044)", () => {
     expect(sentPrompt).toContain("Style: minimalist");
     expect(sentPrompt).toContain("navy and gold"); // colorScheme -> palette line
 
-    // Applied: the regenerated logo is written to site_settings.logo_media_id.
+    // Applied: the regenerated logo's BARE STORAGE_KEY (the value the public side
+    // resolves to /media/<key>) is written to site_settings.logo_media_id — NOT the
+    // numeric media id, which the public /media route 404s on.
     const settingWrite = calls.find((c) =>
       c.sql.startsWith("INSERT INTO site_settings"),
     );
     expect(settingWrite).toBeDefined();
-    expect(settingWrite!.binds).toEqual(["site-a", "logo_media_id", "7"]);
+    expect(settingWrite!.binds).toEqual(["site-a", "logo_media_id", "ai/site-a/logo/site-a.png"]);
   });
 
   it("[api/test/logo-panel.test.ts] T24-AC2: an undirected post (no direction) keeps the default prompt — direction is additive, not forced L2_AUTO_DISAMBIGUATION:T24-AC2:RC-044", async () => {

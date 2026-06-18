@@ -73,7 +73,7 @@ export interface CloudflareCallContext {
 }
 
 // Canonical hostname resolver for a site: primary domains-table row
-// first, sites.primary_domain as fallback, "" when neither exists. Both
+// first, sites.domain as fallback, "" when neither exists. Both
 // the runner and the steps registry import THIS resolver so live and
 // dry-run paths can never disagree on which hostname a CF call targets.
 export async function resolveSiteHostname(
@@ -91,7 +91,7 @@ export async function resolveSiteHostname(
     return dom.hostname;
   }
   const sr = await db
-    .prepare("SELECT primary_domain AS hostname FROM sites WHERE id = ? LIMIT 1")
+    .prepare("SELECT domain AS hostname FROM sites WHERE id = ? LIMIT 1")
     .bind(site_id)
     .first<{ hostname: string | null }>();
   return sr && typeof sr.hostname === "string" && sr.hostname.length > 0

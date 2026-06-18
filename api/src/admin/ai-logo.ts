@@ -112,7 +112,7 @@ export async function handleAdminAiLogo(c: Context<{ Bindings: Env }>) {
       "INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?) " +
         "ON CONFLICT(site_id, key) DO UPDATE SET value = excluded.value",
     )
-      .bind(site_id, LOGO_SETTING_KEY, String(outcome.media_id))
+      .bind(site_id, LOGO_SETTING_KEY, outcome.storage_key)
       .run();
 
     return c.json({

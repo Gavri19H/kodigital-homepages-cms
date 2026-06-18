@@ -138,6 +138,11 @@ interface SettingsRow {
 }
 
 const FEATURED_LIMIT = 8;
+// Design §12 featured[3,first=hero] + editorsPicks{hero,thumbs[3]} (=4): when NO
+// article is is_featured, the fallback fills the featured strip with the lead +
+// next 3 cards ONLY — using FEATURED_LIMIT (8) here swallowed the whole pool into
+// `featured`, leaving vm.latest empty (the §10 grid-3 'Latest' section vanished).
+const FEATURED_FALLBACK_FILL = 4;
 const LATEST_LIMIT = 18;
 const TRENDING_LIMIT = 5;
 const PICKS_LIMIT = 4;
@@ -260,7 +265,7 @@ export async function buildHomeViewModel(
         "FROM articles a " +
         "LEFT JOIN categories c ON c.id = a.category_id " +
         "LEFT JOIN media m ON m.id = a.featured_image_id " +
-        "WHERE site_id = ? AND a.status = 'published' " +
+        "WHERE a.site_id = ? AND a.status = 'published' " +
         "ORDER BY a.is_featured DESC, a.is_trending DESC, a.homepage_rank ASC, a.published_at DESC, a.id DESC " +
         "LIMIT ?",
     )
@@ -340,7 +345,7 @@ export async function buildHomeViewModel(
   const hero = featuredBucket[0] ?? cards[0] ?? null;
   const featured = featuredBucket.length > 0
     ? featuredBucket.slice(hero === featuredBucket[0] ? 1 : 0)
-    : cards.slice(1, FEATURED_LIMIT);
+    : cards.slice(1, FEATURED_FALLBACK_FILL);
 
   // Editor's picks: curated re-promotion of the featured pool — the lead
   // story plus the next 3 featured cards (contract §12 editorsPicks
