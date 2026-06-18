@@ -101,7 +101,6 @@ interface ArticleListingRow {
   featured_image_id: number | null;
   is_featured: number;
   is_trending: number;
-  homepage_section: string | null;
   homepage_rank: number | null;
   site_id: string | null;
   category_name: string | null;
@@ -230,7 +229,7 @@ export async function buildHomeViewModel(
         "a.category_id AS category_id, a.status AS status, a.published_at AS published_at, " +
         "a.featured_image_id AS featured_image_id, a.is_featured AS is_featured, " +
         "a.is_trending AS is_trending, " +
-        "a.homepage_section AS homepage_section, a.homepage_rank AS homepage_rank, " +
+        "a.homepage_rank AS homepage_rank, " +
         "a.site_id AS site_id, " +
         "c.name AS category_name, c.slug AS category_slug, " +
         "m.storage_key AS image_url, m.alt_text AS image_alt " +
