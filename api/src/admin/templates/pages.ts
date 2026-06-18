@@ -24,7 +24,13 @@
 // Do NOT rename the Site filter select away from the canonical wire
 // name without also updating both wire contracts.
 
-import { adminLayout, escapeHtml } from "./layout";
+import {
+  adminLayout,
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  type ListPagerMeta,
+} from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
 
 export interface SiteOption {
@@ -142,16 +148,24 @@ function renderTemplateOptions(selected?: string | null): string {
   }).join("");
 }
 
-function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
+export interface PageListFilters {
+  site_id?: string;
+  search?: string;
+  page_type?: string;
+  status?: string;
+}
+
+function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: PageListFilters = {}): string {
+  const globalSel = filters.site_id === "__global__" ? " selected" : "";
   return `<div class="toolbar">
-  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search pages..." /></div>
+  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search pages..." value="${escapeHtml(filters.search ?? "")}" /></div>
   <div class="toolbar-filters">
     <select name="site_id" class="form-select" aria-label="Site filter">
-      ${renderSiteOptions(sites, "", true, "All sites")}
-      <option value="__global__">Global only (templates)</option>
+      ${renderSiteOptions(sites, filters.site_id ?? "", true, "All sites")}
+      <option value="__global__"${globalSel}>Global only (templates)</option>
     </select>
-    <select name="page_type" class="form-select" aria-label="Page type filter">${renderPageTypeOptions("", true)}</select>
-    <select name="status" class="form-select" aria-label="Status filter">${renderStatusOptions("", true)}</select>
+    <select name="page_type" class="form-select" aria-label="Page type filter">${renderPageTypeOptions(filters.page_type ?? "", true)}</select>
+    <select name="status" class="form-select" aria-label="Status filter">${renderStatusOptions(filters.status ?? "", true)}</select>
   </div>
   <a href="/admin/pages/new" class="btn btn-primary">+ New Page</a>
 </div>`;
@@ -237,14 +251,22 @@ export function pagesListPage(
   pages: ReadonlyArray<PageListEntry>,
   sites: ReadonlyArray<SiteOption>,
   branding: PagesBranding = {},
+  filters: PageListFilters = {},
+  pageMeta?: ListPagerMeta,
 ): string {
-  const content = `${renderToolbar(sites)}${renderPagesTable(pages)}`;
+  const pager = renderListPager(pageMeta, {
+    site_id: filters.site_id,
+    search: filters.search,
+    page_type: filters.page_type,
+    status: filters.status,
+  });
+  const content = `${renderToolbar(sites, filters)}${renderPagesTable(pages)}${pager}`;
   return adminLayout({
     title: "Pages",
     activePath: "/admin/pages",
     userEmail: branding.userEmail,
     content,
-    scripts: PAGES_LIST_SCRIPT,
+    scripts: PAGES_LIST_SCRIPT + listFilterScript,
   });
 }
 

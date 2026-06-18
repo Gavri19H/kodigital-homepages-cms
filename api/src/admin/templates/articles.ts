@@ -17,7 +17,7 @@
 // below the form — preset select fed by GET /api/admin/ai/presets, generate
 // actions on POST /api/admin/ai/chat and /api/admin/ai/image.
 
-import { adminLayout, escapeHtml } from "./layout";
+import { adminLayout, escapeHtml, renderListPager, type ListPagerMeta } from "./layout";
 import { editorScripts } from "../../editor/editor-scripts";
 import { EDITOR_TOOLBAR, blocksToHtml } from "../../editor";
 import {
@@ -313,8 +313,19 @@ export function articlesListPage(
   categories: ReadonlyArray<CategoryOption>,
   branding: ArticlesBranding = {},
   filters: ArticleListFilters = {},
+  pageMeta?: ListPagerMeta,
 ): string {
-  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles)}`;
+  const pager = renderListPager(pageMeta, {
+    site_id: filters.site_id,
+    search: filters.search,
+    vertical: filters.vertical,
+    category: filters.category,
+    status: filters.status,
+    featured: filters.featured,
+    trending: filters.trending,
+    published: filters.published,
+  });
+  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles)}${pager}`;
   return adminLayout({
     title: "Articles",
     activePath: "/admin/articles",

@@ -63,6 +63,87 @@ export function escapeHtml(input: string | number | undefined | null): string {
     .replace(/'/g, "&#39;");
 }
 
+// T32: shared list pager. Renders a Previous / page-of / Next control under
+// a list table when the result set spans more than one page. `query` carries
+// the active filter params so paging preserves the current filter state; the
+// `page` key is always overwritten with the target page. Uses the
+// `.pagination*` classes already defined in ADMIN_STYLES.
+export interface ListPagerMeta {
+  page: number;
+  per_page: number;
+  total: number;
+}
+
+export function renderListPager(
+  meta: ListPagerMeta | undefined,
+  query: Record<string, string | undefined> = {},
+): string {
+  if (!meta) { return ""; }
+  const perPage = meta.per_page > 0 ? meta.per_page : 1;
+  const totalPages = Math.max(1, Math.ceil(meta.total / perPage));
+  if (meta.total <= perPage || totalPages <= 1) { return ""; }
+  const page = Math.min(Math.max(1, meta.page), totalPages);
+  const urlFor = (target: number): string => {
+    const parts: string[] = [];
+    for (const key of Object.keys(query)) {
+      const value = query[key];
+      if (key !== "page" && value !== undefined && value !== "") {
+        parts.push(
+          encodeURIComponent(key) + "=" + encodeURIComponent(value),
+        );
+      }
+    }
+    parts.push("page=" + String(target));
+    return "?" + parts.join("&");
+  };
+  const start = (page - 1) * perPage + 1;
+  const end = Math.min(meta.total, page * perPage);
+  const prev = page > 1
+    ? `<a href="${urlFor(page - 1)}" rel="prev">Previous</a>`
+    : `<span class="disabled">Previous</span>`;
+  const next = page < totalPages
+    ? `<a href="${urlFor(page + 1)}" rel="next">Next</a>`
+    : `<span class="disabled">Next</span>`;
+  return `<nav class="pagination" aria-label="Pagination">
+  <div class="pagination-info">Showing ${start}-${end} of ${meta.total}</div>
+  <div class="pagination-links">${prev}<span class="current">Page ${page} of ${totalPages}</span>${next}</div>
+</nav>`;
+}
+
+// T32: shared list-filter listener (ES5). Generic toolbar wiring for the
+// Categories / Tags / Pages lists whose filter controls previously had NO
+// listeners: each <select> in .toolbar-filters reloads the page with its
+// name=value query param on change, and a bare (non-form) search input
+// reloads on Enter. The Articles list keeps its own dedicated script (its
+// search lives inside a GET <form>), so this is NOT added there.
+export const listFilterScript = `
+(function () {
+  function applyFilter(name, value) {
+    if (!name) { return; }
+    var url = new URL(window.location.href);
+    if (value) { url.searchParams.set(name, value); } else { url.searchParams.delete(name); }
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
+  }
+  var selects = document.querySelectorAll('.toolbar-filters select');
+  var i;
+  for (i = 0; i < selects.length; i++) {
+    selects[i].addEventListener('change', function () {
+      applyFilter(this.name, this.value);
+    });
+  }
+  var searchInput = document.querySelector('.toolbar-search input[name="search"]');
+  if (searchInput && !searchInput.form) {
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyFilter('search', this.value);
+      }
+    });
+  }
+}());
+`;
+
 function isActive(activePath: string | undefined, href: string): boolean {
   if (!activePath) { return false; }
   if (activePath === href) { return true; }

@@ -6,11 +6,23 @@
 // single category to belong to multiple verticals (e.g. "Healthy Meals" =>
 // health + food + parenting), persisted via the category_verticals join.
 
-import { adminLayout, escapeHtml } from "./layout";
+import {
+  adminLayout,
+  escapeHtml,
+  renderListPager,
+  listFilterScript,
+  type ListPagerMeta,
+} from "./layout";
 
 export interface SiteOption {
   id: string;
   name?: string;
+}
+
+export interface CategoryListFilters {
+  site?: string;
+  search?: string;
+  vertical?: string;
 }
 
 export interface CategoryListEntry {
@@ -39,7 +51,8 @@ const VERTICAL_SLUGS: ReadonlyArray<string> = [
 ];
 
 function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string | null): string {
-  const blank = `<option value="">All sites</option><option value="__global__">Global only</option>`;
+  const globalSel = selected === "__global__" ? " selected" : "";
+  const blank = `<option value="">All sites</option><option value="__global__"${globalSel}>Global only</option>`;
   const opts = sites.map(function (s: SiteOption): string {
     const sel = (selected ?? "") === s.id ? " selected" : "";
     return `<option value="${escapeHtml(s.id)}"${sel}>${escapeHtml(s.name ?? s.id)}</option>`;
@@ -47,9 +60,10 @@ function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string |
   return blank + opts;
 }
 
-function renderVerticalsToolbarOptions(): string {
+function renderVerticalsToolbarOptions(selected?: string): string {
   return VERTICAL_SLUGS.map(function (v: string): string {
-    return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
+    const sel = selected === v ? " selected" : "";
+    return `<option value="${escapeHtml(v)}"${sel}>${escapeHtml(v)}</option>`;
   }).join("");
 }
 
@@ -92,15 +106,15 @@ function renderCategoriesTable(categories: ReadonlyArray<CategoryListEntry>): st
 </div>`;
 }
 
-function renderToolbar(sites: ReadonlyArray<SiteOption>): string {
+function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: CategoryListFilters = {}): string {
   return `<div class="toolbar">
-  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search categories..." /></div>
+  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search categories..." value="${escapeHtml(filters.search ?? "")}" /></div>
   <div class="toolbar-filters">
     <select id="filter-site" name="site" class="form-select" data-filter="site" aria-label="Site filter">
-      ${renderSiteOptions(sites, "")}
+      ${renderSiteOptions(sites, filters.site ?? "")}
     </select>
     <select id="filter-verticals" name="verticals" class="form-select" multiple data-multi="true" data-field="verticals" size="3" aria-label="Verticals (select multiple)">
-      ${renderVerticalsToolbarOptions()}
+      ${renderVerticalsToolbarOptions(filters.vertical)}
     </select>
   </div>
   <button type="button" id="open-new-category-modal" class="btn btn-primary">+ New Category</button>
@@ -291,14 +305,21 @@ export function categoriesListPage(
   categories: ReadonlyArray<CategoryListEntry>,
   sites: ReadonlyArray<SiteOption>,
   branding: CategoriesBranding = {},
+  filters: CategoryListFilters = {},
+  pageMeta?: ListPagerMeta,
 ): string {
-  const content = `${renderToolbar(sites)}${renderCategoriesTable(categories)}${renderModal(sites)}`;
+  const pager = renderListPager(pageMeta, {
+    site: filters.site,
+    search: filters.search,
+    verticals: filters.vertical,
+  });
+  const content = `${renderToolbar(sites, filters)}${renderCategoriesTable(categories)}${renderModal(sites)}${pager}`;
   return adminLayout({
     title: "Categories",
     activePath: "/admin/categories",
     userEmail: branding.userEmail,
     content,
     styles: MODAL_STYLES,
-    scripts: CATEGORIES_LIST_SCRIPT,
+    scripts: CATEGORIES_LIST_SCRIPT + listFilterScript,
   });
 }

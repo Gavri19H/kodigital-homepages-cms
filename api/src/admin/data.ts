@@ -9,6 +9,7 @@
 //     last_provisioned_at, created_at, updated_at.
 
 import type { Env } from "../env";
+import { buildWhereClause } from "./query-filters";
 
 interface SiteRecord {
   id: string;
@@ -658,4 +659,343 @@ export async function listAdminSettings(
     values[row.key] = row.value;
   }
   return values;
+}
+
+// ---------------------------------------------------------------------------
+// T32: dynamic list filtering + pagination for the four admin lists
+// (Articles / Pages / Categories / Tags). Each reader builds its WHERE clause
+// from FIXED-literal fragments via buildWhereClause (./query-filters) — user
+// values ONLY ever travel through bound params, NEVER interpolated into SQL.
+// Pagination is LIMIT ?/OFFSET ? (also bound). A returned ListPage carries the
+// page rows plus the page/per_page/total the toolbar pager needs.
+// ---------------------------------------------------------------------------
+
+export interface ListPageMeta {
+  page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface ListPage<T> extends ListPageMeta {
+  rows: T[];
+}
+
+const LIST_DEFAULT_PER_PAGE = 50;
+const LIST_MAX_PER_PAGE = 200;
+
+function normalizePage(page: number | null | undefined): number {
+  return typeof page === "number" && Number.isFinite(page) && page > 0
+    ? Math.floor(page)
+    : 1;
+}
+
+function normalizePerPage(perPage: number | null | undefined): number {
+  if (
+    typeof perPage !== "number" ||
+    !Number.isFinite(perPage) ||
+    perPage <= 0
+  ) {
+    return LIST_DEFAULT_PER_PAGE;
+  }
+  return Math.min(Math.floor(perPage), LIST_MAX_PER_PAGE);
+}
+
+// A %term% LIKE param. Bound, never interpolated — a literal % / _ in the
+// term acts as a wildcard, which is acceptable for a free-text search box.
+function likeParam(value: string): string {
+  return "%" + value + "%";
+}
+
+type ArticleJoinedRecord = ArticleListRecord & {
+  site_name: string | null;
+  category_name: string | null;
+};
+
+function mapArticleRow(r: ArticleJoinedRecord): ArticleRowDto {
+  return {
+    id: String(r.id),
+    title: r.title,
+    slug: r.slug,
+    site: r.site_name ?? "",
+    site_id: r.site_id,
+    category: r.category_name ?? "",
+    status: r.status,
+    homepage_section: r.homepage_section,
+    is_featured: r.is_featured === 1,
+    is_trending: r.is_trending === 1,
+    published_at: r.published_at !== null ? fmtDate(r.published_at) : null,
+    updated_at: fmtDate(r.updated_at),
+  };
+}
+
+export interface ArticleListQuery {
+  site_id?: string | null;
+  search?: string | null;
+  category?: string | null;
+  status?: string | null;
+  featured?: string | null;
+  trending?: string | null;
+  published?: string | null;
+  page?: number | null;
+  per_page?: number | null;
+}
+
+export async function listAdminArticlesFiltered(
+  env: Env,
+  q: ArticleListQuery,
+): Promise<ListPage<ArticleRowDto>> {
+  const search = typeof q.search === "string" ? q.search.trim() : "";
+  const categoryId =
+    q.category != null && String(q.category).trim() !== ""
+      ? Number(q.category)
+      : null;
+  const { clause, params } = buildWhereClause([
+    {
+      when: typeof q.site_id === "string" && q.site_id.length > 0,
+      clause: "a.site_id = ?",
+      params: [q.site_id as string],
+    },
+    { when: search.length > 0, clause: "a.title LIKE ?", params: [likeParam(search)] },
+    {
+      when: categoryId !== null && Number.isFinite(categoryId),
+      clause: "a.category_id = ?",
+      params: [categoryId as number],
+    },
+    {
+      when: typeof q.status === "string" && q.status.length > 0,
+      clause: "a.status = ?",
+      params: [q.status as string],
+    },
+    {
+      when: q.featured === "0" || q.featured === "1",
+      clause: "a.is_featured = ?",
+      params: [q.featured === "1" ? 1 : 0],
+    },
+    {
+      when: q.trending === "0" || q.trending === "1",
+      clause: "a.is_trending = ?",
+      params: [q.trending === "1" ? 1 : 0],
+    },
+    { when: q.published === "1", clause: "a.published_at IS NOT NULL", params: [] },
+    { when: q.published === "0", clause: "a.published_at IS NULL", params: [] },
+  ]);
+  const page = normalizePage(q.page);
+  const perPage = normalizePerPage(q.per_page);
+  const offset = (page - 1) * perPage;
+
+  const countRow = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM articles a WHERE " + clause,
+  )
+    .bind(...params)
+    .first<{ n: number }>();
+  const total = countRow ? Number(countRow.n) : 0;
+
+  const result = await env.DB.prepare(
+    "SELECT a.id, a.title, a.slug, a.site_id, a.category_id, a.status, a.homepage_section, a.is_featured, a.is_trending, a.published_at, a.updated_at, s.name AS site_name, c.name AS category_name FROM articles a LEFT JOIN sites s ON s.id = a.site_id LEFT JOIN categories c ON c.id = a.category_id WHERE " +
+      clause +
+      " ORDER BY a.updated_at DESC, a.id DESC LIMIT ? OFFSET ?",
+  )
+    .bind(...params, perPage, offset)
+    .all<ArticleJoinedRecord>();
+
+  return {
+    rows: (result.results ?? []).map(mapArticleRow),
+    page,
+    per_page: perPage,
+    total,
+  };
+}
+
+export interface PageListQuery {
+  site_id?: string | null;
+  search?: string | null;
+  page_type?: string | null;
+  status?: string | null;
+  page?: number | null;
+  per_page?: number | null;
+}
+
+export async function listAdminPagesFiltered(
+  env: Env,
+  q: PageListQuery,
+): Promise<ListPage<PageRowDto>> {
+  const search = typeof q.search === "string" ? q.search.trim() : "";
+  const site = typeof q.site_id === "string" ? q.site_id : "";
+  const { clause, params } = buildWhereClause([
+    { when: site === "__global__", clause: "p.site_id IS NULL", params: [] },
+    {
+      when: site.length > 0 && site !== "__global__",
+      clause: "p.site_id = ?",
+      params: [site],
+    },
+    { when: search.length > 0, clause: "p.title LIKE ?", params: [likeParam(search)] },
+    {
+      when: typeof q.page_type === "string" && q.page_type.length > 0,
+      clause: "p.page_type = ?",
+      params: [q.page_type as string],
+    },
+    {
+      when: typeof q.status === "string" && q.status.length > 0,
+      clause: "p.status = ?",
+      params: [q.status as string],
+    },
+  ]);
+  const page = normalizePage(q.page);
+  const perPage = normalizePerPage(q.per_page);
+  const offset = (page - 1) * perPage;
+
+  const countRow = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM pages p WHERE " + clause,
+  )
+    .bind(...params)
+    .first<{ n: number }>();
+  const total = countRow ? Number(countRow.n) : 0;
+
+  const result = await env.DB.prepare(
+    "SELECT p.id, p.title, p.slug, p.site_id, p.page_type, p.status, p.show_in_footer, p.updated_at, s.name AS site_name FROM pages p LEFT JOIN sites s ON s.id = p.site_id WHERE " +
+      clause +
+      " ORDER BY p.updated_at DESC, p.id DESC LIMIT ? OFFSET ?",
+  )
+    .bind(...params, perPage, offset)
+    .all<PageListRecord & { site_name: string | null }>();
+
+  return {
+    rows: (result.results ?? []).map((r) => ({
+      id: String(r.id),
+      title: r.title,
+      slug: r.slug,
+      site: r.site_name ?? "",
+      site_id: r.site_id,
+      page_type: r.page_type,
+      status: r.status,
+      show_in_footer: r.show_in_footer === 1,
+      updated_at: fmtDate(r.updated_at),
+    })),
+    page,
+    per_page: perPage,
+    total,
+  };
+}
+
+export interface CategoryListQuery {
+  site?: string | null;
+  search?: string | null;
+  vertical?: string | null;
+  page?: number | null;
+  per_page?: number | null;
+}
+
+export async function listAdminCategoriesFiltered(
+  env: Env,
+  q: CategoryListQuery,
+): Promise<ListPage<CategoryRowDto>> {
+  const search = typeof q.search === "string" ? q.search.trim() : "";
+  const site = typeof q.site === "string" ? q.site : "";
+  const vertical = typeof q.vertical === "string" ? q.vertical.trim() : "";
+  // Categories have no own site_id column — site scoping is via the
+  // site_categories allocation join; vertical scoping via category_verticals.
+  const { clause, params } = buildWhereClause([
+    { when: search.length > 0, clause: "name LIKE ?", params: [likeParam(search)] },
+    {
+      when: site === "__global__",
+      clause: "id NOT IN (SELECT category_id FROM site_categories)",
+      params: [],
+    },
+    {
+      when: site.length > 0 && site !== "__global__",
+      clause: "id IN (SELECT category_id FROM site_categories WHERE site_id = ?)",
+      params: [site],
+    },
+    {
+      when: vertical.length > 0,
+      clause:
+        "id IN (SELECT cv.category_id FROM category_verticals cv INNER JOIN verticals v ON v.id = cv.vertical_id WHERE v.slug = ?)",
+      params: [vertical],
+    },
+  ]);
+  const page = normalizePage(q.page);
+  const perPage = normalizePerPage(q.per_page);
+  const offset = (page - 1) * perPage;
+
+  const countRow = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM categories WHERE " + clause,
+  )
+    .bind(...params)
+    .first<{ n: number }>();
+  const total = countRow ? Number(countRow.n) : 0;
+
+  const result = await env.DB.prepare(
+    "SELECT id, name, slug, article_count FROM categories WHERE " +
+      clause +
+      " ORDER BY display_order ASC, name ASC LIMIT ? OFFSET ?",
+  )
+    .bind(...params, perPage, offset)
+    .all<CategoryRecord>();
+
+  return {
+    rows: (result.results ?? []).map((r) => ({
+      id: String(r.id),
+      name: r.name,
+      slug: r.slug,
+      article_count: r.article_count,
+    })),
+    page,
+    per_page: perPage,
+    total,
+  };
+}
+
+export interface TagListQuery {
+  site_id?: string | null;
+  search?: string | null;
+  page?: number | null;
+  per_page?: number | null;
+}
+
+export async function listAdminTagsFiltered(
+  env: Env,
+  q: TagListQuery,
+): Promise<ListPage<TagRowDto>> {
+  const search = typeof q.search === "string" ? q.search.trim() : "";
+  const site = typeof q.site_id === "string" ? q.site_id : "";
+  const { clause, params } = buildWhereClause([
+    { when: search.length > 0, clause: "name LIKE ?", params: [likeParam(search)] },
+    { when: site === "__global__", clause: "site_id IS NULL", params: [] },
+    {
+      when: site.length > 0 && site !== "__global__",
+      clause: "site_id = ?",
+      params: [site],
+    },
+  ]);
+  const page = normalizePage(q.page);
+  const perPage = normalizePerPage(q.per_page);
+  const offset = (page - 1) * perPage;
+
+  const countRow = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM tags WHERE " + clause,
+  )
+    .bind(...params)
+    .first<{ n: number }>();
+  const total = countRow ? Number(countRow.n) : 0;
+
+  const result = await env.DB.prepare(
+    "SELECT id, name, slug, site_id, article_count FROM tags WHERE " +
+      clause +
+      " ORDER BY name ASC LIMIT ? OFFSET ?",
+  )
+    .bind(...params, perPage, offset)
+    .all<TagRecord>();
+
+  return {
+    rows: (result.results ?? []).map((r) => ({
+      id: String(r.id),
+      name: r.name,
+      slug: r.slug,
+      site_id: r.site_id,
+      article_count: r.article_count,
+    })),
+    page,
+    per_page: perPage,
+    total,
+  };
 }
