@@ -9,6 +9,9 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import type { ArticleRow, MediaRow, CategoryRow } from "../db";
+// T23: settings PATCH boundary hardening — key allow-list + per-field script
+// validation that rejects stored-XSS vectors before they are ever persisted.
+import { ALLOWED_SETTINGS_KEYS, validateScriptField } from "../settings/custom-html";
 import {
   listSitesHandler,
   createSiteHandler,
@@ -623,6 +626,16 @@ api.patch("/api/admin/settings", async (c) => {
     return c.json({ error: "updates must contain at least one key" }, 400);
   }
 
+  // T23 (AC2): enforce the settings key allow-list. An unknown key never
+  // reaches the D1 batch — this stops arbitrary-key writes (the old handler
+  // UPSERTed any key the caller sent) and is the first half of the
+  // ALLOWED_SETTINGS_KEYS + validateScriptField boundary.
+  for (const key of keys) {
+    if (!ALLOWED_SETTINGS_KEYS.has(key)) {
+      return c.json({ error: `unknown setting key: '${key}'` }, 400);
+    }
+  }
+
   const existingSite = await c.env.DB.prepare(
     "SELECT id, settings_version FROM sites WHERE id = ? LIMIT 1",
   )
@@ -643,6 +656,13 @@ api.patch("/api/admin/settings", async (c) => {
         { error: `value for '${key}' must be a string` },
         400,
       );
+    }
+    // T23 (AC2): reject the XSS vectors (inline event handlers, javascript:
+    // URIs, and <script> inside the pure-HTML fields) before the value is
+    // stored. Render-time sanitizeSettingsHtml is the defence-in-depth layer.
+    const verdict = validateScriptField(key, raw);
+    if (!verdict.ok) {
+      return c.json({ error: verdict.reason }, 400);
     }
     statements.push(
       c.env.DB.prepare(

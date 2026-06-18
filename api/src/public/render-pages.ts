@@ -36,6 +36,31 @@ import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
+import { renderCustomHead, renderCustomFooter } from "../settings/custom-html";
+
+// T23: load the per-site operator snippets (custom_head_html / analytics_script
+// / ad_header_script / custom_footer_html) and return the SANITIZED <head>/
+// footer fragments renderLayout injects into the LIVE page. Every public
+// surface calls this so the stored snippets finally render (BCL-045) — safely.
+async function loadCustomLayoutHtml(
+  db: D1Database,
+  siteId: string,
+): Promise<{ customHead?: string; customFooter?: string }> {
+  const result = await db
+    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
+    .bind(siteId)
+    .all<{ key: string; value: string | null }>();
+  const settings: Record<string, string> = {};
+  for (const row of result.results ?? []) {
+    if (typeof row.value === "string") settings[row.key] = row.value;
+  }
+  const customHead = renderCustomHead(settings);
+  const customFooter = renderCustomFooter(settings);
+  return {
+    customHead: customHead.length > 0 ? customHead : undefined,
+    customFooter: customFooter.length > 0 ? customFooter : undefined,
+  };
+}
 
 function isoDate(seconds: number | null | undefined): string {
   if (!seconds || !Number.isFinite(seconds)) return new Date(0).toISOString();
@@ -123,6 +148,7 @@ export async function renderHomepageHtml(
   const adsConfig = await loadAdsConfig(db, siteContext.siteId);
   const adsOn = shouldShowAds(adsConfig, { path: "/", loggedIn: false });
   const adHead = adHeadHtml(adsConfig, adsOn);
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderHome({ vm, ads: adsOn ? adsConfig : undefined });
   return renderLayout({
@@ -143,6 +169,8 @@ export async function renderHomepageHtml(
     },
     body,
     extraHead: adHead.length > 0 ? adHead : undefined,
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
   });
 }
 
@@ -234,6 +262,7 @@ export async function renderArticleHtml(
     loggedIn: false,
   });
   const adHead = adHeadHtml(adsConfig, adsOn);
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderArticle({
     vm,
@@ -272,6 +301,8 @@ export async function renderArticleHtml(
       adHead.length > 0
         ? `${jsonLdHead.join("\n")}\n${adHead}`
         : jsonLdHead.join("\n"),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
   });
 }
 
@@ -308,6 +339,7 @@ export async function renderCategoryHtml(
     siteId: siteContext.siteId,
     hostname: siteContext.hostname,
   });
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   // Paginated category pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/category/${slug}`;
@@ -432,6 +464,8 @@ export async function renderCategoryHtml(
     body,
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite }),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
     extraHead:
       adHead.length > 0
         ? `${jsonLdHead.join("\n")}\n${adHead}`
@@ -461,6 +495,7 @@ export async function renderTagHtml(
     siteId: siteContext.siteId,
     hostname: siteContext.hostname,
   });
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   // Paginated tag pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/tag/${slug}`;
@@ -557,6 +592,8 @@ export async function renderTagHtml(
     body,
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite }),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
   });
 }
@@ -588,6 +625,7 @@ export async function renderPageHtml(
     siteId: siteContext.siteId,
     hostname: siteContext.hostname,
   });
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
 
   const headerSite = {
@@ -635,6 +673,8 @@ export async function renderPageHtml(
     body,
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite }),
+    customHead: customHtml.customHead,
+    customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
   });
 }

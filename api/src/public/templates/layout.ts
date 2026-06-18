@@ -62,9 +62,17 @@ export interface RenderLayoutArgs {
   header?: string;
   footer?: string;
   bodyClass?: string;
-  // Extra `<head>` HTML the caller assembled (already escaped). Used by
-  // T15 to inject site_settings.custom_head_html.
+  // Extra `<head>` HTML the caller assembled (already escaped). Used for the
+  // ad provider/manager scripts and JSON-LD.
   extraHead?: string;
+  // T23: operator custom-HTML/script snippets, ALREADY sanitized by
+  // renderCustomHead / renderCustomFooter (settings/custom-html.ts).
+  //   customHead   -> emitted at the END of <head> (custom_head_html +
+  //                   analytics_script + ad_header_script).
+  //   customFooter -> emitted just before </body> (custom_footer_html).
+  // These close BCL-045: the snippets were stored but never rendered.
+  customHead?: string;
+  customFooter?: string;
 }
 
 function escapeHtmlAttr(input: string): string {
@@ -150,6 +158,9 @@ export function renderLayout(args: RenderLayoutArgs): string {
   const footer = args.footer ?? "";
   const bodyClass = args.bodyClass ?? "";
   const extraHead = args.extraHead ?? "";
+  // T23: pre-sanitized operator snippets (renderCustomHead/renderCustomFooter).
+  const customHead = args.customHead ?? "";
+  const customFooter = args.customFooter ?? "";
 
   // brandTokens (camelCase) is the canonical view-model shape; brand_tokens
   // (snake_case) is the legacy alias from older callers. Prefer camelCase
@@ -203,6 +214,7 @@ ${linkTags}
 ${styleBlock}
 ${jsonLdBlocks}
 ${extraHead}
+${customHead}
 </head>
 <body class="${escapeHtmlAttr(bodyClass)}">
 <a class="skip-to-content" href="#main-content">Skip to content</a>
@@ -210,6 +222,7 @@ ${header}
 <main id="main-content">${body}</main>
 ${footer}
 <script src="/assets/public.js" defer></script>
+${customFooter}
 </body>
 </html>`;
 }
