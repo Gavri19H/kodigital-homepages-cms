@@ -269,12 +269,18 @@ export async function buildHomeViewModel(
   const articleRows = articlesResult.results ?? [];
 
   // Query 2 — categories assigned to this site (via the vertical join).
+  // T30.AC2: the per-category Show-on-homepage toggle (categories
+  // .show_on_homepage, migration 0018) gates the public chip-rail —
+  // `AND c.show_on_homepage = 1` makes flipping the toggle in the admin
+  // editor reflected publicly. The column defaults to 0, so a category is
+  // opt-in to the homepage; the SELECT prefix is unchanged so the existing
+  // view-model fakes still match.
   const categoriesResult = await db
     .prepare(
       "SELECT c.id AS id, c.slug AS slug, c.name AS name " +
         "FROM categories c " +
         "INNER JOIN site_categories sc ON sc.category_id = c.id " +
-        "WHERE sc.site_id = ? " +
+        "WHERE sc.site_id = ? AND c.show_on_homepage = 1 " +
         "ORDER BY sc.display_order ASC, c.name ASC " +
         "LIMIT ?",
     )

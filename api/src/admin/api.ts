@@ -31,6 +31,7 @@ import {
   deletePageHandler,
 } from "./pages-crud-handlers";
 import {
+  getCategoryHandler,
   updateCategoryHandler,
   deleteCategoryHandler,
   createTagHandler,
@@ -513,6 +514,10 @@ api.post("/api/admin/categories", async (c) => {
 // admin-side edits PUT/DELETE /api/admin/categories/:id; tagsListPage
 // create modal POSTs /api/admin/tags, row Delete DELETEs
 // /api/admin/tags/:id). Handlers live in ./taxonomy-crud-handlers.ts.
+// T30.AC1: GET detail route — the edit screen loads one record (incl.
+// description + show_on_homepage) before PUTting it back. Distinct path
+// segment from the GET list above, so no Hono route collision.
+api.get("/api/admin/categories/:id", getCategoryHandler);
 api.put("/api/admin/categories/:id", updateCategoryHandler);
 api.delete("/api/admin/categories/:id", deleteCategoryHandler);
 api.post("/api/admin/tags", createTagHandler);

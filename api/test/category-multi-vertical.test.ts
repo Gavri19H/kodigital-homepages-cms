@@ -595,10 +595,23 @@ describe("PUT/DELETE /api/admin/categories/:id (T30.AC1)", () => {
     );
     expect(update).toBeDefined();
     // Static SQL with every value bound — retained fields (parent_id,
-    // featured_image_id) carry the existing row's values.
+    // featured_image_id) carry the existing row's values. T30 (BCL-014)
+    // extended the UPDATE with description + show_on_homepage; this body
+    // omits both so they retain (EXISTING predates 0018 → null / 0).
     expect(update?.sql).toContain("slug = ?");
+    expect(update?.sql).toContain("description = ?");
+    expect(update?.sql).toContain("show_on_homepage = ?");
     expect(update?.sql).not.toContain("trip-tips");
-    expect(update?.binds).toEqual(["trip-tips", "Trip Tips", null, null, 5, 7]);
+    expect(update?.binds).toEqual([
+      "trip-tips",
+      "Trip Tips",
+      null,
+      null,
+      5,
+      null,
+      0,
+      7,
+    ]);
   });
 
   it("PUT refuses a slug collision with 409 (no UPDATE issued)", async () => {

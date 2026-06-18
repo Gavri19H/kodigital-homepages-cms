@@ -44,6 +44,11 @@ export interface CategoryCrudRow {
   featured_image_id: number | null;
   display_order: number;
   article_count: number;
+  // T30 (BCL-014): the editor's Description + Show-on-homepage controls
+  // (categories columns added by migration 0018) MUST round-trip through
+  // the GET detail + PUT update paths — no write may silently drop them.
+  description: string | null;
+  show_on_homepage: number;
 }
 
 export interface TagCrudRow {
@@ -61,6 +66,8 @@ interface CategoryUpdateBody {
   parent_id?: unknown;
   featured_image_id?: unknown;
   display_order?: unknown;
+  description?: unknown;
+  show_on_homepage?: unknown;
 }
 
 interface TagCreateBody {
@@ -70,7 +77,7 @@ interface TagCreateBody {
 }
 
 const CATEGORY_COLUMNS =
-  "id, slug, name, parent_id, featured_image_id, display_order, article_count";
+  "id, slug, name, parent_id, featured_image_id, display_order, article_count, description, show_on_homepage";
 
 // Legacy isValidId port: positive decimal integer route param.
 function parseNumericId(raw: string | undefined): number | null {
@@ -126,10 +133,34 @@ async function siteHasCategory(
   return row !== null && row !== undefined;
 }
 
+// GET /api/admin/categories/:id — the edit-screen detail route (T30.AC1).
+// Returns the SINGLE category record with every editable column
+// (description + show_on_homepage included) so the edit form can hydrate
+// what it will later PUT back. 400 invalid id; 404 unknown category; 200
+// { item } on success.
+export async function getCategoryHandler(
+  c: Context<{ Bindings: Env }>,
+): Promise<Response> {
+  const id = parseNumericId(c.req.param("id"));
+  if (id === null) return c.json({ error: "Invalid category ID" }, 400);
+
+  const row = await c.env.DB.prepare(
+    "SELECT " + CATEGORY_COLUMNS + " FROM categories WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<CategoryCrudRow>();
+  if (row === null || row === undefined) {
+    return c.json({ error: "Category not found" }, 404);
+  }
+
+  return c.json({ item: row });
+}
+
 // PUT /api/admin/categories/:id — partial field update (slug, name,
-// parent_id, featured_image_id, display_order; absent fields are
-// RETAINED). 400 invalid id/body; 403 tenant mismatch when a site_id is
-// named; 404 unknown category; 409 slug collision.
+// parent_id, featured_image_id, display_order, description,
+// show_on_homepage; absent fields are RETAINED). 400 invalid id/body; 403
+// tenant mismatch when a site_id is named; 404 unknown category; 409 slug
+// collision.
 export async function updateCategoryHandler(
   c: Context<{ Bindings: Env }>,
 ): Promise<Response> {
@@ -144,7 +175,7 @@ export async function updateCategoryHandler(
   }
 
   const existing = await c.env.DB.prepare(
-    "SELECT id, slug, name, parent_id, featured_image_id, display_order, article_count FROM categories WHERE id = ? LIMIT 1",
+    "SELECT " + CATEGORY_COLUMNS + " FROM categories WHERE id = ? LIMIT 1",
   )
     .bind(id)
     .first<CategoryCrudRow>();
@@ -214,10 +245,40 @@ export async function updateCategoryHandler(
       ? orderField.value
       : existing.display_order;
 
+  // T30 (BCL-014): description + show_on_homepage MUST persist on EDIT, not
+  // only on CREATE. "provided" semantics mirror the nullable-int helper:
+  // an ABSENT key retains the existing value; a present `description` of
+  // null/"" clears it to null; a present `show_on_homepage` coerces to the
+  // 0/1 flag (same truthy set as the POST create path). `?? null`/`?? 0`
+  // guard rows predating migration 0018.
+  const nextDescription =
+    "description" in fields
+      ? typeof body.description === "string" && body.description.trim().length > 0
+        ? body.description.trim()
+        : null
+      : (existing.description ?? null);
+  const nextShowOnHomepage =
+    "show_on_homepage" in fields
+      ? body.show_on_homepage === 1 ||
+        body.show_on_homepage === true ||
+        body.show_on_homepage === "1"
+        ? 1
+        : 0
+      : (existing.show_on_homepage ?? 0);
+
   await c.env.DB.prepare(
-    "UPDATE categories SET slug = ?, name = ?, parent_id = ?, featured_image_id = ?, display_order = ? WHERE id = ?",
+    "UPDATE categories SET slug = ?, name = ?, parent_id = ?, featured_image_id = ?, display_order = ?, description = ?, show_on_homepage = ? WHERE id = ?",
   )
-    .bind(nextSlug, nextName, nextParent, nextImage, nextOrder, id)
+    .bind(
+      nextSlug,
+      nextName,
+      nextParent,
+      nextImage,
+      nextOrder,
+      nextDescription,
+      nextShowOnHomepage,
+      id,
+    )
     .run();
 
   const updated = await c.env.DB.prepare(
