@@ -11752,3 +11752,62 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
   - D13 runner_command_rendered (RC-065)                        => PASS
   - Q3 story_quality_checks_command_rendered (T38)              => PASS (4 checks, receipts written)
 ---
+
+## 2026-06-18 - T39 (sources: T39) — Resume a stalled provisioning job from the UI
+- Implemented: a stalled site build can be resumed to status='active' from the
+  admin Domains screen, with a re-openable progress panel that shows live status.
+- Backend:
+  - resumeProvisioning(env, db, site_id) in site-provisioning/runner.ts — handles
+    BOTH stall modes: a parked 'failed' job is reset to 'running' (last_error
+    cleared) so the failed step re-attempts; a mid-build 'running'/'pending' job
+    resumes as-is. Then loops the idempotent advanceNextStep
+    (runProvisioningToCompletion) until update_launch_readiness flips the site
+    'draft'->'active'. no_job / already_completed are no-ops (resumed=false).
+  - provisionResumeHandler -> POST /api/admin/sites/:id/provision/resume
+    (site-provisioning/index.ts), registered in admin/api.ts. Missing site/job
+    => 404; returns {status, site_status, resumed, completed}. Dry-run-safe
+    (reuses the create-path runner; zero outbound api.cloudflare.com fetch).
+- UI (admin/templates/domains.ts, ES5 inline):
+  - Actions menu "Resume build" (drives resume + opens panel) + "View progress"
+    (re-opens panel read-only) + a Close control on the panel (re-openable).
+  - openProgressPanel poll now reads the REAL GET /provision shape
+    (resource.status / step_key / current_step + launch_readiness) so it shows
+    live status; textContent-only (no markup assignment) — XSS guardrail.
+- Files changed:
+  - api/src/site-provisioning/runner.ts (resumeProvisioning + ResumeResult)
+  - api/src/site-provisioning/index.ts (provisionResumeHandler + re-exports)
+  - api/src/admin/api.ts (POST .../provision/resume route + import)
+  - api/src/admin/templates/domains.ts (Resume/View-progress actions, Close,
+    re-openable panel, real-shape poll)
+  - api/test/provisioning-resume.test.ts (NEW — 8 behavioral tests, RC-066/T39-AC1)
+- Self-check results:
+  - File sizes: runner.ts 383, index.ts 247, api.ts 1132, domains.ts 546,
+    provisioning-resume.test.ts 792 (test). All product files pre-existing above
+    the 200 TS soft default; additions modest + in-pattern, no per-story
+    maxFileLines declared. FLAG: api.ts/domains.ts large — split candidates. — NOTE
+  - Secret scan: PASS (no hardcoded secrets in changed product files).
+  - Error handling: PASS (handler try/catch -> 500; 400 invalid id; 404
+    missing site/job; resumeProvisioning non-throwing, reuses swallowing runner).
+  - Migration execution: N/A (no new migration; existing phase-3 job schema).
+  - Parameterized queries: PASS (new SQL uses static text + .bind(); no
+    template-literal interpolation).
+  - T13.AC1 grep invariant (get|post|patch "/sites" >= 4): satisfied (now 8 hits;
+    a 5th+ POST is safe per the documented operator >= 4).
+- Tests run:
+  - cd api && npx vitest run test/provisioning-resume.test.ts  => 8 passed
+  - cd api && npx tsc --noEmit                                  => exit 0
+  - cd api && npx vitest run (full suite)                       => 164 files, 1342 passed
+  - D13 runner_command_rendered (RC-066)                        => PASS (parse_test_output)
+  - Q3 story_quality_checks_command_rendered (T39)              => PASS (4 checks: api/db/job/outbound, receipts written)
+- Learnings:
+  - To behaviorally prove a "resume a STALLED build" story without a real D1,
+    drive the build PART-WAY with runProvisioningToCompletion(env,db,id,N) (the
+    max_iterations arg stops after N steps) to deliberately stall it, then call
+    the resume path; the in-memory fake's side-effect tables carry the partial
+    state so the resume genuinely continues (not a fresh run). Park a 'failed'
+    stall by mutating the exposed fake `job.status='failed'` after the partial.
+  - resumeProvisioning resets 'failed'->'running' via a DISTINCT SQL
+    (`SET status='running', last_error=NULL`) so the fake must branch on that
+    substring BEFORE the generic `UPDATE site_creation_jobs SET` branch
+    (advanceJobPointer), else the 1-bind reset is mis-destructured.
+---
