@@ -108,14 +108,6 @@ export interface ArticleListFilters {
   published?: string;
 }
 
-const HOMEPAGE_SECTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "", label: "— None —" },
-  { value: "hero", label: "Hero" },
-  { value: "featured", label: "Featured" },
-  { value: "trending", label: "Trending" },
-  { value: "secondary", label: "Secondary" },
-];
-
 const STATUS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "draft", label: "Draft" },
   { value: "published", label: "Published" },
@@ -164,13 +156,6 @@ function renderStatusOptions(selected?: string, includeBlank?: boolean): string 
     return `<option value="${s.value}"${selectedAttr(selected, s.value)}>${escapeHtml(s.label)}</option>`;
   }).join("");
   return blank + opts;
-}
-
-function renderHomepageSectionOptions(selected?: string | null): string {
-  return HOMEPAGE_SECTIONS.map((s) => {
-    const sel = (selected ?? "") === s.value ? " selected" : "";
-    return `<option value="${s.value}"${sel}>${escapeHtml(s.label)}</option>`;
-  }).join("");
 }
 
 function renderToolbar(sites: ReadonlyArray<SiteOption>, verticals: ReadonlyArray<VerticalOption>, categories: ReadonlyArray<CategoryOption>, filters: ArticleListFilters): string {
@@ -359,7 +344,7 @@ function renderAuthorCard(a: ArticleFormValues, isEdit: boolean, branding: Artic
     <div class="card-header"><h3 class="card-title">Author</h3></div>
     <div class="form-group">
       <label for="article-author-name" class="form-label">Author name</label>
-      <input id="article-author-name" name="author_name" type="text" class="form-input" value="${authorNameVal}" />
+      <input id="article-author-name" name="author_name" type="text" class="form-input" value="${authorNameVal}" required />
     </div>
     <div class="form-group">
       <label for="article-author-bio" class="form-label">Author bio</label>
@@ -490,12 +475,6 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
   <div class="card">
     <div class="card-header"><h3 class="card-title">Homepage placement</h3></div>
     <div class="form-group">
-      <label for="article-homepage-section" class="form-label">Homepage section</label>
-      <select id="article-homepage-section" name="homepage_section" class="form-select">
-        ${renderHomepageSectionOptions(a.homepage_section)}
-      </select>
-    </div>
-    <div class="form-group">
       <label for="article-homepage-rank" class="form-label">Homepage rank</label>
       <input id="article-homepage-rank" name="homepage_rank" type="number" min="0" step="1" class="form-input" value="${escapeHtml(homepageRankVal)}" />
     </div>
@@ -566,7 +545,6 @@ const ARTICLE_FORM_SCRIPT = `
       status: fd.get('status') || 'draft',
       excerpt: fd.get('excerpt') || '',
       content_json: fd.get('content_json') || '',
-      homepage_section: fd.get('homepage_section') || null,
       homepage_rank: fd.get('homepage_rank') ? Number(fd.get('homepage_rank')) : null,
       is_featured: toBool(fd.get('is_featured')) ? 1 : 0,
       is_trending: toBool(fd.get('is_trending')) ? 1 : 0,
