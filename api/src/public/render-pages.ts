@@ -334,6 +334,7 @@ export async function renderCategoryHtml(
   articles: ArticleRow[],
   pageNum: number,
   slug: string,
+  pageSize: number = PUBLIC_PAGE_SIZE,
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
@@ -428,7 +429,7 @@ export async function renderCategoryHtml(
         : `/category/${slug}/page/${pageNum - 1}`
       : null;
   const nextPath =
-    articles.length >= PUBLIC_PAGE_SIZE
+    articles.length >= pageSize
       ? `/category/${slug}/page/${pageNum + 1}`
       : null;
   const paginationLinks: Array<{ rel: string; href: string }> = [];
@@ -490,6 +491,7 @@ export async function renderTagHtml(
   articles: ArticleRow[],
   pageNum: number,
   slug: string,
+  pageSize: number = PUBLIC_PAGE_SIZE,
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
@@ -556,7 +558,7 @@ export async function renderTagHtml(
         : `/tag/${slug}/page/${pageNum - 1}`
       : null;
   const nextPath =
-    articles.length >= PUBLIC_PAGE_SIZE
+    articles.length >= pageSize
       ? `/tag/${slug}/page/${pageNum + 1}`
       : null;
   const paginationLinks: Array<{ rel: string; href: string }> = [];

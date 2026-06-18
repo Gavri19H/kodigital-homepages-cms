@@ -183,7 +183,7 @@ describe("router /robots.txt KV cache (T13)", () => {
     const db2 = makeDb(domains, [
       {
         site_id: "site_R",
-        key: "robots_txt",
+        key: "robots_txt_content",
         value: "User-agent: *\nDisallow: /\n",
       },
     ]);
@@ -231,7 +231,7 @@ describe("router /robots.txt KV cache (T13)", () => {
   it("per-site override is served from cache after first miss", async () => {
     const customRobots = "User-agent: Googlebot\nDisallow: /private/\n";
     const db = makeDb(domains, [
-      { site_id: "site_R", key: "robots_txt", value: customRobots },
+      { site_id: "site_R", key: "robots_txt_content", value: customRobots },
     ]);
     const { kv, store } = makeKv();
     const app = makeApp();
@@ -285,7 +285,7 @@ describe("router /ads.txt KV cache (T13)", () => {
     const db2 = makeDb(domains, [
       {
         site_id: "site_R",
-        key: "ads_txt",
+        key: "ads_txt_content",
         value: "google.com, pub-1234567890, DIRECT, abcd1234\n",
       },
     ]);
@@ -304,7 +304,7 @@ describe("router /ads.txt KV cache (T13)", () => {
   it("per-site override is served + cached after miss", async () => {
     const adsBody = "google.com, pub-0000, DIRECT, deadbeef\n";
     const db = makeDb(domains, [
-      { site_id: "site_R", key: "ads_txt", value: adsBody },
+      { site_id: "site_R", key: "ads_txt_content", value: adsBody },
     ]);
     const { kv, store } = makeKv();
     const app = makeApp();

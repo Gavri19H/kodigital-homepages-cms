@@ -65,19 +65,37 @@ export async function fetchCategory(
   return row ?? null;
 }
 
+// T27 (BCL-049): the operator-configured `items_per_page` site setting was
+// dead — category/tag listings hardcoded PUBLIC_PAGE_SIZE=20. resolvePageSize
+// reads the setting (via the same fetchSiteSetting reader the public router
+// uses) and clamps it to the 1..100 range the admin number control enforces
+// (admin/templates/settings.ts: min=1 max=100). Falls back to the
+// PUBLIC_PAGE_SIZE default when the setting is unset or non-numeric.
+export async function resolvePageSize(
+  db: D1Database,
+  siteId: string,
+): Promise<number> {
+  const raw = await fetchSiteSetting(db, siteId, "items_per_page");
+  if (raw === null) return PUBLIC_PAGE_SIZE;
+  const parsed = parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return PUBLIC_PAGE_SIZE;
+  return Math.min(parsed, 100);
+}
+
 export async function fetchCategoryArticles(
   db: D1Database,
   categoryId: number,
   siteId: string,
   page: number,
+  pageSize: number = PUBLIC_PAGE_SIZE,
 ): Promise<ArticleRow[]> {
-  const offset = Math.max(0, (page - 1) * PUBLIC_PAGE_SIZE);
+  const offset = Math.max(0, (page - 1) * pageSize);
   const result = await db
     .prepare(
       "SELECT * FROM articles WHERE category_id = ? AND site_id = ? AND status = 'published' " +
         "ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
     )
-    .bind(categoryId, siteId, PUBLIC_PAGE_SIZE, offset)
+    .bind(categoryId, siteId, pageSize, offset)
     .all<ArticleRow>();
   return result.results ?? [];
 }
@@ -107,8 +125,9 @@ export async function fetchTagArticles(
   tagId: number,
   siteId: string,
   page: number,
+  pageSize: number = PUBLIC_PAGE_SIZE,
 ): Promise<ArticleRow[]> {
-  const offset = Math.max(0, (page - 1) * PUBLIC_PAGE_SIZE);
+  const offset = Math.max(0, (page - 1) * pageSize);
   const result = await db
     .prepare(
       "SELECT a.* FROM articles a " +
@@ -116,7 +135,7 @@ export async function fetchTagArticles(
         "WHERE atg.tag_id = ? AND a.site_id = ? AND a.status = 'published' " +
         "ORDER BY a.published_at DESC, a.id DESC LIMIT ? OFFSET ?",
     )
-    .bind(tagId, siteId, PUBLIC_PAGE_SIZE, offset)
+    .bind(tagId, siteId, pageSize, offset)
     .all<ArticleRow>();
   return result.results ?? [];
 }

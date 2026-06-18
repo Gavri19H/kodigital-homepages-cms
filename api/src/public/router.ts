@@ -44,6 +44,7 @@ import {
   fetchTagArticles,
   fetchSitemapPages,
   fetchSiteSetting,
+  resolvePageSize,
   checkRedirect,
 } from "./queries";
 import {
@@ -246,11 +247,15 @@ async function handleCategory(
   const siteContext = c.get("siteContext");
   const cat = await fetchCategory(c.env.DB, slug);
   if (!cat) return publicErrorResponse(c, 404);
+  // T27 (BCL-049): honor the operator's items_per_page setting (was hardcoded
+  // 20). The same page size drives both the query LIMIT and the rel=next link.
+  const pageSize = await resolvePageSize(c.env.DB, siteContext.siteId);
   const articles = await fetchCategoryArticles(
     c.env.DB,
     cat.id,
     siteContext.siteId,
     pageNum,
+    pageSize,
   );
   const path =
     pageNum === 1 ? `/category/${slug}` : `/category/${slug}/page/${pageNum}`;
@@ -265,7 +270,15 @@ async function handleCategory(
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () =>
-      renderCategoryHtml(c.env.DB, siteContext, cat, articles, pageNum, slug),
+      renderCategoryHtml(
+        c.env.DB,
+        siteContext,
+        cat,
+        articles,
+        pageNum,
+        slug,
+        pageSize,
+      ),
   });
 }
 
@@ -278,11 +291,14 @@ async function handleTag(c: CategoryCtx, pageNum: number): Promise<Response> {
   const siteContext = c.get("siteContext");
   const tag = await fetchTag(c.env.DB, slug, siteContext.siteId);
   if (!tag) return publicErrorResponse(c, 404);
+  // T27 (BCL-049): items_per_page governs the tag listing length too.
+  const pageSize = await resolvePageSize(c.env.DB, siteContext.siteId);
   const articles = await fetchTagArticles(
     c.env.DB,
     tag.id,
     siteContext.siteId,
     pageNum,
+    pageSize,
   );
   const path = pageNum === 1 ? `/tag/${slug}` : `/tag/${slug}/page/${pageNum}`;
   return servePublicHtml(c.env, siteContext, {
@@ -291,7 +307,15 @@ async function handleTag(c: CategoryCtx, pageNum: number): Promise<Response> {
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () =>
-      renderTagHtml(c.env.DB, siteContext, tag, articles, pageNum, slug),
+      renderTagHtml(
+        c.env.DB,
+        siteContext,
+        tag,
+        articles,
+        pageNum,
+        slug,
+        pageSize,
+      ),
   });
 }
 
@@ -463,13 +487,20 @@ router.get("/robots.txt", async (c) => {
       headers: robotsAdsCacheHeaders(),
     });
   }
+  // T27 (BCL-049): the admin writes `robots_txt_content` (admin/templates/
+  // settings.ts) but this reader looked up `robots_txt`, so operator edits
+  // never applied. Read the aligned key and substitute the {{DOMAIN}}
+  // placeholder (documented in the admin field help) with the live hostname.
   const override = await fetchSiteSetting(
     env.DB,
     siteContext.siteId,
-    "robots_txt",
+    "robots_txt_content",
   );
   const baseUrl = siteInfo(env, siteContext).baseUrl;
-  const body = override ?? buildRobotsTxt(baseUrl);
+  const body =
+    override !== null
+      ? override.split("{{DOMAIN}}").join(siteContext.hostname)
+      : buildRobotsTxt(baseUrl);
   await cacheSet(env, key, body, {
     expirationTtl: parseNumber(
       env.HTML_CACHE_TTL_SECONDS,
@@ -493,10 +524,12 @@ router.get("/ads.txt", async (c) => {
       headers: robotsAdsCacheHeaders(),
     });
   }
+  // T27 (BCL-049): the admin writes `ads_txt_content`; this reader looked up
+  // `ads_txt`, so operator edits never applied. Read the aligned key.
   const override = await fetchSiteSetting(
     env.DB,
     siteContext.siteId,
-    "ads_txt",
+    "ads_txt_content",
   );
   // T22: the ads subsystem owns the /ads.txt body resolution — an operator
   // override wins, else the documented default placeholder.

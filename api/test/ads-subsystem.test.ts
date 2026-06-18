@@ -166,8 +166,8 @@ function makeKv(): KVNamespace {
   } as unknown as KVNamespace;
 }
 
-// `adsTxtOverride` null → the ads_txt setting is absent, so /ads.txt must fall
-// back to ADS_TXT_DEFAULT; a string → the operator override must be served.
+// `adsTxtOverride` null → the ads_txt_content setting is absent, so /ads.txt
+// must fall back to ADS_TXT_DEFAULT; a string → the operator override is served.
 function makeDb(adsTxtOverride: string | null): D1Database {
   const db = {
     prepare(sql: string) {
@@ -185,7 +185,7 @@ function makeDb(adsTxtOverride: string | null): D1Database {
           }
           if (sql.startsWith("SELECT value FROM site_settings")) {
             const key = captured[1] as string;
-            if (key === "ads_txt") {
+            if (key === "ads_txt_content") {
               return (adsTxtOverride === null
                 ? null
                 : { value: adsTxtOverride }) as unknown as T | null;

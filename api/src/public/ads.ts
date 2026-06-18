@@ -19,7 +19,7 @@
 //   ad_lazy_load_margin    e.g. "200px"          observer rootMargin
 //   ad_disable_logged_in   "1"/"true"            hide ads for signed-in users
 //   ad_excluded_pages      newline/comma paths   pages that never show ads
-//   ads_txt                full ads.txt body     /ads.txt override
+//   ads_txt_content        full ads.txt body     /ads.txt override (T27)
 
 import { ADS_TXT_DEFAULT } from "./sitemap";
 
@@ -144,8 +144,9 @@ export function parseAdsConfig(
     disableForLoggedIn: parseBool(settings.ad_disable_logged_in, false),
     excludedPages: parseExcludedPages(settings.ad_excluded_pages),
     adsTxt:
-      settings.ads_txt !== undefined && settings.ads_txt.length > 0
-        ? settings.ads_txt
+      settings.ads_txt_content !== undefined &&
+      settings.ads_txt_content.length > 0
+        ? settings.ads_txt_content
         : null,
   };
 }
@@ -261,8 +262,8 @@ export function renderAdManagerScript(config: AdsConfig): string {
   return `<script>${body}</script>`;
 }
 
-// /ads.txt body resolution: an operator override (the ads_txt site setting,
-// or AdsConfig.adsTxt) wins; otherwise the documented default placeholder.
+// /ads.txt body resolution: an operator override (the ads_txt_content site
+// setting, or AdsConfig.adsTxt) wins; otherwise the documented default placeholder.
 export function resolveAdsTxt(args: {
   override?: string | null;
   config?: AdsConfig;
