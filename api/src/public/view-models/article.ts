@@ -23,6 +23,7 @@ import {
   formatReadTime,
   buildDateline,
 } from "../templates/format";
+import { mediaUrl } from "./media-url";
 
 export interface ArticleSiteContext {
   siteId: string;
@@ -307,9 +308,13 @@ export function adaptBodyBlocks(
       }
       case "image":
       case "img": {
+        const rawSrc = asString(b.src).length > 0 ? asString(b.src) : asString(b.url);
         blocks.push({
           type: "image",
-          src: asString(b.src).length > 0 ? asString(b.src) : asString(b.url),
+          // T2: body-image src flows through the /media/ route. The editor
+          // already persists "/media/<key>" (left unchanged); a legacy bare
+          // storage key is prefixed so the inline image still loads.
+          src: mediaUrl(rawSrc) ?? "",
           alt: asString(b.alt),
           caption: typeof b.caption === "string" && b.caption.length > 0 ? b.caption : null,
         });
@@ -381,7 +386,8 @@ function toRelatedCard(row: RelatedRow): ArticleCard {
     title: row.title,
     excerpt: excerptFromText(plain, 160),
     href: `/article/${row.slug}`,
-    imageUrl: row.image_url ?? null,
+    // T2: related-card image goes through the /media/ route (null stays null).
+    imageUrl: mediaUrl(row.image_url),
     imageAlt: row.image_alt ?? null,
     publishedAt: formatPublishedAtIso(row.published_at),
     categoryName: row.category_name ?? "",
@@ -504,7 +510,10 @@ export async function buildArticleViewModel(
     readMinutesDisplay: formatReadTime(contentText),
     dateline: buildDateline(publishedAtIso, contentText),
     author,
-    imageUrl: articleRow.image_url ?? null,
+    // T2: article-hero image goes through the /media/ route. meta.ogImage is
+    // derived from this value below, so og:image is fixed in lockstep. A null
+    // storage_key yields null — never "/media/null".
+    imageUrl: mediaUrl(articleRow.image_url),
     imageAlt: articleRow.image_alt ?? null,
     categoryName,
     categorySlug,

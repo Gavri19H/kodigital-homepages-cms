@@ -23,6 +23,8 @@
 // matches `^public-view-models-home.*site[_-]?isolation` per the
 // implementation digest.
 
+import { mediaUrl } from "./media-url";
+
 export interface HomeSiteContext {
   siteId: string;
   hostname: string;
@@ -202,7 +204,9 @@ function toCard(row: ArticleListingRow): HomeArticleCard {
     title: row.title,
     excerpt: excerptFromHtml(row.content_html),
     href: `/article/${row.slug}`,
-    imageUrl: row.image_url ?? null,
+    // T2: row.image_url is the bare media.storage_key — serve it through the
+    // /media/ route so the card image actually loads (null stays null).
+    imageUrl: mediaUrl(row.image_url),
     imageAlt: row.image_alt ?? null,
     publishedAt: formatPublishedAt(row.published_at),
     categoryName: row.category_name ?? "",
