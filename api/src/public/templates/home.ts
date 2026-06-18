@@ -296,6 +296,7 @@ export function renderHome(args: RenderHomeArgs): string {
     heading: vm.newsletter.heading,
     description: vm.newsletter.description,
     provider: vm.newsletter.provider,
+    config: vm.newsletter.config,
   });
 
   // §12 — site-footer

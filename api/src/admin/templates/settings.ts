@@ -69,6 +69,37 @@ const NEWSLETTER_PROVIDERS: ReadonlyArray<[string, string]> = [
   ["custom", "Custom"],
 ];
 
+// T26: per-provider connection fields. Choosing a provider reveals exactly its
+// own field group (data-newsletter-provider); the submit script composes the
+// visible provider's values into newsletter_settings_json.config so the public
+// form posts to that provider's real hosted-form action. Keys MUST match the
+// reader in buildNewsletterForm (public/templates/components.ts).
+interface NewsletterProviderField {
+  key: string;
+  label: string;
+  placeholder: string;
+}
+const NEWSLETTER_PROVIDER_FIELDS: ReadonlyArray<[string, ReadonlyArray<NewsletterProviderField>]> = [
+  ["mailchimp", [
+    { key: "server", label: "Data center", placeholder: "us1" },
+    { key: "account", label: "Account ID (u)", placeholder: "9e1f…" },
+    { key: "list_id", label: "Audience / List ID", placeholder: "a1b2c3d4e5" },
+  ]],
+  ["convertkit", [
+    { key: "form_id", label: "Form ID", placeholder: "1234567" },
+  ]],
+  ["buttondown", [
+    { key: "username", label: "Username", placeholder: "your-newsletter" },
+  ]],
+  ["substack", [
+    { key: "handle", label: "Publication handle", placeholder: "yourpub" },
+  ]],
+  ["custom", [
+    { key: "action", label: "Form action URL (https)", placeholder: "https://…" },
+    { key: "email_field", label: "Email field name", placeholder: "email" },
+  ]],
+];
+
 // T24: curated style keywords for the operator-directed AI logo panel. The
 // first option is empty so "no style preference" stays the default (the request
 // then omits `style` and the prompt is undirected).
@@ -85,6 +116,7 @@ const LOGO_STYLE_OPTIONS: ReadonlyArray<[string, string]> = [
 interface NewsletterConfig {
   enabled: boolean;
   provider: string;
+  config: { [key: string]: string };
 }
 
 function settingValue(values: SettingsValueMap, key: string): string {
@@ -97,16 +129,23 @@ function settingValue(values: SettingsValueMap, key: string): string {
 // value is still preserved in the hidden input for round-trip).
 function parseNewsletter(raw: string): NewsletterConfig {
   if (raw.length === 0) {
-    return { enabled: false, provider: "" };
+    return { enabled: false, provider: "", config: {} };
   }
   try {
-    const parsed = JSON.parse(raw) as { enabled?: unknown; provider?: unknown };
+    const parsed = JSON.parse(raw) as { enabled?: unknown; provider?: unknown; config?: unknown };
+    const config: { [key: string]: string } = {};
+    if (parsed.config !== null && typeof parsed.config === "object" && !Array.isArray(parsed.config)) {
+      for (const [k, v] of Object.entries(parsed.config as Record<string, unknown>)) {
+        if (typeof v === "string") config[k] = v;
+      }
+    }
     return {
       enabled: parsed.enabled === true || parsed.enabled === "true",
       provider: typeof parsed.provider === "string" ? parsed.provider : "",
+      config,
     };
   } catch {
-    return { enabled: false, provider: "" };
+    return { enabled: false, provider: "", config: {} };
   }
 }
 
@@ -432,6 +471,26 @@ function renderNewsletterCard(values: SettingsValueMap): string {
     const sel = cfg.provider === pair[0] ? " selected" : "";
     return `<option value="${escapeHtml(pair[0])}"${sel}>${escapeHtml(pair[1])}</option>`;
   }).join("");
+  // T26: one hidden field group per provider. The reveal script shows only the
+  // selected provider's group; only its values prefill from the stored config.
+  const providerFields = NEWSLETTER_PROVIDER_FIELDS.map(function (
+    entry: [string, ReadonlyArray<NewsletterProviderField>],
+  ): string {
+    const provider = entry[0];
+    const active = cfg.provider === provider;
+    const inputs = entry[1]
+      .map(function (f: NewsletterProviderField): string {
+        const fieldId = `newsletter_cfg_${provider}_${f.key}`;
+        const value = active && typeof cfg.config[f.key] === "string" ? cfg.config[f.key] : "";
+        return `<div class="form-group">
+        <label for="${escapeHtml(fieldId)}" class="form-label">${escapeHtml(f.label)}</label>
+        <input id="${escapeHtml(fieldId)}" type="text" class="form-input" data-newsletter-cfg-key="${escapeHtml(f.key)}" placeholder="${escapeHtml(f.placeholder)}" value="${escapeHtml(value)}" />
+      </div>`;
+      })
+      .join("");
+    const hiddenAttr = active ? "" : " hidden";
+    return `<div class="newsletter-provider-fields" data-newsletter-provider="${escapeHtml(provider)}"${hiddenAttr}>${inputs}</div>`;
+  }).join("");
   const body = `<div class="form-group" data-setting-key="newsletter_enabled">
       <label class="form-check">
         <input type="checkbox" id="newsletter_enabled" name="newsletter_enabled" data-field="newsletter_enabled"${checked} />
@@ -444,6 +503,7 @@ function renderNewsletterCard(values: SettingsValueMap): string {
       <select id="newsletter_provider" name="newsletter_provider" class="form-select" data-field="newsletter_provider">${opts}</select>
       <small class="form-hint">Email service provider used for newsletter delivery.</small>
     </div>
+    ${providerFields}
     <input type="hidden" id="setting-newsletter_settings_json" name="newsletter_settings_json" data-field="setting_value" data-key="newsletter_settings_json" value="${escapeHtml(raw)}" />`;
   return renderCard("Newsletter", body);
 }
@@ -588,6 +648,21 @@ export const SETTINGS_SCRIPT = `
     });
   }
 
+  // ---- T26: reveal only the selected newsletter provider's fields ----
+  var nlProviderSel = document.getElementById('newsletter_provider');
+  var nlFieldGroups = document.querySelectorAll('.newsletter-provider-fields');
+  function revealNewsletterProvider() {
+    var sel = nlProviderSel ? nlProviderSel.value : '';
+    var i;
+    for (i = 0; i < nlFieldGroups.length; i = i + 1) {
+      nlFieldGroups[i].hidden = nlFieldGroups[i].getAttribute('data-newsletter-provider') !== sel;
+    }
+  }
+  if (nlProviderSel) {
+    nlProviderSel.addEventListener('change', revealNewsletterProvider);
+    revealNewsletterProvider();
+  }
+
   if (!form || !filter || !hidden || !status) { return; }
   function setStatus(msg) {
     while (status.firstChild) { status.removeChild(status.firstChild); }
@@ -620,11 +695,26 @@ export const SETTINGS_SCRIPT = `
     }
     // T15: compose the structured newsletter fields into the canonical
     // newsletter_settings_json value (overrides the hidden raw input).
+    // T26: also collect the SELECTED provider's connection fields into config
+    // so the public form posts to that provider's real hosted-form action.
     var nlEnabled = document.getElementById('newsletter_enabled');
     var nlProvider = document.getElementById('newsletter_provider');
+    var nlConfig = {};
+    var nlSelected = nlProvider ? nlProvider.value : '';
+    var nlGroups = document.querySelectorAll('.newsletter-provider-fields');
+    for (var ng = 0; ng < nlGroups.length; ng = ng + 1) {
+      if (nlGroups[ng].getAttribute('data-newsletter-provider') !== nlSelected) { continue; }
+      var nlInputs = nlGroups[ng].querySelectorAll('[data-newsletter-cfg-key]');
+      for (var nf = 0; nf < nlInputs.length; nf = nf + 1) {
+        var cfgKey = nlInputs[nf].getAttribute('data-newsletter-cfg-key');
+        var cfgVal = String(nlInputs[nf].value || '');
+        if (cfgKey && cfgVal) { nlConfig[cfgKey] = cfgVal; }
+      }
+    }
     updates['newsletter_settings_json'] = JSON.stringify({
       enabled: nlEnabled ? !!nlEnabled.checked : false,
-      provider: nlProvider ? nlProvider.value : ''
+      provider: nlProvider ? nlProvider.value : '',
+      config: nlConfig
     });
     // T25: compose brand_tokens_json from the brand pickers (no raw JSON
     // editing). Start from the stored raw value so UNKNOWN keys round-trip;

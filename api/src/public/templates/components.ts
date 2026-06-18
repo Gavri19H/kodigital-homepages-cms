@@ -89,7 +89,101 @@ export interface NewsletterArgs {
   // state (PART 1 §11 requires the section to exist; PART 11 forbids a live
   // submit when no provider is configured).
   provider?: string | null;
+  // T26: per-provider connection settings (Mailchimp audience id + account +
+  // data-center, ConvertKit form id, Buttondown username, Substack handle, or
+  // a custom action URL). When present and complete, renderNewsletter posts the
+  // form to that provider's REAL hosted-form action instead of the generic
+  // placeholder endpoint.
+  config?: Readonly<Record<string, string>>;
   ctaLabel?: string;
+}
+
+// T26: the resolved per-provider hosted-form target. `action` is the real
+// upstream form endpoint, `emailField` the field name that provider expects
+// for the subscriber email, and `hidden` any extra hidden inputs the embed
+// requires.
+export interface NewsletterProviderForm {
+  action: string;
+  method: "post" | "get";
+  emailField: string;
+  hidden: ReadonlyArray<{ name: string; value: string }>;
+}
+
+// T26: map a configured provider + its connection settings to the provider's
+// real hosted-form action. Returns null when the provider is unknown or its
+// required connection fields are missing (caller then falls back to the
+// generic enabled form so a provider-only selection is never a dead control).
+export function buildNewsletterForm(
+  provider: string | null | undefined,
+  config: Readonly<Record<string, string>> | undefined,
+): NewsletterProviderForm | null {
+  const p = (provider ?? "").trim().toLowerCase();
+  const cfg = config ?? {};
+  const get = (k: string): string => {
+    const v = cfg[k];
+    return typeof v === "string" ? v.trim() : "";
+  };
+  switch (p) {
+    case "mailchimp": {
+      // Mailchimp embedded form: https://<dc>.list-manage.com/subscribe/post?u=<u>&id=<audience>
+      const server = get("server");
+      const account = get("account");
+      const listId = get("list_id");
+      if (server.length === 0 || account.length === 0 || listId.length === 0) return null;
+      return {
+        action: `https://${encodeURIComponent(server)}.list-manage.com/subscribe/post?u=${encodeURIComponent(account)}&id=${encodeURIComponent(listId)}`,
+        method: "post",
+        emailField: "EMAIL",
+        hidden: [],
+      };
+    }
+    case "convertkit": {
+      const formId = get("form_id");
+      if (formId.length === 0) return null;
+      return {
+        action: `https://app.convertkit.com/forms/${encodeURIComponent(formId)}/subscriptions`,
+        method: "post",
+        emailField: "email_address",
+        hidden: [],
+      };
+    }
+    case "buttondown": {
+      const username = get("username");
+      if (username.length === 0) return null;
+      return {
+        action: `https://buttondown.email/api/emails/embed-subscribe/${encodeURIComponent(username)}`,
+        method: "post",
+        emailField: "email",
+        hidden: [{ name: "embed", value: "1" }],
+      };
+    }
+    case "substack": {
+      const handle = get("handle");
+      if (handle.length === 0) return null;
+      return {
+        action: `https://${encodeURIComponent(handle)}.substack.com/api/v1/free`,
+        method: "post",
+        emailField: "email",
+        hidden: [],
+      };
+    }
+    case "custom": {
+      // Operator supplies the full action URL. L-041: only https targets are
+      // allowed so a misconfigured/compromised value cannot point at a
+      // javascript:/data: scheme.
+      const action = get("action");
+      if (!action.startsWith("https://")) return null;
+      const emailField = get("email_field");
+      return {
+        action,
+        method: "post",
+        emailField: emailField.length > 0 ? emailField : "email",
+        hidden: [],
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 export interface FooterArgs {
@@ -254,29 +348,53 @@ export function renderCard(args: CardArgs): string {
 }
 
 export function renderNewsletter(args: NewsletterArgs): string {
-  const action =
-    args.formAction !== undefined && args.formAction.length > 0
-      ? args.formAction
-      : "/api/newsletter/subscribe";
   const ctaLabel = args.ctaLabel !== undefined && args.ctaLabel.length > 0 ? args.ctaLabel : "Subscribe";
   const descriptionHtml =
     args.description !== undefined && args.description.length > 0
       ? `<p class="newsletter__description">${escText(args.description)}</p>`
       : "";
+  // §11 / PART 11: a section with NO provider selected is a disabled stub
+  // (the live submit is forbidden until an operator picks a provider).
   const disabled = args.provider === null || args.provider === undefined || args.provider.length === 0;
   const disabledAttr = disabled ? ' disabled aria-disabled="true"' : "";
   const noticeHtml = disabled
     ? `<p class="newsletter__notice" role="status">Newsletter signup will open soon.</p>`
     : "";
+
+  // T26: when the chosen provider has complete connection settings, post to its
+  // REAL hosted-form action; otherwise (provider chosen but not yet connected)
+  // fall back to the explicit formAction / generic endpoint so the control
+  // still works and switching provider changes the action.
+  const providerForm = disabled ? null : buildNewsletterForm(args.provider, args.config);
+  const action =
+    providerForm !== null
+      ? providerForm.action
+      : args.formAction !== undefined && args.formAction.length > 0
+        ? args.formAction
+        : "/api/newsletter/subscribe";
+  const method = providerForm !== null ? providerForm.method : "post";
+  const emailField = providerForm !== null ? providerForm.emailField : "email";
+  const hiddenHtml =
+    providerForm === null
+      ? ""
+      : providerForm.hidden
+          .map((h) => `<input type="hidden" name="${escAttr(h.name)}" value="${escAttr(h.value)}">`)
+          .join("");
+
   return `<section class="newsletter" id="newsletter" aria-labelledby="newsletter-heading">
-  <h2 id="newsletter-heading" class="newsletter__heading">${escText(args.heading)}</h2>
-  ${descriptionHtml}
-  <form class="newsletter__form" method="post" action="${escAttr(action)}">
-    <label class="newsletter__label visually-hidden" for="newsletter-email">Email address</label>
-    <input class="newsletter__input" id="newsletter-email" name="email" type="email" autocomplete="email" required${disabledAttr}>
-    <button class="newsletter__cta" type="submit"${disabledAttr}>${escText(ctaLabel)}</button>
-  </form>
-  ${noticeHtml}
+  <div class="newsletter__copy">
+    <h2 id="newsletter-heading" class="newsletter__heading">${escText(args.heading)}</h2>
+    ${descriptionHtml}
+  </div>
+  <div class="newsletter__action">
+    <form class="newsletter__form" method="${escAttr(method)}" action="${escAttr(action)}">
+      <label class="newsletter__label newsletter-label-sr" for="newsletter-email">Email address</label>
+      <input class="newsletter__input" id="newsletter-email" name="${escAttr(emailField)}" type="email" autocomplete="email" required${disabledAttr}>
+      ${hiddenHtml}
+      <button class="newsletter__cta" type="submit"${disabledAttr}>${escText(ctaLabel)}</button>
+    </form>
+    ${noticeHtml}
+  </div>
 </section>`;
 }
 

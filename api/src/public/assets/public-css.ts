@@ -157,11 +157,17 @@ img { max-width: 100%; height: auto; }
 .pulse-dot::after { content: ""; position: absolute; inset: 0; border-radius: var(--tw-radius-pill); background: var(--tw-brand); animation: pulse 1.6s ease-out infinite; }
 @keyframes pulse { 0% { transform: scale(0.6); opacity: 0.5; } 100% { transform: scale(1.6); opacity: 0; } }
 
-.newsletter { padding: 2.5rem 0; background: var(--tw-bg-tint); }
-.newsletter form { display: flex; gap: 0.5rem; max-width: 480px; }
-.newsletter input { flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); font-size: var(--tw-fs-base); }
-.newsletter button { padding: 0.75rem 1.25rem; border: 0; border-radius: var(--tw-radius); background: var(--tw-ink); color: #fff; font-weight: 600; }
-.newsletter button[aria-disabled="true"] { background: var(--tw-text-light); cursor: not-allowed; }
+/* §11 Newsletter — design-contract §4/§10: a two-column (1fr 1fr) card with a
+   brand-soft border on a brand-tint background, radius-lg. Stacks to one column
+   at 760px (see breakpoint block). */
+.newsletter { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: center; max-width: var(--tw-container); margin: 2.5rem auto; padding: 2rem clamp(16px, 3vw, 32px); background: var(--tw-brand-tint); border: 1px solid var(--tw-brand-soft); border-radius: var(--tw-radius-lg); }
+.newsletter__heading { font-family: var(--tw-font-display); font-size: var(--tw-fs-2xl); font-weight: 800; line-height: 1.18; margin: 0 0 0.5rem; }
+.newsletter__description { color: var(--tw-text-muted); margin: 0; }
+.newsletter__form { display: flex; gap: 0.5rem; }
+.newsletter__input { flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); font-size: var(--tw-fs-base); background: var(--tw-bg); }
+.newsletter__cta { padding: 0.75rem 1.25rem; border: 0; border-radius: var(--tw-radius); background: var(--tw-brand); color: #fff; font-weight: 600; cursor: pointer; }
+.newsletter__cta[aria-disabled="true"], .newsletter__input[aria-disabled="true"] { background: var(--tw-text-light); cursor: not-allowed; }
+.newsletter__notice { margin: 0.75rem 0 0; color: var(--tw-text-muted); font-size: var(--tw-fs-sm); }
 .newsletter-label-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 
 .site-footer { padding: 2rem 0; background: var(--tw-ink); color: #cbd5e1; margin-top: 3rem; }
@@ -271,7 +277,8 @@ img { max-width: 100%; height: auto; }
   .site-footer .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width:760px) {
-  .newsletter form { flex-direction: column; }
+  .newsletter { grid-template-columns: 1fr; }
+  .newsletter__form { flex-direction: column; }
 }
 @media (max-width:560px) {
   .grid-3 { grid-template-columns: minmax(0, 1fr); }

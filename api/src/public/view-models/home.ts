@@ -65,6 +65,9 @@ export interface HomeNewsletter {
   heading: string;
   description: string;
   provider: string | null;
+  // T26: per-provider connection settings (Mailchimp audience/account/server,
+  // ConvertKit form id, Buttondown username, Substack handle, custom action).
+  config?: Readonly<Record<string, string>>;
 }
 
 export interface HomeMeta {
@@ -180,7 +183,13 @@ function parseNewsletter(raw: string | null | undefined): HomeNewsletter {
     const provider = typeof obj.provider === "string" && obj.provider.length > 0
       ? obj.provider
       : null;
-    return { heading, description, provider };
+    const config: Record<string, string> = {};
+    if (obj.config !== null && typeof obj.config === "object" && !Array.isArray(obj.config)) {
+      for (const [k, v] of Object.entries(obj.config as Record<string, unknown>)) {
+        if (typeof v === "string") config[k] = v;
+      }
+    }
+    return { heading, description, provider, config };
   } catch {
     return fallback;
   }
