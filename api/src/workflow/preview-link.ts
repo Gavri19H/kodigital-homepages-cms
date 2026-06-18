@@ -22,7 +22,9 @@ import { signPreviewToken } from "../preview";
 import { snapshotVersion } from "./publish";
 import { getVersion } from "./versions";
 
-export const PREVIEW_TOKEN_TTL_SECONDS = 600;
+// T45 ([D5]): preview links stay valid for a full day (24h) instead of
+// expiring in minutes. 86400 = 24 * 60 * 60 seconds.
+export const PREVIEW_TOKEN_TTL_SECONDS = 86400;
 
 export interface PreviewLink {
   article_id: number;
