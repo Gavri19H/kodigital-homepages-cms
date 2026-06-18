@@ -87,6 +87,10 @@ export function renderAIAssistantPanel(): string {
         </select>
       </div>
       <div class="ai-preset-variables" id="ai-preset-variables" aria-label="Preset variables"></div>
+      <div class="form-group ai-system-preview-group">
+        <label for="ai-system-preview" class="form-label">System prompt</label>
+        <pre class="ai-preset-preview ai-system-preview" id="ai-system-preview" aria-live="polite"></pre>
+      </div>
       <div class="form-group ai-preset-preview-group">
         <label for="ai-preset-preview" class="form-label">Prompt preview</label>
         <pre class="ai-preset-preview" id="ai-preset-preview" aria-live="polite"></pre>
@@ -131,6 +135,7 @@ export const aiAssistantStyles = `
 .ai-preset-variables{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .ai-var-chip{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--c-muted)}
 .ai-var-name{font-family:monospace}
+.ai-system-preview-group{margin-top:8px}
 .ai-preset-preview-group{margin-top:8px}
 .ai-preset-preview{white-space:pre-wrap;word-break:break-word;background:var(--c-bg, #f6f7f9);padding:8px 10px;border-radius:6px;font-size:12px;min-height:1.5em;margin:0}
 .ai-controls{display:flex;gap:12px}

@@ -47,6 +47,12 @@ export type GenerateImageResult = GenerateImageSkipped | GenerateImageSuccess;
 
 export interface GenerateTextOptions {
   prompt: string;
+  // T7/AC1: an optional system message (the applied preset system_prompt_template
+  // or the per-action default) and a max_tokens budget mapped from the requested
+  // length. Both are omitted from the request when unset so existing callers'
+  // wire shape is unchanged.
+  systemPrompt?: string;
+  maxTokens?: number;
   maxRetries?: number;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -205,9 +211,29 @@ export function createOpenAIClient(env: Env): OpenAIClient {
     async generateText(opts) {
       if (!hasKey) return { skipped_no_api_key: true };
       const model = getTextModel(env);
+      // T7/AC1: prepend a system message when the caller resolved one (the
+      // applied preset system_prompt_template / per-action default) and attach
+      // the length-derived max_tokens budget. Both are added conditionally so
+      // a caller that passes neither produces the original wire shape.
+      const messages: Array<{ role: string; content: string }> = [];
+      if (
+        typeof opts.systemPrompt === "string" &&
+        opts.systemPrompt.trim() !== ""
+      ) {
+        messages.push({ role: "system", content: opts.systemPrompt });
+      }
+      messages.push({ role: "user", content: opts.prompt });
+      const requestBody: Record<string, unknown> = { model, messages };
+      if (
+        typeof opts.maxTokens === "number" &&
+        Number.isFinite(opts.maxTokens) &&
+        opts.maxTokens > 0
+      ) {
+        requestBody.max_tokens = opts.maxTokens;
+      }
       const { response, retries } = await callWithRetry(
         OPENAI_TEXT_URL,
-        { model, messages: [{ role: "user", content: opts.prompt }] },
+        requestBody,
         opts.maxRetries ?? DEFAULT_MAX_RETRIES,
         opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         opts.fetchImpl ?? fetch,
