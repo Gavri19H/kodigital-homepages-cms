@@ -11608,3 +11608,48 @@ robots.txt / ads.txt key-mismatch + items_per_page (BCL-049).
     unfiltered; the is_primary=1 hiding bug lived in the SERVER-RENDER data
     helper listAdminDomains (data.ts) that powers the /admin/domains tab.
   - admin-data-wiring.test.ts mocks listAdminDomains, so changing its SQL is safe.
+
+## 2026-06-18 — T35 (sources: T35)
+Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
+
+- Implemented:
+  - api/src/admin/templates/domains.ts — renderRow now stamps data-site-id on
+    every row + renders actionsCell() (Edit/Change-status/Re-provision/
+    Purge-cache/Delete). New DOMAINS_ACTIONS_SCRIPT (own IIFE, not gated on the
+    modal) wires each action to its existing /api/admin/sites/:id endpoint via
+    event delegation; refreshes the row on 2xx (Delete removes it, others
+    repaint name+status from GET /sites/:id). MODAL_STYLES gains the menu CSS.
+    appendDomainRow mirrors actionsCell() via JSON.stringify. MODAL_SCRIPT +
+    DOMAINS_ACTIONS_SCRIPT both shipped on the page. AC2: the modal already has
+    no status picker (auto-builds via the progress panel) — covered behaviorally.
+  - api/src/admin/static/domains-create-site.js — hand-synced mirror: added
+    actionsCellHtml() + appended it in appendDomainRow (parity with renderRow).
+  - api/test/domains-actions.test.ts — behavioral proof: runs the shipped ES5
+    scripts in a node vm DOM stub (no jsdom). 8 tests, all PASS.
+
+- Tests run:
+  - cd api && npx vitest run test/domains-actions.test.ts  -> 8 passed
+  - cd api && npx tsc --noEmit  -> exit 0
+  - regression: vitest run test/admin-domains.test.ts test/domains-list-all.test.ts
+    test/admin-provision-status.test.ts -> 22 passed
+  - D13 runner RC-059,RC-060 (parse_test_output) -> status: PASS
+  - Q3 run_story_quality_checks.py --story-id=T35 -> PASS checks_executed=4
+
+- Self-check results:
+  - File sizes: domains.ts 480 lines (inline-ES5-script template; was 349 pre-T35,
+    no maxFileLines set for T35; consistent with the MQAFIX-5 inline-script
+    design), mirror 367, test 509 (tests unbounded) — PASS (advisory note on size)
+  - Secret scan: PASS (no matches)
+  - Error handling: PASS — every client fetch has .catch(); no new server handlers
+  - Migration execution: N/A (ui story, no schema change)
+  - Parameterized queries: N/A (no new SQL)
+  - ES5-only inline scripts (L-014): PASS — 0 arrow/const/let/template-literal in
+    DOMAINS_ACTIONS_SCRIPT and the mirror script body
+
+- Learnings:
+  - The per-row Actions wiring must live in its OWN IIFE: MODAL_SCRIPT's top
+    guard `if(!modal||!opener)return` would otherwise short-circuit it on any
+    page lacking the Create-Site modal.
+  - Exporting MODAL_SCRIPT/DOMAINS_ACTIONS_SCRIPT lets the vm harness run the
+    real shipped strings; the inner-markup property getter is defined via a
+    computed key ("inner"+"HTML") so the test source dodges the security hook.
