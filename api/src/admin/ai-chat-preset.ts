@@ -16,6 +16,7 @@
 //     default).
 
 import type { PresetRow } from "./ai-presets";
+import { applyPreset } from "../ai/generators/preset-engine";
 
 export type ChatLength = "short" | "medium" | "long";
 
@@ -89,16 +90,19 @@ export function applyChatPreset(args: {
   const variables = args.variables ?? {};
   const maxTokens = lengthToMaxTokens(options.length);
 
-  const systemTemplate =
-    args.preset && typeof args.preset.system_prompt_template === "string"
-      ? args.preset.system_prompt_template.trim()
-      : "";
+  // T9 [BCL-041]: the chat path delegates to the single preset engine so the
+  // editor's system message reflects EVERY part of the preset — the
+  // system_prompt_template plus the structured Output Rules / Content Mapping
+  // directives the engine folds in (variables_schema defaults applied). The
+  // chat user message stays the operator's typed prompt, so only the preset's
+  // system-side categories shape the system message here.
+  const applied = applyPreset({ preset: args.preset, variables });
 
-  if (args.preset && systemTemplate !== "") {
+  if (args.preset && applied.systemPrompt.trim() !== "") {
     // AC1: a selected preset's system_prompt_template OVERRIDES the requested
     // tone — options.tone is dropped (toneApplied=null).
     return {
-      systemPrompt: interpolateTemplate(systemTemplate, variables),
+      systemPrompt: applied.systemPrompt,
       maxTokens,
       toneApplied: null,
       presetApplied: true,
