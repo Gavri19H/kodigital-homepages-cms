@@ -11674,3 +11674,41 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
   - Parameterized queries: PASS (all .bind(); no template-literal SQL)
 - Learnings: distinguishing 410 vs 404 needs a status lookup that bypasses the active-gate; keep it OFF the hot path (only on the null/not-served branch). "Reconciled domain" == domains.status='active' (set by markDomainAttached); dry-run leaves it 'pending'.
 ---
+
+## 2026-06-18 - T37 (sources: T37) — Real Delete-site (cascade DB + CF teardown + cache purge)
+- Implemented DELETE /api/admin/sites/:id (deleteSiteHandler):
+  - cascade DELETE (child-first, explicit ordered, FK-independent): site_creation_job_steps,
+    site_creation_jobs, domains, site_categories, site_settings, articles, pages, media, tags,
+    redirects; detach ai_generations (site_id:=NULL, mirrors ON DELETE SET NULL); delete sites row.
+  - CF route/DNS teardown + cache purge via canonical dry-run-gated boundary
+    (runCloudflareSiteTeardown in site-provisioning/cloudflare-interfaces.ts): dry-run records
+    teardown_route+purge_cache to cache_purge_log with ZERO outbound fetch; live (gated) path
+    issues Worker-route DELETE + purge_cache POST. Protected legacy hostnames refused.
+  - Domain frees for reuse: recreate POST /sites for the same hostname no longer 409s.
+- Files changed: api/src/admin/sites-handlers.ts, api/src/site-provisioning/cloudflare-interfaces.ts,
+  api/src/admin/api.ts (+adminApi.delete("/sites/:id")), api/test/site-delete.test.ts (new).
+- Tests run:
+  - npx vitest run test/site-delete.test.ts -> 6 passed (Part B real node:sqlite ran; cascade +
+    recreate proven end-to-end. node v25.9, node:sqlite available).
+  - Regression: admin-sites-create, domains-actions, provisioning-runner, admin-purge-cache,
+    admin-domains, site-provisioning-create-site-settings -> 34 passed.
+  - D13 runner (RC-063,RC-064) -> status PASS (parse_test_output; both RCs).
+  - Q3 story quality checks (T37) -> PASS, checks_executed=4, receipts written.
+- Self-check results:
+  - File sizes: sites-handlers.ts 487, cloudflare-interfaces.ts 657, api.ts 1121, site-delete.test.ts 515.
+    Over the 200 TS default but no per-story maxFileLines is declared; teardown placed in the
+    canonical CF boundary (its documented single-boundary role). FLAG: cloudflare-interfaces.ts is
+    large — candidate for a later split if a limit is introduced. — NOTE
+  - Secret scan: PASS (no hardcoded secrets; Bearer ${token} is interpolation).
+  - Error handling: PASS (404 missing site; try/catch around cascade -> 500 on failure).
+  - Migration execution: N/A (no new migration; uses existing phase-3 multi-site schema FKs).
+  - Parameterized queries: PASS (all prepare(<static SQL>).bind(...); no template-literal SQL).
+  - T13.AC1 grep invariant (get|post|patch "/sites" >= 4): unchanged (.delete( not matched).
+- Learnings:
+  - parse_test_output RC pattern (rescue-4): embed BOTH [api/test/<file>.test.ts] literal AND
+    L2_AUTO_DISAMBIGUATION:T<id>-AC<n>:RC-<nnn> in each backing it() title; packet's
+    runner_command_rendered already carries the correct mission --worktree-root.
+  - Cascade proof pattern: Part A recording-fake (portable, asserts DELETE-per-table + 409 gate)
+    + Part B real node:sqlite (skip-guarded on CI floor) for true cascade/reuse — keeps the file
+    green on Node-20 CI while the local D13 receipt is generated with Part B running for real.
+---
