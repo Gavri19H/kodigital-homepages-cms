@@ -393,8 +393,8 @@
       "title": "Brand tokens: UX pickers, not JSON",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T25"
       ],

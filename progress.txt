@@ -11196,3 +11196,49 @@ sources: T24  |  RC-043 (T24-AC1), RC-044 (T24-AC2)
   RC-043,RC-044 -> status PASS (parser matched L2_AUTO_DISAMBIGUATION markers).
 - Q3: run_story_quality_checks.py --story-id=T24 -> PASS (4 checks, receipts
   written to story_execution_receipts.jsonl).
+
+## 2026-06-18 - T25 (Brand tokens: UX pickers, not JSON) [sources: T25]
+- Replaced the raw brand_tokens_json textarea in the Settings "Brand Tokens"
+  card with friendly UX controls: 4 color pickers (primary->tw-brand,
+  accent->tw-accent, background->tw-bg, text->tw-text) + 2 font selects
+  (heading->tw-font-display, body->tw-font-sans), pre-populated from the
+  stored value. Kept a hidden raw brand_tokens_json field so UNKNOWN keys
+  round-trip; card title + canonical key name preserved.
+- SETTINGS_SCRIPT now composes brand_tokens_json from the pickers over the
+  parsed raw value: writes a brand-family key ONLY when it differs from the
+  design-contract default (color != public-css.ts default; font != empty), so
+  every other --tw-* token stays the design-contract.md contract (E6).
+- Public consumer unchanged: renderLayout/renderBrandTokensStyle turns the
+  composed map into the inline :root override -> picking a primary color makes
+  the public --tw-brand reflect it.
+- Files changed: api/src/admin/templates/settings.ts (pickers + compose + CSS),
+  api/test/brand-tokens.test.ts (new behavioral proof).
+- Self-check results:
+  - File sizes: api/test/brand-tokens.test.ts 277 lines (PASS); 
+    api/src/admin/templates/settings.ts 801 lines — PRE-EXISTING large
+    string-heavy template module (was 644 before T25); aggregates all settings
+    cards + the inline ES5 script. Decomposition is cross-cutting (touches many
+    stories) and owned by architect/review — flagged, out of scope for this
+    UX-pickers swap.
+  - Secret scan: PASS (no hardcoded secrets).
+  - Error handling: PASS — client compose wraps JSON.parse in try/catch; no new
+    server route handler in this story.
+  - Migration execution: N/A (no DB changes).
+  - Parameterized queries: N/A (no SQL in changed files).
+- Tests run:
+  - cd api && npx vitest run test/brand-tokens.test.ts test/admin-settings.test.ts
+    -> 21 passed (4 new T25 behavioral + 17 existing admin-settings, no AC weakened)
+  - cd api && npx tsc --noEmit -> clean
+  - D13 runner (RC-045): run_required_evidence_command.py --required-claim-ids=RC-045
+    -> status: PASS (parse_test_output, worktree-root correct, 4 tests observed)
+  - Q3: run_story_quality_checks.py --story-id=T25 -> PASS (checks_executed=2, receipts written)
+- Learnings for future iterations:
+  - Brand-family tokens an operator may override = tw-brand/tw-accent/tw-bg/
+    tw-text/tw-font-display/tw-font-sans. renderBrandTokensStyle only emits
+    declarations for keys present in the map, so "other tokens stay the
+    contract" holds automatically — compose ONLY the keys the operator changed.
+  - To behaviorally test an exported ES5 inline script (SETTINGS_SCRIPT) in the
+    node-env vitest, run it in node:vm with a FakeNode DOM + fetch stub
+    (createRequire for node:vm); fire the form 'submit' listener and parse the
+    captured PATCH body. See api/test/logo-panel.test.ts for the same pattern.
+---
