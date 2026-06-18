@@ -50,6 +50,7 @@ import publicRouter from "./public/router";
 import privacyRouter from "./privacy";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
+import { processScheduledArticles } from "./workflow";
 
 const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 
@@ -140,4 +141,28 @@ app.notFound((c) =>
   c.json({ error: "Not Found", path: c.req.path }, 404),
 );
 
-export default app;
+// T42 [BCL-080] — Scheduled-publishing cron. wrangler.toml [triggers] crons
+// fires the Workers `scheduled` handler on a timer; it runs
+// processScheduledArticles, which finds every article whose scheduled_at has
+// arrived and flips it to published via the canonical publish() path. The work
+// is both registered on ctx.waitUntil (so the cron invocation stays alive
+// until the batch finishes) AND awaited (so the runtime — and unit tests —
+// observe a settled promise).
+//
+// We ATTACH `scheduled` onto the Hono app (rather than wrapping it in a new
+// ExportedHandler literal) so the default export keeps `app.fetch` for the
+// runtime AND `app.request` for the Hono test helper that the existing suite
+// relies on — adding the cron entry point next to them, breaking neither.
+const scheduled = async (
+  _controller: ScheduledController,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<void> => {
+  const work = processScheduledArticles(env);
+  ctx.waitUntil(work);
+  await work;
+};
+
+const worker = Object.assign(app, { scheduled });
+
+export default worker;

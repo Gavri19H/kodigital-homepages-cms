@@ -28,6 +28,14 @@ OPENAI_IMAGE_MODEL = "gpt-image-2"
 SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 
+# T42 — Scheduled-publishing cron. Fires the Worker `scheduled` handler
+# (src/index.ts) every 5 minutes; it runs processScheduledArticles to publish
+# any article whose scheduled_at has arrived. Triggers are NOT inherited by
+# named environments (same as bindings, below) so [env.staging.triggers] /
+# [env.production.triggers] are redeclared per env.
+[triggers]
+crons = ["*/5 * * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "kodigital-homepages-cms-db"
@@ -58,6 +66,9 @@ SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 CF_ACCESS_TEAM_DOMAIN = "kodigital2.cloudflareaccess.com"
 CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
+
+[env.staging.triggers]
+crons = ["*/5 * * * *"]
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -105,6 +116,9 @@ CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a2
 # routes fail at runtime (the prior deploy emitted 3 wrangler WARNINGs
 # and uploaded a binding-less worker; cms.kodigital.app/admin then
 # fell through to legacy state until this hotfix).
+[env.production.triggers]
+crons = ["*/5 * * * *"]
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "kodigital-homepages-cms-db"
