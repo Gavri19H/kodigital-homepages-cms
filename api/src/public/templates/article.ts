@@ -109,6 +109,18 @@ function marker(n: number, name: string): string {
   return `<!-- article-section:${n} ${name} -->`;
 }
 
+// Affiliate CTA href guard: only well-formed web/mail/relative URLs are emitted
+// as a link; anything else (javascript:, data:, …) drops the outbound anchor.
+function isSafeHref(url: string): boolean {
+  const u = url.trim().toLowerCase();
+  return (
+    u.startsWith("https://") ||
+    u.startsWith("http://") ||
+    u.startsWith("mailto:") ||
+    u.startsWith("/")
+  );
+}
+
 function renderArticleHero(article: ArticleViewModel["article"]): string {
   const heroImg =
     article.imageUrl !== null && article.imageUrl.length > 0
@@ -151,6 +163,10 @@ function renderBlockHtml(
   headingIndex: number,
 ): string {
   switch (block.type) {
+    case "paragraph":
+      // §12 `p` — a real <p> direct child of `.article-body` so the drop-cap
+      // (`.article-body > p:first-of-type::first-letter`) lands on the lede.
+      return block.text.length > 0 ? `<p>${escText(block.text)}</p>` : "";
     case "html":
       return block.html.length > 0 ? `<div class="article-body__html">${block.html}</div>` : "";
     case "heading": {
@@ -179,6 +195,30 @@ function renderBlockHtml(
     }
     case "code":
       return `<pre><code${block.language !== null ? ` class="language-${escAttr(block.language)}"` : ""}>${escText(block.code)}</code></pre>`;
+    case "callout": {
+      // §12 `callout` → `.callout-box` (brand-tint box, public-css.ts).
+      const title =
+        block.title !== null && block.title.length > 0
+          ? `<strong class="callout-title">${escText(block.title)}</strong>`
+          : "";
+      return `<aside class="callout-box">${title}<p>${escText(block.text)}</p></aside>`;
+    }
+    case "affiliate": {
+      // §12 `affiliate` → `.affiliate-card` with a sponsored/nofollow CTA.
+      const title =
+        block.title !== null && block.title.length > 0
+          ? `<strong class="affiliate-card-title">${escText(block.title)}</strong>`
+          : "";
+      const desc =
+        block.description !== null && block.description.length > 0
+          ? `<p class="affiliate-card-desc">${escText(block.description)}</p>`
+          : "";
+      const cta =
+        block.url !== null && isSafeHref(block.url)
+          ? `<a class="affiliate-card-cta" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${escText(block.cta)}</a>`
+          : "";
+      return `<aside class="affiliate-card">${title}${desc}${cta}</aside>`;
+    }
     case "faq":
       return `<details class="article-body__faq"><summary>${escText(block.question)}</summary><div>${escText(block.answer)}</div></details>`;
   }

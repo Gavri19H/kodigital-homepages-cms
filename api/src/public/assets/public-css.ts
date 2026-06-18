@@ -201,10 +201,15 @@ img { max-width: 100%; height: auto; }
    1.75rem/1.2 weight 800 — literal values, NOT the fs tokens (fs-md is 17px). */
 .article-body { font-size: 1.125rem; line-height: 1.7; color: var(--tw-text); }
 .article-body p { margin: 0 0 1.25em; }
+/* Contract section 11: drop cap on the lede paragraph — 4.2em display weight 900
+   brand colour. Scoped to the first top-level <p> so only the opening paragraph
+   gets it (body blocks render as direct .article-body children). */
+.article-body > p:first-of-type::first-letter { float: left; font-family: var(--tw-font-display); font-size: 4.2em; font-weight: 900; line-height: 0.78; color: var(--tw-brand); padding-right: 0.08em; margin-top: 0.04em; }
 .article-body h2 { font-family: var(--tw-font-display); font-size: 1.75rem; line-height: 1.2; font-weight: 800; color: var(--tw-ink); margin: 2em 0 0.5em; }
-.article-body ul { padding-left: 1.25em; list-style: none; }
-.article-body ul > li { position: relative; padding-left: 1em; }
-.article-body ul > li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 6px; height: 6px; background: var(--tw-brand); border-radius: var(--tw-radius-pill); }
+/* Contract section 11: ul bullets are a 16x2px brand dash, li padding-left 28px. */
+.article-body ul { padding-left: 0; list-style: none; }
+.article-body ul > li { position: relative; padding-left: 28px; margin: 0 0 0.5em; }
+.article-body ul > li::before { content: ""; position: absolute; left: 0; top: 0.7em; width: 16px; height: 2px; background: var(--tw-brand); border-radius: var(--tw-radius-sm); }
 .article-body ol { padding-left: 1.25em; }
 .sponsor-disclosure { font-size: var(--tw-fs-xs); color: var(--tw-text-muted); border-left: 3px solid var(--tw-accent); padding: 0.25em 0.75em; margin: 0 0 1em; }
 .pullquote { font-family: var(--tw-font-display); font-size: var(--tw-fs-xl); color: var(--tw-ink); border-left: 4px solid var(--tw-brand); padding: 0.5em 1em; margin: 1.5em 0; }
@@ -212,7 +217,13 @@ img { max-width: 100%; height: auto; }
 .article-figure img { border-radius: var(--tw-radius); }
 .article-figure figcaption { color: var(--tw-text-muted); font-size: var(--tw-fs-sm); margin-top: 0.5em; }
 .callout-box { background: var(--tw-bg-tint); border-radius: var(--tw-radius); padding: 1em 1.25em; margin: 1.5em 0; }
+.callout-box .callout-title { display: block; font-family: var(--tw-font-display); font-weight: 800; color: var(--tw-ink); margin-bottom: 0.25em; }
+.callout-box p:last-child { margin-bottom: 0; }
 .affiliate-card { background: var(--tw-bg); border: 1px solid var(--tw-rule); border-radius: var(--tw-radius-lg); padding: 1em; margin: 1.5em 0; box-shadow: var(--tw-shadow-sm); }
+.affiliate-card .affiliate-card-title { display: block; font-family: var(--tw-font-display); font-weight: 800; color: var(--tw-ink); }
+.affiliate-card .affiliate-card-desc { color: var(--tw-text-muted); margin: 0.25em 0 0.75em; }
+.affiliate-card .affiliate-card-cta { display: inline-block; background: var(--tw-brand); color: #fff; border-radius: var(--tw-radius-pill); padding: 9px 22px; font-weight: 700; font-size: var(--tw-fs-sm); }
+.affiliate-card .affiliate-card-cta:hover { background: var(--tw-brand-deep); text-decoration: none; }
 
 .faq-section { padding: 2rem 0; }
 .faq-section details { border-top: 1px solid var(--tw-rule); padding: 0.75rem 0; }

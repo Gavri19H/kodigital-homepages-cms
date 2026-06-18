@@ -45,13 +45,29 @@ export interface FaqItem {
   answer: string;
 }
 
+// T20: the design-contract §12 `TIW_ARTICLE.body[]` block vocabulary is
+// `p / h2 / ul / pullquote / image / callout / affiliate`. The AI generators
+// (api/src/ai) emit the FLAT `{ type, text?, items? }` shape this adapter reads,
+// so a `p` block now renders a real `<p>` (drop-cap eligible) instead of a
+// div-wrapped html block, and `callout` / `affiliate` get their own typed
+// blocks the template renders as `.callout-box` / `.affiliate-card` (the same
+// classes the editor's storage renderer emits — see api/src/editor/blocks.ts).
 export type BodyBlock =
+  | { type: "paragraph"; text: string }
   | { type: "html"; html: string }
   | { type: "heading"; level: 2 | 3; text: string }
   | { type: "image"; src: string; alt: string; caption: string | null }
   | { type: "quote"; text: string; cite: string | null }
   | { type: "list"; ordered: boolean; items: ReadonlyArray<string> }
   | { type: "code"; language: string | null; code: string }
+  | { type: "callout"; title: string | null; text: string }
+  | {
+      type: "affiliate";
+      title: string | null;
+      description: string | null;
+      url: string | null;
+      cta: string;
+    }
   | { type: "faq"; question: string; answer: string };
 
 export interface ArticleAuthor {
@@ -191,6 +207,8 @@ function htmlToPlainText(html: string | null | undefined): string {
 
 function blockToPlainText(block: BodyBlock): string {
   switch (block.type) {
+    case "paragraph":
+      return block.text;
     case "html":
       return htmlToPlainText(block.html);
     case "heading":
@@ -203,6 +221,10 @@ function blockToPlainText(block: BodyBlock): string {
       return block.items.join(" ");
     case "code":
       return block.code;
+    case "callout":
+      return block.title !== null ? `${block.title} ${block.text}` : block.text;
+    case "affiliate":
+      return [block.title, block.description].filter((s): s is string => s !== null).join(" ");
     case "faq":
       return `${block.question} ${block.answer}`;
   }
@@ -289,13 +311,22 @@ export function adaptBodyBlocks(
     const b = raw as Record<string, unknown>;
     const type = asString(b.type).toLowerCase();
     switch (type) {
-      case "html":
-      case "paragraph":
-      case "text": {
+      case "html": {
         const html = asString(b.html).length > 0
           ? asString(b.html)
           : asString(b.text);
         blocks.push({ type: "html", html });
+        break;
+      }
+      case "paragraph":
+      case "p":
+      case "text": {
+        // §12 `p` block — a real <p> so the .article-body drop-cap
+        // (p:first-of-type::first-letter) lands on the opening paragraph.
+        const text = asString(b.text).length > 0
+          ? asString(b.text)
+          : htmlToPlainText(asString(b.html));
+        blocks.push({ type: "paragraph", text });
         break;
       }
       case "heading":
@@ -321,7 +352,9 @@ export function adaptBodyBlocks(
         break;
       }
       case "quote":
-      case "blockquote": {
+      case "blockquote":
+      case "pullquote": {
+        // §12 `pullquote` → the template renders `<blockquote class="pullquote">`.
         blocks.push({
           type: "quote",
           text: asString(b.text).length > 0 ? asString(b.text) : asString(b.quote),
@@ -349,6 +382,29 @@ export function adaptBodyBlocks(
           language: typeof b.language === "string" && b.language.length > 0 ? b.language : null,
           code: asString(b.code).length > 0 ? asString(b.code) : asString(b.text),
         });
+        break;
+      }
+      case "callout":
+      case "note":
+      case "tip": {
+        // §12 `callout` → the template renders `<aside class="callout-box">`.
+        const title = typeof b.title === "string" && b.title.length > 0 ? b.title : null;
+        const text = asString(b.text);
+        if (title === null && text.length === 0) break;
+        blocks.push({ type: "callout", title, text });
+        break;
+      }
+      case "affiliate":
+      case "product": {
+        // §12 `affiliate` → the template renders `<aside class="affiliate-card">`
+        // with a sponsored/nofollow CTA (the URL is protocol-gated on render).
+        const title = typeof b.title === "string" && b.title.length > 0 ? b.title : null;
+        const description =
+          typeof b.description === "string" && b.description.length > 0 ? b.description : null;
+        const url = typeof b.url === "string" && b.url.length > 0 ? b.url : null;
+        const cta = asString(b.cta).length > 0 ? asString(b.cta) : "Learn more";
+        if (title === null && description === null && url === null) break;
+        blocks.push({ type: "affiliate", title, description, url, cta });
         break;
       }
       case "faq":
