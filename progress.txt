@@ -11653,3 +11653,24 @@ Wire the Actions menu + per-row controls + data-site-id + fix New-Site modal.
   - Exporting MODAL_SCRIPT/DOMAINS_ACTIONS_SCRIPT lets the vm harness run the
     real shipped strings; the inner-markup property getter is defined via a
     computed key ("inner"+"HTML") so the test source dodges the security hook.
+
+## 2026-06-18 - T36 (Status semantics + transition legality) — RX/source: T36
+- Implemented:
+  - api/src/site/site-context.ts: added resolveSiteStatusByHostname + resolveSiteStatusFromRequest (raw site status, no active-gate) so the public path can tell a disabled site from a draft/unknown host. Hot path (active sites) unchanged — the status lookup runs ONLY on the already-not-served branch.
+  - api/src/public/middleware.ts: a non-resolving host now returns 410 Gone when sites.status='disabled' (distinct from 404 for draft/provisioning/failed/unmapped). Every public route flows through this middleware, so a disabled site's /sitemap.xml + /robots.txt are 410 too → it drops from the index. (T36-AC1)
+  - api/src/admin/sites-handlers.ts: ALLOWED_STATUS_TRANSITIONS is now a from->to legality MAP (was a flat value Set that enforced no transition legality — the BCL-070 defect). updateSiteHandler: (1) unknown value -> 400; (2) illegal transition (e.g. draft->active) -> 409, sites row untouched; (3) transition TO active requires >=1 reconciled domain (domains.status='active') else 409 — "active implies a servable (reconciled) domain" (dry-run leaves the domain pending). (T36-AC2)
+- Files changed: api/src/site/site-context.ts, api/src/public/middleware.ts, api/src/admin/sites-handlers.ts, api/test/site-status-semantics.test.ts (new)
+- Tests run:
+  - npx vitest run test/site-status-semantics.test.ts -> 8/8 PASS
+  - full suite: cd api && npm test -> 161 files, 1324 tests PASS (no regression)
+  - tsc --noEmit -> exit 0
+  - D13 runner (RC-061,RC-062) -> status PASS; latest receipts both PASS (route_fp eff50bf2f4d4)
+  - Q3 story_quality_checks (run_story_quality_checks.py --story-id=T36) -> PASS checks_executed=4
+- Self-check results:
+  - File sizes: site-context.ts 179, middleware.ts 79, sites-handlers.ts 358 (within repo handler norm — siblings 322/456/542), test 357 (test) — PASS
+  - Secret scan: PASS (no secrets)
+  - Error handling: PASS (400/404/409/410 returned; no swallowed errors on the new paths)
+  - Migration execution: N/A (no schema change; reuses sites.status + domains.status CHECK enums from 0002)
+  - Parameterized queries: PASS (all .bind(); no template-literal SQL)
+- Learnings: distinguishing 410 vs 404 needs a status lookup that bypasses the active-gate; keep it OFF the hot path (only on the null/not-served branch). "Reconciled domain" == domains.status='active' (set by markDomainAttached); dry-run leaves it 'pending'.
+---
