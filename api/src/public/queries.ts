@@ -152,6 +152,36 @@ export async function fetchSiteSetting(
   return row?.value ?? null;
 }
 
+export interface RedirectRow {
+  destination_path: string;
+  status_code: number;
+}
+
+// T15: the operator-managed `redirects` table, finally wired into the public
+// router. A matching, ACTIVE row on the request path resolves to an HTTP
+// 301/302 to its destination — issued by /:slug BEFORE any page/article lookup
+// so a stored legacy redirect is honored even when a slug now occupies the
+// same path. Scoped by site_id (with a global `site_id IS NULL` fallback so a
+// cross-site legacy rewrite still applies); the site-specific row wins over a
+// global one via `ORDER BY site_id IS NULL`. `source_path` is UNIQUE so this
+// stays a single-row lookup.
+export async function checkRedirect(
+  db: D1Database,
+  sourcePath: string,
+  siteId: string,
+): Promise<RedirectRow | null> {
+  const row = await db
+    .prepare(
+      "SELECT destination_path, status_code FROM redirects " +
+        "WHERE source_path = ? AND is_active = 1 " +
+        "AND (site_id = ? OR site_id IS NULL) " +
+        "ORDER BY site_id IS NULL LIMIT 1",
+    )
+    .bind(sourcePath, siteId)
+    .first<RedirectRow>();
+  return row ?? null;
+}
+
 export interface PublicLayoutSiteInfo {
   name: string;
   hostname: string;

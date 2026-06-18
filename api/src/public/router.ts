@@ -43,6 +43,7 @@ import {
   fetchTagArticles,
   fetchSitemapPages,
   fetchSiteSetting,
+  checkRedirect,
 } from "./queries";
 import {
   htmlKey,
@@ -527,9 +528,21 @@ router.get("/:slug", async (c) => {
   if (isReservedPath(slug)) {
     return publicErrorResponse(c, 404);
   }
+  const siteContext = c.get("siteContext");
+  // T15 [BCL-027]: honor the operator-managed redirects table FIRST — a
+  // stored, active rule on `/<slug>` sends a legacy URL to its destination
+  // BEFORE any page/article lookup, so the redirect wins even when a slug now
+  // occupies the same path. The status code is whatever the row stores
+  // (301 permanent by default, 302 temporary).
+  const redirect = await checkRedirect(c.env.DB, `/${slug}`, siteContext.siteId);
+  if (redirect) {
+    return c.redirect(
+      redirect.destination_path,
+      redirect.status_code === 302 ? 302 : 301,
+    );
+  }
   const page = await servePage(c, slug);
   if (page) return page;
-  const siteContext = c.get("siteContext");
   const article = await getArticleBySlug(c.env.DB, slug, {
     siteId: siteContext.siteId,
   });
