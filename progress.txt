@@ -11051,3 +11051,41 @@ source_story_ids: T14
     (`> p:first-of-type`); the old html-block wrapper (<div>) would have applied
     the cap per-wrapper. Rendering p blocks as bare <p> fixes this.
 ---
+
+## 2026-06-18 — T21 (sources: T21) — Responsive images: mechanism + design display
+- Implemented responsiveImg() primitive (api/src/public/templates/responsive-img.ts):
+  /media/-prefixed src + srcset of Cloudflare /cdn-cgi/image/ transform candidates
+  (Nw descriptors, comma-safe) + blur-up LQIP (width=32,blur=40) painted as the
+  element background-image (pure CSS, no JS) + data-lqip marker. Explicit
+  width/height (anti-CLS) + explicit loading hint.
+- Wired into the three AC1 article images:
+  - article hero (renderArticleHero): 1200x630, loading=eager + fetchpriority=high.
+  - shared card (renderCard, components.ts): 16/10 = 640x400, lazy. Also covers Home cards.
+  - sidebar 60x60 pop-img thumbs (renderSidebar): lazy, new .pop-item/.pop-title markup.
+- CSS (assets/public-css.ts): .card-img aspect-ratio 16/9 -> 16/10; added .pop-img +
+  .pop-item + .pop-title (anti-CLS coherence with the new attrs).
+- Files changed: api/src/public/templates/responsive-img.ts (new, 134L),
+  api/src/public/templates/components.ts (318L), api/src/public/templates/article.ts (472L),
+  api/src/public/assets/public-css.ts (286L), api/test/responsive-images.test.ts (new, 254L).
+- Self-check results:
+  - File sizes: responsive-img.ts 134 (<=200) PASS; public-css.ts 286 (<=300) PASS;
+    components.ts 318 + article.ts 472 are pre-existing HTML-template emitters already
+    >200 (GUARDRAILS L-053 multi-concern allowance) — net additions minimal — PASS.
+  - Secret scan: PASS (no matches).
+  - Error handling: N/A (render layer; responsiveImg throws on invalid dims to surface bugs).
+  - Migration execution: N/A (not a db story).
+  - Parameterized queries: N/A (no SQL).
+- Tests run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run     -> 146 files / 1275 tests PASS (no regressions)
+  - RC-038 runner (run_required_evidence_command.py, --required-claim-ids=RC-038) -> PASS
+    (parse_test_output; both responsive-images.test.ts assertions observed PASS, exit 0)
+  - Q3 run_story_quality_checks.py --story-id=T21 -> PASS (checks_executed=2, receipts written)
+- Note: T21-AC2 (figures display at design dims at 375/1280) is SHIP-DEFERRED (visual/browser).
+- Learnings:
+  - Cloudflare /cdn-cgi/image/ transform URLs ARE srcset-safe despite internal commas:
+    each candidate is a single non-whitespace run + an Nw descriptor, so the HTML srcset
+    parser keys on the whitespace boundary; degrades to the original image when a zone
+    has transformations disabled, so the /media/ src fallback is never broken.
+  - parse_test_output RC binds when the it() title embeds the literal evidence path
+    [api/test/<file>.test.ts] AND the runner runs with the real --worktree-root.

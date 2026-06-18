@@ -329,8 +329,8 @@
       "title": "Responsive images: mechanism + design display",
       "category": "ui",
       "priority": null,
-      "state": "planned",
-      "passes": false,
+      "state": "implemented",
+      "passes": true,
       "source_story_ids": [
         "T21"
       ],
