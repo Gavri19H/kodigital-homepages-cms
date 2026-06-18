@@ -10692,3 +10692,41 @@ iteration 10 — T12 (sources: T12)
     (class selector) — the generic FakeNode.querySelectorAll (attribute-only) does
     NOT match it; tailor querySelectorAll to return the action buttons.
 ---
+
+## 2026-06-18 - T13 (sources: T13) — Wire the full SEO head (renderSeoHead)
+- Defect BCL-055: renderSeoHead was DEAD; the live <head> (layout.ts) emitted
+  only title/description/og:site_name/og:title/og:description (+optional
+  image/canonical). No robots, og:type/url, twitter:*, article:*.
+- Fix:
+  - api/src/public/templates/seo-head.ts: emit article:published_time/
+    modified_time/section/author (only when og:type=article).
+  - api/src/public/templates/layout.ts: renderLayout now builds its SEO meta
+    block via renderSeoHead; LayoutMeta gains ogType/robots/twitterCard/
+    twitterSite/article*. Removed dead escapeHtmlText.
+  - api/src/public/render-pages.ts: article render forwards og:type=article +
+    article:published_time/modified_time/section/author; paginated category
+    pages (page>=2) emit noindex,follow + rel=prev/next (next only when the
+    page is full, PUBLIC_PAGE_SIZE).
+  - api/test/seo-head.test.ts: proves both ACs through a real Hono request via
+    the public router (not a synthetic call): RC-025/T13-AC1, RC-026/T13-AC2.
+- Test commands run:
+  - cd api && npx tsc --noEmit  -> exit 0
+  - cd api && npx vitest run    -> 138 files / 1244 tests PASS (no regression)
+  - D13 runner (RC-025,RC-026)  -> status PASS (resolved_cwd = worktree api/)
+  - Q3 run_story_quality_checks (T13) -> PASS, 4 checks, receipts written
+- Self-check results:
+  - File sizes: seo-head.ts 213, layout.ts 325, render-pages.ts 455 — all
+    PRE-EXISTING over the 200 TS soft-default (layout.ts carries the T23 image
+    helpers; render-pages.ts carries 4 render fns). My additions are minimal/
+    additive; splitting shared infra is out of T13 scope. seo-head.test.ts 289
+    (test files exempt). — NOTED (not introduced by T13)
+  - Secret scan: PASS (clean)
+  - Error handling: N/A (no new route handlers; renderSeoHead retains its
+    empty-host throw)
+  - Migration execution: N/A (not a db story)
+  - Parameterized queries: N/A (no SQL added in product code)
+- Scope note: RSS alternate (also named in BCL-055) deferred — the /rss route
+  is T14; adding the alternate link now would point at a 404 until T14 lands.
+  The two ACs (article social/search tags + paginated noindex/prev-next) are
+  fully satisfied.
+---
