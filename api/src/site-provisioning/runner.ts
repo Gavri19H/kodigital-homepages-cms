@@ -167,6 +167,94 @@ export async function runProvisioningToCompletion(
   return { steps_run, final_status, last_step_status };
 }
 
+// T39 [BCL-013] — resume a STALLED provisioning job from the operator UI.
+// A build can halt two ways: (1) the background ctx.waitUntil driver was
+// killed mid-step, leaving the job 'running'/'pending' parked at
+// current_step_index < TOTAL_STEPS (advanceNextStep resumes these as-is);
+// (2) a step returned 'failed', parking the job 'failed' with last_error set
+// and advanceNextStep short-circuiting (so the per-step /provision/next is a
+// no-op against it). Resume handles BOTH: a 'failed' job is first reset to
+// 'running' (last_error cleared) so the parked step re-attempts, then the
+// idempotent advanceNextStep loop (runProvisioningToCompletion) drives the
+// build to completion — the final update_launch_readiness step flips the site
+// to status='active'. A site with no job is a no-op the caller maps to 404;
+// an already-completed job is a no-op that reports completed. Dry-run-safe:
+// it reuses the SAME runner the create path uses, so it emits ZERO outbound
+// fetch under SITE_PROVISIONING_DRY_RUN.
+export interface ResumeResult {
+  resumed: boolean;
+  reason: "no_job" | "already_completed" | null;
+  job_id: string | null;
+  site_id: string;
+  steps_run: number;
+  final_status: string;
+  last_step_status: StepHandlerResult["status"] | null;
+  site_status: string | null;
+}
+
+async function readSiteStatus(db: D1Database, siteId: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT status FROM sites WHERE id = ? LIMIT 1")
+    .bind(siteId)
+    .first<{ status: string }>();
+  return row?.status ?? null;
+}
+
+export async function resumeProvisioning(
+  env: Env,
+  db: D1Database,
+  site_id: string,
+): Promise<ResumeResult> {
+  const job = await findActiveJobForSite(db, site_id);
+  if (job === null) {
+    return {
+      resumed: false,
+      reason: "no_job",
+      job_id: null,
+      site_id,
+      steps_run: 0,
+      final_status: "no_job",
+      last_step_status: null,
+      site_status: null,
+    };
+  }
+  if (job.status === "completed") {
+    return {
+      resumed: false,
+      reason: "already_completed",
+      job_id: job.id,
+      site_id,
+      steps_run: 0,
+      final_status: "completed",
+      last_step_status: null,
+      site_status: await readSiteStatus(db, site_id),
+    };
+  }
+  // A parked 'failed' job is reset to 'running' (last_error cleared) so the
+  // failed step re-attempts on the next advanceNextStep; 'running'/'pending'
+  // jobs resume untouched (their pointer already sits on the un-run step).
+  if (job.status === "failed") {
+    await db
+      .prepare(
+        "UPDATE site_creation_jobs SET status = 'running', last_error = NULL, " +
+          "updated_at = unixepoch() WHERE id = ?",
+      )
+      .bind(job.id)
+      .run();
+  }
+  const summary = await runProvisioningToCompletion(env, db, site_id);
+  return {
+    resumed: true,
+    reason: null,
+    job_id: job.id,
+    site_id,
+    steps_run: summary.steps_run,
+    final_status: summary.final_status,
+    last_step_status: summary.last_step_status,
+    site_status: await readSiteStatus(db, site_id),
+  };
+}
+
 // T38 [BCL-074] — the only ExecutionContext capability the async driver
 // needs is waitUntil. Declaring the structural subset (rather than the
 // Workers `ExecutionContext`) keeps this module runtime-agnostic and lets a

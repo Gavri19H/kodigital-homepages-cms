@@ -55,6 +55,10 @@ var ACTIONS_MENU_MARKUP = '<button type="button" class="btn btn-sm btn-secondary
   + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="edit">Edit</button></li>'
   + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="change-status">Change status</button></li>'
   + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="reprovision">Re-provision</button></li>'
+  // T39 [BCL-013]: resume a stalled build to completion + (re-)open the live
+  // progress panel; "View progress" re-opens the same panel read-only.
+  + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="resume">Resume build</button></li>'
+  + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="view-progress">View progress</button></li>'
   + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="purge-cache">Purge cache</button></li>'
   + '<li role="none"><button type="button" role="menuitem" class="actions-menu-item" data-action="delete">Delete</button></li>'
   + '</ul>';
@@ -121,6 +125,9 @@ function renderToolbar(): string {
 function renderProvisioningPanel(): string {
   return '<section id="provisioning-status-panel" class="card provisioning-status" role="status" aria-live="polite" data-site-id="" hidden>'
     + '<h3 data-panel-title>Provisioning</h3>'
+    // T39 [BCL-013]: a Close control makes the panel re-openable — the
+    // "View progress" / "Resume" row actions unhide it again on demand.
+    + '<button type="button" class="btn btn-sm btn-secondary provisioning-panel-close" data-panel-close aria-label="Close progress panel">Close</button>'
     + '<p data-status>Idle</p>'
     + '<ul data-steps></ul>'
     + '<p class="launch-readiness" data-launch-readiness hidden>Launch readiness: <span data-launch-readiness-value>pending</span></p>'
@@ -418,6 +425,60 @@ var DOMAINS_ACTIONS_SCRIPT = '(function(){'
   + '.then(function(r){if(r.ok&&row&&row.parentNode){row.parentNode.removeChild(row);}})'
   + '.catch(function(){});'
   + '}'
+  // T39 [BCL-013]: the re-openable progress panel. getPanel() looks up the
+  // server-rendered #provisioning-status-panel each call so closeProgressPanel
+  // + openProgressPanel can hide/unhide it repeatedly (re-openable). The poll
+  // reads the REAL GET /provision shape {resource:{status,step_key,
+  // current_step},launch_readiness}; textContent only (no markup assignment) —
+  // XSS guardrail. The poll re-schedules until the job reaches a terminal
+  // status, so the panel tracks a resume drive to completion.
+  + 'function getPanel(){return document.getElementById("provisioning-status-panel");}'
+  + 'function setText(el,t){if(el){el.textContent=String(t==null?"":t);}}'
+  + 'function closeProgressPanel(){var p=getPanel();if(p){p.hidden=true;}}'
+  + 'function openProgressPanel(siteId,domain){'
+  + 'var panel=getPanel();'
+  + 'if(!panel||!siteId){return;}'
+  + 'panel.hidden=false;'
+  + 'panel.setAttribute("data-site-id",siteId);'
+  + 'setText(panel.querySelector("[data-panel-title]"),"Provisioning "+String(domain==null?"":domain));'
+  + 'var statusEl=panel.querySelector("[data-status]");'
+  + 'setText(statusEl,"Loading...");'
+  + 'var stepsEl=panel.querySelector("[data-steps]");'
+  + 'while(stepsEl&&stepsEl.firstChild){stepsEl.removeChild(stepsEl.firstChild);}'
+  + 'var readinessRow=panel.querySelector("[data-launch-readiness]");'
+  + 'var readinessValue=panel.querySelector("[data-launch-readiness-value]");'
+  + 'function poll(){'
+  + 'fetch("/api/admin/sites/"+encodeURIComponent(siteId)+"/provision",{method:"GET",credentials:"same-origin",headers:{"Accept":"application/json"}})'
+  + '.then(function(r){return r.ok?r.json():null;})'
+  + '.then(function(body){'
+  + 'if(!body){setText(statusEl,"Provisioning status not available");return;}'
+  + 'var res=body.resource||{};'
+  + 'var state=res.status||"pending";'
+  + 'var stepKey=res.step_key||"";'
+  + 'var stepIdx=(res.current_step==null)?"":res.current_step;'
+  + 'setText(statusEl,"Status: "+state+(stepKey?(" \\u2014 step "+stepIdx+": "+stepKey):""));'
+  + 'if(readinessRow&&readinessValue&&body.launch_readiness!=null&&typeof body.launch_readiness==="object"){'
+  + 'readinessRow.hidden=false;'
+  + 'var lr=body.launch_readiness;'
+  + 'var boolKeys=["domain_attached","cache_warmed","smoke_passed"];'
+  + 'var readyCount=0;'
+  + 'for(var bi=0;bi<boolKeys.length;bi++){if(lr[boolKeys[bi]]===true){readyCount++;}}'
+  + 'setText(readinessValue,readyCount+"/"+boolKeys.length+" checks ready");'
+  + '}'
+  + 'if(state!=="completed"&&state!=="failed"){window.setTimeout(poll,1500);}'
+  + '})'
+  + '.catch(function(){setText(statusEl,"Network error");window.setTimeout(poll,2500);});'
+  + '}'
+  + 'poll();'
+  + '}'
+  + 'function resumeBuild(siteId,row){'
+  // Open the panel first (immediate feedback) THEN drive the resume; the
+  // poll observes the build advance through to status='completed'.
+  + 'openProgressPanel(siteId,row?row.getAttribute("data-domain"):"");'
+  + 'return fetch("/api/admin/sites/"+encodeURIComponent(siteId)+"/provision/resume",{method:"POST",credentials:"same-origin",headers:{"Accept":"application/json"}})'
+  + '.then(function(r){if(r.ok){return refreshRow(row,siteId);}})'
+  + '.catch(function(){});'
+  + '}'
   + 'function doAction(action,row,siteId){'
   + 'if(action==="edit"){'
   + 'var cells=row.children;var current=cells[1]?cells[1].textContent:"";'
@@ -431,6 +492,8 @@ var DOMAINS_ACTIONS_SCRIPT = '(function(){'
   + 'return patch(siteId,row,{status:status});'
   + '}'
   + 'if(action==="reprovision"){return post(siteId,row,"/provision/next");}'
+  + 'if(action==="resume"){return resumeBuild(siteId,row);}'
+  + 'if(action==="view-progress"){openProgressPanel(siteId,row?row.getAttribute("data-domain"):"");return;}'
   + 'if(action==="purge-cache"){return post(siteId,row,"/purge-cache");}'
   + 'if(action==="delete"){if(!window.confirm("Delete this site? This cannot be undone.")){return;}return destroy(siteId,row);}'
   + '}'
@@ -457,6 +520,9 @@ var DOMAINS_ACTIONS_SCRIPT = '(function(){'
   + 'var t=e.target;'
   + 'if(!closestAttr(t,"data-actions-menu")&&!closestAttr(t,"data-row-action")){closeMenus();}'
   + '});'
+  // T39 [BCL-013]: the panel Close control hides the (re-openable) panel.
+  + 'var __panel=getPanel();'
+  + 'if(__panel){__panel.addEventListener("click",function(e){if(closestAttr(e.target,"data-panel-close")){closeProgressPanel();}});}'
   + '}());';
 
 export { DOMAINS_ACTIONS_SCRIPT, MODAL_SCRIPT };

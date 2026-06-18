@@ -24,7 +24,11 @@ import {
   listDomainsHandler,
   updateDomainHandler,
 } from "./domains-verticals-handlers";
-import { provisionNextHandler, provisionStatusHandler } from "../site-provisioning";
+import {
+  provisionNextHandler,
+  provisionResumeHandler,
+  provisionStatusHandler,
+} from "../site-provisioning";
 import { purgeCacheHandler } from "./purge-cache-handler";
 import {
   getPageHandler,
@@ -809,6 +813,13 @@ adminApi.delete("/sites/:id", deleteSiteHandler);
 // still matches the T13.AC1 grep `admin(Api)?\.(get|post|patch)\("/sites`
 // (operator >= 4, so a 5th hit is safe).
 adminApi.post("/sites/:id/provision/next", provisionNextHandler);
+// T39 [BCL-013]: resume a STALLED build — drives the job to completion
+// (resets a parked 'failed' job, then loops advanceNextStep) so a halted
+// site reaches status='active' from the operator "Resume" UI action. Route
+// literal `/sites/:id/provision/resume` is distinct from `/provision/next`
+// (different trailing segment) and still matches the T13.AC1 grep
+// `admin(Api)?\.(get|post|patch)\("/sites` (operator >= 4).
+adminApi.post("/sites/:id/provision/resume", provisionResumeHandler);
 // WARN-FIX-1: read-only provisioning status — does not advance the job.
 // Route literal `/sites/:id/provision` is the exact match required by the
 // WARN-FIX-1 grep `admin(Api)?\.(get)\("/sites/:id/provision"` (the

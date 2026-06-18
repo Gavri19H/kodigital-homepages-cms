@@ -40,11 +40,13 @@ import {
   advanceNextStep,
   findActiveJobForSite,
   ProvisioningError,
+  resumeProvisioning,
   runProvisioningToCompletion,
   scheduleBackgroundProvisioning,
   type AdvanceResult,
   type JobRow,
   type ProvisioningRunSummary,
+  type ResumeResult,
   type WaitUntilCtx,
 } from "./runner";
 
@@ -55,6 +57,7 @@ export {
   advanceNextStep,
   findActiveJobForSite,
   ProvisioningError,
+  resumeProvisioning,
   runProvisioningToCompletion,
   scheduleBackgroundProvisioning,
 };
@@ -62,6 +65,7 @@ export type {
   AdvanceResult,
   JobRow,
   ProvisioningRunSummary,
+  ResumeResult,
   StepKey,
   WaitUntilCtx,
 };
@@ -186,6 +190,58 @@ export async function provisionNextHandler(
       return c.json({ error: err.message, code: err.code }, 500);
     }
     const message = err instanceof Error ? err.message : "provision step failed";
+    return c.json({ error: message }, 500);
+  }
+}
+
+// T39 [BCL-013] — POST /api/admin/sites/:id/provision/resume. The operator
+// "Resume" UI action targets this: it drives the STALLED job to completion
+// (resumeProvisioning resets a parked 'failed' job to 'running', then loops
+// advanceNextStep) and reports the final job + site status so the row badge
+// and progress panel can refresh. A missing site is 404; a site with no job
+// is 404 (neutral message); an already-completed job returns 200 with
+// resumed=false. Dry-run-safe — the underlying runner emits zero outbound
+// fetch under SITE_PROVISIONING_DRY_RUN.
+export async function provisionResumeHandler(
+  c: Context<{ Bindings: Env }>,
+): Promise<Response> {
+  const siteId = c.req.param("id");
+  if (typeof siteId !== "string" || siteId.length === 0) {
+    return c.json({ error: "Invalid site id" }, 400);
+  }
+  const siteRow = await c.env.DB.prepare(
+    "SELECT id FROM sites WHERE id = ? LIMIT 1",
+  )
+    .bind(siteId)
+    .first<{ id: string }>();
+  if (siteRow === null || siteRow === undefined) {
+    return c.json({ error: "Site not found" }, 404);
+  }
+  try {
+    const result = await resumeProvisioning(c.env, c.env.DB, siteId);
+    if (!result.resumed && result.reason === "no_job") {
+      return c.json({ error: "No provisioning job for this site" }, 404);
+    }
+    return c.json(
+      {
+        job_id: result.job_id,
+        site_id: result.site_id,
+        resumed: result.resumed,
+        reason: result.reason,
+        steps_run: result.steps_run,
+        status: result.final_status,
+        last_step_status: result.last_step_status,
+        site_status: result.site_status,
+        completed: result.final_status === "completed",
+      },
+      200,
+    );
+  } catch (err) {
+    if (err instanceof ProvisioningError) {
+      return c.json({ error: err.message, code: err.code }, 500);
+    }
+    const message =
+      err instanceof Error ? err.message : "provision resume failed";
     return c.json({ error: message }, 500);
   }
 }
