@@ -73,6 +73,10 @@ export type {
   StepKey,
   WaitUntilCtx,
 };
+// rescue-4 v3 — Queues parallel fan-out: the per-unit consumer + enqueue helper
+// + message type, re-exported for the src/index.ts queue() handler.
+export { processProvisionMessage, enqueueProvisionUnits } from "./steps";
+export type { ProvisionMessage } from "./steps";
 
 interface LatestStepRow {
   step_key: string;

@@ -984,85 +984,25 @@ async function recordUnitFailure(
 // deterministic seo_title / seo_description, and the homepage placement flags +
 // homepage_rank that drive the 1/4/4/6 home split — all keyed off the unit's
 // stable unit_index so placement is identical across re-runs.
-async function generate15HomepageArticlesStep(
+// ===========================================================================
+// rescue-4 v3 — PER-UNIT generation primitives, shared by the serial step
+// (inline fallback) and the parallel Queue consumer (src/index.ts queue()).
+// Each does the work for exactly ONE unit and is fully idempotent (deterministic
+// slug + INSERT OR IGNORE), so a Queue re-delivery never duplicates.
+// ===========================================================================
+
+// Generate ONE article for `unit`, INSERT it under the PLANNED slug
+// (deterministic), and mark the unit text_status='done'. On a gen failure it
+// records the attempt (recordUnitFailure → 'failed' after MAX_UNIT_ATTEMPTS) and
+// returns "retry" (the caller/Queue re-attempts). Throws only on a missing site.
+export async function generateOneTextUnit(
   ctx: StepContext,
-): Promise<StepHandlerResult> {
+  unit: ArticleUnitRow,
+): Promise<"done" | "retry" | "failed"> {
   const info = await loadSiteInfo(ctx.db, ctx.site_id);
   if (!info) {
-    return {
-      status: "failed",
-      output: "",
-      error: `sites row missing for site_id=${ctx.site_id}`,
-    };
+    throw new Error(`sites row missing for site_id=${ctx.site_id}`);
   }
-
-  // --- 1. Materialize-once -------------------------------------------------
-  // Only generate the plan + seed unit rows when this site has none yet.
-  let planStatus: string | null = null;
-  let planGenerationId: string | null = null;
-  const existingUnits = await countArticleUnits(ctx.db, ctx.site_id);
-  if (existingUnits === 0) {
-    // T40-AC1: the starter-article PLAN is governed by the editable
-    // 'starter-articles' system preset — editing it changes the titles/topics
-    // the next provisioning run produces.
-    const plan = await generateStarterArticlePlan(ctx.env, {
-      site_id: info.site_id,
-      vertical: info.vertical,
-      brand_name: info.brand_name,
-      // rescue-4: STARTER_ARTICLE_TARGET is the end-to-end count knob. It is
-      // passed as `count` so the plan prompt asks for exactly this many items
-      // AND the no-API-key / model-failure fallback yields exactly this many.
-      count: STARTER_ARTICLE_TARGET,
-      presetCategory: PROVISIONING_PRESET_CATEGORIES.starterArticles,
-    });
-    planStatus = plan.status;
-    planGenerationId = plan.ai_generation_id;
-    // STARTER_ARTICLE_TARGET is the single count knob: it bounds how many plan
-    // items become work units here (the generator emits a fixed-size plan; we
-    // never touch its internals — we cap at the knob). To provision a different
-    // count, change STARTER_ARTICLE_TARGET only.
-    const items = (plan.parsed.items ?? []).slice(0, STARTER_ARTICLE_TARGET);
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]!;
-      // INSERT OR IGNORE under the (site_id, unit_index) PRIMARY KEY keeps the
-      // materialize idempotent: a partial prior materialize that got killed
-      // mid-loop re-fills only the missing unit rows on the next call.
-      await ctx.db
-        .prepare(
-          "INSERT OR IGNORE INTO provisioning_article_units " +
-            "(site_id, unit_index, slug, title, summary, text_status, image_status) " +
-            "VALUES (?, ?, ?, ?, ?, 'pending', 'pending')",
-        )
-        .bind(ctx.site_id, i, item.slug, item.title, item.summary)
-        .run();
-    }
-  }
-
-  // --- 2. Process-one ------------------------------------------------------
-  const unit = await selectNextPendingUnit(
-    ctx.db,
-    ctx.site_id,
-    "text_status",
-    false,
-  );
-  if (unit === null) {
-    // No pending text units remain — the article-body stage is done.
-    const totalUnits = await countArticleUnits(ctx.db, ctx.site_id);
-    return {
-      status: "completed",
-      output: JSON.stringify({
-        step: "generate_15_homepage_articles",
-        kind: "ai_or_fallback",
-        schema_version: 1,
-        stage: "text_complete",
-        total_units: totalUnits,
-      }),
-    };
-  }
-
-  // T6: author from the site's default_author_name setting (seeded by T7);
-  // fall back to a deterministic brand-derived editorial name — never a
-  // user email — so author_name is always non-null even before T7 seeds it.
   const settingAuthor = await readSiteSettingValue(
     ctx.db,
     ctx.site_id,
@@ -1070,7 +1010,6 @@ async function generate15HomepageArticlesStep(
   );
   const authorName =
     settingAuthor !== null ? settingAuthor : `${info.brand_name} Editorial Team`;
-  // T6: categories allocated to this site by allocate_vertical_categories.
   const categoryIds = await loadSiteCategoryIds(ctx.db, ctx.site_id);
 
   let article;
@@ -1085,7 +1024,7 @@ async function generate15HomepageArticlesStep(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await recordUnitFailure(
+    const permanentlyFailed = await recordUnitFailure(
       ctx.db,
       ctx.site_id,
       unit.unit_index,
@@ -1093,20 +1032,7 @@ async function generate15HomepageArticlesStep(
       unit.attempt_count,
       message,
     );
-    // The step itself does NOT fail — it stays in_progress so the next call
-    // moves on to the next unit (or retries this one until MAX_UNIT_ATTEMPTS).
-    return {
-      status: "in_progress",
-      output: JSON.stringify({
-        step: "generate_15_homepage_articles",
-        kind: "ai_or_fallback",
-        schema_version: 1,
-        stage: "text_unit_error",
-        unit_index: unit.unit_index,
-        attempt_count: unit.attempt_count + 1,
-        error: message.slice(0, 200),
-      }),
-    };
+    return permanentlyFailed ? "failed" : "retry";
   }
 
   const contentDoc = {
@@ -1121,14 +1047,10 @@ async function generate15HomepageArticlesStep(
     article.parsed.intro,
     article.parsed.sections,
   );
-  // T6: round-robin category from the site's allocated set, keyed off the
-  // unit's stable index so the assignment is identical across re-runs.
   const categoryId =
     categoryIds.length > 0
       ? categoryIds[unit.unit_index % categoryIds.length]!
       : null;
-  // T6: deterministic SEO fields derived from the article — both non-empty
-  // (title is validated non-empty; summary/intro back-fill the description).
   const seoTitle = (article.parsed.title || unit.title || unit.slug)
     .trim()
     .slice(0, 70);
@@ -1141,14 +1063,9 @@ async function generate15HomepageArticlesStep(
   )
     .trim()
     .slice(0, 155);
-  // T6: homepage placement flags + 1-based rank for the 1/4/4/6 split, keyed
-  // off the unit's stable index.
   const placement = starterPlacementForIndex(unit.unit_index);
   const homepageRank = unit.unit_index + 1;
-  // INSERT OR IGNORE — re-running this unit is a no-op under (site_id, slug)
-  // UNIQUE. Column order keeps (site_id, slug, title, content_json,
-  // content_html, ai_generation_id) at the head; the T6 editorial columns
-  // follow (same shape the prod schema + the test fakes expect).
+  // DETERMINISTIC slug (#29) → INSERT OR IGNORE idempotent under (site_id, slug).
   await ctx.db
     .prepare(
       "INSERT OR IGNORE INTO articles " +
@@ -1160,11 +1077,6 @@ async function generate15HomepageArticlesStep(
     )
     .bind(
       info.site_id,
-      // rescue-4 v2 — DETERMINISTIC article identity: bind the PLANNED unit
-      // slug, NOT the AI-echoed article.parsed.slug (which the model re-derives
-      // non-deterministically). A re-generation of the same unit then targets
-      // the SAME (site_id, slug) row -> INSERT OR IGNORE is a no-op -> never a
-      // duplicate article. (Live forensic: 21 rows / 14 distinct titles.)
       unit.slug,
       article.parsed.title,
       contentJson,
@@ -1179,9 +1091,6 @@ async function generate15HomepageArticlesStep(
       homepageRank,
     )
     .run();
-  // Mark the unit's text stage done + record the article slug as its
-  // article_id (the (site_id, slug) UNIQUE key — used by the image stage to
-  // find the right articles row to attach an image to).
   await ctx.db
     .prepare(
       "UPDATE provisioning_article_units SET text_status = 'done', article_id = ?, " +
@@ -1189,31 +1098,180 @@ async function generate15HomepageArticlesStep(
     )
     .bind(unit.slug, ctx.site_id, unit.unit_index)
     .run();
+  return "done";
+}
 
-  // More text units still pending? Stay in_progress so the runner re-enters
-  // this step next call; otherwise the text stage is complete.
+// Generate/assign ONE feature image for `unit` (which must already have an
+// article_id), UPDATE-IF-NULL the article's featured_image_id, and mark the
+// unit image_status='done'. Idempotent on the unit's stable index.
+export async function generateOneImageUnit(
+  ctx: StepContext,
+  unit: ArticleUnitRow,
+): Promise<"done" | "retry" | "failed"> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    throw new Error(`sites row missing for site_id=${ctx.site_id}`);
+  }
+  const articleRow = await ctx.db
+    .prepare(
+      "SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ? LIMIT 1",
+    )
+    .bind(ctx.site_id, unit.article_id)
+    .first<{ id: number; slug: string; title: string }>();
+  if (!articleRow) {
+    const pf = await recordUnitFailure(
+      ctx.db,
+      ctx.site_id,
+      unit.unit_index,
+      "image_status",
+      MAX_UNIT_ATTEMPTS - 1,
+      `article row missing for slug=${unit.article_id}`,
+    );
+    return pf ? "failed" : "retry";
+  }
+  let image;
+  try {
+    image = await generateFeatureImage(ctx.env, {
+      site_id: info.site_id,
+      vertical: info.vertical,
+      article_title: articleRow.title,
+      article_slug: articleRow.slug,
+      brand_name: info.brand_name,
+      presetCategory: PROVISIONING_PRESET_CATEGORIES.featureImage,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const permanentlyFailed = await recordUnitFailure(
+      ctx.db,
+      ctx.site_id,
+      unit.unit_index,
+      "image_status",
+      unit.attempt_count,
+      message,
+    );
+    return permanentlyFailed ? "failed" : "retry";
+  }
+  if (image.media_id > 0) {
+    await ctx.db
+      .prepare(
+        "UPDATE articles SET featured_image_id = ?, updated_at = unixepoch() " +
+          "WHERE id = ? AND (featured_image_id IS NULL OR featured_image_id = 0)",
+      )
+      .bind(image.media_id, articleRow.id)
+      .run();
+  }
+  await ctx.db
+    .prepare(
+      "UPDATE provisioning_article_units SET image_status = 'done', " +
+        "updated_at = unixepoch() WHERE site_id = ? AND unit_index = ?",
+    )
+    .bind(ctx.site_id, unit.unit_index)
+    .run();
+  return "done";
+}
+
+async function generate15HomepageArticlesStep(
+  ctx: StepContext,
+): Promise<StepHandlerResult> {
+  const info = await loadSiteInfo(ctx.db, ctx.site_id);
+  if (!info) {
+    return {
+      status: "failed",
+      output: "",
+      error: `sites row missing for site_id=${ctx.site_id}`,
+    };
+  }
+
+  // --- 1. Materialize-once -------------------------------------------------
+  const existingUnits = await countArticleUnits(ctx.db, ctx.site_id);
+  if (existingUnits === 0) {
+    const plan = await generateStarterArticlePlan(ctx.env, {
+      site_id: info.site_id,
+      vertical: info.vertical,
+      brand_name: info.brand_name,
+      count: STARTER_ARTICLE_TARGET,
+      presetCategory: PROVISIONING_PRESET_CATEGORIES.starterArticles,
+    });
+    const items = (plan.parsed.items ?? []).slice(0, STARTER_ARTICLE_TARGET);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      await ctx.db
+        .prepare(
+          "INSERT OR IGNORE INTO provisioning_article_units " +
+            "(site_id, unit_index, slug, title, summary, text_status, image_status) " +
+            "VALUES (?, ?, ?, ?, ?, 'pending', 'pending')",
+        )
+        .bind(ctx.site_id, i, item.slug, item.title, item.summary)
+        .run();
+    }
+  }
+
+  // --- 2. Parallel path: enqueue all pending units; return in_progress until
+  // the Queue consumer fleet has generated them all (each in its own
+  // invocation, full speed). Falls back to the serial path when unbound.
+  if (ctx.env.PROVISION_QUEUE) {
+    const { enqueued, remaining } = await enqueueProvisionUnits(
+      ctx.env,
+      ctx.site_id,
+      "text",
+    );
+    const totalUnits = await countArticleUnits(ctx.db, ctx.site_id);
+    return {
+      status: remaining ? "in_progress" : "completed",
+      output: JSON.stringify({
+        step: "generate_15_homepage_articles",
+        kind: "ai_or_fallback",
+        schema_version: 1,
+        stage: remaining ? "text_enqueued" : "text_complete",
+        enqueued,
+        total_units: totalUnits,
+      }),
+    };
+  }
+
+  // --- 3. Serial inline path (no Queue bound: tests / local dev) -----------
+  const unit = await selectNextPendingUnit(
+    ctx.db,
+    ctx.site_id,
+    "text_status",
+    false,
+  );
+  if (unit === null) {
+    const totalUnits = await countArticleUnits(ctx.db, ctx.site_id);
+    return {
+      status: "completed",
+      output: JSON.stringify({
+        step: "generate_15_homepage_articles",
+        kind: "ai_or_fallback",
+        schema_version: 1,
+        stage: "text_complete",
+        total_units: totalUnits,
+      }),
+    };
+  }
+  const outcome = await generateOneTextUnit(ctx, unit);
   const morePending = await selectNextPendingUnit(
     ctx.db,
     ctx.site_id,
     "text_status",
     false,
   );
-  const output = JSON.stringify({
-    step: "generate_15_homepage_articles",
-    kind: "ai_or_fallback",
-    schema_version: 1,
-    stage: morePending !== null ? "text_unit_done" : "text_complete",
-    unit_index: unit.unit_index,
-    article_slug: unit.slug,
-    plan_status: planStatus,
-    plan_ai_generation_id: planGenerationId,
-    author_name: authorName,
-    author_from_setting: settingAuthor !== null,
-    category_ids_available: categoryIds.length,
-  });
   return {
     status: morePending !== null ? "in_progress" : "completed",
-    output,
+    output: JSON.stringify({
+      step: "generate_15_homepage_articles",
+      kind: "ai_or_fallback",
+      schema_version: 1,
+      stage:
+        outcome === "retry"
+          ? "text_unit_error"
+          : morePending !== null
+            ? "text_unit_done"
+            : "text_complete",
+      unit_index: unit.unit_index,
+      article_slug: unit.slug,
+      outcome,
+    }),
   };
 }
 
@@ -1264,6 +1322,26 @@ async function generateOrAssignArticleImagesStep(
       error: `sites row missing for site_id=${ctx.site_id}`,
     };
   }
+  if (ctx.env.PROVISION_QUEUE) {
+    const { enqueued, remaining } = await enqueueProvisionUnits(
+      ctx.env,
+      ctx.site_id,
+      "image",
+    );
+    const totalUnits = await countArticleUnits(ctx.db, ctx.site_id);
+    return {
+      status: remaining ? "in_progress" : "completed",
+      output: JSON.stringify({
+        step: "generate_or_assign_article_images",
+        kind: "ai_or_fallback",
+        schema_version: 1,
+        stage: remaining ? "image_enqueued" : "image_complete",
+        enqueued,
+        total_units: totalUnits,
+      }),
+    };
+  }
+
   const unit = await selectNextPendingUnit(
     ctx.db,
     ctx.site_id,
@@ -1271,7 +1349,6 @@ async function generateOrAssignArticleImagesStep(
     true,
   );
   if (unit === null) {
-    // No pending image units with an article remain — the image stage is done.
     const totalUnits = await countArticleUnits(ctx.db, ctx.site_id);
     return {
       status: "completed",
@@ -1284,97 +1361,7 @@ async function generateOrAssignArticleImagesStep(
       }),
     };
   }
-
-  // article_id is the article slug (the (site_id, slug) UNIQUE key the text
-  // stage stored). Resolve the articles row to attach the image to.
-  const articleRow = await ctx.db
-    .prepare(
-      "SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ? LIMIT 1",
-    )
-    .bind(ctx.site_id, unit.article_id)
-    .first<{ id: number; slug: string; title: string }>();
-  if (!articleRow) {
-    // The unit references an article that does not exist — mark the image
-    // stage 'failed' for this unit so it is skipped (the text stage owns
-    // article creation; an absent row is not recoverable here).
-    await recordUnitFailure(
-      ctx.db,
-      ctx.site_id,
-      unit.unit_index,
-      "image_status",
-      MAX_UNIT_ATTEMPTS - 1,
-      `article row missing for slug=${unit.article_id}`,
-    );
-    return {
-      status: "in_progress",
-      output: JSON.stringify({
-        step: "generate_or_assign_article_images",
-        kind: "ai_or_fallback",
-        schema_version: 1,
-        stage: "image_unit_missing_article",
-        unit_index: unit.unit_index,
-      }),
-    };
-  }
-
-  let image;
-  try {
-    image = await generateFeatureImage(ctx.env, {
-      site_id: info.site_id,
-      vertical: info.vertical,
-      article_title: articleRow.title,
-      article_slug: articleRow.slug,
-      brand_name: info.brand_name,
-      presetCategory: PROVISIONING_PRESET_CATEGORIES.featureImage,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await recordUnitFailure(
-      ctx.db,
-      ctx.site_id,
-      unit.unit_index,
-      "image_status",
-      unit.attempt_count,
-      message,
-    );
-    return {
-      status: "in_progress",
-      output: JSON.stringify({
-        step: "generate_or_assign_article_images",
-        kind: "ai_or_fallback",
-        schema_version: 1,
-        stage: "image_unit_error",
-        unit_index: unit.unit_index,
-        attempt_count: unit.attempt_count + 1,
-        error: message.slice(0, 200),
-      }),
-    };
-  }
-
-  let assigned = false;
-  if (image.media_id > 0) {
-    // UPDATE-IF-NULL — only assign the AI-generated image when the editor
-    // hasn't already picked a featured image for this article.
-    await ctx.db
-      .prepare(
-        "UPDATE articles SET featured_image_id = ?, updated_at = unixepoch() " +
-          "WHERE id = ? AND (featured_image_id IS NULL OR featured_image_id = 0)",
-      )
-      .bind(image.media_id, articleRow.id)
-      .run();
-    assigned = true;
-  }
-  // Mark the unit's image stage done regardless of whether a media row was
-  // created (no-key skip yields media_id=0 → nothing to assign, and a re-run
-  // would never produce one); idempotent on the unit's stable index.
-  await ctx.db
-    .prepare(
-      "UPDATE provisioning_article_units SET image_status = 'done', " +
-        "updated_at = unixepoch() WHERE site_id = ? AND unit_index = ?",
-    )
-    .bind(ctx.site_id, unit.unit_index)
-    .run();
-
+  const outcome = await generateOneImageUnit(ctx, unit);
   const morePending = await selectNextPendingUnit(
     ctx.db,
     ctx.site_id,
@@ -1387,11 +1374,14 @@ async function generateOrAssignArticleImagesStep(
       step: "generate_or_assign_article_images",
       kind: "ai_or_fallback",
       schema_version: 1,
-      stage: morePending !== null ? "image_unit_done" : "image_complete",
+      stage:
+        outcome === "retry"
+          ? "image_unit_error"
+          : morePending !== null
+            ? "image_unit_done"
+            : "image_complete",
       unit_index: unit.unit_index,
-      article_slug: articleRow.slug,
-      assigned,
-      image_status: image.status,
+      outcome,
     }),
   };
 }
@@ -1769,4 +1759,120 @@ export function getStepKeyForIndex(index: number): StepKey | null {
     return null;
   }
   return STEP_KEYS[index] ?? null;
+}
+
+
+// ===========================================================================
+// rescue-4 v3 — Cloudflare Queues parallel fan-out. The two heavy gen steps
+// enqueue one message per unit; the queue() consumer in src/index.ts runs each
+// in its OWN parallel invocation (full speed, no in-invocation contention —
+// the thing a single-invocation Promise.all could not do). 'queued' is the
+// in-flight marker so a unit is never enqueued twice; a stale 'queued'
+// (consumer lost) is reclaimed to 'pending' after PROVISION_QUEUE_RECLAIM_S.
+// ===========================================================================
+
+export interface ProvisionMessage {
+  site_id: string;
+  unit_index: number;
+  stage: "text" | "image";
+}
+
+const PROVISION_QUEUE_RECLAIM_S = 180;
+
+// Enqueue every still-pending unit for `stage` (marking it 'queued'), reclaiming
+// any stale 'queued' first. Returns whether any unit remains unsettled (pending
+// or queued) — the step stays in_progress until that is false.
+export async function enqueueProvisionUnits(
+  env: Env,
+  site_id: string,
+  stage: "text" | "image",
+): Promise<{ enqueued: number; remaining: boolean }> {
+  const queue = env.PROVISION_QUEUE;
+  if (!queue) return { enqueued: 0, remaining: true };
+  const db = env.DB;
+  const col = stage === "text" ? "text_status" : "image_status";
+  // image work only applies to units whose article body already landed.
+  const gate = stage === "image" ? " AND text_status = 'done'" : "";
+  // reclaim stale in-flight units (consumer lost) so they re-enqueue.
+  await db
+    .prepare(
+      "UPDATE provisioning_article_units SET " +
+        col +
+        " = 'pending', updated_at = unixepoch() WHERE site_id = ? AND " +
+        col +
+        " = 'queued' AND updated_at <= unixepoch() - " +
+        String(PROVISION_QUEUE_RECLAIM_S),
+    )
+    .bind(site_id)
+    .run();
+  const res = await db
+    .prepare(
+      "SELECT unit_index FROM provisioning_article_units WHERE site_id = ? AND " +
+        col +
+        " = 'pending'" +
+        gate +
+        " ORDER BY unit_index ASC",
+    )
+    .bind(site_id)
+    .all<{ unit_index: number }>();
+  const pending = res && Array.isArray(res.results) ? res.results : [];
+  let enqueued = 0;
+  for (const row of pending) {
+    await queue.send({ site_id, unit_index: row.unit_index, stage });
+    await db
+      .prepare(
+        "UPDATE provisioning_article_units SET " +
+          col +
+          " = 'queued', updated_at = unixepoch() WHERE site_id = ? AND unit_index = ? AND " +
+          col +
+          " = 'pending'",
+      )
+      .bind(site_id, row.unit_index)
+      .run();
+    enqueued += 1;
+  }
+  const rem = await db
+    .prepare(
+      "SELECT 1 AS x FROM provisioning_article_units WHERE site_id = ? AND " +
+        col +
+        " IN ('pending','queued')" +
+        gate +
+        " LIMIT 1",
+    )
+    .bind(site_id)
+    .first<{ x: number }>();
+  return { enqueued, remaining: rem !== null };
+}
+
+// Queue consumer body: process ONE message at full speed in its own invocation.
+// Idempotent — a re-delivered message for an already-settled unit is a no-op.
+// Returns "retry" when the unit's gen failed transiently (caller re-throws so
+// the Queue redelivers); "done"/"failed"/"skip" are terminal (caller acks).
+export async function processProvisionMessage(
+  env: Env,
+  msg: ProvisionMessage,
+): Promise<"done" | "retry" | "failed" | "skip"> {
+  const db = env.DB;
+  const ctx: StepContext = {
+    env,
+    db,
+    site_id: msg.site_id,
+    job_id: "",
+    step_order: 0,
+  };
+  const unit = await db
+    .prepare(
+      "SELECT unit_index, slug, title, summary, text_status, image_status, " +
+        "article_id, attempt_count FROM provisioning_article_units " +
+        "WHERE site_id = ? AND unit_index = ? LIMIT 1",
+    )
+    .bind(msg.site_id, msg.unit_index)
+    .first<ArticleUnitRow>();
+  if (!unit) return "skip";
+  if (msg.stage === "text") {
+    if (unit.text_status === "done" || unit.text_status === "failed") return "skip";
+    return await generateOneTextUnit(ctx, unit);
+  }
+  if (unit.image_status === "done" || unit.image_status === "failed") return "skip";
+  return await generateOneImageUnit(ctx, unit);
 }

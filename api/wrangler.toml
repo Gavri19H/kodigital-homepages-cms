@@ -53,6 +53,29 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
 
+
+# rescue-4 v3 — parallel provisioning fan-out. The two heavy gen steps enqueue
+# one message per article/image unit; Cloudflare runs the queue() consumer
+# across a PARALLEL fleet (one gen per invocation, full speed). max_concurrency
+# is the throughput knob — set it to your OpenAI concurrent rate limit and raise
+# as your quota grows (config only, no code change). max_batch_size=1 = one gen
+# per invocation (no in-invocation contention). Failed msgs retry then DLQ.
+# ONE-TIME operator setup before deploy:
+#   wrangler queues create kodigital-provisioning
+#   wrangler queues create kodigital-provisioning-dlq
+[[queues.producers]]
+binding = "PROVISION_QUEUE"
+queue = "kodigital-provisioning"
+
+[[queues.consumers]]
+queue = "kodigital-provisioning"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 5
+max_concurrency = 10
+dead_letter_queue = "kodigital-provisioning-dlq"
+
+
 [env.staging]
 name = "kodigital-homepages-cms-worker-staging"
 
@@ -86,6 +109,19 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 [[env.staging.r2_buckets]]
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
+
+[[env.staging.queues.producers]]
+binding = "PROVISION_QUEUE"
+queue = "kodigital-provisioning-staging"
+
+[[env.staging.queues.consumers]]
+queue = "kodigital-provisioning-staging"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 5
+max_concurrency = 10
+dead_letter_queue = "kodigital-provisioning-staging-dlq"
+
 
 [env.production]
 name = "kodigital-homepages-cms-worker"
@@ -135,3 +171,16 @@ id = "77bb281de4fb4008a06b0993eb8b1774"
 [[env.production.r2_buckets]]
 binding = "MEDIA"
 bucket_name = "kodigital-homepages-cms-media"
+
+[[env.production.queues.producers]]
+binding = "PROVISION_QUEUE"
+queue = "kodigital-provisioning"
+
+[[env.production.queues.consumers]]
+queue = "kodigital-provisioning"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 5
+max_concurrency = 10
+dead_letter_queue = "kodigital-provisioning-dlq"
+
