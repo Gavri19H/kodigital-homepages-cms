@@ -6,6 +6,18 @@
 // + (optional) FAQPage so the JSON-LD presence regression can detect them on
 // the rendered body alone.
 //
+// RESCUE-4 RE-SKIN (2026-06-21): the rendered DOM below matches the claude.ai
+// design `ArticleApp` 1:1 — the hero (`.article-hero-img` wrapper + overlay +
+// `.container .article-hero-content` with `.article-cat`/`.article-title`/
+// `.article-subtitle`/`.article-meta` carrying a `.card-avatar` + byline/date),
+// the `.article-shell` (share-rail / `.article-body` with drop-cap p, h2,
+// brand-dash ul, `.pullquote` w/ `.pq-mark`, `.article-figure > .figure-img`,
+// `.callout-box`, `.affiliate-card`, FAQs as `.faq-list > details`,
+// `.article-share-bottom`), the `.article-sidebar` (toc / mini newsletter /
+// rect ad / `.sidebar-popular`), and the `.related-section` "Keep reading"
+// grid. Header/footer/newsletter/ad-slot/avatar come from components.ts
+// (the home re-skin already matched them) — NOT re-implemented here.
+//
 // Contract §8 divides Article into 12 ordered sections with explicit
 // NESTING: §§5–9 live INSIDE the §4 article-shell, and §§7–8 live INSIDE
 // the §6 article-body. Each section is delimited by an
@@ -43,7 +55,9 @@
 // MUST NOT hardcode TheIWise / theiwise / cms.kodigital.app. The T18
 // regression test exercises renderArticle to assert this.
 //
-// PART 8 RED LINE: every href is a real URL. No href="#".
+// PART 8 RED LINE: every href is a real URL. No href="#". The share buttons
+// are <button> JS actions (data-share → public.js Web Share / clipboard),
+// never anchors.
 //
 // PART 4 RED LINE: the rendered HTML MUST contain the literal
 // `minmax(0, 1fr)` inside the article-shell wrapper so a CSS-less
@@ -70,6 +84,7 @@ import {
   buildFaqJsonLd,
 } from "./seo";
 import { responsiveImg } from "./responsive-img";
+import { iconChevronDown } from "./icons";
 import type { AdsConfig } from "../ads";
 
 export interface RenderArticleArgs {
@@ -129,20 +144,33 @@ function isSafeHref(url: string): boolean {
   );
 }
 
-function renderArticleHero(article: ArticleViewModel["article"]): string {
-  // §3 hero is the LCP candidate: responsive (srcset + blur-up LQIP +
-  // /media/ src, T21) at the design dimensions (1200×630), loaded eager with
-  // fetchpriority="high". responsiveImg returns "" when imageUrl is absent.
+// The site-name initial used for the hero byline avatar — mirrors the design
+// `.card-avatar` brand mark (and the components.ts header/footer brand glyph).
+// Sourced from the view-model, never hardcoded (PART 12).
+function avatarInitial(name: string): string {
+  const trimmed = (name ?? "").trim();
+  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "•";
+}
+
+function renderArticleHero(article: ArticleViewModel["article"], siteName: string): string {
+  // §3 hero is the LCP candidate: a responsive (/media/ src, T21) <img> at the
+  // design dimensions (1200×630), loaded eager with fetchpriority="high",
+  // wrapped in the design `.article-hero-img` div (object-fit:cover fill).
+  // responsiveImg returns "" when imageUrl is absent → the wrapper holds a `.ph`
+  // gradient placeholder instead so the hero box is never empty.
   const heroImg = responsiveImg({
     src: article.imageUrl,
     alt: article.imageAlt,
     width: 1200,
     height: 630,
-    className: "article-hero-img",
     loading: "eager",
     fetchpriority: "high",
     sizes: "100vw",
   });
+  const heroInner =
+    heroImg.length > 0
+      ? heroImg
+      : `<div class="ph" data-label="${escAttr(article.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
   const categoryHtml =
     article.categoryName.length > 0
       ? `<a class="article-cat" href="${escAttr(article.categoryHref)}">${escText(article.categoryName)}</a>`
@@ -151,27 +179,44 @@ function renderArticleHero(article: ArticleViewModel["article"]): string {
     article.excerpt.length > 0
       ? `<p class="article-subtitle">${escText(article.excerpt)}</p>`
       : "";
-  const metaParts: string[] = [];
-  if (article.author !== null) {
-    metaParts.push(`<span class="article-byline">${escText(article.author.name)}</span>`);
-  }
+
+  // §3 meta row (design): a `.card-avatar` brand mark + `.article-meta-text`
+  // holding the byline and the "{publishedAt} · {readTime}" date line. The
+  // byline is the author name when present, else the brand-house "<strong>{site}</strong>
+  // Recommends" form. The avatar initial is the article author's (or site's).
+  const bylineName =
+    article.author !== null && article.author.name.length > 0
+      ? escText(article.author.name)
+      : `<strong>${escText(siteName)}</strong> Recommends`;
+  const avatarSource =
+    article.author !== null && article.author.name.length > 0
+      ? article.author.name
+      : siteName;
+  const avatarHtml = `<span class="card-avatar is-brand" aria-hidden="true">${escText(avatarInitial(avatarSource))}</span>`;
+  const dateParts: string[] = [];
   if (article.publishedAtDisplay.length > 0) {
-    metaParts.push(`<time class="article-date" datetime="${escAttr(article.publishedAt)}">${escText(article.publishedAtDisplay)}</time>`);
+    dateParts.push(
+      `<time datetime="${escAttr(article.publishedAt)}">${escText(article.publishedAtDisplay)}</time>`,
+    );
   }
   if (article.readMinutesDisplay.length > 0) {
-    metaParts.push(`<span class="article-meta-text">${escText(article.readMinutesDisplay)}</span>`);
+    dateParts.push(escText(article.readMinutesDisplay));
   }
-  const metaHtml =
-    metaParts.length > 0 ? `<p class="article-meta">${metaParts.join("")}</p>` : "";
+  const dateHtml =
+    dateParts.length > 0
+      ? `<span class="article-date">${dateParts.join(" · ")}</span>`
+      : "";
+  const metaHtml = `<div class="article-meta">${avatarHtml}<div class="article-meta-text"><span class="article-byline">${bylineName}</span>${dateHtml}</div></div>`;
+
   return `<section class="article-hero" aria-labelledby="article-title">
-  ${heroImg}
+  <div class="article-hero-img">${heroInner}</div>
   <div class="article-hero-overlay"></div>
-  <div class="article-hero-content">
+  <div class="container article-hero-content">
     ${categoryHtml}
     <h1 id="article-title" class="article-title">${escText(article.title)}</h1>
     ${subtitleHtml}
+    ${metaHtml}
   </div>
-  ${metaHtml}
 </section>`;
 }
 
@@ -188,22 +233,27 @@ function renderBlockHtml(
       return block.html.length > 0 ? `<div class="article-body__html">${block.html}</div>` : "";
     case "heading": {
       const tag = block.level === 3 ? "h3" : "h2";
-      // The id anchors the sidebar TOC links (#article-heading-N).
+      // The id anchors the sidebar TOC links (#article-heading-N). The
+      // `.article-body__heading` class is harmless under the design's
+      // element-scoped `.article-body > h2` rule.
       return `<${tag} id="article-heading-${headingIndex}" class="article-body__heading">${escText(block.text)}</${tag}>`;
     }
     case "image": {
+      // §12 `image` → design `<figure class="article-figure"><div class="figure-img"><img></div><figcaption>`.
       const caption =
         block.caption !== null && block.caption.length > 0
           ? `<figcaption>${escText(block.caption)}</figcaption>`
           : "";
-      return `<figure class="article-figure"><img src="${escAttr(block.src)}" alt="${escAttr(block.alt)}" width="1200" height="675" loading="lazy" decoding="async">${caption}</figure>`;
+      return `<figure class="article-figure"><div class="figure-img"><img src="${escAttr(block.src)}" alt="${escAttr(block.alt)}" width="1200" height="675" loading="lazy" decoding="async"></div>${caption}</figure>`;
     }
     case "quote": {
+      // §12 `pullquote` → design `<blockquote class="pullquote"><span class="pq-mark">"</span>{text}</blockquote>`.
+      // An optional <cite> trails the quote when the block carries an attribution.
       const cite =
         block.cite !== null && block.cite.length > 0
           ? `<cite>${escText(block.cite)}</cite>`
           : "";
-      return `<blockquote class="pullquote">${escText(block.text)}${cite}</blockquote>`;
+      return `<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>${escText(block.text)}${cite}</blockquote>`;
     }
     case "list": {
       const tag = block.ordered ? "ol" : "ul";
@@ -213,28 +263,41 @@ function renderBlockHtml(
     case "code":
       return `<pre><code${block.language !== null ? ` class="language-${escAttr(block.language)}"` : ""}>${escText(block.code)}</code></pre>`;
     case "callout": {
-      // §12 `callout` → `.callout-box` (brand-tint box, public-css.ts).
+      // §12 `callout` → design `<div class="callout-box"><h4>{title}</h4>…</div>`
+      // (brand-tint box, public-css.ts). The worker callout VM carries a single
+      // free-text body (not list items), so the body renders as a <p>; the
+      // design's <ul><li> checklist form is for list-shaped callouts.
       const title =
         block.title !== null && block.title.length > 0
-          ? `<strong class="callout-title">${escText(block.title)}</strong>`
+          ? `<h4>${escText(block.title)}</h4>`
           : "";
-      return `<aside class="callout-box">${title}<p>${escText(block.text)}</p></aside>`;
+      const body = block.text.length > 0 ? `<p>${escText(block.text)}</p>` : "";
+      return `<div class="callout-box">${title}${body}</div>`;
     }
     case "affiliate": {
-      // §12 `affiliate` → `.affiliate-card` with a sponsored/nofollow CTA.
-      const title =
+      // §12 `affiliate` → design `<a class="affiliate-card">` (the whole card is
+      // the link) with `.affiliate-img` thumb, `.affiliate-body` (eyebrow +
+      // h4 name + price) and an `.affiliate-cta` "Shop →" pill. The worker VM
+      // carries title/description/url/cta only (no image, no price), so the
+      // thumb is a `.ph` placeholder, the eyebrow is the design's static
+      // "Editor's pick" label, price is omitted, and the description rides as
+      // the price-line subtext. When the url is safe the card is an <a> with the
+      // sponsored/nofollow rel; otherwise it degrades to a non-link <div>.
+      const name =
         block.title !== null && block.title.length > 0
-          ? `<strong class="affiliate-card-title">${escText(block.title)}</strong>`
+          ? `<h4>${escText(block.title)}</h4>`
           : "";
       const desc =
         block.description !== null && block.description.length > 0
-          ? `<p class="affiliate-card-desc">${escText(block.description)}</p>`
+          ? `<span class="affiliate-price">${escText(block.description)}</span>`
           : "";
-      const cta =
-        block.url !== null && isSafeHref(block.url)
-          ? `<a class="affiliate-card-cta" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${escText(block.cta)}</a>`
-          : "";
-      return `<aside class="affiliate-card">${title}${desc}${cta}</aside>`;
+      const inner =
+        `<div class="affiliate-img"><div class="ph" data-label="${escAttr(block.title ?? "")}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div></div>` +
+        `<div class="affiliate-body"><span class="affiliate-eyebrow">Editor's pick</span>${name}${desc}</div>` +
+        `<span class="affiliate-cta">${escText(block.cta)} →</span>`;
+      return block.url !== null && isSafeHref(block.url)
+        ? `<a class="affiliate-card" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${inner}</a>`
+        : `<div class="affiliate-card">${inner}</div>`;
     }
     case "faq":
       return `<details class="article-body__faq"><summary>${escText(block.question)}</summary><div>${escText(block.answer)}</div></details>`;
@@ -253,10 +316,11 @@ function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
 }
 
 // §11 sidebar card order: toc → sidebar-newsletter → sidebar-ad → popular.
-// The ad wrapper carries the literal `ad-slot--rect` class so the
-// `.sidebar-ad.ad-slot--rect` contract selector matches; the inner
-// renderAdSlot node carries the data-ad-slot/data-ad-type attributes the
-// ad-slot regression asserts.
+// Matches the design `Sidebar`: `.sidebar-card` (`.sidebar-title` h4 + `.toc`
+// ol), `.sidebar-newsletter` (mini newsletter form), `.sidebar-ad.ad-slot--rect`
+// (the rect ad — kept as the worker ad subsystem's `rect` type so renderAdSlot's
+// data-ad-type/data-ad-slot contract holds), then `.sidebar-popular`
+// (`.pop-num`/`.pop-img`/`.pop-body` rows).
 function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
   const tocItems = vm.article.body
     .filter((b) => b.type === "heading")
@@ -264,31 +328,47 @@ function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
     .join("");
   const tocHtml =
     tocItems.length > 0
-      ? `<aside class="sidebar-card toc"><h3>On this page</h3><ol>${tocItems}</ol></aside>`
+      ? `<div class="sidebar-card"><h4 class="sidebar-title">In this article</h4><ol class="toc">${tocItems}</ol></div>`
       : "";
-  const newsletterHtml = `<aside class="sidebar-card sidebar-newsletter"><h3>Newsletter</h3><p>Get the best stories in your inbox.</p><a class="btn-primary" href="#newsletter-heading">Subscribe</a></aside>`;
-  const adHtml = `<aside class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article", ads })}</aside>`;
-  // Contract §11 sidebar-popular: 60×60 thumbs (`pop-img`). The thumb is a
-  // responsive image (srcset + blur-up LQIP + /media/ src, T21) at the design
-  // dimensions; below-fold, so loading="lazy".
+
+  // Design `.sidebar-newsletter`: a brand-tint card with a mini inline form
+  // (`.newsletter-form.mini`). The submit posts to the same public endpoint as
+  // the main newsletter; PART 8 — no href="#".
+  const newsletterHtml = `<div class="sidebar-newsletter"><h4>Get the newsletter</h4><p>The best stories in your inbox each week.</p><form class="newsletter-form mini" method="post" action="/api/newsletter/subscribe"><label class="newsletter-label-sr" for="sidebar-newsletter-email">Email address</label><input id="sidebar-newsletter-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required><button class="btn-primary" type="submit">Join</button></form></div>`;
+
+  // §11 sidebar ad: the `.sidebar-ad.ad-slot--rect` wrapper around the rect
+  // renderAdSlot node (data-ad-slot/data-ad-type contract).
+  const adHtml = `<div class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article", ads })}</div>`;
+
+  // Design `.sidebar-popular`: a numbered list, each row a 24px `.pop-num` +
+  // a 60×60 `.pop-img` thumb + a `.pop-body` (`.pop-cat` + `.pop-title`).
+  // The thumb is a /media/ <img> (T21) at the design 60×60; below-fold → lazy.
   const popularItems = vm.related
-    .slice(0, 3)
-    .map((c) => {
+    .slice(0, 5)
+    .map((c, i) => {
       const thumb = responsiveImg({
         src: c.imageUrl,
         alt: c.imageAlt,
         width: 60,
         height: 60,
-        className: "pop-img",
         loading: "lazy",
         sizes: "60px",
       });
-      return `<li class="pop-item"><a href="${escAttr(c.href)}">${thumb}<span class="pop-title">${escText(c.title)}</span></a></li>`;
+      const thumbInner =
+        thumb.length > 0
+          ? thumb
+          : `<div class="ph" data-label="${escAttr(c.categoryName.length > 0 ? c.categoryName : c.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
+      const num = String(i + 1).padStart(2, "0");
+      const cat =
+        c.categoryName.length > 0
+          ? `<span class="pop-cat">${escText(c.categoryName)}</span>`
+          : "";
+      return `<li><a href="${escAttr(c.href)}"><span class="pop-num">${num}</span><span class="pop-img">${thumbInner}</span><span class="pop-body">${cat}<span class="pop-title">${escText(c.title)}</span></span></a></li>`;
     })
     .join("");
   const popularHtml =
     popularItems.length > 0
-      ? `<aside class="sidebar-card sidebar-popular"><h3>Popular</h3><ol>${popularItems}</ol></aside>`
+      ? `<div class="sidebar-card"><h4 class="sidebar-title">Popular this week</h4><ul class="sidebar-popular">${popularItems}</ul></div>`
       : "";
   return `<aside class="article-sidebar">${tocHtml}${newsletterHtml}${adHtml}${popularHtml}</aside>`;
 }
@@ -296,26 +376,33 @@ function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
 // T16/BCL-057: the share URL MUST resolve to the tenant's real address.
 // `hostname` is vm.site.hostname (= siteContext.hostname, the live request
 // host); article.href is `/article/<slug>`, so the rail URL equals the page's
-// canonicalUrl. The previous `https://__SITE__<href>` placeholder shipped a
-// copy/share link pointing at a literal `__SITE__` host — broken for users.
+// canonicalUrl. The design share rail is three round `.share-btn` (Save / Share
+// / Copy) + a `.share-count`. The Share + Copy buttons carry data-share +
+// data-share-url so public.js wires the Web Share API / clipboard fallback;
+// Save is a local bookmark affordance (data-share-action="save"). PART 8 — all
+// are <button> JS actions, never anchors.
 function renderShareRail(article: ArticleViewModel["article"], hostname: string): string {
   const url = escAttr(`https://${hostname}${article.href}`);
   return `<aside class="share-rail" aria-label="Share this story">
-  <button class="share-btn" type="button" data-share-action="copy" data-share-url="${url}" aria-label="Copy link">🔗</button>
-  <button class="share-btn" type="button" data-share-action="native" data-share-url="${url}" aria-label="Share">↗</button>
-  <p class="share-count" aria-hidden="true">0</p>
+  <button class="share-btn" type="button" data-share-action="save" aria-label="Save this story">🔖</button>
+  <button class="share-btn" type="button" data-share data-share-url="${url}" aria-label="Share">↗</button>
+  <button class="share-btn" type="button" data-share data-share-url="${url}" data-share-action="copy" aria-label="Copy link">🔗</button>
+  <span class="share-count" aria-hidden="true">0</span>
 </aside>`;
 }
 
 function renderFaqSection(faqs: ArticleViewModel["faqs"]): string {
   if (faqs.length === 0) return "";
+  // Design `.faq-section`: an h2 + a `.faq-list` of <details> rows, each summary
+  // carrying a chevron svg the CSS rotates on [open].
+  const chevron = iconChevronDown({ className: "faq-chevron", size: 18 });
   const items = faqs
     .map(
       (f) =>
-        `<details><summary>${escText(f.question)}</summary><div>${escText(f.answer)}</div></details>`,
+        `<details><summary>${escText(f.question)}${chevron}</summary><p>${escText(f.answer)}</p></details>`,
     )
     .join("");
-  return `<section class="faq-section" aria-labelledby="faq-heading"><h2 id="faq-heading">Frequently asked questions</h2>${items}</section>`;
+  return `<section class="faq-section" aria-labelledby="faq-heading"><h2 id="faq-heading">Frequently asked questions</h2><div class="faq-list">${items}</div></section>`;
 }
 
 function renderRelated(related: ArticleViewModel["related"]): string {
@@ -364,7 +451,7 @@ export function renderArticle(args: RenderArticleArgs): string {
     nav: args.nav,
   });
 
-  const s3 = renderArticleHero(article);
+  const s3 = renderArticleHero(article, site.name);
 
   // §4 article-shell wraps §§5–9; §§7–8 nest INSIDE the §6 article-body.
   // The shell carries the literal minmax(0, 1fr) so a CSS-less snapshot
@@ -379,15 +466,18 @@ export function renderArticle(args: RenderArticleArgs): string {
     ${renderFaqSection(vm.faqs)}
     ${marker(8, "article-share-bottom")}
     <div class="article-share-bottom" aria-label="Share this story">
-  <button class="share-btn" type="button" data-share-action="copy" aria-label="Copy link">Copy link</button>
-  <button class="share-btn" type="button" data-share-action="native" aria-label="Share">Share</button>
+  <button class="btn-outline" type="button" data-share-action="save">Save this story</button>
+  <button class="btn-primary" type="button" data-share data-share-url="${escAttr(`https://${site.hostname}${article.href}`)}">Share</button>
 </div>
   </article>
   ${marker(9, "article-sidebar")}
   ${renderSidebar(vm, args.ads)}
 </div>`;
 
-  const s10 = `<section class="related-section section--soft" aria-labelledby="related-heading"><div class="section-head"><h2 id="related-heading">Related stories</h2></div>${renderRelated(vm.related)}</section>`;
+  // §10 related "Keep reading" grid. Class stays `related-section section--soft`
+  // (the contract-order test pins it); the design head carries the eyebrow +
+  // a real "back to home" section link (PART 8 — no href="#").
+  const s10 = `<section class="related-section section--soft" aria-labelledby="related-heading"><div class="container"><div class="section-head"><div class="section-head-left"><h2 id="related-heading" class="section-title">Keep reading</h2><span class="section-eyebrow">More stories you'll like</span></div><a class="section-link" href="/">back to home →</a></div>${renderRelated(vm.related)}</div></section>`;
 
   const newsletterHeading =
     args.newsletterHeading !== undefined && args.newsletterHeading.length > 0

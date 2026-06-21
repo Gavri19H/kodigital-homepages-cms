@@ -52,10 +52,15 @@ describe("design-contract-values", () => {
   it("publicCss pins all 8 contract breakpoints as max-width media queries", () => {
     const breakpoints = [1280, 1080, 980, 880, 800, 760, 560, 480];
     for (const bp of breakpoints) {
+      // The home rules write `(max-width:Npx)` (no space); the RESCUE-4 design
+      // article.css writes `(max-width: Npx)` (a space after the colon). Both
+      // are valid media queries for the SAME breakpoint, so the contract check
+      // tolerates the optional whitespace rather than pinning one author's
+      // formatting.
       expect(
         publicCss,
         `publicCss has a @media (max-width:${bp}px) rule`,
-      ).toContain(`@media (max-width:${bp}px)`);
+      ).toMatch(new RegExp(`@media \\(max-width:\\s*${bp}px\\)`));
     }
   });
 });

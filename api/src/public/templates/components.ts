@@ -330,9 +330,12 @@ export function renderHero(args: HeroArgs): string {
   // design does not), so a bare gradient hero is correct when no site hero is
   // set. The tagline rides INSIDE the h1; there is no kicker and the title is
   // not a link (the hero is the site identity, not a story).
+  // RESCUE-4: a hero photo is layered UNDER a dark gradient (for white-title
+  // legibility) in one inline background; no photo → empty style so the .hero-bg
+  // CSS gradient paints (the design's empty-state hero).
   const bgStyle =
     args.imageUrl !== undefined && args.imageUrl !== null && args.imageUrl.length > 0
-      ? ` style="background-image:url(${escAttr(args.imageUrl)})"`
+      ? ` style="background-image:linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.6)), url(${escAttr(args.imageUrl)});background-size:cover;background-position:center"`
       : "";
   const taglineHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
@@ -369,7 +372,7 @@ export function renderChipRail(args: ChipRailArgs): string {
       // real bare /media/ <img> instead (no /cdn-cgi transform).
       const inner =
         chip.imageUrl !== undefined && chip.imageUrl !== null && chip.imageUrl.length > 0
-          ? imgTag(chip.imageUrl, chip.imageAlt ?? name, ' width="48" height="48" loading="lazy" decoding="async"')
+          ? imgTag(chip.imageUrl, chip.imageAlt ?? name, ' class="cat-chip-img-photo" width="48" height="48" loading="lazy" decoding="async"')
           : `<div class="ph" data-label="${escAttr(name)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
       return `<a class="cat-chip" href="${escAttr(href)}"><span class="cat-chip-img">${inner}</span><span class="cat-chip-label">${escText(name)}</span></a>`;
     })
@@ -480,10 +483,15 @@ export function renderNewsletter(args: NewsletterArgs): string {
 // RESCUE-4 FOOTER FIX: the live footer was only the brand name + copyright — no
 // site description, no link columns. The design footer (contract §7 §12) is a
 // 4-column grid: a brand block (logo + name + description + social) then three
-// link columns. These default columns use REAL hrefs (home, in-page section
-// anchors that exist — #featured/#trending/#picks/#latest/#newsletter — plus
-// /feed.xml + /sitemap.xml; PART 8 forbids href="#"). An operator-supplied
+// link columns. These default columns use REAL hrefs (home + in-page section
+// anchors that exist — #featured/#trending/#picks/#latest/#newsletter — and the
+// real Company page/route slugs; PART 8 forbids href="#"). An operator-supplied
 // args.links overrides the first column.
+//
+// RESCUE-4 USER RED LINE: the THIRD column is the design's "Company" column — the
+// user explicitly wants the legal pages surfaced. Its routes (/page/about,
+// /page/contact, /privacy, /page/terms, /privacy/do-not-sell) are seeded by
+// provisioning separately; the footer's job is the correct (real, non-"#") links.
 const FOOTER_COLUMNS: ReadonlyArray<{ heading: string; links: ReadonlyArray<NavLink> }> = [
   {
     heading: "Explore",
@@ -499,13 +507,17 @@ const FOOTER_COLUMNS: ReadonlyArray<{ heading: string; links: ReadonlyArray<NavL
     links: [
       { label: "Latest", href: "/#latest" },
       { label: "Newsletter", href: "/#newsletter" },
+      { label: "RSS", href: "/feed.xml" },
     ],
   },
   {
-    heading: "Follow",
+    heading: "Company",
     links: [
-      { label: "RSS Feed", href: "/feed.xml" },
-      { label: "Sitemap", href: "/sitemap.xml" },
+      { label: "About", href: "/page/about" },
+      { label: "Contact", href: "/page/contact" },
+      { label: "Privacy", href: "/page/privacy-policy" },
+      { label: "Terms", href: "/page/terms" },
+      { label: "Do Not Sell My Info", href: "/page/do-not-sell" },
     ],
   },
 ];

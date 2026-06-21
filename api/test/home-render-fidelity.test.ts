@@ -95,17 +95,23 @@ describe("rescue-4 home render fidelity", () => {
     expect(html).toContain('src="/media/ai/site/');
   });
 
-  it("D4: the section-12 footer carries a description + populated Explore/Read/Follow columns", () => {
+  it("D4: the section-12 footer carries a description + populated Explore/Read/Company columns", () => {
     const html = renderHome({ vm: makeVm() });
     const footer = section(html, 12);
     expect(footer).toContain("site-footer__description");
     expect(footer).toContain("Your playful path through parenthood");
     expect(footer).toContain("Explore");
     expect(footer).toContain("Read");
-    expect(footer).toContain("Follow");
+    // RESCUE-4 design: the third footer column is "Company" (the legal pages the
+    // user explicitly wants surfaced), replacing the old "Follow" column.
+    expect(footer).toContain("Company");
     expect(footer).toContain("site-footer__col");
     expect(footer).toContain('href="/#trending"');
+    // RSS moved into the Read column; the Company column carries the legal pages.
     expect(footer).toContain('href="/feed.xml"');
+    expect(footer).toContain('href="/page/about"');
+    expect(footer).toContain('href="/page/privacy-policy"');
+    expect(footer).toContain('href="/page/do-not-sell"');
   });
 
   it("D5: ad slots reserve height but never force a fixed pixel width (375px overflow)", () => {

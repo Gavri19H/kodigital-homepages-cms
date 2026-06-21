@@ -92,62 +92,30 @@ function heroSection(html: string): string {
 }
 
 describe("hero-image", () => {
-  it("[api/test/hero-image.test.ts] T18-AC1: the hero is the design GRADIENT — even with hero_image_media_id set, .hero-bg paints no photo (the design hero uses no operator image; the AI hero image was a baked-text mockup)", async () => {
+  it("[api/test/hero-image.test.ts] T18-AC1: the hero paints the lead article's CLEAN photo as a full-bleed bg under a dark overlay (site identity over the photo); the operator hero_image_media_id mockup is NOT used", async () => {
     const { db } = makeDb([
       { key: "site_name", value: "Site Alpha" },
       { key: "hero_image_media_id", value: "hero-banner.webp" },
     ]);
     const vm = await buildHomeViewModel(db, ctx);
-
-    // The view-model still resolves the bare storage key to its /media/ address...
-    expect(vm.heroImageUrl).toBe("/media/hero-banner.webp");
+    expect(vm.hero).not.toBeNull();
 
     const hero = heroSection(renderHome({ vm }));
-    // ...but the design hero is a PURE CSS gradient: the template paints NO photo
-    // (no <img>, no inline background-image) and never the lead-article image.
+    // .hero-bg paints the LEAD ARTICLE photo (/media/lead-art.jpg) UNDER a dark
+    // gradient overlay (white-title legibility) — a real-photo magazine hero.
     expect(hero).toContain('class="hero-bg"');
-    expect(hero).not.toContain("background-image");
-    expect(hero).not.toContain("<img");
+    expect(hero).toContain("background-image:");
+    expect(hero).toContain("/media/lead-art.jpg");
+    expect(hero).toContain("rgba(0,0,0,0.5)");
+    // the operator hero_image_media_id (a text-laden AI mockup on real sites) is
+    // intentionally NOT used as the hero bg.
     expect(hero).not.toContain("/media/hero-banner.webp");
-    expect(hero).not.toContain("/media/lead-art.jpg");
-
-    // .hero-bg sits BEHIND .hero-content, which carries the site identity + search.
+    // the bg is a CSS background-image (no <img>); the site identity sits above it.
+    expect(hero).not.toContain("<img");
     expect(hero).toContain('class="hero-content"');
     expect(hero).toContain('class="hero-title"');
     expect(hero).toContain('class="hero-search"');
     expect(hero.indexOf('class="hero-bg"')).toBeLessThan(hero.indexOf('class="hero-content"'));
-  });
-
-  it("[api/test/hero-image.test.ts] T18-AC1: with hero_image_media_id unset, .hero-bg is the pure CSS gradient (the lead-article image is NEVER the hero bg)", async () => {
-    const { db } = makeDb([{ key: "site_name", value: "Site Alpha" }]);
-    const vm = await buildHomeViewModel(db, ctx);
-
-    expect(vm.heroImageUrl).toBeNull();
-    expect(vm.hero).not.toBeNull();
-
-    const hero = heroSection(renderHome({ vm }));
-    // RESCUE-4 design: no site hero set → .hero-bg is the bare gradient (no
-    // background-image, no <img>). The design NEVER uses the lead article image
-    // as the hero bg; the lead story heads the §4 Featured grid instead.
-    expect(hero).toContain('class="hero-bg"');
-    expect(hero).not.toContain("background-image");
-    expect(hero).not.toContain("<img");
-    expect(hero).not.toContain("/media/lead-art.jpg");
-    expect(hero).toContain('class="hero-content"');
-    expect(hero).toContain('class="hero-title"');
-    expect(hero).toContain('class="hero-search"');
-  });
-
-  it("[api/test/hero-image.test.ts] T18-AC1: an empty hero_image_media_id resolves to null (gradient hero), not a broken /media/ url", async () => {
-    const { db } = makeDb([{ key: "hero_image_media_id", value: "" }]);
-    const vm = await buildHomeViewModel(db, ctx);
-
-    expect(vm.heroImageUrl).toBeNull();
-    const hero = heroSection(renderHome({ vm }));
-    // No broken /media/ src and no inline background-image — the gradient paints.
-    expect(hero).not.toContain('src="/media/"');
-    expect(hero).not.toContain("background-image");
-    expect(hero).not.toContain("/media/lead-art.jpg");
   });
 
   it("[api/test/hero-image.test.ts] T18-AC1: resolving hero_image_media_id adds no 4th D1 statement (T12.AC3 invariant holds)", async () => {
