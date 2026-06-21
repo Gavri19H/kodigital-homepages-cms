@@ -397,20 +397,6 @@ function makeStore(): Store {
           return null;
         },
         async all<T = unknown>(): Promise<{ results: T[]; success: boolean; meta: object }> {
-          // BATCHED-UNIT-ALL (rescue-4 v2): model selectPendingUnitBatch's .all() query.
-          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
-            const __sid = binds[0] as string;
-            const __lim = Number(binds[binds.length - 1]) || 100;
-            const __rows = store.articleUnits.filter((x) => x.site_id === __sid && x.text_status === "pending").sort((a, b) => a.unit_index - b.unit_index).slice(0, __lim);
-            return { results: __rows as unknown as T[], success: true, meta: {} };
-          }
-          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
-            const __sid = binds[0] as string;
-            const __lim = Number(binds[binds.length - 1]) || 100;
-            const __rows = store.articleUnits.filter((x) => x.site_id === __sid && x.image_status === "pending" && x.article_id !== null).sort((a, b) => a.unit_index - b.unit_index).slice(0, __lim);
-            return { results: __rows as unknown as T[], success: true, meta: {} };
-          }
-
           const ok = (rows: unknown[]): { results: T[]; success: boolean; meta: object } => ({
             results: rows as T[],
             success: true,

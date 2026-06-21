@@ -136,26 +136,6 @@ function makeDb(units: UnitRow[], articles: ArticleRow[], siteId: string): D1Dat
           return null;
         },
         async all<T>(): Promise<{ results: T[] }> {
-          // BATCHED-UNIT-ALL (rescue-4 v2): model selectPendingUnitBatch's .all() query.
-          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
-            const __sid = cap[0] as string;
-            const __lim = Number(cap[cap.length - 1]) || 100;
-            const __rows = units
-              .filter((x) => x.site_id === __sid && x.text_status === "pending")
-              .sort((a, b) => a.unit_index - b.unit_index)
-              .slice(0, __lim);
-            return { results: __rows as unknown as T[] };
-          }
-          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
-            const __sid = cap[0] as string;
-            const __lim = Number(cap[cap.length - 1]) || 100;
-            const __rows = units
-              .filter((x) => x.site_id === __sid && x.image_status === "pending" && x.article_id !== null)
-              .sort((a, b) => a.unit_index - b.unit_index)
-              .slice(0, __lim);
-            return { results: __rows as unknown as T[] };
-          }
-
           if (sql.indexOf("FROM site_categories") >= 0) {
             return { results: [{ category_id: 10 }, { category_id: 11 }] as unknown as T[] };
           }
@@ -265,22 +245,4 @@ describe("provisioning article slug is deterministic (rescue-4 v2 dedup)", () =>
     expect(units).toHaveLength(15);
     expect(units.every((u) => u.text_status === "done")).toBe(true);
   });
-
-  it("processes a CONCURRENT batch (>1, up to PROVISION_BATCH_SIZE) per step invocation, not one-at-a-time", async () => {
-    hoist.articleCall = 0;
-    const siteId = "st_batch";
-    const units: UnitRow[] = [];
-    const articles: ArticleRow[] = [];
-    const db = makeDb(units, articles, siteId);
-    const ctx = { env: makeEnv(db), db, job_id: "job_b", site_id: siteId, step_order: 10 };
-    // ONE invocation: materialize (15 units) + process the FIRST batch concurrently.
-    const r = await STEPS["generate_15_homepage_articles"](ctx);
-    expect(units).toHaveLength(15);
-    // process-one would create exactly 1 article + return in_progress; batching
-    // creates up to PROVISION_BATCH_SIZE in a single invocation.
-    expect(r.status).toBe("in_progress");
-    expect(articles.length).toBeGreaterThan(1);
-    expect(articles.length).toBeLessThanOrEqual(5);
-  });
-
 });
