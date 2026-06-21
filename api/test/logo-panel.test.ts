@@ -235,7 +235,11 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
     // The stored bare storage_key resolves to the public /media/<key> address.
     expect(site.logoUrl).toBe("/media/uploads/brand-logo.png");
 
-    // And the real header template renders it inside the design <a class="brand">.
+    // The view-model still RESOLVES logo_media_id → /media/<key> (asserted
+    // above); the public side keeps the resolved logoUrl available. RESCUE-4
+    // design RED LINE: the header brand mark is a teal-square showing the site
+    // name's initial — the uploaded (bad-AI) logo image MUST NOT render in the
+    // header. So the design .brand carries the initial mark, never the <img>.
     const header = renderHeader({
       site: {
         name: site.name,
@@ -244,9 +248,10 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
       },
     });
     expect(header).toContain('<a class="brand"');
-    expect(header).toContain(
-      '<img class="brand-logo" src="/media/uploads/brand-logo.png"',
-    );
+    // Teal-square initial mark from the site name ("Acme News" → "A"), no image.
+    expect(header).toContain('<span class="brand-logo" aria-hidden="true">A</span>');
+    expect(header).not.toContain('<img class="brand-logo"');
+    expect(header).not.toContain("/media/uploads/brand-logo.png");
   });
 
   it("[api/test/logo-panel.test.ts] T24-AC1: an unset logo_media_id resolves to null (no broken /media/ src; neutral mark fallback) L2_AUTO_DISAMBIGUATION:T24-AC1:RC-043", async () => {

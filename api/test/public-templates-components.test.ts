@@ -128,20 +128,22 @@ describe("public-templates-components", () => {
     expect(html).not.toContain("newsletter__notice");
   });
 
-  it("renderHero links the title when href is supplied and no href=\"#\"", () => {
+  it("renderHero renders the site-identity title + tagline (design: no title link, no kicker), no href=\"#\"", () => {
+    // RESCUE-4 design: the hero is the SITE IDENTITY — the title is plain text
+    // (with a trailing period per the design `{heroTitle}.`), NOT a link, and
+    // there is no kicker. The hero-search form is the only interactive element.
     const html = renderHero({
       title: "Big Story",
       excerpt: "Lede sentence.",
-      href: "/article/big-story",
-      kicker: "Featured",
     });
-    expect(html).toContain('href="/article/big-story"');
-    expect(html).toContain("Big Story");
-    expect(html).toContain("Featured");
+    expect(html).toContain("Big Story.");
+    expect(html).toContain('<span class="tagline">Lede sentence.</span>');
+    expect(html).toContain('class="hero-search"');
+    expect(html).not.toContain("hero-kicker");
     expect(html).not.toContain('href="#"');
   });
 
-  it("renderCard renders article link + image with lazy loading", () => {
+  it("renderCard renders the design card — a.card link + img + categoryName · publishedAt byline (lazy)", () => {
     const html = renderCard({
       href: "/article/example",
       title: "Example",
@@ -152,11 +154,13 @@ describe("public-templates-components", () => {
       readMinutes: 4,
       categoryName: "World",
     });
-    expect(html).toContain('href="/article/example"');
+    expect(html).toContain('<a class="card" href="/article/example"');
     expect(html).toContain('src="/media/example.jpg"');
     expect(html).toContain('loading="lazy"');
     expect(html).toContain("Example image");
-    expect(html).toContain("4 min read");
+    // RESCUE-4 design card-foot byline = "{categoryName} · {publishedAt}"
+    // (the Spotlight/Latest cards use exactly this — no "min read").
+    expect(html).toContain('<span class="card-byline">World · May 19, 2026</span>');
     expect(html).not.toContain('href="#"');
   });
 
@@ -205,9 +209,11 @@ describe("public-templates-components", () => {
     expect(newsletterAt).toBeGreaterThan(picksAt);
     expect(signInAt).toBeGreaterThan(newsletterAt);
 
-    // Sign in is the .btn-outline; Explore carries the chevron glyph
+    // Sign in is the .btn-outline; Explore carries the chevron glyph. RESCUE-4
+    // design: each nav label is wrapped in <span class="label"> (so the 880px
+    // breakpoint can hide the text), and the chevron follows the Explore label.
     expect(html).toMatch(/<button class="btn-outline" type="button">Sign in<\/button>/);
-    expect(html).toMatch(/>Explore<svg class="nav-chevron"/);
+    expect(html).toMatch(/>Explore<\/span><svg class="nav-chevron"/);
     // every nav link is a real URL (PART 8)
     expect(html).not.toContain('href="#"');
   });
@@ -226,9 +232,15 @@ describe("public-templates-components", () => {
     expect(bgAt).toBeGreaterThan(-1);
     expect(contentAt).toBeGreaterThan(bgAt);
 
-    // tagline is a SPAN inside the h1.hero-title
+    // RESCUE-4 design: .hero-bg is a div (no <img>); a set imageUrl paints it
+    // via an inline background-image (the gradient is the CSS default otherwise).
+    expect(html).toContain('background-image:url(/media/hero.jpg)');
+    expect(html.slice(bgAt, contentAt)).not.toContain("<img");
+
+    // tagline is a SPAN inside the h1.hero-title, after the title + literal
+    // period (design `{heroTitle}.`).
     expect(html).toMatch(
-      /<h1 class="hero-title">Big Story <span class="tagline">Lede sentence\.<\/span><\/h1>/,
+      /<h1 class="hero-title">Big Story\.<span class="tagline">Lede sentence\.<\/span><\/h1>/,
     );
     // search form lives inside hero-content with a submit button
     expect(html).toContain('<form class="hero-search" role="search"');
@@ -342,10 +354,11 @@ describe("public-templates-components", () => {
     expect(html).toContain('role="contentinfo"');
     // Brand name resolved from site_settings, surfaced in the header.
     expect(html).toContain("Acme Daily");
-    // Styled article cards (renderCard → <article class="card">) inside the
-    // home-grid listing — NOT the rescue-2 bare flat <a> list.
+    // Styled article cards (renderCard → <a class="card">) inside the
+    // home-grid listing — NOT the rescue-2 bare flat <a> list. RESCUE-4 design:
+    // the whole card IS the anchor (a.card), not <article><a>.
     expect(html).toContain('<ul class="home-grid home-grid--category">');
-    expect(html).toContain('<article class="card">');
+    expect(html).toContain('<a class="card"');
     expect(html).toContain('class="card-title"');
     expect(html).toContain('href="/article/sleep-better"');
     expect(html).toContain("Sleep Better Tonight");

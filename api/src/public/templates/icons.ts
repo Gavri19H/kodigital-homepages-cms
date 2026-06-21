@@ -55,6 +55,13 @@ export function iconChevronDown(args?: IconArgs): string {
   return `<svg class="${c}" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" focusable="false"><path d="M5.3 8.3a1 1 0 0 1 1.4 0L12 13.58l5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4Z" fill="currentColor"/></svg>`;
 }
 
+export function iconPin(args?: IconArgs): string {
+  const c = cls(args);
+  const s = size(args);
+  // Design Icon.Pin (filled location pin) — used as the card hover affordance.
+  return `<svg class="${c}" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" focusable="false"><path d="M12 2C8.5 2 6 4.5 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.5-2.5-6-6-6zm0 8.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z" fill="currentColor"/></svg>`;
+}
+
 export function iconBrandMark(args?: IconArgs): string {
   const c = cls(args);
   const s = size(args);

@@ -92,7 +92,7 @@ function heroSection(html: string): string {
 }
 
 describe("hero-image", () => {
-  it("[api/test/hero-image.test.ts] T18-AC1: with hero_image_media_id set, .hero-bg carries /media/<key> behind .hero-content (.hero-title + .hero-search)", async () => {
+  it("[api/test/hero-image.test.ts] T18-AC1: with hero_image_media_id set, .hero-bg paints /media/<key> via inline background-image behind .hero-content (.hero-title + .hero-search)", async () => {
     const { db } = makeDb([
       { key: "site_name", value: "Site Alpha" },
       { key: "hero_image_media_id", value: "hero-banner.webp" },
@@ -103,9 +103,11 @@ describe("hero-image", () => {
     expect(vm.heroImageUrl).toBe("/media/hero-banner.webp");
 
     const hero = heroSection(renderHome({ vm }));
-    // .hero-bg paints the operator's site hero, NOT the lead article's image.
+    // RESCUE-4 design: .hero-bg is a div painted by an inline background-image
+    // (NO <img>); it shows the operator's site hero, NOT the lead article image.
     expect(hero).toContain('class="hero-bg"');
-    expect(hero).toContain('src="/media/hero-banner.webp"');
+    expect(hero).toContain("background-image:url(/media/hero-banner.webp)");
+    expect(hero).not.toContain("<img");
     expect(hero).not.toContain("/media/lead-art.jpg");
 
     // .hero-bg sits BEHIND .hero-content (renders before it in source order),
@@ -116,7 +118,7 @@ describe("hero-image", () => {
     expect(hero.indexOf('class="hero-bg"')).toBeLessThan(hero.indexOf('class="hero-content"'));
   });
 
-  it("[api/test/hero-image.test.ts] T18-AC1: with hero_image_media_id unset, .hero-bg falls back to the lead article's image", async () => {
+  it("[api/test/hero-image.test.ts] T18-AC1: with hero_image_media_id unset, .hero-bg is the pure CSS gradient (the lead-article image is NEVER the hero bg)", async () => {
     const { db } = makeDb([{ key: "site_name", value: "Site Alpha" }]);
     const vm = await buildHomeViewModel(db, ctx);
 
@@ -124,22 +126,28 @@ describe("hero-image", () => {
     expect(vm.hero).not.toBeNull();
 
     const hero = heroSection(renderHome({ vm }));
-    // No site hero set → the lead article's featured image fills .hero-bg.
+    // RESCUE-4 design: no site hero set → .hero-bg is the bare gradient (no
+    // background-image, no <img>). The design NEVER uses the lead article image
+    // as the hero bg; the lead story heads the §4 Featured grid instead.
     expect(hero).toContain('class="hero-bg"');
-    expect(hero).toContain('src="/media/lead-art.jpg"');
+    expect(hero).not.toContain("background-image");
+    expect(hero).not.toContain("<img");
+    expect(hero).not.toContain("/media/lead-art.jpg");
     expect(hero).toContain('class="hero-content"');
     expect(hero).toContain('class="hero-title"');
     expect(hero).toContain('class="hero-search"');
   });
 
-  it("[api/test/hero-image.test.ts] T18-AC1: an empty hero_image_media_id resolves to null (fall back), not a broken /media/ url", async () => {
+  it("[api/test/hero-image.test.ts] T18-AC1: an empty hero_image_media_id resolves to null (gradient hero), not a broken /media/ url", async () => {
     const { db } = makeDb([{ key: "hero_image_media_id", value: "" }]);
     const vm = await buildHomeViewModel(db, ctx);
 
     expect(vm.heroImageUrl).toBeNull();
     const hero = heroSection(renderHome({ vm }));
+    // No broken /media/ src and no inline background-image — the gradient paints.
     expect(hero).not.toContain('src="/media/"');
-    expect(hero).toContain('src="/media/lead-art.jpg"');
+    expect(hero).not.toContain("background-image");
+    expect(hero).not.toContain("/media/lead-art.jpg");
   });
 
   it("[api/test/hero-image.test.ts] T18-AC1: resolving hero_image_media_id adds no 4th D1 statement (T12.AC3 invariant holds)", async () => {

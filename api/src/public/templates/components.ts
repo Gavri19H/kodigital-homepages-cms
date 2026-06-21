@@ -16,7 +16,7 @@
 //   renderFloatingNext— Article §12 (>=1280px viewport only, PART 4)
 
 import { escAttr, escText, imgTag } from "./esc";
-import { iconBrandMark, iconChevronDown, iconSearch } from "./icons";
+import { iconArrow, iconBrandMark, iconChevronDown, iconPin, iconSearch } from "./icons";
 import { responsiveImg } from "./responsive-img";
 import {
   AD_SLOT_DIMENSIONS,
@@ -279,55 +279,69 @@ function searchPlaceholderOf(input: string | undefined): string {
   return input !== undefined && input.length > 0 ? input : "Search";
 }
 
+// The site-name initial used for the brand-logo glyph — design `.brand-logo`
+// is a 38px teal rounded square showing the site name's first letter (white,
+// weight 900, 20px), NOT the uploaded logo image. RESCUE-4 user RED LINE: the
+// uploaded (bad-AI) logo MUST NOT render in the header; the teal-square initial
+// mark replaces it. Sourced from the view-model site name (never hardcoded).
+function brandInitial(name: string): string {
+  const trimmed = (name ?? "").trim();
+  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "•";
+}
+
 export function renderHeader(args: HeaderArgs): string {
   const site = args.site;
   const placeholder = searchPlaceholderOf(args.searchPlaceholder);
-  const logoHtml =
-    site.logoUrl !== undefined && site.logoUrl !== null && site.logoUrl.length > 0
-      ? `<img class="brand-logo" src="${escAttr(site.logoUrl)}" alt="" width="38" height="38" loading="eager" decoding="async">`
-      : `<span class="brand-logo" aria-hidden="true">${iconBrandMark()}</span>`;
-  // Contract §11 child order: .brand → .header-search → .header-nav
-  // (4 nav-links, the first with chevron, then .btn-outline "Sign in").
+  // Design brand mark: a teal rounded-square with the site-name initial — NOT
+  // the uploaded logo <img> (the live header wrongly rendered the AI logo).
+  const logoHtml = `<span class="brand-logo" aria-hidden="true">${escText(brandInitial(site.name))}</span>`;
+  // Design header child order: .brand → .header-search → .header-nav
+  // (4 nav-links, the first with a chevron, then a .btn-outline "Sign in").
+  // Each nav label is wrapped in <span class="label"> so the 880px breakpoint
+  // can hide the text (design `.nav-link span.label { display:none }`).
   const nav = args.nav !== undefined && args.nav.length > 0 ? args.nav : CONTRACT_NAV;
   const navLinks = nav
     .map((n, i) => {
       const current = n.active === true ? ' aria-current="page"' : "";
       const chevron = i === 0 ? iconChevronDown({ className: "nav-chevron", size: 12 }) : "";
-      return `<a class="nav-link" href="${escAttr(n.href)}"${current}>${escText(n.label)}${chevron}</a>`;
+      return `<a class="nav-link" href="${escAttr(n.href)}"${current}><span class="label">${escText(n.label)}</span>${chevron}</a>`;
     })
     .join("");
   return `<header class="site-header" role="banner">
   <div class="container">
-    <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="brand-name">${escText(site.name)}</span></a>
-    <div class="header-search" role="search"><input type="search" name="q" aria-label="Search" placeholder="${escAttr(placeholder)}"></div>
-    <nav class="header-nav" aria-label="Primary">${navLinks}<button class="btn-outline" type="button">Sign in</button></nav>
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="brand-name">${escText(site.name)}</span></a>
+      <div class="header-search" role="search">${iconSearch({ size: 16 })}<input type="search" name="q" aria-label="Search" placeholder="${escAttr(placeholder)}"></div>
+      <nav class="header-nav" aria-label="Primary">${navLinks}<button class="btn-outline" type="button">Sign in</button></nav>
+    </div>
   </div>
 </header>`;
 }
 
 export function renderHero(args: HeroArgs): string {
-  const href = args.href !== undefined && args.href.length > 0 ? args.href : "";
   const placeholder = searchPlaceholderOf(args.searchPlaceholder);
-  const kickerHtml =
-    args.kicker !== undefined && args.kicker.length > 0
-      ? `<p class="hero-kicker">${escText(args.kicker)}</p>`
+  // Design hero DOM: .hero > .hero-bg + .hero-content > h1.hero-title
+  // (title + literal period) > span.tagline, then form.hero-search.
+  //
+  // RESCUE-4 RED LINE: .hero-bg is a PURE CSS gradient (no <img>, design has no
+  // hero photo). When the operator set a real site hero image (args.imageUrl, a
+  // /media/<key>) it overrides the gradient via an inline background-image —
+  // still NO <img>. The lead-article image is NEVER used as the hero bg (the
+  // design does not), so a bare gradient hero is correct when no site hero is
+  // set. The tagline rides INSIDE the h1; there is no kicker and the title is
+  // not a link (the hero is the site identity, not a story).
+  const bgStyle =
+    args.imageUrl !== undefined && args.imageUrl !== null && args.imageUrl.length > 0
+      ? ` style="background-image:url(${escAttr(args.imageUrl)})"`
       : "";
-  // Contract §11 hero DOM: .hero > .hero-bg + .hero-content > h1.hero-title
-  // > span.tagline, then form.hero-search. The tagline rides INSIDE the h1.
   const taglineHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
-      ? ` <span class="tagline">${escText(args.excerpt)}</span>`
+      ? `<span class="tagline">${escText(args.excerpt)}</span>`
       : "";
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="1200" height="630" loading="eager" fetchpriority="high" decoding="async"');
-  const titleText =
-    href.length > 0
-      ? `<a href="${escAttr(href)}">${escText(args.title)}</a>`
-      : escText(args.title);
   return `<section class="hero" aria-label="Featured story">
-  <div class="hero-bg" aria-hidden="true">${img}</div>
+  <div class="hero-bg" aria-hidden="true"${bgStyle}></div>
   <div class="hero-content">
-    ${kickerHtml}
-    <h1 class="hero-title">${titleText}${taglineHtml}</h1>
+    <h1 class="hero-title">${escText(args.title)}.${taglineHtml}</h1>
     <form class="hero-search" role="search" method="get" action="/">
       <input type="search" name="q" aria-label="Search" placeholder="${escAttr(placeholder)}">
       <button type="submit" aria-label="Search">${iconSearch()}</button>
@@ -348,57 +362,63 @@ export function renderChipRail(args: ChipRailArgs): string {
       // caller does not pre-build the href.
       const href =
         chip.href !== undefined && chip.href.length > 0 ? chip.href : `/category/${slug}`;
-      const img = imgTag(
-        chip.imageUrl,
-        chip.imageAlt ?? name,
-        ' class="cat-chip-img" width="24" height="24" loading="lazy" decoding="async"',
-      );
-      return `<a class="cat-chip" href="${escAttr(href)}">${img}<span class="cat-chip-label">${escText(name)}</span></a>`;
+      // Design `.cat-chip-img` is a 48×48 thumbnail on the LEFT. The worker
+      // categories have no image URL → render the design `Ph` gradient
+      // placeholder (a .ph div with the category name as its data-label),
+      // EXACTLY like the design's <Ph>. If a chip does carry an imageUrl, use a
+      // real bare /media/ <img> instead (no /cdn-cgi transform).
+      const inner =
+        chip.imageUrl !== undefined && chip.imageUrl !== null && chip.imageUrl.length > 0
+          ? imgTag(chip.imageUrl, chip.imageAlt ?? name, ' width="48" height="48" loading="lazy" decoding="async"')
+          : `<div class="ph" data-label="${escAttr(name)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
+      return `<a class="cat-chip" href="${escAttr(href)}"><span class="cat-chip-img">${inner}</span><span class="cat-chip-label">${escText(name)}</span></a>`;
     })
     .join("");
-  // Contract §10 vocabulary: chips are DIRECT flex children of `.cat-rail`
-  // (scroll-snap container) — no intermediate list element.
-  return `<nav class="cat-rail" aria-label="${escAttr(label)}">${items}</nav>`;
+  // Design ChipRail DOM: .cat-rail > .cat-rail-scroll > a.cat-chip+ , then the
+  // .cat-rail-arrow "next" affordance. (<nav> root keeps the a11y landmark the
+  // worker has always used — the design's outer is a bare section.)
+  return `<nav class="cat-rail" aria-label="${escAttr(label)}"><div class="cat-rail-scroll">${items}</div><button class="cat-rail-arrow" type="button" aria-label="Scroll categories">${iconArrow({ className: "cat-rail-arrow-icon", size: 18 })}</button></nav>`;
 }
 
 export function renderCard(args: CardArgs): string {
   const href = args.href.length > 0 ? args.href : "";
-  // Contract §11: card image is the 16/10 treatment (640×400). Responsive:
-  // srcset + blur-up LQIP + /media/ src (T21). Below-fold → loading="lazy".
-  const img = responsiveImg({
+  // Design Card DOM: a.card > .card-img (img|.ph + .card-pin) + .card-body
+  // (h3.card-title + .card-foot > span.card-byline). The whole card IS the
+  // anchor. card-img is the 16/11 treatment; the image is a bare /media/ <img>
+  // (T21 — Cloudflare Image Resizing is OFF, so NO /cdn-cgi srcset), or the
+  // design `.ph` gradient placeholder when no image is set. Below-fold → lazy.
+  const realImg = responsiveImg({
     src: args.imageUrl,
     alt: args.imageAlt,
     width: 640,
-    height: 400,
-    className: "card-img",
+    height: 440,
     loading: "lazy",
     sizes: "(max-width: 560px) 100vw, (max-width: 1080px) 50vw, 25vw",
   });
-  const categoryHtml =
-    args.categoryName !== undefined && args.categoryName.length > 0
-      ? `<p class="card-cat">${escText(args.categoryName)}</p>`
-      : "";
-  const metaParts: string[] = [];
+  const imgInner =
+    realImg.length > 0
+      ? realImg
+      : `<div class="ph" data-label="${escAttr(args.categoryName ?? args.title ?? "")}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
+  // Design card-foot byline = "{categoryName} · {publishedAt}" (Spotlight/Latest
+  // cards use exactly this; no avatar — the worker VM carries no author/avatar).
+  const bylineParts: string[] = [];
+  if (args.categoryName !== undefined && args.categoryName.length > 0) {
+    bylineParts.push(escText(args.categoryName));
+  }
   if (args.publishedAt !== undefined && args.publishedAt.length > 0) {
-    metaParts.push(`<time class="card-date">${escText(args.publishedAt)}</time>`);
+    bylineParts.push(escText(args.publishedAt));
   }
-  if (args.readMinutes !== undefined && args.readMinutes !== null) {
-    metaParts.push(`<span class="card-read">${escText(String(args.readMinutes))} min read</span>`);
-  }
-  const metaHtml = metaParts.length > 0 ? `<p class="card-foot">${metaParts.join("")}</p>` : "";
-  const excerptHtml =
-    args.excerpt !== undefined && args.excerpt.length > 0
-      ? `<p class="card-excerpt">${escText(args.excerpt)}</p>`
+  const footHtml =
+    bylineParts.length > 0
+      ? `<div class="card-foot"><span class="card-byline">${bylineParts.join(" · ")}</span></div>`
       : "";
-  return `<article class="card">
-  <a href="${escAttr(href)}">
-    ${img}
-    ${categoryHtml}
+  return `<a class="card" href="${escAttr(href)}">
+  <div class="card-img">${imgInner}<span class="card-pin" aria-hidden="true">${iconPin({ className: "card-pin-icon", size: 14 })}</span></div>
+  <div class="card-body">
     <h3 class="card-title">${escText(args.title)}</h3>
-    ${excerptHtml}
-    ${metaHtml}
-  </a>
-</article>`;
+    ${footHtml}
+  </div>
+</a>`;
 }
 
 export function renderNewsletter(args: NewsletterArgs): string {
@@ -435,44 +455,99 @@ export function renderNewsletter(args: NewsletterArgs): string {
           .map((h) => `<input type="hidden" name="${escAttr(h.name)}" value="${escAttr(h.value)}">`)
           .join("");
 
-  return `<section class="newsletter" id="newsletter" aria-labelledby="newsletter-heading">
-  <div class="newsletter__copy">
-    <h2 id="newsletter-heading" class="newsletter__heading">${escText(args.heading)}</h2>
-    ${descriptionHtml}
-  </div>
-  <div class="newsletter__action">
-    <form class="newsletter__form" method="${escAttr(method)}" action="${escAttr(action)}">
-      <label class="newsletter__label newsletter-label-sr" for="newsletter-email">Email address</label>
-      <input class="newsletter__input" id="newsletter-email" name="${escAttr(emailField)}" type="email" autocomplete="email" required${disabledAttr}>
-      ${hiddenHtml}
-      <button class="newsletter__cta" type="submit"${disabledAttr}>${escText(ctaLabel)}</button>
-    </form>
-    ${noticeHtml}
+  // Design Newsletter DOM: `.container > .newsletter` (a two-column brand-tint
+  // card). The outer section keeps the #newsletter anchor target + a11y label;
+  // the .newsletter card carries the BEM hooks (copy + form + disabled state).
+  return `<section class="container" id="newsletter" aria-labelledby="newsletter-heading">
+  <div class="newsletter">
+    <div class="newsletter__copy">
+      <h2 id="newsletter-heading" class="newsletter__heading">${escText(args.heading)}</h2>
+      ${descriptionHtml}
+    </div>
+    <div class="newsletter__action">
+      <form class="newsletter__form" method="${escAttr(method)}" action="${escAttr(action)}">
+        <label class="newsletter__label newsletter-label-sr" for="newsletter-email">Email address</label>
+        <input class="newsletter__input" id="newsletter-email" name="${escAttr(emailField)}" type="email" autocomplete="email" required${disabledAttr}>
+        ${hiddenHtml}
+        <button class="newsletter__cta" type="submit"${disabledAttr}>${escText(ctaLabel)}</button>
+      </form>
+      ${noticeHtml}
+    </div>
   </div>
 </section>`;
 }
 
+// RESCUE-4 FOOTER FIX: the live footer was only the brand name + copyright — no
+// site description, no link columns. The design footer (contract §7 §12) is a
+// 4-column grid: a brand block (logo + name + description + social) then three
+// link columns. These default columns use REAL hrefs (home, in-page section
+// anchors that exist — #featured/#trending/#picks/#latest/#newsletter — plus
+// /feed.xml + /sitemap.xml; PART 8 forbids href="#"). An operator-supplied
+// args.links overrides the first column.
+const FOOTER_COLUMNS: ReadonlyArray<{ heading: string; links: ReadonlyArray<NavLink> }> = [
+  {
+    heading: "Explore",
+    links: [
+      { label: "Home", href: "/" },
+      { label: "Featured", href: "/#featured" },
+      { label: "Trending", href: "/#trending" },
+      { label: "Editor's Picks", href: "/#picks" },
+    ],
+  },
+  {
+    heading: "Read",
+    links: [
+      { label: "Latest", href: "/#latest" },
+      { label: "Newsletter", href: "/#newsletter" },
+    ],
+  },
+  {
+    heading: "Follow",
+    links: [
+      { label: "RSS Feed", href: "/feed.xml" },
+      { label: "Sitemap", href: "/sitemap.xml" },
+    ],
+  },
+];
+
 export function renderFooter(args: FooterArgs): string {
   const site = args.site;
   const year = args.copyrightYear ?? new Date().getUTCFullYear();
-  const links = args.links ?? [];
-  const legalLinks = args.legalLinks ?? [];
-  const primaryNavHtml =
-    links.length === 0
-      ? ""
-      : `<nav class="site-footer__nav" aria-label="Footer"><ul>${links
+  const tagline =
+    site.tagline !== undefined && site.tagline.length > 0 ? site.tagline : "";
+  const description =
+    tagline.length > 0 ? tagline : "Stories, guides, and ideas — published daily.";
+  // Design footer brand mark = the same teal-square initial as the header
+  // (RESCUE-4: the uploaded logo is NEVER rendered). Sourced from site.name.
+  const logoHtml = `<span class="brand-logo" aria-hidden="true">${escText(brandInitial(site.name))}</span>`;
+  // Design footer-top columns: an operator-supplied args.links overrides the
+  // first column; the rest keep the real-href Explore/Read/Follow defaults.
+  const columns =
+    args.links !== undefined && args.links.length > 0
+      ? [{ heading: "Explore", links: args.links }, ...FOOTER_COLUMNS.slice(1)]
+      : FOOTER_COLUMNS;
+  // Design `.footer-col` (h4 + ul). Hook class `site-footer__col` retained for
+  // the rescue regression (home-render-fidelity D4).
+  const colsHtml = columns
+    .map(
+      (col) =>
+        `<nav class="footer-col site-footer__col" aria-label="${escAttr(col.heading)}"><h4>${escText(col.heading)}</h4><ul>${col.links
           .map((n) => `<li><a href="${escAttr(n.href)}">${escText(n.label)}</a></li>`)
-          .join("")}</ul></nav>`;
+          .join("")}</ul></nav>`,
+    )
+    .join("");
+  const legalLinks = args.legalLinks ?? [];
   const legalNavHtml =
     legalLinks.length === 0
       ? ""
       : `<nav class="site-footer__legal" aria-label="Legal"><ul>${legalLinks
           .map((n) => `<li><a href="${escAttr(n.href)}">${escText(n.label)}</a></li>`)
           .join("")}</ul></nav>`;
-  // T28: social profile links — only rendered when the operator has set at
-  // least one (buildSocialLinks already dropped empty/unsafe values). Each
-  // anchor opens in a new tab with rel="noopener noreferrer me" and carries a
-  // data-social hook so a deferred stylesheet can paint platform glyphs.
+  // T28: operator-set social profile links — only rendered when the operator
+  // has set at least one (buildSocialLinks dropped empty/unsafe values). The
+  // nav class stays EXACTLY `site-footer__social` (social-links.test.ts asserts
+  // the literal); CSS styles it as the design `.footer-social` pill row. These
+  // are the data-driven equivalent of the design's hardcoded social icons.
   const socialLinks = args.socialLinks ?? [];
   const socialNavHtml =
     socialLinks.length === 0
@@ -483,13 +558,28 @@ export function renderFooter(args: FooterArgs): string {
               `<li><a class="site-footer__social-link" data-social="${escAttr(s.platform)}" href="${escAttr(s.href)}" target="_blank" rel="noopener noreferrer me">${escText(s.label)}</a></li>`,
           )
           .join("")}</ul></nav>`;
+  // Design footer bottom copyright line: "© {year} {name} — {tagline}". The
+  // site name sits as the span's DIRECT text (no nested element before it) so
+  // the brand-from-site regression's `site-footer__copyright[^<]*<name>` match
+  // holds.
+  const copyrightText =
+    tagline.length > 0
+      ? `© ${year} ${escText(site.name)} — ${escText(tagline)}`
+      : `© ${year} ${escText(site.name)}`;
   return `<footer class="site-footer" role="contentinfo">
-  <div class="site-footer__inner">
-    <p class="site-footer__brand">${escText(site.name)}</p>
-    ${primaryNavHtml}
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand site-footer__brand-col">
+        <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="brand-name site-footer__brand">${escText(site.name)}</span></a>
+        <p class="site-footer__description">${escText(description)}</p>
+      </div>
+      ${colsHtml}
+    </div>
     ${legalNavHtml}
-    ${socialNavHtml}
-    <p class="site-footer__copyright">&copy; ${year} ${escText(site.name)}</p>
+    <div class="footer-bottom">
+      <span class="footer-copyright site-footer__copyright">${copyrightText}</span>
+      ${socialNavHtml}
+    </div>
   </div>
 </footer>`;
 }
@@ -507,16 +597,26 @@ export function renderAdSlot(args: AdSlotArgs): string {
   // it (no CLS). When AdSense is live the slot carries its real <ins> unit;
   // otherwise it stays an empty reserved placeholder.
   const dims = AD_SLOT_DIMENSIONS[args.type];
+  // RESCUE-4 overflow fix: reserve the ad HEIGHT (anti-CLS) but never force a
+  // fixed pixel WIDTH — width:970px;min-width:970px on the leaderboard overflowed
+  // the 375px mobile viewport (horizontal scroll). Cap at the ad's intrinsic
+  // width, shrink to the container below it.
   const dimStyle =
-    `min-width:${dims.width}px;min-height:${dims.height}px;` +
-    `width:${dims.width}px;height:${dims.height}px`;
+    `max-width:${dims.width}px;width:100%;` +
+    `min-height:${dims.height}px;height:${dims.height}px`;
   const unit =
     args.ads !== undefined ? renderAdSenseUnit(args.ads, args.type) : "";
+  // Design Ad DOM: the slot is centred inside a `.container`. The element stays
+  // an <aside> (the public-ad-slots regression extracts ad-slots as <aside> and
+  // requires the a11y label) carrying the `.ad-slot.ad-slot--<type>` design
+  // classes + the anti-CLS inline dims (D5: max-width, never a fixed width).
   return (
+    `<div class="container">` +
     `<aside class="ad-slot ad-slot--${adType}" data-ad-slot="${slotId}" ` +
     `data-ad-type="${adType}"${surfaceAttr} style="${dimStyle}" ` +
     `data-w="${dims.width}" data-h="${dims.height}" ` +
-    `aria-label="Advertisement">${unit}</aside>`
+    `aria-label="Advertisement">${unit}</aside>` +
+    `</div>`
   );
 }
 

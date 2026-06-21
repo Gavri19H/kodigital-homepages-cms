@@ -1030,10 +1030,11 @@ describe("public-router GET /category/:slug design system (T4 rescue-3)", () => 
     expect(body).toContain('role="banner"');
     expect(body).toContain('class="site-footer"');
     expect(body).toContain('role="contentinfo"');
-    // Styled article cards (renderCard → <article class="card">) inside the
-    // home-grid listing — NOT the rescue-2 bare flat <a> list.
+    // Styled article cards (renderCard → <a class="card">) inside the
+    // home-grid listing — NOT the rescue-2 bare flat <a> list. RESCUE-4 design:
+    // the whole card IS the anchor (a.card).
     expect(body).toContain('<ul class="home-grid home-grid--category">');
-    expect(body).toContain('<article class="card">');
+    expect(body).toContain('<a class="card"');
     expect(body).toContain('class="card-title"');
     expect(body).toContain('href="/article/sleep-better"');
     expect(body).toContain("Sleep Better Tonight");

@@ -48,6 +48,8 @@ import {
   type SocialLink,
 } from "./components";
 import { renderTrending } from "./trending";
+import { responsiveImg } from "./responsive-img";
+import { iconPin } from "./icons";
 import type { AdsConfig } from "../ads";
 
 export interface RenderHomeArgs {
@@ -108,56 +110,123 @@ function dedupeByHref(cards: ReadonlyArray<HomeArticleCard>): HomeArticleCard[] 
   return out;
 }
 
-// §4 — Featured. Contract §7 root selector `.container.section > .featured`;
-// the grid holds up to 3 cards (design §12 featured[3], first = hero). CSS
-// (.featured .card:first-child) enlarges the lead card across two rows.
-function renderFeaturedSection(cards: ReadonlyArray<HomeArticleCard>): string {
-  const head = `<div class="section-head"><h2>Featured</h2></div>`;
-  if (cards.length === 0) {
-    return `<div class="container section">${head}<p class="section-empty">No featured stories yet.</p></div>`;
-  }
-  const grid = cards.map(cardFromVm).join("");
-  return `<div class="container section">${head}<div class="featured"><div class="grid">${grid}</div></div></div>`;
+// Design `.section-head` — `.section-head-left` (eyebrow + title, order per the
+// app.jsx component) and an optional right-hand `.section-link`. Featured has
+// NO head in the design (just the grid). PART 8: the link href is always real.
+function sectionHead(opts: {
+  title: string;
+  eyebrow?: string;
+  // When eyebrowFirst, the eyebrow renders ABOVE the title (design Spotlight);
+  // otherwise the title renders first (design Editor's Picks / Latest).
+  eyebrowFirst?: boolean;
+  desc?: string;
+  linkLabel?: string;
+  linkHref?: string;
+}): string {
+  const eyebrowHtml =
+    opts.eyebrow !== undefined && opts.eyebrow.length > 0
+      ? `<span class="section-eyebrow">${escText(opts.eyebrow)}</span>`
+      : "";
+  const titleHtml = `<h2 class="section-title">${escText(opts.title)}</h2>`;
+  const descHtml =
+    opts.desc !== undefined && opts.desc.length > 0
+      ? `<p class="spotlight-desc">${escText(opts.desc)}</p>`
+      : "";
+  const left = opts.eyebrowFirst === true
+    ? `${eyebrowHtml}${titleHtml}${descHtml}`
+    : `${titleHtml}${eyebrowHtml}${descHtml}`;
+  const linkHtml =
+    opts.linkLabel !== undefined && opts.linkLabel.length > 0 && opts.linkHref !== undefined && opts.linkHref.length > 0
+      ? `<a class="section-link" href="${escAttr(opts.linkHref)}">${escText(opts.linkLabel)}</a>`
+      : "";
+  return `<div class="section-head"><div class="section-head-left">${left}</div>${linkHtml}</div>`;
 }
 
-// §6 — Editor's picks. Contract §7 root selector `.container.section >
-// .picks-grid` (design §12 editorsPicks { hero, thumbs[3] } = 4 cards). The
-// first pick fills the `.picks-hero` column; the next three render as compact
-// `.story-row` items (children: img, .body, .meta — contract §11 vocabulary).
+// §4 — Featured. Design Featured = `.container.section > .featured` (a CSS grid
+// 1.4fr 1fr 1fr) with the cards as DIRECT children; the first card is enlarged
+// by `.featured > .card:first-child`. No section head (design app.jsx Featured
+// is just the grid). featured[3], first = hero.
+function renderFeaturedSection(cards: ReadonlyArray<HomeArticleCard>): string {
+  if (cards.length === 0) {
+    return `<section class="container section"><p class="section-empty">No featured stories yet.</p></section>`;
+  }
+  const grid = cards.map(cardFromVm).join("");
+  return `<section class="container section"><div class="featured">${grid}</div></section>`;
+}
+
+// §6 — Editor's picks. Design EditorsPicks = `.container.section` with a
+// section-head (title "Editor's Picks" + eyebrow + "see all" link) then
+// `.picks-grid` = `a.card.picks-hero` (card-img + card-body > card-title +
+// picks-excerpt + card-foot) + `.picks-stack` of 3 `.story-row` items
+// (children: .img, .body > h4 + span.meta). design §12 editorsPicks{ hero,
+// thumbs[3] } = 4 cards.
 function renderStoryRow(c: HomeArticleCard): string {
-  const img =
+  const realImg =
     c.imageUrl !== null && c.imageUrl.length > 0
-      ? `<img src="${escAttr(c.imageUrl)}" alt="${escAttr(c.imageAlt ?? "")}" width="88" height="64" loading="lazy" decoding="async">`
-      : "";
-  const meta = c.categoryName.length > 0 ? `<p class="meta">${escText(c.categoryName)}</p>` : "";
-  return `<a class="story-row" href="${escAttr(c.href)}">${img}<div class="body"><h4>${escText(c.title)}</h4>${meta}</div></a>`;
+      ? `<img src="${escAttr(c.imageUrl)}" alt="${escAttr(c.imageAlt ?? "")}" width="110" height="80" loading="lazy" decoding="async">`
+      : `<div class="ph" data-label="${escAttr(c.categoryName.length > 0 ? c.categoryName : c.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
+  const metaParts: string[] = [];
+  if (c.categoryName.length > 0) metaParts.push(escText(c.categoryName));
+  if (c.publishedAt.length > 0) metaParts.push(escText(c.publishedAt));
+  const meta = metaParts.length > 0 ? `<span class="meta">${metaParts.join(" · ")}</span>` : "";
+  return `<a class="story-row" href="${escAttr(c.href)}"><div class="img">${realImg}</div><div class="body"><h4>${escText(c.title)}</h4>${meta}</div></a>`;
 }
 
 function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>): string {
-  const head = `<div class="section-head"><h2>Editor's picks</h2></div>`;
+  const head = sectionHead({
+    title: "Editor's Picks",
+    eyebrow: "Hand-selected by our editors this week",
+    linkLabel: "see all",
+    linkHref: "/#picks",
+  });
   const lead = cards[0];
   if (lead === undefined) {
-    return `<div class="container section">${head}<p class="section-empty">Editor's picks coming soon.</p></div>`;
+    return `<section class="container section">${head}<p class="section-empty">Editor's picks coming soon.</p></section>`;
   }
-  const heroImg =
-    lead.imageUrl !== null && lead.imageUrl.length > 0
-      ? `<img class="card-img" src="${escAttr(lead.imageUrl)}" alt="${escAttr(lead.imageAlt ?? "")}" width="640" height="360" loading="lazy" decoding="async">`
-      : "";
+  const heroImg = responsiveImg({
+    src: lead.imageUrl,
+    alt: lead.imageAlt,
+    width: 720,
+    height: 450,
+    loading: "lazy",
+    sizes: "(max-width: 880px) 100vw, 56vw",
+  });
+  const heroImgInner =
+    heroImg.length > 0
+      ? heroImg
+      : `<div class="ph" data-label="${escAttr(lead.categoryName.length > 0 ? lead.categoryName : lead.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
   const heroExcerpt =
     lead.excerpt.length > 0 ? `<p class="picks-excerpt">${escText(lead.excerpt)}</p>` : "";
-  const picksHero = `<article class="picks-hero"><a href="${escAttr(lead.href)}">${heroImg}<h3 class="card-title">${escText(lead.title)}</h3>${heroExcerpt}</a></article>`;
+  const bylineParts: string[] = [];
+  if (lead.categoryName.length > 0) bylineParts.push(escText(lead.categoryName));
+  if (lead.publishedAt.length > 0) bylineParts.push(escText(lead.publishedAt));
+  const heroFoot =
+    bylineParts.length > 0
+      ? `<div class="card-foot"><span class="card-byline">${bylineParts.join(" · ")}</span></div>`
+      : "";
+  const picksHero = `<a class="card picks-hero" href="${escAttr(lead.href)}"><div class="card-img">${heroImgInner}<span class="card-pin" aria-hidden="true">${iconPin({ size: 14 })}</span></div><div class="card-body"><h3 class="card-title">${escText(lead.title)}</h3>${heroExcerpt}${heroFoot}</div></a>`;
   const rows = cards.slice(1, 4).map(renderStoryRow).join("");
-  return `<div class="container section">${head}<div class="picks-grid">${picksHero}<div class="picks-rows">${rows}</div></div></div>`;
+  return `<section class="container section">${head}<div class="picks-grid">${picksHero}<div class="picks-stack">${rows}</div></div></section>`;
 }
 
-// §8 — Spotlight. Contract §7 root selector `.section.section--soft >
-// .grid.grid-4` (design §12 spotlight items[4]). A soft-background 4-column
-// card grid surfacing the spotlight bucket.
+// §8 — Spotlight. Design Spotlight = `.section.section--soft > .container` with
+// a section-head (eyebrow "Topic spotlight" + title {cat} + spotlight-desc +
+// "browse all {cat}" link) then `.grid.grid-4` (design §12 spotlight items[4]).
 function renderSpotlightSection(
   heading: string,
   cards: ReadonlyArray<HomeArticleCard>,
+  categorySlug: string,
 ): string {
-  const head = `<div class="section-head"><h2>${escText(heading)}</h2></div>`;
+  // PART 8: "browse all" points at the real category page when known, else home.
+  const linkHref = categorySlug.length > 0 ? `/category/${categorySlug}` : "/";
+  const head = sectionHead({
+    title: heading,
+    eyebrow: "Topic spotlight",
+    eyebrowFirst: true,
+    desc: `The best of ${heading.toLowerCase()}, hand-picked for you.`,
+    linkLabel: `browse all ${heading.toLowerCase()} →`,
+    linkHref,
+  });
   if (cards.length === 0) {
     return `<section class="section section--soft"><div class="container">${head}<p class="section-empty">Spotlight stories coming soon.</p></div></section>`;
   }
@@ -165,17 +234,23 @@ function renderSpotlightSection(
   return `<section class="section section--soft"><div class="container">${head}<div class="grid grid-4">${grid}</div></div></section>`;
 }
 
-// §10 — Latest. Contract §7 root selector `.container.section > .grid.grid-3`.
-// Renders the FULL vm.latest bucket (T16/BCL-057: never slice the head off —
-// every non-featured article must surface). Each card is a `.home-grid__item`
-// grid cell so the home-bucketing count assertion still holds.
+// §10 — Latest. Design Latest = `.container.section` with a section-head (title
+// "Latest stories" + eyebrow + "see all" link) then `.grid.grid-3`. Renders the
+// FULL vm.latest bucket (T16/BCL-057: never slice the head off — every
+// non-featured article must surface). Each card is a `.home-grid__item` grid
+// cell so the home-bucketing count assertion still holds.
 function renderLatestSection(cards: ReadonlyArray<HomeArticleCard>): string {
-  const head = `<div class="section-head"><h2>Latest</h2></div>`;
+  const head = sectionHead({
+    title: "Latest stories",
+    eyebrow: "Fresh off the editor's desk",
+    linkLabel: "see all",
+    linkHref: "/#latest",
+  });
   if (cards.length === 0) {
-    return `<div class="container section">${head}<p class="section-empty">More stories on the way.</p></div>`;
+    return `<section class="container section">${head}<p class="section-empty">More stories on the way.</p></section>`;
   }
   const items = cards.map((c) => `<li class="home-grid__item">${cardFromVm(c)}</li>`).join("");
-  return `<div class="container section">${head}<ul class="grid grid-3 home-grid home-grid--latest">${items}</ul></div>`;
+  return `<section class="container section">${head}<ul class="grid grid-3 home-grid home-grid--latest">${items}</ul></section>`;
 }
 
 export function renderHome(args: RenderHomeArgs): string {
@@ -199,28 +274,23 @@ export function renderHome(args: RenderHomeArgs): string {
   // renderHero so the §11 contract DOM (.hero-bg + .hero-content >
   // h1.hero-title > span.tagline + form.hero-search) holds either way.
   //
-  // T18 (BCL-056): the full-bleed .hero-bg image is the operator-set
-  // site-level hero image (vm.heroImageUrl, already /media/<key>) when one is
-  // configured — it fills the banner behind the title + search regardless of
-  // which article leads. When unset it falls back to the lead article's
-  // featured image, and when there are no articles the site hero still paints
-  // the banner (the previous behaviour rendered an imageless hero).
-  const hero = vm.hero;
+  // T18 (BCL-056) + RESCUE-4 DESIGN: the §2 hero is the SITE IDENTITY — the
+  // brand name as the H1 (with a trailing period, per the design `{heroTitle}.`),
+  // the tagline as the subtitle, and the search box — NOT a featured article.
+  // The .hero-bg is a PURE CSS gradient (design has no hero photo); ONLY when the
+  // operator set a site-level hero image (vm.heroImageUrl, already /media/<key>)
+  // does it override the gradient via an inline background-image. The lead
+  // article image is NEVER used as the hero bg (the design does not) — the lead
+  // story is not lost: it heads the §4 Featured grid below. A bare gradient hero
+  // is the correct empty/unset state.
   const siteHeroImageUrl = vm.heroImageUrl ?? null;
-  const s2 = hero !== null
-    ? renderHero({
-        title: hero.title,
-        excerpt: hero.excerpt,
-        imageUrl: siteHeroImageUrl ?? hero.imageUrl,
-        imageAlt: hero.imageAlt,
-        href: hero.href,
-        kicker: hero.categoryName.length > 0 ? hero.categoryName : undefined,
-      })
-    : renderHero({
-        title: site.name,
-        excerpt: site.tagline.length > 0 ? site.tagline : undefined,
-        imageUrl: siteHeroImageUrl,
-      });
+  const s2 = renderHero({
+    title: site.name,
+    excerpt: site.tagline.length > 0 ? site.tagline : undefined,
+    imageUrl: siteHeroImageUrl,
+    // .hero-bg is decorative (aria-hidden) — empty alt.
+    imageAlt: "",
+  });
 
   // §3 — chip-rail (categories)
   const chips: CategoryChip[] = vm.categories.map((c) => ({
@@ -279,7 +349,11 @@ export function renderHome(args: RenderHomeArgs): string {
     spotlightLead !== undefined && spotlightLead.categoryName.length > 0
       ? spotlightLead.categoryName
       : "Spotlight";
-  const s8 = renderSpotlightSection(spotlightHeading, spotlightCards);
+  const spotlightSlug =
+    spotlightLead !== undefined && spotlightLead.categorySlug.length > 0
+      ? spotlightLead.categorySlug
+      : "";
+  const s8 = renderSpotlightSection(spotlightHeading, spotlightCards, spotlightSlug);
 
   // §9 — ad slot, in-feed surface
   const s9 = renderAdSlot({ type: "in-feed", slotId: "home-in-feed", surface: "home", ads: args.ads });
@@ -333,13 +407,13 @@ export function renderHome(args: RenderHomeArgs): string {
     `${marker(1, "site-header")}\n${s1}`,
     `${marker(2, "hero")}\n${s2}`,
     `${marker(3, "chip-rail")}\n${s3.length > 0 ? `<div class="container">${s3}</div>` : ""}`,
-    `${marker(4, "featured")}\n${s4}`,
+    `${marker(4, "featured")}\n<div id="featured">${s4}</div>`,
     `${marker(5, "ad-leaderboard")}\n${s5}`,
     `${marker(6, "editors-picks")}\n<div id="picks">${s6}</div>`,
     `${marker(7, "trending")}\n<section class="home-section home-section--trending trending-section" id="trending">${s7}</section>`,
     `${marker(8, "spotlight")}\n${s8}`,
     `${marker(9, "ad-in-feed")}\n${s9}`,
-    `${marker(10, "latest")}\n${s10}`,
+    `${marker(10, "latest")}\n<div id="latest">${s10}</div>`,
     `${marker(11, "newsletter")}\n${s11}`,
     `${marker(12, "site-footer")}\n${s12}`,
     `${marker(13, "floating-next")}\n${s13}`,

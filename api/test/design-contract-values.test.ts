@@ -22,10 +22,12 @@ function declarations(selector: string): string {
 }
 
 describe("design-contract-values", () => {
-  it(".cat-chip pins contract min-width 168px and gap 16px", () => {
+  it(".cat-chip pins contract min-width 168px and gap 12px", () => {
     const decl = declarations(".cat-chip");
     expect(decl).toContain("min-width: 168px");
-    expect(decl).toContain("gap: 16px");
+    // RESCUE-4: the claude.ai design `.cat-chip` gap is 12px (was 16px); the
+    // chip is a rounded-RECT (border-radius var(--tw-radius)=10px), not a pill.
+    expect(decl).toContain("gap: 12px");
   });
 
   it(".cat-chip:hover lifts 2px and switches border to var(--tw-brand)", () => {
