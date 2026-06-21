@@ -95,8 +95,15 @@ export function fallbackAboutPageBody(
   ];
 }
 
+// rescue-4: `count` is the end-to-end provisioning knob (STARTER_ARTICLE_TARGET).
+// The fallback MUST yield EXACTLY `count` items with unique kebab-case slugs so
+// the no-API-key / model-failure path provisions the same number of starter
+// articles the operator asked for. A curated set of stems covers the first 15
+// topics; beyond that we deterministically template additional evergreen items
+// (indexed) so any `count` (e.g. 35, 100) is satisfied with unique slugs.
 export function fallbackArticlePlanItems(
   input: FallbackContextBase,
+  count = 15,
 ): GeneratedStarterArticlePlanItem[] {
   const v = vertical(input);
   const a = audience(input);
@@ -177,11 +184,29 @@ export function fallbackArticlePlanItems(
       `Direct answers to the questions ${a} ask most.`,
     ],
   ];
-  return stems.slice(0, 15).map(([slug, title, summary]) => ({
-    slug,
-    title,
-    summary,
-  }));
+  const n = Math.max(0, Math.trunc(count));
+  const items: GeneratedStarterArticlePlanItem[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i < stems.length) {
+      const [slug, title, summary] = stems[i]!;
+      items.push({ slug, title, summary });
+    } else {
+      // Beyond the curated stems: deterministic, index-templated evergreen
+      // items. The 1-based topic number keeps slugs unique and titles distinct
+      // for any count without inventing stats/prices/locations.
+      const topic = i + 1;
+      items.push({
+        slug: `${v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "topic"}-guide-${topic}`,
+        title: `${capitalize(v)} guide ${topic}`,
+        summary: `Part ${topic} of an evergreen series helping ${a} get more from ${v}.`,
+      });
+    }
+  }
+  return items;
+}
+
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
 }
 
 export function fallbackArticleBody(
@@ -329,11 +354,12 @@ export function fallbackAboutPage(
 export function fallbackStarterArticlePlan(
   input: FallbackContextBase,
   meta: GeneratedMeta,
+  count = 15,
 ): GeneratedStarterArticlePlan {
   return {
     meta,
     site_id: input.site_id,
-    items: fallbackArticlePlanItems(input),
+    items: fallbackArticlePlanItems(input, count),
   };
 }
 

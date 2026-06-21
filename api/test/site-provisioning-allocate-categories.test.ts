@@ -301,6 +301,18 @@ function makeParentingFakeDb(
   const siteCategories: SiteCategoryRow[] = [];
   const articles: StarterArticleRow[] = [];
   const aiGenerations = new Map<string, Record<string, unknown>>();
+  // rescue-4: per-article work units the chunked generate_15 step processes.
+  const articleUnits: Array<{
+    site_id: string;
+    unit_index: number;
+    slug: string;
+    title: string | null;
+    summary: string | null;
+    text_status: string;
+    image_status: string;
+    article_id: string | null;
+    attempt_count: number;
+  }> = [];
 
   const db = {
     prepare(sql: string) {
@@ -317,6 +329,30 @@ function makeParentingFakeDb(
             const [idempotency_key] = captured as [string];
             return (aiGenerations.get(idempotency_key) ??
               null) as unknown as T | null;
+          }
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [s_id] = captured as [string];
+            const unit_count = articleUnits.filter((u) => u.site_id === s_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [s_id] = captured as [string];
+            const u = articleUnits
+              .filter((x) => x.site_id === s_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [s_id] = captured as [string];
+            const u = articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === s_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
           }
           if (sql.indexOf("FROM categories WHERE slug = ?") >= 0) {
             const [slug] = captured as [string];
@@ -393,6 +429,38 @@ function makeParentingFakeDb(
             const category_id = (captured[6] ?? null) as number | null;
             if (!articles.some((a) => a.site_id === s_id && a.slug === slug)) {
               articles.push({ site_id: s_id, slug, category_id });
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [s_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!articleUnits.some((u) => u.site_id === s_id && u.unit_index === unit_index)) {
+              articleUnits.push({
+                site_id: s_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, s_id, unit_index] = captured as [string, string, number];
+            const u = articleUnits.find((x) => x.site_id === s_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [s_id, unit_index] = captured as [string, number];
+            const u = articleUnits.find((x) => x.site_id === s_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const s_id = captured[captured.length - 2] as string;
+            const u = articleUnits.find((x) => x.site_id === s_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
             }
           }
           return { success: true, meta: {} };
@@ -496,13 +564,22 @@ describe("site-provisioning T9 — parenting vertical->category allocation + art
       site_id: "st_parenting2",
       step_order: 3,
     });
-    const gen = await STEPS.generate_15_homepage_articles({
+    // rescue-4: generate_15_homepage_articles is chunked (one article per
+    // call, in_progress until done). Drive it to a terminal status so all 15
+    // starter articles are written and round-robin over the allocated set.
+    const genCtx = {
       env,
       db,
       job_id: "job_p2",
       site_id: "st_parenting2",
       step_order: 10,
-    });
+    };
+    let gen = await STEPS.generate_15_homepage_articles(genCtx);
+    let guard = 0;
+    while (gen.status === "in_progress" && guard < 200) {
+      gen = await STEPS.generate_15_homepage_articles(genCtx);
+      guard += 1;
+    }
     expect(gen.status).toBe("completed");
 
     // Starter articles were written and the allocated set is the plan set.

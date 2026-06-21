@@ -38,12 +38,14 @@ import {
 } from "./steps";
 import {
   advanceNextStep,
+  driveInProgressProvisioning,
   findActiveJobForSite,
   ProvisioningError,
   resumeProvisioning,
   runProvisioningToCompletion,
   scheduleBackgroundProvisioning,
   type AdvanceResult,
+  type DriveInProgressSummary,
   type JobRow,
   type ProvisioningRunSummary,
   type ResumeResult,
@@ -55,6 +57,7 @@ export {
   STEPS,
   TOTAL_STEPS,
   advanceNextStep,
+  driveInProgressProvisioning,
   findActiveJobForSite,
   ProvisioningError,
   resumeProvisioning,
@@ -63,6 +66,7 @@ export {
 };
 export type {
   AdvanceResult,
+  DriveInProgressSummary,
   JobRow,
   ProvisioningRunSummary,
   ResumeResult,

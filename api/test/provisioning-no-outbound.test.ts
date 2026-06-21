@@ -86,6 +86,18 @@ function makeFakeDb(initial: {
     status: string;
     published_at: number | null;
   }> = [];
+  // rescue-4: per-article work units the chunked steps process one-at-a-time.
+  const articleUnits: Array<{
+    site_id: string;
+    unit_index: number;
+    slug: string;
+    title: string | null;
+    summary: string | null;
+    text_status: string;
+    image_status: string;
+    article_id: string | null;
+    attempt_count: number;
+  }> = [];
   // Merge-resolution: track ai_generations writes so startGenerationLog
   // can read back the inserted row (see provisioning-runner.test.ts).
   const aiGenerations = new Map<string, Record<string, unknown>>();
@@ -157,6 +169,37 @@ function makeFakeDb(initial: {
             const [site_id] = captured as [string];
             const pages_count = pages.filter((p) => p.site_id === site_id).length;
             return ({ pages_count } as unknown) as T;
+          }
+          // rescue-4: provisioning_article_units reads
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = captured as [string];
+            const unit_count = articleUnits.filter((u) => u.site_id === site_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0) {
+            const [site_id, slug] = captured as [string, string];
+            const a = articles.find((x) => x.site_id === site_id && x.slug === slug);
+            const u = articleUnits.find((x) => x.site_id === site_id && x.article_id === slug);
+            return (a ? { id: u?.unit_index ?? 0, slug: a.slug, title: a.slug } : null) as unknown as T | null;
           }
           return null;
         },
@@ -233,6 +276,38 @@ function makeFakeDb(initial: {
               else if (sql.indexOf("status = 'failed'") >= 0) (r as { status: string }).status = "failed";
               else if (sql.indexOf("status = 'fallback'") >= 0) (r as { status: string }).status = "fallback";
             }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              articleUnits.push({
+                site_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = captured as [string, string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = captured as [string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const site_id = captured[captured.length - 2] as string;
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
+            }
           }
           return { success: true, meta: {} };
         },
@@ -307,7 +382,14 @@ describe("provisioning runner does not call api.cloudflare.com when SITE_PROVISI
     // runCloudflareRouteMutation() which short-circuits to
     // completed_dry_run + writes a cache_purge_log row when dry-run is on.
     const ok = new Set(["completed", "completed_dry_run"]);
-    for (let i = 0; i < TOTAL_STEPS; i++) {
+    const okOrInProgress = new Set(["completed", "completed_dry_run", "in_progress"]);
+    // rescue-4: the two chunked per-article steps return in_progress once per
+    // unit, so POST until the job is 'completed' (a generous cap guards against
+    // a non-converging loop). Every last_step_status is a legal advance value.
+    let guard = 0;
+    const MAX_POSTS = TOTAL_STEPS + 2 * 15 + 5;
+    for (;;) {
+      if (guard++ > MAX_POSTS) throw new Error("provision/next did not converge");
       const res = await admin.request(
         `/api/admin/sites/${SITE_ID}/provision/next`,
         { method: "POST", headers: { "content-type": "application/json" } },
@@ -315,8 +397,8 @@ describe("provisioning runner does not call api.cloudflare.com when SITE_PROVISI
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as AdvanceBody;
-      expect(body.current_step).toBe(STEP_KEYS[i]);
-      expect(ok.has(body.last_step_status)).toBe(true);
+      expect(okOrInProgress.has(body.last_step_status)).toBe(true);
+      if (body.status === "completed") break;
     }
     expect(fake.job.status).toBe("completed");
 
@@ -361,17 +443,24 @@ describe("provisioning runner does not call api.cloudflare.com when SITE_PROVISI
     });
     const env = buildEnv(fake.db);
 
-    for (let i = 0; i < TOTAL_STEPS; i++) {
+    // rescue-4: drive to completion (chunked article steps add per-unit
+    // passes), then assert an extra call after completion is a no-op.
+    let guard = 0;
+    const MAX_POSTS = TOTAL_STEPS + 2 * 15 + 5;
+    for (;;) {
+      if (guard++ > MAX_POSTS) throw new Error("provision/next did not converge");
       const res = await admin.request(
         `/api/admin/sites/${SITE_ID}/provision/next`,
         { method: "POST", headers: { "content-type": "application/json" } },
         env,
       );
       expect(res.status).toBe(200);
+      const body = (await res.json()) as AdvanceBody;
+      if (body.status === "completed") break;
     }
     const fetchCallsAfterFirstRun = fetchCalls.length;
 
-    // 16th call: idempotent no-op (job.status='completed').
+    // Extra call after completion: idempotent no-op (job.status='completed').
     const res16 = await admin.request(
       `/api/admin/sites/${SITE_ID}/provision/next`,
       { method: "POST", headers: { "content-type": "application/json" } },

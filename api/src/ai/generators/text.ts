@@ -558,11 +558,16 @@ export async function generateStarterArticlePlan(
   env: Env,
   input: GenerateStarterArticlePlanInput,
 ): Promise<GenerationResult<GeneratedStarterArticlePlan>> {
-  // OPENAI_API_KEY-aware; fallback returns exactly 15 unique slugs.
+  // rescue-4: `input.count` (= STARTER_ARTICLE_TARGET from the materialize
+  // step) is the end-to-end count knob. It is threaded into the deterministic
+  // prompt builder ("planning N" / "Exactly N items") AND into the fallback so
+  // the no-API-key / model-failure path yields EXACTLY `count` unique items.
+  // OPENAI_API_KEY-aware.
   // T13/AC1 + T40: the resolved preset (the provisioning 'starter-articles'
   // task key, else the 'outline' use-case default) drives the prompt + model;
   // with no preset we fall back to the deterministic builder prompt +
   // registry-default model (no crash, no stub).
+  const count = input.count;
   const preset = await resolveCategoryPreset(env, input.presetCategory ?? "outline", {
     vertical: input.vertical,
     audience: input.audience,
@@ -594,28 +599,37 @@ export async function generateStarterArticlePlan(
         const items = Array.isArray(parsed.items)
           ? (parsed.items as GeneratedStarterArticlePlan["items"])
           : [];
-        if (items.length < 15) {
+        // rescue-4: accept whatever the model returns (the materialize step
+        // slices to STARTER_ARTICLE_TARGET). Only when the model gives us
+        // nothing usable do we substitute the deterministic fallback of
+        // exactly `count` items. We no longer hard-floor at 15.
+        if (items.length === 0) {
           return {
             meta,
             site_id: input.site_id,
-            items: fallbackArticlePlanItems(input),
+            items: fallbackArticlePlanItems(input, count),
           };
         }
         return {
           meta,
           site_id: input.site_id,
-          items: items.slice(0, 15),
+          items,
         };
       } catch {
-        return fallbackStarterArticlePlan(input, meta);
+        return fallbackStarterArticlePlan(input, meta, count);
       }
     },
-    buildFallback: (meta) => fallbackStarterArticlePlan(input, meta),
+    buildFallback: (meta) => fallbackStarterArticlePlan(input, meta, count),
+    // rescue-4: validation no longer requires a specific count — the model may
+    // legitimately return fewer than `count` (the materialize step slices to
+    // STARTER_ARTICLE_TARGET, and the deterministic fallback already yields
+    // exactly `count`). We never throw on a count mismatch. We still reject a
+    // model response with DUPLICATE slugs (a real data-quality defect) so it
+    // routes to the deterministic (unique-slug) fallback.
     validate: (p) => {
       const items = p.items ?? [];
-      if (items.length !== 15) return "PLAN_NOT_FIFTEEN_ITEMS";
       const slugs = new Set(items.map((i) => i.slug));
-      if (slugs.size !== 15) return "PLAN_DUPLICATE_SLUGS";
+      if (slugs.size !== items.length) return "PLAN_DUPLICATE_SLUGS";
       return null;
     },
     client: input.client,

@@ -88,6 +88,18 @@ function makeFakeDb(initial: {
     status: string;
     published_at: number | null;
   }> = [];
+  // rescue-4: per-article work units the chunked steps process one-at-a-time.
+  const articleUnits: Array<{
+    site_id: string;
+    unit_index: number;
+    slug: string;
+    title: string | null;
+    summary: string | null;
+    text_status: string;
+    image_status: string;
+    article_id: string | null;
+    attempt_count: number;
+  }> = [];
   // Merge-resolution: mission's AI generators read back inserted ai_generations
   // rows via SELECT idempotency_key (see startGenerationLog in
   // api/src/ai/generation-log.ts). The original mock returned null for those
@@ -164,6 +176,37 @@ function makeFakeDb(initial: {
             const pages_count = pages.filter((p) => p.site_id === site_id).length;
             return ({ pages_count } as unknown) as T;
           }
+          // rescue-4: provisioning_article_units reads
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = captured as [string];
+            const unit_count = articleUnits.filter((u) => u.site_id === site_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0) {
+            const [site_id, slug] = captured as [string, string];
+            const a = articles.find((x) => x.site_id === site_id && x.slug === slug);
+            const u = articleUnits.find((x) => x.site_id === site_id && x.article_id === slug);
+            return (a ? { id: u?.unit_index ?? 0, slug: a.slug, title: a.slug } : null) as unknown as T | null;
+          }
           return null;
         },
         async run() {
@@ -235,6 +278,38 @@ function makeFakeDb(initial: {
               else if (sql.indexOf("status = 'failed'") >= 0) (r as { status: string }).status = "failed";
               else if (sql.indexOf("status = 'fallback'") >= 0) (r as { status: string }).status = "fallback";
             }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              articleUnits.push({
+                site_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = captured as [string, string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = captured as [string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const site_id = captured[captured.length - 2] as string;
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
+            }
           }
           return { success: true, meta: {} };
         },
@@ -279,9 +354,22 @@ describe("site-provisioning runner end-to-end (T4)", () => {
       completed: boolean;
     }
     const ok = new Set(["completed", "completed_dry_run"]);
+    const okOrInProgress = new Set(["completed", "completed_dry_run", "in_progress"]);
 
-    // TOTAL_STEPS sequential POSTs advance one step each.
-    for (let i = 0; i < TOTAL_STEPS; i++) {
+    // rescue-4: each /provision/next POST advances ONE step EXCEPT the two
+    // chunked per-article steps, which return in_progress (same step, pointer
+    // unchanged) once per unit before completing. So we POST until the job is
+    // 'completed', asserting the pointer is monotonic non-decreasing and the
+    // last step status is always a legal advance/in_progress value. The
+    // distinct step keys that complete, in pointer order, MUST be the 16
+    // registry steps. A generous cap (TOTAL_STEPS + 2*15 unit passes + slack)
+    // guards against an infinite loop.
+    const completedStepKeys: string[] = [];
+    let lastIndex = 0;
+    let guard = 0;
+    const MAX_POSTS = TOTAL_STEPS + 2 * 15 + 5;
+    for (;;) {
+      if (guard++ > MAX_POSTS) throw new Error("provision/next did not converge");
       const res = await admin.request(
         `/api/admin/sites/${SITE_ID}/provision/next`,
         { method: "POST", headers: { "content-type": "application/json" } },
@@ -289,20 +377,29 @@ describe("site-provisioning runner end-to-end (T4)", () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as AdvanceBody;
-      expect(body.current_step).toBe(STEP_KEYS[i]);
-      expect(body.current_step_index).toBe(i + 1);
       expect(body.total_steps).toBe(TOTAL_STEPS);
-      expect(ok.has(body.last_step_status)).toBe(true);
-      if (i < TOTAL_STEPS - 1) {
-        expect(body.status).toBe("running");
-        expect(body.completed).toBe(false);
-      } else {
-        expect(body.status).toBe("completed");
-        expect(body.completed).toBe(true);
+      expect(okOrInProgress.has(body.last_step_status)).toBe(true);
+      // Pointer never goes backwards.
+      expect(body.current_step_index).toBeGreaterThanOrEqual(lastIndex);
+      // A step that completed advanced the pointer past its index → record it.
+      if (body.last_step_status !== "in_progress") {
+        completedStepKeys.push(body.current_step);
+        lastIndex = body.current_step_index;
       }
+      if (body.status === "completed") {
+        expect(body.completed).toBe(true);
+        break;
+      }
+      expect(body.status).toBe("running");
+      expect(body.completed).toBe(false);
     }
 
-    // BEHAVIORAL #1: TOTAL_STEPS step rows, all completed (incl. dry-run completed).
+    // The 16 registry steps each completed exactly once, in registry order.
+    expect(completedStepKeys).toEqual([...STEP_KEYS]);
+
+    // BEHAVIORAL #1: TOTAL_STEPS step rows (one per distinct step key — an
+    // in_progress step re-runs the SAME step_key, never writing a new row),
+    // all terminal-completed, in registry order.
     expect(fake.stepsRows).toHaveLength(TOTAL_STEPS);
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const row = fake.stepsRows[i];
@@ -310,12 +407,14 @@ describe("site-provisioning runner end-to-end (T4)", () => {
       expect(row.step_key).toBe(STEP_KEYS[i]);
       expect(row.step_order).toBe(i);
       expect(ok.has(row.status)).toBe(true);
-      expect(row.attempt_count).toBe(1);
+      // rescue-4: chunked steps re-upsert their step row once per unit pass,
+      // so attempt_count is >= 1 (single-pass steps stay at exactly 1).
+      expect(row.attempt_count).toBeGreaterThanOrEqual(1);
     }
     expect(fake.job.status).toBe("completed");
 
-    // BEHAVIORAL #2 (idempotency): the 16th call MUST NOT add a new step
-    // row. The runner short-circuits when job.status='completed'.
+    // BEHAVIORAL #2 (idempotency): an extra call after completion MUST NOT add
+    // a new step row. The runner short-circuits when job.status='completed'.
     const stepsBefore = fake.stepsRows.length;
     const res16 = await admin.request(
       `/api/admin/sites/${SITE_ID}/provision/next`,

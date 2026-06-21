@@ -101,6 +101,18 @@ interface FakeStore {
   // Spy: every `category` value the preset-resolver queried, in order. Proves
   // each AI step resolves its system preset BY TASK KEY.
   presetCategoriesQueried: string[];
+  // rescue-4: per-article work units the chunked steps process one-at-a-time.
+  articleUnits: Array<{
+    site_id: string;
+    unit_index: number;
+    slug: string;
+    title: string | null;
+    summary: string | null;
+    text_status: string;
+    image_status: string;
+    article_id: string | null;
+    attempt_count: number;
+  }>;
 }
 
 function makeStore(site: SiteRow): FakeStore {
@@ -115,7 +127,36 @@ function makeStore(site: SiteRow): FakeStore {
     next_media_id: 1,
     prompt_presets: [],
     presetCategoriesQueried: [],
+    articleUnits: [],
   };
+}
+
+// rescue-4: drive a chunked step (one unit per call, in_progress until done)
+// to a terminal status, mirroring the runner's loop, so the test can assert
+// the full end-state the step produces across its per-unit passes.
+async function runStepToCompletion(
+  step: (ctx: {
+    env: Env;
+    db: D1Database;
+    job_id: string;
+    site_id: string;
+    step_order: number;
+  }) => Promise<{ status: string }>,
+  ctx: {
+    env: Env;
+    db: D1Database;
+    job_id: string;
+    site_id: string;
+    step_order: number;
+  },
+): Promise<{ status: string }> {
+  let result = await step(ctx);
+  let guard = 0;
+  while (result.status === "in_progress" && guard < 200) {
+    result = await step(ctx);
+    guard += 1;
+  }
+  return result;
 }
 
 // A complete is_system seed (one row per provisioning task key) modelled on
@@ -216,6 +257,36 @@ function makeFakeDb(store: FakeStore): D1Database {
             store.media.push({ id, site_id, ai_generation_id, storage_key });
             return ({ id } as unknown) as T;
           }
+          // rescue-4: provisioning_article_units reads
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = captured as [string];
+            const unit_count = store.articleUnits.filter((u) => u.site_id === site_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = store.articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = store.articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0) {
+            const [site_id, slug] = captured as [string, string];
+            const a = store.articles.find((x) => x.site_id === site_id && x.slug === slug);
+            return (a ? { id: a.id, slug: a.slug, title: a.title } : null) as unknown as T | null;
+          }
           return null;
         },
         async run(): Promise<{ success: true; meta: Record<string, unknown> }> {
@@ -305,6 +376,38 @@ function makeFakeDb(store: FakeStore): D1Database {
             const row = store.articles.find((a) => a.id === article_id);
             if (row && (row.featured_image_id === null || row.featured_image_id === 0)) {
               row.featured_image_id = media_id;
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!store.articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              store.articleUnits.push({
+                site_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = captured as [string, string, number];
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = captured as [string, number];
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const site_id = captured[captured.length - 2] as string;
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
             }
           }
           return { success: true, meta: {} };
@@ -417,8 +520,10 @@ describe("T40 provisioning generation is preset-governed", () => {
     await STEPS["generate_tagline_and_site_description"]({ ...baseCtx, step_order: 5 });
     await STEPS["generate_logo_mark"]({ ...baseCtx, step_order: 8 });
     await STEPS["generate_feature_image"]({ ...baseCtx, step_order: 9 });
-    await STEPS["generate_15_homepage_articles"]({ ...baseCtx, step_order: 10 });
-    await STEPS["generate_or_assign_article_images"]({ ...baseCtx, step_order: 11 });
+    // rescue-4: the two per-article steps are chunked — drive each to
+    // completion so all 15 article + image units are produced.
+    await runStepToCompletion(STEPS["generate_15_homepage_articles"], { ...baseCtx, step_order: 10 });
+    await runStepToCompletion(STEPS["generate_or_assign_article_images"], { ...baseCtx, step_order: 11 });
 
     // Each AI step resolved its system preset by its task key.
     for (const key of Object.values(PROVISIONING_PRESET_CATEGORIES)) {
@@ -454,6 +559,7 @@ describe("T40 provisioning generation is preset-governed", () => {
       site_id: "st_alpha",
       vertical: "personal finance",
       brand_name: "Acme Times",
+      count: 15,
       presetCategory: PROVISIONING_PRESET_CATEGORIES.starterArticles,
       client: capturingClient(promptsA, []),
     });
@@ -475,6 +581,7 @@ describe("T40 provisioning generation is preset-governed", () => {
       site_id: "st_beta",
       vertical: "personal finance",
       brand_name: "Acme Times",
+      count: 15,
       presetCategory: PROVISIONING_PRESET_CATEGORIES.starterArticles,
       client: capturingClient(promptsB, []),
     });

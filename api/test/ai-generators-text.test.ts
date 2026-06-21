@@ -248,18 +248,38 @@ describe("T7 text generators — fallback without OPENAI_API_KEY", () => {
     expect(result.parsed.title.length).toBeGreaterThan(0);
   });
 
-  it("generateStarterArticlePlan: returns exactly 15 articles with unique slugs", async () => {
+  it("generateStarterArticlePlan: returns exactly `count` (15) articles with unique slugs", async () => {
     const { env } = makeEnv();
     const result = await generateStarterArticlePlan(env, {
       site_id: "site-d",
       vertical: "podcasting",
       audience: "indie creators",
+      count: 15,
       client: noKeyClient(),
     });
     expect(result.status).toBe("skipped_no_api_key");
     expect(result.parsed.items).toHaveLength(15);
     const slugs = new Set(result.parsed.items.map((i) => i.slug));
     expect(slugs.size).toBe(15);
+    for (const item of result.parsed.items) {
+      expect(item.title.length).toBeGreaterThan(0);
+      expect(item.summary.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("generateStarterArticlePlan: fallback yields EXACTLY `count` unique items for count=35 (knob, not hard-wired 15)", async () => {
+    const { env } = makeEnv();
+    const result = await generateStarterArticlePlan(env, {
+      site_id: "site-d35",
+      vertical: "podcasting",
+      audience: "indie creators",
+      count: 35,
+      client: noKeyClient(),
+    });
+    expect(result.status).toBe("skipped_no_api_key");
+    expect(result.parsed.items).toHaveLength(35);
+    const slugs = new Set(result.parsed.items.map((i) => i.slug));
+    expect(slugs.size).toBe(35);
     for (const item of result.parsed.items) {
       expect(item.title.length).toBeGreaterThan(0);
       expect(item.summary.length).toBeGreaterThan(0);
@@ -393,7 +413,7 @@ describe("T7 success path with OpenAI client mock", () => {
     expect(row?.parsed_json ?? "").not.toMatch(/sk-livefakekey/);
   });
 
-  it("generateStarterArticlePlan: writes parsed plan when model returns >=15 items", async () => {
+  it("generateStarterArticlePlan: writes parsed plan when model returns >=count items", async () => {
     const items = Array.from({ length: 15 }, (_, i) => ({
       slug: `model-slug-${i + 1}`,
       title: `Model title ${i + 1}`,
@@ -404,6 +424,7 @@ describe("T7 success path with OpenAI client mock", () => {
     const result = await generateStarterArticlePlan(env, {
       site_id: "site-z",
       vertical: "podcasting",
+      count: 15,
       client,
     });
     expect(result.status).toBe("success");

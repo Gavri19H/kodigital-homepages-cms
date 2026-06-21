@@ -89,6 +89,18 @@ interface MediaRow {
   folder: string;
 }
 
+interface ArticleUnitRow {
+  site_id: string;
+  unit_index: number;
+  slug: string;
+  title: string | null;
+  summary: string | null;
+  text_status: string;
+  image_status: string;
+  article_id: string | null;
+  attempt_count: number;
+}
+
 interface FakeStore {
   sites: SiteRow[];
   settings: SettingsRow[];
@@ -103,6 +115,8 @@ interface FakeStore {
   // preset-resolver queried (proves category-scoped lookup).
   prompt_presets: PresetLookupRow[];
   presetCategoriesQueried: string[];
+  // rescue-4: per-article work units the chunked steps process one-at-a-time.
+  articleUnits: ArticleUnitRow[];
 }
 
 function makeStore(site: SiteRow): FakeStore {
@@ -118,7 +132,38 @@ function makeStore(site: SiteRow): FakeStore {
     insertCounts: {},
     prompt_presets: [],
     presetCategoriesQueried: [],
+    articleUnits: [],
   };
+}
+
+// rescue-4 — the generate_15_homepage_articles + generate_or_assign_article_
+// images steps are now chunked (one unit per call, returning in_progress until
+// done). This helper drives a single chunked step to a terminal status exactly
+// as the runner's loop does, so a test can assert the END state (all 15
+// articles / all images) the step produces across its per-unit passes.
+async function runStepToCompletion(
+  step: (ctx: {
+    env: Env;
+    db: D1Database;
+    job_id: string;
+    site_id: string;
+    step_order: number;
+  }) => Promise<{ status: string }>,
+  ctx: {
+    env: Env;
+    db: D1Database;
+    job_id: string;
+    site_id: string;
+    step_order: number;
+  },
+): Promise<{ status: string }> {
+  let result = await step(ctx);
+  let guard = 0;
+  while (result.status === "in_progress" && guard < 200) {
+    result = await step(ctx);
+    guard += 1;
+  }
+  return result;
 }
 
 function makeFakeDb(store: FakeStore): D1Database {
@@ -181,6 +226,36 @@ function makeFakeDb(store: FakeStore): D1Database {
             });
             store.insertCounts["media"] = (store.insertCounts["media"] ?? 0) + 1;
             return ({ id } as unknown) as T;
+          }
+          // rescue-4: provisioning_article_units reads
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = captured as [string];
+            const unit_count = store.articleUnits.filter((u) => u.site_id === site_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = store.articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = store.articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0) {
+            const [site_id, slug] = captured as [string, string];
+            const a = store.articles.find((x) => x.site_id === site_id && x.slug === slug);
+            return (a ? { id: a.id, slug: a.slug, title: a.title } : null) as unknown as T | null;
           }
           return null;
         },
@@ -317,6 +392,38 @@ function makeFakeDb(store: FakeStore): D1Database {
               (row.featured_image_id === null || row.featured_image_id === 0)
             ) {
               row.featured_image_id = media_id;
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!store.articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              store.articleUnits.push({
+                site_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = captured as [string, string, number];
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = captured as [string, number];
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const site_id = captured[captured.length - 2] as string;
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
             }
           }
           return { success: true, meta: {} };
@@ -499,7 +606,9 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_15",
       step_order: 10,
     };
-    const result = await STEPS["generate_15_homepage_articles"](ctx);
+    // rescue-4: the step is chunked (one article per call). Drive it to a
+    // terminal status; the END state is the full 15-article starter set.
+    const result = await runStepToCompletion(STEPS["generate_15_homepage_articles"], ctx);
     expect(result.status).toBe("completed");
     expect(store.articles).toHaveLength(15);
     const slugs = new Set(store.articles.map((a) => a.slug));
@@ -530,7 +639,9 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_idem",
       step_order: 10,
     };
-    const first = await STEPS["generate_15_homepage_articles"](ctx);
+    // rescue-4: drive the chunked step to completion (the materialize + all
+    // 15 per-unit passes).
+    const first = await runStepToCompletion(STEPS["generate_15_homepage_articles"], ctx);
     expect(first.status).toBe("completed");
     const firstArticleCount = store.articles.length;
     const firstAiGenCount = store.ai_generations.size;
@@ -539,9 +650,11 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
     expect(firstArticleCount).toBe(15);
     expect(firstInsertArticles).toBe(15);
 
-    // Re-run the same step. The ai_generations idempotency check short-
-    // circuits the article generator (no duplicate ai_generations INSERT);
-    // INSERT OR IGNORE on articles guarantees no new articles row.
+    // Re-run the same step. rescue-4: the materialize-once guard sees units
+    // already exist (so the plan is NOT regenerated), every text unit is
+    // already 'done' (skipped before any AI call), so the step short-circuits
+    // to 'completed' on the FIRST call with zero new work — no duplicate
+    // ai_generations INSERT, no new articles row.
     const second = await STEPS["generate_15_homepage_articles"](ctx);
     expect(second.status).toBe("completed");
     expect(store.articles).toHaveLength(firstArticleCount);
@@ -655,6 +768,20 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
         ai_generation_id: null,
         featured_image_id: null,
       });
+      // rescue-4: the image step processes provisioning_article_units (not the
+      // articles table directly), so seed a matching unit whose text stage is
+      // already done (article_id = its slug) and image stage is pending.
+      store.articleUnits.push({
+        site_id: "st_t9_assign",
+        unit_index: i - 1,
+        slug: `starter-${i}`,
+        title: `Starter ${i}`,
+        summary: "",
+        text_status: "done",
+        image_status: "pending",
+        article_id: `starter-${i}`,
+        attempt_count: 0,
+      });
     }
     store.next_article_id = 4;
     const env = buildEnv(makeFakeDb(store));
@@ -665,7 +792,8 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t9_assign",
       step_order: 11,
     };
-    const result = await STEPS["generate_or_assign_article_images"](ctx);
+    // rescue-4: drive the chunked image step to completion (one image/call).
+    const result = await runStepToCompletion(STEPS["generate_or_assign_article_images"], ctx);
     expect(result.status).toBe("completed");
     // No media row inserted; featured_image_id still null on every article.
     expect(store.media).toHaveLength(0);
@@ -775,6 +903,7 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       site_id: "st_t13b",
       vertical: "personal finance",
       brand_name: "Acme Daily",
+      count: 15,
       client: capturingClient(outlinePrompts),
     });
     expect(store2.presetCategoriesQueried).toContain("outline");

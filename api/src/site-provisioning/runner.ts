@@ -12,10 +12,21 @@ import {
   STEPS,
   STEP_KEYS,
   TOTAL_STEPS,
+  STARTER_ARTICLE_TARGET,
   getStepKeyForIndex,
   type StepHandlerResult,
   type StepKey,
 } from "./steps";
+
+// rescue-4 — completion-loop iteration bound. The two chunked steps
+// (generate_15_homepage_articles, generate_or_assign_article_images) each
+// return in_progress up to STARTER_ARTICLE_TARGET times (one unit per call)
+// before completing, so a single drive-to-completion needs the 16 step
+// completions PLUS up to 2*STARTER_ARTICLE_TARGET in_progress passes. The +2
+// keeps the idempotent-tail headroom the old TOTAL_STEPS+1 bound provided (so
+// a caller can still observe the post-completion no-op short-circuit).
+const PROVISIONING_MAX_ITERATIONS =
+  TOTAL_STEPS + 2 * STARTER_ARTICLE_TARGET + 2;
 import {
   isCloudflareMutationStep,
   resolveSiteHostname,
@@ -89,6 +100,22 @@ async function finalizeStepRow(
     .run();
 }
 
+// rescue-4 — persist an in_progress step's latest progress output WITHOUT
+// finalizing it: status stays 'running' and finished_at is left NULL (the
+// step is not done), only output + updated_at advance. The next call's
+// upsertStepRow re-bumps attempt_count.
+async function recordStepProgress(
+  db: D1Database, job_id: string, step_key: StepKey, output: string,
+): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE site_creation_job_steps SET output = ?, updated_at = unixepoch() " +
+        "WHERE job_id = ? AND step_key = ?",
+    )
+    .bind(output, job_id, step_key)
+    .run();
+}
+
 async function advanceJobPointer(
   db: D1Database, job_id: string, next_index: number, current_step: StepKey, step_result: StepHandlerResult,
 ): Promise<string> {
@@ -115,16 +142,45 @@ async function advanceJobPointer(
   return nextStatus;
 }
 
+// rescue-4 — an in_progress step persists progress WITHOUT advancing the
+// pointer or finalizing the job: it records the current step on the job row
+// and bumps updated_at (the lightweight lease the cron driver reads to avoid
+// double-driving the same job). The job stays 'running' so the SAME step runs
+// again on the next call (a cron tick or a /provision/next POST). No sites or
+// step-row finalize side-effects fire — the runner already wrote the step's
+// 'running' upsert (which bumped its attempt_count) before invoking the
+// handler. Returns the unchanged-pointer status ('running').
+async function persistInProgress(
+  db: D1Database, job_id: string, current_step: StepKey, current_index: number,
+): Promise<string> {
+  await db
+    .prepare(
+      "UPDATE site_creation_jobs SET current_step = ?, current_step_index = ?, " +
+        "status = 'running', last_error = NULL, updated_at = unixepoch() WHERE id = ?",
+    )
+    .bind(current_step, current_index, job_id)
+    .run();
+  return "running";
+}
+
 // MQAFIX-1: Drive the provisioning runner to completion for a freshly
 // created site (or a halted one). Loops `advanceNextStep` until the job
 // reaches `completed` / `failed`, runs into an unknown step index, or
-// exceeds the safety bound (TOTAL_STEPS + 1 iterations). The +1 lets
-// callers verify the 16th invocation is idempotent (returns the
-// `completed` short-circuit without writing a fresh step row). Errors
+// exceeds the safety bound (PROVISIONING_MAX_ITERATIONS). rescue-4: the bound
+// now accounts for the two chunked per-article steps, each of which returns
+// in_progress (same step, pointer unchanged) up to STARTER_ARTICLE_TARGET
+// times before completing — see PROVISIONING_MAX_ITERATIONS above. Errors
 // from the underlying runner are swallowed and reported through the
 // returned `final_status='aborted'` — the caller (sites POST handler)
 // must NOT fail the user request because background provisioning
 // hiccupped; the site row itself is already committed.
+//
+// NOTE (rescue-4): on the Workers runtime a single waitUntil-driven call to
+// this loop will still get evicted at ~30s for a large article count — that is
+// EXPECTED and safe. The cron-driven driveInProgressProvisioning re-enters the
+// same idempotent loop every minute and resumes from the persisted unit state,
+// so the build reaches 'active' across however many ticks it takes. This
+// best-effort fast-start is no longer the completion guarantee; the cron is.
 export interface ProvisioningRunSummary {
   steps_run: number;
   final_status: string;
@@ -135,7 +191,7 @@ export async function runProvisioningToCompletion(
   env: Env,
   db: D1Database,
   site_id: string,
-  max_iterations: number = TOTAL_STEPS + 1,
+  max_iterations: number = PROVISIONING_MAX_ITERATIONS,
 ): Promise<ProvisioningRunSummary> {
   let steps_run = 0;
   let final_status = "no_job";
@@ -298,6 +354,97 @@ export async function scheduleBackgroundProvisioning(
   await drive;
 }
 
+// rescue-4 — the CRON completion guarantee. scheduleBackgroundProvisioning's
+// waitUntil is best-effort fast-start: the Workers runtime evicts a long
+// waitUntil at ~30s, so a site with many articles (or one whose create-time
+// drive was killed) is left parked 'running'. driveInProgressProvisioning is
+// the durable driver the scheduled() handler calls every minute: it picks up
+// any still-in-progress job and advances it within a bounded wall-clock budget,
+// resuming from the persisted per-unit state, so the build reaches 'active'
+// across however many ticks it takes — for ANY article count.
+//
+// Concurrency safety (the lease): jobs are ordered updated_at ASC and filtered
+// to those whose updated_at is older than DRIVE_LEASE_STALE_SECONDS. Every
+// advanceNextStep bumps the job's updated_at (advanceJobPointer / persistIn-
+// Progress), so a job THIS tick is actively driving has a fresh updated_at and
+// is NOT re-selected by the next tick — two overlapping ticks never double-
+// drive the same job. (No lease_until column: updated_at staleness is the lease
+// — see migration 0022's note.) Each job is driven inside its own try/catch so
+// one bad job can never abort the rest of the batch, and the whole call is
+// non-throwing so a provisioning hiccup can't break the publish cron.
+//
+// `Date.now()` is used for the wall-clock budget — allowed here because this is
+// product Worker runtime code (not a determinism-constrained workflow script).
+const DRIVE_BATCH_LIMIT = 5;
+const DRIVE_LEASE_STALE_SECONDS = 120;
+const DRIVE_BUDGET_MS = 18_000;
+
+interface DriveJobRow {
+  id: string;
+  site_id: string;
+}
+
+export interface DriveInProgressSummary {
+  jobs_considered: number;
+  jobs_driven: number;
+  steps_run: number;
+}
+
+export async function driveInProgressProvisioning(
+  env: Env,
+  ctx?: WaitUntilCtx,
+): Promise<DriveInProgressSummary> {
+  void ctx; // accepted for symmetry / future fan-out; the loop runs inline.
+  const summary: DriveInProgressSummary = {
+    jobs_considered: 0,
+    jobs_driven: 0,
+    steps_run: 0,
+  };
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const staleBefore = nowSeconds - DRIVE_LEASE_STALE_SECONDS;
+  // Oldest-touched non-terminal jobs first; lease filter drops any a
+  // concurrent tick is actively driving (their updated_at is fresh).
+  const picked = await db_selectDrivableJobs(env.DB, staleBefore);
+  summary.jobs_considered = picked.length;
+  for (const row of picked) {
+    summary.jobs_driven += 1;
+    const start = Date.now();
+    try {
+      // Loop the idempotent runner until the budget is spent or the job
+      // settles. Each advanceNextStep bumps the job's updated_at (the lease).
+      for (let i = 0; i < PROVISIONING_MAX_ITERATIONS; i++) {
+        if (Date.now() - start >= DRIVE_BUDGET_MS) break;
+        const job = await findActiveJobForSite(env.DB, row.site_id);
+        if (job === null) break;
+        if (job.status === "completed" || job.status === "failed") break;
+        const result = await advanceNextStep(env, env.DB, job);
+        summary.steps_run += 1;
+        if (result.completed || result.last_step_status === "failed") break;
+      }
+    } catch {
+      // A throwing step is already persisted 'failed' by advanceNextStep's
+      // own try/catch; swallow here so one bad job can't abort the batch or
+      // the surrounding publish cron.
+    }
+  }
+  return summary;
+}
+
+async function db_selectDrivableJobs(
+  db: D1Database,
+  staleBefore: number,
+): Promise<DriveJobRow[]> {
+  const res = await db
+    .prepare(
+      "SELECT id, site_id FROM site_creation_jobs " +
+        "WHERE status IN ('running','pending') AND updated_at <= ? " +
+        "ORDER BY updated_at ASC LIMIT ?",
+    )
+    .bind(staleBefore, DRIVE_BATCH_LIMIT)
+    .all<DriveJobRow>();
+  return res && Array.isArray(res.results) ? res.results : [];
+}
+
 export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Promise<AdvanceResult> {
   if (job.status === "completed" || job.status === "failed") {
     return {
@@ -366,6 +513,27 @@ export async function advanceNextStep(env: Env, db: D1Database, job: JobRow): Pr
     }
   } catch (err) {
     result = { status: "failed", output: "", error: err instanceof Error ? err.message : String(err) };
+  }
+  // rescue-4 — in_progress: the step did ONE bounded unit of work and has
+  // more to do. Do NOT finalize the step row to a terminal status and do NOT
+  // advance current_step_index — only persist the step's latest progress
+  // output and re-park the job 'running' (bumping updated_at, the lease) so
+  // the SAME step runs again on the next call. The 'running' upsert at the
+  // top of this function already bumped the step row's attempt_count, so the
+  // per-step retry/attempt bookkeeping is recorded.
+  if (result.status === "in_progress") {
+    await recordStepProgress(db, job.id, step_key, result.output);
+    const inProgressStatus = await persistInProgress(db, job.id, step_key, index);
+    return {
+      job_id: job.id,
+      site_id: job.site_id,
+      current_step: step_key,
+      current_step_index: index,
+      total_steps: TOTAL_STEPS,
+      status: inProgressStatus,
+      last_step_status: result.status,
+      completed: false,
+    };
   }
   await finalizeStepRow(db, job.id, step_key, result);
   const next_index = result.status === "failed" ? index : index + 1;

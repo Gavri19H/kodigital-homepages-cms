@@ -115,6 +115,18 @@ function makeFakeDb(initialJob: {
   }> = [];
   const settings: Array<{ site_id: string; key: string }> = [];
   const pages: Array<{ site_id: string; slug: string }> = [];
+  // rescue-4: per-article work units the chunked steps process one-at-a-time.
+  const articleUnits: Array<{
+    site_id: string;
+    unit_index: number;
+    slug: string;
+    title: string | null;
+    summary: string | null;
+    text_status: string;
+    image_status: string;
+    article_id: string | null;
+    attempt_count: number;
+  }> = [];
 
   const db = {
     prepare(sql: string) {
@@ -198,6 +210,37 @@ function makeFakeDb(initialJob: {
               (p) => p.site_id === site_id,
             ).length;
             return ({ pages_count } as unknown) as T;
+          }
+          // rescue-4: provisioning_article_units reads
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = captured as [string];
+            const unit_count = articleUnits.filter((u) => u.site_id === site_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0) {
+            const [site_id, slug] = captured as [string, string];
+            const a = articles.find((x) => x.site_id === site_id && x.slug === slug);
+            const u = articleUnits.find((x) => x.site_id === site_id && x.article_id === slug);
+            return (a ? { id: u?.unit_index ?? 0, slug: a.slug, title: a.slug } : null) as unknown as T | null;
           }
           return null;
         },
@@ -371,6 +414,38 @@ function makeFakeDb(initialJob: {
                 a.published_at = 1_700_000_000;
               }
             }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              articleUnits.push({
+                site_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = captured as [string, string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = captured as [string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const site_id = captured[captured.length - 2] as string;
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
+            }
           }
           // Remaining UPDATE site_settings / articles shapes stay no-op
           // for the runner test (which only cares that each step's
@@ -418,7 +493,17 @@ describe("site-provisioning runner (T17)", () => {
     // resolve 'completed'. The one-step-per-call invariant this test was
     // written for is unchanged by the T34 16-key registry.
     const okStatuses = new Set(["completed", "completed_dry_run"]);
-    for (let i = 0; i < TOTAL_STEPS; i++) {
+    const okOrInProgress = new Set(["completed", "completed_dry_run", "in_progress"]);
+    // rescue-4: one step completes per POST EXCEPT the two chunked per-article
+    // steps, which return in_progress (same step, pointer unchanged) once per
+    // unit. POST until the job is 'completed'; the distinct step keys that
+    // complete, in pointer order, MUST be the 16 registry steps.
+    const completedStepKeys: string[] = [];
+    let lastIndex = 0;
+    let guard = 0;
+    const MAX_POSTS = TOTAL_STEPS + 2 * 15 + 5;
+    for (;;) {
+      if (guard++ > MAX_POSTS) throw new Error("provision/next did not converge");
       const res = await admin.request(
         "/api/admin/sites/st_t17/provision/next",
         { method: "POST", headers: { "content-type": "application/json" } },
@@ -426,19 +511,24 @@ describe("site-provisioning runner (T17)", () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as AdvanceBody;
-      expect(body.current_step).toBe(STEP_KEYS[i]);
-      expect(body.current_step_index).toBe(i + 1);
       expect(body.total_steps).toBe(TOTAL_STEPS);
-      expect(okStatuses.has(body.last_step_status)).toBe(true);
-      if (i < TOTAL_STEPS - 1) {
-        expect(body.status).toBe("running");
-        expect(body.completed).toBe(false);
-      } else {
-        expect(body.status).toBe("completed");
-        expect(body.completed).toBe(true);
+      expect(okOrInProgress.has(body.last_step_status)).toBe(true);
+      expect(body.current_step_index).toBeGreaterThanOrEqual(lastIndex);
+      if (body.last_step_status !== "in_progress") {
+        completedStepKeys.push(body.current_step);
+        lastIndex = body.current_step_index;
       }
+      if (body.status === "completed") {
+        expect(body.completed).toBe(true);
+        break;
+      }
+      expect(body.status).toBe("running");
+      expect(body.completed).toBe(false);
     }
+    expect(completedStepKeys).toEqual([...STEP_KEYS]);
 
+    // One step row per distinct step key (in_progress re-runs the SAME key,
+    // never writing a new row), in registry order, all terminal-completed.
     expect(stepsRows).toHaveLength(TOTAL_STEPS);
     for (let i = 0; i < TOTAL_STEPS; i++) {
       const row = stepsRows[i];
@@ -446,7 +536,8 @@ describe("site-provisioning runner (T17)", () => {
       expect(row.step_key).toBe(STEP_KEYS[i]);
       expect(row.step_order).toBe(i);
       expect(okStatuses.has(row.status)).toBe(true);
-      expect(row.attempt_count).toBe(1);
+      // rescue-4: chunked steps re-upsert their row once per unit → >= 1.
+      expect(row.attempt_count).toBeGreaterThanOrEqual(1);
       expect(row.input).not.toBeNull();
       expect(row.output).not.toBeNull();
     }
