@@ -137,10 +137,13 @@ function makeArticleVm(overrides: Partial<ArticleViewModel> = {}): ArticleViewMo
   };
 }
 
-// A responsive <img> must: src start with /media/ (the always-served public
-// route, never a /cdn-cgi transform); carry a srcset of ≥2 candidates each
-// with a `Nw` descriptor and a /cdn-cgi/image/.../media/ transform URL; carry
-// a data-lqip blur-up placeholder; and declare explicit width/height.
+// RESCUE-4 (live-verified): a rendered responsive <img> must have a /media/-
+// prefixed src (the always-served Worker route), explicit width/height (anti-
+// CLS), and — because Cloudflare Image Resizing is NOT enabled on the tenant
+// zones — NO /cdn-cgi/image transform ANYWHERE in the tag. A 404ing srcset/LQIP
+// candidate is exactly what rendered every card/featured/picks image broken on
+// the live site. The transform helpers stay unit-tested below for the day Image
+// Resizing is enabled.
 function assertResponsive(
   tag: string | undefined,
   expectMediaKey: string,
@@ -154,30 +157,13 @@ function assertResponsive(
   expect(src, `missing src: ${img}`).not.toBeNull();
   expect(src!.startsWith("/media/"), `src not /media/-prefixed: ${src}`).toBe(true);
   expect(src!).toContain(expectMediaKey);
-  expect(src!).not.toContain("/cdn-cgi/");
 
-  const srcset = attr(img, "srcset");
-  expect(srcset, `missing srcset: ${img}`).not.toBeNull();
-  const candidates = parseSrcset(srcset!);
-  expect(candidates.length, `srcset has <2 candidates: ${srcset}`).toBeGreaterThanOrEqual(2);
-  for (const c of candidates) {
-    expect(c.descriptor, `candidate missing Nw descriptor: ${srcset}`).toMatch(/^\d+w$/);
-    expect(c.url, `candidate not a /cdn-cgi image transform: ${c.url}`).toContain(
-      "/cdn-cgi/image/",
-    );
-    expect(c.url, `candidate transform must point at the /media source: ${c.url}`).toContain(
-      `/media/${expectMediaKey}`,
-    );
-  }
-
-  const lqip = attr(img, "data-lqip");
-  expect(lqip, `missing blur-up LQIP placeholder: ${img}`).not.toBeNull();
-  expect(lqip!, `LQIP must be a blurred transform: ${lqip}`).toContain("blur=");
-  expect(lqip!).toContain("/cdn-cgi/image/");
-
-  const style = attr(img, "style");
-  expect(style, `LQIP must paint as the element background: ${img}`).not.toBeNull();
-  expect(style!).toContain(`background-image:url(${lqip})`);
+  // No Cloudflare image transform may appear in the rendered tag (src, srcset,
+  // data-lqip, or the background-image style) — every /cdn-cgi/image URL 404s
+  // on this zone, which is what broke the live images.
+  expect(img, `rendered <img> must not reference /cdn-cgi (404s on this zone): ${img}`).not.toContain(
+    "/cdn-cgi/",
+  );
 
   expect(attr(img, "width")).toBe(expectWidth);
   expect(attr(img, "height")).toBe(expectHeight);
@@ -193,10 +179,16 @@ describe("responsive-images", () => {
     expect(attr(hero!, "loading")).toBe("eager");
     expect(attr(hero!, "fetchpriority")).toBe("high");
 
-    // Related card: 16/10 (640×400). Below-fold → lazy, no fetchpriority.
-    const card = imgWithClass(html, "card-img");
-    assertResponsive(card, "related-one.jpg", "640", "400");
-    expect(640 / 400).toBeCloseTo(16 / 10, 5);
+    // Related card: 16/11 (640×440). Below-fold → lazy, no fetchpriority.
+    // RESCUE-4 design: the card image is the design 16/11 treatment and lives
+    // INSIDE a `<div class="card-img">` (the <img> itself carries no class), so
+    // find it by its src + the 640 card width (the 60×60 pop thumb shares the
+    // same src). 16/11 is the design `.card-img` aspect-ratio.
+    const card = extractImgs(html).find(
+      (t) => /\/media\/related-one\.jpg/.test(t) && attr(t, "width") === "640",
+    );
+    assertResponsive(card, "related-one.jpg", "640", "440");
+    expect(640 / 440).toBeCloseTo(16 / 11, 5);
     expect(attr(card!, "loading")).toBe("lazy");
     expect(attr(card!, "fetchpriority")).toBeNull();
 
@@ -207,7 +199,7 @@ describe("responsive-images", () => {
     expect(attr(pop!, "fetchpriority")).toBeNull();
   });
 
-  it("T21.AC1 responsiveImg primitive: /media/ src, ≥2 srcset widths, comma-safe candidates, blurred LQIP [api/test/responsive-images.test.ts]", () => {
+  it("T21.AC1 responsiveImg primitive: bare /media/ src, NO /cdn-cgi transform in output (Image Resizing off), transform helpers still correct [api/test/responsive-images.test.ts]", () => {
     // A bare storage key resolves to the /media/ public route.
     const tag = responsiveImg({
       src: "abc123.jpg",
@@ -218,27 +210,23 @@ describe("responsive-images", () => {
       loading: "lazy",
     });
     expect(attr(tag, "src")).toBe("/media/abc123.jpg");
+    expect(attr(tag, "width")).toBe("1200");
+    expect(attr(tag, "height")).toBe("630");
 
-    // srcset widths: ≥2, sorted ascending, unique, include the display width.
+    // RESCUE-4: the rendered markup carries NO broken Cloudflare transform —
+    // no srcset, no data-lqip, no /cdn-cgi anywhere (they 404 on this zone).
+    expect(tag).not.toContain("/cdn-cgi/");
+    expect(attr(tag, "srcset")).toBeNull();
+    expect(attr(tag, "data-lqip")).toBeNull();
+
+    // The transform helpers are RETAINED and still produce correct Cloudflare
+    // URLs — exercised in isolation so the srcset + blur-up optimisation is a
+    // one-line re-enable the day Image Resizing is turned on for the zone.
     const widths = srcsetWidths(640);
     expect(widths.length).toBeGreaterThanOrEqual(2);
     expect([...widths].sort((a, b) => a - b)).toEqual(widths);
     expect(new Set(widths).size).toBe(widths.length);
     expect(widths).toContain(640);
-
-    // Comma-safety: even though each /cdn-cgi transform URL contains commas
-    // in its option list, splitting the srcset on ", " yields exactly one
-    // "<url> <Nw>" candidate per width (the descriptor is the whitespace
-    // boundary the HTML srcset parser keys on).
-    const srcset = attr(tag, "srcset")!;
-    const candidates = parseSrcset(srcset);
-    expect(candidates.length).toBe(srcsetWidths(1200).length);
-    for (const c of candidates) {
-      expect(c.descriptor).toMatch(/^\d+w$/);
-      expect(c.url).toContain("/cdn-cgi/image/");
-    }
-
-    // LQIP is a tiny blurred transform of the same /media source.
     const lqip = lqipUrl("/media/abc123.jpg");
     expect(lqip).toContain("blur=");
     expect(lqip).toContain("width=32");

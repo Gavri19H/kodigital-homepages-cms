@@ -397,20 +397,20 @@ describe("public-image-attrs T42 performance re-assert", () => {
     const homeImgs = extractImgs(homeHtml);
     const articleImgs = extractImgs(articleHtml);
 
-    // Home hero (§2 hero region) — the LCP candidate MUST be
-    // loading="eager" + fetchpriority="high".
+    // RESCUE-4 design: the §2 home hero is a PURE CSS gradient `.hero-bg` (no
+    // <img> — and no uploaded-logo <img> in §1 either, the brand mark is a
+    // teal-square initial), so the home surface renders NO above-fold <img> at
+    // all. The LCP is the CSS gradient, not an image. Assert the hero region
+    // carries no <img> and the home has zero eager images.
     const homeRegions = sectionRegions(homeHtml, "home");
     const heroRegion = homeRegions.get("hero");
     expect(heroRegion, "home §hero region missing").toBeDefined();
     const heroImgs = extractImgs(heroRegion!);
-    expect(heroImgs.length, "home hero renders no <img>").toBeGreaterThan(0);
-    for (const img of heroImgs) {
-      expect(img.loading, `home hero img not eager: ${img.raw}`).toBe("eager");
-      expect(
-        img.fetchpriority,
-        `home hero img missing fetchpriority="high": ${img.raw}`,
-      ).toBe("high");
-    }
+    expect(heroImgs.length, "design home hero must render no <img> (CSS gradient)").toBe(0);
+    expect(
+      homeImgs.filter(isAboveFold).length,
+      "design home surface must render no eager (above-fold) <img>",
+    ).toBe(0);
 
     // Article hero — same contract on the article-hero-img.
     const articleHeroImg = articleImgs.find((i) =>

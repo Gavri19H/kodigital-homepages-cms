@@ -239,7 +239,7 @@ describe("T14-AC1 tag page / pagination 301 / page>=2 noindex / rss alias", () =
     expect(body).toContain('class="tag-title"');
     expect(body).toContain("Mindfulness");
     expect(body).toContain('<ul class="home-grid home-grid--tag">');
-    expect(body).toContain('<article class="card">');
+    expect(body).toContain('<a class="card"');
     expect(body).toContain('href="/article/calm-mind"');
     expect(body).toContain('href="/article/just-breathe"');
     // CollectionPage + root-first BreadcrumbList JSON-LD ride the head once.

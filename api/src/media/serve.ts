@@ -37,12 +37,33 @@ serve.get("/media/*", async (c) => {
   const key = c.req.path.replace(/^\/media\//, "");
   if (key === "") return c.json({ error: "Missing media key" }, 400);
 
+  // RESCUE-4: a media reference may be a NUMERIC media-table id (e.g. a
+  // logo_media_id / hero_image_media_id site setting written before the
+  // storage_key fix). /media/39 would 404 — R2 is keyed by storage_key, not the
+  // integer id — which broke the live logo + hero. Resolve a bare-integer key to
+  // its storage_key via D1; the normal storage_key path is untouched.
+  let resolvedKey = key;
+  if (/^[0-9]+$/.test(key)) {
+    const mediaRow = await c.env.DB.prepare(
+      "SELECT storage_key FROM media WHERE id = ? LIMIT 1",
+    )
+      .bind(Number(key))
+      .first<{ storage_key: string | null }>();
+    if (
+      mediaRow !== null &&
+      typeof mediaRow.storage_key === "string" &&
+      mediaRow.storage_key.length > 0
+    ) {
+      resolvedKey = mediaRow.storage_key;
+    }
+  }
+
   const ifNoneMatch = c.req.header("if-none-match");
   const obj = ifNoneMatch
-    ? await c.env.MEDIA.get(key, {
+    ? await c.env.MEDIA.get(resolvedKey, {
         onlyIf: { etagDoesNotMatch: stripQuotes(ifNoneMatch) },
       })
-    : await c.env.MEDIA.get(key);
+    : await c.env.MEDIA.get(resolvedKey);
 
   if (obj === null) return c.json({ error: "Not Found", path: c.req.path }, 404);
 

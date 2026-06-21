@@ -103,9 +103,11 @@ describe("T26 newsletter per-provider integration", () => {
     const decl = declarations(".newsletter");
     // Two-column card (design-contract §4/§10: `1fr 1fr`).
     expect(decl).toContain("grid-template-columns: 1fr 1fr");
-    // Brand-soft border + brand-tint background + radius-lg.
+    // Brand-soft border + brand-tint background + radius-lg. RESCUE-4 design:
+    // the background is the design's brand-tint→white gradient (still rooted in
+    // var(--tw-brand-tint)), not a flat fill.
     expect(decl).toContain("border: 1px solid var(--tw-brand-soft)");
-    expect(decl).toContain("background: var(--tw-brand-tint)");
+    expect(decl).toContain("background: linear-gradient(135deg, var(--tw-brand-tint), #fff)");
     expect(decl).toContain("border-radius: var(--tw-radius-lg)");
 
     // Stacks to one column at the 760px breakpoint.

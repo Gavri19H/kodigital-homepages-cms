@@ -369,6 +369,29 @@ export async function buildHomeViewModel(
     href: `/category/${row.slug}`,
   }));
 
+  // RESCUE-4 cat-rail fix: the §3 chip rail was EMPTY on the live site because
+  // the categories query requires categories.show_on_homepage = 1, and the
+  // provisioned categories default to 0 — so a site full of categorised
+  // articles showed no topic chips. When no category is explicitly flagged for
+  // the homepage, fall back to the DISTINCT categories that actually have a
+  // published article in the pool (cards already carry categoryName/Slug) so the
+  // rail reflects the site's real taxonomy. An explicit show_on_homepage
+  // selection still wins when present (the admin toggle stays authoritative).
+  let chipCategories = categories;
+  if (chipCategories.length === 0) {
+    const seenCat = new Set<string>();
+    const derivedCats: HomeCategoryChip[] = [];
+    for (const c of [...trending, ...cards]) {
+      const slug = c.categorySlug;
+      const name = c.categoryName;
+      if (slug.length === 0 || name.length === 0 || seenCat.has(slug)) continue;
+      seenCat.add(slug);
+      derivedCats.push({ id: 0, slug, name, href: `/category/${slug}` });
+      if (derivedCats.length >= CATEGORY_LIMIT) break;
+    }
+    chipCategories = derivedCats;
+  }
+
   // T19 §8 spotlight (design contract §12 `spotlight { cat, desc, items[4] }`):
   // surface the first site category that has >=1 published article in the
   // pool and show its 4 most-recent cards. Sourced from `cards` (the pool
@@ -393,5 +416,5 @@ export async function buildHomeViewModel(
     canonicalUrl: `https://${site.hostname}/`,
   };
 
-  return { site, hero, heroImageUrl, featured, picks, trending, spotlight, latest, categories, newsletter, meta };
+  return { site, hero, heroImageUrl, featured, picks, trending, spotlight, latest, categories: chipCategories, newsletter, meta };
 }

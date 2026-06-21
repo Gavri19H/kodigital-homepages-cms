@@ -23,8 +23,13 @@ export interface TrendingArgs {
 }
 
 export function renderTrending(args: TrendingArgs): string {
-  const heading = args.heading !== undefined && args.heading.length > 0 ? args.heading : "Trending";
-  const head = `<div class="section-head"><h2><span class="pulse-dot" aria-hidden="true"></span>${escText(heading)}</h2></div>`;
+  // Design Trending head: a pulse-dot + "Trending now" title and an eyebrow.
+  const heading = args.heading !== undefined && args.heading.length > 0 ? args.heading : "Trending now";
+  const head =
+    `<div class="section-head"><div class="section-head-left">` +
+    `<h2 class="section-title trending-title"><span class="pulse-dot" aria-hidden="true"></span>${escText(heading)}</h2>` +
+    `<span class="section-eyebrow trending-eyebrow">The five stories saved most in the last 24 hours</span>` +
+    `</div></div>`;
   const items = args.items ?? [];
   if (items.length === 0) {
     const empty =
@@ -33,20 +38,31 @@ export function renderTrending(args: TrendingArgs): string {
         : "Trending stories load soon.";
     return `<div class="container">${head}<p class="section-empty">${escText(empty)}</p></div>`;
   }
+  // Design trending item: the whole item is an <a> (NOT a wrapping <li>), with
+  // .trending-num + .trending-img (img|.ph) + .trending-body (.trending-cat +
+  // h4.trending-h). `.trending-num` = String(i+1).padStart(2,"0") (verbatim).
   const lis = items
     .map((item, i) => {
       const num = String(i + 1).padStart(2, "0");
-      const img = imgTag(
+      const realImg = imgTag(
         item.imageUrl,
         item.imageAlt ?? item.title,
-        ' class="trending-img" width="640" height="400" loading="lazy" decoding="async"',
+        ' width="640" height="400" loading="lazy" decoding="async"',
       );
+      const clabel =
+        item.categoryName !== undefined && item.categoryName !== null && item.categoryName.length > 0
+          ? item.categoryName
+          : item.title;
+      const imgInner =
+        realImg.length > 0
+          ? realImg
+          : `<div class="ph" data-label="${escAttr(clabel)}" style="--ph-a:#3a4150;--ph-b:#1ba8c8"></div>`;
       const cat =
         item.categoryName !== undefined && item.categoryName !== null && item.categoryName.length > 0
           ? `<span class="trending-cat">${escText(item.categoryName)}</span>`
           : "";
-      return `<li class="trending-item"><span class="trending-num">${num}</span><a href="${escAttr(item.href)}">${img}${cat}<h3 class="trending-h">${escText(item.title)}</h3></a></li>`;
+      return `<a class="trending-item" href="${escAttr(item.href)}"><span class="trending-num">${num}</span><div class="trending-img">${imgInner}</div><div class="trending-body">${cat}<h4 class="trending-h">${escText(item.title)}</h4></div></a>`;
     })
     .join("");
-  return `<div class="container">${head}<ol class="grid">${lis}</ol></div>`;
+  return `<div class="container">${head}<div class="trending-scroll">${lis}</div></div>`;
 }

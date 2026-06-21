@@ -170,7 +170,9 @@ describe("home-design (T19)", () => {
     for (const slug of ["hero-lead", "feat-1", "feat-2", "feat-3"]) {
       expect(s6).toContain(`href="/article/${slug}"`);
     }
-    expect(s6).toContain('class="picks-hero"');
+    // RESCUE-4 design: the picks hero is the design `a.card.picks-hero` (the
+    // picks-hero extends the base card), and the 3 thumbs are .story-row items.
+    expect(s6).toContain('class="card picks-hero"');
     expect((s6.match(/class="story-row"/g) ?? []).length).toBe(3);
 
     // §7 trending: 5 items.

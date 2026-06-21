@@ -111,24 +111,23 @@ export function responsiveImg(opts: ResponsiveImgOptions): string {
   const dimAttr = ` width="${opts.width}" height="${opts.height}"`;
   const baseAttrs = `${classAttr} src="${escAttr(resolved)}"${altAttr}${dimAttr} loading="${loading}"${fpAttr} decoding="async"`;
 
-  // External / data: sources cannot go through the same-origin CF image
-  // pipeline — emit a plain (still anti-CLS) <img> with no srcset/LQIP.
-  if (!isSameOriginPath(resolved)) {
-    return `<img${baseAttrs}>`;
-  }
-
-  const quality = opts.quality !== undefined ? opts.quality : DEFAULT_QUALITY;
-  const srcset = srcsetWidths(opts.width)
-    .map(
-      (w) =>
-        `${cfTransform(resolved, `width=${w},quality=${quality},format=auto`)} ${w}w`,
-    )
-    .join(", ");
-  const sizes =
-    opts.sizes !== undefined && opts.sizes.length > 0
-      ? opts.sizes
-      : `${opts.width}px`;
-  const lqip = lqipUrl(resolved);
-  const style = `background-image:url(${lqip});background-size:cover;background-position:center`;
-  return `<img${baseAttrs} srcset="${escAttr(srcset)}" sizes="${escAttr(sizes)}" data-lqip="${escAttr(lqip)}" style="${escAttr(style)}">`;
+  // RESCUE-4 RENDER FIX (live-verified 2026-06-21): Cloudflare Image Resizing
+  // (/cdn-cgi/image/<options>/...) is NOT enabled on the tenant zones — every
+  // transform URL 404s (GET /cdn-cgi/image/width=640,.../media/<key> -> 404,
+  // while the bare /media/<key> -> 200). A <img srcset> of 404 candidates makes
+  // the browser render a BROKEN image (once it SELECTS a srcset candidate per
+  // `sizes` it does NOT fall back to `src`), and the LQIP background-image 404s
+  // too — exactly why every card/featured/picks image showed broken live. So we
+  // emit ONLY the bare /media/ src (Worker-served, 200 on every zone) + the
+  // anti-CLS width/height. The transform helpers (cfTransform/srcsetWidths/
+  // lqipUrl) + constants are retained + unit-tested so the srcset+blur-up
+  // optimisation can be re-enabled HERE in one place the day Cloudflare Image
+  // Resizing is turned on for the zone. A working full-size image beats a broken
+  // responsive one.
+  void DEFAULT_QUALITY;
+  void LQIP_WIDTH;
+  void LQIP_BLUR;
+  void LQIP_QUALITY;
+  void isSameOriginPath;
+  return `<img${baseAttrs}>`;
 }
