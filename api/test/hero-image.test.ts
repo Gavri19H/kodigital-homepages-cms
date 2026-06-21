@@ -92,26 +92,26 @@ function heroSection(html: string): string {
 }
 
 describe("hero-image", () => {
-  it("[api/test/hero-image.test.ts] T18-AC1: with hero_image_media_id set, .hero-bg paints /media/<key> via inline background-image behind .hero-content (.hero-title + .hero-search)", async () => {
+  it("[api/test/hero-image.test.ts] T18-AC1: the hero is the design GRADIENT — even with hero_image_media_id set, .hero-bg paints no photo (the design hero uses no operator image; the AI hero image was a baked-text mockup)", async () => {
     const { db } = makeDb([
       { key: "site_name", value: "Site Alpha" },
       { key: "hero_image_media_id", value: "hero-banner.webp" },
     ]);
     const vm = await buildHomeViewModel(db, ctx);
 
-    // View-model resolves the bare storage key to its public /media/ address.
+    // The view-model still resolves the bare storage key to its /media/ address...
     expect(vm.heroImageUrl).toBe("/media/hero-banner.webp");
 
     const hero = heroSection(renderHome({ vm }));
-    // RESCUE-4 design: .hero-bg is a div painted by an inline background-image
-    // (NO <img>); it shows the operator's site hero, NOT the lead article image.
+    // ...but the design hero is a PURE CSS gradient: the template paints NO photo
+    // (no <img>, no inline background-image) and never the lead-article image.
     expect(hero).toContain('class="hero-bg"');
-    expect(hero).toContain("background-image:url(/media/hero-banner.webp)");
+    expect(hero).not.toContain("background-image");
     expect(hero).not.toContain("<img");
+    expect(hero).not.toContain("/media/hero-banner.webp");
     expect(hero).not.toContain("/media/lead-art.jpg");
 
-    // .hero-bg sits BEHIND .hero-content (renders before it in source order),
-    // and the content carries the title + search.
+    // .hero-bg sits BEHIND .hero-content, which carries the site identity + search.
     expect(hero).toContain('class="hero-content"');
     expect(hero).toContain('class="hero-title"');
     expect(hero).toContain('class="hero-search"');

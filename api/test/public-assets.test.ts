@@ -5,7 +5,7 @@ import type { PublicSiteVariables } from "../src/public/middleware";
 import type { Env } from "../src/env";
 
 // rescue-4 — the public design assets MUST be served. The layout links
-// <link rel="stylesheet" href="/assets/public.css"> + <script src="/assets/public.js">;
+// <link rel="stylesheet" href="/assets/public.css?v=> + <script src="/assets/public.js?v=>;
 // without these routes both 404 and EVERY public page renders completely
 // UNSTYLED (the live-forensic breakage). These routes are host-independent
 // (registered before the site-context middleware) so they need no tenant DB.

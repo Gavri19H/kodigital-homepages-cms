@@ -283,12 +283,17 @@ export function renderHome(args: RenderHomeArgs): string {
   // article image is NEVER used as the hero bg (the design does not) — the lead
   // story is not lost: it heads the §4 Featured grid below. A bare gradient hero
   // is the correct empty/unset state.
-  const siteHeroImageUrl = vm.heroImageUrl ?? null;
+  // RESCUE-4 DESIGN 1:1: the design hero is a PURE CSS gradient (theiwise uses
+  // no hero photo). The operator-set hero image is intentionally NOT painted as
+  // the bg — provisioning's AI image step produced a full mockup-with-text image
+  // (its own headline + CTA) that competes with the overlaid site identity (the
+  // same AI-image-quality issue as the logo, which now renders as a typographic
+  // mark). The gradient is the faithful design + the correct empty state; the
+  // lead story is not lost (it heads the §4 Featured grid below).
   const s2 = renderHero({
     title: site.name,
     excerpt: site.tagline.length > 0 ? site.tagline : undefined,
-    imageUrl: siteHeroImageUrl,
-    // .hero-bg is decorative (aria-hidden) — empty alt.
+    // .hero-bg is decorative (aria-hidden) — empty alt; no operator photo.
     imageAlt: "",
   });
 
