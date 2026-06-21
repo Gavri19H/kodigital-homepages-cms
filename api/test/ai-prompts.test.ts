@@ -108,6 +108,7 @@ describe("ai/prompts buildPrompt determinism", () => {
       vertical: "home services",
       audience: "homeowners",
       brand_name: "Acme",
+      count: 15,
     };
     expect(buildPlan(input)).toBe(buildPlan(input));
   });
@@ -189,13 +190,26 @@ describe("ai/prompts buildPrompt content", () => {
     expect(/legacy product names/i.test(out)).toBe(true);
   });
 
-  it("starter-article-plan prompt asks for exactly 15 items with unique kebab-case slugs", () => {
+  it("starter-article-plan prompt asks for exactly `count` items with unique kebab-case slugs", () => {
     const out = buildPlan({
       site_id: "site-a",
       vertical: "home services",
+      count: 15,
     });
+    expect(out).toContain("planning 15 starter articles");
     expect(out).toContain("Exactly 15 items");
     expect(out).toContain("kebab-case");
+  });
+
+  it("starter-article-plan prompt parameterizes the count (knob, not hard-wired 15)", () => {
+    const out = buildPlan({
+      site_id: "site-a",
+      vertical: "home services",
+      count: 35,
+    });
+    expect(out).toContain("planning 35 starter articles");
+    expect(out).toContain("Exactly 35 items");
+    expect(out).not.toContain("Exactly 15 items");
   });
 });
 
@@ -237,7 +251,7 @@ describe("ai/prompts no banned legacy refs in any prompt module", () => {
     },
     {
       name: "starter-article-plan",
-      out: buildPlan({ site_id: "s", vertical: "v" }),
+      out: buildPlan({ site_id: "s", vertical: "v", count: 15 }),
     },
     {
       name: "starter-article",

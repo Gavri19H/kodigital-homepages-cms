@@ -51,6 +51,7 @@ import privacyRouter from "./privacy";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { processScheduledArticles } from "./workflow";
+import { driveInProgressProvisioning } from "./site-provisioning";
 
 const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 
@@ -141,13 +142,23 @@ app.notFound((c) =>
   c.json({ error: "Not Found", path: c.req.path }, 404),
 );
 
-// T42 [BCL-080] — Scheduled-publishing cron. wrangler.toml [triggers] crons
-// fires the Workers `scheduled` handler on a timer; it runs
-// processScheduledArticles, which finds every article whose scheduled_at has
-// arrived and flips it to published via the canonical publish() path. The work
-// is both registered on ctx.waitUntil (so the cron invocation stays alive
-// until the batch finishes) AND awaited (so the runtime — and unit tests —
-// observe a settled promise).
+// T42 [BCL-080] — Scheduled cron. wrangler.toml [triggers] crons fires the
+// Workers `scheduled` handler every minute. It does TWO things, each isolated
+// so one cannot break the other:
+//   1. processScheduledArticles — finds every article whose scheduled_at has
+//      arrived and flips it to published via the canonical publish() path.
+//   2. (rescue-4) driveInProgressProvisioning — advances any still-in-progress
+//      site-creation job within a bounded budget, resuming from persisted
+//      per-unit state. This is the COMPLETION GUARANTEE for the chunked,
+//      O(1)-per-invocation provisioning runner: scheduleBackgroundProvisioning's
+//      create-time waitUntil is best-effort fast-start (the runtime evicts a
+//      long waitUntil at ~30s), so the cron is what carries a build with any
+//      article count all the way to status='active'.
+//
+// Each task runs in its OWN try/catch: a provisioning error must NOT prevent
+// the publish pass (or vice-versa). Both are registered on ctx.waitUntil (so
+// the cron invocation stays alive until they finish) AND awaited (so the
+// runtime — and unit tests — observe a settled promise).
 //
 // We ATTACH `scheduled` onto the Hono app (rather than wrapping it in a new
 // ExportedHandler literal) so the default export keeps `app.fetch` for the
@@ -158,7 +169,20 @@ const scheduled = async (
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> => {
-  const work = processScheduledArticles(env);
+  const work = (async () => {
+    try {
+      await processScheduledArticles(env);
+    } catch {
+      // Publish-pass failure is recorded per-article inside the engine; a
+      // top-level throw here would abort the provisioning drive below.
+    }
+    try {
+      await driveInProgressProvisioning(env, ctx);
+    } catch {
+      // A provisioning hiccup must never break the publish cron (or surface
+      // as an unhandled rejection that fails the scheduled invocation).
+    }
+  })();
   ctx.waitUntil(work);
   await work;
 };

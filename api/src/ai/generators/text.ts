@@ -558,17 +558,42 @@ export async function generateStarterArticlePlan(
   env: Env,
   input: GenerateStarterArticlePlanInput,
 ): Promise<GenerationResult<GeneratedStarterArticlePlan>> {
-  // OPENAI_API_KEY-aware; fallback returns exactly 15 unique slugs.
+  // rescue-4: `input.count` (= STARTER_ARTICLE_TARGET from the materialize
+  // step) is the end-to-end count knob. It is threaded into the deterministic
+  // prompt builder ("planning N" / "Exactly N items") AND into the fallback so
+  // the no-API-key / model-failure path yields EXACTLY `count` unique items.
+  // OPENAI_API_KEY-aware.
   // T13/AC1 + T40: the resolved preset (the provisioning 'starter-articles'
   // task key, else the 'outline' use-case default) drives the prompt + model;
   // with no preset we fall back to the deterministic builder prompt +
   // registry-default model (no crash, no stub).
+  //
+  // PR #28 finding #1 (goal-critical): the seeded 'starter-articles' preset
+  // prompt (migration 0020) specifies NO count, so in PRODUCTION (live key +
+  // preset) the model returns an arbitrary number of items. To GUARANTEE the
+  // operator's chosen count (STARTER_ARTICLE_TARGET = 35/100/…) on EVERY path
+  // we (a) ALWAYS append a normalized count-constraint line to the resolved
+  // prompt — preset OR builtin — so the instruction never depends on the
+  // preset's own wording, and (b) normalize the parsed response to EXACTLY
+  // `count` globally-unique-slug items (top-up shortfalls from the
+  // deterministic fallback with DISJOINT slugs; slice any overflow). The
+  // preset path, builtin path, and no-key fallback all now return exactly
+  // `count` items.
+  //
+  // NOTE: the compile-time count knob is STARTER_ARTICLE_TARGET (steps.ts:131);
+  // the provisioning materialize step threads it here as `input.count`.
+  const count = input.count;
   const preset = await resolveCategoryPreset(env, input.presetCategory ?? "outline", {
     vertical: input.vertical,
     audience: input.audience,
     brand_name: input.brand_name,
     site_id: input.site_id,
   });
+  // (a) normalized count constraint, appended to whichever prompt resolves
+  // (preset OR builtin) so the model is instructed to return exactly `count`
+  // regardless of the preset's wording.
+  const basePrompt = preset?.prompt ?? buildStarterArticlePlanPrompt(input);
+  const prompt = `${basePrompt}\nReturn exactly ${count} article ideas as items.`;
   return runTextGenerator<
     GenerateStarterArticlePlanInput,
     GeneratedStarterArticlePlan
@@ -579,7 +604,7 @@ export async function generateStarterArticlePlan(
     target_type: "article_plan",
     target_id: input.site_id,
     context: input,
-    prompt: preset?.prompt ?? buildStarterArticlePlanPrompt(input),
+    prompt,
     modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(
@@ -594,32 +619,77 @@ export async function generateStarterArticlePlan(
         const items = Array.isArray(parsed.items)
           ? (parsed.items as GeneratedStarterArticlePlan["items"])
           : [];
-        if (items.length < 15) {
-          return {
-            meta,
-            site_id: input.site_id,
-            items: fallbackArticlePlanItems(input),
-          };
-        }
+        // (b) NORMALIZE to exactly `count`: top-up a model shortfall from the
+        // deterministic fallback (disjoint slugs) and slice any overflow. This
+        // is what makes the PRESET path honour `count` in production — the
+        // model is free to return any number; we always land on `count` items
+        // with globally-unique slugs.
         return {
           meta,
           site_id: input.site_id,
-          items: items.slice(0, 15),
+          items: normalizeStarterPlanItems(input, items, count),
         };
       } catch {
-        return fallbackStarterArticlePlan(input, meta);
+        return fallbackStarterArticlePlan(input, meta, count);
       }
     },
-    buildFallback: (meta) => fallbackStarterArticlePlan(input, meta),
+    buildFallback: (meta) => fallbackStarterArticlePlan(input, meta, count),
+    // rescue-4: validation no longer requires a specific count — the model may
+    // legitimately return fewer than `count` (normalizeStarterPlanItems tops it
+    // up, and the deterministic fallback already yields exactly `count`). We
+    // never throw on a count mismatch. We still reject a model response with
+    // DUPLICATE slugs (a real data-quality defect) so it routes to the
+    // deterministic (unique-slug) fallback. (After normalization slugs are
+    // unique by construction, so this guards the model's raw output.)
     validate: (p) => {
       const items = p.items ?? [];
-      if (items.length !== 15) return "PLAN_NOT_FIFTEEN_ITEMS";
       const slugs = new Set(items.map((i) => i.slug));
-      if (slugs.size !== 15) return "PLAN_DUPLICATE_SLUGS";
+      if (slugs.size !== items.length) return "PLAN_DUPLICATE_SLUGS";
       return null;
     },
     client: input.client,
   });
+}
+
+// PR #28 finding #1: guarantee EXACTLY `count` plan items with globally-unique
+// slugs from whatever the model returned. `modelItems` is the parsed model
+// (or preset) output. We:
+//   1. de-duplicate the model items by slug (keep first occurrence), capping at
+//      `count` (overflow is sliced).
+//   2. if still short, TOP UP from the deterministic fallback generator
+//      (fallbackArticlePlanItems — the `<vertical>-guide-N` series) appending
+//      ONLY items whose slug is DISJOINT from the model's slugs, until length
+//      === count. The fallback's `-guide-N` tail is unbounded + unique, so a
+//      generous candidate pool always supplies enough disjoint slugs.
+// The result is exactly `count` items with a unique-slug set. `count<=0` yields
+// an empty array (defensive — provisioning never passes a non-positive count).
+function normalizeStarterPlanItems(
+  input: FallbackContextBase,
+  modelItems: GeneratedStarterArticlePlan["items"],
+  count: number,
+): GeneratedStarterArticlePlan["items"] {
+  const target = Math.max(0, Math.trunc(count));
+  const seen = new Set<string>();
+  const out: GeneratedStarterArticlePlan["items"] = [];
+  for (const item of modelItems) {
+    if (out.length >= target) break;
+    if (!item || typeof item.slug !== "string" || item.slug.length === 0) continue;
+    if (seen.has(item.slug)) continue;
+    seen.add(item.slug);
+    out.push(item);
+  }
+  if (out.length >= target) return out.slice(0, target);
+  // Generous candidate pool: target + (model slugs already consumed) guarantees
+  // at least `target` disjoint fallback slugs even if every model slug collides
+  // with a curated fallback stem.
+  const candidates = fallbackArticlePlanItems(input, target + seen.size);
+  for (const cand of candidates) {
+    if (out.length >= target) break;
+    if (seen.has(cand.slug)) continue;
+    seen.add(cand.slug);
+    out.push(cand);
+  }
+  return out;
 }
 
 export interface GenerateStarterArticleInput

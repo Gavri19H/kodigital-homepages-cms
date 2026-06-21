@@ -116,6 +116,18 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): FakeWorld {
   const settings: Array<{ site_id: string; key: string }> = [];
   const pages: Array<{ site_id: string; slug: string }> = [];
   const siteCategories: Array<{ site_id: string; category_id: number }> = [];
+  // rescue-4: per-article work units the chunked steps process one-at-a-time.
+  const articleUnits: Array<{
+    site_id: string;
+    unit_index: number;
+    slug: string;
+    title: string | null;
+    summary: string | null;
+    text_status: string;
+    image_status: string;
+    article_id: string | null;
+    attempt_count: number;
+  }> = [];
 
   const db = {
     prepare(sql: string) {
@@ -171,6 +183,37 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): FakeWorld {
             const [site_id] = captured as [string];
             const pages_count = pages.filter((p) => p.site_id === site_id).length;
             return ({ pages_count } as unknown) as T;
+          }
+          // rescue-4: provisioning_article_units reads
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = captured as [string];
+            const unit_count = articleUnits.filter((u) => u.site_id === site_id).length;
+            return ({ unit_count } as unknown) as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = captured as [string];
+            const u = articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0) {
+            const [site_id, slug] = captured as [string, string];
+            const a = articles.find((x) => x.site_id === site_id && x.slug === slug);
+            const u = articleUnits.find((x) => x.site_id === site_id && x.article_id === slug);
+            return (a ? { id: u?.unit_index ?? 0, slug, title: u?.title ?? slug } : null) as unknown as T | null;
           }
           return null;
         },
@@ -292,6 +335,38 @@ function makeFakeDb(initialJob: { id: string; site_id: string }): FakeWorld {
             const [site_id, category_id] = captured as [string, number, number];
             if (!siteCategories.some((c) => c.site_id === site_id && c.category_id === category_id)) {
               siteCategories.push({ site_id, category_id });
+            }
+          } else if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = captured as [
+              string, number, string, string, string,
+            ];
+            if (!articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              articleUnits.push({
+                site_id, unit_index, slug, title, summary,
+                text_status: "pending", image_status: "pending",
+                article_id: null, attempt_count: 0,
+              });
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = captured as [string, string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = captured as [string, number];
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+          } else if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = captured[0] as number;
+            const unit_index = captured[captured.length - 1] as number;
+            const site_id = captured[captured.length - 2] as string;
+            const u = articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
             }
           }
           return { success: true, meta: {} };

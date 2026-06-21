@@ -131,6 +131,21 @@ interface Store {
   media: MediaRow[];
   pages: Array<{ site_id: string; slug: string }>;
   aiGenerations: Map<string, Record<string, unknown>>;
+  // rescue-4: the per-article work-unit table the chunked generate_15_*
+  // and generate_or_assign_* steps materialize-once + process-one against.
+  articleUnits: ArticleUnitRow[];
+}
+
+interface ArticleUnitRow {
+  site_id: string;
+  unit_index: number;
+  slug: string;
+  title: string | null;
+  summary: string | null;
+  text_status: string;
+  image_status: string;
+  article_id: string | null;
+  attempt_count: number;
 }
 
 function buildEnv(db: D1Database): Env {
@@ -201,6 +216,7 @@ function makeStore(): Store {
     media: [],
     pages: [],
     aiGenerations: new Map<string, Record<string, unknown>>(),
+    articleUnits: [],
   } as Omit<Store, "db">;
 
   let mediaSeq = 0;
@@ -344,6 +360,39 @@ function makeStore(): Store {
           if (sql.indexOf("COUNT(*) AS media_count FROM media") >= 0) {
             const n = store.media.filter((m) => m.site_id === store.site.id).length;
             return { media_count: n } as unknown as T;
+          }
+          // --- rescue-4: provisioning_article_units reads ------------------
+          if (sql.indexOf("COUNT(*) AS unit_count FROM provisioning_article_units") >= 0) {
+            const [site_id] = binds as [string];
+            const n = store.articleUnits.filter((u) => u.site_id === site_id).length;
+            return { unit_count: n } as unknown as T;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const [site_id] = binds as [string];
+            const u = store.articleUnits
+              .filter((x) => x.site_id === site_id && x.text_status === "pending")
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const [site_id] = binds as [string];
+            const u = store.articleUnits
+              .filter(
+                (x) =>
+                  x.site_id === site_id &&
+                  x.image_status === "pending" &&
+                  x.article_id !== null,
+              )
+              .sort((a, b) => a.unit_index - b.unit_index)[0];
+            return (u ? { ...u } : null) as unknown as T | null;
+          }
+          // --- rescue-4: single-article lookup by slug (image step) --------
+          if (
+            sql.indexOf("SELECT id, slug, title FROM articles WHERE site_id = ? AND slug = ?") >= 0
+          ) {
+            const [site_id, slug] = binds as [string, string];
+            const a = store.articles.find((x) => x.site_id === site_id && x.slug === slug);
+            return (a ? { id: a.id, slug: a.slug, title: a.title } : null) as unknown as T | null;
           }
           return null;
         },
@@ -602,6 +651,58 @@ function makeStore(): Store {
             }
             return ok;
           }
+          // rescue-4: provisioning_article_units materialize + per-stage marks
+          if (sql.indexOf("INSERT OR IGNORE INTO provisioning_article_units") >= 0) {
+            const [site_id, unit_index, slug, title, summary] = binds as [
+              string,
+              number,
+              string,
+              string,
+              string,
+            ];
+            if (!store.articleUnits.some((u) => u.site_id === site_id && u.unit_index === unit_index)) {
+              store.articleUnits.push({
+                site_id,
+                unit_index,
+                slug,
+                title,
+                summary,
+                text_status: "pending",
+                image_status: "pending",
+                article_id: null,
+                attempt_count: 0,
+              });
+            }
+            return ok;
+          }
+          if (sql.indexOf("UPDATE provisioning_article_units SET text_status = 'done'") >= 0) {
+            const [article_id, site_id, unit_index] = binds as [string, string, number];
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.text_status = "done";
+              u.article_id = article_id;
+            }
+            return ok;
+          }
+          if (sql.indexOf("UPDATE provisioning_article_units SET image_status = 'done'") >= 0) {
+            const [site_id, unit_index] = binds as [string, number];
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) u.image_status = "done";
+            return ok;
+          }
+          // rescue-4: per-unit failure bookkeeping (attempt bump / permanent fail)
+          if (sql.indexOf("UPDATE provisioning_article_units SET attempt_count = ?") >= 0) {
+            const attempts = binds[0] as number;
+            const unit_index = binds[binds.length - 1] as number;
+            const site_id = binds[binds.length - 2] as string;
+            const u = store.articleUnits.find((x) => x.site_id === site_id && x.unit_index === unit_index);
+            if (u) {
+              u.attempt_count = attempts;
+              if (sql.indexOf("text_status = 'failed'") >= 0) u.text_status = "failed";
+              if (sql.indexOf("image_status = 'failed'") >= 0) u.image_status = "failed";
+            }
+            return ok;
+          }
           // publish_starter_articles backfill
           if (sql.indexOf("UPDATE articles SET status = 'published'") >= 0) {
             for (const a of store.articles) {
@@ -674,9 +775,13 @@ describe("T41 provisioned end-state correctness + matches the design", () => {
   it("[api/test/provisioning-endstate.test.ts] T41-AC1: a fresh provision ends active with N published, categorized, authored, SEO'd, image-bearing articles + logo + hero + brand seeded; zero outbound fetch L2_AUTO_DISAMBIGUATION:T41-AC1:RC-068", async () => {
     const { store, summary, fetchCalls } = await provisionWorld();
 
-    // The build completed end-to-end across every registered step.
+    // The build completed end-to-end. rescue-4: the two chunked per-article
+    // steps each return in_progress once per unit (one article body / one
+    // image per advanceNextStep), so a full drive runs MORE advanceNextStep
+    // iterations than there are steps — the contract is that it reaches
+    // 'completed' (status), not a fixed step count.
     expect(summary.final_status).toBe("completed");
-    expect(summary.steps_run).toBe(TOTAL_STEPS);
+    expect(summary.steps_run).toBeGreaterThanOrEqual(TOTAL_STEPS);
 
     // cf_dry_run: ZERO outbound fetch — and specifically none to Cloudflare.
     expect(fetchCalls).toHaveLength(0);
