@@ -211,7 +211,10 @@ function formatPublishedAt(epochSeconds: number | null | undefined): string {
   if (epochSeconds === null || epochSeconds === undefined) return "";
   const d = new Date(epochSeconds * 1000);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString();
+  // rescue-4 — human-readable byline date (the card showed a raw ISO string).
+  // UTC + a fixed month table (Workers' Intl is limited) keeps it deterministic.
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
 function readMinutesFromHtml(html: string | null | undefined): number | null {

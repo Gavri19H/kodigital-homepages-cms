@@ -706,12 +706,15 @@ async function generateLogoMarkStep(
     brand_name: info.brand_name,
     presetCategory: PROVISIONING_PRESET_CATEGORIES.logo,
   });
-  if (imageResult.media_id > 0) {
+  // rescue-4 — store the STORAGE_KEY (not the numeric media row id). The public
+  // render resolves logo_media_id via mediaUrl(), which expects a storage_key
+  // (/media/<key>); a media id produced /media/39 -> 404 (broken logo).
+  if (imageResult.media_id > 0 && imageResult.storage_key) {
     await upsertSiteSetting(
       ctx.db,
       ctx.site_id,
       "logo_media_id",
-      String(imageResult.media_id),
+      imageResult.storage_key,
     );
   }
   return {
@@ -776,12 +779,14 @@ async function generateFeatureImageStep(
   // created (media_id > 0 — never under the no-key skip), mirroring the logo
   // step exactly.
   let heroSettingWritten = false;
-  if (imageResult.media_id > 0) {
+  if (imageResult.media_id > 0 && imageResult.storage_key) {
+    // rescue-4 — store the STORAGE_KEY (not the media row id); home.ts resolves
+    // hero_image_media_id via mediaUrl() (/media/<key>).
     await upsertSiteSetting(
       ctx.db,
       ctx.site_id,
       "hero_image_media_id",
-      String(imageResult.media_id),
+      imageResult.storage_key,
     );
     heroSettingWritten = true;
   }

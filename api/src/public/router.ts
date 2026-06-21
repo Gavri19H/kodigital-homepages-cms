@@ -24,6 +24,8 @@ import { Hono, type Context } from "hono";
 import type { Env } from "../env";
 import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
+import { publicCss } from "./assets/public-css";
+import { publicJs } from "./assets/public-js";
 import {
   renderRssFeed,
   renderAtomFeed,
@@ -142,6 +144,30 @@ router.get("/favicon.ico", () =>
   new Response(null, {
     status: 204,
     headers: { "Cache-Control": "public, max-age=86400" },
+  }),
+);
+
+// rescue-4 — the public design assets the layout links: /assets/public.css
+// (the theiwise design system — --tw-brand:#1ba8c8, the 13/12 section styling,
+// Nunito, the 8 responsive breakpoints) and /assets/public.js. WITHOUT these
+// routes the layout's <link rel="stylesheet" href="/assets/public.css"> 404s
+// and EVERY public page renders completely UNSTYLED (raw HTML). Registered
+// BEFORE publicSiteContextMiddleware so they are host-independent generic
+// assets (no tenant DB lookup), exactly like /favicon.ico above.
+router.get("/assets/public.css", () =>
+  new Response(publicCss, {
+    headers: {
+      "Content-Type": "text/css; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    },
+  }),
+);
+router.get("/assets/public.js", () =>
+  new Response(publicJs, {
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    },
   }),
 );
 
