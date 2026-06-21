@@ -14,6 +14,23 @@
 // article:* all flow through the LIVE route — the helper is no longer dead.
 
 import { renderSeoHead } from "./seo-head";
+import { publicCss } from "../assets/public-css";
+import { publicJs } from "../assets/public-js";
+
+// Cache-busting asset versions: a cheap djb2 content-hash over the served CSS
+// and JS, computed once per isolate. The /assets/public.{css,js} links carry
+// ?v=<hash> so a stylesheet/script change invalidates the browser + edge cache
+// on the NEXT deploy (the asset routes ignore the query string). Without this
+// the assets are served max-age=86400 at a fixed URL, so returning visitors kept
+// the STALE stylesheet for up to a day after a deploy — the post-deploy "it
+// still looks old" symptom. The hash changes only when the asset content does.
+function assetHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+const PUBLIC_CSS_V = assetHash(publicCss);
+const PUBLIC_JS_V = assetHash(publicJs);
 
 export interface LayoutSite {
   name: string;
@@ -210,7 +227,7 @@ ${linkTags}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700;800&display=swap">
-<link rel="stylesheet" href="/assets/public.css">
+<link rel="stylesheet" href="/assets/public.css?v=${PUBLIC_CSS_V}">
 ${styleBlock}
 ${jsonLdBlocks}
 ${extraHead}
@@ -221,7 +238,7 @@ ${customHead}
 ${header}
 <main id="main-content">${body}</main>
 ${footer}
-<script src="/assets/public.js" defer></script>
+<script src="/assets/public.js?v=${PUBLIC_JS_V}" defer></script>
 ${customFooter}
 </body>
 </html>`;
