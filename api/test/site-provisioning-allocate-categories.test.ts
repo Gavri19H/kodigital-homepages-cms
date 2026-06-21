@@ -466,6 +466,20 @@ function makeParentingFakeDb(
           return { success: true, meta: {} };
         },
         async all<T = unknown>() {
+          // BATCHED-UNIT-ALL (rescue-4 v2): model selectPendingUnitBatch's .all() query.
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("text_status = 'pending'") >= 0) {
+            const __sid = captured[0] as string;
+            const __lim = Number(captured[captured.length - 1]) || 100;
+            const __rows = articleUnits.filter((x) => x.site_id === __sid && x.text_status === "pending").sort((a, b) => a.unit_index - b.unit_index).slice(0, __lim);
+            return { results: __rows as unknown as T[], success: true, meta: {} };
+          }
+          if (sql.indexOf("FROM provisioning_article_units") >= 0 && sql.indexOf("image_status = 'pending'") >= 0) {
+            const __sid = captured[0] as string;
+            const __lim = Number(captured[captured.length - 1]) || 100;
+            const __rows = articleUnits.filter((x) => x.site_id === __sid && x.image_status === "pending" && x.article_id !== null).sort((a, b) => a.unit_index - b.unit_index).slice(0, __lim);
+            return { results: __rows as unknown as T[], success: true, meta: {} };
+          }
+
           if (
             sql.indexOf("FROM category_verticals") >= 0 &&
             sql.indexOf("JOIN verticals") >= 0
