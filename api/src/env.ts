@@ -2,6 +2,10 @@ export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   MEDIA: R2Bucket;
+  // rescue-4 v3 — parallel provisioning fan-out queue. Optional: when
+  // unbound (tests / local dev) the gen steps fall back to the serial
+  // inline path, so the suite runs without a queue binding.
+  PROVISION_QUEUE?: Queue<{ site_id: string; unit_index: number; stage: "text" | "image" }>;
 
   APP_ENV: string;
   ADMIN_HOST: string;

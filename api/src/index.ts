@@ -51,7 +51,11 @@ import privacyRouter from "./privacy";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { processScheduledArticles } from "./workflow";
-import { driveInProgressProvisioning } from "./site-provisioning";
+import {
+  driveInProgressProvisioning,
+  processProvisionMessage,
+  type ProvisionMessage,
+} from "./site-provisioning";
 
 const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 
@@ -187,6 +191,30 @@ const scheduled = async (
   await work;
 };
 
-const worker = Object.assign(app, { scheduled });
+// rescue-4 v3 — Queue consumer. Each provisioning unit is one message;
+// Cloudflare runs this handler across a PARALLEL fleet of invocations (one gen
+// per invocation, full speed — the parallelism a single Promise.all in one
+// invocation could not achieve). "retry" re-delivers a transient gen failure;
+// every other outcome acks. An unexpected throw also re-delivers so a unit is
+// never silently dropped (the Queue's max_retries + DLQ bound it).
+const queue = async (
+  batch: MessageBatch<ProvisionMessage>,
+  env: Env,
+): Promise<void> => {
+  for (const message of batch.messages) {
+    try {
+      const outcome = await processProvisionMessage(env, message.body);
+      if (outcome === "retry") {
+        message.retry();
+      } else {
+        message.ack();
+      }
+    } catch {
+      message.retry();
+    }
+  }
+};
+
+const worker = Object.assign(app, { scheduled, queue });
 
 export default worker;
