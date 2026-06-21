@@ -1160,7 +1160,12 @@ async function generate15HomepageArticlesStep(
     )
     .bind(
       info.site_id,
-      article.parsed.slug,
+      // rescue-4 v2 — DETERMINISTIC article identity: bind the PLANNED unit
+      // slug, NOT the AI-echoed article.parsed.slug (which the model re-derives
+      // non-deterministically). A re-generation of the same unit then targets
+      // the SAME (site_id, slug) row -> INSERT OR IGNORE is a no-op -> never a
+      // duplicate article. (Live forensic: 21 rows / 14 distinct titles.)
+      unit.slug,
       article.parsed.title,
       contentJson,
       contentHtml,
@@ -1182,7 +1187,7 @@ async function generate15HomepageArticlesStep(
       "UPDATE provisioning_article_units SET text_status = 'done', article_id = ?, " +
         "updated_at = unixepoch() WHERE site_id = ? AND unit_index = ?",
     )
-    .bind(article.parsed.slug, ctx.site_id, unit.unit_index)
+    .bind(unit.slug, ctx.site_id, unit.unit_index)
     .run();
 
   // More text units still pending? Stay in_progress so the runner re-enters
@@ -1199,7 +1204,7 @@ async function generate15HomepageArticlesStep(
     schema_version: 1,
     stage: morePending !== null ? "text_unit_done" : "text_complete",
     unit_index: unit.unit_index,
-    article_slug: article.parsed.slug,
+    article_slug: unit.slug,
     plan_status: planStatus,
     plan_ai_generation_id: planGenerationId,
     author_name: authorName,
