@@ -234,7 +234,8 @@ describe("public-templates-components", () => {
 
     // RESCUE-4 design: .hero-bg is a div (no <img>); a set imageUrl paints it
     // via an inline background-image (the gradient is the CSS default otherwise).
-    expect(html).toContain('background-image:url(/media/hero.jpg)');
+    expect(html).toContain('url(/media/hero.jpg)');
+    expect(html).toContain('background-image:linear-gradient');
     expect(html.slice(bgAt, contentAt)).not.toContain("<img");
 
     // tagline is a SPAN inside the h1.hero-title, after the title + literal

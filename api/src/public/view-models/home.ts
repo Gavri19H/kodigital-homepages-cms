@@ -59,6 +59,10 @@ export interface HomeCategoryChip {
   slug: string;
   name: string;
   href: string;
+  // RESCUE-4: the 48px chip thumbnail — the category's representative article
+  // image (a clean, already-generated feature photo), rendered with a per-category
+  // brand tint. null when the category has no article image (chip shows the .ph).
+  imageUrl?: string | null;
 }
 
 export interface HomeNewsletter {
@@ -362,11 +366,19 @@ export async function buildHomeViewModel(
     .filter((c) => !featuredIds.has(c.id))
     .slice(0, LATEST_LIMIT);
 
+  // RESCUE-4 chip image: reuse the category's representative article image (a
+  // clean, already-generated feature photo) as the chip thumbnail — no new image
+  // generation. Categories with no article image fall back to the .ph gradient.
+  const catImage = (slug: string): string | null =>
+    [...trending, ...cards].find((x) => x.categorySlug === slug && x.imageUrl !== null)?.imageUrl ??
+    null;
+
   const categories: HomeCategoryChip[] = categoryRows.map((row) => ({
     id: row.id,
     slug: row.slug,
     name: row.name,
     href: `/category/${row.slug}`,
+    imageUrl: catImage(row.slug),
   }));
 
   // RESCUE-4 cat-rail fix: the §3 chip rail was EMPTY on the live site because
@@ -386,7 +398,7 @@ export async function buildHomeViewModel(
       const name = c.categoryName;
       if (slug.length === 0 || name.length === 0 || seenCat.has(slug)) continue;
       seenCat.add(slug);
-      derivedCats.push({ id: 0, slug, name, href: `/category/${slug}` });
+      derivedCats.push({ id: 0, slug, name, href: `/category/${slug}`, imageUrl: c.imageUrl ?? catImage(slug) });
       if (derivedCats.length >= CATEGORY_LIMIT) break;
     }
     chipCategories = derivedCats;

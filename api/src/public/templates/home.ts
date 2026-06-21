@@ -290,10 +290,15 @@ export function renderHome(args: RenderHomeArgs): string {
   // same AI-image-quality issue as the logo, which now renders as a typographic
   // mark). The gradient is the faithful design + the correct empty state; the
   // lead story is not lost (it heads the §4 Featured grid below).
+  // RESCUE-4: the hero is the SITE IDENTITY (name + tagline + search) over the
+  // lead article's CLEAN feature photo as a full-bleed bg with a dark overlay — a
+  // real-photo magazine hero. The operator hero_image_media_id is intentionally
+  // NOT used (provisioning's AI generated a text-laden mockup there); the lead
+  // article photo is reliably clean. No articles → bare gradient.
   const s2 = renderHero({
     title: site.name,
     excerpt: site.tagline.length > 0 ? site.tagline : undefined,
-    // .hero-bg is decorative (aria-hidden) — empty alt; no operator photo.
+    imageUrl: vm.hero !== null ? vm.hero.imageUrl : null,
     imageAlt: "",
   });
 
@@ -302,6 +307,9 @@ export function renderHome(args: RenderHomeArgs): string {
     slug: c.slug,
     name: c.name,
     href: c.href,
+    // RESCUE-4: the category's representative article photo as the 48px chip
+    // thumbnail; renderChipRail falls back to the .ph gradient when null.
+    imageUrl: c.imageUrl ?? null,
   }));
   const s3 = renderChipRail({ chips, label: "Browse by topic" });
 

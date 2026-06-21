@@ -39,15 +39,6 @@ function attr(tag: string, name: string): string | null {
   return value === undefined ? null : value;
 }
 
-// Find the first <img> in `html` whose class list contains `cls`.
-function imgWithClass(html: string, cls: string): string | undefined {
-  return extractImgs(html).find((tag) => {
-    const classValue = attr(tag, "class");
-    if (classValue === null) return false;
-    return classValue.split(/\s+/).includes(cls);
-  });
-}
-
 // Parse a srcset value into [{url, descriptor}] candidates. Candidates are
 // separated by ", " (comma+space); each candidate is "<url> <Nw>".
 function parseSrcset(srcset: string): Array<{ url: string; descriptor: string }> {
@@ -174,7 +165,12 @@ describe("responsive-images", () => {
     const html = renderArticle({ vm: makeArticleVm(), emitJsonLd: false });
 
     // Article hero (LCP candidate): 1200×630, eager + fetchpriority="high".
-    const hero = imgWithClass(html, "article-hero-img");
+    // RESCUE-4 design: the hero <img> lives INSIDE a `<div class="article-hero-img">`
+    // wrapper (the <img> itself carries no class), so find it by its /media/ src
+    // + the 1200 hero width.
+    const hero = extractImgs(html).find(
+      (t) => /\/media\/feature\.jpg/.test(t) && attr(t, "width") === "1200",
+    );
     assertResponsive(hero, "feature.jpg", "1200", "630");
     expect(attr(hero!, "loading")).toBe("eager");
     expect(attr(hero!, "fetchpriority")).toBe("high");
@@ -193,7 +189,12 @@ describe("responsive-images", () => {
     expect(attr(card!, "fetchpriority")).toBeNull();
 
     // Sidebar popular thumb: 60×60. Below-fold → lazy.
-    const pop = imgWithClass(html, "pop-img");
+    // RESCUE-4 design: the thumb lives INSIDE a `<span class="pop-img">` wrapper
+    // (the <img> itself carries no class), so find it by its /media/ src + the
+    // 60 thumb width.
+    const pop = extractImgs(html).find(
+      (t) => /\/media\/related-one\.jpg/.test(t) && attr(t, "width") === "60",
+    );
     assertResponsive(pop, "related-one.jpg", "60", "60");
     expect(attr(pop!, "loading")).toBe("lazy");
     expect(attr(pop!, "fetchpriority")).toBeNull();

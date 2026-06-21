@@ -217,21 +217,26 @@ describe("article-design (T20)", () => {
     expect(body).toMatch(/<h2[^>]*class="article-body__heading"[^>]*>Why it matters<\/h2>/);
     // ul -> <ul> with brand-dash list items.
     expect(body).toMatch(/<ul><li>First point<\/li><li>Second point<\/li><\/ul>/);
-    // pullquote -> <blockquote class="pullquote">.
-    expect(body).toContain('<blockquote class="pullquote">A standout quote.');
+    // pullquote -> <blockquote class="pullquote"> with the design .pq-mark glyph
+    // preceding the quote text (design ArticleApp pullquote DOM).
+    expect(body).toContain('<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>A standout quote.');
     // image -> <figure class="article-figure"> through the /media route.
     expect(body).toContain('<figure class="article-figure">');
     expect(body).toContain('src="/media/inline.jpg"');
-    // callout -> .callout-box with a title.
-    expect(body).toContain('<aside class="callout-box">');
-    expect(body).toContain('<strong class="callout-title">Note</strong>');
+    // callout -> design `.callout-box` is a <div> with an <h4> title + a <p>
+    // body (the worker callout VM carries a single free-text body, so the
+    // design's <ul><li> checklist form is not emitted — see article.ts).
+    expect(body).toContain('<div class="callout-box">');
+    expect(body).toContain("<h4>Note</h4>");
     expect(body).toContain("Pay attention to this.");
-    // affiliate -> .affiliate-card with a sponsored/nofollow CTA.
-    expect(body).toContain('<aside class="affiliate-card">');
-    expect(body).toContain('<strong class="affiliate-card-title">Best Widget</strong>');
-    expect(body).toContain('href="https://shop.example/widget"');
-    expect(body).toContain('rel="sponsored nofollow noopener"');
-    expect(body).toContain(">Buy now</a>");
+    // affiliate -> design `.affiliate-card`: the WHOLE card is the
+    // sponsored/nofollow <a>, with an `.affiliate-eyebrow`, an <h4> name and an
+    // `.affiliate-cta` "{cta} →" pill (the worker VM has no image/price, so the
+    // thumb is a `.ph` and the price line is omitted — see article.ts).
+    expect(body).toContain('<a class="affiliate-card" href="https://shop.example/widget" target="_blank" rel="sponsored nofollow noopener">');
+    expect(body).toContain('<span class="affiliate-eyebrow">Editor\'s pick</span>');
+    expect(body).toContain("<h4>Best Widget</h4>");
+    expect(body).toContain('<span class="affiliate-cta">Buy now →</span>');
 
     // drop-cap present in the served stylesheet (contract §11: 4.2em brand).
     expect(publicCss).toContain("p:first-of-type::first-letter");
@@ -240,8 +245,8 @@ describe("article-design (T20)", () => {
     );
     // brand dash bullets present (contract §11: 16x2px brand dash, li pad 28px).
     expect(publicCss).toMatch(
-      /\.article-body ul > li::before \{[^}]*width: 16px; height: 2px;[^}]*background: var\(--tw-brand\)/,
+      /\.article-body > ul > li::before \{[^}]*width: 16px; height: 2px;[^}]*background: var\(--tw-brand\)/,
     );
-    expect(publicCss).toMatch(/\.article-body ul > li \{[^}]*padding-left: 28px/);
+    expect(publicCss).toMatch(/\.article-body > ul > li \{[^}]*padding-left: 28px/);
   });
 });

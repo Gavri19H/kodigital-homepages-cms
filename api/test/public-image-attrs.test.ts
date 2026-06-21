@@ -412,13 +412,20 @@ describe("public-image-attrs T42 performance re-assert", () => {
       "design home surface must render no eager (above-fold) <img>",
     ).toBe(0);
 
-    // Article hero — same contract on the article-hero-img.
-    const articleHeroImg = articleImgs.find((i) =>
-      i.classes.includes("article-hero-img"),
+    // Article hero — same contract on the article hero image.
+    // RESCUE-4 design: the hero <img> lives inside a `<div class="article-hero-img">`
+    // wrapper (the <img> itself carries no class), so identify the LCP hero by
+    // its eager loading + fetchpriority="high" (the only such <img> on the
+    // article surface) and assert it renders at the design /media/ src.
+    const articleHeroImg = articleImgs.find(
+      (i) => i.loading === "eager" && i.fetchpriority === "high",
     );
-    expect(articleHeroImg, "article-hero-img not rendered").toBeDefined();
+    expect(articleHeroImg, "article hero image not rendered").toBeDefined();
     expect(articleHeroImg!.loading).toBe("eager");
     expect(articleHeroImg!.fetchpriority).toBe("high");
+    expect(articleHeroImg!.raw, "article hero <img> must use the /media/ feature src").toContain(
+      "/media/feature.jpg",
+    );
 
     // fetchpriority="high" is RESERVED for eager (above-fold) images:
     // a lazy img with fetchpriority would compete with the hero for
