@@ -432,6 +432,64 @@ describe("T7 success path with OpenAI client mock", () => {
     expect(result.parsed.items[0]?.slug).toBe("model-slug-1");
   });
 
+  it("generateStarterArticlePlan: model/preset returns FEWER than count → topped up to EXACTLY count with unique slugs (PR #28 finding #1)", async () => {
+    // PR #28 finding #1 (goal-critical): on the PRODUCTION path (live key +
+    // seeded 'starter-articles' preset, which specifies no count) the model is
+    // free to return any number of items. The generator MUST still hand back
+    // EXACTLY `count` items so the operator reliably gets the count they chose.
+    // Here the model returns only 5 items but count=35 → the function tops up
+    // the 30-item shortfall from the deterministic fallback, with all 35 slugs
+    // globally unique.
+    const modelItems = Array.from({ length: 5 }, (_, i) => ({
+      slug: `model-slug-${i + 1}`,
+      title: `Model title ${i + 1}`,
+      summary: `Model summary ${i + 1}`,
+    }));
+    const { env } = makeEnv({ apiKey: "sk-livefakekey-topup" });
+    const client = successClient(JSON.stringify({ items: modelItems }));
+    const result = await generateStarterArticlePlan(env, {
+      site_id: "site-topup",
+      vertical: "podcasting",
+      audience: "indie creators",
+      count: 35,
+      client,
+    });
+    expect(result.status).toBe("success");
+    expect(result.parsed.items).toHaveLength(35);
+    const slugs = new Set(result.parsed.items.map((i) => i.slug));
+    expect(slugs.size).toBe(35);
+    // The 5 model items are preserved at the head; the remaining 30 are the
+    // topped-up fallback items (disjoint slugs).
+    for (let i = 0; i < 5; i++) {
+      expect(result.parsed.items[i]?.slug).toBe(`model-slug-${i + 1}`);
+    }
+    for (const item of result.parsed.items) {
+      expect(item.title.length).toBeGreaterThan(0);
+      expect(item.summary.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("generateStarterArticlePlan: model returns MORE than count → sliced to EXACTLY count (PR #28 finding #1)", async () => {
+    // The inverse guard: an over-generous model is sliced back to `count`.
+    const modelItems = Array.from({ length: 50 }, (_, i) => ({
+      slug: `over-slug-${i + 1}`,
+      title: `Over title ${i + 1}`,
+      summary: `Over summary ${i + 1}`,
+    }));
+    const { env } = makeEnv({ apiKey: "sk-livefakekey-overflow" });
+    const client = successClient(JSON.stringify({ items: modelItems }));
+    const result = await generateStarterArticlePlan(env, {
+      site_id: "site-overflow",
+      vertical: "podcasting",
+      count: 35,
+      client,
+    });
+    expect(result.status).toBe("success");
+    expect(result.parsed.items).toHaveLength(35);
+    const slugs = new Set(result.parsed.items.map((i) => i.slug));
+    expect(slugs.size).toBe(35);
+  });
+
   it("generateStarterArticle: falls back to deterministic body when model returns invalid JSON", async () => {
     const { env } = makeEnv({ apiKey: "sk-livefakekey3456" });
     const client = successClient("not actually json");

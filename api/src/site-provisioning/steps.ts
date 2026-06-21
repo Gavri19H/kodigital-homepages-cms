@@ -133,7 +133,9 @@ export const STARTER_ARTICLE_TARGET = 15;
 // rescue-4: max generation attempts per unit before it is marked 'failed' and
 // skipped. A failed unit no longer blocks the step from completing (the job
 // surfaces/finishes rather than spinning forever on a poison unit).
-const MAX_UNIT_ATTEMPTS = 3;
+// Exported (PR #28 finding #4) so the runner can size PROVISIONING_MAX_ITERATIONS
+// to allow up to MAX_UNIT_ATTEMPTS passes per unit per chunked stage.
+export const MAX_UNIT_ATTEMPTS = 3;
 
 // T35 — validate_domain_in_cloudflare (step 1).
 // Read-only Cloudflare-boundary check: resolves the site's hostname and

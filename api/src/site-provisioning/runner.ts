@@ -13,20 +13,26 @@ import {
   STEP_KEYS,
   TOTAL_STEPS,
   STARTER_ARTICLE_TARGET,
+  MAX_UNIT_ATTEMPTS,
   getStepKeyForIndex,
   type StepHandlerResult,
   type StepKey,
 } from "./steps";
 
-// rescue-4 — completion-loop iteration bound. The two chunked steps
-// (generate_15_homepage_articles, generate_or_assign_article_images) each
-// return in_progress up to STARTER_ARTICLE_TARGET times (one unit per call)
-// before completing, so a single drive-to-completion needs the 16 step
-// completions PLUS up to 2*STARTER_ARTICLE_TARGET in_progress passes. The +2
-// keeps the idempotent-tail headroom the old TOTAL_STEPS+1 bound provided (so
-// a caller can still observe the post-completion no-op short-circuit).
+// rescue-4 — completion-loop iteration bound (PR #28 finding #4 hardening).
+// The two chunked steps (generate_15_homepage_articles,
+// generate_or_assign_article_images) process ONE unit per call, returning
+// in_progress (same step, pointer unchanged) until that stage is done. In the
+// worst case EVERY unit retries up to MAX_UNIT_ATTEMPTS times before it either
+// succeeds or is marked 'failed' and skipped — so each chunked stage can take
+// up to MAX_UNIT_ATTEMPTS * STARTER_ARTICLE_TARGET in_progress passes, and there
+// are 2 such stages. The bound is therefore the TOTAL_STEPS step completions
+// PLUS MAX_UNIT_ATTEMPTS * 2 * STARTER_ARTICLE_TARGET in_progress passes, so a
+// SINGLE uninterrupted drive can fully settle the build even when units retry.
+// The +2 keeps the idempotent-tail headroom the old bound provided (a caller
+// can still observe the post-completion no-op short-circuit).
 const PROVISIONING_MAX_ITERATIONS =
-  TOTAL_STEPS + 2 * STARTER_ARTICLE_TARGET + 2;
+  TOTAL_STEPS + MAX_UNIT_ATTEMPTS * 2 * STARTER_ARTICLE_TARGET + 2;
 import {
   isCloudflareMutationStep,
   resolveSiteHostname,
@@ -168,12 +174,13 @@ async function persistInProgress(
 // reaches `completed` / `failed`, runs into an unknown step index, or
 // exceeds the safety bound (PROVISIONING_MAX_ITERATIONS). rescue-4: the bound
 // now accounts for the two chunked per-article steps, each of which returns
-// in_progress (same step, pointer unchanged) up to STARTER_ARTICLE_TARGET
-// times before completing — see PROVISIONING_MAX_ITERATIONS above. Errors
-// from the underlying runner are swallowed and reported through the
-// returned `final_status='aborted'` — the caller (sites POST handler)
-// must NOT fail the user request because background provisioning
-// hiccupped; the site row itself is already committed.
+// in_progress (same step, pointer unchanged) up to
+// MAX_UNIT_ATTEMPTS * STARTER_ARTICLE_TARGET times before completing (PR #28
+// finding #4 — every unit may retry up to MAX_UNIT_ATTEMPTS times) — see
+// PROVISIONING_MAX_ITERATIONS above. Errors from the underlying runner are
+// swallowed and reported through the returned `final_status='aborted'` — the
+// caller (sites POST handler) must NOT fail the user request because background
+// provisioning hiccupped; the site row itself is already committed.
 //
 // NOTE (rescue-4): on the Workers runtime a single waitUntil-driven call to
 // this loop will still get evicted at ~30s for a large article count — that is
@@ -378,6 +385,15 @@ export async function scheduleBackgroundProvisioning(
 const DRIVE_BATCH_LIMIT = 5;
 const DRIVE_LEASE_STALE_SECONDS = 120;
 const DRIVE_BUDGET_MS = 18_000;
+// PR #28 finding #2 — OVERALL invocation wall-clock budget. DRIVE_BUDGET_MS is
+// PER-JOB, and DRIVE_BATCH_LIMIT is 5, so without an overall cap one cron tick
+// could run up to ~5 × DRIVE_BUDGET_MS before yielding. This overall budget is
+// checked BETWEEN jobs (never mid-job — a job in flight always gets its full
+// per-job budget) so the whole invocation stops picking up further jobs once it
+// is hit; the next tick (every minute) resumes the remaining jobs from their
+// persisted per-unit state. Kept above DRIVE_BUDGET_MS so a single job can
+// always use its full per-job budget within one tick.
+const DRIVE_OVERALL_BUDGET_MS = 25_000;
 
 interface DriveJobRow {
   id: string;
@@ -388,6 +404,9 @@ export interface DriveInProgressSummary {
   jobs_considered: number;
   jobs_driven: number;
   steps_run: number;
+  // PR #28 finding #2 — true when the OVERALL invocation budget tripped and the
+  // batch stopped picking up further jobs (the next tick resumes them).
+  budget_exhausted: boolean;
 }
 
 export async function driveInProgressProvisioning(
@@ -399,7 +418,9 @@ export async function driveInProgressProvisioning(
     jobs_considered: 0,
     jobs_driven: 0,
     steps_run: 0,
+    budget_exhausted: false,
   };
+  const overallStart = Date.now();
   const nowSeconds = Math.floor(Date.now() / 1000);
   const staleBefore = nowSeconds - DRIVE_LEASE_STALE_SECONDS;
   // Oldest-touched non-terminal jobs first; lease filter drops any a
@@ -407,6 +428,15 @@ export async function driveInProgressProvisioning(
   const picked = await db_selectDrivableJobs(env.DB, staleBefore);
   summary.jobs_considered = picked.length;
   for (const row of picked) {
+    // PR #28 finding #2 — OVERALL budget gate, checked BETWEEN jobs: once the
+    // invocation has spent its wall-clock budget, stop picking up further jobs.
+    // A job already in flight is never interrupted (it keeps its full per-job
+    // budget); the remaining jobs resume on the next minute's tick from their
+    // persisted state. (No-op when picked is empty.)
+    if (Date.now() - overallStart >= DRIVE_OVERALL_BUDGET_MS) {
+      summary.budget_exhausted = true;
+      break;
+    }
     summary.jobs_driven += 1;
     const start = Date.now();
     try {
