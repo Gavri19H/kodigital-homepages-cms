@@ -180,8 +180,9 @@ describe("public-templates-article", () => {
     const html = renderArticle({ vm: makeVm() });
     expect(html).not.toContain('data-ad-type="leaderboard"');
     expect(html).not.toContain('data-ad-type="in-feed"');
-    // §11 sidebar ad card: `.sidebar-ad.ad-slot--rect` wrapping the rect slot.
-    expect(html).toContain('class="sidebar-card sidebar-ad ad-slot--rect"');
+    // rescue-4 round-2 (issue 7): the sidebar ad is a SINGLE design element
+    // (no .sidebar-card wrapper / nested slot) so it no longer overflows its box.
+    expect(html).toContain('class="sidebar-ad ad-slot ad-slot--rect"');
     expect(html).toContain('data-ad-type="rect"');
     expect(html).toContain('data-ad-slot="article-sidebar-ad"');
   });

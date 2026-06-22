@@ -16,7 +16,21 @@
 //   renderFloatingNext— Article §12 (>=1280px viewport only, PART 4)
 
 import { escAttr, escText, imgTag } from "./esc";
-import { iconArrow, iconBrandMark, iconChevronDown, iconPin, iconSearch } from "./icons";
+import {
+  brandGlyphSvg,
+  iconArrow,
+  iconBrandMark,
+  iconChevronDown,
+  iconFacebook,
+  iconInstagram,
+  iconLinkedin,
+  iconPin,
+  iconPinterest,
+  iconSearch,
+  iconTwitter,
+  iconYoutube,
+  resolveBrandGlyphKey,
+} from "./icons";
 import { responsiveImg } from "./responsive-img";
 import {
   AD_SLOT_DIMENSIONS,
@@ -30,6 +44,9 @@ export interface SiteRef {
   tagline?: string;
   logoUrl?: string | null;
   hostname?: string;
+  // rescue-4 round-2 (issue 1): optional explicit brand glyph key; when unset
+  // the glyph is inferred from the site name + tagline. Drives .brand-logo.
+  brandIcon?: string;
 }
 
 export interface NavLink {
@@ -79,6 +96,9 @@ export interface CardArgs {
   publishedAt?: string;
   categoryName?: string;
   readMinutes?: number | null;
+  // rescue-4 round-2 (issue 13): when true the byline shows the category only
+  // (no date) — the design related/"Keep reading" cards carry no date.
+  omitDate?: boolean;
 }
 
 export interface NewsletterArgs {
@@ -279,22 +299,26 @@ function searchPlaceholderOf(input: string | undefined): string {
   return input !== undefined && input.length > 0 ? input : "Search";
 }
 
-// The site-name initial used for the brand-logo glyph — design `.brand-logo`
-// is a 38px teal rounded square showing the site name's first letter (white,
-// weight 900, 20px), NOT the uploaded logo image. RESCUE-4 user RED LINE: the
-// uploaded (bad-AI) logo MUST NOT render in the header; the teal-square initial
-// mark replaces it. Sourced from the view-model site name (never hardcoded).
-function brandInitial(name: string): string {
-  const trimmed = (name ?? "").trim();
-  return trimmed.length > 0 ? trimmed.charAt(0).toUpperCase() : "•";
+// rescue-4 round-2 (issue 1): the design `.brand-logo` is a teal rounded-square
+// badge holding a white VECTOR glyph (the reference uses a house for its home
+// vertical), NOT a bare site-initial letter. The glyph is the site's explicit
+// `brandIcon` when set, else inferred from the site name + tagline (e.g. a
+// "...parenthood" tagline -> the parenting glyph). Sourced from the view-model
+// (never hardcoded, PART 12). The uploaded AI logo is still never rendered.
+function brandLogoHtml(site: SiteRef): string {
+  const key =
+    site.brandIcon !== undefined && site.brandIcon.length > 0
+      ? site.brandIcon
+      : resolveBrandGlyphKey(`${site.name ?? ""} ${site.tagline ?? ""}`);
+  return `<span class="brand-logo" aria-hidden="true">${brandGlyphSvg(key)}</span>`;
 }
 
 export function renderHeader(args: HeaderArgs): string {
   const site = args.site;
   const placeholder = searchPlaceholderOf(args.searchPlaceholder);
-  // Design brand mark: a teal rounded-square with the site-name initial — NOT
-  // the uploaded logo <img> (the live header wrongly rendered the AI logo).
-  const logoHtml = `<span class="brand-logo" aria-hidden="true">${escText(brandInitial(site.name))}</span>`;
+  // Design brand mark: the teal rounded-square badge with the per-vertical glyph
+  // (issue 1) — NOT the uploaded logo <img> (which was a poor AI mockup).
+  const logoHtml = brandLogoHtml(site);
   // Design header child order: .brand → .header-search → .header-nav
   // (4 nav-links, the first with a chevron, then a .btn-outline "Sign in").
   // Each nav label is wrapped in <span class="label"> so the 880px breakpoint
@@ -408,7 +432,11 @@ export function renderCard(args: CardArgs): string {
   if (args.categoryName !== undefined && args.categoryName.length > 0) {
     bylineParts.push(escText(args.categoryName));
   }
-  if (args.publishedAt !== undefined && args.publishedAt.length > 0) {
+  if (
+    args.omitDate !== true &&
+    args.publishedAt !== undefined &&
+    args.publishedAt.length > 0
+  ) {
     bylineParts.push(escText(args.publishedAt));
   }
   const footHtml =
@@ -430,19 +458,12 @@ export function renderNewsletter(args: NewsletterArgs): string {
     args.description !== undefined && args.description.length > 0
       ? `<p class="newsletter__description">${escText(args.description)}</p>`
       : "";
-  // §11 / PART 11: a section with NO provider selected is a disabled stub
-  // (the live submit is forbidden until an operator picks a provider).
-  const disabled = args.provider === null || args.provider === undefined || args.provider.length === 0;
-  const disabledAttr = disabled ? ' disabled aria-disabled="true"' : "";
-  const noticeHtml = disabled
-    ? `<p class="newsletter__notice" role="status">Newsletter signup will open soon.</p>`
-    : "";
-
-  // T26: when the chosen provider has complete connection settings, post to its
-  // REAL hosted-form action; otherwise (provider chosen but not yet connected)
-  // fall back to the explicit formAction / generic endpoint so the control
-  // still works and switching provider changes the action.
-  const providerForm = disabled ? null : buildNewsletterForm(args.provider, args.config);
+  // rescue-4 round-2 (issue 14): the newsletter is ALWAYS an active form. The
+  // old "disabled until a provider is set" stub ("signup will open soon") is
+  // gone — with no provider the form posts to the first-party
+  // /api/newsletter/subscribe endpoint (which stores the email); with a provider
+  // configured it posts to that provider's real hosted form (T26).
+  const providerForm = buildNewsletterForm(args.provider, args.config);
   const action =
     providerForm !== null
       ? providerForm.action
@@ -470,11 +491,10 @@ export function renderNewsletter(args: NewsletterArgs): string {
     <div class="newsletter__action">
       <form class="newsletter__form" method="${escAttr(method)}" action="${escAttr(action)}">
         <label class="newsletter__label newsletter-label-sr" for="newsletter-email">Email address</label>
-        <input class="newsletter__input" id="newsletter-email" name="${escAttr(emailField)}" type="email" autocomplete="email" required${disabledAttr}>
+        <input class="newsletter__input" id="newsletter-email" name="${escAttr(emailField)}" type="email" autocomplete="email" required>
         ${hiddenHtml}
-        <button class="newsletter__cta" type="submit"${disabledAttr}>${escText(ctaLabel)}</button>
+        <button class="newsletter__cta" type="submit">${escText(ctaLabel)}</button>
       </form>
-      ${noticeHtml}
     </div>
   </div>
 </section>`;
@@ -522,6 +542,27 @@ const FOOTER_COLUMNS: ReadonlyArray<{ heading: string; links: ReadonlyArray<NavL
   },
 ];
 
+// rescue-4 round-2 (issue 15): map a social platform key to the design footer
+// icon SVG. The reference footer shows circular icon buttons, not text labels.
+function socialIconFor(platform: string): string {
+  switch (platform) {
+    case "facebook":
+      return iconFacebook({ className: "social-icon", size: 16 });
+    case "instagram":
+      return iconInstagram({ className: "social-icon", size: 16 });
+    case "twitter":
+      return iconTwitter({ className: "social-icon", size: 16 });
+    case "linkedin":
+      return iconLinkedin({ className: "social-icon", size: 16 });
+    case "youtube":
+      return iconYoutube({ className: "social-icon", size: 16 });
+    case "pinterest":
+      return iconPinterest({ className: "social-icon", size: 16 });
+    default:
+      return iconPin({ className: "social-icon", size: 16 });
+  }
+}
+
 export function renderFooter(args: FooterArgs): string {
   const site = args.site;
   const year = args.copyrightYear ?? new Date().getUTCFullYear();
@@ -529,9 +570,9 @@ export function renderFooter(args: FooterArgs): string {
     site.tagline !== undefined && site.tagline.length > 0 ? site.tagline : "";
   const description =
     tagline.length > 0 ? tagline : "Stories, guides, and ideas — published daily.";
-  // Design footer brand mark = the same teal-square initial as the header
-  // (RESCUE-4: the uploaded logo is NEVER rendered). Sourced from site.name.
-  const logoHtml = `<span class="brand-logo" aria-hidden="true">${escText(brandInitial(site.name))}</span>`;
+  // Design footer brand mark = the same per-vertical glyph badge as the header
+  // (issue 1; the uploaded logo is never rendered).
+  const logoHtml = brandLogoHtml(site);
   // Design footer-top columns: an operator-supplied args.links overrides the
   // first column; the rest keep the real-href Explore/Read/Follow defaults.
   const columns =
@@ -555,21 +596,21 @@ export function renderFooter(args: FooterArgs): string {
       : `<nav class="site-footer__legal" aria-label="Legal"><ul>${legalLinks
           .map((n) => `<li><a href="${escAttr(n.href)}">${escText(n.label)}</a></li>`)
           .join("")}</ul></nav>`;
-  // T28: operator-set social profile links — only rendered when the operator
-  // has set at least one (buildSocialLinks dropped empty/unsafe values). The
-  // nav class stays EXACTLY `site-footer__social` (social-links.test.ts asserts
-  // the literal); CSS styles it as the design `.footer-social` pill row. These
-  // are the data-driven equivalent of the design's hardcoded social icons.
+  // T28 + rescue-4 round-2 (issue 15): operator-set social links render as the
+  // design circular ICON buttons (the reference footer shows icons, not text).
+  // Only rendered when at least one safe URL is set (buildSocialLinks dropped
+  // empty/unsafe values). The nav class stays EXACTLY `site-footer__social`
+  // (social-links.test.ts asserts the literal); each link carries an aria-label.
   const socialLinks = args.socialLinks ?? [];
   const socialNavHtml =
     socialLinks.length === 0
       ? ""
-      : `<nav class="site-footer__social" aria-label="Social media"><ul>${socialLinks
+      : `<nav class="site-footer__social" aria-label="Social media">${socialLinks
           .map(
             (s) =>
-              `<li><a class="site-footer__social-link" data-social="${escAttr(s.platform)}" href="${escAttr(s.href)}" target="_blank" rel="noopener noreferrer me">${escText(s.label)}</a></li>`,
+              `<a class="site-footer__social-link" data-social="${escAttr(s.platform)}" href="${escAttr(s.href)}" target="_blank" rel="noopener noreferrer me" aria-label="${escAttr(s.label)}">${socialIconFor(s.platform)}</a>`,
           )
-          .join("")}</ul></nav>`;
+          .join("")}</nav>`;
   // Design footer bottom copyright line: "© {year} {name} — {tagline}". The
   // site name sits as the span's DIRECT text (no nested element before it) so
   // the brand-from-site regression's `site-footer__copyright[^<]*<name>` match
@@ -632,12 +673,9 @@ export function renderAdSlot(args: AdSlotArgs): string {
   );
 }
 
+// rescue-4 round-2 (issue 10): the design floating-next is a small fixed circle
+// (Next arrow + "Next" label), hidden < 1280px — NOT an image card. It is a
+// Home-only element; the article page no longer renders it.
 export function renderFloatingNext(args: FloatingNextArgs): string {
-  const img = imgTag(args.imageUrl, args.imageAlt, ' width="80" height="80" loading="lazy" decoding="async"');
-  return `<aside class="floating-next" aria-label="Read next">
-  <a class="floating-next__link" href="${escAttr(args.href)}">
-    ${img}
-    <span class="floating-next__label">${escText(args.label)}</span>
-  </a>
-</aside>`;
+  return `<a class="floating-next" href="${escAttr(args.href)}" aria-label="Read next">${iconArrow({ className: "floating-next__icon", size: 22 })}<span class="lbl">Next</span></a>`;
 }

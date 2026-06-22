@@ -688,8 +688,19 @@ p { margin: 0; }
 /* RESCUE-4: operator-set social links render with the .site-footer__social hook
    (buildSocialLinks); style them as the design footer-social pills. */
 .site-footer__social { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
-.site-footer__social-link { color: #c8cfd9; text-decoration: none; }
-.site-footer__social-link:hover { color: #fff; text-decoration: underline; }
+.site-footer__social-link {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #c8cfd9; text-decoration: none;
+  transition: all var(--tw-dur);
+}
+.site-footer__social-link:hover { background: var(--tw-brand); color: #fff; border-color: var(--tw-brand); }
+.site-footer__social-link svg { display: block; }
+/* rescue-4 round-2: brand glyph + share-button rendering */
+.brand-logo svg, .brand-logo .brand-glyph { display: block; }
+.share-btn svg { display: block; }
+.share-btn[data-saved="true"] { color: var(--tw-brand); border-color: var(--tw-brand); }
 
 /* === FLOATING NEXT-PAGE BUTTON === */
 .floating-next {

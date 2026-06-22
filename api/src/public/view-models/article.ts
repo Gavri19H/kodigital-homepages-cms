@@ -205,6 +205,14 @@ function htmlToPlainText(html: string | null | undefined): string {
   return String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// rescue-4 round-2 (issue 2): legacy provisioned articles store content_html that
+// OPENS with the article's own <h1> title. The hero already renders the title, so a
+// fallback body that repeats it shows the headline twice. Strip a single leading
+// <h1>...</h1> so the rendered body never re-states the title.
+function stripLeadingH1(html: string): string {
+  return html.replace(/^\s*<h1\b[^>]*>[\s\S]*?<\/h1>\s*/i, "");
+}
+
 function blockToPlainText(block: BodyBlock): string {
   switch (block.type) {
     case "paragraph":
@@ -270,8 +278,8 @@ export function adaptBodyBlocks(
   contentHtml: string | null | undefined,
 ): { blocks: BodyBlock[]; faqs: FaqItem[] } {
   const fallback = (): { blocks: BodyBlock[]; faqs: FaqItem[] } => {
-    const html = typeof contentHtml === "string" && contentHtml.length > 0 ? contentHtml : "";
-    return { blocks: [{ type: "html", html }], faqs: [] };
+    const raw = typeof contentHtml === "string" && contentHtml.length > 0 ? contentHtml : "";
+    return { blocks: [{ type: "html", html: stripLeadingH1(raw) }], faqs: [] };
   };
 
   if (contentJson === null || contentJson === undefined || contentJson.length === 0) {

@@ -69,10 +69,8 @@
 
 import type { ArticleViewModel } from "../view-models/article";
 import {
-  renderAdSlot,
   renderCard,
   renderFooter,
-  renderFloatingNext,
   renderHeader,
   renderNewsletter,
   type NavLink,
@@ -84,8 +82,8 @@ import {
   buildFaqJsonLd,
 } from "./seo";
 import { responsiveImg } from "./responsive-img";
-import { iconChevronDown } from "./icons";
-import type { AdsConfig } from "../ads";
+import { iconChevronDown, iconLink, iconPin, iconShare } from "./icons";
+import { renderAdSenseUnit, type AdsConfig } from "../ads";
 
 export interface RenderArticleArgs {
   vm: ArticleViewModel;
@@ -315,20 +313,52 @@ function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
     .join("\n");
 }
 
+// rescue-4 round-2 (issue 7): build the sidebar TOC from the rendered body's
+// <h2>s and ensure each <h2> carries an id so the TOC links anchor. Works for
+// BOTH structured heading blocks (already id'd) and legacy html-block content
+// (an <h2> with no id gets one injected). Returns the id-augmented body HTML +
+// the ordered [{id,text}] list so the "In this article" card always populates.
+function buildToc(bodyHtml: string): { html: string; toc: Array<{ id: string; text: string }> } {
+  const toc: Array<{ id: string; text: string }> = [];
+  let i = 0;
+  const html = bodyHtml.replace(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/g, (_m, attrs: string, inner: string) => {
+    i += 1;
+    const idMatch = /\bid="([^"]+)"/.exec(attrs);
+    const existingId = idMatch !== null ? idMatch[1] : undefined;
+    let id: string;
+    let outAttrs = attrs;
+    if (existingId !== undefined && existingId.length > 0) {
+      id = existingId;
+    } else {
+      id = `article-heading-${i}`;
+      outAttrs = ` id="${id}"${attrs}`;
+    }
+    const text = inner.replace(/<[^>]+>/g, "").trim();
+    if (text.length > 0) toc.push({ id, text });
+    return `<h2${outAttrs}>${inner}</h2>`;
+  });
+  return { html, toc };
+}
+
 // §11 sidebar card order: toc → sidebar-newsletter → sidebar-ad → popular.
 // Matches the design `Sidebar`: `.sidebar-card` (`.sidebar-title` h4 + `.toc`
 // ol), `.sidebar-newsletter` (mini newsletter form), `.sidebar-ad.ad-slot--rect`
 // (the rect ad — kept as the worker ad subsystem's `rect` type so renderAdSlot's
 // data-ad-type/data-ad-slot contract holds), then `.sidebar-popular`
 // (`.pop-num`/`.pop-img`/`.pop-body` rows).
-function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
-  const tocItems = vm.article.body
-    .filter((b) => b.type === "heading")
-    .map((b, i) => `<li><a href="#article-heading-${i + 1}">${escText((b as { text: string }).text)}</a></li>`)
+function renderSidebar(
+  vm: ArticleViewModel,
+  toc: ReadonlyArray<{ id: string; text: string }>,
+  ads?: AdsConfig,
+): string {
+  const tocLinks = toc
+    .map((t) => `<li><a href="#${escAttr(t.id)}">${escText(t.text)}</a></li>`)
     .join("");
+  // The design TOC ends with an "FAQs" entry when the article has FAQs.
+  const tocAll = vm.faqs.length > 0 ? `${tocLinks}<li><a href="#faq-heading">FAQs</a></li>` : tocLinks;
   const tocHtml =
-    tocItems.length > 0
-      ? `<div class="sidebar-card"><h4 class="sidebar-title">In this article</h4><ol class="toc">${tocItems}</ol></div>`
+    tocAll.length > 0
+      ? `<div class="sidebar-card"><h4 class="sidebar-title">In this article</h4><ol class="toc">${tocAll}</ol></div>`
       : "";
 
   // Design `.sidebar-newsletter`: a brand-tint card with a mini inline form
@@ -336,9 +366,11 @@ function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
   // the main newsletter; PART 8 — no href="#".
   const newsletterHtml = `<div class="sidebar-newsletter"><h4>Get the newsletter</h4><p>The best stories in your inbox each week.</p><form class="newsletter-form mini" method="post" action="/api/newsletter/subscribe"><label class="newsletter-label-sr" for="sidebar-newsletter-email">Email address</label><input id="sidebar-newsletter-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required><button class="btn-primary" type="submit">Join</button></form></div>`;
 
-  // §11 sidebar ad: the `.sidebar-ad.ad-slot--rect` wrapper around the rect
-  // renderAdSlot node (data-ad-slot/data-ad-type contract).
-  const adHtml = `<div class="sidebar-card sidebar-ad ad-slot--rect">${renderAdSlot({ type: "rect", slotId: "article-sidebar-ad", surface: "article", ads })}</div>`;
+  // §11 sidebar ad: a SINGLE design `.sidebar-ad.ad-slot--rect` element (300×250).
+  // The old `.sidebar-card` wrapper around a nested renderAdSlot node triple-boxed
+  // the slot and overflowed it (rescue-4 round-2 issue 7). renderAdSenseUnit emits
+  // the real <ins> only when AdSense is live; otherwise the reserved box shows.
+  const adHtml = `<aside class="sidebar-ad ad-slot ad-slot--rect" data-ad-slot="article-sidebar-ad" data-ad-type="rect" data-ad-surface="article" aria-label="Advertisement">${ads !== undefined ? renderAdSenseUnit(ads, "rect") : ""}</aside>`;
 
   // Design `.sidebar-popular`: a numbered list, each row a 24px `.pop-num` +
   // a 60×60 `.pop-img` thumb + a `.pop-body` (`.pop-cat` + `.pop-title`).
@@ -383,11 +415,14 @@ function renderSidebar(vm: ArticleViewModel, ads?: AdsConfig): string {
 // are <button> JS actions, never anchors.
 function renderShareRail(article: ArticleViewModel["article"], hostname: string): string {
   const url = escAttr(`https://${hostname}${article.href}`);
+  // Design ShareRail: three round .share-btn (Save / Share / Copy) with the
+  // design SVG icons (not emoji). public.js wires save -> localStorage bookmark,
+  // data-share -> Web Share API, copy -> clipboard. The decorative numeric count
+  // is dropped (no real share metric) — rescue-4 round-2 issue 6.
   return `<aside class="share-rail" aria-label="Share this story">
-  <button class="share-btn" type="button" data-share-action="save" aria-label="Save this story">🔖</button>
-  <button class="share-btn" type="button" data-share data-share-url="${url}" aria-label="Share">↗</button>
-  <button class="share-btn" type="button" data-share data-share-url="${url}" data-share-action="copy" aria-label="Copy link">🔗</button>
-  <span class="share-count" aria-hidden="true">0</span>
+  <button class="share-btn" type="button" data-share-action="save" data-share-url="${url}" aria-label="Save this story">${iconPin({ size: 16 })}</button>
+  <button class="share-btn" type="button" data-share data-share-url="${url}" aria-label="Share">${iconShare({ size: 16 })}</button>
+  <button class="share-btn" type="button" data-share data-share-action="copy" data-share-url="${url}" aria-label="Copy link">${iconLink({ size: 16 })}</button>
 </aside>`;
 }
 
@@ -420,6 +455,7 @@ function renderRelated(related: ArticleViewModel["related"]): string {
         publishedAt: c.publishedAt,
         categoryName: c.categoryName,
         readMinutes: c.readMinutes,
+        omitDate: true,
       }),
     )
     .join("");
@@ -456,22 +492,23 @@ export function renderArticle(args: RenderArticleArgs): string {
   // §4 article-shell wraps §§5–9; §§7–8 nest INSIDE the §6 article-body.
   // The shell carries the literal minmax(0, 1fr) so a CSS-less snapshot
   // still records the column contract (PART 4 RED LINE).
+  const { html: articleBodyHtml, toc: articleToc } = buildToc(renderArticleBodyBlocks(article));
   const s4 = `<div class="article-shell container" data-grid="60px minmax(0, 1fr) 320px">
   ${marker(5, "share-rail")}
   ${renderShareRail(article, site.hostname)}
   ${marker(6, "article-body")}
   <article class="article-body" id="article-content">
-    ${renderArticleBodyBlocks(article)}
+    ${articleBodyHtml}
     ${marker(7, "faq-section")}
     ${renderFaqSection(vm.faqs)}
     ${marker(8, "article-share-bottom")}
     <div class="article-share-bottom" aria-label="Share this story">
-  <button class="btn-outline" type="button" data-share-action="save">Save this story</button>
+  <button class="btn-outline" type="button" data-share-action="save" data-share-url="${escAttr(`https://${site.hostname}${article.href}`)}">${iconPin({ size: 16 })} Save this story</button>
   <button class="btn-primary" type="button" data-share data-share-url="${escAttr(`https://${site.hostname}${article.href}`)}">Share</button>
 </div>
   </article>
   ${marker(9, "article-sidebar")}
-  ${renderSidebar(vm, args.ads)}
+  ${renderSidebar(vm, articleToc, args.ads)}
 </div>`;
 
   // §10 related "Keep reading" grid. Class stays `related-section section--soft`
@@ -502,18 +539,10 @@ export function renderArticle(args: RenderArticleArgs): string {
     legalLinks: args.legalLinks,
     socialLinks: args.socialLinks,
   });
-  // floating-next is a fixed-position overlay (§11), not a §8 section; it
-  // rides inside §12 so the marker count stays exactly 12.
-  const [firstRelated] = vm.related;
-  const floatingHtml = firstRelated !== undefined
-    ? renderFloatingNext({
-        href: firstRelated.href,
-        label: firstRelated.title,
-        imageUrl: firstRelated.imageUrl,
-        imageAlt: firstRelated.imageAlt,
-      })
-    : "";
-  const s12 = `${footerHtml}${floatingHtml}`;
+  // §12 footer only. The design ArticleApp has NO floating-next overlay (it is
+  // a Home-only element); rendering it on the article produced the broken,
+  // vertically-wrapped element on the right edge (rescue-4 round-2, issue 10).
+  const s12 = footerHtml;
 
   // JSON-LD: Article + BreadcrumbList always; FAQPage only when faqs[]
   // is non-empty (PART 6 RED LINE). Suppressed entirely when emitJsonLd is

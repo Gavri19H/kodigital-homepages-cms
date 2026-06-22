@@ -237,9 +237,9 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
 
     // The view-model still RESOLVES logo_media_id → /media/<key> (asserted
     // above); the public side keeps the resolved logoUrl available. RESCUE-4
-    // design RED LINE: the header brand mark is a teal-square showing the site
-    // name's initial — the uploaded (bad-AI) logo image MUST NOT render in the
-    // header. So the design .brand carries the initial mark, never the <img>.
+    // round-2 design RED LINE (issue 1): the header brand mark is the teal-square
+    // badge holding a VECTOR glyph — the uploaded (bad-AI) logo image MUST NOT
+    // render in the header. So the design .brand carries the glyph, never <img>.
     const header = renderHeader({
       site: {
         name: site.name,
@@ -248,8 +248,8 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
       },
     });
     expect(header).toContain('<a class="brand"');
-    // Teal-square initial mark from the site name ("Acme News" → "A"), no image.
-    expect(header).toContain('<span class="brand-logo" aria-hidden="true">A</span>');
+    // Glyph badge (no vertical keyword in the name → the neutral mark), no image.
+    expect(header).toContain('<span class="brand-logo" aria-hidden="true"><svg class="brand-glyph"');
     expect(header).not.toContain('<img class="brand-logo"');
     expect(header).not.toContain("/media/uploads/brand-logo.png");
   });

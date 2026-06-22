@@ -151,8 +151,8 @@ describe("public-templates-home", () => {
     const asides = html.match(/class="floating-next"/g) ?? [];
     expect(asides.length).toBe(1);
     // target is the lead story (vm.hero) — PART 8 real URL, never "#"
-    expect(html).toMatch(/floating-next__link" href="\/article\/hero"/);
-    expect(html).toContain("Hero story");
+    expect(html).toMatch(/class="floating-next" href="\/article\/hero"/);
+    expect(html).toContain('<span class="lbl">Next</span>');
   });
 
   it("T10.AC3: brand-from-site — output contains site.name and never the banned vertical tokens", () => {

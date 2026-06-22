@@ -113,12 +113,14 @@ describe("public-templates-components", () => {
     expect(html).not.toContain('href="#"');
   });
 
-  it("renderNewsletter is disabled when no provider configured", () => {
+  it("renderNewsletter is always an active form even with no provider (issue 14)", () => {
     const html = renderNewsletter({ heading: "Stay in the loop", provider: null });
     expect(html).toContain("Stay in the loop");
-    expect(html).toContain("disabled");
-    expect(html).toContain('aria-disabled="true"');
-    expect(html).toContain("newsletter__notice");
+    // rescue-4 round-2: no more disabled stub / "will open soon" — with no
+    // provider the form posts to the first-party /api/newsletter/subscribe.
+    expect(html).not.toContain('aria-disabled="true"');
+    expect(html).not.toContain("newsletter__notice");
+    expect(html).toContain('action="/api/newsletter/subscribe"');
     expect(html).not.toContain('href="#"');
   });
 
@@ -172,7 +174,9 @@ describe("public-templates-components", () => {
       imageAlt: "",
     });
     expect(html).toContain('href="/article/next-up"');
-    expect(html).toContain("Up next");
+    // rescue-4 round-2 (issue 10): the design floating-next label is the static
+    // "Next" (a small arrow button), not the article title.
+    expect(html).toContain('<span class="lbl">Next</span>');
     expect(html).toContain("floating-next");
     expect(html).not.toContain('href="#"');
   });
