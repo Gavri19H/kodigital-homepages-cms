@@ -27,7 +27,8 @@ export type EditorBlockType =
   | "html"
   | "pullquote"
   | "callout"
-  | "affiliate";
+  | "affiliate"
+  | "faqgroup";
 
 export interface EditorBlock {
   type: string;

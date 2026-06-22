@@ -638,6 +638,67 @@ export async function renderTagHtml(
 // extraHead verbatim, exactly like the article renderer). The canonical href is
 // always the resolved SiteContext.hostname — the admin host MUST NEVER appear
 // (mission RED LINE).
+// PR-3 (issue 16): the CCPA "Do Not Sell or Share My Personal Information"
+// opt-out control. The legal page body (pages.content_html, rendered from the
+// 0025 do-not-sell template) deliberately carries NO button — the interactive
+// control is injected HERE, at render time, so it can talk to the existing
+// privacy backend (api/src/privacy/index.ts):
+//   GET  /api/privacy/status  -> { opted_out: boolean, source }
+//   POST /api/privacy/opt-out -> { opted_out: true }  (+ sets the ccpa cookie)
+//   POST /api/privacy/opt-in  -> { opted_out: false } (clears the cookie)
+// The inline script is framework-free, self-scoped (queries only inside its
+// own .ccpa-optout card), and tolerant of fetch failure (it shows a graceful
+// message and leaves the button usable). credentials:'same-origin' is set so
+// the HttpOnly ccpa_opt_out cookie rides the request and the server can read
+// the current state. The opt-out copy is a CCPA RED LINE so it renders even if
+// the network call never resolves.
+function renderDoNotSellOptOut(): string {
+  const markup =
+    `<div class="ccpa-optout">` +
+    `<p class="ccpa-status" data-ccpa-status>Checking your current preference&hellip;</p>` +
+    `<button class="btn-primary" type="button" data-ccpa-toggle>Do Not Sell or Share My Info</button>` +
+    `</div>`;
+  // The script is a self-invoking function scoped to the last .ccpa-optout card.
+  // It is emitted as a string so renderLayout does not need a CSP-nonce hook.
+  const script =
+    `<script>(function(){` +
+    `function init(){` +
+    `var card=document.currentScript&&document.currentScript.previousElementSibling;` +
+    `if(!card||!card.classList||!card.classList.contains("ccpa-optout")){` +
+    `var all=document.querySelectorAll(".ccpa-optout");card=all[all.length-1];}` +
+    `if(!card){return;}` +
+    `var statusEl=card.querySelector("[data-ccpa-status]");` +
+    `var btn=card.querySelector("[data-ccpa-toggle]");` +
+    `if(!statusEl||!btn){return;}` +
+    `var optedOut=false;var busy=false;` +
+    `function paint(){` +
+    `if(optedOut){statusEl.textContent="You are currently opted out.";btn.textContent="Allow Sale/Sharing Again";}` +
+    `else{statusEl.textContent="You have not opted out.";btn.textContent="Do Not Sell or Share My Info";}` +
+    `}` +
+    `function readStatus(){` +
+    `return fetch("/api/privacy/status",{credentials:"same-origin",headers:{"Accept":"application/json"}})` +
+    `.then(function(r){return r.ok?r.json():null;})` +
+    `.then(function(j){if(j&&typeof j.opted_out==="boolean"){optedOut=j.opted_out;paint();}` +
+    `else{statusEl.textContent="We could not check your preference right now. You can still use the button below.";}})` +
+    `.catch(function(){statusEl.textContent="We could not check your preference right now. You can still use the button below.";});` +
+    `}` +
+    `btn.addEventListener("click",function(){` +
+    `if(busy){return;}busy=true;btn.disabled=true;` +
+    `var url=optedOut?"/api/privacy/opt-in":"/api/privacy/opt-out";` +
+    `fetch(url,{method:"POST",credentials:"same-origin",headers:{"Accept":"application/json"}})` +
+    `.then(function(r){return r.ok?r.json():null;})` +
+    `.then(function(j){if(j&&typeof j.opted_out==="boolean"){optedOut=j.opted_out;paint();}` +
+    `else{statusEl.textContent="Something went wrong saving your choice. Please try again.";}})` +
+    `.catch(function(){statusEl.textContent="Something went wrong saving your choice. Please try again.";})` +
+    `.then(function(){busy=false;btn.disabled=false;});` +
+    `});` +
+    `readStatus();` +
+    `}` +
+    `if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}` +
+    `})();</script>`;
+  return markup + script;
+}
+
 export async function renderPageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
@@ -673,10 +734,15 @@ export async function renderPageHtml(
     }),
   ];
 
+  // PR-3 (issue 16): the do-not-sell legal page gets the live CCPA opt-out
+  // control appended inside its <article>, after the rendered template body.
+  // Every other page renders its content_html unchanged.
+  const ccpaOptOut = row.slug === "do-not-sell" ? renderDoNotSellOptOut() : "";
   const body =
     `<article class="page-article">` +
     `<h1 class="page-title">${escapeHtml(row.title)}</h1>` +
     `<div class="page-content">${row.content_html ?? ""}</div>` +
+    ccpaOptOut +
     `</article>`;
 
   return renderLayout({

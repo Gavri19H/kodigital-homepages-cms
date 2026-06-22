@@ -439,6 +439,24 @@ export function adaptBodyBlocks(
         faqs.push({ question, answer });
         break;
       }
+      case "faqgroup": {
+        // PR-3 (issue 12): the editor stores a friendly FAQ editor as ONE
+        // faqgroup block carrying items:[{q,a}]. Expand it into the standard
+        // faq blocks the rest of this adapter already handles, so vm.faqs (and
+        // therefore the single .faq-section + the FAQPage JSON-LD) renders
+        // exactly as it would for hand-authored faq blocks. Empty rows drop.
+        const groupItems = Array.isArray(b.items) ? (b.items as unknown[]) : [];
+        for (const rawItem of groupItems) {
+          if (rawItem === null || typeof rawItem !== "object") continue;
+          const it = rawItem as Record<string, unknown>;
+          const question = asString(it.q).length > 0 ? asString(it.q) : asString(it.question);
+          const answer = asString(it.a).length > 0 ? asString(it.a) : asString(it.answer);
+          if (question.length === 0 && answer.length === 0) continue;
+          blocks.push({ type: "faq", question, answer });
+          faqs.push({ question, answer });
+        }
+        break;
+      }
       default: {
         // Unknown block: degrade to a raw html block so an editor-side
         // schema bump never crashes the renderer.

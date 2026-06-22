@@ -24,7 +24,8 @@ export type BlockType =
   | "html"
   | "pullquote"
   | "callout"
-  | "affiliate";
+  | "affiliate"
+  | "faqgroup";
 
 export const ALLOWED_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "paragraph",
@@ -37,6 +38,7 @@ export const ALLOWED_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "pullquote",
   "callout",
   "affiliate",
+  "faqgroup",
 ]);
 
 export interface BaseBlock {
@@ -130,7 +132,11 @@ function renderPullquote(data: Record<string, unknown>): string {
   const inner = inlineBody(data);
   const cite = asString(data.cite).trim();
   const citeHtml = cite === "" ? "" : `<cite>${escapeHtml(cite)}</cite>`;
-  return `<blockquote class="pullquote"><p>${inner}</p>${citeHtml}</blockquote>`;
+  // PR-3 (issue 3): the design pull-quote (the "Key idea" unit). Emit the
+  // decorative `.pq-mark` quote glyph + the quote text directly (no <p>
+  // wrapper) so this byte-matches the public article template's pullquote
+  // (api/src/public/templates/article.ts) and the .pullquote .pq-mark CSS.
+  return `<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>${inner}${citeHtml}</blockquote>`;
 }
 
 function renderCallout(data: Record<string, unknown>): string {
@@ -162,6 +168,30 @@ function renderAffiliate(data: Record<string, unknown>): string {
   return `<aside class="affiliate-card">${titleHtml}${descHtml}${ctaHtml}</aside>`;
 }
 
+// PR-3 (issue 12): the FAQ group. The editor stores a single faqgroup block
+// carrying { items: [{ q, a }] }; on publish it renders the design
+// `.faq-section` (h2 + a `.faq-list` of <details> rows) — the same structure
+// the public article template (api/src/public/templates/article.ts) emits from
+// vm.faqs. Empty rows (both q and a blank) are dropped; an all-empty group
+// renders nothing. The stored content_html therefore carries a real, readable
+// FAQ section as well as the canonical content_json the view-model expands.
+function renderFaqGroup(data: Record<string, unknown>): string {
+  const rawItems = Array.isArray(data.items) ? (data.items as unknown[]) : [];
+  const rows: string[] = [];
+  for (const raw of rawItems) {
+    if (raw === null || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const q = asString(it.q).trim();
+    const a = asString(it.a).trim();
+    if (q === "" && a === "") continue;
+    rows.push(
+      `<details class="faq-item"><summary>${escapeHtml(q)}</summary><div>${escapeHtml(a)}</div></details>`,
+    );
+  }
+  if (rows.length === 0) return "";
+  return `<section class="faq-section"><h2>Frequently asked questions</h2><div class="faq-list">${rows.join("")}</div></section>`;
+}
+
 function renderHtml(data: Record<string, unknown>): string {
   const raw = asString(data.html);
   if (raw === "") return "";
@@ -186,6 +216,7 @@ const BLOCK_RENDERERS: Record<
   pullquote: renderPullquote,
   callout: renderCallout,
   affiliate: renderAffiliate,
+  faqgroup: renderFaqGroup,
 };
 
 export function isAllowedBlockType(type: string): type is BlockType {

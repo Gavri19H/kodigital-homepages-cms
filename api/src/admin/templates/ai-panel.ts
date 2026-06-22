@@ -30,6 +30,11 @@ const QUICK_ACTIONS: ReadonlyArray<{ action: string; label: string }> = [
   { action: "draft", label: "Draft" },
   { action: "rewrite", label: "Rewrite" },
   { action: "seo_meta", label: "SEO Meta" },
+  // PR-3 (issue 12): structured-insert quick actions. "FAQ" asks the model for
+  // a { faqs: [{question, answer}] } payload the script inserts as a faqgroup
+  // block; "Key idea" asks for a { key_idea } string inserted as a pullquote.
+  { action: "faq", label: "FAQ" },
+  { action: "key_idea", label: "Key idea" },
 ];
 
 const TONE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
