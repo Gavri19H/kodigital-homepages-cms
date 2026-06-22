@@ -20,6 +20,12 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // the caller passes an explicit (larger) timeoutMs.
 const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RETRIES = 1;
+// PR-2b: empty AI images (a 200 with no b64_json / url, or 0-length bytes)
+// silently became a 0-byte "success". The image path now treats an empty
+// result as retriable and gets a higher retry ceiling (2) than the text
+// default (1) so a transient empty render is re-requested before it is
+// surfaced as a failure. The text default is unchanged.
+const DEFAULT_IMAGE_MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 250;
 const REDACTED = "[REDACTED]";
 const SK_KEY_PATTERN = /sk-[A-Za-z0-9_\-]{4,}/g;
@@ -128,6 +134,24 @@ function isAbortOrTimeoutError(err: unknown): boolean {
   );
 }
 
+// PR-2b: a 200 image response that carries NO usable bytes (no b64_json,
+// no url, or a 0-length decoded/fetched buffer) is a transient empty render,
+// not a benign success. generateImage THROWS this so the retry path re-requests
+// the image (it is in the retriable-thrown set below) instead of returning a
+// 0-byte ArrayBuffer the caller would persist as a broken media row.
+export class EmptyImageResultError extends Error {
+  constructor(message = "OpenAI image response carried no image bytes") {
+    super(message);
+    this.name = "EmptyImageResultError";
+  }
+}
+
+// A thrown error is retriable when it is an abort/timeout OR an empty-image
+// result (both are transient). callWithRetry consults this before re-throwing.
+function isRetriableThrownError(err: unknown): boolean {
+  return err instanceof EmptyImageResultError || isAbortOrTimeoutError(err);
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function fetchWithTimeout(
@@ -157,13 +181,19 @@ export function createOpenAIClient(env: Env): OpenAIClient {
   const apiKey = env.OPENAI_API_KEY;
   const hasKey = typeof apiKey === "string" && apiKey.trim() !== "";
 
-  async function callWithRetry(
+  // PR-2b: `extract` is an optional post-response parser. When supplied it runs
+  // on a successful (non-retriable-status) response INSIDE the retry loop, so a
+  // parser that throws a retriable error (EmptyImageResultError — an empty image
+  // render) re-requests the call rather than returning a 0-byte result. The text
+  // path passes no `extract`, so its retry behaviour is byte-identical.
+  async function callWithRetry<T = undefined>(
     url: string,
     body: unknown,
     maxRetries: number,
     timeoutMs: number,
     fetchImpl: typeof fetch,
-  ): Promise<{ response: Response; retries: number }> {
+    extract?: (response: Response) => Promise<T>,
+  ): Promise<{ response: Response; retries: number; extracted: T }> {
     let attempt = 0;
     let last: Response | null = null;
     while (attempt <= maxRetries) {
@@ -183,12 +213,12 @@ export function createOpenAIClient(env: Env): OpenAIClient {
           fetchImpl,
         );
       } catch (err) {
-        // T11/AC2: an aborted/timed-out call is retried (timeout/abort added
-        // to the retriable set alongside isRetriableStatus 429/5xx). If
-        // retries remain, back off and retry; otherwise rethrow so the
-        // caller's fallback path runs (surfaced in receipts). Non-abort
-        // errors are NOT retried — they propagate immediately.
-        if (isAbortOrTimeoutError(err) && attempt < maxRetries) {
+        // T11/AC2 + PR-2b: an aborted/timed-out call OR an empty-image result is
+        // retried (the retriable-thrown set, alongside isRetriableStatus
+        // 429/5xx). If retries remain, back off and retry; otherwise rethrow so
+        // the caller's fallback path runs (surfaced in receipts). Other errors
+        // are NOT retried — they propagate immediately.
+        if (isRetriableThrownError(err) && attempt < maxRetries) {
           attempt += 1;
           await sleep(RETRY_DELAY_MS);
           continue;
@@ -196,13 +226,29 @@ export function createOpenAIClient(env: Env): OpenAIClient {
         throw err;
       }
       last = response;
-      if (!isRetriableStatus(response.status) || attempt === maxRetries) {
-        return { response, retries: attempt };
+      if (isRetriableStatus(response.status) && attempt < maxRetries) {
+        attempt += 1;
+        await sleep(RETRY_DELAY_MS);
+        continue;
       }
-      attempt += 1;
-      await sleep(RETRY_DELAY_MS);
+      // Non-retriable status, or last attempt. Run the optional extractor here
+      // so an empty-image throw re-enters the retriable-thrown path above.
+      if (extract && response.ok) {
+        try {
+          const extracted = await extract(response);
+          return { response, retries: attempt, extracted };
+        } catch (err) {
+          if (isRetriableThrownError(err) && attempt < maxRetries) {
+            attempt += 1;
+            await sleep(RETRY_DELAY_MS);
+            continue;
+          }
+          throw err;
+        }
+      }
+      return { response, retries: attempt, extracted: undefined as T };
     }
-    return { response: last as Response, retries: attempt };
+    return { response: last as Response, retries: attempt, extracted: undefined as T };
   }
 
   return {
@@ -269,16 +315,56 @@ export function createOpenAIClient(env: Env): OpenAIClient {
       // ("Unknown parameter: response_format"). The model id is locked by
       // the brief and stays unchanged; the request body MUST NOT carry a
       // response_format key.
-      const { response, retries } = await callWithRetry(
+      // PR-2b: parse + empty-detection runs INSIDE the retry loop via `extract`.
+      // T10/AC2: read whichever shape the API returns — data[0].b64_json (inline
+      // base64) ?? fetch(data[0].url) (hosted link). When neither yields any
+      // bytes (no b64_json, no url, or a 0-length decoded/fetched buffer) the
+      // hook THROWS EmptyImageResultError so the loop re-requests the image
+      // (image path retries up to DEFAULT_IMAGE_MAX_RETRIES) rather than handing
+      // the caller a 0-byte ArrayBuffer that would persist as a broken media row.
+      const extractImageBytes = async (
+        res: Response,
+      ): Promise<{ bytes: ArrayBuffer; mime: string }> => {
+        const json = (await res.json()) as {
+          data?: Array<{ b64_json?: string; url?: string }>;
+        };
+        const first = json?.data?.[0];
+        let bytes: ArrayBuffer = new ArrayBuffer(0);
+        let mime = "image/png";
+        if (first?.b64_json) {
+          bytes = base64ToArrayBuffer(first.b64_json);
+        } else if (first?.url) {
+          const imageResponse = await fetchWithTimeout(
+            first.url,
+            { method: "GET" },
+            timeoutMs,
+            fetchImpl,
+          );
+          if (!imageResponse.ok) {
+            throw new Error(
+              `OpenAI image fetch failed: status=${imageResponse.status}`,
+            );
+          }
+          bytes = await imageResponse.arrayBuffer();
+          mime = imageResponse.headers.get("content-type") ?? "image/png";
+        }
+        if (bytes.byteLength === 0) {
+          // No usable image bytes — retriable empty render.
+          throw new EmptyImageResultError();
+        }
+        return { bytes, mime };
+      };
+      const { response, retries, extracted } = await callWithRetry(
         OPENAI_IMAGE_URL,
         {
           model,
           prompt: opts.prompt,
           size,
         },
-        opts.maxRetries ?? DEFAULT_MAX_RETRIES,
+        opts.maxRetries ?? DEFAULT_IMAGE_MAX_RETRIES,
         timeoutMs,
         fetchImpl,
+        extractImageBytes,
       );
       if (!response.ok) {
         const errText = await response.text().catch(() => "");
@@ -286,35 +372,9 @@ export function createOpenAIClient(env: Env): OpenAIClient {
           `OpenAI image request failed: status=${response.status} body=${redactSecretsFromText(errText).slice(0, 500)}`,
         );
       }
-      const json = (await response.json()) as {
-        data?: Array<{ b64_json?: string; url?: string }>;
-      };
-      // T10/AC2: read whichever shape the API returns —
-      // data[0].b64_json (inline base64) ?? fetch(data[0].url) (hosted
-      // link). Defensive regardless of which the API sends back.
-      const first = json?.data?.[0];
-      let bytes: ArrayBuffer = new ArrayBuffer(0);
-      let mime = "image/png";
-      if (first?.b64_json) {
-        bytes = base64ToArrayBuffer(first.b64_json);
-      } else if (first?.url) {
-        const imageResponse = await fetchWithTimeout(
-          first.url,
-          { method: "GET" },
-          timeoutMs,
-          fetchImpl,
-        );
-        if (!imageResponse.ok) {
-          throw new Error(
-            `OpenAI image fetch failed: status=${imageResponse.status}`,
-          );
-        }
-        bytes = await imageResponse.arrayBuffer();
-        mime = imageResponse.headers.get("content-type") ?? "image/png";
-      }
       return {
-        bytes,
-        mime,
+        bytes: extracted.bytes,
+        mime: extracted.mime,
         model,
         retries,
         status: response.status,

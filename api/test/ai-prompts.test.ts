@@ -179,15 +179,22 @@ describe("ai/prompts buildPrompt content", () => {
     expect(/alpha channel/i.test(out)).toBe(false);
   });
 
-  it("starter-article prompt forbids placeholder text and banned legacy refs", () => {
+  it("starter-article prompt steers away from junk content and forbids invented/legacy brand names", () => {
     const out = buildArticle({
       site_id: "site-a",
       vertical: "home services",
       slug: "x",
       title: "Y",
     });
-    expect(/lorem ipsum/i.test(out)).toBe(true);
-    expect(/legacy product names/i.test(out)).toBe(true);
+    // PR-2a: the builder prompt no longer enumerates "lorem ipsum" / "legacy
+    // product names" verbatim; the same intent is now carried by the
+    // anti-AI-tell authoring contract — it demands a genuinely useful article
+    // in STRICT JSON and explicitly forbids INVENTING brand names (which covers
+    // both placeholder junk and any legacy product name). The downstream
+    // validateGeneratedArticle still rejects literal placeholder text.
+    expect(/genuinely useful article/i.test(out)).toBe(true);
+    expect(/STRICT JSON/i.test(out)).toBe(true);
+    expect(/do not invent[^\n]*brand names/i.test(out)).toBe(true);
   });
 
   it("starter-article-plan prompt asks for exactly `count` items with unique kebab-case slugs", () => {

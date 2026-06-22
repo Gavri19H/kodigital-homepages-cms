@@ -930,10 +930,12 @@ describe("T9 site-provisioning AI-or-fallback integration", () => {
       client: capturingClient(fallbackPrompts),
     });
     // The category was queried, found nothing, and the builder prompt was used.
+    // PR-2a: the builder prompt is now the anti-AI-tell authoring contract, so
+    // its stable fingerprint is the "genuinely useful article" + "STRICT JSON
+    // ONLY" instruction (NOT the preset's "PRESET-CONTENT" marker).
     expect(store3.presetCategoriesQueried).toContain("content");
-    expect(fallbackPrompts[0]).toContain(
-      "Output strict JSON matching GeneratedArticle shape",
-    );
+    expect(fallbackPrompts[0]).toContain("genuinely useful article");
+    expect(fallbackPrompts[0]).toContain("Return STRICT JSON ONLY");
     expect(fallbackPrompts[0]).not.toContain("PRESET-CONTENT");
     // No crash, no stub: a real GeneratedArticle came back.
     expect(fallbackArticle.parsed.slug).toBe("no-preset-article");

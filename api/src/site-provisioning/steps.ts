@@ -40,6 +40,7 @@ import {
   generateStarterArticlePlan,
   generateStarterArticle,
 } from "../ai/generators/text";
+import type { GeneratedArticle } from "../ai/schemas";
 import {
   generateLogoPrompt,
   generateLogoImage,
@@ -657,6 +658,202 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// PR-2a: the structured block document the public renderer's adapter
+// (public/view-models/article.ts adaptBodyBlocks) reads. Each block's `type`
+// + field names match a case in that adapter's switch, so a provisioned
+// article renders as real paragraph/heading/list/quote/callout/faq blocks
+// (drop-cap lede, pull-quote, ✓-checklist "Key takeaways" box) — NOT the
+// single flat content_html fallback that opened with a duplicate <h1>.
+type ArticleBlock =
+  | { type: "paragraph"; text: string }
+  | { type: "heading"; level: 2 | 3; text: string }
+  | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "quote"; text: string; cite: string | null }
+  | { type: "callout"; title: string; text: string; items: string[] }
+  | {
+      // PR-2b: an "Editor's pick" recommendation. Rendered by the article
+      // template's `affiliate` case as the non-link "Editor's pick" card when
+      // url is null (the eyebrow already reads "Editor's pick").
+      type: "affiliate";
+      title: string;
+      description: string;
+      url: string | null;
+      cta: string;
+    }
+  | { type: "image"; src: string; alt: string; caption: string }
+  | { type: "faq"; question: string; answer: string };
+
+// Transform a generated article into the ordered block sequence the public
+// renderer reads. Order mirrors the claude.ai design: opening paragraph(s),
+// then the key-idea pull-quote BETWEEN the opening paragraphs, then each
+// section (heading → paragraphs → optional bullet list), the "Key takeaways"
+// checklist callout near the end, and finally the FAQ blocks.
+export function buildArticleContentJson(
+  parsed: GeneratedArticle,
+): { version: 2; blocks: ArticleBlock[] } {
+  const blocks: ArticleBlock[] = [];
+
+  // 1. intro → one paragraph per non-empty \n\n-delimited chunk.
+  const introParas = (parsed.intro ?? "")
+    .split(/\n\n+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  for (const text of introParas) {
+    blocks.push({ type: "paragraph", text });
+  }
+
+  // 2. key_idea → a pull-quote placed AFTER the first paragraph (so it sits
+  //    between the opening paragraphs like the design).
+  const keyIdea = typeof parsed.key_idea === "string" ? parsed.key_idea.trim() : "";
+  if (keyIdea.length > 0) {
+    const insertAt = blocks.length > 0 ? 1 : 0;
+    blocks.splice(insertAt, 0, { type: "quote", text: keyIdea, cite: null });
+  }
+
+  // 3. each section → heading + paragraphs + optional bullet list.
+  //    PR-2b: after the FIRST section's content we RESERVE a mid-article image
+  //    slot — an `image` block with src:"" meaning "to be filled". The image
+  //    step (generateOneImageUnit) later fills the first empty-src image block
+  //    with a DISTINCT supporting image (idempotently). Reserved only when the
+  //    article has >=1 section; an empty src never renders (the adapter/template
+  //    + blocksToContentHtml both skip a src-less image), so an unfilled slot is
+  //    invisible (e.g. on the no-API-key path where no image is ever produced).
+  const sectionList = (parsed.sections ?? []).filter(
+    (section) => section && section.heading,
+  );
+  const midImageTitle = typeof parsed.title === "string" ? parsed.title.trim() : "";
+  for (let si = 0; si < sectionList.length; si++) {
+    const section = sectionList[si]!;
+    const level: 2 | 3 = section.heading.level === 3 ? 3 : 2;
+    blocks.push({ type: "heading", level, text: section.heading.text ?? "" });
+    for (const para of Array.isArray(section.paragraphs) ? section.paragraphs : []) {
+      const text = typeof para === "string" ? para.trim() : "";
+      if (text.length > 0) blocks.push({ type: "paragraph", text });
+    }
+    const bullets = Array.isArray(section.bullets)
+      ? section.bullets.filter((b): b is string => typeof b === "string" && b.trim().length > 0)
+      : [];
+    if (bullets.length > 0) {
+      blocks.push({ type: "list", ordered: false, items: bullets });
+    }
+    if (si === 0) {
+      blocks.push({
+        type: "image",
+        src: "",
+        alt: `${midImageTitle} — illustration`,
+        caption: "",
+      });
+    }
+  }
+
+  // 4. editors_pick → an affiliate block placed AFTER the last section but
+  //    BEFORE the takeaways callout. url:null renders as the design's non-link
+  //    "Editor's pick" card (the affiliate eyebrow already reads "Editor's
+  //    pick"); cta is the card's pill label. Emitted only when a non-empty
+  //    title is present (the model / fallback always supplies one).
+  const editorsPick = parsed.editors_pick;
+  if (
+    editorsPick &&
+    typeof editorsPick.title === "string" &&
+    editorsPick.title.trim().length > 0
+  ) {
+    blocks.push({
+      type: "affiliate",
+      title: editorsPick.title.trim(),
+      description: typeof editorsPick.why === "string" ? editorsPick.why.trim() : "",
+      url: null,
+      cta: "Why we recommend it",
+    });
+  }
+
+  // 5. takeaways → the "Key takeaways" ✓-checklist callout near the END.
+  const takeaways = Array.isArray(parsed.takeaways)
+    ? parsed.takeaways.filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+    : [];
+  if (takeaways.length > 0) {
+    blocks.push({ type: "callout", title: "Key takeaways", text: "", items: takeaways });
+  }
+
+  // 6. faqs → one faq block each.
+  for (const faq of parsed.faqs ?? []) {
+    if (!faq) continue;
+    const question = typeof faq.question === "string" ? faq.question : "";
+    const answer = typeof faq.answer === "string" ? faq.answer : "";
+    if (question.length === 0 && answer.length === 0) continue;
+    blocks.push({ type: "faq", question, answer });
+  }
+
+  return { version: 2, blocks };
+}
+
+// PR-2a: render the SAME block sequence to the stored content_html. This
+// renderer NEVER emits a leading <h1> — the hero owns the title, so the body
+// must not repeat it (the duplicate-headline bug). Used only for the stored
+// articles.content_html; the rich public render goes through the block path.
+function blocksToContentHtml(blocks: ReadonlyArray<ArticleBlock>): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    switch (block.type) {
+      case "paragraph":
+        if (block.text.length > 0) parts.push(`<p>${escapeHtml(block.text)}</p>`);
+        break;
+      case "heading": {
+        const tag = block.level === 3 ? "h3" : "h2";
+        parts.push(`<${tag}>${escapeHtml(block.text)}</${tag}>`);
+        break;
+      }
+      case "list": {
+        const tag = block.ordered ? "ol" : "ul";
+        const items = block.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("");
+        parts.push(`<${tag}>${items}</${tag}>`);
+        break;
+      }
+      case "quote":
+        parts.push(`<blockquote>${escapeHtml(block.text)}</blockquote>`);
+        break;
+      case "callout": {
+        const title = block.title.length > 0 ? `<h4>${escapeHtml(block.title)}</h4>` : "";
+        const body =
+          block.items.length > 0
+            ? `<ul>${block.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`
+            : block.text.length > 0
+              ? `<p>${escapeHtml(block.text)}</p>`
+              : "";
+        parts.push(`<div class="callout-box">${title}${body}</div>`);
+        break;
+      }
+      case "affiliate": {
+        // PR-2b: the "Editor's pick" card in stored HTML. url:null renders a
+        // non-link card; a safe url renders an anchor. The eyebrow names it.
+        const name = block.title.length > 0 ? `<h4>${escapeHtml(block.title)}</h4>` : "";
+        const desc =
+          block.description.length > 0 ? `<p>${escapeHtml(block.description)}</p>` : "";
+        const inner = `<span class="affiliate-eyebrow">Editor's pick</span>${name}${desc}`;
+        parts.push(`<div class="affiliate-card">${inner}</div>`);
+        break;
+      }
+      case "image": {
+        // PR-2b: a mid-article image. An unfilled reserved slot (src empty)
+        // emits nothing in the stored HTML; a filled slot emits the figure.
+        if (block.src.length > 0) {
+          const caption =
+            block.caption.length > 0 ? `<figcaption>${escapeHtml(block.caption)}</figcaption>` : "";
+          parts.push(
+            `<figure class="article-figure"><img src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt)}">${caption}</figure>`,
+          );
+        }
+        break;
+      }
+      case "faq":
+        parts.push(
+          `<details><summary>${escapeHtml(block.question)}</summary><div>${escapeHtml(block.answer)}</div></details>`,
+        );
+        break;
+    }
+  }
+  return parts.join("");
+}
+
 // T20 handler: renders the 4 global legal templates for ctx.site_id,
 // substituting the 6 documented variables and stripping any residual
 // placeholders. Idempotent under (site_id, slug) UNIQUE.
@@ -1040,18 +1237,13 @@ export async function generateOneTextUnit(
     return permanentlyFailed ? "failed" : "retry";
   }
 
-  const contentDoc = {
-    version: 1,
-    intro: article.parsed.intro,
-    sections: article.parsed.sections,
-    faqs: article.parsed.faqs,
-  };
+  // PR-2a: store the structured {version:2, blocks:[...]} document the public
+  // renderer's adapter reads (paragraph/quote/heading/list/callout/faq), and
+  // derive content_html from the SAME blocks via an h1-free renderer (the hero
+  // owns the title — the body must never repeat it).
+  const contentDoc = buildArticleContentJson(article.parsed);
   const contentJson = JSON.stringify(contentDoc);
-  const contentHtml = renderArticleHtml(
-    article.parsed.title,
-    article.parsed.intro,
-    article.parsed.sections,
-  );
+  const contentHtml = blocksToContentHtml(contentDoc.blocks);
   const categoryId =
     categoryIds.length > 0
       ? categoryIds[unit.unit_index % categoryIds.length]!
@@ -1164,6 +1356,23 @@ export async function generateOneImageUnit(
       )
       .bind(image.media_id, articleRow.id)
       .run();
+
+    // PR-2b (issue 8): the HERO (featured_image_id) is the must-have above. Now
+    // ALSO fill the RESERVED mid-article image slot with a SECOND, DISTINCT
+    // image (a complementary detail/scene, NOT the hero). This is best-effort:
+    // it is fully wrapped so a mid-image generation OR a content_json
+    // read/parse/write failure NEVER marks the unit failed/retry — the unit's
+    // hero done/retry semantics above are untouched. It is also idempotent: the
+    // second image uses a DISTINCT idempotency suffix (slug + "-mid"), and the
+    // fill targets the FIRST image block whose src is empty, so a re-run (or a
+    // Queue redelivery) that finds the slot already filled simply skips. Gated
+    // on a real hero media (media_id > 0) so the no-API-key path never attempts
+    // a mid-image (there would be nothing to fill).
+    try {
+      await fillMidArticleImage(ctx, info, articleRow);
+    } catch {
+      // Swallow — the mid-image is an enhancement, never a unit-failer.
+    }
   }
   await ctx.db
     .prepare(
@@ -1173,6 +1382,84 @@ export async function generateOneImageUnit(
     .bind(ctx.site_id, unit.unit_index)
     .run();
   return "done";
+}
+
+// PR-2b (issue 8) — generate ONE additional DISTINCT image for `articleRow` and
+// fill the FIRST empty-src image block in its content_json with /media/<key>.
+// Best-effort + idempotent (see the caller's note): a distinct idempotency
+// suffix keeps the mid-image's media/storage_key separate from the hero's, and
+// "fill first empty src" is convergent (a filled slot is skipped on re-run). If
+// there is no empty image slot (already filled, or the article has none), it
+// returns without writing. Never throws to the caller's unit-failure path — the
+// caller wraps it in try/catch — but defensive guards short-circuit cleanly.
+async function fillMidArticleImage(
+  ctx: StepContext,
+  info: SiteInfo,
+  articleRow: { id: number; slug: string; title: string },
+): Promise<void> {
+  // Read the article's stored content_json (its own query so the hero SELECT
+  // above stays byte-identical). Bail silently if absent / unparseable / no
+  // blocks — a legacy row with no structured slot simply gets no mid-image.
+  const contentRow = await ctx.db
+    .prepare("SELECT content_json FROM articles WHERE id = ? LIMIT 1")
+    .bind(articleRow.id)
+    .first<{ content_json: string | null }>();
+  const raw = contentRow?.content_json;
+  if (typeof raw !== "string" || raw.length === 0) return;
+  let doc: { version?: unknown; blocks?: unknown };
+  try {
+    doc = JSON.parse(raw) as { version?: unknown; blocks?: unknown };
+  } catch {
+    return;
+  }
+  if (!doc || !Array.isArray(doc.blocks)) return;
+  const blocks = doc.blocks as Array<Record<string, unknown>>;
+  // Find the FIRST image block whose src is empty (the reserved slot).
+  const slotIndex = blocks.findIndex(
+    (b) =>
+      b !== null &&
+      typeof b === "object" &&
+      (b as { type?: unknown }).type === "image" &&
+      (typeof (b as { src?: unknown }).src !== "string" ||
+        ((b as { src?: unknown }).src as string).length === 0),
+  );
+  if (slotIndex < 0) return; // already filled, or no reserved slot — idempotent skip.
+
+  // Generate a SECOND, DISTINCT image. generateFeatureImage resolves its prompt
+  // from the 'feature-image' preset interpolated with {title}; a varied title
+  // steers the model toward a complementary moment, and a distinct article_slug
+  // ("-mid") gives the call its OWN idempotency key + R2 storage_key so it never
+  // collides with the hero. A no-key / failed result (media_id 0) leaves the
+  // slot empty (skipped on the public render) — still never a unit failure.
+  const midImage = await generateFeatureImage(ctx.env, {
+    site_id: info.site_id,
+    vertical: info.vertical,
+    article_title: `${articleRow.title} (a different supporting moment than the hero, a complementary detail or scene)`,
+    article_slug: `${articleRow.slug}-mid`,
+    brand_name: info.brand_name,
+    presetCategory: PROVISIONING_PRESET_CATEGORIES.featureImage,
+  });
+  if (midImage.media_id <= 0 || !midImage.storage_key) return;
+
+  // Fill the slot: /media/<storage_key> (the same convention body images use;
+  // the public adapter resolves a bare key, but the explicit "/media/" form
+  // matches the editor's persisted shape) + a real alt.
+  blocks[slotIndex] = {
+    ...blocks[slotIndex],
+    type: "image",
+    src: `/media/${midImage.storage_key}`,
+    alt: `${articleRow.title} — illustration`,
+    caption:
+      typeof blocks[slotIndex]!.caption === "string"
+        ? (blocks[slotIndex] as { caption: string }).caption
+        : "",
+  };
+  await ctx.db
+    .prepare(
+      "UPDATE articles SET content_json = ?, updated_at = unixepoch() WHERE id = ?",
+    )
+    .bind(JSON.stringify(doc), articleRow.id)
+    .run();
 }
 
 async function generate15HomepageArticlesStep(

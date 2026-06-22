@@ -216,81 +216,111 @@ export function fallbackArticleBody(
   summary?: string,
 ): {
   intro: string;
+  key_idea: string;
   sections: GeneratedArticleSection[];
+  takeaways: string[];
+  editors_pick: { title: string; why: string };
   faqs: GeneratedArticle["faqs"];
 } {
   const v = vertical(input);
   const a = audience(input);
+  const topic = title.trim().toLowerCase();
+  // PR-2a: this is the no-API-key / model-failure body. It is still fully
+  // generic (no invented stats, prices, brands, or quotes) and still satisfies
+  // validateGeneratedArticle (>=3 h2, >=3 faqs, no placeholder/legacy refs),
+  // but the prose is rewritten to read like a real editor wrote it: a concrete
+  // opening, varied sentence length, plain hyphens, and ZERO em dashes. It now
+  // also returns key_idea (the pull-quote) + takeaways (the "Key takeaways"
+  // checklist) + a bullet list on one section, matching the extended schema.
+  const key_idea =
+    `Start from the outcome you actually want, pick the smallest thing that gets you there, then adjust.`;
   const intro =
     summary?.trim() ||
-    `This article gives ${a} a practical, step-by-step view of ${title.toLowerCase()}` +
-      ` in ${v}. It is written in plain language and does not assume prior knowledge.`;
+    `Most people meet ${topic} at the worst possible moment, when they need an answer fast and every source online says something different. ` +
+      `This guide cuts through that. It is written in plain language for ${a}, and it does not assume you have done any of this before. ` +
+      `By the end you will know what matters, what to ignore, and the first concrete step to take.`;
   const sections: GeneratedArticleSection[] = [
     {
-      heading: { level: 2, text: "What to know first" },
+      heading: { level: 2, text: `Where most people get stuck with ${topic}` },
       paragraphs: [
-        `${title} is a recurring topic for ${a} working with ${v}. The core idea is` +
-          ` simpler than it looks: start from what you actually need, then pick the` +
-          ` minimum tooling and habits that get you there.`,
-        `If you are completely new, skip ahead to the checklist at the bottom — it` +
-          ` is the shortest path to a workable first attempt.`,
+        `The hard part is rarely a lack of information. For ${a}, it is usually too much of it, ` +
+          `pulling in different directions. The fix is to anchor on one question: what do you actually need this to do?`,
+        `Answer that honestly and most of the noise falls away. The fancy options that looked essential turn out to be ` +
+          `for a problem you do not have yet.`,
       ],
     },
     {
-      heading: { level: 2, text: "Step-by-step approach" },
+      heading: { level: 2, text: "A simple approach that holds up" },
       paragraphs: [
-        `Step 1: clarify the outcome you want before researching tools. Step 2:` +
-          ` write down the constraints — time, budget, prior experience. Step 3:` +
-          ` pick the smallest workable option and commit to it for a defined period.`,
-        `Most readers find that the bottleneck is decision fatigue rather than` +
-          ` missing information. The steps above remove most of the noise.`,
+        `You do not need a perfect plan. You need a small one you will actually follow. Work it in order and adjust as real ` +
+          `information arrives, not before.`,
+      ],
+      bullets: [
+        "Write down the single outcome you want, in one sentence.",
+        "List your real constraints: time you can give, money you can spend, what you already know.",
+        "Pick the smallest option that fits those constraints and commit to it for a set period.",
+        "Review once at the end of that period, then change one thing at a time.",
       ],
     },
     {
-      heading: { level: 2, text: "Common questions" },
+      heading: { level: 2, text: `What good looks like in ${v}` },
       paragraphs: [
-        `Readers regularly ask three things about ${slug}: how much it costs, how` +
-          ` long it takes, and how to know they made the right choice. The FAQs at` +
-          ` the end address each of those directly.`,
+        `A good result is not the most advanced one. It is the one you can keep up without resenting it. For ${a}, that ` +
+          `usually means fewer moving parts, not more.`,
+        `If a choice makes the next step easier to repeat, it is probably right for you. If it only looks impressive, ` +
+          `it can wait.`,
       ],
     },
     {
-      heading: { level: 2, text: "Where to go next" },
+      heading: { level: 2, text: "How to course-correct without starting over" },
       paragraphs: [
-        `Once you have completed a first pass, revisit the constraints you wrote` +
-          ` down. Adjust one variable at a time. Avoid the temptation to redo the` +
-          ` entire plan because of a single new piece of information.`,
+        `When something is not working, resist the urge to scrap the whole plan. Go back to the outcome and the constraints ` +
+          `you wrote down, change one variable, and watch what happens. One new fact rarely justifies a full reset.`,
       ],
     },
   ];
+  const takeaways = [
+    `Name the one outcome you want before you compare any options.`,
+    `Choose the smallest workable version and give it a fixed trial period.`,
+    `Adjust one variable at a time instead of redoing the whole plan.`,
+    `Simpler choices you can sustain beat impressive ones you cannot.`,
+  ];
+  // PR-2b: a deterministic "Editor's pick" recommendation. It is a habit/
+  // approach (never an invented product, price, brand, or external link), so
+  // the no-API-key card is still genuinely useful and policy-safe.
+  const editors_pick = {
+    title: `Keep a one-page decision note`,
+    why:
+      `Write your outcome, your constraints, and the option you picked on a single page, then revisit it at the ` +
+      `end of your trial period. It keeps you honest about ${topic} and makes the next adjustment obvious.`,
+  };
   const faqs = [
     {
-      question: `What does ${title.toLowerCase()} actually involve?`,
+      question: `What does getting started with ${topic} actually involve?`,
       answer:
-        `It involves the four steps in the article: clarify the outcome, write down` +
-        ` constraints, pick the smallest workable option, and review after a fixed` +
-        ` period.`,
+        `Four short steps: name the outcome you want, write down your real constraints, pick the smallest option that fits, ` +
+        `and review after a set period before changing anything.`,
     },
     {
       question: `How much time should ${a} budget for this?`,
       answer:
-        `A first usable pass typically takes a few short sessions. Setting a fixed` +
-        ` window prevents open-ended research.`,
+        `A first usable pass usually takes a few focused sessions rather than one marathon. Setting a fixed window keeps ` +
+        `research from sprawling and gives you a real deadline to decide.`,
     },
     {
-      question: `What is the most common mistake?`,
+      question: `What is the most common mistake people make?`,
       answer:
-        `Trying to compare every available option before starting. A smaller` +
-        ` working version beats a perfect plan that never ships.`,
+        `Trying to compare every option before starting. A small working version teaches you more in a week than another ` +
+        `month of reading, and it is far easier to improve.`,
     },
     {
-      question: `Where can I look for more detail?`,
+      question: `Where should I look for more detail?`,
       answer:
-        `Use the linked references inside each section. They point at primary` +
-        ` sources rather than aggregator articles.`,
+        `Follow the primary sources behind each section rather than aggregator round-ups. Going one layer closer to the ` +
+        `source is usually worth the extra few minutes.`,
     },
   ];
-  return { intro, sections, faqs };
+  return { intro, key_idea, sections, takeaways, editors_pick, faqs };
 }
 
 export function fallbackArticleSEO(
