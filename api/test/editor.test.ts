@@ -17,13 +17,14 @@ const SCRIPT_CLOSE = "</scr" + "ipt>";
 const JS_PROTO = "java" + "script:";
 
 describe("editor: block engine + sanitizer (T5)", () => {
-  // Phase-1 (T5.AC1) pinned the union at 7; T27 [B6] / BCL-034 extends it
-  // with the contract body blocks pullquote/callout/affiliate → exactly 10.
-  it("ALLOWED_BLOCK_TYPES contains exactly 10 entries (7 phase-1 + 3 contract blocks)", () => {
-    expect(ALLOWED_BLOCK_TYPES.size).toBe(10);
+  // Phase-1 (T5.AC1) pinned the union at 7; T27 [B6] / BCL-034 extended it
+  // with the contract body blocks pullquote/callout/affiliate → 10; PR-3
+  // (issue 12) adds the faqgroup block (the friendly FAQ editor unit) → 11.
+  it("ALLOWED_BLOCK_TYPES contains exactly 11 entries (7 phase-1 + 3 contract blocks + faqgroup)", () => {
+    expect(ALLOWED_BLOCK_TYPES.size).toBe(11);
     for (const t of [
       "paragraph", "heading", "list", "quote", "image", "divider", "html",
-      "pullquote", "callout", "affiliate",
+      "pullquote", "callout", "affiliate", "faqgroup",
     ]) {
       expect(ALLOWED_BLOCK_TYPES.has(t as never)).toBe(true);
     }
@@ -229,13 +230,16 @@ describe("editor: contract blocks + ported block editor (T27 [B6])", () => {
     expect(script).toContain("applyAIResultToBlock");
   });
 
-  it("pullquote renders blockquote.pullquote with escaped text and optional cite", () => {
+  it("pullquote renders blockquote.pullquote with the design pq-mark, escaped text and optional cite", () => {
+    // PR-3 (issue 3): the design pull-quote emits the decorative `.pq-mark`
+    // quote glyph + the text directly (no <p> wrapper) so this byte-matches
+    // the public article template's pullquote and the .pullquote .pq-mark CSS.
     expect(
       contentJsonToHtml({ blocks: [{ type: "pullquote", data: { text: "a & b" } }] }),
-    ).toBe('<blockquote class="pullquote"><p>a &amp; b</p></blockquote>');
+    ).toBe('<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>a &amp; b</blockquote>');
     expect(
       contentJsonToHtml({ blocks: [{ type: "pullquote", data: { text: "x", cite: "<i>" } }] }),
-    ).toBe('<blockquote class="pullquote"><p>x</p><cite>&lt;i&gt;</cite></blockquote>');
+    ).toBe('<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>x<cite>&lt;i&gt;</cite></blockquote>');
     expect(contentJsonToHtml({ blocks: [{ type: "pullquote", data: {} }] })).toBe("");
   });
 
@@ -308,7 +312,7 @@ describe("editor: contract blocks + ported block editor (T27 [B6])", () => {
     // all 3 new contract blocks survive sanitizeHtml structurally intact
     const sanitized = sanitizeHtml(html);
     expect(sanitized).toContain(
-      '<blockquote class="pullquote"><p>Pull this</p><cite>Editor</cite></blockquote>',
+      '<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>Pull this<cite>Editor</cite></blockquote>',
     );
     expect(sanitized).toContain(
       '<aside class="callout-box"><strong class="callout-title">Note</strong><p>Read me</p></aside>',

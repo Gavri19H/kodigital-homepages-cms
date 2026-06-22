@@ -166,4 +166,34 @@ describe("article editor: full legacy AI assistant panel (T14.AC1)", () => {
     expect(aiAssistantScripts).toContain("\\{\\{");
     expect(aiAssistantScripts).toContain("\\}\\}");
   });
+  it("PR-3 (issue 12): exposes FAQ + Key idea quick actions alongside the original four", () => {
+    const html = renderAIAssistantPanel();
+    for (const action of ["outline", "draft", "rewrite", "seo_meta", "faq", "key_idea"]) {
+      expect(html).toContain(`data-quick-action="${action}"`);
+    }
+    expect(html).toContain(">FAQ<");
+    expect(html).toContain(">Key idea<");
+  });
+
+  it("PR-3 (issue 12): the script builds structured FAQ + Key-idea prompts and inserts the matching blocks", () => {
+    const html = articleFormPage(null, SITES, CATEGORIES, {});
+    const scripts = extractInlineScripts(html);
+    // Prompt builders ask for the documented structured shapes.
+    expect(scripts).toContain('"faqs"');
+    expect(scripts).toContain('"key_idea"');
+    // The structured-insert helpers add the editor blocks chosen for storage:
+    // faqs -> ONE faqgroup block; key_idea -> a pullquote block.
+    expect(scripts).toContain("addBlock('faqgroup'");
+    expect(scripts).toContain("addBlock('pullquote'");
+    expect(scripts).toContain("insertFaqs");
+    expect(scripts).toContain("insertKeyIdea");
+  });
+
+  it("PR-3: the AI panel script stays ES5 (no arrow/const/let) after the FAQ + Key-idea additions", () => {
+    // Re-assert the AC4 invariant against the FINAL script string so the new
+    // handlers can never regress the panel to ES6 (the var/function port).
+    expect(aiAssistantScripts.match(/=>/g) ?? []).toHaveLength(0);
+    expect(aiAssistantScripts.match(/\bconst\b/g) ?? []).toHaveLength(0);
+    expect(aiAssistantScripts.match(/\blet\b/g) ?? []).toHaveLength(0);
+  });
 });

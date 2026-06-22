@@ -257,6 +257,12 @@ export const aiAssistantScripts = `
     if (action === 'seo_meta') {
       return 'Generate an SEO title and meta description for an article titled "' + title + '" (excerpt: "' + excerpt + '"). Respond ONLY with a JSON object with the keys "seo_title" and "meta_description".';
     }
+    if (action === 'faq') {
+      return 'Write 3 to 5 frequently asked questions with concise, helpful answers for an article titled "' + title + '" in a ' + tone + ' tone. Respond ONLY with a JSON object of the shape { "faqs": [{ "question": "...", "answer": "..." }] }.';
+    }
+    if (action === 'key_idea') {
+      return 'Write one short, punchy "key idea" pull-quote (a single sentence, no attribution) that captures the core takeaway of an article titled "' + title + '" in a ' + tone + ' tone. Respond ONLY with a JSON object of the shape { "key_idea": "..." }.';
+    }
     return '';
   }
 
@@ -290,7 +296,58 @@ export const aiAssistantScripts = `
     if (fillField('[name="author_name"]', author)) { filled.push('author'); }
     if (obj.author_bio !== undefined) { fillField('[name="author_bio"]', obj.author_bio); }
     if (obj.content !== undefined && obj.content !== null) { insertContent(String(obj.content)); }
+    // PR-3 (issue 12): structured FAQ + Key-idea inserts. faqs[] becomes ONE
+    // faqgroup block (round-trips into the friendly FAQ editor and expands to
+    // the public .faq-section); key_idea becomes a pullquote block. Both go
+    // through the editor's addBlock; if the editor is absent they degrade to
+    // appended plain text in the content textarea.
+    if (insertFaqs(obj.faqs)) { filled.push('faqs'); }
+    if (insertKeyIdea(obj.key_idea)) { filled.push('key idea'); }
     return filled;
+  }
+
+  function insertFaqs(faqs) {
+    if (!faqs || Object.prototype.toString.call(faqs) !== '[object Array]') { return false; }
+    var items = [];
+    var i;
+    for (i = 0; i < faqs.length; i++) {
+      var f = faqs[i];
+      if (!f || typeof f !== 'object') { continue; }
+      var q = f.question !== undefined ? f.question : f.q;
+      var a = f.answer !== undefined ? f.answer : f.a;
+      q = q == null ? '' : String(q);
+      a = a == null ? '' : String(a);
+      if (q === '' && a === '') { continue; }
+      items.push({ q: q, a: a });
+    }
+    if (items.length === 0) { return false; }
+    var editor = window.blockEditor || null;
+    if (editor && typeof editor.addBlock === 'function') {
+      editor.addBlock('faqgroup', { items: items });
+      return true;
+    }
+    var ta = document.getElementById('article-content');
+    if (ta) {
+      var lines = [];
+      for (i = 0; i < items.length; i++) { lines.push('Q: ' + items[i].q + '\nA: ' + items[i].a); }
+      var text = lines.join('\n\n');
+      ta.value = ta.value ? (ta.value + '\n\n' + text) : text;
+    }
+    return true;
+  }
+
+  function insertKeyIdea(keyIdea) {
+    if (keyIdea == null) { return false; }
+    var text = String(keyIdea).trim();
+    if (text === '') { return false; }
+    var editor = window.blockEditor || null;
+    if (editor && typeof editor.addBlock === 'function') {
+      editor.addBlock('pullquote', { text: text });
+      return true;
+    }
+    var ta = document.getElementById('article-content');
+    if (ta) { ta.value = ta.value ? (ta.value + '\n\n' + text) : text; }
+    return true;
   }
 
   function generate(url, kind, action) {

@@ -212,6 +212,8 @@ class BlockEditor {
       { type: 'list-unordered', label: 'Bullet List', icon: '•' },
       { type: 'list-ordered', label: 'Numbered List', icon: '1.' },
       { type: 'quote', label: 'Quote', icon: '"' },
+      { type: 'pullquote', label: 'Key idea', icon: '❝' },
+      { type: 'faqgroup', label: 'FAQ', icon: '?' },
       { type: 'image', label: 'Image', icon: '🖼' },
       { type: 'divider', label: 'Divider', icon: '—' },
       { type: 'menu-separator' },
@@ -314,6 +316,12 @@ class BlockEditor {
         };
       case 'divider':
         return {};
+      case 'pullquote':
+        return { text: data.text || '' };
+      case 'faqgroup': {
+        var items = Array.isArray(data.items) && data.items.length ? data.items : [{ q: '', a: '' }];
+        return { items: items };
+      }
       default:
         return data;
     }
@@ -526,6 +534,12 @@ class BlockEditor {
       case 'divider':
         content.innerHTML = '<hr class="divider-preview">';
         break;
+      case 'pullquote':
+        content.innerHTML = this.renderPullquoteContent(block);
+        break;
+      case 'faqgroup':
+        content.innerHTML = this.renderFaqGroupContent(block);
+        break;
       default:
         content.textContent = JSON.stringify(block.data);
     }
@@ -567,6 +581,81 @@ class BlockEditor {
         <cite><span class="editable-text quote-caption" contenteditable="true" data-placeholder="Attribution (optional)">\${caption}</span></cite>
       </blockquote>
     \`;
+  }
+
+  // PR-3 (issue 3): the "Key idea" pull-quote editor — a single editable box
+  // (mirrors renderQuoteContent but without the attribution line). On publish
+  // blocks.ts renders it as <blockquote class="pullquote"> with the .pq-mark.
+  renderPullquoteContent(block) {
+    var text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.text || ''));
+    return '<blockquote class="pullquote-wrapper">' +
+      '<div class="editable-text pullquote-text" contenteditable="true" data-placeholder="Key idea\u2026">' + text + '</div>' +
+      '</blockquote>';
+  }
+
+  // PR-3 (issue 12): the friendly FAQ editor — N repeatable Question/Answer
+  // rows. Stored as ONE { type:'faqgroup', items:[{q,a}] } block; the public
+  // view-model (adaptBodyBlocks) expands it into the standard faqs[] the
+  // .faq-section renders, so the public output is identical to today's FAQ.
+  faqEscapeAttr(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  faqEscapeText(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  renderFaqGroupContent(block) {
+    var items = Array.isArray(block.data.items) && block.data.items.length ? block.data.items : [{ q: '', a: '' }];
+    var self = this;
+    var bid = block.id;
+    var rows = items.map(function (it, i) {
+      var q = self.faqEscapeAttr(it && it.q);
+      var a = self.faqEscapeText(it && it.a);
+      return '<div class="faq-edit-row" data-faq-row="' + i + '">' +
+        '<input type="text" class="faq-edit-q" data-faq-q="' + i + '" placeholder="Question" value="' + q + '" />' +
+        '<textarea class="faq-edit-a" data-faq-a="' + i + '" rows="2" placeholder="Answer">' + a + '</textarea>' +
+        '<button type="button" class="faq-edit-remove" title="Remove question" onclick="window.blockEditor.removeFaqRow(\'' + bid + '\', ' + i + ')">\u00d7</button>' +
+      '</div>';
+    }).join('');
+    return '<div class="faq-edit">' +
+      '<div class="faq-edit-rows">' + rows + '</div>' +
+      '<button type="button" class="faq-edit-add" onclick="window.blockEditor.addFaqRow(\'' + bid + '\')">+ Add question</button>' +
+      '</div>';
+  }
+
+  // Read every FAQ row's current Q/A from the DOM into block.data.items.
+  readFaqRows(block, content) {
+    var rowEls = content.querySelectorAll('.faq-edit-row');
+    var items = [];
+    Array.prototype.forEach.call(rowEls, function (row) {
+      var qEl = row.querySelector('.faq-edit-q');
+      var aEl = row.querySelector('.faq-edit-a');
+      items.push({ q: qEl ? (qEl.value || '') : '', a: aEl ? (aEl.value || '') : '' });
+    });
+    block.data.items = items.length > 0 ? items : [{ q: '', a: '' }];
+  }
+
+  addFaqRow(blockId) {
+    var block = this.blocks.find(function (b) { return b.id === blockId; });
+    if (!block) { return; }
+    var content = document.querySelector('[data-block-id="' + blockId + '"] .block-content');
+    if (content) { this.readFaqRows(block, content); }
+    if (!Array.isArray(block.data.items)) { block.data.items = []; }
+    block.data.items.push({ q: '', a: '' });
+    this.renderBlocks();
+    this.focusBlock(blockId);
+    this.saveToInput();
+  }
+
+  removeFaqRow(blockId, index) {
+    var block = this.blocks.find(function (b) { return b.id === blockId; });
+    if (!block || !Array.isArray(block.data.items)) { return; }
+    var content = document.querySelector('[data-block-id="' + blockId + '"] .block-content');
+    if (content) { this.readFaqRows(block, content); }
+    block.data.items.splice(index, 1);
+    if (block.data.items.length === 0) { block.data.items.push({ q: '', a: '' }); }
+    this.renderBlocks();
+    this.focusBlock(blockId);
+    this.saveToInput();
   }
 
   renderImageContent(block) {
@@ -1395,6 +1484,16 @@ class BlockEditor {
       el.addEventListener('paste', (e) => this.handlePaste(e));
     });
 
+    // PR-3 (issue 12): the FAQ editor uses real <input>/<textarea> fields (not
+    // contenteditable), so wire their 'input' events to the same handleInput
+    // path that serializes the rows back into block.data.items.
+    if (block.type === 'faqgroup') {
+      const faqFields = content.querySelectorAll('.faq-edit-q, .faq-edit-a');
+      faqFields.forEach(el => {
+        el.addEventListener('input', () => this.handleInput(block, content));
+      });
+    }
+
     // Image block drag-and-drop
     if (block.type === 'image') {
       const dropZone = content.querySelector('.image-upload-placeholder') || content.querySelector('.image-block-preview');
@@ -1492,6 +1591,13 @@ class BlockEditor {
         const quoteCaption = content.querySelector('.quote-caption');
         block.data.text = quoteText ? quoteText.textContent || '' : '';
         block.data.caption = quoteCaption ? quoteCaption.textContent || '' : '';
+        break;
+      case 'pullquote':
+        const pullquoteText = content.querySelector('.pullquote-text');
+        block.data.text = pullquoteText ? pullquoteText.textContent || '' : '';
+        break;
+      case 'faqgroup':
+        this.readFaqRows(block, content);
         break;
     }
     this.saveToInput();
@@ -2104,6 +2210,85 @@ export const editorStyles = `
 .block-content .quote-caption {
   font-size: 13px;
   color: var(--color-text-muted);
+}
+
+/* PR-3: Key idea (pull-quote) editor */
+.block-content .pullquote-wrapper {
+  margin: 0;
+  padding: 12px 16px;
+  border-left: 4px solid var(--color-primary);
+  background: var(--color-bg-alt);
+  border-radius: 0 4px 4px 0;
+}
+
+.block-content .pullquote-text {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+/* PR-3: FAQ group editor */
+.block-content .faq-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.block-content .faq-edit-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.block-content .faq-edit-q,
+.block-content .faq-edit-a {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.block-content .faq-edit-q {
+  font-weight: 700;
+  grid-column: 1;
+}
+
+.block-content .faq-edit-a {
+  grid-column: 1;
+  resize: vertical;
+}
+
+.block-content .faq-edit-remove {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  line-height: 1;
+  font-size: 18px;
+}
+
+.block-content .faq-edit-remove:hover {
+  color: #c0392b;
+  border-color: #c0392b;
+}
+
+.block-content .faq-edit-add {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 6px 12px;
+  font: inherit;
 }
 
 /* Divider */

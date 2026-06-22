@@ -825,6 +825,11 @@ p { margin: 0; }
 .faq-list summary svg { color: var(--tw-text-muted); transition: transform var(--tw-dur); flex-shrink: 0; }
 .faq-list details[open] summary svg { transform: rotate(180deg); color: var(--tw-brand); }
 .faq-list details > p { padding: 0 22px 20px; color: var(--tw-text-muted); line-height: 1.6; margin: 0; }
+/* PR-3 (issue 16): the Do-Not-Sell opt-out card injected into the do-not-sell legal page (renderPageHtml). */
+.ccpa-optout { margin: 2em 0; padding: 24px 26px; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); background: #fff; box-shadow: var(--tw-shadow-sm); display: flex; flex-direction: column; gap: 16px; align-items: flex-start; }
+.ccpa-optout .ccpa-status { margin: 0; color: var(--tw-text-muted); font-size: var(--tw-fs-md); line-height: 1.5; }
+.ccpa-optout .btn-primary { align-self: flex-start; cursor: pointer; }
+.ccpa-optout .btn-primary[disabled] { opacity: 0.6; cursor: progress; }
 .article-sidebar { position: sticky; top: 100px; align-self: start; display: flex; flex-direction: column; gap: 24px; }
 @media (max-width: 800px) { .article-sidebar { position: static; } }
 .sidebar-card { background: #fff; border: 1px solid var(--tw-rule); border-radius: var(--tw-radius); padding: 20px 22px; }
