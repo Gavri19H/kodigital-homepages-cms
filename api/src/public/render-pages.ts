@@ -738,10 +738,20 @@ export async function renderPageHtml(
   // control appended inside its <article>, after the rendered template body.
   // Every other page renders its content_html unchanged.
   const ccpaOptOut = row.slug === "do-not-sell" ? renderDoNotSellOptOut() : "";
+  // PR-4 (issue 2/16): pages whose content_html already opens with its own
+  // <h1> (the 0025 legal templates + AI-generated pages like /page/about) were
+  // rendering the title TWICE — once as this wrapper .page-title h1 and again
+  // as the content's own leading <h1>. Suppress the wrapper when the body
+  // supplies its own leading <h1>, so each page shows exactly one heading.
+  const contentHtml = row.content_html ?? "";
+  const bodyLeadsWithH1 = /^\s*<h1[\s>]/i.test(contentHtml);
+  const pageTitleH1 = bodyLeadsWithH1
+    ? ""
+    : `<h1 class="page-title">${escapeHtml(row.title)}</h1>`;
   const body =
     `<article class="page-article">` +
-    `<h1 class="page-title">${escapeHtml(row.title)}</h1>` +
-    `<div class="page-content">${row.content_html ?? ""}</div>` +
+    pageTitleH1 +
+    `<div class="page-content">${contentHtml}</div>` +
     ccpaOptOut +
     `</article>`;
 
