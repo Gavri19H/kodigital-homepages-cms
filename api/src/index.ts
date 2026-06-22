@@ -48,6 +48,7 @@ import {
 import { adminRouter } from "./admin";
 import publicRouter from "./public/router";
 import privacyRouter from "./privacy";
+import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { processScheduledArticles } from "./workflow";
@@ -125,6 +126,8 @@ app.route("/", previewRouter);
 app.route("/", mediaRouter);
 app.route("/", adminRouter);
 app.route("/", privacyRouter);
+// rescue-4 round-2 (issue 14): first-party newsletter capture (public).
+app.route("/", newsletterRouter);
 
 // ADMIN_HOST safety net (Phase 1.5 T3): on ADMIN_HOST, any unmatched
 // path that reaches this point falls straight through to the

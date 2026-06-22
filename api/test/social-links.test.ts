@@ -52,10 +52,12 @@ describe("T28 social links", () => {
     expect(html).toContain('<nav class="site-footer__social"');
     expect(html).toContain('aria-label="Social media"');
 
+    // rescue-4 round-2 (issue 15): footer social links are circular ICON buttons
+    // (the reference shows icons, not text), each carrying an aria-label.
     const twitterAnchor =
-      '<a class="site-footer__social-link" data-social="twitter" href="https://twitter.com/kodigital" target="_blank" rel="noopener noreferrer me">Twitter</a>';
+      '<a class="site-footer__social-link" data-social="twitter" href="https://twitter.com/kodigital" target="_blank" rel="noopener noreferrer me" aria-label="Twitter">';
     const facebookAnchor =
-      '<a class="site-footer__social-link" data-social="facebook" href="https://facebook.com/kodigital" target="_blank" rel="noopener noreferrer me">Facebook</a>';
+      '<a class="site-footer__social-link" data-social="facebook" href="https://facebook.com/kodigital" target="_blank" rel="noopener noreferrer me" aria-label="Facebook">';
     expect(html).toContain(twitterAnchor);
     expect(html).toContain(facebookAnchor);
     expect(html.indexOf(twitterAnchor)).toBeGreaterThan(footerOpen);
