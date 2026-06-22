@@ -60,7 +60,7 @@ export type BodyBlock =
   | { type: "quote"; text: string; cite: string | null }
   | { type: "list"; ordered: boolean; items: ReadonlyArray<string> }
   | { type: "code"; language: string | null; code: string }
-  | { type: "callout"; title: string | null; text: string }
+  | { type: "callout"; title: string | null; text: string; items: ReadonlyArray<string> }
   | {
       type: "affiliate";
       title: string | null;
@@ -230,7 +230,9 @@ function blockToPlainText(block: BodyBlock): string {
     case "code":
       return block.code;
     case "callout":
-      return block.title !== null ? `${block.title} ${block.text}` : block.text;
+      return [block.title ?? "", block.text, block.items.join(" ")]
+        .filter((p) => p.length > 0)
+        .join(" ");
     case "affiliate":
       return [block.title, block.description].filter((s): s is string => s !== null).join(" ");
     case "faq":
@@ -348,12 +350,18 @@ export function adaptBodyBlocks(
       case "image":
       case "img": {
         const rawSrc = asString(b.src).length > 0 ? asString(b.src) : asString(b.url);
+        // T2: body-image src flows through the /media/ route. The editor
+        // already persists "/media/<key>" (left unchanged); a legacy bare
+        // storage key is prefixed so the inline image still loads.
+        const resolvedSrc = mediaUrl(rawSrc) ?? "";
+        // PR-2b: a RESERVED mid-article image slot has src:"" until the image
+        // step fills it. An unresolved/empty src renders no <img> at all (no
+        // broken-image icon), so skip the block entirely on the public read;
+        // the stored content_json keeps the slot for the image step to fill.
+        if (resolvedSrc.length === 0) break;
         blocks.push({
           type: "image",
-          // T2: body-image src flows through the /media/ route. The editor
-          // already persists "/media/<key>" (left unchanged); a legacy bare
-          // storage key is prefixed so the inline image still loads.
-          src: mediaUrl(rawSrc) ?? "",
+          src: resolvedSrc,
           alt: asString(b.alt),
           caption: typeof b.caption === "string" && b.caption.length > 0 ? b.caption : null,
         });
@@ -396,10 +404,16 @@ export function adaptBodyBlocks(
       case "note":
       case "tip": {
         // §12 `callout` → the template renders `<aside class="callout-box">`.
+        // PR-2a: a callout MAY carry a ✓ checklist (b.items, array of strings)
+        // in addition to / instead of free-text body, so a "Key takeaways" box
+        // renders as the design's `.callout-box li` list.
         const title = typeof b.title === "string" && b.title.length > 0 ? b.title : null;
         const text = asString(b.text);
-        if (title === null && text.length === 0) break;
-        blocks.push({ type: "callout", title, text });
+        const items = Array.isArray(b.items)
+          ? b.items.filter((x): x is string => typeof x === "string" && x.length > 0)
+          : [];
+        if (title === null && text.length === 0 && items.length === 0) break;
+        blocks.push({ type: "callout", title, text, items });
         break;
       }
       case "affiliate":

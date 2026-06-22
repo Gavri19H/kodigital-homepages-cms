@@ -49,6 +49,9 @@ export type GeneratedArticleFAQ = { question: string; answer: string };
 export type GeneratedArticleSection = {
   heading: GeneratedArticleHeading;
   paragraphs: string[];
+  // PR-2a: optional list a section MAY carry when a bulleted breakdown
+  // genuinely helps. Absent/empty => no list block is emitted.
+  bullets?: string[];
 };
 export type GeneratedArticle = {
   meta: GeneratedMeta;
@@ -58,6 +61,16 @@ export type GeneratedArticle = {
   intro: string;
   sections: GeneratedArticleSection[];
   faqs: GeneratedArticleFAQ[];
+  // PR-2a: optional editorial extras. key_idea renders as the body
+  // pull-quote; takeaways render as the design's "Key takeaways" checklist
+  // callout. Both OPTIONAL — validateGeneratedArticle does NOT require them.
+  key_idea?: string;
+  takeaways?: string[];
+  // PR-2b: optional "Editor's pick" recommendation. When present with a
+  // non-empty title it renders as the design's non-link "Editor's pick" card
+  // (an affiliate block with url:null). OPTIONAL -- validateGeneratedArticle
+  // does NOT require it (the validator is unchanged).
+  editors_pick?: { title: string; why: string };
 };
 export type GeneratedArticleSEO = {
   meta: GeneratedMeta;

@@ -262,13 +262,18 @@ function renderBlockHtml(
       return `<pre><code${block.language !== null ? ` class="language-${escAttr(block.language)}"` : ""}>${escText(block.code)}</code></pre>`;
     case "callout": {
       // §12 `callout` → design `<div class="callout-box"><h4>{title}</h4>…</div>`
-      // (brand-tint box, public-css.ts). The worker callout VM carries a single
-      // free-text body (not list items), so the body renders as a <p>; the
-      // design's <ul><li> checklist form is for list-shaped callouts.
+      // (brand-tint box, public-css.ts). PR-2a: when the callout carries a
+      // checklist (items[]) it renders as the design's `<ul><li>` ✓ box
+      // (CSS `.callout-box li::before{content:"✓"}`); otherwise it keeps the
+      // legacy single free-text `<p>` body (backward compatible).
       const title =
         block.title !== null && block.title.length > 0
           ? `<h4>${escText(block.title)}</h4>`
           : "";
+      if (block.items.length > 0) {
+        const items = block.items.map((i) => `<li>${escText(i)}</li>`).join("");
+        return `<div class="callout-box">${title}<ul>${items}</ul></div>`;
+      }
       const body = block.text.length > 0 ? `<p>${escText(block.text)}</p>` : "";
       return `<div class="callout-box">${title}${body}</div>`;
     }
@@ -307,6 +312,10 @@ function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
   let headingIndex = 0;
   return article.body
     .map((block) => {
+      // faq blocks populate vm.faqs (collected by adaptBodyBlocks) and render in
+      // the dedicated faq-section; rendering them inline here too would DOUBLE
+      // the FAQs (rescue-4 round-2 PR-2a). Skip them in the body flow.
+      if (block.type === "faq") return "";
       if (block.type === "heading") headingIndex += 1;
       return renderBlockHtml(block, headingIndex);
     })

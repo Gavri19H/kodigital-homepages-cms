@@ -59,6 +59,7 @@ import {
   type GeneratedAltText,
   type GeneratedArticle,
   type GeneratedArticleSEO,
+  type GeneratedArticleSection,
   type GeneratedMeta,
   type GeneratedSiteSettings,
   type GeneratedStarterArticlePlan,
@@ -82,6 +83,54 @@ import {
   assertTenantBoundary,
   requireSiteIdForArticleInput,
 } from "../../site/tenant-guards";
+
+// PR-2a anti-AI-tell safety net: em dash (U+2014) and en dash (U+2013) are the
+// single loudest "this was written by a model" signal. The prompt forbids them,
+// but the model occasionally slips one in; this strips them deterministically
+// from EVERY generated string (in both the success-parse and the fallback path)
+// so a stored article never carries one. A surrounding-space dash becomes ", "
+// (em dashes are clausal); a tight in-word dash becomes a plain hyphen.
+function stripEmDashes(text: string): string {
+  return text
+    .replace(/\s*[\u2014\u2013]\s*/g, ", ")
+    .replace(/[\u2014\u2013]/g, "-");
+}
+
+// Apply the dash safety net across the whole article payload: title, key_idea,
+// intro, every section heading + paragraph + bullet, takeaways, and faq q+a.
+function applyArticleSafetyNet(article: GeneratedArticle): GeneratedArticle {
+  const clean = (v: unknown): string =>
+    typeof v === "string" ? stripEmDashes(v) : "";
+  return {
+    ...article,
+    title: clean(article.title),
+    intro: clean(article.intro),
+    key_idea:
+      typeof article.key_idea === "string" ? clean(article.key_idea) : article.key_idea,
+    sections: (Array.isArray(article.sections) ? article.sections : []).map((sec) => ({
+      ...sec,
+      heading: { ...sec.heading, text: clean(sec.heading?.text) },
+      paragraphs: (Array.isArray(sec.paragraphs) ? sec.paragraphs : []).map(clean),
+      bullets: Array.isArray(sec.bullets) ? sec.bullets.map(clean) : sec.bullets,
+    })),
+    takeaways: Array.isArray(article.takeaways)
+      ? article.takeaways.map(clean)
+      : article.takeaways,
+    // PR-2b: run the dash safety net over the editors_pick strings too, so the
+    // stored "Editor's pick" card is em-dash-free like the rest of the article.
+    editors_pick:
+      article.editors_pick && typeof article.editors_pick === "object"
+        ? {
+            title: clean(article.editors_pick.title),
+            why: clean(article.editors_pick.why),
+          }
+        : article.editors_pick,
+    faqs: (Array.isArray(article.faqs) ? article.faqs : []).map((f) => ({
+      question: clean(f.question),
+      answer: clean(f.answer),
+    })),
+  };
+}
 
 // T7: Text generators (tagline / description / about / plan / article /
 // SEO / alt-text).
@@ -757,21 +806,53 @@ export async function generateStarterArticle(
         input.title,
         input.summary,
       );
-      return {
+      // PR-2a: the model now returns key_idea + per-section bullets + takeaways
+      // (the extended GeneratedArticle shape). Pass them through, guarding types
+      // so a malformed field degrades to undefined/[] rather than poisoning the
+      // stored doc. The em-dash safety net runs on the assembled article below.
+      const sections: GeneratedArticleSection[] =
+        Array.isArray(parsed.sections) && parsed.sections.length >= 3
+          ? parsed.sections.map((sec) => ({
+              heading: sec.heading,
+              paragraphs: Array.isArray(sec.paragraphs) ? sec.paragraphs : [],
+              bullets: Array.isArray(sec.bullets)
+                ? sec.bullets.filter((b): b is string => typeof b === "string")
+                : undefined,
+            }))
+          : body.sections;
+      const keyIdea =
+        typeof parsed.key_idea === "string" && parsed.key_idea.trim().length > 0
+          ? parsed.key_idea
+          : body.key_idea;
+      const takeaways = Array.isArray(parsed.takeaways)
+        ? parsed.takeaways.filter((t): t is string => typeof t === "string")
+        : body.takeaways;
+      // PR-2b: pass through editors_pick when the model returned a well-formed
+      // object with a non-empty title; otherwise fall back to the deterministic
+      // body's editors_pick. Type-guarded so a malformed field degrades cleanly.
+      const ep = parsed.editors_pick;
+      const editorsPick =
+        ep &&
+        typeof ep === "object" &&
+        typeof ep.title === "string" &&
+        ep.title.trim().length > 0
+          ? { title: ep.title, why: typeof ep.why === "string" ? ep.why : "" }
+          : body.editors_pick;
+      return applyArticleSafetyNet({
         meta,
         site_id: actorSiteId,
         slug: parsed.slug ?? input.slug,
         title: parsed.title ?? input.title,
         intro: parsed.intro ?? body.intro,
-        sections:
-          Array.isArray(parsed.sections) && parsed.sections.length >= 3
-            ? parsed.sections
-            : body.sections,
+        key_idea: keyIdea,
+        sections,
+        takeaways,
+        editors_pick: editorsPick,
         faqs:
           Array.isArray(parsed.faqs) && parsed.faqs.length >= 3
             ? parsed.faqs
             : body.faqs,
-      };
+      });
     },
     buildFallback: (meta) => {
       const body = fallbackArticleBody(
@@ -780,15 +861,21 @@ export async function generateStarterArticle(
         input.title,
         input.summary,
       );
-      return {
+      // PR-2a: the deterministic fallback now also supplies key_idea + takeaways
+      // + per-section bullets, and the dash safety net runs here too so a
+      // no-API-key article matches the extended schema and is em-dash-free.
+      return applyArticleSafetyNet({
         meta,
         site_id: input.site_id,
         slug: input.slug,
         title: input.title,
         intro: body.intro,
+        key_idea: body.key_idea,
         sections: body.sections,
+        takeaways: body.takeaways,
+        editors_pick: body.editors_pick,
         faqs: body.faqs,
-      };
+      });
     },
     validate: (p) => {
       const errors = validateGeneratedArticle(p);

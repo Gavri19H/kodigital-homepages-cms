@@ -591,6 +591,27 @@ async function runImageGenerator(
     };
   }
 
+  // PR-2b: never persist a 0-byte image. generateImage already THROWS
+  // EmptyImageResultError on an empty render (caught above → 'failed'/retriable),
+  // but guard here too so a 0-length buffer from ANY path is recorded as
+  // failed/retriable rather than written to R2 + inserted as a media row marked
+  // 'success'. 'failed' is deliberately NOT in the idempotency short-circuit set
+  // above, so the unit can retry. The model id stays locked (imageModel).
+  if (imageResult.bytes.byteLength === 0) {
+    await finishGenerationLogFailure(args.env, {
+      idempotency_key,
+      error_message: "image generation produced 0 bytes",
+    });
+    return {
+      ai_generation_id,
+      idempotency_key,
+      status: "failed",
+      media_id: 0,
+      storage_key,
+      prompt: args.prompt,
+    };
+  }
+
   // env.MEDIA.put writes the deterministic storage_key in R2. The same
   // (site_id, target_kind, target_id) input always overwrites the same key.
   await args.env.MEDIA.put(storage_key, imageResult.bytes, {

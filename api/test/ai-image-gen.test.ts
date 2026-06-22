@@ -306,3 +306,86 @@ describe("T1 AI image generation hardening", () => {
     expect(row?.model).toBe("gpt-image-2");
   });
 });
+
+describe("PR-2b image retry-on-empty", () => {
+  // An empty 200 (no b64_json, no url) is a transient empty render: the image
+  // path retries (ceiling 2) and succeeds on a later non-empty response rather
+  // than returning a 0-byte ArrayBuffer.
+  it("retries an empty 200 image response then succeeds with real bytes", async () => {
+    const env = baseEnv({ OPENAI_API_KEY: "sk-real" });
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      // 1st: 200 but no data → empty result, retriable.
+      .mockResolvedValueOnce(jsonResponse({ data: [{}] }))
+      // 2nd: 200 with real bytes ("hi" = 2 bytes).
+      .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: "aGk=" }] }));
+    const client = createOpenAIClient(env);
+    const result = await client.generateImage({
+      prompt: "feature image",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    if ("skipped_no_api_key" in result && result.skipped_no_api_key) {
+      throw new Error("expected image bytes after retry");
+    }
+    // initial empty attempt + one retry that succeeds.
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.bytes.byteLength).toBe(2);
+    expect(result.retries).toBe(1);
+  });
+
+  // When EVERY attempt is empty, the image path exhausts its retries (default
+  // ceiling 2 → 3 attempts) and THROWS rather than returning 0 bytes.
+  it("throws after exhausting retries when every image response is empty (no 0-byte success)", async () => {
+    const env = baseEnv({ OPENAI_API_KEY: "sk-real" });
+    // A FRESH empty 200 Response per call (each fetch in the retry loop gets its
+    // own response, exactly as the real OpenAI endpoint returns one per request).
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse({ data: [{}] }));
+    const client = createOpenAIClient(env);
+    await expect(
+      client.generateImage({
+        prompt: "feature image",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/no image bytes/i);
+    // default image ceiling is 2 retries → 3 total attempts, then it gives up.
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  // generateFeatureImage records a failed/retriable receipt (NOT a 0-byte media
+  // row marked success) when the client yields an empty result it cannot fill.
+  it("generateFeatureImage records failed + inserts no media when the image is empty after retries", async () => {
+    const { env, ai, media, r2 } = makeImageEnv({ apiKey: "sk-livefakekey0000" });
+    const emptyClient: OpenAIClient = {
+      hasApiKey: () => true,
+      async generateText() {
+        return { text: "", model: "gpt-5.5", retries: 0, status: 200 };
+      },
+      // A 0-byte buffer that slips past the client (defensive guard in
+      // runImageGenerator must catch it).
+      async generateImage() {
+        return {
+          bytes: new ArrayBuffer(0),
+          mime: "image/png",
+          model: "gpt-image-2",
+          retries: 2,
+          status: 200,
+        };
+      },
+    };
+    const result = await generateFeatureImage(env, {
+      site_id: "site-empty",
+      vertical: "personal finance",
+      article_title: "Empty image",
+      article_slug: "empty-image",
+      client: emptyClient,
+    });
+    expect(result.status).toBe("failed");
+    expect(result.media_id).toBe(0);
+    expect(media.length).toBe(0);
+    expect(r2.size).toBe(0);
+    const row = ai.get(result.idempotency_key);
+    expect(row?.status).toBe("failed");
+  });
+});
