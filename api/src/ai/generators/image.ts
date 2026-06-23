@@ -658,8 +658,19 @@ async function runImageGenerator(
   // the typed receipts row.
   const mediaRow = await args.env.DB
     .prepare(
+      // rescue-4 round-4 (issue 1 regen): UPSERT on the deterministic storage_key.
+      // First generation plain-inserts; a REGENERATION at the same key (the prompt
+      // changed but the key is by site+kind+slug) reuses the existing media row -
+      // same id, so the article's featured_image_id stays valid - instead of
+      // hitting `UNIQUE constraint failed: media.storage_key`. site_id +
+      // storage_key are left out of the SET (they are the identity / conflict key).
       "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder, site_id, ai_generation_id) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(storage_key) DO UPDATE SET " +
+        "filename = excluded.filename, mime_type = excluded.mime_type, " +
+        "size_bytes = excluded.size_bytes, alt_text = excluded.alt_text, " +
+        "folder = excluded.folder, ai_generation_id = excluded.ai_generation_id " +
+        "RETURNING id",
     )
     .bind(
       args.filename,

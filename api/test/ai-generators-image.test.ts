@@ -80,6 +80,22 @@ function makeFakeDb() {
             string | null,
             string | null,
           ];
+          // Faithful to the real schema: media.storage_key is UNIQUE. A plain
+          // INSERT on an existing key throws (the round-4 regen bug); the
+          // ON CONFLICT(storage_key) DO UPDATE form UPSERTs the existing row.
+          const dup = media.find((m) => m.storage_key === storage_key);
+          if (dup) {
+            if (sql.includes("ON CONFLICT(storage_key) DO UPDATE")) {
+              dup.filename = filename;
+              dup.mime_type = mime_type;
+              dup.size_bytes = size_bytes;
+              dup.alt_text = alt_text;
+              dup.folder = folder;
+              dup.ai_generation_id = ai_generation_id;
+              return { id: dup.id } as unknown as T;
+            }
+            throw new Error("UNIQUE constraint failed: media.storage_key");
+          }
           const id = nextMediaId++;
           media.push({
             id,
@@ -379,6 +395,35 @@ describe("T8 image generators — success path inserts media row with site_id + 
     const row = media[0]!;
     expect(row.site_id).toBe("site-logo");
     expect(row.ai_generation_id).toBe(result.ai_generation_id);
+  });
+});
+
+describe("T8 regen UPSERT (round-4 issue 1)", () => {
+  it("generateFeatureImage: REGENERATING at the same storage_key UPSERTs the media row (same id, no UNIQUE error)", async () => {
+    const { env, ai, media } = makeEnv({ apiKey: "sk-livefakekey-regen" });
+    const client = imageSuccessClient("regen-1");
+    const input = {
+      site_id: "site-regen",
+      vertical: "jobs",
+      article_title: "A content role",
+      article_slug: "a-content-role",
+      client,
+    };
+    const first = await generateFeatureImage(env, input);
+    expect(first.status).toBe("success");
+    expect(media.length).toBe(1);
+    // Simulate the operator regen path: bust the idempotency short-circuit so the
+    // NEW prompt actually runs again (status no longer success). This is exactly
+    // the path that hit `UNIQUE constraint failed: media.storage_key`.
+    const aiRow = ai.get(first.idempotency_key);
+    if (aiRow) aiRow.status = "pending";
+    const second = await generateFeatureImage(env, input);
+    // UPSERT: succeeds, reuses the SAME media row (so the article's
+    // featured_image_id stays valid) — no duplicate, no UNIQUE throw.
+    expect(second.status).toBe("success");
+    expect(media.length).toBe(1);
+    expect(second.media_id).toBe(first.media_id);
+    expect(second.storage_key).toBe(first.storage_key);
   });
 });
 
