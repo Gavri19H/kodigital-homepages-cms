@@ -221,6 +221,7 @@ function renderArticleHero(article: ArticleViewModel["article"], siteName: strin
 function renderBlockHtml(
   block: ArticleViewModel["article"]["body"][number],
   headingIndex: number,
+  article: ArticleViewModel["article"],
 ): string {
   switch (block.type) {
     case "paragraph":
@@ -294,17 +295,23 @@ function renderBlockHtml(
         block.description !== null && block.description.length > 0
           ? `<span class="affiliate-price">${escText(block.description)}</span>`
           : "";
-      // rescue-4 round-3 (issue 4): the "Editor's pick" carries NO image, so the
-      // old `.ph` gradient rendered as a broken/empty placeholder (and its fixed
-      // image column forced horizontal overflow on mobile). Drop the image and
-      // use the `.affiliate-card--noimg` layout (body + CTA) — a clean callout
-      // that stacks cleanly on mobile.
+      // rescue-4 round-4 (issue 4c): the Editor's pick must carry a small image.
+      // The affiliate block itself has no image field, so reuse the article's own
+      // feature image as the thumb (a real photo, no new infra). When the article
+      // has no image, fall back to the clean no-image (`--noimg`) layout.
+      const thumb =
+        article.imageUrl !== null && article.imageUrl.length > 0
+          ? `<div class="affiliate-img"><img src="${escAttr(article.imageUrl)}" alt="${escAttr(article.imageAlt ?? "")}" width="120" height="90" loading="lazy" decoding="async"></div>`
+          : "";
       const inner =
+        thumb +
         `<div class="affiliate-body"><span class="affiliate-eyebrow">Editor's pick</span>${name}${desc}</div>` +
         `<span class="affiliate-cta">${escText(block.cta)} →</span>`;
+      const cardClass =
+        thumb.length > 0 ? "affiliate-card" : "affiliate-card affiliate-card--noimg";
       return block.url !== null && isSafeHref(block.url)
-        ? `<a class="affiliate-card affiliate-card--noimg" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${inner}</a>`
-        : `<div class="affiliate-card affiliate-card--noimg">${inner}</div>`;
+        ? `<a class="${cardClass}" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${inner}</a>`
+        : `<div class="${cardClass}">${inner}</div>`;
     }
     case "faq":
       return `<details class="article-body__faq"><summary>${escText(block.question)}</summary><div>${escText(block.answer)}</div></details>`;
@@ -321,7 +328,7 @@ function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
       // the FAQs (rescue-4 round-2 PR-2a). Skip them in the body flow.
       if (block.type === "faq") return "";
       if (block.type === "heading") headingIndex += 1;
-      return renderBlockHtml(block, headingIndex);
+      return renderBlockHtml(block, headingIndex, article);
     })
     .join("\n");
 }

@@ -388,6 +388,38 @@ export async function generateLogoImage(
   });
 }
 
+// rescue-4 round-4 (issue 1): feature images were repetitive + generic because
+// EVERY article received a byte-identical prompt, so gpt-image-2 converged on the
+// same faceless "person at a laptop" stock shot. Inject a deterministic per-article
+// art-direction directive (seeded by the slug) so each image gets a distinct
+// composition + subject + light, while staying reproducible (idempotent re-runs
+// pick the same directive). 8 shots x 4 light moods = 32 combinations.
+const ART_DIRECTION_SHOTS: readonly string[] = [
+  "Compose a wide environmental establishing shot with the subject small inside a real, lived-in setting; plenty of context and negative space.",
+  "Compose a tight macro close-up of a single telling object or detail; shallow depth of field, everything else falling soft.",
+  "Compose a top-down flat-lay of the real tools, papers, or materials involved, arranged naturally on a surface.",
+  "Compose a candid mid-action moment with real motion and texture, captured documentary-style, nothing posed.",
+  "Compose a natural portrait of one person looking straight into the camera, relaxed and real, against a clean shallow background.",
+  "Compose an evocative still-life that suggests the idea metaphorically rather than literally; one strong subject and deliberate shadow.",
+  "Compose a candid interaction between two people in a genuine setting, captured from a respectful distance.",
+  "Compose a place-led frame of the room, street, or space where this happens, with people incidental or absent.",
+];
+const ART_DIRECTION_LIGHT: readonly string[] = [
+  "Soft natural window light with a calm, muted palette.",
+  "Warm golden-hour directional light, rich but restrained color.",
+  "Cool overcast daylight, quiet and desaturated.",
+  "One bold side light with deliberate shadow and editorial contrast.",
+];
+function articleArtDirection(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  const shot = ART_DIRECTION_SHOTS[h % ART_DIRECTION_SHOTS.length];
+  const light = ART_DIRECTION_LIGHT[(h >>> 3) % ART_DIRECTION_LIGHT.length];
+  return `${shot} ${light}`;
+}
+
 export interface GenerateFeatureImageInput extends BuildFeatureImagePromptInput {
   article_slug: string;
   client?: OpenAIClient;
@@ -411,6 +443,9 @@ export async function generateFeatureImage(
       vertical: input.vertical,
       brand_name: input.brand_name,
       site_id: input.site_id,
+      // per-article variety token (issue 1) — resolves the preset's
+      // {{art_direction}} so each article gets a distinct, concrete shot.
+      art_direction: articleArtDirection(input.article_slug),
     },
   );
   const prompt = presetPrompt ?? buildFeatureImagePrompt(input);

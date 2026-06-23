@@ -21,14 +21,14 @@ export function buildPrompt(input: BuildFeatureImagePromptInput): string {
   // distinct and look like real editorial photography rather than samey,
   // staged catalog/stock or AI clip-art. Deterministic for the same input.
   return [
-    `You are an editorial photo director. Describe ONE specific, evocative editorial image for the article "${title}" in the ${vertical} space.`,
+    `You are a world-class editorial photo director. Describe ONE specific, evocative, photoreal editorial photograph for the article "${title}" in the ${vertical} space.`,
     `Capture a concrete real-world moment that conveys the article's core idea, not a literal label of the title.`,
-    `Vary the treatment - choose ONE: a candid over-the-shoulder moment; a warm close-up detail; a wide environmental scene; a hands-at-work top-down; or a natural portrait with the subject looking straight at the camera.`,
-    `If a person faces away or is mid-action, keep it natural and unposed, never staged or acting.`,
-    `Use natural directional light, shallow depth of field, real textures, and a calm modern ${palette} palette.`,
-    `A soft illustrative or gentle cartoon style is allowed when it genuinely suits the subject.`,
-    `Each image must be visually distinct from the others and look like a real editorial photograph, never generic stock or AI clip-art.`,
-    `No text, no words, no captions, no logos, no watermarks, no collage. No celebrities, no copyrighted characters or brand logos. No medical, financial, or legal advice depicted as authoritative.`,
-    `16:9 landscape.`,
+    `Vary the treatment - choose ONE: a wide environmental scene; a tight macro detail; a hands-at-work top-down flat-lay; a candid mid-action moment; a natural portrait looking straight at the camera; or a place-led frame of the space itself.`,
+    `AVOID the overused cliche of a person seen from behind sitting at a laptop or at a desk of pinned photos.`,
+    `Use natural directional light, shallow depth of field, real textures, and a refined modern ${palette} palette.`,
+    `Photoreal only - never an illustration, cartoon, 3D render, or clip-art.`,
+    `Each image must be visually distinct from the others and look like a real, professionally shot editorial photograph, never generic stock.`,
+    `No text, no words, no captions, no logos, no watermarks, no charts, no collage. No celebrities, no copyrighted characters or brand logos. No medical, financial, or legal advice depicted as authoritative.`,
+    `16:9 landscape, magazine quality.`,
   ].join("\n");
 }
