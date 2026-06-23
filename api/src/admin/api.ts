@@ -894,6 +894,7 @@ api.patch("/articles/:id", async (c) => {
     featured_image_id?: unknown;
     seo_title?: unknown;
     seo_description?: unknown;
+    subtitle?: unknown;
     author_name?: unknown;
     author_bio?: unknown;
   }
@@ -1094,6 +1095,10 @@ api.patch("/articles/:id", async (c) => {
   ) {
     setClauses.push("seo_description = ?");
     bindings.push(body.seo_description);
+  }
+  if (typeof body.subtitle === "string" || body.subtitle === null) {
+    setClauses.push("subtitle = ?");
+    bindings.push(body.subtitle);
   }
   if (typeof body.author_name === "string" || body.author_name === null) {
     setClauses.push("author_name = ?");
