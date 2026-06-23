@@ -107,6 +107,8 @@ function applyArticleSafetyNet(article: GeneratedArticle): GeneratedArticle {
     intro: clean(article.intro),
     key_idea:
       typeof article.key_idea === "string" ? clean(article.key_idea) : article.key_idea,
+    subtitle:
+      typeof article.subtitle === "string" ? clean(article.subtitle) : article.subtitle,
     sections: (Array.isArray(article.sections) ? article.sections : []).map((sec) => ({
       ...sec,
       heading: { ...sec.heading, text: clean(sec.heading?.text) },
@@ -838,11 +840,19 @@ export async function generateStarterArticle(
         ep.title.trim().length > 0
           ? { title: ep.title, why: typeof ep.why === "string" ? ep.why : "" }
           : body.editors_pick;
+      // rescue-4 round-3 (issue 3): the model returns a "subtitle" teaser per the
+      // 0027 prompt; extract it here (it was being dropped by the parser, so the
+      // hero fell back to the body excerpt = the first-paragraph repeat).
+      const subtitle =
+        typeof parsed.subtitle === "string" && parsed.subtitle.trim().length > 0
+          ? parsed.subtitle.trim()
+          : undefined;
       return applyArticleSafetyNet({
         meta,
         site_id: actorSiteId,
         slug: parsed.slug ?? input.slug,
         title: parsed.title ?? input.title,
+        subtitle,
         intro: parsed.intro ?? body.intro,
         key_idea: keyIdea,
         sections,
