@@ -20,7 +20,6 @@ import {
   brandGlyphSvg,
   iconArrow,
   iconBrandMark,
-  iconChevronDown,
   iconFacebook,
   iconInstagram,
   iconLinkedin,
@@ -320,15 +319,14 @@ export function renderHeader(args: HeaderArgs): string {
   // (issue 1) — NOT the uploaded logo <img> (which was a poor AI mockup).
   const logoHtml = brandLogoHtml(site);
   // Design header child order: .brand → .header-search → .header-nav
-  // (4 nav-links, the first with a chevron, then a .btn-outline "Sign in").
-  // Each nav label is wrapped in <span class="label"> so the 880px breakpoint
-  // can hide the text (design `.nav-link span.label { display:none }`).
+  // (nav-links, then a .btn-outline "Sign in"). round-4 (issue 4a): the leading
+  // chevron was removed — it implied a dropdown that was never built and just
+  // reloaded "/". The whole .header-nav is hidden < 880px (see public-css).
   const nav = args.nav !== undefined && args.nav.length > 0 ? args.nav : CONTRACT_NAV;
   const navLinks = nav
-    .map((n, i) => {
+    .map((n) => {
       const current = n.active === true ? ' aria-current="page"' : "";
-      const chevron = i === 0 ? iconChevronDown({ className: "nav-chevron", size: 12 }) : "";
-      return `<a class="nav-link" href="${escAttr(n.href)}"${current}><span class="label">${escText(n.label)}</span>${chevron}</a>`;
+      return `<a class="nav-link" href="${escAttr(n.href)}"${current}><span class="label">${escText(n.label)}</span></a>`;
     })
     .join("");
   return `<header class="site-header" role="banner">

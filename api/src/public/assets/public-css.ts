@@ -72,7 +72,14 @@ export const publicCss: string = `
 
 /* === RESET === */
 *,*::before,*::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; color-scheme: light; overflow-x: hidden; }
+/* round-4 (issue 3): the article right-rail lost its DESKTOP position:sticky
+   because PR-5 added overflow-x:hidden to html/body as a mobile band-aid, and
+   ANY non-visible overflow (hidden AND clip) on an ancestor disables sticky on
+   every descendant. The band-aid is removed here; the real mobile-overflow
+   sources (the orphaned header nav + the section gutter) are fixed at root, and
+   a scoped safety-net guard lives in the max-width:800px block below (where the
+   sidebar is already position:static, so it can never break an active sticky). */
+html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; color-scheme: light; }
 body {
   margin: 0;
   background: var(--tw-bg);
@@ -80,9 +87,13 @@ body {
   font-family: var(--tw-font-sans);
   font-size: var(--tw-fs-base);
   line-height: 1.55;
-  overflow-x: hidden;
   max-width: 100%;
 }
+/* round-4 (issue 3): scoped mobile overflow safety net. Only <=800px (where the
+   article sidebar is already position:static) so it can never disable an active
+   desktop sticky. Stops the "scroll sideways" mobile complaint if any edge
+   element overflows. */
+@media (max-width: 800px) { html, body { overflow-x: hidden; } }
 img { max-width: 100%; height: auto; display: block; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
@@ -189,8 +200,10 @@ p { margin: 0; }
 
 @media (max-width:880px) {
   .header-search { display: none; }
-  .header-nav { gap: 12px; }
-  .nav-link span.label { display: none; }
+  /* round-4 (issue 4a): on mobile the nav links collapsed to empty chevron
+     stubs and the (non-wired) Sign in button ran off the right edge. Hide the
+     whole nav for a clean, non-overflowing brand-only header. */
+  .header-nav { display: none; }
 }
 
 /* === HERO === */
@@ -319,7 +332,11 @@ p { margin: 0; }
 .cat-rail-arrow:hover { background: var(--tw-brand); color: #fff; }
 
 /* === SECTION === */
-.section { padding: clamp(28px, 4vw, 56px) 0; }
+/* round-4 (issue 4b): the padding shorthand here wiped the horizontal gutter
+   of .container.section elements (both classes on one node), so section heads
+   touched the screen edges on mobile. padding-block sets only top/bottom and
+   leaves the .container left and right padding intact. */
+.section { padding-block: clamp(28px, 4vw, 56px); }
 .section--soft { background: var(--tw-bg-soft); }
 
 .section-head {
