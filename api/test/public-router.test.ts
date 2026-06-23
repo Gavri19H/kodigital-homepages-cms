@@ -982,7 +982,11 @@ function makeCategoryDb(): D1Database {
           return null;
         },
         async all<T = unknown>() {
-          if (sql.startsWith("SELECT * FROM articles WHERE category_id")) {
+          // rescue-4 round-3 (issue 1): fetchCategoryArticles now LEFT JOINs
+          // media (`SELECT a.*, m.storage_key ... FROM articles a ... WHERE
+          // a.category_id = ?`), so match the new shape, not the old
+          // `SELECT * FROM articles WHERE category_id` literal.
+          if (sql.includes("FROM articles") && sql.includes("category_id")) {
             return {
               results: CATEGORY_ARTICLES as unknown as T[],
               success: true,

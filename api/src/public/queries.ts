@@ -14,6 +14,15 @@ import type { ArticleRow } from "../db";
 import type { SitemapPageRow } from "./sitemap";
 import { mediaUrl } from "./view-models/media-url";
 
+// rescue-4 round-3 (issue 1): category/tag listing rows carry the resolved
+// feature image (storage_key + alt) so their cards render the REAL image like
+// the homepage cards, not the bare teal gradient placeholder. The homepage
+// path (view-models/home.ts) already LEFT JOINs media; these listings did not.
+export type ArticleCardRow = ArticleRow & {
+  image_url?: string | null;
+  image_alt?: string | null;
+};
+
 export interface PublicPageRow {
   id: number;
   slug: string;
@@ -88,15 +97,18 @@ export async function fetchCategoryArticles(
   siteId: string,
   page: number,
   pageSize: number = PUBLIC_PAGE_SIZE,
-): Promise<ArticleRow[]> {
+): Promise<ArticleCardRow[]> {
   const offset = Math.max(0, (page - 1) * pageSize);
   const result = await db
     .prepare(
-      "SELECT * FROM articles WHERE category_id = ? AND site_id = ? AND status = 'published' " +
-        "ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?",
+      "SELECT a.*, m.storage_key AS image_url, m.alt_text AS image_alt " +
+        "FROM articles a " +
+        "LEFT JOIN media m ON m.id = a.featured_image_id " +
+        "WHERE a.category_id = ? AND a.site_id = ? AND a.status = 'published' " +
+        "ORDER BY a.published_at DESC, a.id DESC LIMIT ? OFFSET ?",
     )
     .bind(categoryId, siteId, pageSize, offset)
-    .all<ArticleRow>();
+    .all<ArticleCardRow>();
   return result.results ?? [];
 }
 
@@ -126,17 +138,18 @@ export async function fetchTagArticles(
   siteId: string,
   page: number,
   pageSize: number = PUBLIC_PAGE_SIZE,
-): Promise<ArticleRow[]> {
+): Promise<ArticleCardRow[]> {
   const offset = Math.max(0, (page - 1) * pageSize);
   const result = await db
     .prepare(
-      "SELECT a.* FROM articles a " +
+      "SELECT a.*, m.storage_key AS image_url, m.alt_text AS image_alt FROM articles a " +
+        "LEFT JOIN media m ON m.id = a.featured_image_id " +
         "JOIN article_tags atg ON atg.article_id = a.id " +
         "WHERE atg.tag_id = ? AND a.site_id = ? AND a.status = 'published' " +
         "ORDER BY a.published_at DESC, a.id DESC LIMIT ? OFFSET ?",
     )
     .bind(tagId, siteId, pageSize, offset)
-    .all<ArticleRow>();
+    .all<ArticleCardRow>();
   return result.results ?? [];
 }
 

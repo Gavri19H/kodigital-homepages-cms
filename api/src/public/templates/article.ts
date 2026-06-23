@@ -174,8 +174,8 @@ function renderArticleHero(article: ArticleViewModel["article"], siteName: strin
       ? `<a class="article-cat" href="${escAttr(article.categoryHref)}">${escText(article.categoryName)}</a>`
       : "";
   const subtitleHtml =
-    article.excerpt.length > 0
-      ? `<p class="article-subtitle">${escText(article.excerpt)}</p>`
+    article.subtitle && article.subtitle.length > 0
+      ? `<p class="article-subtitle">${escText(article.subtitle)}</p>`
       : "";
 
   // §3 meta row (design): a `.card-avatar` brand mark + `.article-meta-text`
@@ -294,13 +294,17 @@ function renderBlockHtml(
         block.description !== null && block.description.length > 0
           ? `<span class="affiliate-price">${escText(block.description)}</span>`
           : "";
+      // rescue-4 round-3 (issue 4): the "Editor's pick" carries NO image, so the
+      // old `.ph` gradient rendered as a broken/empty placeholder (and its fixed
+      // image column forced horizontal overflow on mobile). Drop the image and
+      // use the `.affiliate-card--noimg` layout (body + CTA) — a clean callout
+      // that stacks cleanly on mobile.
       const inner =
-        `<div class="affiliate-img"><div class="ph" data-label="${escAttr(block.title ?? "")}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div></div>` +
         `<div class="affiliate-body"><span class="affiliate-eyebrow">Editor's pick</span>${name}${desc}</div>` +
         `<span class="affiliate-cta">${escText(block.cta)} →</span>`;
       return block.url !== null && isSafeHref(block.url)
-        ? `<a class="affiliate-card" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${inner}</a>`
-        : `<div class="affiliate-card">${inner}</div>`;
+        ? `<a class="affiliate-card affiliate-card--noimg" href="${escAttr(block.url)}" target="_blank" rel="sponsored nofollow noopener">${inner}</a>`
+        : `<div class="affiliate-card affiliate-card--noimg">${inner}</div>`;
     }
     case "faq":
       return `<details class="article-body__faq"><summary>${escText(block.question)}</summary><div>${escText(block.answer)}</div></details>`;

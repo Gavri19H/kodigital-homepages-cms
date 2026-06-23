@@ -130,11 +130,17 @@ function makeContentDb(): D1Database {
           return null;
         },
         async all<T = unknown>() {
-          if (sql.startsWith("SELECT a.* FROM articles a")) {
+          // rescue-4 round-3 (issue 1): both the tag and category listing
+          // queries now LEFT JOIN media for the card image, so each is
+          // `SELECT a.*, m.storage_key ... FROM articles a ...`. Disambiguate
+          // on the distinctive clause: the tag listing JOINs `article_tags`,
+          // the category listing filters on `category_id`. (Tag is checked
+          // first so its more-specific JOIN wins.)
+          if (sql.includes("article_tags")) {
             // /tag listing (JOIN article_tags).
             return { results: TAG_ARTICLES as unknown as T[], success: true, meta: {} };
           }
-          if (sql.startsWith("SELECT * FROM articles WHERE category_id")) {
+          if (sql.includes("FROM articles") && sql.includes("category_id")) {
             return { results: CATEGORY_ARTICLES as unknown as T[], success: true, meta: {} };
           }
           if (sql.startsWith("SELECT * FROM articles WHERE status")) {

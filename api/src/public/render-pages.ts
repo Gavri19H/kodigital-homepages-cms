@@ -9,7 +9,8 @@
 import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
-import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE } from "./queries";
+import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE, type ArticleCardRow } from "./queries";
+import { mediaUrl } from "./view-models/media-url";
 import {
   renderHeader,
   renderFooter,
@@ -81,6 +82,18 @@ async function loadCustomLayoutHtml(
 function isoDate(seconds: number | null | undefined): string {
   if (!seconds || !Number.isFinite(seconds)) return new Date(0).toISOString();
   return new Date(seconds * 1000).toISOString();
+}
+
+// rescue-4 round-3 (issue 1): category/tag listing cards showed a RAW ISO
+// timestamp ("2026-06-23T12:51:36.000Z"). Match the homepage card byline with
+// a clean human date (UTC + fixed month table, deterministic on Workers).
+// Empty string for a missing/invalid date so the card omits the byline date.
+function formatCardDate(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "";
+  const d = new Date(seconds * 1000);
+  if (Number.isNaN(d.getTime())) return "";
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
 function escapeHtml(input: string): string {
@@ -352,7 +365,7 @@ export async function renderCategoryHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   cat: PublicCategoryRow,
-  articles: ArticleRow[],
+  articles: ArticleCardRow[],
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
@@ -404,7 +417,9 @@ export async function renderCategoryHtml(
           href: `/article/${a.slug}`,
           title: a.title,
           categoryName: cat.name,
-          publishedAt: a.published_at ? isoDate(a.published_at) : undefined,
+          imageUrl: mediaUrl(a.image_url),
+          imageAlt: a.image_alt ?? null,
+          publishedAt: formatCardDate(a.published_at) || undefined,
         })}</li>`,
     )
     .join("");
@@ -509,7 +524,7 @@ export async function renderTagHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   tag: PublicTagRow,
-  articles: ArticleRow[],
+  articles: ArticleCardRow[],
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
@@ -555,7 +570,9 @@ export async function renderTagHtml(
         `<li class="home-grid__item">${renderCard({
           href: `/article/${a.slug}`,
           title: a.title,
-          publishedAt: a.published_at ? isoDate(a.published_at) : undefined,
+          imageUrl: mediaUrl(a.image_url),
+          imageAlt: a.image_alt ?? null,
+          publishedAt: formatCardDate(a.published_at) || undefined,
         })}</li>`,
     )
     .join("");

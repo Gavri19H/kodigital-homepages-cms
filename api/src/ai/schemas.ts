@@ -71,6 +71,10 @@ export type GeneratedArticle = {
   // (an affiliate block with url:null). OPTIONAL -- validateGeneratedArticle
   // does NOT require it (the validator is unchanged).
   editors_pick?: { title: string; why: string };
+  // rescue-4 round-3 (issue 3): a SHORT teaser for the article hero subtitle —
+  // a hook that entices the reader, distinct from intro/body (NOT a summary or
+  // the first paragraph). OPTIONAL; the validator does not require it.
+  subtitle?: string;
 };
 export type GeneratedArticleSEO = {
   meta: GeneratedMeta;

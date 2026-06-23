@@ -79,6 +79,7 @@ export interface ArticleFormValues {
   category_id?: string;
   status?: string;
   excerpt?: string;
+  subtitle?: string;
   content_json?: string;
   content_html?: string;
   homepage_section?: string | null;
@@ -392,6 +393,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
   const titleVal = escapeHtml(a.title ?? "");
   const slugVal = escapeHtml(a.slug ?? "");
   const excerptVal = escapeHtml(a.excerpt ?? "");
+  const subtitleVal = escapeHtml(a.subtitle ?? "");
   const seoTitleVal = escapeHtml(a.seo_title ?? "");
   const seoDescVal = escapeHtml(a.seo_description ?? "");
   const homepageRankVal = a.homepage_rank == null ? "" : String(a.homepage_rank);
@@ -424,6 +426,10 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
       <select id="article-status" name="status" class="form-select">
         ${renderStatusOptions(a.status, false)}
       </select>
+    </div>
+    <div class="form-group">
+      <label for="article-subtitle" class="form-label">Subtitle (hero teaser)</label>
+      <textarea id="article-subtitle" name="subtitle" class="form-textarea" rows="2" maxlength="160" placeholder="One short hook sentence shown under the title in the hero - a tease, not a summary.">${subtitleVal}</textarea>
     </div>
     <div class="form-group">
       <label for="article-excerpt" class="form-label">Excerpt</label>
@@ -504,6 +510,7 @@ const ARTICLE_FORM_SCRIPT = `
       category_id: fd.get('category_id') || null,
       status: fd.get('status') || 'draft',
       excerpt: fd.get('excerpt') || '',
+      subtitle: fd.get('subtitle') || '',
       content_json: fd.get('content_json') || '',
       homepage_rank: fd.get('homepage_rank') ? Number(fd.get('homepage_rank')) : null,
       is_featured: toBool(fd.get('is_featured')) ? 1 : 0,

@@ -149,7 +149,12 @@ function makeListDb(itemsPerPage: string | null): D1Database {
           return null;
         },
         async all<T = unknown>() {
-          if (sql.startsWith("SELECT * FROM articles WHERE category_id")) {
+          // rescue-4 round-3 (issue 1): fetchCategoryArticles now LEFT JOINs
+          // media for the card image, so the SQL is
+          // `SELECT a.*, m.storage_key ... FROM articles a ... WHERE a.category_id = ?`.
+          // Match the new shape (the bind order is unchanged:
+          // captured[2]=limit, captured[3]=offset still hold).
+          if (sql.includes("FROM articles") && sql.includes("category_id")) {
             const limit = Number(captured[2] ?? 0);
             const offset = Number(captured[3] ?? 0);
             const available = Math.max(0, ARTICLE_POOL - offset);
@@ -159,6 +164,8 @@ function makeListDb(itemsPerPage: string | null): D1Database {
               slug: `a-${offset + i + 1}`,
               title: `Article ${offset + i + 1}`,
               status: "published",
+              image_url: null,
+              image_alt: null,
             }));
             return { results: rows as T[], success: true, meta: {} };
           }

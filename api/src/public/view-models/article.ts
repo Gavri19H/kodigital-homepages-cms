@@ -107,6 +107,7 @@ export interface ArticleViewModelArticle {
   slug: string;
   title: string;
   excerpt: string;
+  subtitle?: string;
   href: string;
   dateline: string;
   publishedAt: string;
@@ -153,6 +154,7 @@ interface ArticleDetailRow {
   image_alt: string | null;
   seo_title: string | null;
   seo_description: string | null;
+  subtitle: string | null;
 }
 
 interface RelatedRow {
@@ -511,7 +513,8 @@ export async function buildArticleViewModel(
         "a.is_featured AS is_featured, a.site_id AS site_id, " +
         "c.name AS category_name, c.slug AS category_slug, " +
         "m.storage_key AS image_url, m.alt_text AS image_alt, " +
-        "a.seo_title AS seo_title, a.seo_description AS seo_description " +
+        "a.seo_title AS seo_title, a.seo_description AS seo_description, " +
+        "a.subtitle AS subtitle " +
         "FROM articles a " +
         "LEFT JOIN categories c ON c.id = a.category_id " +
         "LEFT JOIN media m ON m.id = a.featured_image_id " +
@@ -598,6 +601,10 @@ export async function buildArticleViewModel(
     slug: articleRow.slug,
     title: articleRow.title,
     excerpt,
+    subtitle:
+      typeof articleRow.subtitle === "string" && articleRow.subtitle.trim().length > 0
+        ? articleRow.subtitle.trim()
+        : excerpt,
     href: `/article/${articleRow.slug}`,
     publishedAt: publishedAtIso,
     publishedAtDisplay: formatDate(publishedAtIso),
