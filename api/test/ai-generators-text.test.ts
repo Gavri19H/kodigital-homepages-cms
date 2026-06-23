@@ -506,6 +506,46 @@ describe("T7 success path with OpenAI client mock", () => {
     expect(h2.length).toBeGreaterThanOrEqual(3);
     expect(result.parsed.faqs.length).toBeGreaterThanOrEqual(3);
   });
+
+  it("generateStarterArticle: extracts the model's `subtitle` teaser onto the article (rescue-4 issue 3 regression \u2014 the parser was dropping parsed.subtitle, so the hero fell back to the first-paragraph excerpt)", async () => {
+    // A fully valid article (>=3 level-2 sections, >=3 FAQs, no placeholder /
+    // banned refs) so the SUCCESS path runs (not the fallback). The model
+    // returns a distinct one-sentence `subtitle` teaser that must survive the
+    // parser onto result.parsed.subtitle and must NOT equal the intro.
+    const SUBTITLE = "A crisp one-sentence teaser, not the first paragraph.";
+    const INTRO = "An introduction paragraph that is entirely different copy.";
+    const modelJson = JSON.stringify({
+      slug: "subtitle-article",
+      title: "A subtitle-bearing article",
+      subtitle: SUBTITLE,
+      intro: INTRO,
+      key_idea: "The single most important idea of the piece.",
+      sections: [
+        { heading: { level: 2, text: "First section" }, paragraphs: ["Some prose about the topic."] },
+        { heading: { level: 2, text: "Second section" }, paragraphs: ["More prose about the topic."] },
+        { heading: { level: 2, text: "Third section" }, paragraphs: ["Final prose about the topic."] },
+      ],
+      faqs: [
+        { question: "Q1?", answer: "A1." },
+        { question: "Q2?", answer: "A2." },
+        { question: "Q3?", answer: "A3." },
+      ],
+    });
+    const { env } = makeEnv({ apiKey: "sk-livefakekey-subtitle" });
+    const client = successClient(modelJson);
+    const result = await generateStarterArticle(env, {
+      site_id: "site-subtitle",
+      vertical: "jobs",
+      slug: "subtitle-article",
+      title: "A subtitle-bearing article",
+      client,
+    });
+    expect(result.status).toBe("success");
+    // The regression: subtitle was dropped (undefined) -> render fell back to
+    // the excerpt = first paragraph. It must now be the model's teaser.
+    expect(result.parsed.subtitle).toBe(SUBTITLE);
+    expect(result.parsed.subtitle).not.toBe(result.parsed.intro);
+  });
 });
 
 describe("T11 reliable full-article generation — longer per-article timeout", () => {
