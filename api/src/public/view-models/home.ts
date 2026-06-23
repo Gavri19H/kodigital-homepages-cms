@@ -128,6 +128,7 @@ interface ArticleListingRow {
   category_slug: string | null;
   image_url: string | null;
   image_alt: string | null;
+  subtitle: string | null;
 }
 
 interface CategoryListingRow {
@@ -237,7 +238,13 @@ function toCard(row: ArticleListingRow): HomeArticleCard {
     id: row.id,
     slug: row.slug,
     title: row.title,
-    excerpt: excerptFromHtml(row.content_html),
+    // round-4 (issue 2): the homepage cards must show the short teaser
+    // subtitle (the same field the article hero uses), not a slice of the first
+    // body paragraph. Fall back to the content excerpt when a story has none.
+    excerpt:
+      typeof row.subtitle === "string" && row.subtitle.trim().length > 0
+        ? row.subtitle.trim()
+        : excerptFromHtml(row.content_html),
     href: `/article/${row.slug}`,
     // T2: row.image_url is the bare media.storage_key — serve it through the
     // /media/ route so the card image actually loads (null stays null).
@@ -261,7 +268,7 @@ export async function buildHomeViewModel(
   // appears verbatim so the T8.AC2 grep counts it.
   const articlesResult = await db
     .prepare(
-      "SELECT a.id AS id, a.slug AS slug, a.title AS title, a.content_html AS content_html, " +
+      "SELECT a.id AS id, a.slug AS slug, a.title AS title, a.subtitle AS subtitle, a.content_html AS content_html, " +
         "a.category_id AS category_id, a.status AS status, a.published_at AS published_at, " +
         "a.featured_image_id AS featured_image_id, a.is_featured AS is_featured, " +
         "a.is_trending AS is_trending, " +

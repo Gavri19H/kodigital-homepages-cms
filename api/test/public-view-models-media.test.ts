@@ -24,6 +24,7 @@ interface HomeArticleSeed {
   is_featured: number;
   is_trending: number;
   image_url: string | null;
+  subtitle?: string | null;
 }
 
 function makeHomeDb(articles: ReadonlyArray<HomeArticleSeed>): D1Database {
@@ -61,6 +62,7 @@ function makeHomeDb(articles: ReadonlyArray<HomeArticleSeed>): D1Database {
                 category_slug: "tech",
                 image_url: a.image_url,
                 image_alt: a.image_url === null ? null : "alt",
+                subtitle: a.subtitle ?? null,
               }));
             return { results: rows as unknown as T[], success: true, meta: {} };
           }
@@ -177,6 +179,30 @@ describe("public-view-models-media", () => {
     const noImage = vm.latest.find((c) => c.slug === "no-image");
     expect(noImage).toBeDefined();
     expect(noImage!.imageUrl).toBeNull();
+  });
+
+  it("buildHomeViewModel: a card's text prefers the article subtitle (teaser) and falls back to the content excerpt when subtitle is empty [round-4 issue 2]", async () => {
+    const db = makeHomeDb([
+      { id: 1, slug: "with-subtitle", site_id: "site_S", is_featured: 1, is_trending: 0, image_url: "a.jpg", subtitle: "A short crisp teaser." },
+      { id: 2, slug: "no-subtitle", site_id: "site_S", is_featured: 0, is_trending: 0, image_url: "b.jpg", subtitle: null },
+    ]);
+    const vm = await buildHomeViewModel(db, { siteId: "site_S", hostname: "s.example" });
+    const all = [
+      ...(vm.hero !== null ? [vm.hero] : []),
+      ...vm.featured,
+      ...vm.picks,
+      ...vm.trending,
+      ...vm.latest,
+    ];
+    const withSub = all.find((c) => c.slug === "with-subtitle");
+    const noSub = all.find((c) => c.slug === "no-subtitle");
+    expect(withSub).toBeDefined();
+    expect(noSub).toBeDefined();
+    // issue 2: the card dek is the teaser subtitle, NOT the first-paragraph excerpt.
+    expect(withSub!.excerpt).toBe("A short crisp teaser.");
+    // fallback: a story with no subtitle still gets the content-derived excerpt.
+    expect(noSub!.excerpt).toContain("body words here");
+    expect(noSub!.excerpt).not.toBe("A short crisp teaser.");
   });
 
   it("buildArticleViewModel: article-hero + og:image + body-image urls begin with /media/, an already-rooted src is not double-prefixed, and a null storage_key yields null (no /media/null) [api/test/public-view-models-media.test.ts] L2_AUTO_DISAMBIGUATION:T2-AC2:RC-006", async () => {

@@ -168,8 +168,8 @@ function makeArticleVm(body: BodyBlock[]): ArticleViewModel {
   };
 }
 
-describe("round-3 (b): editor's-pick affiliate block is image-less", () => {
-  it("renders affiliate-card--noimg with NO .affiliate-img and NO .ph placeholder inside the affiliate block", () => {
+describe("round-4 (issue 4c): editor's-pick affiliate block reuses the article feature image as a thumb", () => {
+  it("renders affiliate-card (NOT --noimg) with an .affiliate-img <img> = the article feature image (url:null -> non-link div)", () => {
     // url:null -> the design's non-link Editor's pick card (the eyebrow names it).
     const body: BodyBlock[] = [
       {
@@ -182,24 +182,22 @@ describe("round-3 (b): editor's-pick affiliate block is image-less", () => {
     ];
     const html = renderArticle({ vm: makeArticleVm(body), emitJsonLd: false });
 
-    // The image-less card (a <div> here because url is null).
-    expect(html).toContain('<div class="affiliate-card affiliate-card--noimg">');
+    // round-4: the card now carries an image, so it is the 3-col `.affiliate-card`
+    // (a <div> here because url is null) — NOT the `--noimg` layout.
+    expect(html).toContain('<div class="affiliate-card">');
+    expect(html).not.toContain("affiliate-card--noimg");
     expect(html).toContain('<span class="affiliate-eyebrow">Editor\'s pick</span>');
     expect(html).toContain("<h4>Best Widget</h4>");
     expect(html).toContain(
       '<span class="affiliate-cta">Why we recommend it →</span>',
     );
 
-    // NEGATIVE: no image column / placeholder in the affiliate markup.
-    expect(html).not.toContain('class="affiliate-img"');
-    // Isolate the affiliate fragment and assert it carries no `.ph` placeholder
-    // (the hero may legitimately render a .ph elsewhere on the page).
-    const start = html.indexOf("affiliate-card--noimg");
-    const slice = html.slice(start, start + 400);
-    expect(slice).not.toContain('class="ph"');
+    // POSITIVE: the thumb is the article's OWN feature image (makeArticleVm
+    // imageUrl=/media/the-pick.jpg), inside an `.affiliate-img` column.
+    expect(html).toContain('<div class="affiliate-img"><img src="/media/the-pick.jpg"');
   });
 
-  it("with a safe url, the whole card is the sponsored/nofollow <a> and still image-less", () => {
+  it("with a safe url, the whole card is the sponsored/nofollow <a> and carries the feature-image thumb", () => {
     const body: BodyBlock[] = [
       {
         type: "affiliate",
@@ -211,9 +209,9 @@ describe("round-3 (b): editor's-pick affiliate block is image-less", () => {
     ];
     const html = renderArticle({ vm: makeArticleVm(body), emitJsonLd: false });
     expect(html).toContain(
-      '<a class="affiliate-card affiliate-card--noimg" href="https://shop.example/widget" target="_blank" rel="sponsored nofollow noopener">',
+      '<a class="affiliate-card" href="https://shop.example/widget" target="_blank" rel="sponsored nofollow noopener">',
     );
-    expect(html).not.toContain('class="affiliate-img"');
+    expect(html).toContain('<div class="affiliate-img"><img src="/media/the-pick.jpg"');
   });
 });
 
@@ -316,9 +314,18 @@ describe("round-3 (d): public-css.ts carries the round-3 layout + affiliate rule
     expect(publicCss).toContain(".page-content h2 {");
   });
 
-  it("carries the overflow-x: hidden body guard", () => {
-    // Body/html overflow-x guard (no horizontal scroll on mobile).
-    expect(publicCss).toContain("overflow-x: hidden;");
+  it("keeps the article-sidebar sticky: NO global overflow-x on html/body, and the mobile overflow guard is scoped to <=800px (where the sidebar is static)", () => {
+    // round-4 (issue 3): PR-5's GLOBAL overflow-x:hidden on html/body disabled the
+    // article right-rail's position:sticky (ANY non-visible overflow on an ancestor
+    // does, hidden AND clip). It is removed globally; the real mobile-overflow
+    // sources are fixed at root, and a safety-net guard is scoped to <=800px where
+    // the sidebar is already position:static so it cannot break an active sticky.
+    expect(publicCss).toContain(".article-sidebar { position: sticky;");
+    // the global html rule ends WITHOUT overflow-x (the sticky-breaker)
+    expect(publicCss).toContain("color-scheme: light; }");
+    expect(publicCss).not.toContain("color-scheme: light; overflow-x");
+    // the scoped mobile guard exists (and is the ONLY overflow-x:hidden)
+    expect(publicCss).toContain("@media (max-width: 800px) { html, body { overflow-x: hidden; } }");
   });
 
   it("carries .affiliate-card--noimg + a mobile @media (max-width: 600px) affiliate stacking rule", () => {

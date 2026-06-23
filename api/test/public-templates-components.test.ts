@@ -213,11 +213,13 @@ describe("public-templates-components", () => {
     expect(newsletterAt).toBeGreaterThan(picksAt);
     expect(signInAt).toBeGreaterThan(newsletterAt);
 
-    // Sign in is the .btn-outline; Explore carries the chevron glyph. RESCUE-4
-    // design: each nav label is wrapped in <span class="label"> (so the 880px
-    // breakpoint can hide the text), and the chevron follows the Explore label.
+    // Sign in is the .btn-outline. RESCUE-4: each nav label is wrapped in
+    // <span class="label"> so the 880px breakpoint can manage the nav. round-4
+    // (issue 4a): the Explore chevron was REMOVED — it implied a dropdown that
+    // never existed and merely reloaded "/" on click.
     expect(html).toMatch(/<button class="btn-outline" type="button">Sign in<\/button>/);
-    expect(html).toMatch(/>Explore<\/span><svg class="nav-chevron"/);
+    expect(html).toContain(">Explore</span>");
+    expect(html).not.toContain("nav-chevron");
     // every nav link is a real URL (PART 8)
     expect(html).not.toContain('href="#"');
   });
