@@ -106,6 +106,7 @@ interface CreateArticleBody {
   featured_image_id?: number | null;
   seo_title?: string | null;
   seo_description?: string | null;
+  subtitle?: string | null;
   homepage_rank?: number | null;
   is_featured?: number | boolean;
   is_trending?: number | boolean;
@@ -234,6 +235,7 @@ api.post("/api/admin/articles", async (c) => {
   const seoTitle = typeof body.seo_title === "string" ? body.seo_title : null;
   const seoDescription =
     typeof body.seo_description === "string" ? body.seo_description : null;
+  const subtitle = typeof body.subtitle === "string" ? body.subtitle : null;
   const featuredImageId =
     typeof body.featured_image_id === "number" ? body.featured_image_id : null;
   const homepageRank =
@@ -258,7 +260,7 @@ api.post("/api/admin/articles", async (c) => {
   }
 
   const row = await c.env.DB.prepare(
-    "INSERT INTO articles (site_id, slug, title, content_json, category_id, status, author_name, author_bio, featured_image_id, seo_title, seo_description, homepage_rank, is_featured, is_trending, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+    "INSERT INTO articles (site_id, slug, title, content_json, category_id, status, author_name, author_bio, featured_image_id, seo_title, seo_description, subtitle, homepage_rank, is_featured, is_trending, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
   )
     .bind(
       siteId,
@@ -272,6 +274,7 @@ api.post("/api/admin/articles", async (c) => {
       featuredImageId,
       seoTitle,
       seoDescription,
+      subtitle,
       homepageRank,
       isFeatured,
       isTrending,

@@ -376,6 +376,16 @@ const VERTICAL_CATEGORY_PLAN: Readonly<
     { slug: "family-activities", name: "Family Activities" },
     { slug: "newborn-baby-care", name: "Newborn & Baby Care" },
   ],
+  // rescue-4 round-3: jobs/employment vertical (seeded in migration 0026) gets
+  // an authoritative 5-category plan so thecontentandcareer.com provisions with
+  // these exact categories in order.
+  jobs: [
+    { slug: "job-search", name: "Job Search" },
+    { slug: "career-growth", name: "Career Growth" },
+    { slug: "resumes-interviews", name: "Resumes & Interviews" },
+    { slug: "workplace-culture", name: "Workplace & Culture" },
+    { slug: "salary-benefits", name: "Salary & Benefits" },
+  ],
 };
 
 // MQAFIX-1 handler: allocate categories to a freshly-created site based
@@ -1260,6 +1270,10 @@ export async function generateOneTextUnit(
   )
     .trim()
     .slice(0, 155);
+  // rescue-4 round-3 (issue 3): persist the generated teaser subtitle (0027
+  // prompt). Null when the model omits it, so the public render falls back to
+  // the body excerpt rather than storing a duplicate of the first paragraph.
+  const subtitle = (article.parsed.subtitle || "").trim().slice(0, 160) || null;
   const placement = starterPlacementForIndex(unit.unit_index);
   const homepageRank = unit.unit_index + 1;
   // DETERMINISTIC slug (#29) → INSERT OR IGNORE idempotent under (site_id, slug).
@@ -1267,10 +1281,10 @@ export async function generateOneTextUnit(
     .prepare(
       "INSERT OR IGNORE INTO articles " +
         "(site_id, slug, title, content_json, content_html, ai_generation_id, " +
-        "category_id, author_name, seo_title, seo_description, " +
+        "category_id, author_name, seo_title, seo_description, subtitle, " +
         "is_featured, is_trending, homepage_rank, " +
         "status, homepage_section, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 'starter', unixepoch(), unixepoch())",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 'starter', unixepoch(), unixepoch())",
     )
     .bind(
       info.site_id,
@@ -1283,6 +1297,7 @@ export async function generateOneTextUnit(
       authorName,
       seoTitle,
       seoDescription,
+      subtitle,
       placement.is_featured,
       placement.is_trending,
       homepageRank,

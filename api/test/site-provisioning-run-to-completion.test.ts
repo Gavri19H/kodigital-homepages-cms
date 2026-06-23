@@ -48,6 +48,8 @@ interface ArticleRow {
   author_name: string | null;
   seo_title: string | null;
   seo_description: string | null;
+  // rescue-4 round-3 (issue 3 / migration 0027): the teaser subtitle column.
+  subtitle: string | null;
   is_featured: number;
   is_trending: number;
   homepage_rank: number | null;
@@ -303,17 +305,24 @@ function makeFakeDb(
             // T38 negative path: suppressed inserts leave the table
             // empty so the smoke step must observe 0 rows and fail.
             // rescue-3 T6: capture the editorial columns at their bind
-            // positions (6..12 after the shared head site_id/slug/title/
+            // positions (6..13 after the shared head site_id/slug/title/
             // content_json/content_html/ai_generation_id) so AC1/AC2 see
             // category_id, author_name, seo_*, placement flags + rank.
+            // rescue-4 round-3 (issue 3 / migration 0027): the production INSERT
+            // (steps.ts generateOneTextUnit) now binds `subtitle` at position 10,
+            // BETWEEN seo_description (9) and is_featured — so is_featured/
+            // is_trending/homepage_rank shifted right by one (11/12/13). The
+            // positional map MUST match that exact column order or the placement
+            // flags read from the wrong bind slots (subtitle string read as a flag).
             const [site_id, slug, title] = captured as [string, string, string];
             const category_id = (captured[6] ?? null) as number | null;
             const author_name = (captured[7] ?? null) as string | null;
             const seo_title = (captured[8] ?? null) as string | null;
             const seo_description = (captured[9] ?? null) as string | null;
-            const is_featured = (captured[10] ?? 0) as number;
-            const is_trending = (captured[11] ?? 0) as number;
-            const homepage_rank = (captured[12] ?? null) as number | null;
+            const subtitle = (captured[10] ?? null) as string | null;
+            const is_featured = (captured[11] ?? 0) as number;
+            const is_trending = (captured[12] ?? 0) as number;
+            const homepage_rank = (captured[13] ?? null) as number | null;
             if (
               !opts.suppressArticleInserts &&
               !articles.some((a) => a.site_id === site_id && a.slug === slug)
@@ -329,6 +338,7 @@ function makeFakeDb(
                 author_name,
                 seo_title,
                 seo_description,
+                subtitle,
                 is_featured,
                 is_trending,
                 homepage_rank,

@@ -229,14 +229,20 @@ describe("article-design (T20)", () => {
     expect(body).toContain('<div class="callout-box">');
     expect(body).toContain("<h4>Note</h4>");
     expect(body).toContain("Pay attention to this.");
-    // affiliate -> design `.affiliate-card`: the WHOLE card is the
-    // sponsored/nofollow <a>, with an `.affiliate-eyebrow`, an <h4> name and an
-    // `.affiliate-cta` "{cta} →" pill (the worker VM has no image/price, so the
-    // thumb is a `.ph` and the price line is omitted — see article.ts).
-    expect(body).toContain('<a class="affiliate-card" href="https://shop.example/widget" target="_blank" rel="sponsored nofollow noopener">');
+    // affiliate -> design `.affiliate-card.affiliate-card--noimg`: rescue-4
+    // round-3 (issue 4) dropped the image column entirely (the "Editor's pick"
+    // carries no image, so the old `.ph` rendered broken and forced mobile
+    // overflow). The WHOLE card is still the sponsored/nofollow <a>, now with
+    // the image-less `--noimg` layout: an `.affiliate-eyebrow`, an <h4> name and
+    // an `.affiliate-cta` "{cta} →" pill — NO `.affiliate-img`/`.ph` (see article.ts).
+    expect(body).toContain('<a class="affiliate-card affiliate-card--noimg" href="https://shop.example/widget" target="_blank" rel="sponsored nofollow noopener">');
     expect(body).toContain('<span class="affiliate-eyebrow">Editor\'s pick</span>');
     expect(body).toContain("<h4>Best Widget</h4>");
     expect(body).toContain('<span class="affiliate-cta">Buy now →</span>');
+    // The image-less card carries no `.affiliate-img` thumb and no `.ph`
+    // placeholder inside the affiliate block (regression guard for issue 4).
+    expect(body).not.toContain('class="affiliate-img"');
+    expect(body).not.toContain('<div class="affiliate-img">');
 
     // drop-cap present in the served stylesheet (contract §11: 4.2em brand).
     expect(publicCss).toContain("p:first-of-type::first-letter");

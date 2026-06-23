@@ -131,9 +131,14 @@ function makeDb(article: ArticleSeed, categoryRows: ArticleSeed[]): D1Database {
         },
         async all<T = unknown>() {
           // fetchCategoryArticles: a full page so the next-link is emitted.
+          // rescue-4 round-3 (issue 1): the query now LEFT JOINs media
+          // (`SELECT a.*, m.storage_key ... FROM articles a ... WHERE a.category_id = ?
+          //  ... ORDER BY a.published_at DESC`), so match the new shape.
           if (
-            sql.startsWith("SELECT * FROM articles WHERE category_id = ?") &&
-            sql.includes("ORDER BY published_at")
+            sql.includes("FROM articles") &&
+            sql.includes("category_id") &&
+            sql.includes("ORDER BY") &&
+            sql.includes("published_at")
           ) {
             return {
               results: categoryRows as unknown as T[],

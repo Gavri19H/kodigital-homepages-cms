@@ -153,6 +153,8 @@ describe("T3 article CREATE persists all fields + category guard + homepage_sect
     expect(insert).toBeDefined();
 
     // Every column in the create write path is named in the INSERT SQL.
+    // (round-3 / migration 0027: `subtitle` joined the column list, positioned
+    // after seo_description.)
     for (const col of [
       "site_id",
       "slug",
@@ -165,6 +167,7 @@ describe("T3 article CREATE persists all fields + category guard + homepage_sect
       "featured_image_id",
       "seo_title",
       "seo_description",
+      "subtitle",
       "homepage_rank",
       "is_featured",
       "is_trending",
@@ -174,7 +177,10 @@ describe("T3 article CREATE persists all fields + category guard + homepage_sect
     }
 
     // Every supplied value is bound in the documented positional order — the
-    // create form no longer silently drops fields.
+    // create form no longer silently drops fields. round-3: `subtitle` binds
+    // between seo_description and homepage_rank; this input omits it, so it
+    // round-trips as null (the create body is the contract — a missing optional
+    // field is null, not dropped).
     expect(insert?.binds).toEqual([
       "st_exist",
       "full-article",
@@ -187,6 +193,7 @@ describe("T3 article CREATE persists all fields + category guard + homepage_sect
       12,
       "SEO Title",
       "SEO Description",
+      null,
       3,
       1,
       0,

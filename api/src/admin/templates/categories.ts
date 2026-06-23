@@ -51,6 +51,7 @@ const VERTICAL_SLUGS: ReadonlyArray<string> = [
   "food",
   "tech",
   "lifestyle",
+  "jobs",
 ];
 
 function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string | null): string {

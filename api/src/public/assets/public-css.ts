@@ -72,7 +72,7 @@ export const publicCss: string = `
 
 /* === RESET === */
 *,*::before,*::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; color-scheme: light; }
+html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; color-scheme: light; overflow-x: hidden; }
 body {
   margin: 0;
   background: var(--tw-bg);
@@ -80,6 +80,8 @@ body {
   font-family: var(--tw-font-sans);
   font-size: var(--tw-fs-base);
   line-height: 1.55;
+  overflow-x: hidden;
+  max-width: 100%;
 }
 img { max-width: 100%; height: auto; display: block; }
 a { color: inherit; text-decoration: none; }
@@ -761,6 +763,25 @@ p { margin: 0; }
 .section-empty { color: var(--tw-text-muted); font-size: var(--tw-fs-sm); }
 .page-title, .category-title { font-family: var(--tw-font-display); font-size: var(--tw-fs-3xl); color: var(--tw-ink); margin: 0 0 1rem; }
 
+/* === STATIC / LEGAL PAGES (about, privacy-policy, terms, do-not-sell, contact) — rescue-4 round-3 (issue 2): a centered narrow reading column with real typographic rhythm; was full-width + unstyled. renderPageHtml suppresses the wrapper .page-title when content_html leads with its own <h1>, so .page-content h1 is the visible title. */
+.page-article { max-width: 760px; margin: 0 auto; padding: clamp(36px, 6vw, 72px) clamp(18px, 4vw, 28px); }
+.page-content { font-family: var(--tw-font-sans); font-size: var(--tw-fs-md); line-height: 1.75; color: var(--tw-text); }
+.page-content > :first-child { margin-top: 0; }
+.page-content h1 { font-family: var(--tw-font-display); font-size: clamp(2rem, 4vw, var(--tw-fs-3xl)); font-weight: 900; line-height: 1.1; letter-spacing: -0.02em; color: var(--tw-ink); margin: 0 0 0.5em; }
+.page-content h2 { font-family: var(--tw-font-display); font-size: var(--tw-fs-xl); font-weight: 800; letter-spacing: -0.015em; line-height: 1.25; color: var(--tw-ink); margin: 1.9em 0 0.7em; padding-top: 1.2em; border-top: 1px solid var(--tw-rule-soft); }
+.page-content h2:first-of-type { border-top: 0; padding-top: 0; margin-top: 1.4em; }
+.page-content h3 { font-family: var(--tw-font-display); font-size: var(--tw-fs-lg); font-weight: 800; line-height: 1.3; color: var(--tw-ink); margin: 1.5em 0 0.5em; }
+.page-content p { margin: 0 0 1.1em; }
+.page-content ul, .page-content ol { margin: 1em 0 1.5em; padding-left: 1.4em; }
+.page-content li { margin-bottom: 0.5em; line-height: 1.65; }
+.page-content ul > li { list-style: disc; }
+.page-content ol > li { list-style: decimal; }
+.page-content a { color: var(--tw-brand); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.page-content a:hover { color: var(--tw-brand-deep); }
+.page-content strong { font-weight: 800; color: var(--tw-ink); }
+.page-content em { font-style: italic; }
+.page-content > p:first-child em { color: var(--tw-text-light); font-size: var(--tw-fs-sm); }
+
 /* === ARTICLE PAGE === */
 .reading-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: rgba(0,0,0,0.06); z-index: 60; }
 .reading-progress-bar { height: 100%; background: var(--tw-brand); transform: scaleX(0); transform-origin: left center; transition: transform 80ms linear; }
@@ -813,6 +834,17 @@ p { margin: 0; }
 .affiliate-body h4 { font-family: var(--tw-font-display); font-size: var(--tw-fs-md); font-weight: 800; color: var(--tw-ink); letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px; }
 .affiliate-price { font-size: var(--tw-fs-sm); font-weight: 700; color: var(--tw-text-muted); }
 .affiliate-cta { display: inline-flex; align-items: center; gap: 6px; font-size: var(--tw-fs-sm); font-weight: 700; color: var(--tw-brand); white-space: nowrap; padding-right: 12px; }
+/* rescue-4 round-3 (issue 4): the editor's-pick "Editor's Pick" callout has no photo — a clean text-forward layout (no broken gradient placeholder), body + CTA only. */
+.affiliate-card--noimg { grid-template-columns: 1fr auto; }
+@media (max-width: 600px) {
+  .affiliate-card, .affiliate-card--noimg { grid-template-columns: 1fr; gap: 14px; padding: 16px 18px; }
+  .affiliate-img { width: 100%; height: auto; aspect-ratio: 16/10; }
+  .affiliate-cta { padding-right: 0; justify-self: start; }
+  .article-body { max-width: 100%; font-size: 1.0625rem; }
+  .article-hero-content { max-width: 100%; }
+  .pullquote { padding-left: 40px; }
+  .pullquote .pq-mark { font-size: 3.4rem; }
+}
 .article-share-bottom { display: flex; gap: 12px; padding: 28px 0; border-top: 1px solid var(--tw-rule); border-bottom: 1px solid var(--tw-rule); margin: 3em 0; }
 .article-share-bottom .btn-outline, .article-share-bottom .btn-primary { display: inline-flex; align-items: center; gap: 8px; }
 .faq-section { margin: 3em 0; }
