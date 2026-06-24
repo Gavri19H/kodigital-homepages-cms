@@ -109,25 +109,31 @@ export function responsiveImg(opts: ResponsiveImgOptions): string {
       ? ` fetchpriority="${opts.fetchpriority}"`
       : "";
   const dimAttr = ` width="${opts.width}" height="${opts.height}"`;
-  const baseAttrs = `${classAttr} src="${escAttr(resolved)}"${altAttr}${dimAttr} loading="${loading}"${fpAttr} decoding="async"`;
+  const tail = `${altAttr}${dimAttr} loading="${loading}"${fpAttr} decoding="async"`;
 
-  // RESCUE-4 RENDER FIX (live-verified 2026-06-21): Cloudflare Image Resizing
-  // (/cdn-cgi/image/<options>/...) is NOT enabled on the tenant zones — every
-  // transform URL 404s (GET /cdn-cgi/image/width=640,.../media/<key> -> 404,
-  // while the bare /media/<key> -> 200). A <img srcset> of 404 candidates makes
-  // the browser render a BROKEN image (once it SELECTS a srcset candidate per
-  // `sizes` it does NOT fall back to `src`), and the LQIP background-image 404s
-  // too — exactly why every card/featured/picks image showed broken live. So we
-  // emit ONLY the bare /media/ src (Worker-served, 200 on every zone) + the
-  // anti-CLS width/height. The transform helpers (cfTransform/srcsetWidths/
-  // lqipUrl) + constants are retained + unit-tested so the srcset+blur-up
-  // optimisation can be re-enabled HERE in one place the day Cloudflare Image
-  // Resizing is turned on for the zone. A working full-size image beats a broken
-  // responsive one.
-  void DEFAULT_QUALITY;
-  void LQIP_WIDTH;
-  void LQIP_BLUR;
-  void LQIP_QUALITY;
-  void isSameOriginPath;
-  return `<img${baseAttrs}>`;
+  // RESCUE-4 round-5 (issue 5, live-verified 2026-06-24): Cloudflare Image
+  // Resizing IS now enabled on the tenant zones. A same-origin /media/ source
+  // gets a srcset of /cdn-cgi/image/<opts>/media/<key> candidates that resize +
+  // auto-format (WebP/AVIF) the image -> a 1536x1024 ~2MB PNG is served as a
+  // ~640px ~25KB WebP, with the bare /media/ src kept as the universal
+  // fallback. (The earlier build emitted ONLY the bare src because the zone had
+  // Resizing OFF, so every /cdn-cgi candidate 404'd and a srcset of 404s
+  // renders BROKEN. Re-verified 2026-06-24: every candidate now returns 200.)
+  // An off-origin source (a full https:// URL / data: URI) can't use the
+  // same-origin transform route, so it degrades to the bare <img>.
+  if (!isSameOriginPath(resolved)) {
+    return `<img${classAttr} src="${escAttr(resolved)}"${tail}>`;
+  }
+  const quality = opts.quality ?? DEFAULT_QUALITY;
+  const srcset = srcsetWidths(opts.width)
+    .map(
+      (w) =>
+        `${cfTransform(resolved, `width=${w},quality=${quality},format=auto`)} ${w}w`,
+    )
+    .join(", ");
+  const sizesAttr =
+    opts.sizes !== undefined && opts.sizes.length > 0
+      ? ` sizes="${escAttr(opts.sizes)}"`
+      : "";
+  return `<img${classAttr} src="${escAttr(resolved)}" srcset="${escAttr(srcset)}"${sizesAttr}${tail}>`;
 }

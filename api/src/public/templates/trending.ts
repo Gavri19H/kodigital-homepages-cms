@@ -6,7 +6,8 @@
 // trending-h / pulse-dot. `.trending-num` is String(i + 1).padStart(2, "0") —
 // contract-verbatim. PART 8 RED LINE: every item links its real article URL.
 
-import { escAttr, escText, imgTag } from "./esc";
+import { escAttr, escText } from "./esc";
+import { responsiveImg } from "./responsive-img";
 
 export interface TrendingItem {
   href: string;
@@ -44,11 +45,14 @@ export function renderTrending(args: TrendingArgs): string {
   const lis = items
     .map((item, i) => {
       const num = String(i + 1).padStart(2, "0");
-      const realImg = imgTag(
-        item.imageUrl,
-        item.imageAlt ?? item.title,
-        ' width="640" height="400" loading="lazy" decoding="async"',
-      );
+      const realImg = responsiveImg({
+        src: item.imageUrl,
+        alt: item.imageAlt ?? item.title,
+        width: 640,
+        height: 400,
+        loading: "lazy",
+        sizes: "(max-width: 880px) 50vw, 20vw",
+      });
       const clabel =
         item.categoryName !== undefined && item.categoryName !== null && item.categoryName.length > 0
           ? item.categoryName

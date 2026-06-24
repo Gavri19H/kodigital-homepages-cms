@@ -15,7 +15,7 @@
 //   renderAdSlot      — Home §6/§9 + Article §6/§9 (leaderboard | in-feed | rect)
 //   renderFloatingNext— Article §12 (>=1280px viewport only, PART 4)
 
-import { escAttr, escText, imgTag } from "./esc";
+import { escAttr, escText } from "./esc";
 import {
   brandGlyphSvg,
   iconArrow,
@@ -394,7 +394,7 @@ export function renderChipRail(args: ChipRailArgs): string {
       // real bare /media/ <img> instead (no /cdn-cgi transform).
       const inner =
         chip.imageUrl !== undefined && chip.imageUrl !== null && chip.imageUrl.length > 0
-          ? imgTag(chip.imageUrl, chip.imageAlt ?? name, ' class="cat-chip-img-photo" width="48" height="48" loading="lazy" decoding="async"')
+          ? responsiveImg({ src: chip.imageUrl, alt: chip.imageAlt ?? name, width: 48, height: 48, className: "cat-chip-img-photo", loading: "lazy", sizes: "48px" })
           : `<div class="ph" data-label="${escAttr(name)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
       return `<a class="cat-chip" href="${escAttr(href)}"><span class="cat-chip-img">${inner}</span><span class="cat-chip-label">${escText(name)}</span></a>`;
     })
