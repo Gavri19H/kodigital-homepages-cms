@@ -83,7 +83,7 @@ import {
 } from "./seo";
 import { responsiveImg } from "./responsive-img";
 import { iconChevronDown, iconLink, iconPin, iconShare } from "./icons";
-import { renderAdSenseUnit, type AdsConfig } from "../ads";
+import { renderAdUnit, hasAnyAds, type AdsConfig } from "../ads";
 
 export interface RenderArticleArgs {
   vm: ArticleViewModel;
@@ -318,19 +318,48 @@ function renderBlockHtml(
   }
 }
 
-function renderArticleBodyBlocks(article: ArticleViewModel["article"]): string {
+// rescue-4 round-5 (issue 3): the in-content ad. A rect slot inserted after the
+// operator's chosen paragraph (ad_in_content_position) — previously the config
+// was parsed + shown in the admin but NEVER rendered (a dead option). Provider-
+// agnostic via renderAdUnit; only emitted when a provider is live.
+function renderInContentAd(ads: AdsConfig): string {
+  return (
+    `<aside class="ad-slot ad-slot--in-content ad-slot--rect" ` +
+    `data-ad-slot="article-in-content" data-ad-type="rect" ` +
+    `data-ad-surface="article" aria-label="Advertisement" ` +
+    `style="max-width:300px;width:100%;min-height:250px;height:250px;margin:24px auto;display:block">` +
+    `${renderAdUnit(ads, "rect")}</aside>`
+  );
+}
+
+function renderArticleBodyBlocks(
+  article: ArticleViewModel["article"],
+  ads?: AdsConfig,
+): string {
   if (article.body.length === 0) return "";
   let headingIndex = 0;
-  return article.body
-    .map((block) => {
-      // faq blocks populate vm.faqs (collected by adaptBodyBlocks) and render in
-      // the dedicated faq-section; rendering them inline here too would DOUBLE
-      // the FAQs (rescue-4 round-2 PR-2a). Skip them in the body flow.
-      if (block.type === "faq") return "";
-      if (block.type === "heading") headingIndex += 1;
-      return renderBlockHtml(block, headingIndex, article);
-    })
-    .join("\n");
+  let paragraphCount = 0;
+  let adInserted = false;
+  const adsLive = ads !== undefined && hasAnyAds(ads);
+  const inContentPos = ads !== undefined ? ads.inContentPosition : 0;
+  const out: string[] = [];
+  for (const block of article.body) {
+    // faq blocks populate vm.faqs (collected by adaptBodyBlocks) and render in
+    // the dedicated faq-section; rendering them inline here too would DOUBLE
+    // the FAQs (rescue-4 round-2 PR-2a). Skip them in the body flow.
+    if (block.type === "faq") continue;
+    if (block.type === "heading") headingIndex += 1;
+    out.push(renderBlockHtml(block, headingIndex, article));
+    // in-content ad: after the operator's Nth paragraph, inserted once.
+    if (block.type === "paragraph") {
+      paragraphCount += 1;
+      if (adsLive && !adInserted && inContentPos > 0 && paragraphCount === inContentPos) {
+        out.push(renderInContentAd(ads as AdsConfig));
+        adInserted = true;
+      }
+    }
+  }
+  return out.join("\n");
 }
 
 // rescue-4 round-2 (issue 7): build the sidebar TOC from the rendered body's
@@ -388,9 +417,10 @@ function renderSidebar(
 
   // §11 sidebar ad: a SINGLE design `.sidebar-ad.ad-slot--rect` element (300×250).
   // The old `.sidebar-card` wrapper around a nested renderAdSlot node triple-boxed
-  // the slot and overflowed it (rescue-4 round-2 issue 7). renderAdSenseUnit emits
-  // the real <ins> only when AdSense is live; otherwise the reserved box shows.
-  const adHtml = `<aside class="sidebar-ad ad-slot ad-slot--rect" data-ad-slot="article-sidebar-ad" data-ad-type="rect" data-ad-surface="article" aria-label="Advertisement">${ads !== undefined ? renderAdSenseUnit(ads, "rect") : ""}</aside>`;
+  // the slot and overflowed it (rescue-4 round-2 issue 7). renderAdUnit emits the
+  // provider unit (AdSense <ins> or GAM <div>) only when a provider is live;
+  // otherwise the reserved box shows.
+  const adHtml = `<aside class="sidebar-ad ad-slot ad-slot--rect" data-ad-slot="article-sidebar-ad" data-ad-type="rect" data-ad-surface="article" aria-label="Advertisement">${ads !== undefined ? renderAdUnit(ads, "rect") : ""}</aside>`;
 
   // Design `.sidebar-popular`: a numbered list, each row a 24px `.pop-num` +
   // a 60×60 `.pop-img` thumb + a `.pop-body` (`.pop-cat` + `.pop-title`).
@@ -512,7 +542,7 @@ export function renderArticle(args: RenderArticleArgs): string {
   // §4 article-shell wraps §§5–9; §§7–8 nest INSIDE the §6 article-body.
   // The shell carries the literal minmax(0, 1fr) so a CSS-less snapshot
   // still records the column contract (PART 4 RED LINE).
-  const { html: articleBodyHtml, toc: articleToc } = buildToc(renderArticleBodyBlocks(article));
+  const { html: articleBodyHtml, toc: articleToc } = buildToc(renderArticleBodyBlocks(article, args.ads));
   const s4 = `<div class="article-shell container" data-grid="60px minmax(0, 1fr) 320px">
   ${marker(5, "share-rail")}
   ${renderShareRail(article, site.hostname)}

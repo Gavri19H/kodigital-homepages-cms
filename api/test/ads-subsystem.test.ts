@@ -26,6 +26,13 @@ import {
   renderAdManagerScript,
   resolveAdsTxt,
   AD_SLOT_DIMENSIONS,
+  hasGam,
+  hasAnyAds,
+  isExcluded,
+  gamUnitPath,
+  renderAdUnit,
+  renderGamSlot,
+  AD_REFRESH_SECONDS_MIN,
   type AdsConfig,
   type AdSlotType,
 } from "../src/public/ads";
@@ -365,5 +372,94 @@ describe("ads-subsystem (T22)", () => {
     );
     expect(noOverride.status).toBe(200);
     expect(await noOverride.text()).toBe(ADS_TXT_DEFAULT);
+  });
+
+  it("rescue-4 round-5 (issue 2/3): Google Ad Manager (GPT) provider — gpt.js head, defineSlot containers, sticky anchor, refresh, native lazy-load, prefix-excluded [api/test/ads-subsystem.test.ts]", () => {
+    const gam = parseAdsConfig({
+      ads_enabled: "1",
+      ad_provider: "gam",
+      gam_network_code: "23456789",
+      gam_unit_leaderboard: "home_leaderboard",
+      gam_unit_in_feed: "home_infeed",
+      gam_unit_rect: "/23456789/article_rect",
+      ad_sticky_enabled: "1",
+      gam_unit_anchor: "anchor_bottom",
+      ad_refresh_seconds: "60",
+      ad_excluded_pages: "/category",
+    });
+
+    expect(hasGam(gam)).toBe(true);
+    expect(hasAnyAds(gam)).toBe(true);
+
+    // head: the GPT loader (gpt.js), NOT adsbygoogle.
+    const head = renderAdProviderHead(gam);
+    expect(head).toContain("securepubads.g.doubleclick.net/tag/js/gpt.js");
+    expect(head).toContain("googletag");
+    expect(head).not.toContain("adsbygoogle");
+
+    // gamUnitPath: a bare name gets /NETWORK/ prepended; a full path is kept.
+    expect(gamUnitPath(gam, "home_leaderboard")).toBe("/23456789/home_leaderboard");
+    expect(gamUnitPath(gam, "/23456789/article_rect")).toBe("/23456789/article_rect");
+
+    // renderAdUnit (provider-agnostic) emits a GPT slot div, not an <ins>.
+    const lb = renderAdUnit(gam, "leaderboard");
+    expect(lb).toContain('class="gpt-slot"');
+    expect(lb).toContain('data-gpt-unit="/23456789/home_leaderboard"');
+    expect(lb).toContain('data-gpt-w="970"');
+    expect(lb).toContain('data-gpt-h="90"');
+    expect(lb).not.toContain("adsbygoogle");
+    expect(renderGamSlot(gam, "rect")).toContain('data-gpt-unit="/23456789/article_rect"');
+
+    // renderAdSlot container carries the GPT slot at the design dims.
+    const slot = renderAdSlot({ type: "leaderboard", slotId: "home-leaderboard", surface: "home", ads: gam });
+    expect(attr(slot, "data-ad-type")).toBe("leaderboard");
+    expect(slot).toContain('class="gpt-slot"');
+    expect(slot).toContain('data-gpt-unit="/23456789/home_leaderboard"');
+
+    // the GAM manager script: defineSlot + single-request + services + display,
+    // the BOTTOM_ANCHOR sticky, native lazy-load, and a >=30s refresh timer.
+    const mgr = renderAdManagerScript(gam);
+    expect(mgr).toContain("googletag");
+    expect(mgr).toContain("defineSlot");
+    expect(mgr).toContain("enableSingleRequest");
+    expect(mgr).toContain("enableServices");
+    expect(mgr).toContain(".display(");
+    expect(mgr).toContain("defineOutOfPageSlot");
+    expect(mgr).toContain("BOTTOM_ANCHOR");
+    expect(mgr).toContain("/23456789/anchor_bottom");
+    expect(mgr).toContain("enableLazyLoad");
+    expect(mgr).toContain("refresh(");
+    expect(mgr).toContain("setInterval");
+    expect(mgr).toContain("var rs=60");
+    expect(mgr).not.toContain("adsbygoogle");
+
+    // refresh clamp: a sub-floor value is raised to the 30s GAM viewability min.
+    const fast = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "1", ad_refresh_seconds: "10" });
+    expect(fast.refreshSeconds).toBe(AD_REFRESH_SECONDS_MIN);
+    const off = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "1", ad_refresh_seconds: "0" });
+    expect(off.refreshSeconds).toBe(0);
+
+    // excluded pages match by PREFIX now: "/category" excludes "/category/jobs".
+    expect(shouldShowAds(gam, { path: "/category" })).toBe(false);
+    expect(shouldShowAds(gam, { path: "/category/jobs" })).toBe(false);
+    expect(shouldShowAds(gam, { path: "/article/x" })).toBe(true);
+    expect(isExcluded("/category/jobs", ["/category"])).toBe(true);
+    expect(isExcluded("/articlexyz", ["/article"])).toBe(false);
+
+    // no network code → NO silent fallback (no head, no unit, no script).
+    const noNet = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam" });
+    expect(hasGam(noNet)).toBe(false);
+    expect(renderAdProviderHead(noNet)).toBe("");
+    expect(renderAdUnit(noNet, "rect")).toBe("");
+    expect(renderAdManagerScript(noNet)).toBe("");
+
+    // sticky off → no anchor slot in the script.
+    const noSticky = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "1", gam_unit_leaderboard: "lb" });
+    expect(renderAdManagerScript(noSticky)).not.toContain("BOTTOM_ANCHOR");
+
+    // AdSense still works unchanged (the dispatcher did not break it).
+    const adsense = liveConfig();
+    expect(renderAdUnit(adsense, "rect")).toContain("adsbygoogle");
+    expect(renderAdProviderHead(adsense)).toContain("adsbygoogle.js");
   });
 });

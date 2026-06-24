@@ -378,6 +378,7 @@ function renderAdCheckbox(
 const AD_PROVIDER_OPTIONS: ReadonlyArray<[string, string]> = [
   ["none", "None (ads off)"],
   ["adsense", "Google AdSense"],
+  ["gam", "Google Ad Manager (GPT / AdX)"],
 ];
 
 // In-content slot anchor is an integer paragraph index (parseIntOr in ads.ts);
@@ -426,7 +427,7 @@ function renderAdConfigCard(values: SettingsValueMap): string {
       "Ad Network Provider",
       AD_PROVIDER_OPTIONS,
       providerValue,
-      "AdSense renders only when a provider is selected and a publisher ID is set.",
+      "AdSense needs a publisher ID; Google Ad Manager needs a network code. Ads render only when the selected provider is configured.",
     ) +
     renderTextField(
       "adsense_publisher_id",
@@ -451,6 +452,48 @@ function renderAdConfigCard(values: SettingsValueMap): string {
       "Rectangle Unit ID (300×250)",
       settingValue(values, "ad_unit_rect"),
       "Article sidebar / in-content rectangle slot. Leave blank for auto-ads.",
+    ) +
+    renderTextField(
+      "gam_network_code",
+      "Ad Manager Network Code",
+      settingValue(values, "gam_network_code"),
+      "Google Ad Manager network code (the number in /NETWORK_CODE/unit). Used when the provider is Google Ad Manager.",
+    ) +
+    renderTextField(
+      "gam_unit_leaderboard",
+      "Ad Manager Leaderboard Unit (970x90)",
+      settingValue(values, "gam_unit_leaderboard"),
+      "GAM ad-unit name, or a full /NETWORK/unit path, for the home leaderboard.",
+    ) +
+    renderTextField(
+      "gam_unit_in_feed",
+      "Ad Manager In-Feed Unit (728x90)",
+      settingValue(values, "gam_unit_in_feed"),
+      "GAM ad-unit for the home in-feed slot.",
+    ) +
+    renderTextField(
+      "gam_unit_rect",
+      "Ad Manager Rectangle Unit (300x250)",
+      settingValue(values, "gam_unit_rect"),
+      "GAM ad-unit for the article sidebar / in-content rectangle.",
+    ) +
+    renderAdCheckbox(
+      "ad_sticky_enabled",
+      "Sticky anchor ad (bottom of screen)",
+      settingValue(values, "ad_sticky_enabled"),
+      "Shows a dismissible bottom-anchored ad (Google Ad Manager only).",
+    ) +
+    renderTextField(
+      "gam_unit_anchor",
+      "Sticky / Anchor Unit",
+      settingValue(values, "gam_unit_anchor"),
+      "GAM ad-unit for the sticky anchor (required when Sticky anchor ad is enabled).",
+    ) +
+    renderTextField(
+      "ad_refresh_seconds",
+      "Ad Refresh Rate (seconds)",
+      settingValue(values, "ad_refresh_seconds"),
+      "Auto-refresh ads every N seconds (Google Ad Manager only; 0 = off, minimum 30).",
     ) +
     renderAdSelect(
       "ad_in_content_position",
@@ -917,14 +960,14 @@ export const SETTINGS_SCRIPT = `
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','analytics_script','ad_header_script'];
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);
     }
     // T22: ad-config checkboxes -> '1' when checked, '' otherwise (parseBool in
     // public/ads.ts reads '1'/'true'; renderAdCheckbox re-checks '1'/'true').
-    var adCheckboxKeys = ['ads_enabled','ad_lazy_load','ad_disable_logged_in'];
+    var adCheckboxKeys = ['ads_enabled','ad_lazy_load','ad_disable_logged_in','ad_sticky_enabled'];
     for (var ac = 0; ac < adCheckboxKeys.length; ac = ac + 1) {
       var cbEl = document.getElementById('setting-' + adCheckboxKeys[ac]);
       updates[adCheckboxKeys[ac]] = cbEl && cbEl.checked ? '1' : '';
