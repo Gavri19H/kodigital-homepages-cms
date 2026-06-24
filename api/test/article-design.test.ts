@@ -255,7 +255,7 @@ describe("article-design (T20)", () => {
     expect(publicCss).toMatch(/\.article-body > ul > li \{[^}]*padding-left: 28px/);
   });
 
-  it("rescue-4 round-5 (issue 3/4): in-content ad renders with its OWN gam_unit_in_content after the Nth paragraph (once); skipped without that distinct unit; absent when ads off [api/test/article-design.test.ts]", () => {
+  it("rescue-5 (issue 4): in-content ad renders with its OWN gam_unit_in_content after the Nth paragraph (once); falls back to the rect unit without a distinct unit; absent when ads off [api/test/article-design.test.ts]", () => {
     const vm = makeVm();
     const article = {
       ...vm.article,
@@ -286,18 +286,19 @@ describe("article-design (T20)", () => {
     expect(adAt).toBeLessThan(withAds.indexOf("Para three."));
     expect(withAds.split("ad-slot--in-content").length - 1).toBe(1);
 
-    // issue 4: GAM live but NO distinct in-content unit -> the in-content slot is
-    // NOT rendered (so it can never duplicate the sidebar's rect unit on a page).
-    const noInContent = parseAdsConfig({
+    // rescue-5 (issue 4): GAM live, NO distinct in-content unit -> the in-content slot
+    // FALLS BACK to the sidebar rect unit (renders, not skipped). Lazy-load disables
+    // SRA so the duplicate rect unit serves both slots as independent requests.
+    const noDistinct = parseAdsConfig({
       ads_enabled: "1",
       ad_provider: "gam",
       gam_network_code: "23456789",
       gam_unit_rect: "sidebar_rect",
       ad_in_content_position: "2",
     });
-    expect(
-      renderArticle({ vm: { ...vm, article }, ads: noInContent, emitJsonLd: false }),
-    ).not.toContain("ad-slot--in-content");
+    const fallback = renderArticle({ vm: { ...vm, article }, ads: noDistinct, emitJsonLd: false });
+    expect(fallback).toContain("ad-slot--in-content");
+    expect(fallback).toContain('data-gpt-unit="/23456789/sidebar_rect"');
 
     // No ads config -> no in-content slot at all.
     const noAds = renderArticle({ vm: { ...vm, article }, emitJsonLd: false });

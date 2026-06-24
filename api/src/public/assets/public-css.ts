@@ -658,11 +658,11 @@ p { margin: 0; }
      margin), never inline-left of the ad. position:absolute so it can't eat the
      ad's reserved height - the creative keeps the full 90/250px box. */
   content: "Sponsored";
-  position: absolute; top: -15px; left: 2px;
+  position: absolute; top: -15px; left: 0; right: 0; text-align: center;
   color: var(--tw-text-light); font-size: 10px; line-height: 1; letter-spacing: 0.08em;
 }
-.ad-slot--leaderboard { width: 100%; max-width: 970px; height: 90px; }
-.ad-slot--in-feed { width: 100%; max-width: 728px; height: 90px; }
+.ad-slot--leaderboard { width: 100%; max-width: 970px; min-height: 90px; }
+.ad-slot--in-feed { width: 100%; max-width: 728px; min-height: 90px; }
 /* RESCUE-4 anti-CLS: renderAdSlot also stamps data-ad-type; reserve the box per
    type so a deferred stylesheet never collapses it. Height-only (never a fixed
    pixel WIDTH — 970px overflowed the 375px mobile viewport). */
@@ -907,7 +907,7 @@ p { margin: 0; }
 .newsletter-form.mini { padding: 4px 4px 4px 16px; }
 .newsletter-form.mini input { font-size: var(--tw-fs-sm); padding: 9px 0; }
 .newsletter-form.mini .btn-primary { padding: 9px 16px; font-size: var(--tw-fs-xs); }
-.sidebar-ad.ad-slot--rect { width: 100%; max-width: 300px; height: 250px; margin: 0 auto; }
+.sidebar-ad.ad-slot--rect { width: 100%; max-width: 300px; min-height: 250px; margin: 0 auto; }
 .sidebar-popular { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
 .sidebar-popular a { display: grid; grid-template-columns: 24px 60px 1fr; gap: 12px; align-items: center; }
 .pop-num { font-family: var(--tw-font-display); font-size: 1.25rem; font-weight: 900; color: var(--tw-brand); line-height: 1; }

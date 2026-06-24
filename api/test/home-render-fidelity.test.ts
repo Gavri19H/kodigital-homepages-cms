@@ -122,7 +122,9 @@ describe("rescue-4 home render fidelity", () => {
 
   it("D5: ad slots reserve height but never force a fixed pixel width (375px overflow)", () => {
     const html = renderHome({ vm: makeVm() });
-    expect(html).toContain("max-width:970px;width:100%");
+    // rescue-5: responsive box (width:100%); design dims reserved via the stylesheet + data-w/data-h, never a fixed inline px width/height.
+    expect(html).toContain('style="width:100%"');
+    expect(html).toContain('data-w="970"');
     expect(html, "leaderboard must not force a fixed 970px width on mobile").not.toContain("width:970px;min-width");
     expect(html, "no min-width may pin the slot wider than the viewport").not.toContain("min-width:970px");
   });

@@ -331,7 +331,7 @@ function renderInContentAd(ads: AdsConfig): string {
     `<aside class="ad-slot ad-slot--in-content ad-slot--rect" ` +
     `data-ad-slot="article-in-content" data-ad-type="rect" ` +
     `data-ad-surface="article" aria-label="Advertisement" ` +
-    `style="max-width:300px;width:100%;min-height:250px;height:250px;margin:24px auto;display:block">` +
+    `style="max-width:300px;width:100%;min-height:250px;margin:24px auto;display:block">` +
     `${unit}</aside>`
   );
 }
