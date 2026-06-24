@@ -13,7 +13,7 @@
 // (templates/seo-head.ts) so robots / og:type / og:url / twitter:* /
 // article:* all flow through the LIVE route — the helper is no longer dead.
 
-import { renderSeoHead } from "./seo-head";
+import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
 import { publicCss } from "../assets/public-css";
 import { publicJs } from "../assets/public-js";
 
@@ -216,6 +216,17 @@ export function renderLayout(args: RenderLayoutArgs): string {
   });
   const jsonLdBlocks = renderJsonLdBlocks(meta.jsonLd);
   const linkTags = renderLinks(meta.links);
+  // rescue-6 (agent-readiness M1.1): advertise the RSS + Atom feeds so readers
+  // AND agents can discover them from any page's <head> without guessing the
+  // path. Site-wide + constant per tenant host; the admin host MUST NEVER
+  // appear (RED LINE), so the URL is built from the resolved tenant hostname.
+  const feedLinks =
+    site.hostname && site.hostname.length > 0
+      ? [
+          `<link rel="alternate" type="application/rss+xml" title="${escapeHtmlAttr(site.name)} RSS" href="${escapeHtmlAttr(buildCanonicalUrl(site.hostname, "/feed.xml"))}">`,
+          `<link rel="alternate" type="application/atom+xml" title="${escapeHtmlAttr(site.name)} Atom" href="${escapeHtmlAttr(buildCanonicalUrl(site.hostname, "/atom.xml"))}">`,
+        ].join("\n")
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -224,6 +235,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${seoHead}
 ${linkTags}
+${feedLinks}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700;800&display=swap">

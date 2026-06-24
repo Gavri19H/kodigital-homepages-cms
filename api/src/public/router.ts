@@ -523,10 +523,26 @@ router.get("/robots.txt", async (c) => {
     "robots_txt_content",
   );
   const baseUrl = siteInfo(env, siteContext).baseUrl;
-  const body =
-    override !== null
-      ? override.split("{{DOMAIN}}").join(siteContext.hostname)
-      : buildRobotsTxt(baseUrl);
+  // rescue-6 (agent-readiness M1.1): with NO full robots override, the default
+  // body carries the Content-Signal preference; an operator wanting a HARD
+  // per-crawler block of the AI training bots flips `ai_block_training`
+  // (default off, so the live tenant is never silently dropped from training
+  // corpora). The setting rides settings_version, so toggling it busts this KV
+  // cache key. The full robots_txt_content override path ignores it — an
+  // operator hand-writing the whole file owns every directive.
+  let body: string;
+  if (override !== null) {
+    body = override.split("{{DOMAIN}}").join(siteContext.hostname);
+  } else {
+    const blockRaw = await fetchSiteSetting(
+      env.DB,
+      siteContext.siteId,
+      "ai_block_training",
+    );
+    const blockTraining =
+      blockRaw === "1" || (blockRaw ?? "").trim().toLowerCase() === "true";
+    body = buildRobotsTxt(baseUrl, { blockTrainingCrawlers: blockTraining });
+  }
   await cacheSet(env, key, body, {
     expirationTtl: parseNumber(
       env.HTML_CACHE_TTL_SECONDS,
