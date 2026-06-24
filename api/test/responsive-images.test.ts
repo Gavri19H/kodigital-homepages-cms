@@ -128,13 +128,12 @@ function makeArticleVm(overrides: Partial<ArticleViewModel> = {}): ArticleViewMo
   };
 }
 
-// RESCUE-4 (live-verified): a rendered responsive <img> must have a /media/-
-// prefixed src (the always-served Worker route), explicit width/height (anti-
-// CLS), and — because Cloudflare Image Resizing is NOT enabled on the tenant
-// zones — NO /cdn-cgi/image transform ANYWHERE in the tag. A 404ing srcset/LQIP
-// candidate is exactly what rendered every card/featured/picks image broken on
-// the live site. The transform helpers stay unit-tested below for the day Image
-// Resizing is enabled.
+// RESCUE-4 round-5 (issue 5, live-verified 2026-06-24): Cloudflare Image
+// Resizing IS enabled on the zone, so a rendered responsive <img> carries the
+// bare /media/-prefixed src (the always-served Worker fallback), explicit
+// width/height (anti-CLS), AND a srcset of /cdn-cgi/image/...,format=auto
+// candidates (the ~2MB source PNG served as a resized WebP/AVIF). Every srcset
+// candidate points at the transform route, which now returns 200.
 function assertResponsive(
   tag: string | undefined,
   expectMediaKey: string,
@@ -146,22 +145,29 @@ function assertResponsive(
 
   const src = attr(img, "src");
   expect(src, `missing src: ${img}`).not.toBeNull();
-  expect(src!.startsWith("/media/"), `src not /media/-prefixed: ${src}`).toBe(true);
+  expect(src!.startsWith("/media/"), `src not /media/-prefixed (fallback): ${src}`).toBe(true);
   expect(src!).toContain(expectMediaKey);
 
-  // No Cloudflare image transform may appear in the rendered tag (src, srcset,
-  // data-lqip, or the background-image style) — every /cdn-cgi/image URL 404s
-  // on this zone, which is what broke the live images.
-  expect(img, `rendered <img> must not reference /cdn-cgi (404s on this zone): ${img}`).not.toContain(
-    "/cdn-cgi/",
-  );
+  // The responsive srcset of Cloudflare transform candidates (resize + WebP).
+  const srcset = attr(img, "srcset");
+  expect(srcset, `missing srcset: ${img}`).not.toBeNull();
+  const cands = parseSrcset(srcset as string);
+  expect(cands.length, `srcset needs >=2 candidates: ${srcset}`).toBeGreaterThanOrEqual(2);
+  for (const cand of cands) {
+    expect(cand.url, `srcset candidate must be a /cdn-cgi/image transform: ${cand.url}`).toContain(
+      "/cdn-cgi/image/",
+    );
+    expect(cand.url, "srcset candidate must auto-format (WebP/AVIF)").toContain("format=auto");
+    expect(cand.url).toContain(expectMediaKey);
+    expect(cand.descriptor, `srcset candidate needs a <N>w descriptor: ${cand.descriptor}`).toMatch(/^\d+w$/);
+  }
 
   expect(attr(img, "width")).toBe(expectWidth);
   expect(attr(img, "height")).toBe(expectHeight);
 }
 
 describe("responsive-images", () => {
-  it("T21.AC1 article hero + card 16/10 + sidebar 60×60 emit srcset + blur-up LQIP + /media/ src at design dims [api/test/responsive-images.test.ts]", () => {
+  it("T21.AC1 article hero + card 16/10 + sidebar 60×60 emit a /cdn-cgi srcset (resize+WebP) + /media/ src fallback at design dims [api/test/responsive-images.test.ts]", () => {
     const html = renderArticle({ vm: makeArticleVm(), emitJsonLd: false });
 
     // Article hero (LCP candidate): 1200×630, eager + fetchpriority="high".
@@ -200,8 +206,8 @@ describe("responsive-images", () => {
     expect(attr(pop!, "fetchpriority")).toBeNull();
   });
 
-  it("T21.AC1 responsiveImg primitive: bare /media/ src, NO /cdn-cgi transform in output (Image Resizing off), transform helpers still correct [api/test/responsive-images.test.ts]", () => {
-    // A bare storage key resolves to the /media/ public route.
+  it("T21.AC1 responsiveImg primitive: bare /media/ src fallback + a /cdn-cgi srcset (resize+WebP, Image Resizing on), transform helpers correct [api/test/responsive-images.test.ts]", () => {
+    // A bare storage key resolves to the /media/ public route (the fallback src).
     const tag = responsiveImg({
       src: "abc123.jpg",
       alt: "Alt text",
@@ -209,20 +215,36 @@ describe("responsive-images", () => {
       height: 630,
       className: "x",
       loading: "lazy",
+      sizes: "100vw",
     });
     expect(attr(tag, "src")).toBe("/media/abc123.jpg");
     expect(attr(tag, "width")).toBe("1200");
     expect(attr(tag, "height")).toBe("630");
+    expect(attr(tag, "sizes")).toBe("100vw");
 
-    // RESCUE-4: the rendered markup carries NO broken Cloudflare transform —
-    // no srcset, no data-lqip, no /cdn-cgi anywhere (they 404 on this zone).
-    expect(tag).not.toContain("/cdn-cgi/");
-    expect(attr(tag, "srcset")).toBeNull();
-    expect(attr(tag, "data-lqip")).toBeNull();
+    // RESCUE-4 round-5: the markup now carries a srcset of /cdn-cgi/image
+    // transform candidates (resize + format=auto), each resolving to the same
+    // /media/ source — the zone has Image Resizing enabled.
+    const psrcset = attr(tag, "srcset");
+    expect(psrcset).not.toBeNull();
+    const pcands = parseSrcset(psrcset as string);
+    expect(pcands.length).toBeGreaterThanOrEqual(2);
+    for (const cand of pcands) {
+      expect(cand.url).toContain("/cdn-cgi/image/");
+      expect(cand.url).toContain("format=auto");
+      expect(cand.url).toContain("/media/abc123.jpg");
+      expect(cand.descriptor).toMatch(/^\d+w$/);
+    }
+
+    // An off-origin (absolute) src can't use the same-origin transform route ->
+    // it degrades to a bare <img> with NO srcset (never a broken transform).
+    const ext = responsiveImg({ src: "https://cdn.example/x.jpg", alt: "x", width: 100, height: 100 });
+    expect(attr(ext, "src")).toBe("https://cdn.example/x.jpg");
+    expect(attr(ext, "srcset")).toBeNull();
+    expect(ext).not.toContain("/cdn-cgi/");
 
     // The transform helpers are RETAINED and still produce correct Cloudflare
-    // URLs — exercised in isolation so the srcset + blur-up optimisation is a
-    // one-line re-enable the day Image Resizing is turned on for the zone.
+    // URLs (exercised in isolation; lqipUrl kept for a future blur-up pass).
     const widths = srcsetWidths(640);
     expect(widths.length).toBeGreaterThanOrEqual(2);
     expect([...widths].sort((a, b) => a - b)).toEqual(widths);
