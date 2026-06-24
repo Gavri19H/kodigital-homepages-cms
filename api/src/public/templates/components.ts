@@ -30,7 +30,7 @@ import {
   iconYoutube,
   resolveBrandGlyphKey,
 } from "./icons";
-import { responsiveImg } from "./responsive-img";
+import { cfTransform, responsiveImg } from "./responsive-img";
 import {
   AD_SLOT_DIMENSIONS,
   renderAdSenseUnit,
@@ -355,9 +355,20 @@ export function renderHero(args: HeroArgs): string {
   // RESCUE-4: a hero photo is layered UNDER a dark gradient (for white-title
   // legibility) in one inline background; no photo → empty style so the .hero-bg
   // CSS gradient paints (the design's empty-state hero).
-  const bgStyle =
+  // RESCUE-4 round-5 (issue 5): the hero is the full-bleed LCP. Route a
+  // same-origin /media/ photo through Cloudflare Image Resizing (one ~1600px
+  // WebP/AVIF, ~70KB vs the ~2MB source PNG); an off-origin URL is used as-is.
+  // A CSS background can't carry an <img srcset>, so a single hero-width
+  // transform is the lever here.
+  const heroBgUrl =
     args.imageUrl !== undefined && args.imageUrl !== null && args.imageUrl.length > 0
-      ? ` style="background-image:linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.6)), url(${escAttr(args.imageUrl)});background-size:cover;background-position:center"`
+      ? args.imageUrl.startsWith("/") && !args.imageUrl.startsWith("//")
+        ? cfTransform(args.imageUrl, "width=1600,quality=78,format=auto")
+        : args.imageUrl
+      : "";
+  const bgStyle =
+    heroBgUrl.length > 0
+      ? ` style="background-image:linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.6)), url(${escAttr(heroBgUrl)});background-size:cover;background-position:center"`
       : "";
   const taglineHtml =
     args.excerpt !== undefined && args.excerpt.length > 0

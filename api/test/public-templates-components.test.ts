@@ -240,7 +240,10 @@ describe("public-templates-components", () => {
 
     // RESCUE-4 design: .hero-bg is a div (no <img>); a set imageUrl paints it
     // via an inline background-image (the gradient is the CSS default otherwise).
-    expect(html).toContain('url(/media/hero.jpg)');
+    // RESCUE-4 round-5 (issue 5): the hero photo is served resized via Cloudflare
+    // Image Resizing -> url(/cdn-cgi/image/...,format=auto/media/hero.jpg).
+    expect(html).toContain('url(/cdn-cgi/image/');
+    expect(html).toContain('format=auto/media/hero.jpg)');
     expect(html).toContain('background-image:linear-gradient');
     expect(html.slice(bgAt, contentAt)).not.toContain("<img");
 

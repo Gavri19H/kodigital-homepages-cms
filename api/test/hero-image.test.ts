@@ -106,6 +106,10 @@ describe("hero-image", () => {
     expect(hero).toContain('class="hero-bg"');
     expect(hero).toContain("background-image:");
     expect(hero).toContain("/media/lead-art.jpg");
+    // RESCUE-4 round-5 (issue 5): the full-bleed hero LCP is served resized via
+    // Cloudflare Image Resizing (a ~1600px WebP/AVIF), not the ~2MB source PNG.
+    expect(hero).toContain("/cdn-cgi/image/");
+    expect(hero).toContain("format=auto");
     expect(hero).toContain("rgba(0,0,0,0.5)");
     // the operator hero_image_media_id (a text-laden AI mockup on real sites) is
     // intentionally NOT used as the hero bg.
