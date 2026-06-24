@@ -83,7 +83,7 @@ import {
 } from "./seo";
 import { responsiveImg } from "./responsive-img";
 import { iconChevronDown, iconLink, iconPin, iconShare } from "./icons";
-import { renderAdUnit, hasAnyAds, type AdsConfig } from "../ads";
+import { renderAdUnit, renderInContentAdUnit, hasAnyAds, type AdsConfig } from "../ads";
 
 export interface RenderArticleArgs {
   vm: ArticleViewModel;
@@ -323,12 +323,16 @@ function renderBlockHtml(
 // was parsed + shown in the admin but NEVER rendered (a dead option). Provider-
 // agnostic via renderAdUnit; only emitted when a provider is live.
 function renderInContentAd(ads: AdsConfig): string {
+  // Uses the DISTINCT in-content unit (gam_unit_in_content); empty when GAM has
+  // no in-content unit configured, so it never duplicates the sidebar rect unit.
+  const unit = renderInContentAdUnit(ads);
+  if (unit.length === 0) return "";
   return (
     `<aside class="ad-slot ad-slot--in-content ad-slot--rect" ` +
     `data-ad-slot="article-in-content" data-ad-type="rect" ` +
     `data-ad-surface="article" aria-label="Advertisement" ` +
     `style="max-width:300px;width:100%;min-height:250px;height:250px;margin:24px auto;display:block">` +
-    `${renderAdUnit(ads, "rect")}</aside>`
+    `${unit}</aside>`
   );
 }
 
@@ -354,7 +358,8 @@ function renderArticleBodyBlocks(
     if (block.type === "paragraph") {
       paragraphCount += 1;
       if (adsLive && !adInserted && inContentPos > 0 && paragraphCount === inContentPos) {
-        out.push(renderInContentAd(ads as AdsConfig));
+        const inContentAd = renderInContentAd(ads as AdsConfig);
+        if (inContentAd.length > 0) out.push(inContentAd);
         adInserted = true;
       }
     }

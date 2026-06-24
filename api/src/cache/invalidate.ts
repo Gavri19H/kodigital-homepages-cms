@@ -56,12 +56,25 @@ const CATEGORY_UPDATE_PREFIXES = [
   "feed:atom:",
 ] as const;
 
-// Settings update wipes the settings-versioned surface only — robots and
-// ads are also keyed by settings_version (see cache-keys.ts).
+// Settings update wipes the settings-versioned surface (settings/robots/ads,
+// all keyed by settings_version) AND the rendered-HTML surface. rescue-4
+// round-5: the rendered HTML embeds settings (ads config, brand tokens, logo,
+// custom head/footer, social links, SEO head), but the html/article/page/
+// category keys are keyed by content_version — a settings_version bump alone
+// never busts them, so the public site served stale HTML (old settings) until
+// content_version bumped or the TTL expired (the ad/settings propagation lag).
+// Pure DATA/XML namespaces (homepage-data/sitemap/feed) are settings-
+// independent and are intentionally left intact (the html re-render reuses the
+// cached homepage-data). content_version is NOT bumped — the wipe is the
+// invalidation mechanism for the content_version-keyed HTML keys here.
 const SETTINGS_UPDATE_PREFIXES = [
   "settings:",
   "robots:",
   "ads:",
+  "html:",
+  "article:",
+  "page:",
+  "category:",
 ] as const;
 
 function requireSiteId(siteId: string): string {

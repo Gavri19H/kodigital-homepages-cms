@@ -7,10 +7,13 @@
 //   (b) The wipe touches the settings / robots / ads namespaces scoped
 //       to the site_id and leaves other tenants' keys untouched
 //       (T17-AC2, per src/cache/invalidate.ts SETTINGS_UPDATE_PREFIXES).
-//   (c) Content-versioned namespaces (html / article / page / category /
-//       homepage-data / sitemap / feed) MUST NOT be touched — settings
-//       updates live on a separate version axis (settings_version) and
-//       content reads keep their existing cache hits.
+//   (c) rescue-4 round-5: rendered-HTML namespaces (html / article / page /
+//       category) ARE wiped on a settings update — the rendered layout embeds
+//       settings (ads, brand tokens, logo, custom head/footer, social, SEO),
+//       so leaving them cached served stale HTML until content_version bumped
+//       / the TTL expired (the propagation lag). Pure DATA/XML namespaces
+//       (homepage-data / sitemap / feed) are settings-independent and survive.
+//       content_version is still NOT bumped (the wipe is the mechanism).
 //   (d) An empty / whitespace site_id is rejected before any D1 write.
 //
 // SQL bindings use prepare(...).bind(...) only (no template-literal SQL).
@@ -190,7 +193,7 @@ describe("applySettingsMutationCacheInvalidation: invalidates per-site settings 
     expect(deletes).not.toContain("ads:st_other:7");
   });
 
-  it("leaves content-versioned namespaces (html / article / page / category / homepage-data / sitemap / feed) untouched for the SAME tenant", async () => {
+  it("wipes rendered-HTML namespaces (html / article / page / category — they embed settings) and leaves DATA/XML (homepage-data / sitemap / feed) intact for the SAME tenant", async () => {
     const { db } = makeFakeDb();
     const { kv, store, deletes } = makeKv();
 
@@ -199,8 +202,8 @@ describe("applySettingsMutationCacheInvalidation: invalidates per-site settings 
     store.set("robots:st_abc:7", "User-agent: *");
     store.set("ads:st_abc:7", "google.com, pub-xxx, DIRECT");
 
-    // Content surface for the SAME tenant — MUST survive (different
-    // version axis: content_version, not settings_version).
+    // Rendered-HTML surface (embeds settings) — MUST be wiped on a settings
+    // change. Pure DATA/XML is settings-independent and MUST survive.
     store.set("html:st_abc:/article/hello:5:1", "<html/>");
     store.set("article:st_abc:hello:5:1", "<html/>");
     store.set("page:st_abc:about:5:1", "<html/>");
@@ -217,20 +220,24 @@ describe("applySettingsMutationCacheInvalidation: invalidates per-site settings 
     expect(deletes).toContain("robots:st_abc:7");
     expect(deletes).toContain("ads:st_abc:7");
 
-    // Content keys preserved.
-    expect(store.has("html:st_abc:/article/hello:5:1")).toBe(true);
-    expect(store.has("article:st_abc:hello:5:1")).toBe(true);
-    expect(store.has("page:st_abc:about:5:1")).toBe(true);
-    expect(store.has("category:st_abc:news:1:5:1")).toBe(true);
+    // rescue-4 round-5: rendered-HTML keys are now WIPED too (the layout embeds
+    // settings — ads, brand tokens, logo, custom head/footer, social, SEO).
+    expect(deletes).toContain("html:st_abc:/article/hello:5:1");
+    expect(deletes).toContain("article:st_abc:hello:5:1");
+    expect(deletes).toContain("page:st_abc:about:5:1");
+    expect(deletes).toContain("category:st_abc:news:1:5:1");
+    expect(store.has("html:st_abc:/article/hello:5:1")).toBe(false);
+    expect(store.has("category:st_abc:news:1:5:1")).toBe(false);
+
+    // Pure DATA/XML caches are settings-independent and MUST survive.
     expect(store.has("homepage-data:st_abc:5")).toBe(true);
     expect(store.has("sitemap:st_abc:5")).toBe(true);
     expect(store.has("feed:rss:st_abc:5")).toBe(true);
     expect(store.has("feed:atom:st_abc:5")).toBe(true);
-
-    expect(deletes).not.toContain("html:st_abc:/article/hello:5:1");
-    expect(deletes).not.toContain("article:st_abc:hello:5:1");
-    expect(deletes).not.toContain("category:st_abc:news:1:5:1");
+    expect(deletes).not.toContain("homepage-data:st_abc:5");
     expect(deletes).not.toContain("sitemap:st_abc:5");
+    expect(deletes).not.toContain("feed:rss:st_abc:5");
+    expect(deletes).not.toContain("feed:atom:st_abc:5");
   });
 });
 

@@ -77,6 +77,7 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   "gam_unit_leaderboard",
   "gam_unit_in_feed",
   "gam_unit_rect",
+  "gam_unit_in_content",
   "gam_unit_anchor",
   "ad_sticky_enabled",
   "ad_refresh_seconds",

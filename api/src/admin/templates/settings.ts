@@ -475,7 +475,13 @@ function renderAdConfigCard(values: SettingsValueMap): string {
       "gam_unit_rect",
       "Ad Manager Rectangle Unit (300x250)",
       settingValue(values, "gam_unit_rect"),
-      "GAM ad-unit for the article sidebar / in-content rectangle.",
+      "GAM ad-unit for the article SIDEBAR rectangle.",
+    ) +
+    renderTextField(
+      "gam_unit_in_content",
+      "Ad Manager In-Content Unit (300x250)",
+      settingValue(values, "gam_unit_in_content"),
+      "GAM ad-unit for the in-article-body rectangle. MUST be a DIFFERENT unit than the sidebar rectangle - GAM cannot serve the same ad unit twice on one page. Leave blank to disable the in-article-body ad.",
     ) +
     renderAdCheckbox(
       "ad_sticky_enabled",
@@ -960,7 +966,7 @@ export const SETTINGS_SCRIPT = `
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script'];
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);

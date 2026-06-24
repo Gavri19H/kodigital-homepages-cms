@@ -642,6 +642,7 @@ p { margin: 0; }
 
 /* === AD SLOT === */
 .ad-slot {
+  position: relative;
   display: flex; align-items: center; justify-content: center;
   background: var(--tw-bg-soft);
   border: 1px dashed var(--tw-rule);
@@ -653,7 +654,12 @@ p { margin: 0; }
   font-weight: 700;
 }
 .ad-slot::before {
-  content: "Sponsored"; margin-right: 8px; color: var(--tw-text-muted);
+  /* rescue-4 round-5 (issue 1): the label sits ABOVE the slot (in the top
+     margin), never inline-left of the ad. position:absolute so it can't eat the
+     ad's reserved height - the creative keeps the full 90/250px box. */
+  content: "Sponsored";
+  position: absolute; top: -15px; left: 2px;
+  color: var(--tw-text-light); font-size: 10px; line-height: 1; letter-spacing: 0.08em;
 }
 .ad-slot--leaderboard { width: 100%; max-width: 970px; height: 90px; }
 .ad-slot--in-feed { width: 100%; max-width: 728px; height: 90px; }
@@ -663,6 +669,13 @@ p { margin: 0; }
 .ad-slot[data-ad-type="leaderboard"] { min-height: 90px; max-width: 970px; }
 .ad-slot[data-ad-type="in-feed"]    { min-height: 90px; max-width: 728px; }
 .ad-slot[data-ad-type="rect"]       { min-height: 250px; max-width: 300px; }
+/* rescue-4 round-5 (mobile): below 728px the leaderboard + in-feed serve a
+   300x250 (GAM size mapping), so reserve THAT box and cap the width to the
+   phone - the wide 970/728 banners would otherwise overflow the viewport. */
+@media (max-width: 727px) {
+  .ad-slot[data-ad-type="leaderboard"],
+  .ad-slot[data-ad-type="in-feed"] { min-height: 250px; max-width: 300px; }
+}
 
 /* === FOOTER === */
 .site-footer {
