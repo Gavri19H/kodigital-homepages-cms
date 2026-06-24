@@ -71,6 +71,15 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   "ad_lazy_load_margin",
   "ad_disable_logged_in",
   "ad_excluded_pages",
+  // rescue-4 round-5 (issue 2/3): Google Ad Manager (GPT) provider keys —
+  // direct GAM/AdX serving, the sticky anchor unit, and the refresh-rate.
+  "gam_network_code",
+  "gam_unit_leaderboard",
+  "gam_unit_in_feed",
+  "gam_unit_rect",
+  "gam_unit_anchor",
+  "ad_sticky_enabled",
+  "ad_refresh_seconds",
 ]);
 
 // Pure-HTML fields: rendered as markup, NO <script> allowed.

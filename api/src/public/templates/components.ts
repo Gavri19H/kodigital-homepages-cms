@@ -33,7 +33,7 @@ import {
 import { cfTransform, responsiveImg } from "./responsive-img";
 import {
   AD_SLOT_DIMENSIONS,
-  renderAdSenseUnit,
+  renderAdUnit,
   type AdsConfig,
   type AdSlotType,
 } from "../ads";
@@ -667,7 +667,7 @@ export function renderAdSlot(args: AdSlotArgs): string {
     `max-width:${dims.width}px;width:100%;` +
     `min-height:${dims.height}px;height:${dims.height}px`;
   const unit =
-    args.ads !== undefined ? renderAdSenseUnit(args.ads, args.type) : "";
+    args.ads !== undefined ? renderAdUnit(args.ads, args.type) : "";
   // Design Ad DOM: the slot is centred inside a `.container`. The element stays
   // an <aside> (the public-ad-slots regression extracts ad-slots as <aside> and
   // requires the a11y label) carrying the `.ad-slot.ad-slot--<type>` design
