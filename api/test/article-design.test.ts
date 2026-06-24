@@ -28,6 +28,7 @@ import { describe, it, expect } from "vitest";
 import { renderArticle } from "../src/public/templates/article";
 import { renderLayout } from "../src/public/templates/layout";
 import { publicCss } from "../src/public/assets/public-css";
+import { parseAdsConfig } from "../src/public/ads";
 import {
   adaptBodyBlocks,
   type ArticleViewModel,
@@ -252,5 +253,40 @@ describe("article-design (T20)", () => {
       /\.article-body > ul > li::before \{[^}]*width: 16px; height: 2px;[^}]*background: var\(--tw-brand\)/,
     );
     expect(publicCss).toMatch(/\.article-body > ul > li \{[^}]*padding-left: 28px/);
+  });
+
+  it("rescue-4 round-5 (issue 3): the in-content ad renders after the operator's Nth paragraph when a provider is live, exactly once, and not at all when ads are off [api/test/article-design.test.ts]", () => {
+    const vm = makeVm();
+    const article = {
+      ...vm.article,
+      body: [
+        { type: "paragraph", text: "Para one." },
+        { type: "paragraph", text: "Para two." },
+        { type: "heading", level: 2, text: "A heading" },
+        { type: "paragraph", text: "Para three." },
+      ],
+    } as ArticleViewModel["article"];
+
+    // GAM live, in-content slot after paragraph 2.
+    const ads = parseAdsConfig({
+      ads_enabled: "1",
+      ad_provider: "gam",
+      gam_network_code: "23456789",
+      gam_unit_rect: "in_content_rect",
+      ad_in_content_position: "2",
+    });
+    const withAds = renderArticle({ vm: { ...vm, article }, ads, emitJsonLd: false });
+    expect(withAds).toContain("ad-slot--in-content");
+    expect(withAds).toContain('data-gpt-unit="/23456789/in_content_rect"');
+    // inserted AFTER the 2nd paragraph and BEFORE the 3rd.
+    const adAt = withAds.indexOf("ad-slot--in-content");
+    expect(withAds.indexOf("Para two.")).toBeLessThan(adAt);
+    expect(adAt).toBeLessThan(withAds.indexOf("Para three."));
+    // inserted exactly once.
+    expect(withAds.split("ad-slot--in-content").length - 1).toBe(1);
+
+    // No ads config -> no in-content slot at all.
+    const noAds = renderArticle({ vm: { ...vm, article }, emitJsonLd: false });
+    expect(noAds).not.toContain("ad-slot--in-content");
   });
 });
