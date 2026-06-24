@@ -281,9 +281,11 @@ describe("ads-subsystem (T22)", () => {
       });
       expect(attr(html, "data-ad-type")).toBe(type);
       expect(attr(html, "data-ad-slot")).toBe(`slot-${type}`);
-      // design dims reserved both inline and via data-w/data-h (anti-CLS).
-      expect(html).toContain(`width:${w}px`);
-      expect(html).toContain(`height:${h}px`);
+      // rescue-5: the OUTER box is width:100% (responsive) + reserves the design
+      // dims via data-w/data-h; the per-breakpoint height/max-width come from the
+      // stylesheet, NEVER a fixed inline height (which overrode the responsive media
+      // query and clipped the mobile 300x250 creative). The inner <ins> keeps its dims.
+      expect(html).toContain('style="width:100%"');
       expect(attr(html, "data-w")).toBe(String(w));
       expect(attr(html, "data-h")).toBe(String(h));
       // the real AdSense unit at the publisher + per-slot unit id.
@@ -320,9 +322,10 @@ describe("ads-subsystem (T22)", () => {
     expect(renderAdManagerScript(noPublisher)).toBe("");
     const bareSlot = renderAdSlot({ type: "rect", slotId: "x", surface: "home" });
     expect(bareSlot).not.toContain("adsbygoogle");
-    // …but the bare slot still reserves the design dimensions.
-    expect(bareSlot).toContain("width:300px");
-    expect(bareSlot).toContain("height:250px");
+    // …but the bare slot still reserves the design dimensions (via data-w/data-h +
+    // the stylesheet; rescue-5: no fixed inline height to override the media query).
+    expect(bareSlot).toContain('data-w="300"');
+    expect(bareSlot).toContain('data-h="250"');
   });
 
   it("T22-AC2: shouldShowAds excludes excluded-pages + logged-in viewers, and /ads.txt serves the operator override [api/test/ads-subsystem.test.ts] L2_AUTO_DISAMBIGUATION:T22-AC2:RC-040", async () => {
@@ -476,15 +479,21 @@ describe("ads-subsystem (T22)", () => {
     expect(mgr).toContain("inView");
     expect(mgr).toContain("getBoundingClientRect");
 
-    // issue 4: the in-content unit is DISTINCT from the sidebar rect unit (GAM
-    // cannot serve the same ad unit twice on one page). With its own unit it
-    // renders a gpt-slot; without it the in-content slot is skipped (so it never
-    // duplicates the sidebar rect unit).
+    // rescue-5 (issue 4): the in-content unit PREFERS a distinct gam_unit_in_content
+    // when set, else FALLS BACK to the sidebar rect unit so it always renders when a
+    // rect unit exists. Lazy-load disables single-request (SRA), so the same rect unit
+    // serves both slots as independent requests (the duplicate-unit constraint is
+    // SRA-only). rescue-4's "skip without a distinct unit" made the in-content ad
+    // vanish for operators who never created a 2nd GAM unit — this restores it.
     const gamIC = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_rect: "sidebar_rect", gam_unit_in_content: "in_content_rect" });
     const ic = renderInContentAdUnit(gamIC);
     expect(ic).toContain('data-gpt-unit="/23456789/in_content_rect"');
     expect(ic).not.toContain("sidebar_rect");
-    expect(renderInContentAdUnit(parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_rect: "sidebar_rect" }))).toBe("");
+    // no distinct unit -> falls back to the rect unit (renders, not skipped).
+    const icFallback = renderInContentAdUnit(parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_rect: "sidebar_rect" }));
+    expect(icFallback).toContain('data-gpt-unit="/23456789/sidebar_rect"');
+    // no rect/in-content unit at all -> empty (never a broken slot).
+    expect(renderInContentAdUnit(parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789" }))).toBe("");
 
     // AdSense still works unchanged (the dispatcher did not break it).
     const adsense = liveConfig();

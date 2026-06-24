@@ -365,17 +365,21 @@ export function renderAdUnit(config: AdsConfig, type: AdSlotType): string {
   return "";
 }
 
-// The in-content (in-article-body) ad unit. rescue-4 round-5 (issue 4): the
-// article sidebar rect and the in-content rect previously shared ONE GAM ad
-// unit (gam_unit_rect). GAM's single-request architecture can't reliably serve
-// the SAME ad unit twice on one page, so BOTH stayed empty. The in-content slot
-// now uses its OWN unit (gam_unit_in_content); when that is not configured the
-// in-content GAM slot is NOT rendered, so it can never duplicate the sidebar's
-// rect unit. AdSense tolerates the shared rect unit and keeps using it.
+// The in-content (in-article-body) ad unit. rescue-5 (issue 4): prefer a DISTINCT
+// in-content unit (gam_unit_in_content) when the operator sets one; otherwise FALL
+// BACK to the sidebar rect unit (gam_unit_rect) so the in-content ad always renders
+// when any rect unit exists. This is safe because lazy-load (ad_lazy_load) disables
+// single-request (SRA) — see renderGamManagerScript — so GAM serves the SAME rect
+// unit in the in-content + sidebar slots as two INDEPENDENT requests (the SRA
+// "same unit can't fill twice" constraint only applies when SRA is on). Empty only
+// when no rect/in-content unit is configured at all (never a broken slot). rescue-4
+// requiring a distinct unit made the in-content ad vanish whenever the operator had
+// not created a separate GAM unit — this restores it. AdSense uses the shared rect.
 export function renderInContentAdUnit(config: AdsConfig): string {
   if (hasGam(config)) {
-    if (config.gamInContentUnit === null) return "";
-    return gamSlotDiv(config, gamUnitPath(config, config.gamInContentUnit), "rect");
+    const unit = config.gamInContentUnit ?? config.gamSlotUnits.rect;
+    if (unit === null) return "";
+    return gamSlotDiv(config, gamUnitPath(config, unit), "rect");
   }
   if (hasAdsense(config)) return renderAdSenseUnit(config, "rect");
   return "";

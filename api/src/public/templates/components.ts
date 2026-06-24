@@ -659,13 +659,13 @@ export function renderAdSlot(args: AdSlotArgs): string {
   // it (no CLS). When AdSense is live the slot carries its real <ins> unit;
   // otherwise it stays an empty reserved placeholder.
   const dims = AD_SLOT_DIMENSIONS[args.type];
-  // RESCUE-4 overflow fix: reserve the ad HEIGHT (anti-CLS) but never force a
-  // fixed pixel WIDTH — width:970px;min-width:970px on the leaderboard overflowed
-  // the 375px mobile viewport (horizontal scroll). Cap at the ad's intrinsic
-  // width, shrink to the container below it.
-  const dimStyle =
-    `max-width:${dims.width}px;width:100%;` +
-    `min-height:${dims.height}px;height:${dims.height}px`;
+  // rescue-5 overflow fix: reserve the box via the STYLESHEET (.ad-slot[data-ad-type]
+  // + the <728px media query in public-css), NEVER a fixed inline height. An inline
+  // `height` beats the responsive media query, so the mobile 300x250 creative
+  // overflowed a 90px box and covered the cards above it. width:100% only; the
+  // per-breakpoint min-height/max-width come from the render-blocking <link>
+  // stylesheet (present at first paint) and the box GROWS to the served creative.
+  const dimStyle = `width:100%`;
   const unit =
     args.ads !== undefined ? renderAdUnit(args.ads, args.type) : "";
   // Design Ad DOM: the slot is centred inside a `.container`. The element stays
