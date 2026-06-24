@@ -89,9 +89,15 @@ describe("rescue-4 home render fidelity", () => {
     expect(section(html, 4)).toContain("Top Story Headline");
   });
 
-  it("D3: no /cdn-cgi image transform is emitted anywhere (every one 404s on the zone)", () => {
+  it("D3: content images emit a /cdn-cgi/image srcset (resize+WebP) plus the bare /media/ src fallback", () => {
     const html = renderHome({ vm: makeVm() });
-    expect(html, "no /cdn-cgi/ transform may appear — they 404 and break images").not.toContain("/cdn-cgi/");
+    // RESCUE-4 round-5 (issue 5, live-verified 2026-06-24): Image Resizing is
+    // enabled on the zone, so the responsive primitive emits a
+    // /cdn-cgi/image/...,format=auto srcset (the ~2MB PNGs served as resized
+    // WebP/AVIF) while keeping the bare /media/ src as the universal fallback.
+    expect(html, "content images must emit a /cdn-cgi/image srcset").toContain("/cdn-cgi/image/");
+    expect(html).toContain("format=auto");
+    expect(html).toContain("srcset=");
     expect(html).toContain('src="/media/ai/site/');
   });
 

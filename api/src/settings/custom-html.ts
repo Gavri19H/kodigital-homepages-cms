@@ -56,6 +56,11 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   "analytics_script",
   "ad_header_script",
   // T22 ad-config keys (operator-settable through the same PATCH route)
+  // rescue-4 round-5 (issue 1): master on/off toggle the admin client ALWAYS
+  // submits (the settings.ts ad-checkbox loop sets it on every save). Missing
+  // here it 400'd EVERY settings save on EVERY tab ("unknown setting key:
+  // 'ads_enabled'") -> the user-facing "Network error".
+  "ads_enabled",
   "ad_provider",
   "adsense_publisher_id",
   "ad_unit_leaderboard",

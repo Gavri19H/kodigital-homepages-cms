@@ -243,7 +243,7 @@ function renderBlockHtml(
         block.caption !== null && block.caption.length > 0
           ? `<figcaption>${escText(block.caption)}</figcaption>`
           : "";
-      return `<figure class="article-figure"><div class="figure-img"><img src="${escAttr(block.src)}" alt="${escAttr(block.alt)}" width="1200" height="675" loading="lazy" decoding="async"></div>${caption}</figure>`;
+      return `<figure class="article-figure"><div class="figure-img">${responsiveImg({ src: block.src, alt: block.alt, width: 1200, height: 675, loading: "lazy", sizes: "(max-width: 760px) 100vw, 680px" })}</div>${caption}</figure>`;
     }
     case "quote": {
       // §12 `pullquote` → design `<blockquote class="pullquote"><span class="pq-mark">"</span>{text}</blockquote>`.
@@ -301,7 +301,7 @@ function renderBlockHtml(
       // has no image, fall back to the clean no-image (`--noimg`) layout.
       const thumb =
         article.imageUrl !== null && article.imageUrl.length > 0
-          ? `<div class="affiliate-img"><img src="${escAttr(article.imageUrl)}" alt="${escAttr(article.imageAlt ?? "")}" width="120" height="90" loading="lazy" decoding="async"></div>`
+          ? `<div class="affiliate-img">${responsiveImg({ src: article.imageUrl, alt: article.imageAlt, width: 120, height: 90, loading: "lazy", sizes: "120px" })}</div>`
           : "";
       const inner =
         thumb +

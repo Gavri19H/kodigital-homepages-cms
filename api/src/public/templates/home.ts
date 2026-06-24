@@ -163,7 +163,7 @@ function renderFeaturedSection(cards: ReadonlyArray<HomeArticleCard>): string {
 function renderStoryRow(c: HomeArticleCard): string {
   const realImg =
     c.imageUrl !== null && c.imageUrl.length > 0
-      ? `<img src="${escAttr(c.imageUrl)}" alt="${escAttr(c.imageAlt ?? "")}" width="110" height="80" loading="lazy" decoding="async">`
+      ? responsiveImg({ src: c.imageUrl, alt: c.imageAlt, width: 110, height: 80, loading: "lazy", sizes: "110px" })
       : `<div class="ph" data-label="${escAttr(c.categoryName.length > 0 ? c.categoryName : c.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
   const metaParts: string[] = [];
   if (c.categoryName.length > 0) metaParts.push(escText(c.categoryName));
