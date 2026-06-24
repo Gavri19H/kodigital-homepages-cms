@@ -227,4 +227,24 @@ describe("custom head/footer HTML + analytics scripts: render + sanitize (T23)",
     expect(resOk.status).toBe(200);
     expect(ok.batches.length).toBe(1);
   });
+
+  it("rescue-4 round-5 (issue 1): ads_enabled + every ad-checkbox key the admin client always submits are allow-listed, so a settings save is not 400-rejected [api/test/custom-html-sanitize.test.ts]", async () => {
+    // The admin settings client ALWAYS posts these three ad-checkbox keys on
+    // every save (the settings.ts ad-checkbox loop), regardless of the visible
+    // tab. A single missing key 400'd EVERY save ("unknown setting key:
+    // 'ads_enabled'") -> the user-facing "Network error" on Ads, Analytics,
+    // SEO, Social, every tab.
+    for (const k of ["ads_enabled", "ad_lazy_load", "ad_disable_logged_in"]) {
+      expect(ALLOWED_SETTINGS_KEYS.has(k), k + " must be allow-listed").toBe(true);
+    }
+    const fix = makeFakeDb([SITE_ROW]);
+    const res = await patchSettings(fix.db, {
+      ads_enabled: "1",
+      ad_lazy_load: "1",
+      ad_disable_logged_in: "",
+      ad_provider: "adsense",
+    });
+    expect(res.status).toBe(200);
+    expect(fix.batches.length).toBe(1);
+  });
 });

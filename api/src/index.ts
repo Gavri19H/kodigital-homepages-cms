@@ -149,6 +149,16 @@ app.notFound((c) =>
   c.json({ error: "Not Found", path: c.req.path }, 404),
 );
 
+// rescue-4 round-5 (issue 1/4): a JSON error envelope for ANY unhandled
+// exception. Hono's default onError returns text/plain "Internal Server
+// Error", which the admin settings client (fetch().then(r => r.json())) could
+// not parse -> it surfaced a misleading "Network error" instead of the real
+// failure. A typed JSON 500 keeps the admin/API contract JSON-only.
+app.onError((err, c) => {
+  console.error("unhandled error:", c.req.method, c.req.path, err);
+  return c.json({ error: "Internal Server Error" }, 500);
+});
+
 // T42 [BCL-080] — Scheduled cron. wrangler.toml [triggers] crons fires the
 // Workers `scheduled` handler every minute. It does TWO things, each isolated
 // so one cannot break the other:

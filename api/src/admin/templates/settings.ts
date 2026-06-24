@@ -979,16 +979,34 @@ export const SETTINGS_SCRIPT = `
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      credentials: 'same-origin'
+      credentials: 'same-origin',
+      redirect: 'manual'
     }).then(function (r) {
-      return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      // rescue-4 round-5 (issue 1/4): read as text FIRST. A non-JSON response
+      // (an unhandled 500 served as text/plain, or a Cloudflare Access login
+      // redirect served as HTML) used to throw inside r.json() and got
+      // mislabelled as the generic "Network error", hiding the real cause.
+      return r.text().then(function (t) {
+        var j = null;
+        try { j = t ? JSON.parse(t) : null; } catch (pe) { j = null; }
+        return { ok: r.ok, status: r.status, type: r.type, redirected: r.redirected, body: j, text: t };
+      });
     }).then(function (res) {
       if (res.ok) {
-        setStatus('Saved (settings version ' + res.body.settings_version + ')');
-      } else {
-        setError((res.body && res.body.error) || ('Error: ' + res.status));
+        var ver = res.body && res.body.settings_version;
+        setStatus(ver ? ('Saved (settings version ' + ver + ')') : 'Saved');
+        return;
       }
-    }).catch(function () { setError('Network error'); });
+      if (res.body && res.body.error) {
+        setError(res.body.error);
+      } else if (res.type === 'opaqueredirect' || res.redirected || (res.text && res.text.charAt(0) === '<')) {
+        setError('Your admin session expired. Reload the page, sign in again, then re-save.');
+      } else {
+        setError('Save failed (HTTP ' + res.status + ').');
+      }
+    }).catch(function (err) {
+      setError('Could not reach the server (network error). ' + ((err && err.message) ? err.message : ''));
+    });
   });
 
   // ---- T15: Site Logo file upload (logoFileInput -> POST /admin/media) ----
