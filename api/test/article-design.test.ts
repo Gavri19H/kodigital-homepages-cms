@@ -255,7 +255,7 @@ describe("article-design (T20)", () => {
     expect(publicCss).toMatch(/\.article-body > ul > li \{[^}]*padding-left: 28px/);
   });
 
-  it("rescue-4 round-5 (issue 3): the in-content ad renders after the operator's Nth paragraph when a provider is live, exactly once, and not at all when ads are off [api/test/article-design.test.ts]", () => {
+  it("rescue-4 round-5 (issue 3/4): in-content ad renders with its OWN gam_unit_in_content after the Nth paragraph (once); skipped without that distinct unit; absent when ads off [api/test/article-design.test.ts]", () => {
     const vm = makeVm();
     const article = {
       ...vm.article,
@@ -267,23 +267,37 @@ describe("article-design (T20)", () => {
       ],
     } as ArticleViewModel["article"];
 
-    // GAM live, in-content slot after paragraph 2.
+    // GAM live with a DISTINCT in-content unit (issue 4: it MUST differ from the
+    // sidebar rect unit, or GAM can't serve the same ad unit twice on one page).
     const ads = parseAdsConfig({
       ads_enabled: "1",
       ad_provider: "gam",
       gam_network_code: "23456789",
-      gam_unit_rect: "in_content_rect",
+      gam_unit_rect: "sidebar_rect",
+      gam_unit_in_content: "in_content_rect",
       ad_in_content_position: "2",
     });
     const withAds = renderArticle({ vm: { ...vm, article }, ads, emitJsonLd: false });
     expect(withAds).toContain("ad-slot--in-content");
+    // the in-content uses its OWN unit, NOT the sidebar rect unit.
     expect(withAds).toContain('data-gpt-unit="/23456789/in_content_rect"');
-    // inserted AFTER the 2nd paragraph and BEFORE the 3rd.
     const adAt = withAds.indexOf("ad-slot--in-content");
     expect(withAds.indexOf("Para two.")).toBeLessThan(adAt);
     expect(adAt).toBeLessThan(withAds.indexOf("Para three."));
-    // inserted exactly once.
     expect(withAds.split("ad-slot--in-content").length - 1).toBe(1);
+
+    // issue 4: GAM live but NO distinct in-content unit -> the in-content slot is
+    // NOT rendered (so it can never duplicate the sidebar's rect unit on a page).
+    const noInContent = parseAdsConfig({
+      ads_enabled: "1",
+      ad_provider: "gam",
+      gam_network_code: "23456789",
+      gam_unit_rect: "sidebar_rect",
+      ad_in_content_position: "2",
+    });
+    expect(
+      renderArticle({ vm: { ...vm, article }, ads: noInContent, emitJsonLd: false }),
+    ).not.toContain("ad-slot--in-content");
 
     // No ads config -> no in-content slot at all.
     const noAds = renderArticle({ vm: { ...vm, article }, emitJsonLd: false });

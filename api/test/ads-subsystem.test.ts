@@ -32,6 +32,7 @@ import {
   gamUnitPath,
   renderAdUnit,
   renderGamSlot,
+  renderInContentAdUnit,
   AD_REFRESH_SECONDS_MIN,
   type AdsConfig,
   type AdSlotType,
@@ -408,6 +409,10 @@ describe("ads-subsystem (T22)", () => {
     expect(lb).toContain('data-gpt-w="970"');
     expect(lb).toContain('data-gpt-h="90"');
     expect(lb).not.toContain("adsbygoogle");
+    // mobile responsive: the leaderboard slot also carries the 300x250 size +
+    // a viewport map (mobile -> 300x250) so wide banners never overflow a phone.
+    expect(lb).toContain("data-gpt-map");
+    expect(lb).toContain("[300,250]");
     expect(renderGamSlot(gam, "rect")).toContain('data-gpt-unit="/23456789/article_rect"');
 
     // renderAdSlot container carries the GPT slot at the design dims.
@@ -421,7 +426,14 @@ describe("ads-subsystem (T22)", () => {
     const mgr = renderAdManagerScript(gam);
     expect(mgr).toContain("googletag");
     expect(mgr).toContain("defineSlot");
-    expect(mgr).toContain("enableSingleRequest");
+    // rescue-4 round-5 (issue 3): lazy ON (default) -> SRA is OFF (GAM lazy-load
+    // and single-request are mutually exclusive; SRA would defeat lazy-load).
+    expect(mgr).not.toContain("singleRequest");
+    // lazy OFF -> single-request batching via setConfig, and NO lazy-load.
+    const mgrSra = renderAdManagerScript(parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_leaderboard: "lb", ad_lazy_load: "0" }));
+    expect(mgrSra).toContain("setConfig");
+    expect(mgrSra).toContain("singleRequest");
+    expect(mgrSra).not.toContain("enableLazyLoad");
     expect(mgr).toContain("enableServices");
     expect(mgr).toContain(".display(");
     expect(mgr).toContain("defineOutOfPageSlot");
@@ -431,6 +443,8 @@ describe("ads-subsystem (T22)", () => {
     expect(mgr).toContain("refresh(");
     expect(mgr).toContain("setInterval");
     expect(mgr).toContain("var rs=60");
+    expect(mgr).toContain("defineSizeMapping");
+    expect(mgr).toContain("sizeMapping");
     expect(mgr).not.toContain("adsbygoogle");
 
     // refresh clamp: a sub-floor value is raised to the 30s GAM viewability min.
@@ -456,6 +470,21 @@ describe("ads-subsystem (T22)", () => {
     // sticky off → no anchor slot in the script.
     const noSticky = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "1", gam_unit_leaderboard: "lb" });
     expect(renderAdManagerScript(noSticky)).not.toContain("BOTTOM_ANCHOR");
+
+    // issue 2: the refresh timer is VIEWPORT-gated — only slots currently in
+    // view are refreshed (inView() via getBoundingClientRect), never off-screen.
+    expect(mgr).toContain("inView");
+    expect(mgr).toContain("getBoundingClientRect");
+
+    // issue 4: the in-content unit is DISTINCT from the sidebar rect unit (GAM
+    // cannot serve the same ad unit twice on one page). With its own unit it
+    // renders a gpt-slot; without it the in-content slot is skipped (so it never
+    // duplicates the sidebar rect unit).
+    const gamIC = parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_rect: "sidebar_rect", gam_unit_in_content: "in_content_rect" });
+    const ic = renderInContentAdUnit(gamIC);
+    expect(ic).toContain('data-gpt-unit="/23456789/in_content_rect"');
+    expect(ic).not.toContain("sidebar_rect");
+    expect(renderInContentAdUnit(parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_rect: "sidebar_rect" }))).toBe("");
 
     // AdSense still works unchanged (the dispatcher did not break it).
     const adsense = liveConfig();

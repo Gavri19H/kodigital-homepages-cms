@@ -39,6 +39,40 @@ export const AD_SLOT_DIMENSIONS: Readonly<Record<AdSlotType, AdSlotDimensions>> 
   rect: { width: 300, height: 250 },
 };
 
+// rescue-4 round-5 (mobile): responsive ad sizes per slot. The wide
+// 970x90/728x90 banners overflow a phone, so GAM size-mapping serves the
+// desktop banner on wide viewports and a 300x250 on mobile (<728px). The UNION
+// is passed to defineSlot; the per-viewport mapping via defineSizeMapping. The
+// GAM ad unit must be configured to accept EVERY size listed here (add 300x250
+// to the leaderboard + in-feed units so mobile can fill).
+const AD_GPT_ALL_SIZES: Readonly<Record<AdSlotType, number[][]>> = {
+  leaderboard: [[970, 90], [728, 90], [300, 250]],
+  "in-feed": [[728, 90], [300, 250]],
+  rect: [[300, 250]],
+};
+// [minViewportWidth, [[w,h], ...]] entries, widest first. <728px -> 300x250.
+const AD_GPT_SIZE_MAP: Readonly<Record<AdSlotType, Array<[number, number[][]]>>> = {
+  leaderboard: [[970, [[970, 90]]], [728, [[728, 90]]], [0, [[300, 250]]]],
+  "in-feed": [[728, [[728, 90]]], [0, [[300, 250]]]],
+  rect: [[0, [[300, 250]]]],
+};
+
+// A GPT slot <div> for an explicit ad-unit path + slot type. Carries the
+// responsive size set + viewport map as JSON data-attrs (the AdManager script
+// parses them into a googletag.sizeMapping). display:block + max-width:100% so
+// a wide banner can never overflow the phone viewport (the served creative is
+// sized to the matched breakpoint).
+function gamSlotDiv(config: AdsConfig, unitPath: string, type: AdSlotType): string {
+  const dims = AD_SLOT_DIMENSIONS[type];
+  return (
+    `<div class="gpt-slot" data-gpt-unit="${escAttr(unitPath)}" ` +
+    `data-gpt-sizes="${escAttr(JSON.stringify(AD_GPT_ALL_SIZES[type]))}" ` +
+    `data-gpt-map="${escAttr(JSON.stringify(AD_GPT_SIZE_MAP[type]))}" ` +
+    `data-gpt-w="${dims.width}" data-gpt-h="${dims.height}" ` +
+    `style="display:block;max-width:100%;margin:0 auto"></div>`
+  );
+}
+
 export const AD_IN_CONTENT_POSITION_DEFAULT = 3;
 export const AD_LAZY_LOAD_MARGIN_DEFAULT = "200px";
 // Ad auto-refresh (Google Ad Manager only; AdSense has no refresh API). 0 = off.
@@ -63,6 +97,7 @@ export interface AdsConfig {
   gamSlotUnits: Readonly<Record<AdSlotType, string | null>>;
   stickyEnabled: boolean;
   gamStickyUnit: string | null;
+  gamInContentUnit: string | null;
   refreshSeconds: number;
   adsTxt: string | null;
 }
@@ -194,6 +229,7 @@ export function parseAdsConfig(
     },
     stickyEnabled: parseBool(settings.ad_sticky_enabled, false),
     gamStickyUnit: sanitiseGamUnit(settings.gam_unit_anchor),
+    gamInContentUnit: sanitiseGamUnit(settings.gam_unit_in_content),
     refreshSeconds: parseRefreshSeconds(settings.ad_refresh_seconds),
     adsTxt:
       settings.ads_txt_content !== undefined &&
@@ -317,13 +353,7 @@ export function renderGamSlot(config: AdsConfig, type: AdSlotType): string {
   if (!hasGam(config)) return "";
   const unit = config.gamSlotUnits[type];
   if (unit === null) return "";
-  const dims = AD_SLOT_DIMENSIONS[type];
-  const path = escAttr(gamUnitPath(config, unit));
-  return (
-    `<div class="gpt-slot" data-gpt-unit="${path}" ` +
-    `data-gpt-w="${dims.width}" data-gpt-h="${dims.height}" ` +
-    `style="display:inline-block;width:${dims.width}px;height:${dims.height}px"></div>`
-  );
+  return gamSlotDiv(config, gamUnitPath(config, unit), type);
 }
 
 // Provider-agnostic slot unit: the AdSense <ins> or the GAM <div>, whichever
@@ -332,6 +362,22 @@ export function renderGamSlot(config: AdsConfig, type: AdSlotType): string {
 export function renderAdUnit(config: AdsConfig, type: AdSlotType): string {
   if (hasGam(config)) return renderGamSlot(config, type);
   if (hasAdsense(config)) return renderAdSenseUnit(config, type);
+  return "";
+}
+
+// The in-content (in-article-body) ad unit. rescue-4 round-5 (issue 4): the
+// article sidebar rect and the in-content rect previously shared ONE GAM ad
+// unit (gam_unit_rect). GAM's single-request architecture can't reliably serve
+// the SAME ad unit twice on one page, so BOTH stayed empty. The in-content slot
+// now uses its OWN unit (gam_unit_in_content); when that is not configured the
+// in-content GAM slot is NOT rendered, so it can never duplicate the sidebar's
+// rect unit. AdSense tolerates the shared rect unit and keeps using it.
+export function renderInContentAdUnit(config: AdsConfig): string {
+  if (hasGam(config)) {
+    if (config.gamInContentUnit === null) return "";
+    return gamSlotDiv(config, gamUnitPath(config, config.gamInContentUnit), "rect");
+  }
+  if (hasAdsense(config)) return renderAdSenseUnit(config, "rect");
   return "";
 }
 
@@ -385,25 +431,37 @@ export function renderAdManagerScript(config: AdsConfig): string {
 // optionally refreshes all slots on a timer (>=30s, the viewability floor).
 function renderGamManagerScript(config: AdsConfig): string {
   // Compose the optional blocks SERVER-side so disabled features are omitted
-  // from the emitted script entirely (no dead `if(false)` code shipped).
+  // from the emitted script entirely (no dead `if(false)` code shipped). Each
+  // entry in `defined` is {s: slot, el: div} so refresh can check viewability
+  // per slot; the anchor is out-of-page (el:null) and always eligible.
   const anchorBlock =
     config.stickyEnabled && config.gamStickyUnit !== null
       ? "try{var a=g.defineOutOfPageSlot('" +
         gamUnitPath(config, config.gamStickyUnit) +
-        "',g.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a){a.addService(g.pubads());defined.push(a);}}catch(e){}"
+        "',g.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a){a.addService(g.pubads());defined.push({s:a,el:null});}}catch(e){}"
       : "";
+  // rescue-4 round-5 (issue 3): GAM lazy-load and single-request (SRA) are
+  // MUTUALLY EXCLUSIVE — SRA batches ALL slots into one request at display
+  // time, fetching every slot up front and DEFEATING lazy-load. So enable
+  // exactly ONE: lazy-load (per-slot requests as each nears the viewport) when
+  // lazy is on; SRA (one batched request) only when lazy is off.
   const lazyBlock = config.lazyLoad
     ? "g.pubads().enableLazyLoad({fetchMarginPercent:100,renderMarginPercent:50,mobileScaling:2.0});"
     : "";
+  const sraBlock = config.lazyLoad ? "" : "g.setConfig({singleRequest:true});";
+  // rescue-4 round-5 (issue 2): the timer refreshes ONLY slots currently in the
+  // viewport — never off-screen ads (wasteful + a GAM viewability concern). The
+  // anchor (el:null, a fixed overlay) is always eligible.
   const refreshBlock =
     config.refreshSeconds > 0
       ? "var rs=" +
         String(config.refreshSeconds) +
-        ";if(defined.length){window.setInterval(function(){try{g.pubads().refresh(defined);}catch(e){}},rs*1000);}"
+        ";window.setInterval(function(){var due=[];for(var r=0;r<defined.length;r++){if(inView(defined[r].el)){due.push(defined[r].s);}}if(due.length){try{g.pubads().refresh(due);}catch(e){}}},rs*1000);"
       : "";
   const body =
     "(function(){" +
     "var g=window.googletag=window.googletag||{cmd:[]};" +
+    "function inView(el){if(!el){return true;}var r=el.getBoundingClientRect();var vh=window.innerHeight||document.documentElement.clientHeight;var vw=window.innerWidth||document.documentElement.clientWidth;return r.bottom>0&&r.right>0&&r.top<vh&&r.left<vw;}" +
     "function boot(){g.cmd.push(function(){" +
     "var defined=[];" +
     "var nodes=document.querySelectorAll('.gpt-slot[data-gpt-unit]');" +
@@ -412,17 +470,17 @@ function renderGamManagerScript(config: AdsConfig): string {
     "if(el.getAttribute('data-gpt-defined')==='1'){continue;}" +
     "el.setAttribute('data-gpt-defined','1');" +
     "var id='div-gpt-ad-'+i;el.id=id;" +
-    "var w=parseInt(el.getAttribute('data-gpt-w'),10)||0;" +
-    "var h=parseInt(el.getAttribute('data-gpt-h'),10)||0;" +
     "var unit=el.getAttribute('data-gpt-unit');" +
-    "var slot=g.defineSlot(unit,[[w,h]],id);" +
-    "if(slot){slot.addService(g.pubads());defined.push(slot);}" +
+    "var sizes=[];var mapRaw=[];try{sizes=JSON.parse(el.getAttribute('data-gpt-sizes')||'[]');mapRaw=JSON.parse(el.getAttribute('data-gpt-map')||'[]');}catch(pe){}" +
+    "if(!sizes.length){var w=parseInt(el.getAttribute('data-gpt-w'),10)||0;var h=parseInt(el.getAttribute('data-gpt-h'),10)||0;sizes=[[w,h]];}" +
+    "var slot=g.defineSlot(unit,sizes,id);" +
+    "if(slot){if(mapRaw.length){var sm=g.sizeMapping();for(var mm=0;mm<mapRaw.length;mm++){sm.addSize([mapRaw[mm][0],0],mapRaw[mm][1]);}slot.defineSizeMapping(sm.build());}slot.addService(g.pubads());defined.push({s:slot,el:el});}" +
     "}" +
     anchorBlock +
-    "g.pubads().enableSingleRequest();" +
+    sraBlock +
     lazyBlock +
     "g.enableServices();" +
-    "for(var d=0;d<defined.length;d++){g.display(defined[d]);}" +
+    "for(var d=0;d<defined.length;d++){g.display(defined[d].s);}" +
     refreshBlock +
     "});}" +
     "if(document.readyState!=='loading'){boot();}else{document.addEventListener('DOMContentLoaded',boot);}" +

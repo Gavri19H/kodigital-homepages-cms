@@ -12,6 +12,7 @@ import type { ArticleRow, MediaRow, CategoryRow } from "../db";
 // T23: settings PATCH boundary hardening — key allow-list + per-field script
 // validation that rejects stored-XSS vectors before they are ever persisted.
 import { ALLOWED_SETTINGS_KEYS, validateScriptField } from "../settings/custom-html";
+import { invalidateForSettingsUpdate } from "../cache/invalidate";
 import {
   listSitesHandler,
   createSiteHandler,
@@ -695,6 +696,19 @@ api.patch("/api/admin/settings", async (c) => {
     ).bind(siteId),
   );
   await c.env.DB.batch(statements);
+
+  // rescue-4 round-5 (settings-propagation lag): the save is committed +
+  // settings_version bumped above. Now invalidate the per-site cache surface so
+  // the change shows on the public site immediately — the rendered HTML embeds
+  // settings (ads, brand tokens, logo, custom HTML, social, SEO) yet its cache
+  // key is content_version-based, so a settings_version bump alone never busts
+  // it. Best-effort: the write already succeeded, so a cache-wipe failure must
+  // NOT fail the request.
+  try {
+    await invalidateForSettingsUpdate(c.env, siteId);
+  } catch (err) {
+    console.error("settings cache invalidation failed (non-fatal):", err);
+  }
 
   return c.json({
     site_id: siteId,

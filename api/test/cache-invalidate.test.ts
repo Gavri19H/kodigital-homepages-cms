@@ -182,7 +182,7 @@ describe("invalidateForCategoryUpdate", () => {
 });
 
 describe("invalidateForSettingsUpdate", () => {
-  it("deletes settings + robots + ads only; leaves content surface intact", async () => {
+  it("deletes settings + robots + ads + rendered-HTML (html/article/page/category); leaves DATA/XML intact", async () => {
     const { env, store } = buildEnv();
     seedSite(store, "site_A", [
       "settings:",
@@ -200,14 +200,18 @@ describe("invalidateForSettingsUpdate", () => {
 
     const deleted = await invalidateForSettingsUpdate(env, "site_A");
 
-    expect(deleted).toBe(3);
+    // rescue-4 round-5: settings updates also wipe the rendered-HTML surface
+    // (the layout embeds settings — ads, brand tokens, logo, custom head/footer,
+    // social, SEO), so settings/robots/ads + html/article/page/category = 7.
+    expect(deleted).toBe(7);
     expect(store.has("settings:site_A:demo:1:1")).toBe(false);
     expect(store.has("robots:site_A:demo:1:1")).toBe(false);
     expect(store.has("ads:site_A:demo:1:1")).toBe(false);
-    expect(store.has("html:site_A:demo:1:1")).toBe(true);
-    expect(store.has("article:site_A:demo:1:1")).toBe(true);
-    expect(store.has("category:site_A:demo:1:1")).toBe(true);
-    expect(store.has("page:site_A:demo:1:1")).toBe(true);
+    expect(store.has("html:site_A:demo:1:1")).toBe(false);
+    expect(store.has("article:site_A:demo:1:1")).toBe(false);
+    expect(store.has("category:site_A:demo:1:1")).toBe(false);
+    expect(store.has("page:site_A:demo:1:1")).toBe(false);
+    // Pure DATA/XML caches are settings-independent and survive.
     expect(store.has("homepage-data:site_A:demo:1:1")).toBe(true);
     expect(store.has("sitemap:site_A:demo:1:1")).toBe(true);
     expect(store.has("feed:rss:site_A:demo:1:1")).toBe(true);
