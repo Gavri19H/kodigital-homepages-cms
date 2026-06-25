@@ -34,6 +34,7 @@ import {
 import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
 import { buildArticleViewModel } from "./view-models/article";
 import { renderArticleMarkdown } from "./article-markdown";
+import { isDatacenterAsn, isDeclaredBotUA } from "../safety/ivt";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -195,20 +196,32 @@ export function botFromCfSignals(
         verifiedBot?: boolean;
         verifiedBotCategory?: string;
         botManagement?: { score?: number };
+        asn?: number;
       }
     | undefined,
+  userAgent?: string | null,
 ): boolean {
   if (cf === undefined) return false;
   if (cf.verifiedBot === true) {
     const cat = cf.verifiedBotCategory;
     // Among Cloudflare's verified-bot categories only the AI-crawler class is
     // suppressed; "Search Engine Crawler" and the rest get the human page.
+    // (A verified good bot is NEVER subjected to the IVT signals below — e.g. a
+    // verified Googlebot legitimately living in a datacenter ASN must not be
+    // treated as invalid traffic.)
     return typeof cat === "string" && cat.toLowerCase().includes("ai");
   }
+  // NOT a verified good bot -> apply the free open-source IVT signals (Layer 1).
   const score = cf.botManagement?.score;
   // Cloudflare bot score is 1 (definitely bot) .. 99 (human); < 30 = likely
   // automation. Only present with the paid Bot Management add-on (else 0/undef).
-  return typeof score === "number" && score > 0 && score < 30;
+  if (typeof score === "number" && score > 0 && score < 30) return true;
+  // Datacenter / hosting ASN (cf.asn is free on every plan): ads to cloud/colo
+  // IPs are classic GIVT.
+  if (isDatacenterAsn(cf.asn)) return true;
+  // Self-declaring bot / non-browser HTTP client by user-agent.
+  if (isDeclaredBotUA(userAgent)) return true;
+  return false;
 }
 
 function isBotRequest(
@@ -219,9 +232,10 @@ function isBotRequest(
       verifiedBot?: boolean;
       verifiedBotCategory?: string;
       botManagement?: { score?: number };
+      asn?: number;
     };
   }).cf;
-  return botFromCfSignals(cf);
+  return botFromCfSignals(cf, c.req.header("user-agent"));
 }
 
 // No-store HTML headers for the ad-free bot variant: a CDN/proxy must NEVER
