@@ -342,6 +342,11 @@ describe("ads-subsystem (T22)", () => {
 
     // Signed-in viewers are excluded when disable-for-logged-in is set.
     expect(shouldShowAds(config, { path: "/", loggedIn: true })).toBe(false);
+    // rescue-6 (ad IVT): a bot never gets ads, even on an otherwise eligible page.
+    expect(shouldShowAds(config, { path: "/", isBot: true })).toBe(false);
+    expect(
+      shouldShowAds(config, { path: "/article/the-feature", isBot: true }),
+    ).toBe(false);
 
     // Master switch + provider gating: a disabled config, a "none" provider,
     // and a missing publisher all suppress ads everywhere.

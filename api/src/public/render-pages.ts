@@ -31,6 +31,7 @@ import {
   renderArticleJsonLd,
   renderBreadcrumbJsonLd,
   renderFaqJsonLd,
+  renderAffiliateProductsJsonLd,
 } from "./templates/jsonld-article";
 import { buildArticleViewModel } from "./view-models/article";
 import {
@@ -131,6 +132,7 @@ function adHeadHtml(config: AdsConfig, on: boolean): string {
 export async function renderHomepageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
+  opts: { isBot?: boolean } = {},
 ): Promise<string> {
   const vm = await buildHomeViewModel(db, {
     siteId: siteContext.siteId,
@@ -175,7 +177,11 @@ export async function renderHomepageHtml(
   // and gate on shouldShowAds("/") — the §5 leaderboard + §9 in-feed slots
   // carry real <ins> units and the head loads the provider + AdManager JS.
   const adsConfig = await loadAdsConfig(db, siteContext.siteId);
-  const adsOn = shouldShowAds(adsConfig, { path: "/", loggedIn: false });
+  const adsOn = shouldShowAds(adsConfig, {
+    path: "/",
+    loggedIn: false,
+    isBot: opts.isBot ?? false,
+  });
   const adHead = adHeadHtml(adsConfig, adsOn);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
@@ -228,6 +234,7 @@ export async function renderArticleHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   slug: string,
+  opts: { isBot?: boolean } = {},
 ): Promise<string> {
   const vm = await buildArticleViewModel(db, {
     slug,
@@ -286,6 +293,33 @@ export async function renderArticleHtml(
     );
   }
 
+  // rescue-6 (agent-readiness M2/Product): an affiliate "best X" article carries
+  // affiliate cards (parsed body blocks). Emit a schema.org ItemList of Product
+  // nodes so AI shopping / research agents can discover the recommended products
+  // + their outbound offer links. No price/rating is fabricated (none exists).
+  const affiliateProducts: Array<{
+    name: string;
+    url: string | null;
+    description: string | null;
+  }> = [];
+  for (const b of vm.article.body) {
+    if (b.type === "affiliate" && b.title !== null) {
+      affiliateProducts.push({
+        name: b.title,
+        url: b.url,
+        description: b.description,
+      });
+    }
+  }
+  if (affiliateProducts.length > 0) {
+    jsonLdHead.push(
+      renderAffiliateProductsJsonLd({
+        listName: vm.article.title,
+        products: affiliateProducts,
+      }),
+    );
+  }
+
   // T22: article is an ad-bearing surface. Gate on shouldShowAds for this
   // article path so the §11 sidebar rectangle carries its real <ins> unit and
   // the head loads the provider + AdManager JS (appended after the JSON-LD).
@@ -293,6 +327,7 @@ export async function renderArticleHtml(
   const adsOn = shouldShowAds(adsConfig, {
     path: `/article/${slug}`,
     loggedIn: false,
+    isBot: opts.isBot ?? false,
   });
   const adHead = adHeadHtml(adsConfig, adsOn);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
@@ -369,6 +404,7 @@ export async function renderCategoryHtml(
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
+  opts: { isBot?: boolean } = {},
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
@@ -434,6 +470,7 @@ export async function renderCategoryHtml(
   const adsOn = shouldShowAds(adsConfig, {
     path: `/category/${slug}`,
     loggedIn: false,
+    isBot: opts.isBot ?? false,
   });
   const adHead = adHeadHtml(adsConfig, adsOn);
   const adSlot = adsOn

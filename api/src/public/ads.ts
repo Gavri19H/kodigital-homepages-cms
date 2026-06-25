@@ -105,6 +105,12 @@ export interface AdsConfig {
 export interface AdsPageContext {
   path?: string;
   loggedIn?: boolean;
+  // rescue-6 (agent-readiness M3 / IVT): the request is automated (an AI crawler
+  // or low Cloudflare bot score). Bots NEVER get ad tags — serving ads to
+  // non-human traffic is invalid traffic (GIVT), an AdSense / Ad Manager policy
+  // + revenue-clawback risk. The router derives this from request.cf bot signals
+  // and threads it through the render fns into shouldShowAds.
+  isBot?: boolean;
 }
 
 function escAttr(input: string): string {
@@ -299,6 +305,8 @@ export function isExcluded(path: string, excluded: ReadonlyArray<string>): boole
 }
 
 export function shouldShowAds(config: AdsConfig, ctx: AdsPageContext = {}): boolean {
+  // rescue-6: never serve ads to automated traffic (invalid-traffic defense).
+  if (ctx.isBot === true) return false;
   if (!config.enabled) return false;
   if (!hasAnyAds(config)) return false;
   if (ctx.loggedIn === true && config.disableForLoggedIn) return false;

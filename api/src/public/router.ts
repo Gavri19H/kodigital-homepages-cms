@@ -177,6 +177,61 @@ router.get("/assets/public.js", () =>
 // proceed with c.get("siteContext") populated for downstream handlers (T27).
 router.use("*", publicSiteContextMiddleware);
 
+// rescue-6 (agent-readiness M3 / ad IVT defense): decide whether THIS request is
+// automated, from Cloudflare's edge bot signals (request.cf). Ad-bearing pages
+// (home / article / category) suppress ad tags for bots so non-human traffic
+// never triggers ad impressions — invalid traffic is an AdSense / Ad Manager
+// policy + revenue-clawback risk. VERIFIED SEARCH engines (Googlebot etc.) are
+// deliberately NOT treated as bots: they get the SAME cached page as humans (ad
+// networks filter crawler traffic on their side, and serving a search engine a
+// different page than users risks cloaking). We suppress only AI crawlers
+// (verifiedBotCategory) and unverified low-score automation (paid Bot Mgmt).
+export function botFromCfSignals(
+  cf:
+    | {
+        verifiedBot?: boolean;
+        verifiedBotCategory?: string;
+        botManagement?: { score?: number };
+      }
+    | undefined,
+): boolean {
+  if (cf === undefined) return false;
+  if (cf.verifiedBot === true) {
+    const cat = cf.verifiedBotCategory;
+    // Among Cloudflare's verified-bot categories only the AI-crawler class is
+    // suppressed; "Search Engine Crawler" and the rest get the human page.
+    return typeof cat === "string" && cat.toLowerCase().includes("ai");
+  }
+  const score = cf.botManagement?.score;
+  // Cloudflare bot score is 1 (definitely bot) .. 99 (human); < 30 = likely
+  // automation. Only present with the paid Bot Management add-on (else 0/undef).
+  return typeof score === "number" && score > 0 && score < 30;
+}
+
+function isBotRequest(
+  c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
+): boolean {
+  const cf = (c.req.raw as unknown as {
+    cf?: {
+      verifiedBot?: boolean;
+      verifiedBotCategory?: string;
+      botManagement?: { score?: number };
+    };
+  }).cf;
+  return botFromCfSignals(cf);
+}
+
+// No-store HTML headers for the ad-free bot variant: a CDN/proxy must NEVER
+// cache it and later serve it to a human (that would silently drop ads). No
+// X-Robots-Tag — crawlers should still index the content; only the ads differ.
+function botHtmlHeaders(): Headers {
+  const h = new Headers();
+  h.set("Content-Type", "text/html; charset=utf-8");
+  h.set("X-Content-Type-Options", "nosniff");
+  h.set("Cache-Control", "private, no-store");
+  return h;
+}
+
 // T11 homepage: ItemList of latest published articles + WebSite +
 // Organization JSON-LD. canonical href is https://{hostname}/.
 // T1 (rescue-3): the GET / handler passes c.env.DB into renderHomepageHtml
@@ -188,6 +243,10 @@ router.use("*", publicSiteContextMiddleware);
 router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";
+  if (isBotRequest(c)) {
+    const body = await renderHomepageHtml(c.env.DB, siteContext, { isBot: true });
+    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+  }
   return servePublicHtml(c.env, siteContext, {
     key: htmlKey(siteContext.siteId, path, siteContext.content_version),
     path,
@@ -213,6 +272,10 @@ router.get("/article/:slug", async (c) => {
     return publicErrorResponse(c, 404);
   }
   const path = `/article/${slug}`;
+  if (isBotRequest(c)) {
+    const body = await renderArticleHtml(c.env.DB, siteContext, slug, { isBot: true });
+    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+  }
   return servePublicHtml(c.env, siteContext, {
     key: articleKey(siteContext.siteId, slug, siteContext.content_version),
     path,
@@ -285,6 +348,19 @@ async function handleCategory(
   );
   const path =
     pageNum === 1 ? `/category/${slug}` : `/category/${slug}/page/${pageNum}`;
+  if (isBotRequest(c)) {
+    const body = await renderCategoryHtml(
+      c.env.DB,
+      siteContext,
+      cat,
+      articles,
+      pageNum,
+      slug,
+      pageSize,
+      { isBot: true },
+    );
+    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+  }
   return servePublicHtml(c.env, siteContext, {
     key: categoryKey(
       siteContext.siteId,
