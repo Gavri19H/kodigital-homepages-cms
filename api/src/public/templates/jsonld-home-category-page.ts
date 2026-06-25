@@ -197,3 +197,17 @@ export function renderWebPageJsonLd(input: WebPageJsonLdInput): string {
   }
   return serializeJsonLd(payload);
 }
+
+// rescue-6 (agent-readiness M6): parse an operator newline/comma list of
+// OFFICIAL profile URLs into a clean sameAs[] for the Organization node. Only
+// absolute http(s) URLs are kept — a broken/relative sameAs is worse than none
+// (it weakens entity recognition), so anything else is silently dropped.
+export function parseSameAsList(raw: string | undefined | null): string[] {
+  if (typeof raw !== "string") return [];
+  const out: string[] = [];
+  for (const part of raw.split(/[\n,]+/)) {
+    const url = part.trim();
+    if (/^https?:\/\/\S+$/i.test(url) && !out.includes(url)) out.push(url);
+  }
+  return out;
+}

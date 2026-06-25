@@ -40,6 +40,7 @@ import {
   renderHomeItemListJsonLd,
   renderCategoryJsonLd,
   renderWebPageJsonLd,
+  parseSameAsList,
 } from "./templates/jsonld-home-category-page";
 import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
@@ -58,6 +59,7 @@ async function loadCustomLayoutHtml(
   customHead?: string;
   customFooter?: string;
   socialLinks: SocialLink[];
+  orgSameAs: string[];
 }> {
   const result = await db
     .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
@@ -73,10 +75,12 @@ async function loadCustomLayoutHtml(
   // so they render on every public surface that already loads custom layout
   // HTML — no extra query.
   const socialLinks = buildSocialLinks(settings);
+  const orgSameAs = parseSameAsList(settings.org_same_as);
   return {
     customHead: customHead.length > 0 ? customHead : undefined,
     customFooter: customFooter.length > 0 ? customFooter : undefined,
     socialLinks,
+    orgSameAs,
   };
 }
 
@@ -143,6 +147,7 @@ export async function renderHomepageHtml(
     hostname: siteContext.hostname,
   });
   const canonicalUrl = vm.meta.canonicalUrl;
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   // Disjoint buckets (trending removed from the pool, hero = featured[0],
   // featured excludes hero, latest excludes featured) — flatten for the
@@ -163,6 +168,7 @@ export async function renderHomepageHtml(
     renderHomeOrganizationJsonLd({
       url: canonicalUrl,
       name: vm.site.name,
+      sameAs: customHtml.orgSameAs,
     }),
   ];
   if (listed.length > 0) {
@@ -187,7 +193,6 @@ export async function renderHomepageHtml(
     isBot: opts.isBot ?? false,
   });
   const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderHome({
     vm,

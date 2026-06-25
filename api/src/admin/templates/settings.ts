@@ -282,6 +282,23 @@ function renderSocialLinksCard(values: SettingsValueMap): string {
   return renderCard("Social Links", hint + fields);
 }
 
+// rescue-6 (agent-readiness M6): official profile links -> Organization sameAs
+// on the public home, so AI engines can confirm which entity this brand is.
+// Only real, verified links help (a wrong link weakens recognition more than
+// none); the public emitter accepts only http(s) URLs.
+function renderEntityProfilesCard(values: SettingsValueMap): string {
+  return renderCard(
+    "Brand Identity",
+    renderTextareaField(
+      "org_same_as",
+      "Official profile links",
+      settingValue(values, "org_same_as"),
+      5,
+      "One official URL per line: Wikipedia, Wikidata, LinkedIn, Crunchbase, verified socials. Use only real, verified links — a wrong link hurts more than none.",
+    ),
+  );
+}
+
 function renderSiteLogoCard(values: SettingsValueMap): string {
   const logoUrl = settingValue(values, "site_logo_url");
   const previewImg = logoUrl
@@ -830,7 +847,7 @@ function renderTabs(values: SettingsValueMap): string {
       false,
       renderSiteLogoCard(values) + renderBrandTokensCard(values),
     ) +
-    renderTabPanel("seo", false, renderRobotsTxtCard(values)) +
+    renderTabPanel("seo", false, renderRobotsTxtCard(values) + renderEntityProfilesCard(values)) +
     renderTabPanel(
       "ads",
       false,
@@ -966,7 +983,7 @@ export const SETTINGS_SCRIPT = `
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script'];
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);

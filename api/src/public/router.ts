@@ -32,6 +32,8 @@ import {
   type FeedSiteInfo,
 } from "./feeds";
 import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
+import { buildArticleViewModel } from "./view-models/article";
+import { renderArticleMarkdown } from "./article-markdown";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -240,6 +242,32 @@ function botHtmlHeaders(): Headers {
 // opt-out finally GATES something instead of just setting a cookie. Like the bot
 // path, an opted-out request renders fresh + no-store so the restricted variant
 // never caches and serves to a non-opted-out visitor.
+// rescue-6 (agent-readiness M2/M5): does THIS client prefer markdown? True only
+// when the Accept header explicitly lists text/markdown AND ranks it >= text/html
+// (so a normal browser, which never sends text/markdown, always gets HTML). The
+// q-value parse avoids the naive substring trap.
+export function acceptPrefersMarkdown(accept: string | null | undefined): boolean {
+  if (typeof accept !== "string" || accept.length === 0) return false;
+  let mdQ = -1;
+  let htmlQ = -1;
+  for (const part of accept.split(",")) {
+    const seg = part.trim().toLowerCase();
+    if (seg.length === 0) continue;
+    const type = seg.split(";")[0]!.trim();
+    let q = 1;
+    const m = seg.match(/;\s*q=([0-9.]+)/);
+    if (m) {
+      const parsed = parseFloat(m[1]!);
+      if (Number.isFinite(parsed)) q = parsed;
+    }
+    if (type === "text/markdown") mdQ = Math.max(mdQ, q);
+    else if (type === "text/html" || type === "application/xhtml+xml") {
+      htmlQ = Math.max(htmlQ, q);
+    }
+  }
+  return mdQ >= 0 && mdQ >= htmlQ;
+}
+
 function isCcpaOptedOut(
   c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
 ): boolean {
@@ -298,6 +326,34 @@ router.get("/article/:slug", async (c) => {
     return publicErrorResponse(c, 404);
   }
   const path = `/article/${slug}`;
+  // rescue-6: serve clean markdown to agents that ask for it. Rendered fresh
+  // from the parsed blocks and kept OFF the HTML cache (Vary: Accept) so the
+  // markdown variant can never serve to a browser, and the HTML cache hit-rate
+  // is untouched.
+  if (acceptPrefersMarkdown(c.req.header("accept"))) {
+    const mdVm = await buildArticleViewModel(c.env.DB, {
+      slug,
+      siteContext: {
+        siteId: siteContext.siteId,
+        hostname: siteContext.hostname,
+      },
+    });
+    if (mdVm === null) return publicErrorResponse(c, 404);
+    const md = renderArticleMarkdown({
+      title: mdVm.article.title,
+      subtitle: mdVm.article.subtitle,
+      body: mdVm.article.body,
+    });
+    return new Response(md, {
+      status: 200,
+      headers: new Headers({
+        "Content-Type": "text/markdown; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        Vary: "Accept",
+        "Cache-Control": "public, max-age=300",
+      }),
+    });
+  }
   const isBot = isBotRequest(c);
   const restrictAdData = !isBot && isCcpaOptedOut(c);
   if (isBot || restrictAdData) {
