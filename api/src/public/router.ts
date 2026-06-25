@@ -31,7 +31,7 @@ import {
   renderAtomFeed,
   type FeedSiteInfo,
 } from "./feeds";
-import { renderSitemap, buildRobotsTxt } from "./sitemap";
+import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -48,6 +48,7 @@ import {
   fetchSiteSetting,
   resolvePageSize,
   checkRedirect,
+  fetchPublicLayoutSiteInfo,
 } from "./queries";
 import {
   htmlKey,
@@ -232,6 +233,26 @@ function botHtmlHeaders(): Headers {
   return h;
 }
 
+// rescue-6 (agent-readiness M4 / CCPA wiring): a "do not sell / share" opt-out
+// is recorded as the ccpa_opt_out=1 cookie (HttpOnly — JS can't read it, but the
+// SERVER can). When set, ad-bearing pages render with ad data processing
+// RESTRICTED (GAM Restrict-Data-Processing / AdSense non-personalized) so the
+// opt-out finally GATES something instead of just setting a cookie. Like the bot
+// path, an opted-out request renders fresh + no-store so the restricted variant
+// never caches and serves to a non-opted-out visitor.
+function isCcpaOptedOut(
+  c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
+): boolean {
+  const cookie = c.req.header("cookie");
+  if (cookie === undefined || cookie === null || cookie.length === 0) return false;
+  for (const part of cookie.split(/;\s*/)) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq) === "ccpa_opt_out") return part.slice(eq + 1) === "1";
+  }
+  return false;
+}
+
 // T11 homepage: ItemList of latest published articles + WebSite +
 // Organization JSON-LD. canonical href is https://{hostname}/.
 // T1 (rescue-3): the GET / handler passes c.env.DB into renderHomepageHtml
@@ -243,8 +264,13 @@ function botHtmlHeaders(): Headers {
 router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";
-  if (isBotRequest(c)) {
-    const body = await renderHomepageHtml(c.env.DB, siteContext, { isBot: true });
+  const isBot = isBotRequest(c);
+  const restrictAdData = !isBot && isCcpaOptedOut(c);
+  if (isBot || restrictAdData) {
+    const body = await renderHomepageHtml(c.env.DB, siteContext, {
+      isBot,
+      restrictAdData,
+    });
     return new Response(body, { status: 200, headers: botHtmlHeaders() });
   }
   return servePublicHtml(c.env, siteContext, {
@@ -272,8 +298,13 @@ router.get("/article/:slug", async (c) => {
     return publicErrorResponse(c, 404);
   }
   const path = `/article/${slug}`;
-  if (isBotRequest(c)) {
-    const body = await renderArticleHtml(c.env.DB, siteContext, slug, { isBot: true });
+  const isBot = isBotRequest(c);
+  const restrictAdData = !isBot && isCcpaOptedOut(c);
+  if (isBot || restrictAdData) {
+    const body = await renderArticleHtml(c.env.DB, siteContext, slug, {
+      isBot,
+      restrictAdData,
+    });
     return new Response(body, { status: 200, headers: botHtmlHeaders() });
   }
   return servePublicHtml(c.env, siteContext, {
@@ -348,7 +379,9 @@ async function handleCategory(
   );
   const path =
     pageNum === 1 ? `/category/${slug}` : `/category/${slug}/page/${pageNum}`;
-  if (isBotRequest(c)) {
+  const isBot = isBotRequest(c);
+  const restrictAdData = !isBot && isCcpaOptedOut(c);
+  if (isBot || restrictAdData) {
     const body = await renderCategoryHtml(
       c.env.DB,
       siteContext,
@@ -357,7 +390,7 @@ async function handleCategory(
       pageNum,
       slug,
       pageSize,
-      { isBot: true },
+      { isBot, restrictAdData },
     );
     return new Response(body, { status: 200, headers: botHtmlHeaders() });
   }
@@ -661,6 +694,33 @@ router.get("/ads.txt", async (c) => {
   return new Response(body, {
     status: 200,
     headers: robotsAdsCacheHeaders(),
+  });
+});
+
+// rescue-6 (agent-readiness M1/M2): /llms.txt — a plain-markdown agent briefing
+// (llmstxt.org). Built fresh from the resolved site info (cheap, rarely hit) so
+// it never goes stale. Most crawlers do not fetch it today; it is a low-cost
+// hedge whose pickup the request observability can measure.
+router.get("/llms.txt", async (c) => {
+  const siteContext = c.get("siteContext");
+  const info = await fetchPublicLayoutSiteInfo(c.env.DB, {
+    siteId: siteContext.siteId,
+    hostname: siteContext.hostname,
+  });
+  const baseUrl = siteInfo(c.env, siteContext).baseUrl;
+  const body = buildLlmsTxt({
+    siteName: info.name,
+    tagline: info.tagline,
+    description: info.description,
+    baseUrl,
+  });
+  return new Response(body, {
+    status: 200,
+    headers: new Headers({
+      "Content-Type": "text/markdown; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "public, max-age=3600",
+    }),
   });
 });
 

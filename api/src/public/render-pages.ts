@@ -110,9 +110,13 @@ function escapeHtml(input: string): string {
 // client JS — emitted ONLY when ads are live for this page (shouldShowAds).
 // Returns "" otherwise so the <head> composition is byte-identical on
 // no-ads pages (disabled config, excluded page, or signed-in viewer).
-function adHeadHtml(config: AdsConfig, on: boolean): string {
+function adHeadHtml(
+  config: AdsConfig,
+  on: boolean,
+  restrictAdData = false,
+): string {
   if (!on) return "";
-  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config)}`;
+  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config, restrictAdData)}`;
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
@@ -132,7 +136,7 @@ function adHeadHtml(config: AdsConfig, on: boolean): string {
 export async function renderHomepageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
 ): Promise<string> {
   const vm = await buildHomeViewModel(db, {
     siteId: siteContext.siteId,
@@ -182,7 +186,7 @@ export async function renderHomepageHtml(
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderHome({
@@ -234,7 +238,7 @@ export async function renderArticleHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   slug: string,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
 ): Promise<string> {
   const vm = await buildArticleViewModel(db, {
     slug,
@@ -329,7 +333,7 @@ export async function renderArticleHtml(
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderArticle({
@@ -404,7 +408,7 @@ export async function renderCategoryHtml(
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
@@ -472,7 +476,7 @@ export async function renderCategoryHtml(
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
   const adSlot = adsOn
     ? renderAdSlot({
         type: "leaderboard",

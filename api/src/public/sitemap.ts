@@ -127,3 +127,37 @@ export function buildRobotsTxt(baseUrl: string, opts: RobotsOptions = {}): strin
 // Phase 1 default — empty placeholder. Operators will overwrite this via
 // site_settings.ads_txt once advertising integration ships.
 export const ADS_TXT_DEFAULT = "# placeholder ads.txt — no ad-network entries configured\n";
+
+
+// rescue-6 (agent-readiness M1/M2): /llms.txt body — a plain-markdown briefing
+// for AI agents (llmstxt.org structure: H1 name, blockquote summary, H2 link
+// sections). Built from the resolved site info. NOTE: most crawlers do not
+// fetch this today (it is a low-cost hedge); the request observability can
+// measure whether anything actually reads it.
+export function buildLlmsTxt(args: {
+  siteName: string;
+  tagline?: string | null;
+  description?: string | null;
+  baseUrl: string;
+}): string {
+  const base = args.baseUrl.replace(/\/+$/, "");
+  const desc = args.description && args.description.trim().length > 0
+    ? args.description.trim()
+    : null;
+  const tag = args.tagline && args.tagline.trim().length > 0
+    ? args.tagline.trim()
+    : null;
+  const summary = desc ?? tag ?? `${args.siteName}: articles and guides.`;
+  return [
+    `# ${args.siteName}`,
+    "",
+    `> ${summary}`,
+    "",
+    "## Site",
+    "",
+    `- [Home](${base}/): the homepage`,
+    `- [Sitemap](${base}/sitemap.xml): every indexable URL`,
+    `- [RSS feed](${base}/feed.xml): the latest articles`,
+    "",
+  ].join("\n");
+}
