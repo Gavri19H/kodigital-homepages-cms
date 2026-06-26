@@ -45,6 +45,8 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   // T15 parity keys persisted through the same PATCH route
   "items_per_page",
   "site_logo_url",
+  // rescue-6 (agent-readiness): official profile URLs -> Organization sameAs.
+  "org_same_as",
   // T28: social-media profile URLs (rendered as footer links). Keys MUST match
   // SOCIAL_PLATFORMS in public/templates/components.ts and the admin form.
   "social_twitter_url",

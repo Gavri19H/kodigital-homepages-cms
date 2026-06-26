@@ -76,6 +76,12 @@ max_concurrency = 10
 dead_letter_queue = "kodigital-provisioning-dlq"
 
 
+[observability]
+enabled = true
+# Log every request while establishing the bot / AI-agent traffic baseline;
+# lower this (e.g. 0.1) once the picture is clear to bound Workers Logs volume.
+head_sampling_rate = 1
+
 [env.staging]
 name = "kodigital-homepages-cms-worker-staging"
 
@@ -95,6 +101,10 @@ CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a2
 
 [env.staging.triggers]
 crons = ["* * * * *"]
+
+[env.staging.observability]
+enabled = true
+head_sampling_rate = 1
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -157,6 +167,10 @@ CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a2
 # fell through to legacy state until this hotfix).
 [env.production.triggers]
 crons = ["* * * * *"]
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
 
 [[env.production.d1_databases]]
 binding = "DB"

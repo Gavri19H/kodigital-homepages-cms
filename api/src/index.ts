@@ -60,6 +60,44 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 
+// rescue-6 (agent-readiness M3 / observability): a structured per-request log so
+// an operator can finally SEE bot / AI-agent traffic (Cloudflare bot signals),
+// the response status, and the cache outcome. The worker previously emitted
+// nothing on the request path, so invalid ad traffic + crawler load were
+// invisible. Workers Logs ([observability] in wrangler.toml) auto-indexes these
+// JSON fields for filtering. Guarded on the presence of the edge `cf` object so
+// unit tests (app.request, no cf) stay silent and unchanged. It only OBSERVES
+// (runs after next()); a logging error can never break the response.
+app.use("*", async (c, next) => {
+  await next();
+  const cf = (c.req.raw as unknown as {
+    cf?: {
+      botManagement?: { score?: number; verifiedBot?: boolean };
+      verifiedBotCategory?: string;
+    };
+  }).cf;
+  if (cf === undefined) return;
+  try {
+    const bm = cf.botManagement;
+    console.log(
+      JSON.stringify({
+        t: "req",
+        method: c.req.method,
+        host: new URL(c.req.url).hostname,
+        path: c.req.path,
+        status: c.res.status,
+        ua: c.req.header("user-agent") ?? null,
+        botScore: bm?.score ?? null,
+        verifiedBot: bm?.verifiedBot ?? null,
+        verifiedBotCategory: cf.verifiedBotCategory ?? null,
+        cacheStatus: c.res.headers.get("cf-cache-status") ?? null,
+      }),
+    );
+  } catch {
+    // observability must never break a response
+  }
+});
+
 // Phase 1.5 D3 hostname gate: any /admin* or /api/admin* path MUST arrive
 // on ADMIN_HOST (cms.kodigital.app). On any other hostname those paths
 // get a flat 404 so the admin surface never leaks to public content

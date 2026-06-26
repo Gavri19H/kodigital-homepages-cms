@@ -183,3 +183,55 @@ export function renderFaqJsonLd(input: FaqJsonLdInput): string {
   };
   return serializeJsonLd(payload);
 }
+
+// rescue-6 (agent-readiness M2/Product): a schema.org ItemList of Product nodes
+// for an article's affiliate recommendations, so AI shopping / research agents
+// can discover the recommended products + their outbound offer links (Forter's
+// headline "find me a <product>" use case). Each affiliate card becomes a
+// Product{name, description?} with offers:{Offer, url:<affiliate link>}. We DO
+// NOT fabricate price / availability / rating — the affiliate block carries
+// none, and an invented rating is both a Google penalty and dishonest. Returns
+// "" when there are no products (an empty ItemList is a negative signal).
+export interface AffiliateProduct {
+  name: string;
+  url?: string | null;
+  description?: string | null;
+}
+
+export interface AffiliateProductsJsonLdInput {
+  listName: string;
+  products: ReadonlyArray<AffiliateProduct>;
+}
+
+export function renderAffiliateProductsJsonLd(
+  input: AffiliateProductsJsonLdInput,
+): string {
+  if (input.products.length === 0) return "";
+  const itemListElement = input.products.map((p, idx) => {
+    const product: Record<string, unknown> = {
+      "@type": "Product",
+      "name": p.name,
+    };
+    if (p.description) {
+      product.description = p.description;
+    }
+    if (p.url) {
+      product.offers = {
+        "@type": "Offer",
+        "url": p.url,
+      };
+    }
+    return {
+      "@type": "ListItem",
+      "position": idx + 1,
+      "item": product,
+    };
+  });
+  const payload: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    "name": input.listName,
+    "itemListElement": itemListElement,
+  };
+  return serializeJsonLd(payload);
+}

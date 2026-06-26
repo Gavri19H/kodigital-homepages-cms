@@ -31,6 +31,7 @@ import {
   renderArticleJsonLd,
   renderBreadcrumbJsonLd,
   renderFaqJsonLd,
+  renderAffiliateProductsJsonLd,
 } from "./templates/jsonld-article";
 import { buildArticleViewModel } from "./view-models/article";
 import {
@@ -39,6 +40,7 @@ import {
   renderHomeItemListJsonLd,
   renderCategoryJsonLd,
   renderWebPageJsonLd,
+  parseSameAsList,
 } from "./templates/jsonld-home-category-page";
 import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
@@ -57,6 +59,7 @@ async function loadCustomLayoutHtml(
   customHead?: string;
   customFooter?: string;
   socialLinks: SocialLink[];
+  orgSameAs: string[];
 }> {
   const result = await db
     .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
@@ -72,10 +75,12 @@ async function loadCustomLayoutHtml(
   // so they render on every public surface that already loads custom layout
   // HTML — no extra query.
   const socialLinks = buildSocialLinks(settings);
+  const orgSameAs = parseSameAsList(settings.org_same_as);
   return {
     customHead: customHead.length > 0 ? customHead : undefined,
     customFooter: customFooter.length > 0 ? customFooter : undefined,
     socialLinks,
+    orgSameAs,
   };
 }
 
@@ -109,9 +114,13 @@ function escapeHtml(input: string): string {
 // client JS — emitted ONLY when ads are live for this page (shouldShowAds).
 // Returns "" otherwise so the <head> composition is byte-identical on
 // no-ads pages (disabled config, excluded page, or signed-in viewer).
-function adHeadHtml(config: AdsConfig, on: boolean): string {
+function adHeadHtml(
+  config: AdsConfig,
+  on: boolean,
+  restrictAdData = false,
+): string {
   if (!on) return "";
-  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config)}`;
+  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config, restrictAdData)}`;
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
@@ -131,12 +140,14 @@ function adHeadHtml(config: AdsConfig, on: boolean): string {
 export async function renderHomepageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
+  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
 ): Promise<string> {
   const vm = await buildHomeViewModel(db, {
     siteId: siteContext.siteId,
     hostname: siteContext.hostname,
   });
   const canonicalUrl = vm.meta.canonicalUrl;
+  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   // Disjoint buckets (trending removed from the pool, hero = featured[0],
   // featured excludes hero, latest excludes featured) — flatten for the
@@ -157,6 +168,7 @@ export async function renderHomepageHtml(
     renderHomeOrganizationJsonLd({
       url: canonicalUrl,
       name: vm.site.name,
+      sameAs: customHtml.orgSameAs,
     }),
   ];
   if (listed.length > 0) {
@@ -175,9 +187,12 @@ export async function renderHomepageHtml(
   // and gate on shouldShowAds("/") — the §5 leaderboard + §9 in-feed slots
   // carry real <ins> units and the head loads the provider + AdManager JS.
   const adsConfig = await loadAdsConfig(db, siteContext.siteId);
-  const adsOn = shouldShowAds(adsConfig, { path: "/", loggedIn: false });
-  const adHead = adHeadHtml(adsConfig, adsOn);
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const adsOn = shouldShowAds(adsConfig, {
+    path: "/",
+    loggedIn: false,
+    isBot: opts.isBot ?? false,
+  });
+  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
 
   const body = renderHome({
     vm,
@@ -228,6 +243,7 @@ export async function renderArticleHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   slug: string,
+  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
 ): Promise<string> {
   const vm = await buildArticleViewModel(db, {
     slug,
@@ -286,6 +302,33 @@ export async function renderArticleHtml(
     );
   }
 
+  // rescue-6 (agent-readiness M2/Product): an affiliate "best X" article carries
+  // affiliate cards (parsed body blocks). Emit a schema.org ItemList of Product
+  // nodes so AI shopping / research agents can discover the recommended products
+  // + their outbound offer links. No price/rating is fabricated (none exists).
+  const affiliateProducts: Array<{
+    name: string;
+    url: string | null;
+    description: string | null;
+  }> = [];
+  for (const b of vm.article.body) {
+    if (b.type === "affiliate" && b.title !== null) {
+      affiliateProducts.push({
+        name: b.title,
+        url: b.url,
+        description: b.description,
+      });
+    }
+  }
+  if (affiliateProducts.length > 0) {
+    jsonLdHead.push(
+      renderAffiliateProductsJsonLd({
+        listName: vm.article.title,
+        products: affiliateProducts,
+      }),
+    );
+  }
+
   // T22: article is an ad-bearing surface. Gate on shouldShowAds for this
   // article path so the §11 sidebar rectangle carries its real <ins> unit and
   // the head loads the provider + AdManager JS (appended after the JSON-LD).
@@ -293,8 +336,9 @@ export async function renderArticleHtml(
   const adsOn = shouldShowAds(adsConfig, {
     path: `/article/${slug}`,
     loggedIn: false,
+    isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderArticle({
@@ -369,6 +413,7 @@ export async function renderCategoryHtml(
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
+  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
@@ -434,8 +479,9 @@ export async function renderCategoryHtml(
   const adsOn = shouldShowAds(adsConfig, {
     path: `/category/${slug}`,
     loggedIn: false,
+    isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn);
+  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
   const adSlot = adsOn
     ? renderAdSlot({
         type: "leaderboard",

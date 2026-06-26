@@ -203,6 +203,9 @@ describe("T27 robots.txt / ads.txt key-mismatch fix (RC-048)", () => {
     expect(defBody).toContain("Allow: /");
     expect(defBody).toContain("Disallow: /api");
     expect(defBody).toContain("Disallow: /admin/");
+    // rescue-6 (agent-readiness M1.1): default body states the Content Signals
+    // preference (allow search + AI live-answer retrieval, decline AI training).
+    expect(defBody).toContain("Content-Signal: search=yes, ai-input=yes, ai-train=no");
 
     // /ads.txt reads the aligned ads_txt_content key too.
     const adsBody = "google.com, pub-7777, DIRECT, cafef00d\n";
