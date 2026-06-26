@@ -399,16 +399,6 @@ export function renderInContentAdUnit(config: AdsConfig): string {
 // = ad_lazy_load_margin, with an immediate-fill fallback when IO is absent) or
 // fills every slot immediately when lazy-load is off. Filling pushes the
 // AdSense queue: (window.adsbygoogle = window.adsbygoogle || []).push({}).
-// rescue-6 (agent-readiness, IVT Layer 2): engagement gate. Defer ad init until
-// the first genuine human interaction (scroll / mouse / touch / key) OR a 15s
-// safety timeout, so non-interacting bots that merely render the page never
-// trigger an ad fill. ES5-only (L-014). Shared by the AdSense + GAM scripts.
-const AD_ENGAGE_FN =
-  "function whenEngaged(cb){var done=false;var evs=['scroll','mousemove','pointermove','touchstart','keydown'];" +
-  "function go(){if(done){return;}done=true;for(var i=0;i<evs.length;i++){try{window.removeEventListener(evs[i],go,true);}catch(e){}}cb();}" +
-  "for(var j=0;j<evs.length;j++){try{window.addEventListener(evs[j],go,true);}catch(e){}}" +
-  "window.setTimeout(go,15000);}";
-
 export function renderAdManagerScript(config: AdsConfig, restrictAdData = false): string {
   if (hasGam(config)) return renderGamManagerScript(config, restrictAdData);
   if (!hasAdsense(config)) return "";
@@ -438,7 +428,6 @@ export function renderAdManagerScript(config: AdsConfig, restrictAdData = false)
     : "for(var m=0;m<slots.length;m++){fill(slots[m]);}";
   const body =
     "(function(){" +
-    AD_ENGAGE_FN +
     fill +
     "function boot(){" +
     npaBlock +
@@ -446,8 +435,8 @@ export function renderAdManagerScript(config: AdsConfig, restrictAdData = false)
     "if(!slots||!slots.length){return;}" +
     run +
     "}" +
-    "function ready(fn){if(document.readyState!=='loading'){fn();}else{document.addEventListener('DOMContentLoaded',fn);}}" +
-    "ready(function(){whenEngaged(boot);});" +
+    "if(document.readyState!=='loading'){boot();}" +
+    "else{document.addEventListener('DOMContentLoaded',boot);}" +
     "})();";
   return `<script>${body}</script>`;
 }
@@ -493,7 +482,6 @@ function renderGamManagerScript(config: AdsConfig, restrictAdData = false): stri
     : "";
   const body =
     "(function(){" +
-    AD_ENGAGE_FN +
     "var g=window.googletag=window.googletag||{cmd:[]};" +
     "function inView(el){if(!el){return true;}var r=el.getBoundingClientRect();var vh=window.innerHeight||document.documentElement.clientHeight;var vw=window.innerWidth||document.documentElement.clientWidth;return r.bottom>0&&r.right>0&&r.top<vh&&r.left<vw;}" +
     "function boot(){g.cmd.push(function(){" +
@@ -518,8 +506,7 @@ function renderGamManagerScript(config: AdsConfig, restrictAdData = false): stri
     "for(var d=0;d<defined.length;d++){g.display(defined[d].s);}" +
     refreshBlock +
     "});}" +
-    "function ready(fn){if(document.readyState!=='loading'){fn();}else{document.addEventListener('DOMContentLoaded',fn);}}" +
-    "ready(function(){whenEngaged(boot);});" +
+    "if(document.readyState!=='loading'){boot();}else{document.addEventListener('DOMContentLoaded',boot);}" +
     "})();";
   return `<script>${body}</script>`;
 }

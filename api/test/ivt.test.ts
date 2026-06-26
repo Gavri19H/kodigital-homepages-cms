@@ -5,7 +5,6 @@
 import { describe, it, expect } from "vitest";
 import { isDatacenterAsn, isDeclaredBotUA } from "../src/safety/ivt";
 import { botFromCfSignals } from "../src/public/router";
-import { parseAdsConfig, renderAdManagerScript } from "../src/public/ads";
 
 describe("IVT Layer 1: datacenter ASN + declared-bot UA", () => {
   it("flags known datacenter/hosting ASNs, not eyeball ASNs", () => {
@@ -42,29 +41,5 @@ describe("botFromCfSignals with IVT signals", () => {
         "Googlebot/2.1",
       ),
     ).toBe(false);
-  });
-});
-
-describe("IVT Layer 2: engagement-gated ad loader", () => {
-  const gam = parseAdsConfig({
-    ads_enabled: "1",
-    ad_provider: "gam",
-    gam_network_code: "23456789",
-  });
-  const adsense = parseAdsConfig({
-    ads_enabled: "1",
-    ad_provider: "adsense",
-    adsense_publisher_id: "ca-pub-1234567890123456",
-  });
-  it("GAM script defers init until engagement or a safety timeout", () => {
-    const out = renderAdManagerScript(gam);
-    expect(out).toContain("whenEngaged");
-    expect(out).toContain("scroll");
-    expect(out).toContain("setTimeout(go,15000)");
-  });
-  it("AdSense script defers fill until engagement", () => {
-    const out = renderAdManagerScript(adsense);
-    expect(out).toContain("whenEngaged");
-    expect(out).toContain("mousemove");
   });
 });
