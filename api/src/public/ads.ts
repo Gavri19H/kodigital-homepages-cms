@@ -105,6 +105,12 @@ export interface AdsConfig {
 export interface AdsPageContext {
   path?: string;
   loggedIn?: boolean;
+  // rescue-6 (agent-readiness M3 / IVT): the request is automated (an AI crawler
+  // or low Cloudflare bot score). Bots NEVER get ad tags — serving ads to
+  // non-human traffic is invalid traffic (GIVT), an AdSense / Ad Manager policy
+  // + revenue-clawback risk. The router derives this from request.cf bot signals
+  // and threads it through the render fns into shouldShowAds.
+  isBot?: boolean;
 }
 
 function escAttr(input: string): string {
@@ -299,6 +305,8 @@ export function isExcluded(path: string, excluded: ReadonlyArray<string>): boole
 }
 
 export function shouldShowAds(config: AdsConfig, ctx: AdsPageContext = {}): boolean {
+  // rescue-6: never serve ads to automated traffic (invalid-traffic defense).
+  if (ctx.isBot === true) return false;
   if (!config.enabled) return false;
   if (!hasAnyAds(config)) return false;
   if (ctx.loggedIn === true && config.disableForLoggedIn) return false;
@@ -391,10 +399,15 @@ export function renderInContentAdUnit(config: AdsConfig): string {
 // = ad_lazy_load_margin, with an immediate-fill fallback when IO is absent) or
 // fills every slot immediately when lazy-load is off. Filling pushes the
 // AdSense queue: (window.adsbygoogle = window.adsbygoogle || []).push({}).
-export function renderAdManagerScript(config: AdsConfig): string {
-  if (hasGam(config)) return renderGamManagerScript(config);
+export function renderAdManagerScript(config: AdsConfig, restrictAdData = false): string {
+  if (hasGam(config)) return renderGamManagerScript(config, restrictAdData);
   if (!hasAdsense(config)) return "";
   const margin = config.lazyLoadMargin.replace(/[^0-9a-z%.\s-]/gi, "");
+  // rescue-6 (CCPA wiring): when the visitor has opted out ("do not sell"),
+  // request NON-PERSONALIZED ads (AdSense NPA), set once before any push.
+  const npaBlock = restrictAdData
+    ? "try{(window.adsbygoogle=window.adsbygoogle||[]).requestNonPersonalizedAds=1;}catch(e){}"
+    : "";
   const fill =
     "function fill(el){" +
     "if(!el||el.getAttribute('data-ad-filled')==='1'){return;}" +
@@ -417,6 +430,7 @@ export function renderAdManagerScript(config: AdsConfig): string {
     "(function(){" +
     fill +
     "function boot(){" +
+    npaBlock +
     "var slots=document.querySelectorAll('.ad-slot[data-ad-type]');" +
     "if(!slots||!slots.length){return;}" +
     run +
@@ -433,7 +447,7 @@ export function renderAdManagerScript(config: AdsConfig): string {
 // slot single-request, optionally enables GAM native lazy-load, optionally
 // defines a dismissible BOTTOM_ANCHOR sticky slot, displays everything, and
 // optionally refreshes all slots on a timer (>=30s, the viewability floor).
-function renderGamManagerScript(config: AdsConfig): string {
+function renderGamManagerScript(config: AdsConfig, restrictAdData = false): string {
   // Compose the optional blocks SERVER-side so disabled features are omitted
   // from the emitted script entirely (no dead `if(false)` code shipped). Each
   // entry in `defined` is {s: slot, el: div} so refresh can check viewability
@@ -462,6 +476,10 @@ function renderGamManagerScript(config: AdsConfig): string {
         String(config.refreshSeconds) +
         ";window.setInterval(function(){var due=[];for(var r=0;r<defined.length;r++){if(inView(defined[r].el)){due.push(defined[r].s);}}if(due.length){try{g.pubads().refresh(due);}catch(e){}}},rs*1000);"
       : "";
+  // rescue-6 (CCPA wiring): GAM "do not sell" -> Restrict Data Processing.
+  const rdpBlock = restrictAdData
+    ? "g.pubads().setPrivacySettings({restrictDataProcessing:true});"
+    : "";
   const body =
     "(function(){" +
     "var g=window.googletag=window.googletag||{cmd:[]};" +
@@ -483,6 +501,7 @@ function renderGamManagerScript(config: AdsConfig): string {
     anchorBlock +
     sraBlock +
     lazyBlock +
+    rdpBlock +
     "g.enableServices();" +
     "for(var d=0;d<defined.length;d++){g.display(defined[d].s);}" +
     refreshBlock +

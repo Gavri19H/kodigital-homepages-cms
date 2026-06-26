@@ -13,8 +13,9 @@
 // privacy_opt_outs.identifier_hash (UNIQUE) so we never persist the
 // raw IP or UA — only an irreversible hash.
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Env } from "../env";
+import { checkRateLimit } from "../safety/rate-limit";
 
 const COOKIE_NAME = "ccpa_opt_out";
 // One year in seconds — matches the typical CCPA opt-out persistence window.
@@ -57,6 +58,62 @@ function buildCookie(value: string, maxAgeSeconds: number): string {
   return `${COOKIE_NAME}=${value}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Lax`;
 }
 
+// RFC 9457 problem+json response — scoped to the NEW rate-limit 429s only; the
+// existing {opted_out}/{deleted} success + error shapes are left unchanged.
+function privacyProblem(
+  status: number,
+  type: string,
+  title: string,
+  detail: string,
+  retryAfterSeconds?: number,
+): Response {
+  const headers = new Headers({
+    "Content-Type": "application/problem+json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  if (retryAfterSeconds !== undefined && retryAfterSeconds > 0) {
+    headers.set("Retry-After", String(retryAfterSeconds));
+  }
+  const body = JSON.stringify({
+    type: `https://kodigital.app/problems/${type}`,
+    title,
+    status,
+    detail,
+  });
+  return new Response(body, { status, headers });
+}
+
+// rescue-6 (agent-readiness M4.2): best-effort per-client rate limit on the
+// UNAUTHENTICATED privacy write endpoints (the one unauthenticated DB-write
+// abuse surface). Active only at the real edge (request.cf present) so unit
+// tests are unaffected, and fail-open inside checkRateLimit so a KV hiccup never
+// breaks an opt-out. Hard enforcement belongs in a Cloudflare WAF rate-limit
+// rule; this is the in-app backstop + the correct 429 + Retry-After contract.
+async function enforcePrivacyRateLimit(
+  c: Context<{ Bindings: Env }>,
+): Promise<Response | null> {
+  const cf = (c.req.raw as unknown as { cf?: unknown }).cf;
+  if (cf === undefined) return null;
+  const kv = c.env.CACHE;
+  if (kv === undefined || kv === null) return null;
+  const { ip } = clientFingerprint(c.req.raw);
+  // Hash the IP for the key so we never store a raw IP, even ephemerally
+  // (consistent with this module's privacy-preserving identity hashing).
+  const idHash = await hashIdentifier(ip, "");
+  const result = await checkRateLimit(kv, `rl:privacy:${idHash}`, {
+    limit: 20,
+    windowSeconds: 60,
+  });
+  if (result.allowed) return null;
+  return privacyProblem(
+    429,
+    "rate-limited",
+    "Too Many Requests",
+    "Too many privacy requests from this client. Please retry shortly.",
+    result.retryAfterSeconds,
+  );
+}
+
 const privacy = new Hono<{ Bindings: Env }>();
 
 // Route: GET /api/privacy/status — read opt-out state.
@@ -77,6 +134,8 @@ privacy.get("/api/privacy/status", async (c) => {
 
 // Route: POST /api/privacy/opt-out — record opt-out + set cookie.
 privacy.post("/api/privacy/opt-out", async (c) => {
+  const limited = await enforcePrivacyRateLimit(c);
+  if (limited) return limited;
   const { ip, ua } = clientFingerprint(c.req.raw);
   const id = await hashIdentifier(ip, ua);
   await c.env.DB.prepare(
@@ -90,6 +149,8 @@ privacy.post("/api/privacy/opt-out", async (c) => {
 
 // Route: POST /api/privacy/opt-in — clear opt-out + expire cookie.
 privacy.post("/api/privacy/opt-in", async (c) => {
+  const limited = await enforcePrivacyRateLimit(c);
+  if (limited) return limited;
   const { ip, ua } = clientFingerprint(c.req.raw);
   const id = await hashIdentifier(ip, ua);
   await c.env.DB.prepare(
@@ -108,6 +169,8 @@ privacy.post("/api/privacy/opt-in", async (c) => {
 // confirmation including how many rows were removed (0 is a valid result for
 // a caller who never opted out — the right-to-delete is still honored).
 privacy.delete("/api/privacy/data", async (c) => {
+  const limited = await enforcePrivacyRateLimit(c);
+  if (limited) return limited;
   const { ip, ua } = clientFingerprint(c.req.raw);
   const id = await hashIdentifier(ip, ua);
   const result = await c.env.DB.prepare(
