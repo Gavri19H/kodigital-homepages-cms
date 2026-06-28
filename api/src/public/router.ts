@@ -35,7 +35,6 @@ import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
 import { buildArticleViewModel } from "./view-models/article";
 import { renderArticleMarkdown } from "./article-markdown";
 import { isDatacenterAsn, isDeclaredBotUA } from "../safety/ivt";
-import { isGpcOptOut } from "../privacy/gpc";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -250,13 +249,10 @@ function botHtmlHeaders(): Headers {
   return h;
 }
 
-// rescue-6 (agent-readiness M4 / CCPA wiring): a "do not sell / share" opt-out
-// is recorded as the ccpa_opt_out=1 cookie (HttpOnly — JS can't read it, but the
-// SERVER can). When set, ad-bearing pages render with ad data processing
-// RESTRICTED (GAM Restrict-Data-Processing / AdSense non-personalized) so the
-// opt-out finally GATES something instead of just setting a cookie. Like the bot
-// path, an opted-out request renders fresh + no-store so the restricted variant
-// never caches and serves to a non-opted-out visitor.
+// rescue-7: US-privacy opt-out (CCPA/GPP) is now owned by the CMP — its GPP/USP
+// signal is read by GPT and the whole bidstream — so the server no longer reads a
+// custom opt-out cookie or emits Restrict-Data-Processing. Only the bot variant
+// below still renders fresh + no-store (ad-free for invalid traffic).
 // rescue-6 (agent-readiness M2/M5): does THIS client prefer markdown? True only
 // when the Accept header explicitly lists text/markdown AND ranks it >= text/html
 // (so a normal browser, which never sends text/markdown, always gets HTML). The
@@ -283,41 +279,6 @@ export function acceptPrefersMarkdown(accept: string | null | undefined): boolea
   return mdQ >= 0 && mdQ >= htmlQ;
 }
 
-function isCcpaOptedOut(
-  c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
-): boolean {
-  const cookie = c.req.header("cookie");
-  if (cookie === undefined || cookie === null || cookie.length === 0) return false;
-  for (const part of cookie.split(/;\s*/)) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    if (part.slice(0, eq) === "ccpa_opt_out") return part.slice(eq + 1) === "1";
-  }
-  return false;
-}
-
-// rescue-7 (#3 GPC honoring): a request is opted out of "sale/share" when EITHER
-// the explicit Do-Not-Sell cookie is set (any visitor) OR Global Privacy Control
-// is asserted by a visitor in a state that mandates honoring it (the narrow,
-// revenue-preserving geo scope — see privacy/gpc.ts). Bots never get ad tags, so
-// they are never "opted out". The result routes into the existing Restricted-
-// Data-Processing path (Google's per-request, CMP-free US-privacy mechanism).
-function computeRestrictAdData(
-  c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
-  isBot: boolean,
-): boolean {
-  if (isBot) return false;
-  if (isCcpaOptedOut(c)) return true;
-  const cf = (c.req.raw as unknown as {
-    cf?: { country?: string; regionCode?: string };
-  }).cf;
-  return isGpcOptOut({
-    secGpc: c.req.header("Sec-GPC"),
-    country: cf?.country,
-    regionCode: cf?.regionCode,
-  });
-}
-
 // T11 homepage: ItemList of latest published articles + WebSite +
 // Organization JSON-LD. canonical href is https://{hostname}/.
 // T1 (rescue-3): the GET / handler passes c.env.DB into renderHomepageHtml
@@ -330,11 +291,9 @@ router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";
   const isBot = isBotRequest(c);
-  const restrictAdData = computeRestrictAdData(c, isBot);
-  if (isBot || restrictAdData) {
+  if (isBot) {
     const body = await renderHomepageHtml(c.env.DB, siteContext, {
       isBot,
-      restrictAdData,
     });
     return new Response(body, { status: 200, headers: botHtmlHeaders() });
   }
@@ -392,11 +351,9 @@ router.get("/article/:slug", async (c) => {
     });
   }
   const isBot = isBotRequest(c);
-  const restrictAdData = computeRestrictAdData(c, isBot);
-  if (isBot || restrictAdData) {
+  if (isBot) {
     const body = await renderArticleHtml(c.env.DB, siteContext, slug, {
       isBot,
-      restrictAdData,
     });
     return new Response(body, { status: 200, headers: botHtmlHeaders() });
   }
@@ -473,8 +430,7 @@ async function handleCategory(
   const path =
     pageNum === 1 ? `/category/${slug}` : `/category/${slug}/page/${pageNum}`;
   const isBot = isBotRequest(c);
-  const restrictAdData = computeRestrictAdData(c, isBot);
-  if (isBot || restrictAdData) {
+  if (isBot) {
     const body = await renderCategoryHtml(
       c.env.DB,
       siteContext,
@@ -483,7 +439,7 @@ async function handleCategory(
       pageNum,
       slug,
       pageSize,
-      { isBot, restrictAdData },
+      { isBot },
     );
     return new Response(body, { status: 200, headers: botHtmlHeaders() });
   }

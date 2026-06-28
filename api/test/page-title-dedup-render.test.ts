@@ -101,6 +101,6 @@ describe("renderPageHtml page-title dedup (PR-4 / issue 2)", () => {
     expect(html).toContain("<h1>Do Not Sell or Share My Personal Information</h1>");
     expect(articleH1Count(html)).toBe(1);
     expect(html).toContain("ccpa-optout");
-    expect(html).toContain("data-ccpa-toggle");
+    expect(html).toContain("data-ccpa-open");
   });
 });

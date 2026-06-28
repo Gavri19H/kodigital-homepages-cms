@@ -403,15 +403,10 @@ export function renderInContentAdUnit(config: AdsConfig): string {
 // = ad_lazy_load_margin, with an immediate-fill fallback when IO is absent) or
 // fills every slot immediately when lazy-load is off. Filling pushes the
 // AdSense queue: (window.adsbygoogle = window.adsbygoogle || []).push({}).
-export function renderAdManagerScript(config: AdsConfig, restrictAdData = false): string {
-  if (hasGam(config)) return renderGamManagerScript(config, restrictAdData);
+export function renderAdManagerScript(config: AdsConfig): string {
+  if (hasGam(config)) return renderGamManagerScript(config);
   if (!hasAdsense(config)) return "";
   const margin = config.lazyLoadMargin.replace(/[^0-9a-z%.\s-]/gi, "");
-  // rescue-6 (CCPA wiring): when the visitor has opted out ("do not sell"),
-  // request NON-PERSONALIZED ads (AdSense NPA), set once before any push.
-  const npaBlock = restrictAdData
-    ? "try{(window.adsbygoogle=window.adsbygoogle||[]).requestNonPersonalizedAds=1;}catch(e){}"
-    : "";
   const fill =
     "function fill(el){" +
     "if(!el||el.getAttribute('data-ad-filled')==='1'){return;}" +
@@ -434,7 +429,6 @@ export function renderAdManagerScript(config: AdsConfig, restrictAdData = false)
     "(function(){" +
     fill +
     "function boot(){" +
-    npaBlock +
     "var slots=document.querySelectorAll('.ad-slot[data-ad-type]');" +
     "if(!slots||!slots.length){return;}" +
     run +
@@ -451,7 +445,7 @@ export function renderAdManagerScript(config: AdsConfig, restrictAdData = false)
 // slot single-request, optionally enables GAM native lazy-load, optionally
 // defines a dismissible BOTTOM_ANCHOR sticky slot, displays everything, and
 // optionally refreshes VIEWABLE slots on a timer (>=30s) — see refreshBlock.
-function renderGamManagerScript(config: AdsConfig, restrictAdData = false): string {
+function renderGamManagerScript(config: AdsConfig): string {
   // Compose the optional blocks SERVER-side so disabled features are omitted
   // from the emitted script entirely (no dead `if(false)` code shipped). Each
   // entry in `defined` is {s: slot, el: div} so refresh can check viewability
@@ -491,10 +485,6 @@ function renderGamManagerScript(config: AdsConfig, restrictAdData = false): stri
       String(AD_REFRESH_MAX_PER_SLOT) +
       ";window.setInterval(function(){var due=[];for(var r=0;r<defined.length;r++){var d=defined[r];if(d.vw&&d.rc<rcap&&inView(d.el)){due.push(d.s);d.rc++;d.vw=false;}}if(due.length){try{g.pubads().refresh(due);}catch(e){}}},rs*1000);"
     : "";
-  // rescue-6 (CCPA wiring): GAM "do not sell" -> Restrict Data Processing.
-  const rdpBlock = restrictAdData
-    ? "g.pubads().setPrivacySettings({restrictDataProcessing:true});"
-    : "";
   const body =
     "(function(){" +
     "var g=window.googletag=window.googletag||{cmd:[]};" +
@@ -516,7 +506,6 @@ function renderGamManagerScript(config: AdsConfig, restrictAdData = false): stri
     anchorBlock +
     sraBlock +
     lazyBlock +
-    rdpBlock +
     viewableBlock +
     "g.enableServices();" +
     "for(var d=0;d<defined.length;d++){g.display(defined[d].s);}" +

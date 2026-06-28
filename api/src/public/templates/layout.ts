@@ -82,6 +82,10 @@ export interface RenderLayoutArgs {
   // Extra `<head>` HTML the caller assembled (already escaped). Used for the
   // ad provider/manager scripts and JSON-LD.
   extraHead?: string;
+  // rescue-7: consent/CMP loader (renderConsentHead), emitted FIRST in <head> —
+  // before extraHead/gpt.js — so the CMP's TCF/GPP/USP stubs exist and GPT waits
+  // for consent.
+  consentHead?: string;
   // T23: operator custom-HTML/script snippets, ALREADY sanitized by
   // renderCustomHead / renderCustomFooter (settings/custom-html.ts).
   //   customHead   -> emitted at the END of <head> (custom_head_html +
@@ -175,6 +179,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
   const footer = args.footer ?? "";
   const bodyClass = args.bodyClass ?? "";
   const extraHead = args.extraHead ?? "";
+  const consentHead = args.consentHead ?? "";
   // T23: pre-sanitized operator snippets (renderCustomHead/renderCustomFooter).
   const customHead = args.customHead ?? "";
   const customFooter = args.customFooter ?? "";
@@ -233,6 +238,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+${consentHead}
 ${seoHead}
 ${linkTags}
 ${feedLinks}

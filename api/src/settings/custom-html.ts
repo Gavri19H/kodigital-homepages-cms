@@ -57,6 +57,9 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   // T23: custom analytics / ad-header script snippets (this story)
   "analytics_script",
   "ad_header_script",
+  // rescue-7: consent/CMP loader (e.g. InMobi Choice) emitted FIRST in <head>,
+  // before gpt.js, so the TCF/GPP/USP stubs exist and GPT waits for consent.
+  "consent_head_html",
   // T22 ad-config keys (operator-settable through the same PATCH route)
   // rescue-4 round-5 (issue 1): master on/off toggle the admin client ALWAYS
   // submits (the settings.ts ad-checkbox loop sets it on every save). Missing
@@ -96,6 +99,7 @@ export const HTML_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
 export const SCRIPT_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   "analytics_script",
   "ad_header_script",
+  "consent_head_html",
 ]);
 
 // Inline event-handler attribute (onerror=, onload=, onclick=, …). The
@@ -205,6 +209,23 @@ export function renderCustomHead(
   );
   if (adHeader.length > 0) parts.push(`<!-- ad_header_script -->\n${adHeader}`);
   return parts.join("\n");
+}
+
+// rescue-7: the consent/CMP loader (e.g. InMobi Choice), emitted at the TOP of
+// <head> — BEFORE the ad provider script (gpt.js) — so the IAB __tcfapi/__gpp/
+// __uspapi stubs exist first and GPT waits for / reads consent. A SCRIPT field
+// (allowScript) so the CMP <script> stub passes; inline event handlers +
+// javascript: URIs are still stripped (and rejected at write by
+// validateScriptField). IAB CMP stubs use addEventListener, not inline on*=, so
+// they pass through byte-intact.
+export function renderConsentHead(
+  settings: Readonly<Record<string, string>>,
+): string {
+  const consent = sanitizeSettingsHtml(
+    settingValue(settings, "consent_head_html"),
+    { allowScript: true },
+  );
+  return consent.length > 0 ? `<!-- consent_head_html (CMP) -->\n${consent}` : "";
 }
 
 // renderCustomFooter — sanitized footer markup from custom_footer_html (pure

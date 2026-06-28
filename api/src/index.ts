@@ -28,7 +28,6 @@
 //                         via POST /api/admin/articles/:id/preview-link).
 //   - /media/*          — mediaRouter (R2 serve) and POST /admin/media.
 //   - /admin*, /api/admin/*  — adminRouter (shell + JSON CRUD).
-//   - /api/privacy/*    — privacyRouter (public, unauthenticated).
 //   - /article, /page, /category, /feed.xml, /atom.xml, /sitemap.xml,
 //     /robots.txt, /ads.txt, /:slug catch-all — publicRouter (last).
 //
@@ -47,7 +46,6 @@ import {
 } from "./auth/access-auth";
 import { adminRouter } from "./admin";
 import publicRouter from "./public/router";
-import privacyRouter from "./privacy";
 import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
@@ -157,13 +155,12 @@ app.get("/", async (c, next) => {
 // route internally for its own admin.request() tests.
 app.get("/api/admin/auth/status", accessAuth, authStatusHandler);
 
-// Phase 1 sub-routers — mount order: preview, media, admin, privacy,
+// Phase 1 sub-routers — mount order: preview, media, admin,
 // public (slug catch-all). adminRouter wires accessAuth internally on
 // /admin*, /admin, and /api/admin/*.
 app.route("/", previewRouter);
 app.route("/", mediaRouter);
 app.route("/", adminRouter);
-app.route("/", privacyRouter);
 // rescue-4 round-2 (issue 14): first-party newsletter capture (public).
 app.route("/", newsletterRouter);
 

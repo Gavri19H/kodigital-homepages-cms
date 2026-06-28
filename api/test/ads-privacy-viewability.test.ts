@@ -66,8 +66,8 @@ describe("ads.ts programmatic hardening (rescue-7)", () => {
     expect(renderAdManagerScript(GAM)).not.toContain("singleRequest");
   });
 
-  it("regression: CCPA restrictDataProcessing still wired off the restrictAdData arg", () => {
-    expect(renderAdManagerScript(GAM, true)).toContain("restrictDataProcessing");
-    expect(renderAdManagerScript(GAM, false)).not.toContain("restrictDataProcessing");
+  it("rescue-7: no server-side privacy signal in the ad script — the CMP (GPP/USP) owns it", () => {
+    expect(renderAdManagerScript(GAM)).not.toContain("restrictDataProcessing");
+    expect(renderAdManagerScript(GAM)).not.toContain("requestNonPersonalizedAds");
   });
 });
