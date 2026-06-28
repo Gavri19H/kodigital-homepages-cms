@@ -35,6 +35,7 @@ import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
 import { buildArticleViewModel } from "./view-models/article";
 import { renderArticleMarkdown } from "./article-markdown";
 import { isDatacenterAsn, isDeclaredBotUA } from "../safety/ivt";
+import { isGpcOptOut } from "../privacy/gpc";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -295,6 +296,28 @@ function isCcpaOptedOut(
   return false;
 }
 
+// rescue-7 (#3 GPC honoring): a request is opted out of "sale/share" when EITHER
+// the explicit Do-Not-Sell cookie is set (any visitor) OR Global Privacy Control
+// is asserted by a visitor in a state that mandates honoring it (the narrow,
+// revenue-preserving geo scope — see privacy/gpc.ts). Bots never get ad tags, so
+// they are never "opted out". The result routes into the existing Restricted-
+// Data-Processing path (Google's per-request, CMP-free US-privacy mechanism).
+function computeRestrictAdData(
+  c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
+  isBot: boolean,
+): boolean {
+  if (isBot) return false;
+  if (isCcpaOptedOut(c)) return true;
+  const cf = (c.req.raw as unknown as {
+    cf?: { country?: string; regionCode?: string };
+  }).cf;
+  return isGpcOptOut({
+    secGpc: c.req.header("Sec-GPC"),
+    country: cf?.country,
+    regionCode: cf?.regionCode,
+  });
+}
+
 // T11 homepage: ItemList of latest published articles + WebSite +
 // Organization JSON-LD. canonical href is https://{hostname}/.
 // T1 (rescue-3): the GET / handler passes c.env.DB into renderHomepageHtml
@@ -307,7 +330,7 @@ router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";
   const isBot = isBotRequest(c);
-  const restrictAdData = !isBot && isCcpaOptedOut(c);
+  const restrictAdData = computeRestrictAdData(c, isBot);
   if (isBot || restrictAdData) {
     const body = await renderHomepageHtml(c.env.DB, siteContext, {
       isBot,
@@ -369,7 +392,7 @@ router.get("/article/:slug", async (c) => {
     });
   }
   const isBot = isBotRequest(c);
-  const restrictAdData = !isBot && isCcpaOptedOut(c);
+  const restrictAdData = computeRestrictAdData(c, isBot);
   if (isBot || restrictAdData) {
     const body = await renderArticleHtml(c.env.DB, siteContext, slug, {
       isBot,
@@ -450,7 +473,7 @@ async function handleCategory(
   const path =
     pageNum === 1 ? `/category/${slug}` : `/category/${slug}/page/${pageNum}`;
   const isBot = isBotRequest(c);
-  const restrictAdData = !isBot && isCcpaOptedOut(c);
+  const restrictAdData = computeRestrictAdData(c, isBot);
   if (isBot || restrictAdData) {
     const body = await renderCategoryHtml(
       c.env.DB,

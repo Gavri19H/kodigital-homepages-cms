@@ -676,6 +676,19 @@ p { margin: 0; }
   .ad-slot[data-ad-type="leaderboard"],
   .ad-slot[data-ad-type="in-feed"] { min-height: 250px; max-width: 300px; }
 }
+/* rescue-7 (#5 viewability): reserve height on the ACTUAL GPT slot div (the
+   element GPT measures via its slot id — not just the .ad-slot parent) so the
+   impression renders in a non-zero-height, viewable box. min-height ONLY (never a
+   fixed height/width — the box grows to the served creative; width stays capped
+   by the inline max-width:100%). Mirrors the per-breakpoint sizes the GAM size
+   mapping serves (90px banners desktop, 300x250 below 728px). */
+.gpt-slot[data-gpt-type="leaderboard"] { min-height: 90px; }
+.gpt-slot[data-gpt-type="in-feed"]     { min-height: 90px; }
+.gpt-slot[data-gpt-type="rect"]        { min-height: 250px; }
+@media (max-width: 727px) {
+  .gpt-slot[data-gpt-type="leaderboard"],
+  .gpt-slot[data-gpt-type="in-feed"] { min-height: 250px; }
+}
 
 /* === FOOTER === */
 .site-footer {
