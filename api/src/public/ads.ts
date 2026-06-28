@@ -69,6 +69,7 @@ function gamSlotDiv(config: AdsConfig, unitPath: string, type: AdSlotType): stri
     `data-gpt-sizes="${escAttr(JSON.stringify(AD_GPT_ALL_SIZES[type]))}" ` +
     `data-gpt-map="${escAttr(JSON.stringify(AD_GPT_SIZE_MAP[type]))}" ` +
     `data-gpt-w="${dims.width}" data-gpt-h="${dims.height}" ` +
+    `data-gpt-type="${escAttr(type)}" ` +
     `style="display:block;max-width:100%;margin:0 auto"></div>`
   );
 }
@@ -80,6 +81,9 @@ export const AD_LAZY_LOAD_MARGIN_DEFAULT = "200px";
 // is clamped up to the floor.
 export const AD_REFRESH_SECONDS_DEFAULT = 0;
 export const AD_REFRESH_SECONDS_MIN = 30;
+// rescue-7 (#6): hard cap on auto-refreshes per slot per page view — bounds the
+// total refreshed impressions even when a slot stays viewable for a long session.
+export const AD_REFRESH_MAX_PER_SLOT = 10;
 
 export interface AdsConfig {
   enabled: boolean;
@@ -446,7 +450,7 @@ export function renderAdManagerScript(config: AdsConfig, restrictAdData = false)
 // .gpt-slot divs exist) AND for gpt.js (via googletag.cmd), then defines every
 // slot single-request, optionally enables GAM native lazy-load, optionally
 // defines a dismissible BOTTOM_ANCHOR sticky slot, displays everything, and
-// optionally refreshes all slots on a timer (>=30s, the viewability floor).
+// optionally refreshes VIEWABLE slots on a timer (>=30s) — see refreshBlock.
 function renderGamManagerScript(config: AdsConfig, restrictAdData = false): string {
   // Compose the optional blocks SERVER-side so disabled features are omitted
   // from the emitted script entirely (no dead `if(false)` code shipped). Each
@@ -456,26 +460,37 @@ function renderGamManagerScript(config: AdsConfig, restrictAdData = false): stri
     config.stickyEnabled && config.gamStickyUnit !== null
       ? "try{var a=g.defineOutOfPageSlot('" +
         gamUnitPath(config, config.gamStickyUnit) +
-        "',g.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a){a.addService(g.pubads());defined.push({s:a,el:null});}}catch(e){}"
+        "',g.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a){a.addService(g.pubads());defined.push({s:a,el:null,vw:false,rc:0});}}catch(e){}"
       : "";
   // rescue-4 round-5 (issue 3): GAM lazy-load and single-request (SRA) are
   // MUTUALLY EXCLUSIVE — SRA batches ALL slots into one request at display
   // time, fetching every slot up front and DEFEATING lazy-load. So enable
   // exactly ONE: lazy-load (per-slot requests as each nears the viewport) when
   // lazy is on; SRA (one batched request) only when lazy is off.
+  // rescue-7 (#8): use the current setConfig({lazyLoad}) API —
+  // pubads().enableLazyLoad() is deprecated (developers.google.com/publisher-tag/reference).
   const lazyBlock = config.lazyLoad
-    ? "g.pubads().enableLazyLoad({fetchMarginPercent:100,renderMarginPercent:50,mobileScaling:2.0});"
+    ? "g.setConfig({lazyLoad:{fetchMarginPercent:100,renderMarginPercent:50,mobileScaling:2.0}});"
     : "";
   const sraBlock = config.lazyLoad ? "" : "g.setConfig({singleRequest:true});";
-  // rescue-4 round-5 (issue 2): the timer refreshes ONLY slots currently in the
-  // viewport — never off-screen ads (wasteful + a GAM viewability concern). The
-  // anchor (el:null, a fixed overlay) is always eligible.
-  const refreshBlock =
-    config.refreshSeconds > 0
-      ? "var rs=" +
-        String(config.refreshSeconds) +
-        ";window.setInterval(function(){var due=[];for(var r=0;r<defined.length;r++){if(inView(defined[r].el)){due.push(defined[r].s);}}if(due.length){try{g.pubads().refresh(due);}catch(e){}}},rs*1000);"
-      : "";
+  // rescue-7 (#6 viewability-gated refresh): refresh a slot ONLY after it has
+  // actually become viewable (GPT impressionViewable), is still in the viewport,
+  // and is under the per-slot cap — then re-arm (vw=false) so it must be viewed
+  // again before the next refresh. Blind / never-viewable refresh tanks ActiveView
+  // (developers.google.com/publisher-tag/guides/control-ad-loading). The listener
+  // is registered before display so the first impression is captured (the anchor,
+  // el:null, fires impressionViewable like any slot).
+  const refreshOn = config.refreshSeconds > 0;
+  const viewableBlock = refreshOn
+    ? "g.pubads().addEventListener('impressionViewable',function(ev){for(var v=0;v<defined.length;v++){if(defined[v].s===ev.slot){defined[v].vw=true;break;}}});"
+    : "";
+  const refreshBlock = refreshOn
+    ? "var rs=" +
+      String(config.refreshSeconds) +
+      ";var rcap=" +
+      String(AD_REFRESH_MAX_PER_SLOT) +
+      ";window.setInterval(function(){var due=[];for(var r=0;r<defined.length;r++){var d=defined[r];if(d.vw&&d.rc<rcap&&inView(d.el)){due.push(d.s);d.rc++;d.vw=false;}}if(due.length){try{g.pubads().refresh(due);}catch(e){}}},rs*1000);"
+    : "";
   // rescue-6 (CCPA wiring): GAM "do not sell" -> Restrict Data Processing.
   const rdpBlock = restrictAdData
     ? "g.pubads().setPrivacySettings({restrictDataProcessing:true});"
@@ -496,12 +511,13 @@ function renderGamManagerScript(config: AdsConfig, restrictAdData = false): stri
     "var sizes=[];var mapRaw=[];try{sizes=JSON.parse(el.getAttribute('data-gpt-sizes')||'[]');mapRaw=JSON.parse(el.getAttribute('data-gpt-map')||'[]');}catch(pe){}" +
     "if(!sizes.length){var w=parseInt(el.getAttribute('data-gpt-w'),10)||0;var h=parseInt(el.getAttribute('data-gpt-h'),10)||0;sizes=[[w,h]];}" +
     "var slot=g.defineSlot(unit,sizes,id);" +
-    "if(slot){if(mapRaw.length){var sm=g.sizeMapping();for(var mm=0;mm<mapRaw.length;mm++){sm.addSize([mapRaw[mm][0],0],mapRaw[mm][1]);}slot.defineSizeMapping(sm.build());}slot.addService(g.pubads());defined.push({s:slot,el:el});}" +
+    "if(slot){if(mapRaw.length){var sm=g.sizeMapping();for(var mm=0;mm<mapRaw.length;mm++){sm.addSize([mapRaw[mm][0],0],mapRaw[mm][1]);}slot.defineSizeMapping(sm.build());}slot.addService(g.pubads());defined.push({s:slot,el:el,vw:false,rc:0});}" +
     "}" +
     anchorBlock +
     sraBlock +
     lazyBlock +
     rdpBlock +
+    viewableBlock +
     "g.enableServices();" +
     "for(var d=0;d<defined.length;d++){g.display(defined[d].s);}" +
     refreshBlock +

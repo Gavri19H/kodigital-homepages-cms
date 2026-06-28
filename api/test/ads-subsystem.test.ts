@@ -441,13 +441,13 @@ describe("ads-subsystem (T22)", () => {
     const mgrSra = renderAdManagerScript(parseAdsConfig({ ads_enabled: "1", ad_provider: "gam", gam_network_code: "23456789", gam_unit_leaderboard: "lb", ad_lazy_load: "0" }));
     expect(mgrSra).toContain("setConfig");
     expect(mgrSra).toContain("singleRequest");
-    expect(mgrSra).not.toContain("enableLazyLoad");
+    expect(mgrSra).not.toContain("lazyLoad");
     expect(mgr).toContain("enableServices");
     expect(mgr).toContain(".display(");
     expect(mgr).toContain("defineOutOfPageSlot");
     expect(mgr).toContain("BOTTOM_ANCHOR");
     expect(mgr).toContain("/23456789/anchor_bottom");
-    expect(mgr).toContain("enableLazyLoad");
+    expect(mgr).toContain("setConfig({lazyLoad");
     expect(mgr).toContain("refresh(");
     expect(mgr).toContain("setInterval");
     expect(mgr).toContain("var rs=60");
