@@ -28,7 +28,6 @@
 //                         via POST /api/admin/articles/:id/preview-link).
 //   - /media/*          — mediaRouter (R2 serve) and POST /admin/media.
 //   - /admin*, /api/admin/*  — adminRouter (shell + JSON CRUD).
-//   - /api/privacy/*    — privacyRouter (public, unauthenticated).
 //   - /article, /page, /category, /feed.xml, /atom.xml, /sitemap.xml,
 //     /robots.txt, /ads.txt, /:slug catch-all — publicRouter (last).
 //
@@ -156,7 +155,7 @@ app.get("/", async (c, next) => {
 // route internally for its own admin.request() tests.
 app.get("/api/admin/auth/status", accessAuth, authStatusHandler);
 
-// Phase 1 sub-routers — mount order: preview, media, admin, privacy,
+// Phase 1 sub-routers — mount order: preview, media, admin,
 // public (slug catch-all). adminRouter wires accessAuth internally on
 // /admin*, /admin, and /api/admin/*.
 app.route("/", previewRouter);
