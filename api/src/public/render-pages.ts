@@ -46,7 +46,7 @@ import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
-import { renderCustomHead, renderCustomFooter } from "../settings/custom-html";
+import { renderCustomHead, renderCustomFooter, renderConsentHead } from "../settings/custom-html";
 
 // T23: load the per-site operator snippets (custom_head_html / analytics_script
 // / ad_header_script / custom_footer_html) and return the SANITIZED <head>/
@@ -57,6 +57,7 @@ async function loadCustomLayoutHtml(
   siteId: string,
 ): Promise<{
   customHead?: string;
+  consentHead?: string;
   customFooter?: string;
   socialLinks: SocialLink[];
   orgSameAs: string[];
@@ -70,6 +71,7 @@ async function loadCustomLayoutHtml(
     if (typeof row.value === "string") settings[row.key] = row.value;
   }
   const customHead = renderCustomHead(settings);
+  const consentHead = renderConsentHead(settings);
   const customFooter = renderCustomFooter(settings);
   // T28: the same settings map drives the footer social links (social_*_url),
   // so they render on every public surface that already loads custom layout
@@ -78,6 +80,7 @@ async function loadCustomLayoutHtml(
   const orgSameAs = parseSameAsList(settings.org_same_as);
   return {
     customHead: customHead.length > 0 ? customHead : undefined,
+    consentHead: consentHead.length > 0 ? consentHead : undefined,
     customFooter: customFooter.length > 0 ? customFooter : undefined,
     socialLinks,
     orgSameAs,
@@ -117,10 +120,9 @@ function escapeHtml(input: string): string {
 function adHeadHtml(
   config: AdsConfig,
   on: boolean,
-  restrictAdData = false,
 ): string {
   if (!on) return "";
-  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config, restrictAdData)}`;
+  return `${renderAdProviderHead(config)}\n${renderAdManagerScript(config)}`;
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
@@ -140,7 +142,7 @@ function adHeadHtml(
 export async function renderHomepageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
-  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
+  opts: { isBot?: boolean } = {},
 ): Promise<string> {
   const vm = await buildHomeViewModel(db, {
     siteId: siteContext.siteId,
@@ -192,7 +194,7 @@ export async function renderHomepageHtml(
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
+  const adHead = adHeadHtml(adsConfig, adsOn);
 
   const body = renderHome({
     vm,
@@ -218,6 +220,7 @@ export async function renderHomepageHtml(
     body,
     extraHead: adHead.length > 0 ? adHead : undefined,
     customHead: customHtml.customHead,
+    consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
   });
 }
@@ -243,7 +246,7 @@ export async function renderArticleHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   slug: string,
-  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
+  opts: { isBot?: boolean } = {},
 ): Promise<string> {
   const vm = await buildArticleViewModel(db, {
     slug,
@@ -338,7 +341,7 @@ export async function renderArticleHtml(
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
+  const adHead = adHeadHtml(adsConfig, adsOn);
   const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
 
   const body = renderArticle({
@@ -380,6 +383,7 @@ export async function renderArticleHtml(
         ? `${jsonLdHead.join("\n")}\n${adHead}`
         : jsonLdHead.join("\n"),
     customHead: customHtml.customHead,
+    consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
   });
 }
@@ -413,7 +417,7 @@ export async function renderCategoryHtml(
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
-  opts: { isBot?: boolean; restrictAdData?: boolean } = {},
+  opts: { isBot?: boolean } = {},
 ): Promise<string> {
   const site = await fetchPublicLayoutSiteInfo(db, {
     siteId: siteContext.siteId,
@@ -481,7 +485,7 @@ export async function renderCategoryHtml(
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
-  const adHead = adHeadHtml(adsConfig, adsOn, opts.restrictAdData ?? false);
+  const adHead = adHeadHtml(adsConfig, adsOn);
   const adSlot = adsOn
     ? renderAdSlot({
         type: "leaderboard",
@@ -548,6 +552,7 @@ export async function renderCategoryHtml(
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
     customHead: customHtml.customHead,
+    consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
     extraHead:
       adHead.length > 0
@@ -679,6 +684,7 @@ export async function renderTagHtml(
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
     customHead: customHtml.customHead,
+    consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
   });
@@ -701,61 +707,32 @@ export async function renderTagHtml(
 // extraHead verbatim, exactly like the article renderer). The canonical href is
 // always the resolved SiteContext.hostname — the admin host MUST NEVER appear
 // (mission RED LINE).
-// PR-3 (issue 16): the CCPA "Do Not Sell or Share My Personal Information"
-// opt-out control. The legal page body (pages.content_html, rendered from the
-// 0025 do-not-sell template) deliberately carries NO button — the interactive
-// control is injected HERE, at render time, so it can talk to the existing
-// privacy backend (api/src/privacy/index.ts):
-//   GET  /api/privacy/status  -> { opted_out: boolean, source }
-//   POST /api/privacy/opt-out -> { opted_out: true }  (+ sets the ccpa cookie)
-//   POST /api/privacy/opt-in  -> { opted_out: false } (clears the cookie)
-// The inline script is framework-free, self-scoped (queries only inside its
-// own .ccpa-optout card), and tolerant of fetch failure (it shows a graceful
-// message and leaves the button usable). credentials:'same-origin' is set so
-// the HttpOnly ccpa_opt_out cookie rides the request and the server can read
-// the current state. The opt-out copy is a CCPA RED LINE so it renders even if
-// the network call never resolves.
+// PR-3 (issue 16) + rescue-7: the CCPA "Do Not Sell or Share My Personal
+// Information" opt-out control. The legal page body (pages.content_html)
+// deliberately carries NO button — it is injected HERE at render time. rescue-7
+// repointed it from a custom /api/privacy cookie (which only ever restricted
+// Google) to the CMP's own US-Privacy UI via the verified __uspapi('displayUspUi')
+// API, so the opt-out flows through the authoritative GPP/USP signal the CMP
+// broadcasts to the whole bidstream. The inline script is framework-free and
+// self-scoped to its own .ccpa-optout card.
 function renderDoNotSellOptOut(): string {
   const markup =
     `<div class="ccpa-optout">` +
-    `<p class="ccpa-status" data-ccpa-status>Checking your current preference&hellip;</p>` +
-    `<button class="btn-primary" type="button" data-ccpa-toggle>Do Not Sell or Share My Info</button>` +
+    `<p class="ccpa-status">Manage whether your personal information is sold or shared.</p>` +
+    `<button class="btn-primary" type="button" data-ccpa-open>Do Not Sell or Share My Info</button>` +
     `</div>`;
-  // The script is a self-invoking function scoped to the last .ccpa-optout card.
-  // It is emitted as a string so renderLayout does not need a CSP-nonce hook.
+  // rescue-7: the InMobi CMP owns the authoritative US-privacy (GPP/USP) opt-out
+  // signal broadcast to the WHOLE bidstream. This link reopens that CMP UI
+  // (verified API: __uspapi('displayUspUi')) — NOT a parallel cookie that would
+  // only restrict Google and never reach other programmatic buyers.
   const script =
     `<script>(function(){` +
     `function init(){` +
-    `var card=document.currentScript&&document.currentScript.previousElementSibling;` +
-    `if(!card||!card.classList||!card.classList.contains("ccpa-optout")){` +
-    `var all=document.querySelectorAll(".ccpa-optout");card=all[all.length-1];}` +
-    `if(!card){return;}` +
-    `var statusEl=card.querySelector("[data-ccpa-status]");` +
-    `var btn=card.querySelector("[data-ccpa-toggle]");` +
-    `if(!statusEl||!btn){return;}` +
-    `var optedOut=false;var busy=false;` +
-    `function paint(){` +
-    `if(optedOut){statusEl.textContent="You are currently opted out.";btn.textContent="Allow Sale/Sharing Again";}` +
-    `else{statusEl.textContent="You have not opted out.";btn.textContent="Do Not Sell or Share My Info";}` +
-    `}` +
-    `function readStatus(){` +
-    `return fetch("/api/privacy/status",{credentials:"same-origin",headers:{"Accept":"application/json"}})` +
-    `.then(function(r){return r.ok?r.json():null;})` +
-    `.then(function(j){if(j&&typeof j.opted_out==="boolean"){optedOut=j.opted_out;paint();}` +
-    `else{statusEl.textContent="We could not check your preference right now. You can still use the button below.";}})` +
-    `.catch(function(){statusEl.textContent="We could not check your preference right now. You can still use the button below.";});` +
-    `}` +
+    `var nodes=document.querySelectorAll(".ccpa-optout [data-ccpa-open]");` +
+    `var btn=nodes.length?nodes[nodes.length-1]:null;if(!btn){return;}` +
     `btn.addEventListener("click",function(){` +
-    `if(busy){return;}busy=true;btn.disabled=true;` +
-    `var url=optedOut?"/api/privacy/opt-in":"/api/privacy/opt-out";` +
-    `fetch(url,{method:"POST",credentials:"same-origin",headers:{"Accept":"application/json"}})` +
-    `.then(function(r){return r.ok?r.json():null;})` +
-    `.then(function(j){if(j&&typeof j.opted_out==="boolean"){optedOut=j.opted_out;paint();}` +
-    `else{statusEl.textContent="Something went wrong saving your choice. Please try again.";}})` +
-    `.catch(function(){statusEl.textContent="Something went wrong saving your choice. Please try again.";})` +
-    `.then(function(){busy=false;btn.disabled=false;});` +
+    `if(typeof window.__uspapi==="function"){try{window.__uspapi("displayUspUi");}catch(e){}}` +
     `});` +
-    `readStatus();` +
     `}` +
     `if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}` +
     `})();</script>`;
@@ -836,6 +813,7 @@ export async function renderPageHtml(
     header: renderHeader({ site: headerSite }),
     footer: renderFooter({ site: headerSite, socialLinks: customHtml.socialLinks }),
     customHead: customHtml.customHead,
+    consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
     extraHead: jsonLdHead.join("\n"),
   });

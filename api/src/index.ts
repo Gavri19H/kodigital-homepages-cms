@@ -47,7 +47,6 @@ import {
 } from "./auth/access-auth";
 import { adminRouter } from "./admin";
 import publicRouter from "./public/router";
-import privacyRouter from "./privacy";
 import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
@@ -163,7 +162,6 @@ app.get("/api/admin/auth/status", accessAuth, authStatusHandler);
 app.route("/", previewRouter);
 app.route("/", mediaRouter);
 app.route("/", adminRouter);
-app.route("/", privacyRouter);
 // rescue-4 round-2 (issue 14): first-party newsletter capture (public).
 app.route("/", newsletterRouter);
 
