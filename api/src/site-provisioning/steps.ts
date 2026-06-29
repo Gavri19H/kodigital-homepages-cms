@@ -4,7 +4,8 @@
 // 16 canonical step keys advance a site_creation_jobs row one step per
 // POST /api/admin/sites/:id/provision/next call. T17 wired placeholder
 // handlers; T18 added dry-run gating for CF-mutation steps; T19 swapped
-// create_site_settings for a 12-key seed; T20 swapped the legal-pages
+// create_site_settings for a 13-key base seed (+ activity='main' ad
+// defaults); T20 swapped the legal-pages
 // placeholder for variable-aware rendering via legal-renderer.ts;
 // Phase 6 / T9 swapped six steps for AI-or-fallback generators that
 // write a typed receipt row to ai_generations and persist their
@@ -351,25 +352,20 @@ async function seedDefaultSiteSettings(
     // Already allow-listed + sanitized (#52); editable in the admin Advanced tab.
     ['consent_head_html', DEFAULT_CONSENT_HEAD_HTML],
   ];
+  // Build the seed list DEDUPED so the counter reflects real rows. For
+  // activity='main' sites the shared ad config (issue #3) comes FIRST so the
+  // real ads.txt wins the INSERT OR IGNORE, then the base keys the ad set did
+  // NOT already provide — the two sets overlap only on ads_txt_content (base
+  // seeds it as '', which must not pre-empt the real value). Non-main sites get
+  // the base seed alone. INSERT OR IGNORE stays idempotent and never clobbers a
+  // later operator edit on re-provision.
+  const adKeys = new Set(MAIN_ADS_DEFAULTS.map(([k]) => k));
+  const seedPairs: ReadonlyArray<readonly [string, string]> = [
+    ...(isMain ? MAIN_ADS_DEFAULTS : []),
+    ...DEFAULT_SETTING_SEED.filter(([k]) => !(isMain && adKeys.has(k))),
+  ];
   let seeded = 0;
-  // Ads tab defaults (issue #3) for activity='main' sites: the shared GAM
-  // network + Home_* units + ads.txt cloned from the reference site. Seeded
-  // BEFORE the base loop so the real ads.txt wins the INSERT OR IGNORE — the
-  // base seed carries ads_txt_content='' which must not pre-empt it (the only
-  // key the two sets share). INSERT OR IGNORE also means a later operator edit
-  // is never clobbered on re-provision.
-  if (isMain) {
-    for (const [k, v] of MAIN_ADS_DEFAULTS) {
-      await ctx.db
-        .prepare(
-          "INSERT OR IGNORE INTO site_settings (site_id, key, value) VALUES (?, ?, ?)",
-        )
-        .bind(ctx.site_id, k, v)
-        .run();
-      seeded += 1;
-    }
-  }
-  for (const [k, v] of DEFAULT_SETTING_SEED) {
+  for (const [k, v] of seedPairs) {
     await ctx.db
       .prepare(
         "INSERT OR IGNORE INTO site_settings (site_id, key, value) VALUES (?, ?, ?)",
@@ -385,8 +381,7 @@ async function seedDefaultSiteSettings(
       kind: "deterministic_seed",
       schema_version: 1,
       seeded_keys: seeded,
-      total_keys:
-        DEFAULT_SETTING_SEED.length + (isMain ? MAIN_ADS_DEFAULTS.length : 0),
+      total_keys: seedPairs.length,
     }),
   };
 }
