@@ -6,7 +6,8 @@ import type { Env } from "../src/env";
 //
 // GIVEN a freshly-created site (no rows in site_settings for site_id),
 // WHEN the create_site_settings step completes,
-// THEN SELECT COUNT(*) FROM site_settings WHERE site_id=? returns 12,
+// THEN SELECT COUNT(*) FROM site_settings WHERE site_id=? returns 13 (the base
+//      seed; activity='main' sites additionally inherit the shared ad defaults),
 // AND tagline + site_description contain deterministic stub values
 //     referencing the site name,
 // AND no AI/OpenAI/network call was made.
@@ -37,7 +38,12 @@ function buildEnv(db: D1Database, overrides: Partial<Env> = {}): Env {
   };
 }
 
-function makeFakeDb(site: { id: string; name: string; domain: string }): {
+function makeFakeDb(site: {
+  id: string;
+  name: string;
+  domain: string;
+  activity?: string;
+}): {
   db: D1Database;
   settings: SettingRow[];
 } {
@@ -55,6 +61,11 @@ function makeFakeDb(site: { id: string; name: string; domain: string }): {
             const [id] = captured as [string];
             if (id !== site.id) return null;
             return ({ name: site.name, domain: site.domain } as unknown) as T;
+          }
+          if (sql.indexOf("SELECT activity FROM sites WHERE id = ?") >= 0) {
+            const [id] = captured as [string];
+            if (id !== site.id) return null;
+            return ({ activity: site.activity ?? "" } as unknown) as T;
           }
           return null;
         },
@@ -85,7 +96,7 @@ function makeFakeDb(site: { id: string; name: string; domain: string }): {
 }
 
 describe("site-provisioning create_site_settings (T19)", () => {
-  it("create_site_settings seeds all 12 keys with deterministic stubs", async () => {
+  it("create_site_settings seeds all 13 base keys with deterministic stubs", async () => {
     // Stub fetch so an accidental network call would FAIL the test.
     const originalFetch = globalThis.fetch;
     let fetchCalls = 0;
@@ -114,9 +125,10 @@ describe("site-provisioning create_site_settings (T19)", () => {
       expect(result.status).toBe("completed");
       expect(fetchCalls).toBe(0);
 
-      // BEHAVIORAL: 12 rows for site_id, each carrying a known key.
+      // BEHAVIORAL: 13 base rows for this (no-activity → non-main) site, each
+      // carrying a known key. activity='main' ad defaults are covered separately.
       const seededForSite = settings.filter((r) => r.site_id === site.id);
-      expect(seededForSite).toHaveLength(12);
+      expect(seededForSite).toHaveLength(13);
       const keys = new Set(seededForSite.map((r) => r.key));
       const expected = [
         "site_name",
@@ -131,6 +143,7 @@ describe("site-provisioning create_site_settings (T19)", () => {
         "newsletter_settings_json",
         "contact_email",
         "privacy_email",
+        "consent_head_html",
       ];
       for (const k of expected) expect(keys.has(k)).toBe(true);
 
@@ -160,7 +173,69 @@ describe("site-provisioning create_site_settings (T19)", () => {
         step_order: 4,
       });
       expect(second.status).toBe("completed");
-      expect(settings.filter((r) => r.site_id === site.id)).toHaveLength(12);
+      expect(settings.filter((r) => r.site_id === site.id)).toHaveLength(13);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("activity='main' site also inherits the shared ad defaults", async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error("fetch must not be called during create_site_settings");
+    }) as typeof fetch;
+    try {
+      const site = {
+        id: "st_main_ads",
+        name: "Acme Times",
+        domain: "acme.example",
+        activity: "main",
+      };
+      const { db, settings } = makeFakeDb(site);
+      const env = buildEnv(db);
+
+      const result = await STEPS.create_site_settings({
+        env,
+        db,
+        job_id: "job_main_ads",
+        site_id: site.id,
+        step_order: 4,
+      });
+      expect(result.status).toBe("completed");
+      expect(fetchCalls).toBe(0);
+
+      // 13 base keys ∪ 14 ad defaults, overlapping only on ads_txt_content → 26
+      // unique rows (the ad loop runs first so the real ads.txt wins).
+      const seeded = settings.filter((r) => r.site_id === site.id);
+      const keys = new Set(seeded.map((r) => r.key));
+      expect(seeded).toHaveLength(26);
+
+      const val = (k: string) => seeded.find((r) => r.key === k)?.value;
+      expect(val("ads_enabled")).toBe("1");
+      expect(val("ad_provider")).toBe("gam");
+      expect(val("gam_network_code")).toBe("22649417900");
+      expect(val("gam_unit_leaderboard")).toBe("/22649417900/Home_Leaderboard");
+      expect(val("ad_refresh_seconds")).toBe("30");
+      // The real ads.txt won the INSERT OR IGNORE over the base '' (not empty).
+      expect(val("ads_txt_content") ?? "").toContain(
+        "google.com, pub-7363945854111112, DIRECT, f08c47fec0942fa0",
+      );
+
+      // CMP default is seeded for every site (issue #2) and carries the property.
+      expect(keys.has("consent_head_html")).toBe(true);
+      expect(val("consent_head_html") ?? "").toContain("r3NbPNJPMxRHy");
+
+      // Re-running is idempotent — no duplicate ad rows.
+      await STEPS.create_site_settings({
+        env,
+        db,
+        job_id: "job_main_ads",
+        site_id: site.id,
+        step_order: 4,
+      });
+      expect(settings.filter((r) => r.site_id === site.id)).toHaveLength(26);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -169,8 +244,8 @@ describe("site-provisioning create_site_settings (T19)", () => {
 
 // rescue-3 T7-AC2 / RC-022 — provisioning seeds a default_author_name setting.
 //
-// The 12-key create_site_settings seed deliberately does NOT carry
-// default_author_name (so the T19 "12 canonical keys" contract is unchanged);
+// The base create_site_settings seed deliberately does NOT carry
+// default_author_name (so the T19 base-keys contract is unchanged);
 // the later generate_tagline_and_site_description step seeds it. After the
 // settings-seeding sequence runs, a SELECT of default_author_name returns a
 // brand-derived editorial name — never a user email — so T6's
@@ -298,7 +373,7 @@ describe("site-provisioning default_author_name seed (T7)", () => {
         step_order: 4,
       };
 
-      // Seed the 12 canonical keys — default_author_name is NOT among them.
+      // Seed the base canonical keys — default_author_name is NOT among them.
       await STEPS.create_site_settings({ ...ctx, step_order: 4 });
       expect(
         settings.find((r) => r.key === "default_author_name"),
@@ -363,7 +438,7 @@ describe("site-provisioning brand_tokens_json seed (T8)", () => {
       expect(fetchCalls).toBe(0);
 
       // The brand_tokens_json row IS seeded (side-effect table non-empty,
-      // T19 12-key contract intact).
+      // T19 base-key contract intact).
       const brandRow = settings.find(
         (r) => r.site_id === site.id && r.key === "brand_tokens_json",
       );
