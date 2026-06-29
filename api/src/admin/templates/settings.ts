@@ -798,6 +798,24 @@ function renderScriptInjectionCard(values: SettingsValueMap): string {
   );
 }
 
+// CMP (issue #2): the InMobi Choice consent tag (consent_head_html). Allow-listed
+// + sanitized like the other SCRIPT_SETTINGS_KEYS; renderConsentHead emits it
+// FIRST in <head> (before gpt.js) so the CMP gates ad personalization. New sites
+// are seeded with the operator's tag (site-provisioning/default-settings.ts).
+function renderConsentCmpCard(values: SettingsValueMap): string {
+  return renderCard(
+    "Consent Management (CMP)",
+    renderTextareaField(
+      "consent_head_html",
+      "Consent / CMP Script",
+      settingValue(values, "consent_head_html"),
+      10,
+      "IAB consent tag (e.g. InMobi Choice — TCF + GPP + USP). Injected into <head> BEFORE gpt.js on every public page. Leave as the default unless you are replacing the CMP.",
+      true,
+    ),
+  );
+}
+
 interface TabDef {
   key: string;
   label: string;
@@ -858,7 +876,9 @@ function renderTabs(values: SettingsValueMap): string {
     renderTabPanel(
       "advanced",
       false,
-      renderScriptInjectionCard(values) + renderCustomHtmlCard(values),
+      renderConsentCmpCard(values) +
+        renderScriptInjectionCard(values) +
+        renderCustomHtmlCard(values),
     );
   return `<div class="settings-tabs" data-component="settings-tabs">
     ${renderTablist()}
@@ -983,7 +1003,7 @@ export const SETTINGS_SCRIPT = `
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script'];
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);

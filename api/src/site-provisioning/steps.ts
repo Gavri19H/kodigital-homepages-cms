@@ -21,13 +21,16 @@
 // exactly once in the registry tuple it belongs to):
 //   - T34.AC1: 16 step-key literals in STEP_KEYS; index 15 is
 //     update_launch_readiness
-//   - T19.AC1: 12 site-settings-key literals in DEFAULT_SETTING_SEED
+//   - T19.AC1: 13 base site-settings-key literals in DEFAULT_SETTING_SEED
+//     (+ MAIN_ADS_DEFAULTS for activity='main' sites — see default-settings.ts)
 //   - T9.AC1..AC5: imports of generateSiteTagline/Description, generateAboutPage,
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
 
 import { type Env, parseNumber } from "../env";
 import { renderLegalPagesForSite } from "./legal-renderer";
 import { warmHomepageInProcess } from "../cache/warm";
+import { DEFAULT_ROBOTS_TXT } from "../public/sitemap";
+import { DEFAULT_CONSENT_HEAD_HTML, MAIN_ADS_DEFAULTS } from "./default-settings";
 import {
   resolveSiteHostname,
   runCloudflareRouteMutation,
@@ -307,11 +310,22 @@ async function seedDefaultSiteSettings(
   const domain = (site && typeof site.domain === "string" && site.domain.length > 0)
     ? site.domain
     : "";
-  // Twelve canonical site-settings keys. Each key string below is the
-  // single-quoted literal counted by T19.AC1 (one match per line × 12).
-  // Values are deterministic — re-running the step against the same
-  // (name, domain) yields the same value strings — and INSERT OR IGNORE
-  // makes the seed idempotent under (site_id, key) uniqueness.
+  // Ad defaults are seeded ONLY for the canonical activity='main' tenant type
+  // (sites.activity, NOT NULL DEFAULT 'main'); other kinds get the base seed
+  // only. Read via a SEPARATE query so the name/domain query above — and its
+  // many provisioning test stubs — stays byte-identical.
+  const activityRow = await ctx.db
+    .prepare("SELECT activity FROM sites WHERE id = ? LIMIT 1")
+    .bind(ctx.site_id)
+    .first<{ activity: string | null }>();
+  const isMain = !!activityRow && activityRow.activity === "main";
+  // Thirteen canonical base site-settings keys (every site, any activity). Each
+  // key string below is the single-quoted literal counted by T19.AC1 (one match
+  // per line × 13). Values are deterministic — re-running against the same
+  // (name, domain) yields the same strings — and INSERT OR IGNORE makes the seed
+  // idempotent under (site_id, key) uniqueness. robots_txt_content + the CMP tag
+  // are canonical DEFAULTS (sitemap.ts / default-settings.ts) so a new site is
+  // born with the real robots.txt + InMobi CMP rather than a bare stub.
   const DEFAULT_SETTING_SEED: ReadonlyArray<readonly [string, string]> = [
     ['site_name', name],
     ['logo_media_id', ''],
@@ -323,18 +337,38 @@ async function seedDefaultSiteSettings(
     // Settings tab. The previous slate/sky dark palette both mismatched the
     // contract AND mapped to inert --primary/--accent/--neutral props the
     // stylesheet never reads, so the homepage still rendered defaults — minus
-    // an unnecessary <style> block. Empty value keeps the row (T19 12-key
+    // an unnecessary <style> block. Empty value keeps the row (T19 base-key
     // contract) while parseBrandTokensJson('') -> {} -> no override.
     ['brand_tokens_json', ''],
-    ['robots_txt_content', 'User-agent: *\nAllow: /\n'],
+    ['robots_txt_content', DEFAULT_ROBOTS_TXT],
     ['ads_txt_content', ''],
     ['custom_head_html', ''],
     ['custom_footer_html', ''],
     ['newsletter_settings_json', JSON.stringify({ enabled: false, provider: 'none' })],
     ['contact_email', domain.length > 0 ? `contact@${domain}` : ''],
     ['privacy_email', domain.length > 0 ? `privacy@${domain}` : ''],
+    // CMP (issue #2): the operator's InMobi Choice tag, default for ALL sites.
+    // Already allow-listed + sanitized (#52); editable in the admin Advanced tab.
+    ['consent_head_html', DEFAULT_CONSENT_HEAD_HTML],
   ];
   let seeded = 0;
+  // Ads tab defaults (issue #3) for activity='main' sites: the shared GAM
+  // network + Home_* units + ads.txt cloned from the reference site. Seeded
+  // BEFORE the base loop so the real ads.txt wins the INSERT OR IGNORE — the
+  // base seed carries ads_txt_content='' which must not pre-empt it (the only
+  // key the two sets share). INSERT OR IGNORE also means a later operator edit
+  // is never clobbered on re-provision.
+  if (isMain) {
+    for (const [k, v] of MAIN_ADS_DEFAULTS) {
+      await ctx.db
+        .prepare(
+          "INSERT OR IGNORE INTO site_settings (site_id, key, value) VALUES (?, ?, ?)",
+        )
+        .bind(ctx.site_id, k, v)
+        .run();
+      seeded += 1;
+    }
+  }
   for (const [k, v] of DEFAULT_SETTING_SEED) {
     await ctx.db
       .prepare(
@@ -351,7 +385,8 @@ async function seedDefaultSiteSettings(
       kind: "deterministic_seed",
       schema_version: 1,
       seeded_keys: seeded,
-      total_keys: DEFAULT_SETTING_SEED.length,
+      total_keys:
+        DEFAULT_SETTING_SEED.length + (isMain ? MAIN_ADS_DEFAULTS.length : 0),
     }),
   };
 }

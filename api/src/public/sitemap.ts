@@ -124,6 +124,19 @@ export function buildRobotsTxt(baseUrl: string, opts: RobotsOptions = {}): strin
   return lines.join("\n");
 }
 
+// Canonical default robots.txt seeded into every new site's `robots_txt_content`
+// (site-provisioning) and used to backfill existing sites. Derived from
+// buildRobotsTxt with the AI-training-crawler hard-block ON, using the
+// {{DOMAIN}} placeholder that the GET /robots.txt handler substitutes with the
+// live hostname (public/router.ts). Storing the FULL canonical text (rather than
+// leaving the override empty) makes the admin SEO tab display the real default,
+// so an operator's Save can no longer silently regress robots.txt to a bare
+// `User-agent: * / Allow: /` stub. Single source of truth: edit buildRobotsTxt
+// and this constant tracks it.
+export const DEFAULT_ROBOTS_TXT = buildRobotsTxt("https://{{DOMAIN}}", {
+  blockTrainingCrawlers: true,
+});
+
 // Phase 1 default — empty placeholder. Operators will overwrite this via
 // site_settings.ads_txt once advertising integration ships.
 export const ADS_TXT_DEFAULT = "# placeholder ads.txt — no ad-network entries configured\n";
