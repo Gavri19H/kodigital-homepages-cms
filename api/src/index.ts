@@ -165,6 +165,12 @@ app.route("/", adminRouter);
 // rescue-4 round-2 (issue 14): first-party newsletter capture (public).
 app.route("/", newsletterRouter);
 
+// Analytics ingest (POST /api/track) — public, unauthenticated, fire-and-forget
+// beacon. Mounted BEFORE the ADMIN_HOST safety net so it works on EVERY host
+// (incl. the admin host), AND before publicRouter so the /:slug catch-all does
+// not swallow it.
+app.route("/", analyticsRouter);
+
 // ADMIN_HOST safety net (Phase 1.5 T3): on ADMIN_HOST, any unmatched
 // path that reaches this point falls straight through to the
 // app-level notFound below (404). Public-content routing
@@ -178,12 +184,6 @@ app.use("*", async (c, next) => {
   }
   return next();
 });
-
-// Analytics ingest (POST /api/track) — mounted BEFORE publicRouter so the
-// beacon endpoint is not swallowed by publicRouter's /:slug catch-all. It is a
-// public, unauthenticated, fire-and-forget surface (not under /api/admin, so
-// the ADMIN_HOST gate does not apply on tenant hosts).
-app.route("/", analyticsRouter);
 
 app.route("/", publicRouter);
 
