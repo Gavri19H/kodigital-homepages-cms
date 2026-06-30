@@ -49,6 +49,7 @@ import publicRouter from "./public/router";
 import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
+import { analyticsRouter } from "./analytics/router";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -163,6 +164,12 @@ app.route("/", mediaRouter);
 app.route("/", adminRouter);
 // rescue-4 round-2 (issue 14): first-party newsletter capture (public).
 app.route("/", newsletterRouter);
+
+// Analytics ingest (POST /api/track) — public, unauthenticated, fire-and-forget
+// beacon. Mounted BEFORE the ADMIN_HOST safety net so it works on EVERY host
+// (incl. the admin host), AND before publicRouter so the /:slug catch-all does
+// not swallow it.
+app.route("/", analyticsRouter);
 
 // ADMIN_HOST safety net (Phase 1.5 T3): on ADMIN_HOST, any unmatched
 // path that reaches this point falls straight through to the

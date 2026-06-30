@@ -16,6 +16,7 @@
 import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
 import { publicCss } from "../assets/public-css";
 import { publicJs } from "../assets/public-js";
+import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 
 // Cache-busting asset versions: a cheap djb2 content-hash over the served CSS
 // and JS, computed once per isolate. The /assets/public.{css,js} links carry
@@ -258,6 +259,7 @@ ${header}
 ${footer}
 <script src="/assets/public.js?v=${PUBLIC_JS_V}" defer></script>
 ${customFooter}
+${ANALYTICS_TRACKING_SCRIPT}
 </body>
 </html>`;
 }

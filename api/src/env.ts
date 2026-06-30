@@ -26,6 +26,14 @@ export interface Env {
   CLOUDFLARE_PROVISIONING_API_TOKEN?: string;
   CLOUDFLARE_CACHE_API_TOKEN?: string;
   ALLOWED_CF_SERVICE_TOKEN_IDS?: string;
+
+  // User-interaction analytics pipeline (POST /api/track -> AWS Kinesis
+  // Firehose `homepage-events` -> S3 -> Athena). All optional: when unset the
+  // firehose path is a no-op (tests / local dev / pre-provisioned envs).
+  AWS_REGION?: string;
+  AWS_ACCESS_KEY_ID?: string;
+  AWS_SECRET_ACCESS_KEY?: string;
+  EVENTS_FIREHOSE_STREAM?: string;
 }
 
 export function parseBoolean(value: string | undefined | null): boolean {
