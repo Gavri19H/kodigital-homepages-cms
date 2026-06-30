@@ -18,6 +18,13 @@ account_id = "a05d7505b71c6cd931e436defe670509"
 
 [vars]
 APP_ENV = "development"
+# Analytics pipeline (POST /api/track -> Kinesis Firehose `homepage-events` ->
+# S3 -> Athena `homepage.events`). AWS_REGION + the stream name are non-sensitive
+# plaintext vars (MUST stay here so CI deploy doesn't wipe them from Dashboard).
+# The AWS access key id + secret access key are ENCRYPTED SECRETS (set via
+# `wrangler secret put`, Dashboard-only) and MUST NEVER appear in this file.
+AWS_REGION = "us-east-1"
+EVENTS_FIREHOSE_STREAM = "homepage-events"
 ADMIN_HOST = "localhost"
 ADMIN_BASE_URL = "http://localhost:8787"
 ADMIN_BASE_PATH = "/admin"
@@ -87,6 +94,8 @@ name = "kodigital-homepages-cms-worker-staging"
 
 [env.staging.vars]
 APP_ENV = "staging"
+AWS_REGION = "us-east-1"
+EVENTS_FIREHOSE_STREAM = "homepage-events"
 ADMIN_HOST = "staging-cms.kodigital.app"
 ADMIN_BASE_URL = "https://staging-cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"
@@ -138,6 +147,8 @@ name = "kodigital-homepages-cms-worker"
 
 [env.production.vars]
 APP_ENV = "production"
+AWS_REGION = "us-east-1"
+EVENTS_FIREHOSE_STREAM = "homepage-events"
 ADMIN_HOST = "cms.kodigital.app"
 ADMIN_BASE_URL = "https://cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"

@@ -49,6 +49,7 @@ import publicRouter from "./public/router";
 import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
+import { analyticsRouter } from "./analytics/router";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -177,6 +178,12 @@ app.use("*", async (c, next) => {
   }
   return next();
 });
+
+// Analytics ingest (POST /api/track) — mounted BEFORE publicRouter so the
+// beacon endpoint is not swallowed by publicRouter's /:slug catch-all. It is a
+// public, unauthenticated, fire-and-forget surface (not under /api/admin, so
+// the ADMIN_HOST gate does not apply on tenant hosts).
+app.route("/", analyticsRouter);
 
 app.route("/", publicRouter);
 

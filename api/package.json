@@ -29,6 +29,7 @@
     "deploy:production": "wrangler deploy --env production"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "hono": "^4.6.3",
     "jose": "^5.10.0"
   },
