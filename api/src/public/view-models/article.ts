@@ -53,11 +53,14 @@ export interface FaqItem {
 // blocks the template renders as `.callout-box` / `.affiliate-card` (the same
 // classes the editor's storage renderer emits — see api/src/editor/blocks.ts).
 export type BodyBlock =
-  | { type: "paragraph"; text: string }
+  // `inlineHtml` (paragraph/heading/quote) carries the editor's sanitized
+  // inline formatting (bold/italic/link — data.html). The template renders it
+  // through the shared whitelist sanitizer; plain blocks keep the escape path.
+  | { type: "paragraph"; text: string; inlineHtml?: string }
   | { type: "html"; html: string }
-  | { type: "heading"; level: 2 | 3; text: string }
+  | { type: "heading"; level: 2 | 3; text: string; inlineHtml?: string }
   | { type: "image"; src: string; alt: string; caption: string | null }
-  | { type: "quote"; text: string; cite: string | null }
+  | { type: "quote"; text: string; cite: string | null; inlineHtml?: string }
   | { type: "list"; ordered: boolean; items: ReadonlyArray<string> }
   | { type: "code"; language: string | null; code: string }
   | { type: "callout"; title: string | null; text: string; items: ReadonlyArray<string> }
@@ -263,6 +266,17 @@ function asNumber(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
+// The editor's inline-formatting field (data.html — bold/italic/link, already
+// sanitized at edit time). Returned only when it actually carries whitelist
+// inline tags, so plain and legacy blocks keep the escape path untouched.
+const INLINE_HTML_TAG_RE = /<\/?(?:strong|b|em|i|a|br)(?:\s|\/?>)/i;
+
+function inlineHtmlOf(b: Record<string, unknown>): string | null {
+  const html = typeof b.html === "string" ? b.html : "";
+  if (html.length === 0 || !INLINE_HTML_TAG_RE.test(html)) return null;
+  return html;
+}
+
 // adaptBodyBlocks normalises the article's `content_json` payload into a
 // typed sequence of BodyBlocks. The input shape accepted here is the
 // shape the admin editor writes: either an array of blocks or an object
@@ -320,7 +334,16 @@ export function adaptBodyBlocks(
 
   for (const raw of rawBlocks) {
     if (raw === null || typeof raw !== "object") continue;
-    const b = raw as Record<string, unknown>;
+    const top = raw as Record<string, unknown>;
+    // Editor-saved blocks nest their fields under `data` ({id, type, data:{…}}
+    // — the admin block editor's storage shape). Overlay data fields over the
+    // top level so every case below reads BOTH vocabularies. Flat pipeline
+    // blocks carry no `data`, so their behavior is byte-identical.
+    const nested = top.data;
+    const b: Record<string, unknown> =
+      nested !== null && typeof nested === "object" && !Array.isArray(nested)
+        ? { ...top, ...(nested as Record<string, unknown>) }
+        : top;
     const type = asString(b.type).toLowerCase();
     switch (type) {
       case "html": {
@@ -338,7 +361,12 @@ export function adaptBodyBlocks(
         const text = asString(b.text).length > 0
           ? asString(b.text)
           : htmlToPlainText(asString(b.html));
-        blocks.push({ type: "paragraph", text });
+        const inline = inlineHtmlOf(b);
+        blocks.push(
+          inline !== null
+            ? { type: "paragraph", text, inlineHtml: inline }
+            : { type: "paragraph", text },
+        );
         break;
       }
       case "heading":
@@ -346,7 +374,12 @@ export function adaptBodyBlocks(
       case "h3": {
         const levelRaw = asNumber(b.level, type === "h3" ? 3 : 2);
         const level = levelRaw === 3 ? 3 : 2;
-        blocks.push({ type: "heading", level, text: asString(b.text) });
+        const inline = inlineHtmlOf(b);
+        blocks.push(
+          inline !== null
+            ? { type: "heading", level, text: asString(b.text), inlineHtml: inline }
+            : { type: "heading", level, text: asString(b.text) },
+        );
         break;
       }
       case "image":
@@ -373,11 +406,20 @@ export function adaptBodyBlocks(
       case "blockquote":
       case "pullquote": {
         // §12 `pullquote` → the template renders `<blockquote class="pullquote">`.
-        blocks.push({
-          type: "quote",
-          text: asString(b.text).length > 0 ? asString(b.text) : asString(b.quote),
-          cite: typeof b.cite === "string" && b.cite.length > 0 ? b.cite : null,
-        });
+        // The editor stores the attribution as `caption`; the pipeline as `cite`.
+        const cite =
+          typeof b.cite === "string" && b.cite.length > 0
+            ? b.cite
+            : typeof b.caption === "string" && b.caption.length > 0
+              ? b.caption
+              : null;
+        const inline = inlineHtmlOf(b);
+        const qText = asString(b.text).length > 0 ? asString(b.text) : asString(b.quote);
+        blocks.push(
+          inline !== null
+            ? { type: "quote", text: qText, cite, inlineHtml: inline }
+            : { type: "quote", text: qText, cite },
+        );
         break;
       }
       case "list":
@@ -388,7 +430,8 @@ export function adaptBodyBlocks(
           : [];
         blocks.push({
           type: "list",
-          ordered: type === "ol" || b.ordered === true,
+          // The editor stores `style:"ordered"|"unordered"`; the pipeline a boolean.
+          ordered: type === "ol" || b.ordered === true || b.style === "ordered",
           items,
         });
         break;

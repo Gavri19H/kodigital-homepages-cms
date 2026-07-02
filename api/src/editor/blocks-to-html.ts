@@ -11,6 +11,7 @@
 
 import { renderBlock } from "./blocks";
 import type { BaseBlock, ContentDocument } from "./blocks";
+import { normalizeDocumentBlocks } from "./blocks-normalize";
 
 function safeParseDocument(json: string): ContentDocument | null {
   try {
@@ -27,13 +28,18 @@ function safeParseDocument(json: string): ContentDocument | null {
 // Render a content document (object or JSON string) to its publish HTML.
 // Malformed JSON, a non-object, or a missing/!array `blocks` field all yield
 // the empty string (defensive — never throws on stored content).
+// Blocks pass through normalizeDocumentBlocks so the pipeline's FLAT
+// vocabulary (provisioned articles / old article_versions rows) renders the
+// same as the editor's nested shape — publish and preview both benefit.
 export function blocksToHtml(
   doc: ContentDocument | string | null | undefined,
 ): string {
   if (doc === null || doc === undefined) return "";
   const parsed = typeof doc === "string" ? safeParseDocument(doc) : doc;
   if (!parsed || !Array.isArray(parsed.blocks)) return "";
-  return parsed.blocks.map(renderBlock).join("");
+  return (normalizeDocumentBlocks(parsed.blocks) as BaseBlock[])
+    .map(renderBlock)
+    .join("");
 }
 
 // Historical alias retained for publish.ts / preview / index re-export.

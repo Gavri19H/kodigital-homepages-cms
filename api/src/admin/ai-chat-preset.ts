@@ -85,10 +85,15 @@ export function applyChatPreset(args: {
   preset: PresetRow | null;
   options?: ChatOptions | null;
   variables?: Record<string, string>;
+  // Writer-side per-generation overrides from the panel (A3 settable system
+  // prompt + placements): systemPrompt replaces the preset voice; the
+  // contentMapping JSON replaces the preset's fields-to-generate/images.
+  overrides?: { systemPrompt?: string | null; contentMapping?: string | null };
 }): AppliedChat {
   const options = args.options ?? {};
   const variables = args.variables ?? {};
   const maxTokens = lengthToMaxTokens(options.length);
+  const sysOverride = (args.overrides?.systemPrompt ?? "").trim();
 
   // T9 [BCL-041]: the chat path delegates to the single preset engine so the
   // editor's system message reflects EVERY part of the preset — the
@@ -96,7 +101,11 @@ export function applyChatPreset(args: {
   // directives the engine folds in (variables_schema defaults applied). The
   // chat user message stays the operator's typed prompt, so only the preset's
   // system-side categories shape the system message here.
-  const applied = applyPreset({ preset: args.preset, variables });
+  const applied = applyPreset({
+    preset: args.preset,
+    variables,
+    overrides: args.overrides,
+  });
 
   if (args.preset && applied.systemPrompt.trim() !== "") {
     // AC1: a selected preset's system_prompt_template OVERRIDES the requested
@@ -106,6 +115,16 @@ export function applyChatPreset(args: {
       maxTokens,
       toneApplied: null,
       presetApplied: true,
+    };
+  }
+
+  // A3: a writer-set system prompt applies even without a preset.
+  if (sysOverride !== "") {
+    return {
+      systemPrompt: sysOverride,
+      maxTokens,
+      toneApplied: null,
+      presetApplied: false,
     };
   }
 

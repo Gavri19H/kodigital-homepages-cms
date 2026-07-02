@@ -298,6 +298,12 @@ class BlockEditor {
       { type: 'list', style: 'ordered', label: '1. List', title: 'Numbered List' },
       { type: 'quote', label: '" Quote', title: 'Blockquote' },
       { type: 'image', label: '🖼', title: 'Insert Image' },
+      { type: 'divider' },
+      // Design blocks INSERT after the focused block (never convert it).
+      { type: 'insert', insert: 'pullquote', label: '💡 Key idea', title: 'Insert a Key idea pull-quote' },
+      { type: 'insert', insert: 'callout', label: '✓ Takeaways', title: 'Insert a Key takeaways box' },
+      { type: 'insert', insert: 'faqgroup', label: '? FAQ', title: 'Insert an FAQ section' },
+      { type: 'insert', insert: 'affiliate', label: "★ Editor's pick", title: "Insert an Editor's pick card" },
       { type: 'divider', style: 'ai' },
       { type: 'ai-image', label: '✨ AI', title: 'Generate AI Image' },
       { type: 'divider', style: 'ai' },
@@ -322,6 +328,8 @@ class BlockEditor {
 
       if (btn.type === 'format') {
         button.addEventListener('click', () => this.applyFormat(btn.format));
+      } else if (btn.type === 'insert') {
+        button.addEventListener('click', () => this.addBlock(btn.insert, {}, this.focusedBlockId));
       } else if (btn.type === 'heading') {
         button.addEventListener('click', () => this.convertBlock('heading', { level: btn.level }));
       } else if (btn.type === 'list') {
@@ -480,6 +488,17 @@ class BlockEditor {
         var items = Array.isArray(data.items) && data.items.length ? data.items : [{ q: '', a: '' }];
         return { items: items };
       }
+      case 'callout': {
+        var cItems = Array.isArray(data.items) ? data.items : [''];
+        return { title: data.title || 'Key takeaways', text: data.text || '', items: cItems };
+      }
+      case 'affiliate':
+        return {
+          title: data.title || '',
+          description: data.description || '',
+          url: typeof data.url === 'string' ? data.url : null,
+          cta: data.cta || 'Learn more',
+        };
       default:
         return data;
     }
@@ -703,8 +722,22 @@ class BlockEditor {
       case 'faqgroup':
         content.innerHTML = this.renderFaqGroupContent(block);
         break;
-      default:
-        content.textContent = JSON.stringify(block.data);
+      case 'callout':
+        content.innerHTML = this.renderCalloutContent(block);
+        break;
+      case 'affiliate':
+        content.innerHTML = this.renderAffiliateContent(block);
+        break;
+      default: {
+        // C14: an unknown block type is NEVER shown as raw JSON garbage and
+        // NEVER destroyed - a labeled read-only card; its data rides along
+        // untouched through save.
+        const unknownLabel = document.createElement('div');
+        unknownLabel.className = 'unknown-block-card';
+        unknownLabel.textContent = 'Unsupported block "' + String(block.type) + '" - preserved as stored (not editable here).';
+        content.textContent = '';
+        content.appendChild(unknownLabel);
+      }
     }
 
     // Setup event listeners
@@ -819,6 +852,96 @@ class BlockEditor {
     this.renderBlocks();
     this.focusBlock(blockId);
     this.saveToInput();
+  }
+
+  // ---- "Key takeaways" callout block: title + editable checklist items ----
+  // Mirrors the faqgroup editing pattern; every stored value is escaped
+  // through faqEscapeAttr/faqEscapeText before entering markup.
+  renderCalloutContent(block) {
+    var title = this.faqEscapeAttr(block.data.title || '');
+    var items = Array.isArray(block.data.items) && block.data.items.length
+      ? block.data.items
+      : [];
+    var self = this;
+    var bid = block.id;
+    var rows = items.map(function (it, i) {
+      var v = self.faqEscapeAttr(it);
+      return '<div class="callout-edit-row" data-callout-row="' + i + '">' +
+        '<input type="text" class="callout-edit-item" data-callout-item="' + i + '" placeholder="Takeaway\u2026" value="' + v + '" />' +
+        '<button type="button" class="callout-edit-remove" title="Remove item" onclick="window.blockEditor.removeCalloutItem(\\'' + bid + '\\', ' + i + ')">\u00d7</button>' +
+      '</div>';
+    }).join('');
+    var text = this.faqEscapeText(block.data.text || '');
+    return '<div class="callout-edit">' +
+      '<input type="text" class="callout-edit-title" placeholder="Key takeaways" value="' + title + '" />' +
+      (items.length === 0 ? '<textarea class="callout-edit-text" rows="2" placeholder="Callout text (or add checklist items)\u2026">' + text + '</textarea>' : '') +
+      '<div class="callout-edit-rows">' + rows + '</div>' +
+      '<button type="button" class="callout-edit-add" onclick="window.blockEditor.addCalloutItem(\\'' + bid + '\\')">+ Add item</button>' +
+      '</div>';
+  }
+
+  readCalloutFields(block, content) {
+    var titleEl = content.querySelector('.callout-edit-title');
+    var textEl = content.querySelector('.callout-edit-text');
+    block.data.title = titleEl ? (titleEl.value || '') : (block.data.title || '');
+    if (textEl) { block.data.text = textEl.value || ''; }
+    var rowEls = content.querySelectorAll('.callout-edit-item');
+    if (rowEls.length > 0 || !textEl) {
+      var items = [];
+      Array.prototype.forEach.call(rowEls, function (el) {
+        items.push(el.value || '');
+      });
+      block.data.items = items;
+    }
+  }
+
+  addCalloutItem(blockId) {
+    var block = this.blocks.find(function (b) { return b.id === blockId; });
+    if (!block) { return; }
+    var content = document.querySelector('[data-block-id="' + blockId + '"] .block-content');
+    if (content) { this.readCalloutFields(block, content); }
+    if (!Array.isArray(block.data.items)) { block.data.items = []; }
+    block.data.items.push('');
+    this.renderBlocks();
+    this.focusBlock(blockId);
+    this.saveToInput();
+  }
+
+  removeCalloutItem(blockId, index) {
+    var block = this.blocks.find(function (b) { return b.id === blockId; });
+    if (!block || !Array.isArray(block.data.items)) { return; }
+    var content = document.querySelector('[data-block-id="' + blockId + '"] .block-content');
+    if (content) { this.readCalloutFields(block, content); }
+    block.data.items.splice(index, 1);
+    this.renderBlocks();
+    this.focusBlock(blockId);
+    this.saveToInput();
+  }
+
+  // ---- "Editor's pick" affiliate block: title/description/CTA/URL ----
+  renderAffiliateContent(block) {
+    var title = this.faqEscapeAttr(block.data.title || '');
+    var description = this.faqEscapeText(block.data.description || '');
+    var cta = this.faqEscapeAttr(block.data.cta || '');
+    var url = this.faqEscapeAttr(block.data.url || '');
+    return '<div class="affiliate-edit">' +
+      '<span class="affiliate-edit-eyebrow">Editor\\'s pick</span>' +
+      '<input type="text" class="affiliate-edit-title" placeholder="Recommendation title" value="' + title + '" />' +
+      '<textarea class="affiliate-edit-description" rows="2" placeholder="Why it helps\u2026">' + description + '</textarea>' +
+      '<div class="affiliate-edit-row">' +
+        '<input type="text" class="affiliate-edit-cta" placeholder="CTA label (e.g. Learn more)" value="' + cta + '" />' +
+        '<input type="url" class="affiliate-edit-url" placeholder="Link URL (optional)" value="' + url + '" />' +
+      '</div>' +
+      '</div>';
+  }
+
+  readAffiliateFields(block, content) {
+    var g = function (sel) { var el = content.querySelector(sel); return el ? (el.value || '') : ''; };
+    block.data.title = g('.affiliate-edit-title');
+    block.data.description = g('.affiliate-edit-description');
+    block.data.cta = g('.affiliate-edit-cta');
+    var url = g('.affiliate-edit-url');
+    block.data.url = url === '' ? null : url;
   }
 
   renderImageContent(block) {
@@ -1799,6 +1922,12 @@ class BlockEditor {
       case 'faqgroup':
         this.readFaqRows(block, content);
         break;
+      case 'callout':
+        this.readCalloutFields(block, content);
+        break;
+      case 'affiliate':
+        this.readAffiliateFields(block, content);
+        break;
     }
     this.saveToInput();
   }
@@ -2379,6 +2508,58 @@ class BlockEditor {
   }
 
   // Load from hidden input
+  // Normalize ONE stored block into the editor's nested shape. The
+  // site-provisioning pipeline wrote FLAT blocks (top-level fields:
+  // paragraph{text}, heading{level,text}, list{ordered,items},
+  // quote{text,cite}, image{src,alt,caption}, callout{title,text,items},
+  // affiliate fields); the editor reads {id,type,data}. This mapping is the
+  // CLIENT twin of editor/blocks-normalize.ts (server: publish + preview) —
+  // the two MUST stay identical (pinned by test/vocabulary-equivalence).
+  // Nested blocks pass through untouched; unknown types keep EVERY field in
+  // data so nothing stored is ever destroyed.
+  _normalizeStoredBlock(b) {
+    if (b.data && typeof b.data === 'object') {
+      return { id: b.id || this.generateId(), type: b.type, data: b.data };
+    }
+    const type = String(b.type || '').toLowerCase();
+    const id = b.id || this.generateId();
+    const s = (v) => (typeof v === 'string' ? v : '');
+    if (type === 'paragraph' || type === 'p' || type === 'text') {
+      return { id, type: 'paragraph', data: { text: s(b.text) } };
+    }
+    if (type === 'heading' || type === 'h2' || type === 'h3') {
+      const level = typeof b.level === 'number' ? b.level : (type === 'h3' ? 3 : 2);
+      return { id, type: 'heading', data: { text: s(b.text), level: level } };
+    }
+    if (type === 'list' || type === 'ul' || type === 'ol') {
+      const items = Array.isArray(b.items) ? b.items.filter((x) => typeof x === 'string') : [];
+      const ordered = type === 'ol' || b.ordered === true || b.style === 'ordered';
+      return { id, type: 'list', data: { style: ordered ? 'ordered' : 'unordered', items: items } };
+    }
+    if (type === 'quote' || type === 'blockquote') {
+      return { id, type: 'quote', data: { text: s(b.text), caption: s(b.cite) || s(b.caption) } };
+    }
+    if (type === 'image' || type === 'img') {
+      return { id, type: 'image', data: { url: s(b.src) || s(b.url), alt: s(b.alt), caption: s(b.caption) } };
+    }
+    if (type === 'callout') {
+      const cItems = Array.isArray(b.items) ? b.items.filter((x) => typeof x === 'string') : [];
+      return { id, type: 'callout', data: { title: s(b.title), text: s(b.text), items: cItems } };
+    }
+    if (type === 'affiliate') {
+      return { id, type: 'affiliate', data: { title: s(b.title), description: s(b.description), url: typeof b.url === 'string' ? b.url : null, cta: s(b.cta) } };
+    }
+    if (type === 'html') {
+      return { id, type: 'html', data: { html: s(b.html) } };
+    }
+    // Unknown flat type: preserve every field verbatim (C14).
+    const data = {};
+    for (const k in b) {
+      if (Object.prototype.hasOwnProperty.call(b, k) && k !== 'type' && k !== 'id') data[k] = b[k];
+    }
+    return { id, type: b.type, data: data };
+  }
+
   loadFromInput() {
     const input = document.getElementById(this.options.hiddenInputId);
     if (!input || !input.value) return;
@@ -2386,11 +2567,33 @@ class BlockEditor {
     try {
       const content = JSON.parse(input.value);
       if (content && content.blocks && Array.isArray(content.blocks)) {
-        this.blocks = content.blocks.map(b => ({
-          id: b.id || this.generateId(),
-          type: b.type,
-          data: b.data || {}
-        }));
+        const normalized = [];
+        let faqRun = null;
+        for (const raw of content.blocks) {
+          if (!raw || typeof raw !== 'object') continue;
+          // Consecutive flat faq{question,answer} blocks collapse into ONE
+          // editable faqgroup (mirrors blocks-normalize.ts).
+          const isFlatFaq = String(raw.type || '').toLowerCase() === 'faq' &&
+            !(raw.data && typeof raw.data === 'object');
+          if (isFlatFaq) {
+            const q = typeof raw.question === 'string' ? raw.question : '';
+            const a = typeof raw.answer === 'string' ? raw.answer : '';
+            if (q !== '' || a !== '') {
+              if (!faqRun) faqRun = [];
+              faqRun.push({ q: q, a: a });
+            }
+            continue;
+          }
+          if (faqRun && faqRun.length > 0) {
+            normalized.push({ id: this.generateId(), type: 'faqgroup', data: { items: faqRun } });
+          }
+          faqRun = null;
+          normalized.push(this._normalizeStoredBlock(raw));
+        }
+        if (faqRun && faqRun.length > 0) {
+          normalized.push({ id: this.generateId(), type: 'faqgroup', data: { items: faqRun } });
+        }
+        this.blocks = normalized;
         this.renderBlocks();
       }
     } catch (err) {
@@ -2743,6 +2946,82 @@ export const editorStyles = `
   cursor: pointer;
   padding: 6px 12px;
   font: inherit;
+}
+
+/* Callout ("Key takeaways") + Affiliate ("Editor's pick") editing UIs +
+   the C14 unknown-block card */
+.block-content .callout-edit,
+.block-content .affiliate-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 8px;
+  background: var(--color-bg-alt);
+}
+.block-content .callout-edit-title,
+.block-content .affiliate-edit-title {
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.block-content .callout-edit-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.block-content .callout-edit-row::before {
+  content: "\\2713";
+  color: var(--color-success);
+}
+.block-content .callout-edit-item,
+.block-content .callout-edit-text,
+.block-content .affiliate-edit-description,
+.block-content .affiliate-edit-cta,
+.block-content .affiliate-edit-url {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.block-content .callout-edit-remove {
+  background: none;
+  border: none;
+  color: var(--color-error);
+  cursor: pointer;
+  font-size: 16px;
+}
+.block-content .callout-edit-add {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 6px 12px;
+  font: inherit;
+}
+.block-content .affiliate-edit-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.block-content .affiliate-edit-row {
+  display: flex;
+  gap: 8px;
+}
+.block-content .unknown-block-card {
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  font-size: 13px;
 }
 
 /* Divider */

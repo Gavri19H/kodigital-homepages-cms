@@ -215,6 +215,15 @@ function renderContentMapping(
 export interface ApplyPresetArgs {
   preset: EnginePreset | null;
   variables?: Record<string, string>;
+  // Writer-side per-generation overrides (A3 "settable system prompt" +
+  // the panel's dynamic placements). systemPrompt replaces the preset's
+  // interpolated system_prompt_template (directives still fold in after);
+  // contentMapping replaces the preset's content_mapping JSON. Absent/empty
+  // overrides change nothing.
+  overrides?: {
+    systemPrompt?: string | null;
+    contentMapping?: string | null;
+  };
 }
 
 // The single engine. Returns the fully-resolved generation spec for a preset:
@@ -245,17 +254,27 @@ export function applyPreset(args: ApplyPresetArgs): AppliedPreset {
     callerVars,
   );
 
+  const sysOverride = (args.overrides?.systemPrompt ?? "").trim();
   const sysT = (preset.system_prompt_template ?? "").trim();
   const usrT = (preset.user_prompt_template ?? "").trim();
   const flatT = (preset.prompt_template ?? "").trim();
-  const systemBase = sysT ? interpolate(sysT, variables) : "";
+  const systemBase = sysOverride
+    ? interpolate(sysOverride, variables)
+    : sysT
+      ? interpolate(sysT, variables)
+      : "";
   const userBase = usrT ? interpolate(usrT, variables) : "";
   // Flat prompt_template is the user instruction only when neither split
   // template is present (legacy combined-prompt parity).
   const flatBase = !sysT && !usrT && flatT ? interpolate(flatT, variables) : "";
 
   const outputRules = parseJsonArray(preset.output_rules);
-  const contentMapping = parseJsonObject(preset.content_mapping);
+  const mappingOverride = args.overrides?.contentMapping;
+  const contentMapping = parseJsonObject(
+    typeof mappingOverride === "string" && mappingOverride.trim() !== ""
+      ? mappingOverride
+      : preset.content_mapping,
+  );
   // Free-text rules are templates too: interpolate {{tokens}} with the same
   // variables the prompt templates get (0030 moved token-bearing contract
   // text into output_rules; without this the model would see literal tokens).

@@ -94,13 +94,18 @@ export function renderAIAssistantPanel(): string {
       <div class="ai-preset-variables" id="ai-preset-variables" aria-label="Preset variables"></div>
       <div class="ai-image-prompts" id="ai-image-prompts" aria-label="Image prompts" hidden></div>
       <div class="form-group ai-system-preview-group" id="ai-system-preview-group" hidden>
-        <label for="ai-system-preview" class="form-label">System prompt</label>
-        <pre class="ai-preset-preview ai-system-preview" id="ai-system-preview" aria-live="polite"></pre>
+        <label for="ai-system-prompt" class="form-label">System prompt <span class="ai-field-note">(editable \u2014 applies to the next generation)</span></label>
+        <textarea id="ai-system-prompt" class="form-textarea ai-system-prompt" rows="3" aria-live="polite"></textarea>
+      </div>
+      <div class="ai-placements" id="ai-placements" hidden aria-label="Placements">
+        <span class="form-label">Placements \u2014 fields to generate</span>
+        <div class="ai-placement-fields" id="ai-placement-fields"></div>
       </div>
       <div class="form-group ai-preset-preview-group" id="ai-preset-preview-group" hidden>
         <label for="ai-preset-preview" class="form-label">Prompt preview</label>
         <pre class="ai-preset-preview" id="ai-preset-preview" aria-live="polite"></pre>
       </div>
+      <p class="ai-tone-hint" id="ai-tone-hint" hidden>Preset voice overrides Tone</p>
       <div class="ai-controls">
         ${renderSelect("ai-tone", "ai_tone", "Tone", TONE_OPTIONS)}
         ${renderSelect("ai-length", "ai_length", "Length", LENGTH_OPTIONS)}
@@ -140,6 +145,14 @@ export const aiAssistantStyles = `
 .ai-quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .ai-preset-variables{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .ai-image-prompts{display:flex;flex-direction:column;gap:8px;margin:8px 0;padding:10px;border:1px solid var(--color-border,#e5e7eb);border-radius:8px;background:var(--color-bg-alt,#f9fafb)}
+.ai-placements{display:flex;flex-direction:column;gap:8px;margin:8px 0;padding:10px;border:1px solid var(--color-border,#e5e7eb);border-radius:8px;background:var(--color-bg-alt,#f9fafb)}
+.ai-placement-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}
+.ai-placement-fields label{display:flex;align-items:center;gap:6px;font-size:13px}
+.ai-placement-count{display:flex;align-items:center;gap:8px;font-size:13px}
+.ai-placement-count input{width:80px}
+.ai-system-prompt{font-family:ui-monospace,monospace;font-size:12px}
+.ai-field-note{font-weight:400;color:var(--color-text-muted,#6b7280);font-size:12px}
+.ai-tone-hint{margin:4px 0 0;font-size:12px;color:var(--color-text-muted,#6b7280)}
 .ai-var-chip{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--c-muted)}
 .ai-var-name{font-family:monospace}
 .ai-system-preview-group{margin-top:8px}
