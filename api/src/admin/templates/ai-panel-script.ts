@@ -530,15 +530,25 @@ export const aiAssistantScripts = `
       img.className = 'ai-result-image';
       resultEl.appendChild(img);
     } else {
+      var resultText = data.text || '';
+      if (resultText.replace(/\\s/g, '') === '') {
+        // An empty completion must never show a silent "Done" + empty box:
+        // it happens when the token budget (Length) is too small for the
+        // selected preset's output contract. Say so, actionably.
+        resultSection.hidden = true;
+        setError('The model returned no text. Try Length: Long, or a lighter preset for this action.');
+        setStatus('');
+        return;
+      }
       var pre = document.createElement('pre');
       pre.className = 'ai-result-text';
-      pre.appendChild(document.createTextNode(data.text || ''));
+      pre.appendChild(document.createTextNode(resultText));
       resultEl.appendChild(pre);
-      var structured = extractStructured(data.text || '');
+      var structured = extractStructured(resultText);
       if (structured) {
         autoFilled = applyStructured(structured);
       } else if (action === 'outline' || action === 'rewrite') {
-        insertContent(data.text || '');
+        insertContent(resultText);
       }
     }
     resultSection.hidden = false;
