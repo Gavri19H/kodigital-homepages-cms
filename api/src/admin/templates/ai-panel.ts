@@ -124,10 +124,39 @@ export function renderAIAssistantPanel(): string {
     <div class="ai-panel-body" id="ai-panel-body">
       ${renderQuickActions()}
       <div class="ai-section" id="ai-fullarticle-options" hidden>
-        <div class="ai-section-title">Full article</div>
-        <p class="ai-fullarticle-note">Builds the complete article the way the automatic pipeline does: intro, pull-quote, sections with subheadlines and lists, a mid-article image, an Editor&#8217;s pick, Key takeaways and FAQs &mdash; plus title, subtitle, SEO fields and the hero image. The Title field above is the topic; put the brief in Instructions below.</p>
-        <label class="ai-toggle"><input type="checkbox" id="ai-fullarticle-hero" checked /> Generate the hero image</label>
-        <label class="ai-toggle"><input type="checkbox" id="ai-fullarticle-mid" checked /> Generate the in-article image</label>
+        <div class="ai-section-title">Article Builder</div>
+        <p class="ai-fullarticle-note">Everything below is prefilled to the house standard. Type the topic, press Generate, and the whole article is built: headline, subtitle, sections with subheadlines, pull-quote, both images, Editor&#8217;s pick, Key takeaways, FAQs and SEO.</p>
+        <div class="form-group">
+          <label for="ai-fa-topic" class="form-label">Topic</label>
+          <input id="ai-fa-topic" type="text" class="form-input" placeholder="What is the article about?" />
+        </div>
+        <div class="form-group">
+          <label for="ai-fa-audience" class="form-label">Audience <span class="ai-field-note">(optional)</span></label>
+          <input id="ai-fa-audience" type="text" class="form-input" placeholder="Who is this for?" />
+        </div>
+        <div class="ai-builder-grid">
+          <label class="ai-builder-num">Sections
+            <input type="number" id="ai-fa-sections" min="1" max="8" value="4" class="form-input" /></label>
+          <label class="ai-builder-num">Paragraphs per section
+            <input type="number" id="ai-fa-paragraphs" min="1" max="6" value="3" class="form-input" /></label>
+          <label class="ai-builder-num">FAQs <span class="ai-field-note">(0 = none)</span>
+            <input type="number" id="ai-fa-faqs" min="0" max="6" value="3" class="form-input" /></label>
+          <label class="ai-builder-num">Key takeaways <span class="ai-field-note">(0 = none)</span>
+            <input type="number" id="ai-fa-takeaways" min="0" max="6" value="4" class="form-input" /></label>
+        </div>
+        <div class="ai-builder-toggles">
+          <label class="ai-toggle"><input type="checkbox" id="ai-fa-lists" checked /> Bullet list in each section</label>
+          <label class="ai-toggle"><input type="checkbox" id="ai-fa-quote" checked /> Pull-quote (key idea)</label>
+          <label class="ai-toggle"><input type="checkbox" id="ai-fa-pick" checked /> Editor&#8217;s pick</label>
+          <label class="ai-toggle"><input type="checkbox" id="ai-fa-subtitle" checked /> Subtitle</label>
+          <label class="ai-toggle"><input type="checkbox" id="ai-fa-seo" checked /> SEO title &amp; description</label>
+        </div>
+        <div class="ai-builder-images">
+          <label class="ai-toggle"><input type="checkbox" id="ai-fullarticle-hero" checked /> Hero image</label>
+          <input type="text" id="ai-fa-hero-direction" class="form-input ai-image-direction" placeholder="Image direction (optional) &mdash; automatic from the article" />
+          <label class="ai-toggle"><input type="checkbox" id="ai-fullarticle-mid" checked /> In-article image</label>
+          <input type="text" id="ai-fa-mid-direction" class="form-input ai-image-direction" placeholder="Image direction (optional) &mdash; automatic from the article" />
+        </div>
       </div>
       <div class="ai-section">
         <div class="ai-section-title">Use Preset</div>
@@ -167,8 +196,11 @@ export function renderAIAssistantPanel(): string {
             <textarea id="ai-system-prompt" class="form-textarea ai-system-prompt" rows="3" hidden aria-label="Edited system prompt"></textarea>
           </div>
           <div class="ai-prompt-block">
-            <div class="ai-prompt-label"><span>User prompt</span></div>
+            <div class="ai-prompt-label"><span>User prompt</span>
+              <button type="button" class="ai-edit-voice-btn" id="ai-edit-request">Edit request</button>
+            </div>
             <div class="ai-prompt-text ai-preset-preview" id="ai-preset-preview" aria-live="polite"></div>
+            <textarea id="ai-user-prompt" class="form-textarea ai-system-prompt" rows="4" hidden aria-label="Edited request"></textarea>
           </div>
           <div class="ai-prompt-block" id="ai-rules-block" hidden>
             <div class="ai-prompt-label"><span>Format contract</span></div>
@@ -248,6 +280,13 @@ export const aiAssistantStyles = `
 .ai-panel-actions{display:flex;gap:8px}
 .ai-cost-note{font-size:12px;color:var(--color-text-muted,#6b7280);margin:6px 0 0}
 .ai-fullarticle-note{font-size:12px;color:var(--color-text-muted,#6b7280);margin:0 0 8px}
+#ai-fullarticle-options{padding:12px;border:1px solid var(--color-border,#e5e7eb);border-radius:8px;background:var(--color-bg-alt,#f9fafb)}
+.ai-builder-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 10px}
+.ai-builder-num{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--color-text-muted,#6b7280)}
+.ai-builder-num input{width:80px}
+.ai-builder-toggles{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 10px}
+.ai-builder-images{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+.ai-image-direction{font-size:12px}
 .ai-toggle{display:flex;align-items:center;gap:6px;font-size:13px;margin:4px 0;cursor:pointer}
 .ai-mapping-fields{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px}
 .ai-mapping-fields .ai-toggle{margin:0}
