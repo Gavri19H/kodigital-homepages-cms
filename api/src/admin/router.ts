@@ -8,10 +8,11 @@ import { Hono } from "hono";
 import { parseBoolean, type Env } from "../env";
 import { accessAuth as gate } from "../auth/access-auth";
 import { adminUi } from './ui';
-// Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi.
+// Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi, listicleApi.
 import api from "./api";
 import wfApi from "./workflow-api";
 import aiApi from "./ai-api";
+import listicleApi from "./listicles/router";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -39,5 +40,7 @@ admin.get("/api/admin/auth/status", (c) => {
 admin.route("/", api);
 admin.route("/", wfApi);
 admin.route("/", aiApi);
+// Listicles CMS Phase 2: JSON CRUD under /api/admin/listicles/* (§7.1).
+admin.route("/", listicleApi);
 
 export default admin;
