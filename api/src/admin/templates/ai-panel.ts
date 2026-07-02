@@ -92,11 +92,12 @@ export function renderAIAssistantPanel(): string {
         </select>
       </div>
       <div class="ai-preset-variables" id="ai-preset-variables" aria-label="Preset variables"></div>
-      <div class="form-group ai-system-preview-group">
+      <div class="ai-image-prompts" id="ai-image-prompts" aria-label="Image prompts" hidden></div>
+      <div class="form-group ai-system-preview-group" id="ai-system-preview-group" hidden>
         <label for="ai-system-preview" class="form-label">System prompt</label>
         <pre class="ai-preset-preview ai-system-preview" id="ai-system-preview" aria-live="polite"></pre>
       </div>
-      <div class="form-group ai-preset-preview-group">
+      <div class="form-group ai-preset-preview-group" id="ai-preset-preview-group" hidden>
         <label for="ai-preset-preview" class="form-label">Prompt preview</label>
         <pre class="ai-preset-preview" id="ai-preset-preview" aria-live="polite"></pre>
       </div>
@@ -138,6 +139,7 @@ export const aiAssistantStyles = `
 .ai-panel-body{margin-top:12px}
 .ai-quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .ai-preset-variables{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.ai-image-prompts{display:flex;flex-direction:column;gap:8px;margin:8px 0;padding:10px;border:1px solid var(--color-border,#e5e7eb);border-radius:8px;background:var(--color-bg-alt,#f9fafb)}
 .ai-var-chip{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--c-muted)}
 .ai-var-name{font-family:monospace}
 .ai-system-preview-group{margin-top:8px}

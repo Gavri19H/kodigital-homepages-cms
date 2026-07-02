@@ -85,12 +85,22 @@ function renderHeading(data: Record<string, unknown>): string {
   return `<h${level}>${inlineBody(data)}</h${level}>`;
 }
 
+// A list item may carry sanitized inline formatting from the editor
+// (bold/italic/link — T7b). Items with whitelist inline tags render through
+// the sanitizer; plain items keep the historical escape path byte-for-byte
+// (test/editor.test.ts pins those strings).
+const INLINE_ITEM_TAG_RE = /<\/?(?:strong|b|em|i|a|br)(?:\s|\/?>)/i;
+
+function inlineItem(item: string): string {
+  return INLINE_ITEM_TAG_RE.test(item) ? sanitizeHtml(item) : escapeHtml(item);
+}
+
 function renderList(data: Record<string, unknown>): string {
   const style = asString(data.style, "unordered");
   const tag = style === "ordered" ? "ol" : "ul";
   const items = Array.isArray(data.items) ? (data.items as unknown[]) : [];
   const li = items
-    .map((item) => `<li>${escapeHtml(asString(item))}</li>`)
+    .map((item) => `<li>${inlineItem(asString(item))}</li>`)
     .join("");
   return `<${tag}>${li}</${tag}>`;
 }

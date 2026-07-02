@@ -37,6 +37,9 @@ export const aiAssistantScripts = `
   var presetVars = document.getElementById('ai-preset-variables');
   var presetPreview = document.getElementById('ai-preset-preview');
   var systemPreview = document.getElementById('ai-system-preview');
+  var systemGroup = document.getElementById('ai-system-preview-group');
+  var previewGroup = document.getElementById('ai-preset-preview-group');
+  var imagePrompts = document.getElementById('ai-image-prompts');
   var toneEl = document.getElementById('ai-tone');
   var lengthEl = document.getElementById('ai-length');
   var promptEl = document.getElementById('ai-prompt');
@@ -185,17 +188,72 @@ export const aiAssistantScripts = `
     if (!systemPreview) { return; }
     if (!activePreset || !activePreset.system_prompt_template) {
       systemPreview.textContent = '';
+      if (systemGroup) { systemGroup.hidden = true; }
       return;
     }
     systemPreview.textContent = interpolate(activePreset.system_prompt_template, variableValues());
+    if (systemGroup) { systemGroup.hidden = systemPreview.textContent.replace(/\\s/g, '') === ''; }
   }
   function renderPreview() {
     renderSystemPreview();
     if (!presetPreview) { return; }
-    if (!activePreset) { presetPreview.textContent = ''; return; }
+    if (!activePreset) {
+      presetPreview.textContent = '';
+      if (previewGroup) { previewGroup.hidden = true; }
+      return;
+    }
     var prompt = interpolate(presetTemplate(activePreset), variableValues());
     presetPreview.textContent = prompt;
+    if (previewGroup) { previewGroup.hidden = prompt.replace(/\\s/g, '') === ''; }
     if (promptEl) { promptEl.value = prompt; }
+  }
+
+  // ---- Image prompts (content_mapping.image_prompts) ----
+  // A preset that builds images inside the article carries per-image prompts;
+  // the panel surfaces them as editable boxes next to the text prompt, and
+  // Generate image consumes the box content.
+  function imagePromptsOf(preset) {
+    if (!preset || !preset.content_mapping) { return null; }
+    var map = null;
+    try { map = JSON.parse(preset.content_mapping); } catch (err) { return null; }
+    if (!map || typeof map !== 'object' || !map.image_prompts || typeof map.image_prompts !== 'object') { return null; }
+    var out = [];
+    var k;
+    for (k in map.image_prompts) {
+      if (Object.prototype.hasOwnProperty.call(map.image_prompts, k) &&
+          typeof map.image_prompts[k] === 'string' && map.image_prompts[k] !== '') {
+        out.push({ key: k, prompt: map.image_prompts[k] });
+      }
+    }
+    return out.length ? out : null;
+  }
+  function imagePromptLabel(key) {
+    if (key === 'hero_image') { return 'Hero image prompt'; }
+    if (key === 'above_subheadline_image') { return 'Above-subheadline image prompt'; }
+    return key.replace(/_/g, ' ') + ' prompt';
+  }
+  function renderImagePrompts(preset) {
+    if (!imagePrompts) { return; }
+    while (imagePrompts.firstChild) { imagePrompts.removeChild(imagePrompts.firstChild); }
+    var entries = imagePromptsOf(preset);
+    imagePrompts.hidden = !entries;
+    if (!entries) { return; }
+    var i, wrap, label, ta;
+    for (i = 0; i < entries.length; i++) {
+      wrap = document.createElement('div');
+      wrap.className = 'form-group';
+      label = document.createElement('label');
+      label.className = 'form-label';
+      label.appendChild(document.createTextNode(imagePromptLabel(entries[i].key)));
+      ta = document.createElement('textarea');
+      ta.className = 'form-textarea ai-image-prompt';
+      ta.rows = 2;
+      ta.value = interpolate(entries[i].prompt, variableValues());
+      ta.setAttribute('data-image-key', entries[i].key);
+      wrap.appendChild(label);
+      wrap.appendChild(ta);
+      imagePrompts.appendChild(wrap);
+    }
   }
   function renderVariableInputs(preset) {
     if (!presetVars) { return; }
@@ -230,12 +288,40 @@ export const aiAssistantScripts = `
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (json) { if (json && json.items) { populatePresets(json.items); } })
       .catch(function () { setStatus('Presets unavailable'); });
-    presetSelect.addEventListener('change', function () {
-      activePreset = presetsById[presetSelect.value] || null;
-      renderVariableInputs(activePreset);
-      renderPreview();
-      if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
-    });
+    presetSelect.addEventListener('change', function () { applySelectedPreset(); });
+  }
+
+  // Shared preset-application path: the change listener and the quick-action
+  // auto-select both go through here so previews, variable chips and image
+  // prompts always reflect the active preset.
+  function applySelectedPreset() {
+    activePreset = presetsById[presetSelect.value] || null;
+    renderVariableInputs(activePreset);
+    renderImagePrompts(activePreset);
+    renderPreview();
+    if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
+  }
+
+  // Per-action default preset (mirrors the server's default so the writer
+  // SEES the system prompt that will run): action -> preset category.
+  var ACTION_PRESET_CATEGORY = {
+    outline: 'outline',
+    draft: 'content',
+    rewrite: 'custom',
+    seo_meta: 'seo',
+    faq: 'content',
+    key_idea: 'content'
+  };
+  function presetIdForCategory(category) {
+    var id, row, fallback = '';
+    for (id in presetsById) {
+      if (!Object.prototype.hasOwnProperty.call(presetsById, id)) { continue; }
+      row = presetsById[id];
+      if (row.category !== category) { continue; }
+      if (row.is_system) { return id; }
+      if (!fallback) { fallback = id; }
+    }
+    return fallback;
   }
 
   // ---- Quick actions: outline / draft / rewrite / seo_meta ----
@@ -350,8 +436,10 @@ export const aiAssistantScripts = `
     return true;
   }
 
-  function generate(url, kind, action) {
-    var text = promptEl && promptEl.value ? promptEl.value.trim() : '';
+  function generate(url, kind, action, promptOverride) {
+    var text = promptOverride && promptOverride.trim
+      ? promptOverride.trim()
+      : (promptEl && promptEl.value ? promptEl.value.trim() : '');
     if (!text) {
       setError('Prompt is required');
       if (promptEl) { promptEl.focus(); }
@@ -396,12 +484,33 @@ export const aiAssistantScripts = `
     chatBtn.addEventListener('click', function () { generate('/api/admin/ai/chat', 'text', null); });
   }
   if (imageBtn) {
-    imageBtn.addEventListener('click', function () { generate('/api/admin/ai/image', 'image', null); });
+    imageBtn.addEventListener('click', function () {
+      // Prefer the preset's image-prompt box when present (writer-editable);
+      // fall back to the main prompt.
+      var box = imagePrompts && !imagePrompts.hidden ? imagePrompts.querySelector('.ai-image-prompt') : null;
+      var override = box && box.value ? box.value : null;
+      generate('/api/admin/ai/image', 'image', null, override);
+    });
   }
 
   function onQuickClick() {
     var action = this.getAttribute('data-quick-action');
-    if (promptEl) { promptEl.value = buildQuickPrompt(action); }
+    // Auto-select the per-action default preset so the System-prompt box and
+    // previews populate BEFORE generating — the writer sees what will run.
+    // A preset the writer already chose always wins.
+    if (!activePreset && presetSelect) {
+      var category = ACTION_PRESET_CATEGORY[action];
+      var pid = category ? presetIdForCategory(category) : '';
+      if (pid) {
+        presetSelect.value = pid;
+        applySelectedPreset();
+      }
+    }
+    var quick = buildQuickPrompt(action);
+    if (promptEl) { promptEl.value = quick; }
+    // The preview always shows the prompt actually being sent.
+    if (presetPreview) { presetPreview.textContent = quick; }
+    if (previewGroup) { previewGroup.hidden = quick.replace(/\\s/g, '') === ''; }
     generate('/api/admin/ai/chat', 'text', action);
   }
   var quickButtons = panel.querySelectorAll('.ai-quick-action');
