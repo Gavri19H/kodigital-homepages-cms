@@ -613,12 +613,12 @@ class BlockEditor {
       return '<div class="faq-edit-row" data-faq-row="' + i + '">' +
         '<input type="text" class="faq-edit-q" data-faq-q="' + i + '" placeholder="Question" value="' + q + '" />' +
         '<textarea class="faq-edit-a" data-faq-a="' + i + '" rows="2" placeholder="Answer">' + a + '</textarea>' +
-        '<button type="button" class="faq-edit-remove" title="Remove question" onclick="window.blockEditor.removeFaqRow(\'' + bid + '\', ' + i + ')">\u00d7</button>' +
+        '<button type="button" class="faq-edit-remove" title="Remove question" onclick="window.blockEditor.removeFaqRow(\\'' + bid + '\\', ' + i + ')">\u00d7</button>' +
       '</div>';
     }).join('');
     return '<div class="faq-edit">' +
       '<div class="faq-edit-rows">' + rows + '</div>' +
-      '<button type="button" class="faq-edit-add" onclick="window.blockEditor.addFaqRow(\'' + bid + '\')">+ Add question</button>' +
+      '<button type="button" class="faq-edit-add" onclick="window.blockEditor.addFaqRow(\\'' + bid + '\\')">+ Add question</button>' +
       '</div>';
   }
 
