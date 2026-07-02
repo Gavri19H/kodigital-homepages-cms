@@ -113,7 +113,8 @@ function renderQuote(data: Record<string, unknown>): string {
 }
 
 function renderImage(data: Record<string, unknown>): string {
-  const src = asString(data.src).trim();
+  // The editor stores the location as `url`; the pipeline as `src`.
+  const src = asString(data.src).trim() || asString(data.url).trim();
   if (src === "") return "";
   const alt = escapeHtml(asString(data.alt));
   // loading defaults to "lazy" UNLESS the author flagged the image as
@@ -152,9 +153,21 @@ function renderPullquote(data: Record<string, unknown>): string {
 function renderCallout(data: Record<string, unknown>): string {
   const title = asString(data.title).trim();
   const text = escapeHtml(asString(data.text));
-  if (title === "" && text === "") return "";
+  // A callout MAY carry a ✓ checklist (items[] — the "Key takeaways" box);
+  // mirror the public template: items render as <ul><li>, else the free-text
+  // <p> body (byte-identical for legacy title/text callouts).
+  const items = Array.isArray(data.items)
+    ? (data.items as unknown[]).filter(
+        (x): x is string => typeof x === "string" && x.length > 0,
+      )
+    : [];
+  if (title === "" && text === "" && items.length === 0) return "";
   const titleHtml =
     title === "" ? "" : `<strong class="callout-title">${escapeHtml(title)}</strong>`;
+  if (items.length > 0) {
+    const li = items.map((i) => `<li>${escapeHtml(i)}</li>`).join("");
+    return `<aside class="callout-box">${titleHtml}<ul>${li}</ul></aside>`;
+  }
   return `<aside class="callout-box">${titleHtml}<p>${text}</p></aside>`;
 }
 

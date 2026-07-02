@@ -82,6 +82,7 @@ import {
   buildFaqJsonLd,
 } from "./seo";
 import { responsiveImg } from "./responsive-img";
+import { sanitizeHtml } from "../../editor/sanitize";
 import { iconChevronDown, iconLink, iconPin, iconShare } from "./icons";
 import { renderAdUnit, renderInContentAdUnit, hasAnyAds, type AdsConfig } from "../ads";
 
@@ -124,6 +125,23 @@ function escText(input: string | null | undefined): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+// Editor inline formatting (bold/italic/link) rides BodyBlock.inlineHtml /
+// tagged list items. It renders through the SAME whitelist sanitizer the
+// publish renderer uses (editor/sanitize sanitizeHtml) — never raw; plain
+// values keep the historical escape path byte-for-byte.
+const INLINE_ITEM_TAG_RE = /<\/?(?:strong|b|em|i|a|br)(?:\s|\/?>)/i;
+
+function inlineText(text: string, inlineHtml: string | undefined): string {
+  if (typeof inlineHtml === "string" && inlineHtml.length > 0) {
+    return sanitizeHtml(inlineHtml);
+  }
+  return escText(text);
+}
+
+function inlineItem(item: string): string {
+  return INLINE_ITEM_TAG_RE.test(item) ? sanitizeHtml(item) : escText(item);
 }
 
 function marker(n: number, name: string): string {
@@ -218,7 +236,10 @@ function renderArticleHero(article: ArticleViewModel["article"], siteName: strin
 </section>`;
 }
 
-function renderBlockHtml(
+// Exported as the test seam for the flat-vs-nested render-equivalence gate
+// (test/vocabulary-equivalence.test.ts) — the per-block markup is where
+// escaping/sanitizing decisions bite, so the gate sits exactly here.
+export function renderBlockHtml(
   block: ArticleViewModel["article"]["body"][number],
   headingIndex: number,
   article: ArticleViewModel["article"],
@@ -227,7 +248,9 @@ function renderBlockHtml(
     case "paragraph":
       // §12 `p` — a real <p> direct child of `.article-body` so the drop-cap
       // (`.article-body > p:first-of-type::first-letter`) lands on the lede.
-      return block.text.length > 0 ? `<p>${escText(block.text)}</p>` : "";
+      return block.text.length > 0 || (block.inlineHtml ?? "").length > 0
+        ? `<p>${inlineText(block.text, block.inlineHtml)}</p>`
+        : "";
     case "html":
       return block.html.length > 0 ? `<div class="article-body__html">${block.html}</div>` : "";
     case "heading": {
@@ -235,7 +258,7 @@ function renderBlockHtml(
       // The id anchors the sidebar TOC links (#article-heading-N). The
       // `.article-body__heading` class is harmless under the design's
       // element-scoped `.article-body > h2` rule.
-      return `<${tag} id="article-heading-${headingIndex}" class="article-body__heading">${escText(block.text)}</${tag}>`;
+      return `<${tag} id="article-heading-${headingIndex}" class="article-body__heading">${inlineText(block.text, block.inlineHtml)}</${tag}>`;
     }
     case "image": {
       // §12 `image` → design `<figure class="article-figure"><div class="figure-img"><img></div><figcaption>`.
@@ -252,11 +275,11 @@ function renderBlockHtml(
         block.cite !== null && block.cite.length > 0
           ? `<cite>${escText(block.cite)}</cite>`
           : "";
-      return `<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>${escText(block.text)}${cite}</blockquote>`;
+      return `<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>${inlineText(block.text, block.inlineHtml)}${cite}</blockquote>`;
     }
     case "list": {
       const tag = block.ordered ? "ol" : "ul";
-      const items = block.items.map((i) => `<li>${escText(i)}</li>`).join("");
+      const items = block.items.map((i) => `<li>${inlineItem(i)}</li>`).join("");
       return `<${tag}>${items}</${tag}>`;
     }
     case "code":
