@@ -7,6 +7,13 @@
 // provider call lands in ai_generations as a receipt, exactly like the
 // pipeline's. One vocabulary, one composer — the panel emits the same block
 // document the 15-articles machinery emits.
+//
+// Round 6 — the Article Builder contract: the STRUCTURE arrives as clicks
+// (sections/paragraphs/FAQs/takeaways/toggles), not prose. The server
+// assembles the requirements text from them (the exact formula proven to
+// reproduce the house structure), deterministically STRIPS parts the writer
+// switched off, and verifies the returned counts against the requested ones
+// so the writer is never silently short-changed.
 import type { Context } from "hono";
 import type { Env } from "../env";
 import { generateStarterArticle } from "../ai/generators/text";
@@ -16,13 +23,168 @@ import { buildArticleContentJson } from "../site-provisioning/steps";
 
 export type ArticleCtx = Context<{ Bindings: Env }>;
 
-interface FullArticleBody {
-  site_id?: unknown;
-  title?: unknown;
-  brief?: unknown;
-  tone?: unknown;
-  length?: unknown;
-  images?: { hero?: unknown; mid?: unknown } | null;
+// The house standard = article 345's shape (the structure every starter
+// article ships with): 4 sections × 3 paragraphs + a bullet list, pull-quote,
+// 4 takeaways, editor's pick, 3 FAQs, subtitle, SEO pair.
+export interface ArticleStructure {
+  sections: number;
+  paragraphs_per_section: number;
+  lists: boolean;
+  quote: boolean;
+  takeaway_count: number; // 0 = no takeaways box
+  editors_pick: boolean;
+  faqs: number; // 0 = no FAQs
+  subtitle: boolean;
+  seo: boolean;
+}
+
+export const HOUSE_STRUCTURE: ArticleStructure = {
+  sections: 4,
+  paragraphs_per_section: 3,
+  lists: true,
+  quote: true,
+  takeaway_count: 4,
+  editors_pick: true,
+  faqs: 3,
+  subtitle: true,
+  seo: true,
+};
+
+function clampInt(v: unknown, min: number, max: number, dflt: number): number {
+  const n = typeof v === "number" ? Math.round(v) : Number.parseInt(String(v), 10);
+  if (Number.isNaN(n)) return dflt;
+  return Math.min(max, Math.max(min, n));
+}
+
+export function normalizeStructure(raw: unknown): ArticleStructure {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    sections: clampInt(r.sections, 1, 8, HOUSE_STRUCTURE.sections),
+    paragraphs_per_section: clampInt(
+      r.paragraphs_per_section,
+      1,
+      6,
+      HOUSE_STRUCTURE.paragraphs_per_section,
+    ),
+    lists: r.lists === undefined ? HOUSE_STRUCTURE.lists : r.lists === true,
+    quote: r.quote === undefined ? HOUSE_STRUCTURE.quote : r.quote === true,
+    takeaway_count: clampInt(r.takeaway_count, 0, 6, HOUSE_STRUCTURE.takeaway_count),
+    editors_pick:
+      r.editors_pick === undefined ? HOUSE_STRUCTURE.editors_pick : r.editors_pick === true,
+    faqs: clampInt(r.faqs, 0, 6, HOUSE_STRUCTURE.faqs),
+    subtitle: r.subtitle === undefined ? HOUSE_STRUCTURE.subtitle : r.subtitle === true,
+    seo: r.seo === undefined ? HOUSE_STRUCTURE.seo : r.seo === true,
+  };
+}
+
+// The exact requirements formula the round-5 prod pass proved reproduces the
+// house structure — now assembled FROM CLICKS, never typed by the writer.
+export function buildStructureRequirements(
+  s: ArticleStructure,
+  audience: string,
+): string {
+  const lines: string[] = [];
+  if (audience.length > 0) lines.push(`Audience: ${audience}.`);
+  lines.push("Structure requirements (these override any defaults):");
+  lines.push(
+    `- Exactly ${s.sections} sections, each with a specific search-friendly H2 subheadline and exactly ${s.paragraphs_per_section} paragraphs.`,
+  );
+  lines.push(
+    s.lists
+      ? "- Include one bullet list of 3-5 items in every section."
+      : "- Do not include bullet lists: return empty bullets for every section.",
+  );
+  lines.push(
+    s.quote
+      ? "- Include the key-idea pull quote."
+      : "- No key idea: return an empty string for key_idea.",
+  );
+  lines.push(
+    s.takeaway_count > 0
+      ? `- Exactly ${s.takeaway_count} key takeaways.`
+      : "- No takeaways: return an empty array.",
+  );
+  lines.push(
+    s.editors_pick
+      ? "- Include one editor's pick recommendation."
+      : "- No editors_pick: return it with an empty title.",
+  );
+  lines.push(
+    s.faqs > 0
+      ? `- Exactly ${s.faqs} FAQs.`
+      : "- No FAQs: return an empty array.",
+  );
+  if (s.subtitle) lines.push("- Include the subtitle teaser.");
+  return lines.join("\n");
+}
+
+// Deterministic off-switches: what the writer turned OFF is stripped from the
+// parsed article BEFORE composing, so it can never appear regardless of what
+// the model returned. (buildArticleContentJson already skips empty parts.)
+export function applyStructureSwitches(
+  parsed: GeneratedArticle,
+  s: ArticleStructure,
+): GeneratedArticle {
+  const out: GeneratedArticle = { ...(parsed as object) } as GeneratedArticle;
+  if (!s.quote) (out as { key_idea?: string }).key_idea = "";
+  if (s.takeaway_count === 0) (out as { takeaways?: string[] }).takeaways = [];
+  if (!s.editors_pick) {
+    (out as { editors_pick?: unknown }).editors_pick = undefined;
+  }
+  if (s.faqs === 0) (out as { faqs?: unknown[] }).faqs = [];
+  if (!s.lists) {
+    const sections = Array.isArray((out as { sections?: unknown[] }).sections)
+      ? (out as { sections: Array<Record<string, unknown>> }).sections
+      : [];
+    (out as { sections: unknown[] }).sections = sections.map((sec) => ({
+      ...sec,
+      bullets: [],
+    }));
+  }
+  return out;
+}
+
+// Returned-vs-requested verification: count mismatches become plain writer
+// warnings (never silent). Off-switches are enforced by the strip above, so
+// only the count-shaped asks are verified here.
+export function verifyStructure(
+  parsed: GeneratedArticle,
+  s: ArticleStructure,
+): string[] {
+  const warnings: string[] = [];
+  const sections = Array.isArray(parsed.sections) ? parsed.sections : [];
+  if (sections.length !== s.sections) {
+    warnings.push(
+      `Asked for ${s.sections} sections, the model returned ${sections.length} - regenerate or edit.`,
+    );
+  }
+  const offCount = sections.filter(
+    (sec) =>
+      !Array.isArray(sec?.paragraphs) ||
+      sec.paragraphs.length !== s.paragraphs_per_section,
+  ).length;
+  if (sections.length > 0 && offCount > 0) {
+    warnings.push(
+      `${offCount} of ${sections.length} sections came back with a paragraph count other than ${s.paragraphs_per_section}.`,
+    );
+  }
+  const faqs = Array.isArray(parsed.faqs) ? parsed.faqs : [];
+  if (s.faqs > 0 && faqs.length !== s.faqs) {
+    warnings.push(`Asked for ${s.faqs} FAQs, the model returned ${faqs.length}.`);
+  }
+  const takeaways = Array.isArray(parsed.takeaways) ? parsed.takeaways : [];
+  if (s.takeaway_count > 0 && takeaways.length !== s.takeaway_count) {
+    warnings.push(
+      `Asked for ${s.takeaway_count} key takeaways, the model returned ${takeaways.length}.`,
+    );
+  }
+  if (
+    s.subtitle &&
+    !(typeof parsed.subtitle === "string" && parsed.subtitle.trim().length > 0)
+  ) {
+    warnings.push("The model returned no subtitle. Add one before publishing, or regenerate.");
+  }
+  return warnings;
 }
 
 // The pipeline's field rounding (steps.ts generateOneTextUnit): seo_title is
@@ -91,6 +253,37 @@ function slugifyTitle(title: string): string {
   return base.length > 0 ? base : "article";
 }
 
+interface ImageAsk {
+  enabled: boolean;
+  direction: string;
+}
+
+// Tolerates both the round-5 boolean shape ({hero:true}) and the builder's
+// object shape ({hero:{enabled:true,direction:"..."}}).
+export function normalizeImageAsk(raw: unknown, dflt: boolean): ImageAsk {
+  if (raw === undefined || raw === null) return { enabled: dflt, direction: "" };
+  if (typeof raw === "boolean") return { enabled: raw, direction: "" };
+  if (typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    return {
+      enabled: r.enabled !== false,
+      direction: typeof r.direction === "string" ? r.direction.trim() : "",
+    };
+  }
+  return { enabled: dflt, direction: "" };
+}
+
+interface FullArticleBody {
+  site_id?: unknown;
+  title?: unknown;
+  brief?: unknown;
+  tone?: unknown;
+  length?: unknown;
+  audience?: unknown;
+  structure?: unknown;
+  images?: { hero?: unknown; mid?: unknown } | null;
+}
+
 export async function generateFullArticle(c: ArticleCtx) {
   let body: FullArticleBody;
   try {
@@ -105,8 +298,10 @@ export async function generateFullArticle(c: ArticleCtx) {
   const brief = typeof body.brief === "string" ? body.brief.trim() : "";
   const tone = typeof body.tone === "string" ? body.tone.trim() : "";
   const length = typeof body.length === "string" ? body.length.trim() : "";
-  const wantHero = body.images ? body.images.hero !== false : true;
-  const wantMid = body.images ? body.images.mid !== false : true;
+  const audience = typeof body.audience === "string" ? body.audience.trim() : "";
+  const structure = normalizeStructure(body.structure);
+  const heroAsk = normalizeImageAsk(body.images?.hero, true);
+  const midAsk = normalizeImageAsk(body.images?.mid, true);
 
   const site = await c.env.DB.prepare(
     "SELECT id, name, vertical_slug FROM sites WHERE id = ? LIMIT 1",
@@ -138,10 +333,12 @@ export async function generateFullArticle(c: ArticleCtx) {
   // article, not the cached one.
   const slug = `panel-${slugifyTitle(title)}-${crypto.randomUUID().slice(0, 8)}`;
 
-  // Tone/length/brief fold into the summary the content preset interpolates
-  // as {{summary}} — same variable the pipeline feeds from its article plan.
+  // Brief + assembled structure requirements + tone/length fold into the
+  // summary the content preset interpolates as {{summary}} — same variable
+  // the pipeline feeds from its article plan.
   const summaryParts: string[] = [];
   if (brief.length > 0) summaryParts.push(brief);
+  summaryParts.push(buildStructureRequirements(structure, audience));
   if (tone.length > 0) summaryParts.push(`Tone: ${tone}.`);
   if (length.length > 0) summaryParts.push(`Target length: ${length}.`);
   const summary = summaryParts.join("\n");
@@ -167,17 +364,23 @@ export async function generateFullArticle(c: ArticleCtx) {
   }
   generation_ids.push(article.ai_generation_id);
 
-  const fields = deriveArticleFields(article.parsed, title, authorName);
-  if (!fields.subtitle) {
-    warnings.push("The model returned no subtitle. Add one before publishing, or regenerate.");
-  }
-  const doc = buildArticleContentJson(article.parsed) as {
+  // Off-switches are enforced deterministically; count-asks are verified and
+  // any drift is surfaced as a plain writer warning.
+  const shaped = applyStructureSwitches(article.parsed, structure);
+  warnings.push(...verifyStructure(shaped, structure));
+
+  const fields = deriveArticleFields(shaped, title, authorName);
+  if (!structure.subtitle) fields.subtitle = null;
+  const seoFields = structure.seo
+    ? { seo_title: fields.seo_title, seo_description: fields.seo_description }
+    : { seo_title: null, seo_description: null };
+  const doc = buildArticleContentJson(shaped) as {
     version: 2;
     blocks: Array<Record<string, unknown>>;
   };
 
   let hero: { media_id: number; url: string } | null = null;
-  if (wantHero) {
+  if (heroAsk.enabled) {
     try {
       const heroImage = await generateFeatureImage(c.env, {
         site_id,
@@ -186,6 +389,7 @@ export async function generateFullArticle(c: ArticleCtx) {
         article_title: fields.title,
         article_slug: slug,
         presetCategory: "feature-image",
+        promptOverride: heroAsk.direction || undefined,
       });
       generation_ids.push(heroImage.ai_generation_id);
       if (heroImage.media_id > 0) {
@@ -203,7 +407,7 @@ export async function generateFullArticle(c: ArticleCtx) {
     }
   }
 
-  if (wantMid) {
+  if (midAsk.enabled) {
     try {
       const midImage = await generateFeatureImage(c.env, {
         site_id,
@@ -212,6 +416,7 @@ export async function generateFullArticle(c: ArticleCtx) {
         article_title: fields.title,
         article_slug: `${slug}-mid`,
         presetCategory: "feature-image",
+        promptOverride: midAsk.direction || undefined,
       });
       generation_ids.push(midImage.ai_generation_id);
       if (midImage.media_id > 0) {
@@ -234,7 +439,13 @@ export async function generateFullArticle(c: ArticleCtx) {
   return c.json({
     ok: true,
     status: article.status,
-    fields,
+    fields: {
+      title: fields.title,
+      subtitle: fields.subtitle,
+      seo_title: seoFields.seo_title,
+      seo_description: seoFields.seo_description,
+      author_name: fields.author_name,
+    },
     content_json: doc,
     hero,
     warnings,

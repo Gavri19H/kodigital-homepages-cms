@@ -428,6 +428,21 @@ export interface GenerateFeatureImageInput extends BuildFeatureImagePromptInput 
   // image description; brand_name feeds the hero-image preset's {{brand_name}}.
   presetCategory?: string;
   brand_name?: string;
+  // Round 6: a writer-typed image direction (the Article Builder's optional
+  // per-image prompt). Absent for every pipeline caller.
+  promptOverride?: string;
+}
+
+// A non-empty writer direction wins over the preset prompt and the built
+// fallback; otherwise the behavior is exactly the pre-round-6 one.
+export function pickFeatureImagePrompt(
+  override: string | undefined,
+  presetPrompt: string | null,
+  built: string,
+): string {
+  const o = typeof override === "string" ? override.trim() : "";
+  if (o.length > 0) return o;
+  return presetPrompt ?? built;
 }
 
 export async function generateFeatureImage(
@@ -448,7 +463,11 @@ export async function generateFeatureImage(
       art_direction: articleArtDirection(input.article_slug),
     },
   );
-  const prompt = presetPrompt ?? buildFeatureImagePrompt(input);
+  const prompt = pickFeatureImagePrompt(
+    input.promptOverride,
+    presetPrompt,
+    buildFeatureImagePrompt(input),
+  );
   return runImageGenerator({
     env,
     task: FEATURE_IMAGE_TASK,

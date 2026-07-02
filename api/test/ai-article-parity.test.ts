@@ -128,7 +128,8 @@ vi.mock("../src/ai/generators/text", () => ({
   })),
 }));
 
-vi.mock("../src/ai/generators/image", () => ({
+vi.mock("../src/ai/generators/image", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/generators/image")>()),
   generateFeatureImage: vi.fn(async (_env: unknown, input: { article_slug: string }) => ({
     ai_generation_id: `gen-img-${input.article_slug}`,
     idempotency_key: `k-${input.article_slug}`,
@@ -268,5 +269,164 @@ describe("POST /api/admin/ai/article (fused pipeline flow, no INSERT)", () => {
     await generateFullArticle(t.c);
     expect(t.result().status).toBe(404);
     expect(vi.mocked(generateStarterArticle)).not.toHaveBeenCalled();
+  });
+});
+
+// ---- Round 6: the Article Builder — clicks in, the proven brief out ----
+
+import {
+  HOUSE_STRUCTURE,
+  normalizeStructure,
+  buildStructureRequirements,
+  applyStructureSwitches,
+  verifyStructure,
+  normalizeImageAsk,
+} from "../src/admin/ai-article";
+import { pickFeatureImagePrompt } from "../src/ai/generators/image";
+
+describe("R6: normalizeStructure — house defaults + clamping", () => {
+  it("absent structure = the house standard (345's shape)", () => {
+    expect(normalizeStructure(undefined)).toEqual(HOUSE_STRUCTURE);
+  });
+  it("clamps out-of-range clicks instead of failing", () => {
+    const s = normalizeStructure({ sections: 99, paragraphs_per_section: 0, faqs: -3, takeaway_count: 100 });
+    expect(s.sections).toBe(8);
+    expect(s.paragraphs_per_section).toBe(1);
+    expect(s.faqs).toBe(0);
+    expect(s.takeaway_count).toBe(6);
+  });
+});
+
+describe("R6: buildStructureRequirements — the proven formula from clicks", () => {
+  it("default clicks produce the round-5-proven requirement lines", () => {
+    const text = buildStructureRequirements(HOUSE_STRUCTURE, "content writers");
+    expect(text).toContain("Audience: content writers.");
+    expect(text).toContain("Exactly 4 sections, each with a specific search-friendly H2 subheadline and exactly 3 paragraphs.");
+    expect(text).toContain("one bullet list of 3-5 items in every section");
+    expect(text).toContain("key-idea pull quote");
+    expect(text).toContain("Exactly 4 key takeaways.");
+    expect(text).toContain("editor's pick recommendation");
+    expect(text).toContain("Exactly 3 FAQs.");
+    expect(text).toContain("subtitle teaser");
+  });
+  it("off-switches emit explicit negative instructions", () => {
+    const text = buildStructureRequirements(
+      { ...HOUSE_STRUCTURE, lists: false, quote: false, takeaway_count: 0, editors_pick: false, faqs: 0, subtitle: false },
+      "",
+    );
+    expect(text).toContain("Do not include bullet lists");
+    expect(text).toContain("No key idea");
+    expect(text).toContain("No takeaways");
+    expect(text).toContain("No editors_pick");
+    expect(text).toContain("No FAQs");
+    expect(text).not.toContain("subtitle teaser");
+    expect(text).not.toContain("Audience:");
+  });
+});
+
+describe("R6: applyStructureSwitches — off means OFF, deterministically", () => {
+  it("stripped parts never reach the composed document", () => {
+    const shaped = applyStructureSwitches(fixtureArticle(), {
+      ...HOUSE_STRUCTURE,
+      quote: false,
+      takeaway_count: 0,
+      editors_pick: false,
+      faqs: 0,
+      lists: false,
+    });
+    const types = buildArticleContentJson(shaped).blocks.map((b) => b.type);
+    expect(types).not.toContain("quote");
+    expect(types).not.toContain("callout");
+    expect(types).not.toContain("affiliate");
+    expect(types).not.toContain("faq");
+    expect(types).not.toContain("list");
+    // Sections + paragraphs + the image slot survive untouched.
+    expect(types.filter((t) => t === "heading")).toHaveLength(4);
+    expect(types).toContain("image");
+  });
+});
+
+describe("R6: verifyStructure — count drift becomes a writer warning", () => {
+  it("clean match = zero warnings", () => {
+    expect(verifyStructure(fixtureArticle(), { ...HOUSE_STRUCTURE, takeaway_count: 3 })).toEqual([]);
+  });
+  it("section/faq/takeaway/subtitle drift each get a plain warning", () => {
+    const parsed = fixtureArticle();
+    parsed.subtitle = "";
+    const w = verifyStructure(parsed, { ...HOUSE_STRUCTURE, sections: 5, faqs: 4, takeaway_count: 5 });
+    expect(w.join(" ")).toContain("Asked for 5 sections, the model returned 4");
+    expect(w.join(" ")).toContain("Asked for 4 FAQs, the model returned 3");
+    expect(w.join(" ")).toContain("Asked for 5 key takeaways, the model returned 3");
+    expect(w.join(" ")).toContain("no subtitle");
+  });
+});
+
+describe("R6: image asks — both shapes + direction override", () => {
+  it("normalizeImageAsk tolerates round-5 booleans and builder objects", () => {
+    expect(normalizeImageAsk(true, true)).toEqual({ enabled: true, direction: "" });
+    expect(normalizeImageAsk(false, true)).toEqual({ enabled: false, direction: "" });
+    expect(normalizeImageAsk({ enabled: true, direction: " macro shot " }, true)).toEqual({ enabled: true, direction: "macro shot" });
+    expect(normalizeImageAsk(undefined, true)).toEqual({ enabled: true, direction: "" });
+  });
+  it("a writer direction beats preset and built prompts; absent keeps legacy order", () => {
+    expect(pickFeatureImagePrompt("macro shot", "preset", "built")).toBe("macro shot");
+    expect(pickFeatureImagePrompt("  ", "preset", "built")).toBe("preset");
+    expect(pickFeatureImagePrompt(undefined, null, "built")).toBe("built");
+  });
+});
+
+describe("R6 endpoint: structure rides the summary; off-switches strip; drift warns", () => {
+  beforeEach(() => {
+    vi.mocked(generateStarterArticle).mockClear();
+    vi.mocked(generateFeatureImage).mockClear();
+  });
+
+  it("clicked structure lands in the assembled summary verbatim", async () => {
+    const t = fakeContext({
+      site_id: "site-1",
+      title: "T",
+      audience: "career switchers",
+      structure: { sections: 5, faqs: 4 },
+      images: { hero: { enabled: false }, mid: { enabled: false } },
+    });
+    await generateFullArticle(t.c);
+    const input = vi.mocked(generateStarterArticle).mock.calls[0]![1] as { summary: string };
+    expect(input.summary).toContain("Audience: career switchers.");
+    expect(input.summary).toContain("Exactly 5 sections");
+    expect(input.summary).toContain("Exactly 4 FAQs.");
+    // Fixture returns 4 sections + 3 faqs → honest drift warnings.
+    const warnings = t.result().body["warnings"] as string[];
+    expect(warnings.join(" ")).toContain("Asked for 5 sections, the model returned 4");
+    expect(warnings.join(" ")).toContain("Asked for 4 FAQs, the model returned 3");
+  });
+
+  it("subtitle/seo toggled off → null fields even though the model returned them", async () => {
+    const t = fakeContext({
+      site_id: "site-1",
+      title: "T",
+      structure: { subtitle: false, seo: false },
+      images: { hero: false, mid: false },
+    });
+    await generateFullArticle(t.c);
+    const fields = t.result().body["fields"] as Record<string, unknown>;
+    expect(fields["subtitle"]).toBeNull();
+    expect(fields["seo_title"]).toBeNull();
+    expect(fields["seo_description"]).toBeNull();
+  });
+
+  it("image directions flow into generateFeatureImage as promptOverride", async () => {
+    const t = fakeContext({
+      site_id: "site-1",
+      title: "T",
+      images: {
+        hero: { enabled: true, direction: "warm desk scene, no people" },
+        mid: { enabled: true, direction: "" },
+      },
+    });
+    await generateFullArticle(t.c);
+    const calls = vi.mocked(generateFeatureImage).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect((calls[0]![1] as { promptOverride?: string }).promptOverride).toBe("warm desk scene, no people");
+    expect((calls[1]![1] as { promptOverride?: string }).promptOverride).toBeUndefined();
   });
 });

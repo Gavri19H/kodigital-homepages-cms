@@ -66,10 +66,26 @@ export const aiAssistantScripts = `
   var rulesPreview = document.getElementById('ai-rules-preview');
   var costNote = document.getElementById('ai-cost-note');
   var presetModelEl = document.getElementById('ai-preset-model');
+  var faTopic = document.getElementById('ai-fa-topic');
+  var faAudience = document.getElementById('ai-fa-audience');
+  var faSections = document.getElementById('ai-fa-sections');
+  var faParagraphs = document.getElementById('ai-fa-paragraphs');
+  var faFaqs = document.getElementById('ai-fa-faqs');
+  var faTakeaways = document.getElementById('ai-fa-takeaways');
+  var faLists = document.getElementById('ai-fa-lists');
+  var faQuote = document.getElementById('ai-fa-quote');
+  var faPick = document.getElementById('ai-fa-pick');
+  var faSubtitle = document.getElementById('ai-fa-subtitle');
+  var faSeo = document.getElementById('ai-fa-seo');
+  var faHeroDirection = document.getElementById('ai-fa-hero-direction');
+  var faMidDirection = document.getElementById('ai-fa-mid-direction');
+  var editRequestBtn = document.getElementById('ai-edit-request');
+  var userPromptEl = document.getElementById('ai-user-prompt');
   var presetsById = {};
   var activePreset = null;
   var activeAction = null;
   var voiceEdited = false;
+  var requestEdited = false;
   var lastResult = null;
 
   function setStatus(msg) {
@@ -431,7 +447,17 @@ export const aiAssistantScripts = `
     }
     var userTpl = presetTemplate(activePreset);
     previewSection.hidden = false;
-    renderHighlighted(presetPreview, userTpl);
+    // Edit request (parity with the preset tab's user template, per
+    // generation): the edited textarea replaces the preview and is what gets
+    // sent — mirror of the Edit-voice pattern.
+    if (requestEdited) {
+      if (presetPreview) { presetPreview.hidden = true; }
+      if (userPromptEl) { userPromptEl.hidden = false; }
+    } else {
+      if (presetPreview) { presetPreview.hidden = false; }
+      if (userPromptEl) { userPromptEl.hidden = true; }
+      renderHighlighted(presetPreview, userTpl);
+    }
     renderRulesPreview();
     if (unresolvedWarning) {
       var sysTpl = activePreset.system_prompt_template || '';
@@ -469,6 +495,19 @@ export const aiAssistantScripts = `
         editVoiceBtn.textContent = 'Edit voice';
       }
       renderSystemPreview();
+    });
+  }
+  if (editRequestBtn && userPromptEl) {
+    editRequestBtn.addEventListener('click', function () {
+      if (!requestEdited) {
+        userPromptEl.value = resolveText(presetTemplate(activePreset)).resolved;
+        requestEdited = true;
+        editRequestBtn.textContent = 'Use preset request';
+      } else {
+        requestEdited = false;
+        editRequestBtn.textContent = 'Edit request';
+      }
+      renderPreview();
     });
   }
   // Live preview refresh when the article context changes.
@@ -648,6 +687,8 @@ export const aiAssistantScripts = `
     activePreset = presetsById[presetSelect.value] || null;
     activeAction = null;
     voiceEdited = false;
+    requestEdited = false;
+    if (editRequestBtn) { editRequestBtn.textContent = 'Edit request'; }
     if (editVoiceBtn) { editVoiceBtn.textContent = 'Edit voice'; }
     clearActionHighlight();
     if (fullOptions) { fullOptions.hidden = true; }
@@ -672,10 +713,15 @@ export const aiAssistantScripts = `
     activeAction = action;
     activePreset = null;
     voiceEdited = false;
+    requestEdited = false;
     if (presetSelect) { presetSelect.value = ''; }
     clearActionHighlight();
     this.classList.add('active');
     if (fullOptions) { fullOptions.hidden = action !== 'full_article'; }
+    // The builder's Topic prefills from the Title field once, stays editable.
+    if (action === 'full_article' && faTopic && !faTopic.value) {
+      faTopic.value = fieldValue('#article-title');
+    }
     if (presetModelEl) { presetModelEl.hidden = true; }
     renderVariableInputs(null);
     renderImagePrompts(null);
@@ -871,12 +917,18 @@ export const aiAssistantScripts = `
     }
     return false;
   }
+  function numValue(el, dflt) {
+    if (!el || el.value === '') { return dflt; }
+    var n = parseInt(el.value, 10);
+    return isNaN(n) ? dflt : n;
+  }
   function generateFullArticleFlow() {
-    var title = fieldValue('#article-title');
+    var title = faTopic && faTopic.value && faTopic.value.replace(/\\s/g, '') !== ''
+      ? faTopic.value.trim()
+      : fieldValue('#article-title');
     if (!title || title.replace(/\\s/g, '') === '') {
-      setError('Fill the article Title first \\u2014 it is the topic the article is built from.');
-      var titleEl = document.querySelector('#article-title');
-      if (titleEl) { titleEl.focus(); }
+      setError('Type the Topic \\u2014 it is what the article is built from.');
+      if (faTopic) { faTopic.focus(); }
       return;
     }
     var siteId = readSiteId();
@@ -895,11 +947,29 @@ export const aiAssistantScripts = `
       site_id: siteId,
       title: title,
       brief: promptEl && promptEl.value ? promptEl.value.trim() : '',
+      audience: faAudience && faAudience.value ? faAudience.value.trim() : '',
       tone: toneEl && toneEl.value ? toneEl.value : '',
       length: lengthEl && lengthEl.value ? lengthEl.value : '',
+      structure: {
+        sections: numValue(faSections, 4),
+        paragraphs_per_section: numValue(faParagraphs, 3),
+        lists: !!(faLists && faLists.checked),
+        quote: !!(faQuote && faQuote.checked),
+        takeaway_count: numValue(faTakeaways, 4),
+        editors_pick: !!(faPick && faPick.checked),
+        faqs: numValue(faFaqs, 3),
+        subtitle: !!(faSubtitle && faSubtitle.checked),
+        seo: !!(faSeo && faSeo.checked)
+      },
       images: {
-        hero: !!(fullHeroToggle && fullHeroToggle.checked),
-        mid: !!(fullMidToggle && fullMidToggle.checked)
+        hero: {
+          enabled: !!(fullHeroToggle && fullHeroToggle.checked),
+          direction: faHeroDirection && faHeroDirection.value ? faHeroDirection.value.trim() : ''
+        },
+        mid: {
+          enabled: !!(fullMidToggle && fullMidToggle.checked),
+          direction: faMidDirection && faMidDirection.value ? faMidDirection.value.trim() : ''
+        }
       }
     };
     fetch('/api/admin/ai/article', {
@@ -932,7 +1002,10 @@ export const aiAssistantScripts = `
     if (activeAction) {
       base = buildQuickPrompt(activeAction);
     } else if (activePreset) {
-      base = resolveText(presetTemplate(activePreset)).resolved;
+      // The edited request wins (per-generation user-prompt parity).
+      base = requestEdited && userPromptEl && userPromptEl.value.replace(/\\s/g, '') !== ''
+        ? userPromptEl.value
+        : resolveText(presetTemplate(activePreset)).resolved;
     }
     if (base && instructions) { return base + '\\n\\nAdditional instructions: ' + instructions; }
     return base || instructions;
