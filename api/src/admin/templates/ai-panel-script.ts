@@ -329,9 +329,9 @@ export const aiAssistantScripts = `
     var ta = document.getElementById('article-content');
     if (ta) {
       var lines = [];
-      for (i = 0; i < items.length; i++) { lines.push('Q: ' + items[i].q + '\nA: ' + items[i].a); }
-      var text = lines.join('\n\n');
-      ta.value = ta.value ? (ta.value + '\n\n' + text) : text;
+      for (i = 0; i < items.length; i++) { lines.push('Q: ' + items[i].q + '\\nA: ' + items[i].a); }
+      var text = lines.join('\\n\\n');
+      ta.value = ta.value ? (ta.value + '\\n\\n' + text) : text;
     }
     return true;
   }
@@ -346,7 +346,7 @@ export const aiAssistantScripts = `
       return true;
     }
     var ta = document.getElementById('article-content');
-    if (ta) { ta.value = ta.value ? (ta.value + '\n\n' + text) : text; }
+    if (ta) { ta.value = ta.value ? (ta.value + '\\n\\n' + text) : text; }
     return true;
   }
 
