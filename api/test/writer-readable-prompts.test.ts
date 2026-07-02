@@ -213,3 +213,39 @@ describe("C11 — 0030 moves the output contract without altering what the model
     expect(userTemplateSql).not.toContain("Requirements:");
   });
 });
+
+// Round-5: 0030 was authored from the 0023 contract and silently DROPPED the
+// "subtitle" key 0027 had added — every generated article since lost its
+// subtitle (proven live 2026-07-02). 0031 restores 0027's subtitle contract
+// verbatim into the moved output_rules; these anchors pin the restoration AND
+// the conditional guard that keeps the migration idempotent/non-clobbering.
+describe("0031 — the subtitle contract is restored (round-5 regression fix)", () => {
+  const sql = readFileSync(
+    join(__dirname, "..", "migrations", "0031_restore_subtitle_contract.sql"),
+    "utf-8",
+  );
+
+  it("the JSON shape asks for subtitle again, right after title", () => {
+    expect(sql).toContain('\\"title\\": string,\\n  \\"subtitle\\": string');
+  });
+
+  it("0027's subtitle requirement line is restored verbatim", () => {
+    expect(sql).toContain(
+      "subtitle: ONE short punchy teaser sentence (max ~14 words)",
+    );
+    expect(sql).toContain("It MUST be a tease, NOT a summary");
+  });
+
+  it("applies only while the live contract lacks subtitle (idempotent, never clobbers)", () => {
+    expect(sql).toContain("instr(COALESCE(output_rules, ''), 'subtitle') = 0");
+    expect(sql).toContain("WHERE slug = 'system-content'");
+  });
+
+  it("deploy.yml anchors the migration file (D1-file rule)", () => {
+    const deploy = readFileSync(
+      join(__dirname, "..", "..", ".github", "workflows", "deploy.yml"),
+      "utf-8",
+    );
+    expect(deploy).toContain("0031_restore_subtitle_contract.sql");
+  });
+});
