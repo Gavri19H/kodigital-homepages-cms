@@ -148,10 +148,30 @@ aiApi.post("/api/admin/ai/chat", async (c) => {
     contentMappingOverride = JSON.stringify(body.content_mapping).slice(0, 8000);
   }
 
+  // Site-derived context: {{brand_name}} / {{vertical}} resolve automatically
+  // from the article's site so writers never fill machine tokens by hand.
+  // Client-sent values win; these are fallbacks.
+  const chatVariables = coerceStringMap(body.variables, body.context);
+  if (site_id !== null && (!chatVariables.brand_name || !chatVariables.vertical)) {
+    try {
+      const siteRow = await c.env.DB.prepare(
+        "SELECT name, vertical_slug FROM sites WHERE id = ? LIMIT 1",
+      )
+        .bind(site_id)
+        .first<{ name: string; vertical_slug: string }>();
+      if (siteRow) {
+        if (!chatVariables.brand_name && siteRow.name) chatVariables.brand_name = siteRow.name;
+        if (!chatVariables.vertical && siteRow.vertical_slug) chatVariables.vertical = siteRow.vertical_slug;
+      }
+    } catch {
+      // Context enrichment is best-effort; a lookup failure never blocks chat.
+    }
+  }
+
   const applied = applyChatPreset({
     preset,
     options: body.options ?? null,
-    variables: coerceStringMap(body.variables, body.context),
+    variables: chatVariables,
     overrides: {
       systemPrompt: systemPromptOverride,
       contentMapping: contentMappingOverride,
