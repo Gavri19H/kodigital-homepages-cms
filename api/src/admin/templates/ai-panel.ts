@@ -39,6 +39,7 @@ export { aiAssistantScripts } from "./ai-panel-script";
 // Quick-action buttons ported from the legacy panel (legacy :1644-1680).
 // The data-quick-action value is the routing key the inline script reads.
 const QUICK_ACTIONS: ReadonlyArray<{ action: string; label: string }> = [
+  { action: "full_article", label: "Full article" },
   { action: "outline", label: "Outline" },
   { action: "draft", label: "Draft" },
   { action: "rewrite", label: "Rewrite" },
@@ -122,6 +123,12 @@ export function renderAIAssistantPanel(): string {
     </button>
     <div class="ai-panel-body" id="ai-panel-body">
       ${renderQuickActions()}
+      <div class="ai-section" id="ai-fullarticle-options" hidden>
+        <div class="ai-section-title">Full article</div>
+        <p class="ai-fullarticle-note">Builds the complete article the way the automatic pipeline does: intro, pull-quote, sections with subheadlines and lists, a mid-article image, an Editor&#8217;s pick, Key takeaways and FAQs &mdash; plus title, subtitle, SEO fields and the hero image. The Title field above is the topic; put the brief in Instructions below.</p>
+        <label class="ai-toggle"><input type="checkbox" id="ai-fullarticle-hero" checked /> Generate the hero image</label>
+        <label class="ai-toggle"><input type="checkbox" id="ai-fullarticle-mid" checked /> Generate the in-article image</label>
+      </div>
       <div class="ai-section">
         <div class="ai-section-title">Use Preset</div>
         <select id="ai-preset-select" class="form-select ai-preset-select" aria-label="AI preset">
@@ -132,6 +139,10 @@ export function renderAIAssistantPanel(): string {
         <div class="ai-section-title">Variables</div>
         <div class="ai-preset-variables" id="ai-preset-variables" aria-label="Preset variables"></div>
         <p class="ai-required-warning" id="ai-required-warning" hidden role="alert"></p>
+      </div>
+      <div class="ai-section" id="ai-mapping-section" hidden>
+        <div class="ai-section-title">What gets generated</div>
+        <div class="ai-mapping-fields" id="ai-mapping-fields" aria-label="Fields to generate"></div>
       </div>
       ${renderContextChips()}
       <div class="ai-image-prompts" id="ai-image-prompts" aria-label="Image prompts" hidden></div>
@@ -159,6 +170,10 @@ export function renderAIAssistantPanel(): string {
             <div class="ai-prompt-label"><span>User prompt</span></div>
             <div class="ai-prompt-text ai-preset-preview" id="ai-preset-preview" aria-live="polite"></div>
           </div>
+          <div class="ai-prompt-block" id="ai-rules-block" hidden>
+            <div class="ai-prompt-label"><span>Format contract</span></div>
+            <div class="ai-prompt-text ai-rules-preview" id="ai-rules-preview"></div>
+          </div>
           <p class="ai-unresolved-warning" id="ai-unresolved-warning" hidden></p>
         </div>
       </div>
@@ -169,10 +184,12 @@ export function renderAIAssistantPanel(): string {
       <div class="ai-models">
         <span>Text model: <code>${textModels}</code></span>
         <span>Image model: <code>${imageModels}</code></span>
+        <span id="ai-preset-model" hidden></span>
       </div>
       <div class="ai-panel-actions">
         <button type="button" id="ai-generate-btn" class="btn btn-primary">&#10024; Generate</button>
       </div>
+      <p class="ai-cost-note" id="ai-cost-note">Generate runs 1 text generation.</p>
       <div class="ai-loading" id="ai-loading" hidden>
         <span class="ai-loading-spinner" aria-hidden="true"></span>
         <span>Generating&hellip;</span>
@@ -229,6 +246,13 @@ export const aiAssistantStyles = `
 .ai-field-note{font-weight:400;color:var(--color-text-muted,#6b7280);font-size:12px}
 .ai-models{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--color-text-muted,#6b7280);margin:0 0 12px}
 .ai-panel-actions{display:flex;gap:8px}
+.ai-cost-note{font-size:12px;color:var(--color-text-muted,#6b7280);margin:6px 0 0}
+.ai-fullarticle-note{font-size:12px;color:var(--color-text-muted,#6b7280);margin:0 0 8px}
+.ai-toggle{display:flex;align-items:center;gap:6px;font-size:13px;margin:4px 0;cursor:pointer}
+.ai-mapping-fields{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px}
+.ai-mapping-fields .ai-toggle{margin:0}
+.ai-mapping-count{display:flex;align-items:center;gap:6px;font-size:13px}
+.ai-mapping-count input{width:70px}
 .ai-loading{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-muted,#6b7280);margin-top:8px}
 .ai-loading-spinner{width:14px;height:14px;border:2px solid var(--color-border,#e5e7eb);border-top-color:var(--color-primary,#2563eb);border-radius:50%;animation:ai-spin .8s linear infinite;display:inline-block}
 @keyframes ai-spin{to{transform:rotate(360deg)}}
