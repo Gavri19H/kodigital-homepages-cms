@@ -4,9 +4,11 @@
 -- shifted +1 — see docs/listicles/traceability.md).
 -- Where the contract specifies column lists without full DDL
 -- (postback_log, revenue_raw, revenue_unmatched, event_dead_letter, fx_rates),
--- this file adds only primary keys, the §31.7-mandated dedupe UNIQUE, and
--- received/sync timestamps; every such authored detail is logged in the
--- traceability register.
+-- this file authors primary keys, the §31.7-mandated dedupe UNIQUE, working
+-- columns for the postback log, lookup indexes, and received/sync timestamps;
+-- every authored detail is enumerated in traceability DEV-6 (incl. the
+-- offer_public_id naming — the D1 column stores the Offer PUBLIC id; the
+-- Phase-9 shipper maps it to ClickHouse lst_revenue_raw.offer_id).
 
 -- §20: outbound S2S dispatcher config — one row per media platform.
 CREATE TABLE IF NOT EXISTS listicle_media_platforms (
