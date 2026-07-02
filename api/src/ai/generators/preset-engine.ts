@@ -256,7 +256,12 @@ export function applyPreset(args: ApplyPresetArgs): AppliedPreset {
 
   const outputRules = parseJsonArray(preset.output_rules);
   const contentMapping = parseJsonObject(preset.content_mapping);
-  const outputRulesDirective = renderOutputRules(outputRules);
+  // Free-text rules are templates too: interpolate {{tokens}} with the same
+  // variables the prompt templates get (0030 moved token-bearing contract
+  // text into output_rules; without this the model would see literal tokens).
+  const outputRulesDirective = renderOutputRules(
+    outputRules.map((r) => (typeof r === "string" ? interpolate(r, variables) : r)),
+  );
   const cm = renderContentMapping(contentMapping);
   const imageDirective = cm.imageOptions
     ? "Image prompts:\n" +
