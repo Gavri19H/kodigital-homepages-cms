@@ -58,6 +58,10 @@ interface ChatBody {
   options?: ChatOptions | null;
   variables?: Record<string, unknown> | null;
   context?: Record<string, unknown> | null;
+  // Writer-side per-generation overrides (A3 settable system prompt + the
+  // panel's placements). Optional + additive: absent fields change nothing.
+  system_prompt?: string | null;
+  content_mapping?: Record<string, unknown> | string | null;
 }
 
 // Coerce the posted variables (and the lower-priority per-action context) into
@@ -126,10 +130,32 @@ aiApi.post("/api/admin/ai/chat", async (c) => {
     if (!preset) return c.json({ error: "Preset not found" }, 404);
   }
 
+  // A3 + placements overrides: bounded, typed, logged. system_prompt is
+  // capped (a runaway payload must not balloon the model call); the mapping
+  // accepts the panel's object (stringified for the engine) or a JSON string.
+  const systemPromptOverride =
+    typeof body.system_prompt === "string" && body.system_prompt.trim() !== ""
+      ? body.system_prompt.slice(0, 8000)
+      : null;
+  let contentMappingOverride: string | null = null;
+  if (typeof body.content_mapping === "string" && body.content_mapping.trim() !== "") {
+    contentMappingOverride = body.content_mapping.slice(0, 8000);
+  } else if (
+    body.content_mapping !== null &&
+    body.content_mapping !== undefined &&
+    typeof body.content_mapping === "object"
+  ) {
+    contentMappingOverride = JSON.stringify(body.content_mapping).slice(0, 8000);
+  }
+
   const applied = applyChatPreset({
     preset,
     options: body.options ?? null,
     variables: coerceStringMap(body.variables, body.context),
+    overrides: {
+      systemPrompt: systemPromptOverride,
+      contentMapping: contentMappingOverride,
+    },
   });
 
   let model: string;
@@ -161,6 +187,8 @@ aiApi.post("/api/admin/ai/chat", async (c) => {
       length: typeof body.options?.length === "string" ? body.options.length : null,
       max_tokens: applied.maxTokens,
       system_prompt: applied.systemPrompt,
+      system_prompt_override: systemPromptOverride,
+      content_mapping_override: contentMappingOverride,
     },
     target_type: null,
     target_id: null,

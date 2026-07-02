@@ -297,9 +297,12 @@ describe("T7-AC2: the AI panel sends presetId+options and previews the system pr
   const html = renderAIAssistantPanel();
   const scripts = aiAssistantScripts;
 
-  it("[api/test/ai-chat-preset.test.ts] T7-AC2: the panel renders a dedicated system-prompt preview surface L2_AUTO_DISAMBIGUATION:T7-AC2:RC-016", () => {
-    expect(html).toContain('id="ai-system-preview"');
-    expect(html).toContain(">System prompt<");
+  it("[api/test/ai-chat-preset.test.ts] T7-AC2: the panel renders a dedicated system-prompt surface (A3: settable textarea, prefilled from the preset) L2_AUTO_DISAMBIGUATION:T7-AC2:RC-016", () => {
+    // Evolved per Epic A3 ("settable system prompt + a system-prompt
+    // preview"): the read-only <pre> became an editable, prefilled textarea.
+    expect(html).toContain('id="ai-system-prompt"');
+    expect(html).toContain("System prompt");
+    expect(html).toContain('<textarea id="ai-system-prompt"');
   });
 
   it("[api/test/ai-chat-preset.test.ts] T7-AC2: the system-prompt preview is rendered from system_prompt_template and updates on preset select L2_AUTO_DISAMBIGUATION:T7-AC2:RC-016", () => {

@@ -36,8 +36,13 @@ export const aiAssistantScripts = `
   var presetSelect = document.getElementById('ai-preset-select');
   var presetVars = document.getElementById('ai-preset-variables');
   var presetPreview = document.getElementById('ai-preset-preview');
-  var systemPreview = document.getElementById('ai-system-preview');
+  var systemPromptEl = document.getElementById('ai-system-prompt');
   var systemGroup = document.getElementById('ai-system-preview-group');
+  var systemDirty = false;
+  var placements = document.getElementById('ai-placements');
+  var placementFields = document.getElementById('ai-placement-fields');
+  var placementsDirty = false;
+  var toneHint = document.getElementById('ai-tone-hint');
   var previewGroup = document.getElementById('ai-preset-preview-group');
   var imagePrompts = document.getElementById('ai-image-prompts');
   var toneEl = document.getElementById('ai-tone');
@@ -185,14 +190,18 @@ export const aiAssistantScripts = `
   // system_prompt_template the server will apply, so the operator sees the
   // voice the preset overrides the tone with.
   function renderSystemPreview() {
-    if (!systemPreview) { return; }
+    if (!systemPromptEl) { return; }
     if (!activePreset || !activePreset.system_prompt_template) {
-      systemPreview.textContent = '';
-      if (systemGroup) { systemGroup.hidden = true; }
+      if (!systemDirty) { systemPromptEl.value = ''; }
+      if (systemGroup) { systemGroup.hidden = !systemDirty || systemPromptEl.value.replace(/\\s/g, '') === ''; }
       return;
     }
-    systemPreview.textContent = interpolate(activePreset.system_prompt_template, variableValues());
-    if (systemGroup) { systemGroup.hidden = systemPreview.textContent.replace(/\\s/g, '') === ''; }
+    // A3 "settable system prompt": prefilled from the preset (interpolated),
+    // writer-editable; a writer edit sticks until another preset is chosen.
+    if (!systemDirty) {
+      systemPromptEl.value = interpolate(activePreset.system_prompt_template, variableValues());
+    }
+    if (systemGroup) { systemGroup.hidden = systemPromptEl.value.replace(/\\s/g, '') === ''; }
   }
   function renderPreview() {
     renderSystemPreview();
@@ -255,6 +264,94 @@ export const aiAssistantScripts = `
       imagePrompts.appendChild(wrap);
     }
   }
+
+  // ---- Dynamic placements: the preset-tab content-mapping surfaced to the
+  // writer (fields to generate + paragraph count). Prefilled from the active
+  // preset; writer toggles apply to the next generation only.
+  var PLACEMENT_FIELDS = [
+    ['title', 'Title'],
+    ['excerpt', 'Excerpt'],
+    ['content', 'Body content'],
+    ['meta_title', 'Meta title'],
+    ['meta_description', 'Meta description'],
+    ['author_name', 'Author name'],
+    ['author_bio', 'Author bio'],
+    ['tags', 'Tags'],
+    ['generate_h2_subtitles', 'H2 subtitles']
+  ];
+  function presetMappingOf(preset) {
+    if (!preset || !preset.content_mapping) { return {}; }
+    try {
+      var m = JSON.parse(preset.content_mapping);
+      return m && typeof m === 'object' ? m : {};
+    } catch (err) { return {}; }
+  }
+  function renderPlacements(preset) {
+    if (!placements || !placementFields) { return; }
+    while (placementFields.firstChild) { placementFields.removeChild(placementFields.firstChild); }
+    placementsDirty = false;
+    placements.hidden = !preset;
+    if (!preset) { return; }
+    var mapping = presetMappingOf(preset);
+    var i, wrap, cb, txt;
+    for (i = 0; i < PLACEMENT_FIELDS.length; i++) {
+      wrap = document.createElement('label');
+      cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'ai-placement-field';
+      cb.setAttribute('data-field-key', PLACEMENT_FIELDS[i][0]);
+      cb.checked = mapping[PLACEMENT_FIELDS[i][0]] === true;
+      cb.addEventListener('change', function () { placementsDirty = true; });
+      txt = document.createTextNode(' ' + PLACEMENT_FIELDS[i][1]);
+      wrap.appendChild(cb);
+      wrap.appendChild(txt);
+      placementFields.appendChild(wrap);
+    }
+    var countWrap = document.createElement('div');
+    countWrap.className = 'ai-placement-count';
+    var countLabel = document.createElement('span');
+    countLabel.appendChild(document.createTextNode('Paragraphs:'));
+    var count = document.createElement('input');
+    count.type = 'number';
+    count.min = '0';
+    count.id = 'ai-placement-paragraphs';
+    count.className = 'form-input';
+    if (typeof mapping.paragraph_count === 'number') { count.value = String(mapping.paragraph_count); }
+    count.addEventListener('input', function () { placementsDirty = true; });
+    countWrap.appendChild(countLabel);
+    countWrap.appendChild(count);
+    placementFields.appendChild(countWrap);
+  }
+  // The FULL effective mapping the writer configured (fields + count + edited
+  // image prompts) — sent as one replacement object, no partial-merge ambiguity.
+  function effectiveContentMapping() {
+    if (!placementFields) { return null; }
+    var mapping = {};
+    var any = false;
+    var boxes = placementFields.querySelectorAll('.ai-placement-field');
+    var i;
+    for (i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked) { mapping[boxes[i].getAttribute('data-field-key')] = true; any = true; }
+    }
+    var count = document.getElementById('ai-placement-paragraphs');
+    if (count && count.value !== '' && !isNaN(parseInt(count.value, 10))) {
+      mapping.paragraph_count = parseInt(count.value, 10);
+      any = true;
+    }
+    if (imagePrompts && !imagePrompts.hidden) {
+      var im = {};
+      var imAny = false;
+      var tas = imagePrompts.querySelectorAll('.ai-image-prompt');
+      for (i = 0; i < tas.length; i++) {
+        if (tas[i].value && tas[i].value.replace(/\\s/g, '') !== '') {
+          im[tas[i].getAttribute('data-image-key')] = tas[i].value;
+          imAny = true;
+        }
+      }
+      if (imAny) { mapping.image_prompts = im; any = true; }
+    }
+    return any ? mapping : null;
+  }
   function renderVariableInputs(preset) {
     if (!presetVars) { return; }
     while (presetVars.firstChild) { presetVars.removeChild(presetVars.firstChild); }
@@ -290,15 +387,21 @@ export const aiAssistantScripts = `
       .catch(function () { setStatus('Presets unavailable'); });
     presetSelect.addEventListener('change', function () { applySelectedPreset(); });
   }
+  if (systemPromptEl) {
+    systemPromptEl.addEventListener('input', function () { systemDirty = true; });
+  }
 
   // Shared preset-application path: the change listener and the quick-action
   // auto-select both go through here so previews, variable chips and image
   // prompts always reflect the active preset.
   function applySelectedPreset() {
     activePreset = presetsById[presetSelect.value] || null;
+    systemDirty = false;
     renderVariableInputs(activePreset);
     renderImagePrompts(activePreset);
+    renderPlacements(activePreset);
     renderPreview();
+    if (toneHint) { toneHint.hidden = !activePreset; }
     if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
   }
 
@@ -460,6 +563,15 @@ export const aiAssistantScripts = `
     if (activePreset) {
       payload.presetId = activePreset.id;
       payload.variables = variableValues();
+    }
+    // A3: a writer-edited system prompt overrides the preset voice for this
+    // generation; the placements the writer configured ride content_mapping.
+    if (systemDirty && systemPromptEl && systemPromptEl.value.replace(/\\s/g, '') !== '') {
+      payload.system_prompt = systemPromptEl.value;
+    }
+    if (placementsDirty) {
+      var effMapping = effectiveContentMapping();
+      if (effMapping) { payload.content_mapping = effMapping; }
     }
     fetch(url, {
       method: 'POST',
