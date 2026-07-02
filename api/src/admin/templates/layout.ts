@@ -203,6 +203,7 @@ export function adminLayout(options: AdminLayoutOptions): string {
 
 const ADMIN_STYLES = `
 *{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none!important}
 :root{--c-primary:#2563eb;--c-primary-dark:#1d4ed8;--c-primary-light:#dbeafe;--c-bg:#fff;--c-bg-alt:#f9fafb;--c-bg-dark:#f3f4f6;--c-text:#111827;--c-muted:#6b7280;--c-border:#e5e7eb;--c-success:#10b981;--c-warning:#f59e0b;--c-error:#ef4444;--sidebar-w:250px;--header-h:60px}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;line-height:1.5;color:var(--c-text);background:var(--c-bg-alt)}
 a{color:var(--c-primary);text-decoration:none}

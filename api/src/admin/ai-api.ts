@@ -36,6 +36,7 @@ import {
 } from "../ai/generation-log";
 import { handleAdminAiImage, IMAGE_BODY_LIMIT_BYTES } from "./ai-image";
 import { handleAdminAiLogo } from "./ai-logo";
+import { generateFullArticle } from "./ai-article";
 import {
   getPreset,
   isValidPresetId,
@@ -258,6 +259,9 @@ aiApi.post(
   bodyLimit({ maxSize: IMAGE_BODY_LIMIT_BYTES }),
   handleAdminAiLogo,
 );
+
+// The writer's one-click full article (pipeline-parity composer, no INSERT).
+aiApi.post("/api/admin/ai/article", generateFullArticle);
 
 // T21 [E4]: presets CRUD route patterns (6).
 aiApi.get("/api/admin/ai/presets", listPresets);

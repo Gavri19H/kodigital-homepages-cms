@@ -57,6 +57,15 @@ export const aiAssistantScripts = `
   var clearBtn = document.getElementById('ai-clear-btn');
   var copyBtn = document.getElementById('ai-copy-btn');
   var insertBtn = document.getElementById('ai-insert-btn');
+  var fullOptions = document.getElementById('ai-fullarticle-options');
+  var fullHeroToggle = document.getElementById('ai-fullarticle-hero');
+  var fullMidToggle = document.getElementById('ai-fullarticle-mid');
+  var mappingSection = document.getElementById('ai-mapping-section');
+  var mappingFields = document.getElementById('ai-mapping-fields');
+  var rulesBlock = document.getElementById('ai-rules-block');
+  var rulesPreview = document.getElementById('ai-rules-preview');
+  var costNote = document.getElementById('ai-cost-note');
+  var presetModelEl = document.getElementById('ai-preset-model');
   var presetsById = {};
   var activePreset = null;
   var activeAction = null;
@@ -79,6 +88,23 @@ export const aiAssistantScripts = `
     var qa = panel.querySelectorAll('.ai-quick-action');
     var k;
     for (k = 0; k < qa.length; k++) { qa[k].disabled = busy; }
+  }
+  // G1 cost transparency: the note under Generate always states EXACTLY what
+  // one press will run, before the writer presses it.
+  function updateCostNote() {
+    if (!costNote) { return; }
+    var msg = 'Generate runs 1 text generation.';
+    if (activeAction === 'full_article') {
+      var images = 0;
+      if (fullHeroToggle && fullHeroToggle.checked) { images = images + 1; }
+      if (fullMidToggle && fullMidToggle.checked) { images = images + 1; }
+      msg = 'Generate runs 1 text generation' +
+        (images > 0 ? ' + ' + images + ' image generation' + (images > 1 ? 's' : '') : '') +
+        ' (about 1\\u20132 minutes).';
+    } else if (activePreset && activePreset.category === 'image') {
+      msg = 'Generate runs 1 image generation.';
+    }
+    costNote.textContent = msg;
   }
   function readSiteId() {
     var el = document.querySelector('select[name="site_id"], input[name="site_id"]');
@@ -400,11 +426,13 @@ export const aiAssistantScripts = `
     if (!previewSection) { return; }
     if (!activePreset) {
       previewSection.hidden = true;
+      if (rulesBlock) { rulesBlock.hidden = true; }
       return;
     }
     var userTpl = presetTemplate(activePreset);
     previewSection.hidden = false;
     renderHighlighted(presetPreview, userTpl);
+    renderRulesPreview();
     if (unresolvedWarning) {
       var sysTpl = activePreset.system_prompt_template || '';
       var all = resolveText(sysTpl + '\\n' + userTpl).unresolved;
@@ -499,6 +527,117 @@ export const aiAssistantScripts = `
     }
   }
 
+  // ---- "What gets generated" (preset content_mapping, writer-toggleable;
+  //      the server override REPLACES the mapping, so the panel always sends
+  //      the FULL effective object — and only when the writer changed it) ----
+  var MAPPING_FIELD_LABELS = {
+    title: 'Title',
+    excerpt: 'Excerpt',
+    content: 'Body',
+    meta_title: 'Meta title',
+    meta_description: 'Meta description',
+    author_name: 'Author name',
+    author_bio: 'Author bio',
+    tags: 'Tags',
+    generate_h2_subtitles: 'H2 subheadlines'
+  };
+  function parsedMappingOf(preset) {
+    if (!preset || !preset.content_mapping) { return null; }
+    var map = null;
+    try { map = JSON.parse(preset.content_mapping); } catch (err) { return null; }
+    return (map && typeof map === 'object') ? map : null;
+  }
+  function renderMappingFields(preset) {
+    if (!mappingSection || !mappingFields) { return; }
+    while (mappingFields.firstChild) { mappingFields.removeChild(mappingFields.firstChild); }
+    var map = parsedMappingOf(preset);
+    var keys = [];
+    var k;
+    if (map) {
+      for (k in MAPPING_FIELD_LABELS) {
+        if (Object.prototype.hasOwnProperty.call(MAPPING_FIELD_LABELS, k) && map[k] !== undefined) {
+          keys.push(k);
+        }
+      }
+    }
+    var hasCount = !!(map && typeof map.paragraph_count === 'number');
+    mappingSection.hidden = keys.length === 0 && !hasCount;
+    if (mappingSection.hidden) { return; }
+    var i, label, cb;
+    for (i = 0; i < keys.length; i++) {
+      label = document.createElement('label');
+      label.className = 'ai-toggle';
+      cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = map[keys[i]] === true;
+      cb.setAttribute('data-mapping-key', keys[i]);
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' ' + MAPPING_FIELD_LABELS[keys[i]]));
+      mappingFields.appendChild(label);
+    }
+    if (hasCount) {
+      var wrap = document.createElement('label');
+      wrap.className = 'ai-mapping-count';
+      wrap.appendChild(document.createTextNode('Paragraphs per section: '));
+      var num = document.createElement('input');
+      num.type = 'number';
+      num.min = '1';
+      num.className = 'form-input';
+      num.value = String(map.paragraph_count);
+      num.setAttribute('data-mapping-count', '1');
+      wrap.appendChild(num);
+      mappingFields.appendChild(wrap);
+    }
+  }
+  function effectiveMapping() {
+    var map = parsedMappingOf(activePreset);
+    if (!map || !mappingFields || !mappingSection || mappingSection.hidden) { return null; }
+    var out = {};
+    var k;
+    for (k in map) { if (Object.prototype.hasOwnProperty.call(map, k)) { out[k] = map[k]; } }
+    var changed = false;
+    var boxes = mappingFields.querySelectorAll('[data-mapping-key]');
+    var i, key;
+    for (i = 0; i < boxes.length; i++) {
+      key = boxes[i].getAttribute('data-mapping-key');
+      if (out[key] !== boxes[i].checked) { changed = true; }
+      out[key] = boxes[i].checked;
+    }
+    var count = mappingFields.querySelector('[data-mapping-count]');
+    if (count && count.value) {
+      var n = parseInt(count.value, 10);
+      if (!isNaN(n) && n > 0) {
+        if (n !== map.paragraph_count) { changed = true; }
+        out.paragraph_count = n;
+      }
+    }
+    return changed ? out : null;
+  }
+
+  // ---- Format contract: the preset's output_rules, resolved + highlighted
+  //      exactly like the prompts (the engine folds these into the request) ----
+  function renderRulesPreview() {
+    if (!rulesBlock || !rulesPreview) { return; }
+    var raw = activePreset ? activePreset.output_rules : null;
+    var rules = null;
+    if (raw) {
+      try { rules = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { rules = null; }
+    }
+    if (!rules || !rules.length) { rulesBlock.hidden = true; return; }
+    rulesBlock.hidden = false;
+    while (rulesPreview.firstChild) { rulesPreview.removeChild(rulesPreview.firstChild); }
+    var i, lineEl;
+    for (i = 0; i < rules.length; i++) {
+      lineEl = document.createElement('div');
+      if (typeof rules[i] === 'string') {
+        renderHighlighted(lineEl, '\\u2022 ' + rules[i]);
+      } else {
+        lineEl.textContent = '\\u2022 ' + JSON.stringify(rules[i]);
+      }
+      rulesPreview.appendChild(lineEl);
+    }
+  }
+
   // ---- Modes: quick action vs preset (legacy semantics) ----
   function clearActionHighlight() {
     var btns = panel.querySelectorAll('.ai-quick-action');
@@ -511,9 +650,20 @@ export const aiAssistantScripts = `
     voiceEdited = false;
     if (editVoiceBtn) { editVoiceBtn.textContent = 'Edit voice'; }
     clearActionHighlight();
+    if (fullOptions) { fullOptions.hidden = true; }
     renderVariableInputs(activePreset);
     renderImagePrompts(activePreset);
+    renderMappingFields(activePreset);
+    if (presetModelEl) {
+      if (activePreset && activePreset.text_model) {
+        presetModelEl.textContent = 'Preset model: ' + activePreset.text_model;
+        presetModelEl.hidden = false;
+      } else {
+        presetModelEl.hidden = true;
+      }
+    }
     renderPreview();
+    updateCostNote();
     if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
     else { setStatus(''); }
   }
@@ -525,17 +675,27 @@ export const aiAssistantScripts = `
     if (presetSelect) { presetSelect.value = ''; }
     clearActionHighlight();
     this.classList.add('active');
+    if (fullOptions) { fullOptions.hidden = action !== 'full_article'; }
+    if (presetModelEl) { presetModelEl.hidden = true; }
     renderVariableInputs(null);
     renderImagePrompts(null);
+    renderMappingFields(null);
     renderPreview();
     setError('');
-    setStatus('Action armed: ' + action.replace(/_/g, ' ') + ' \\u2014 press Generate.');
+    updateCostNote();
+    if (action === 'full_article') {
+      setStatus('Full article armed \\u2014 press Generate to build the whole draft.');
+    } else {
+      setStatus('Action armed: ' + action.replace(/_/g, ' ') + ' \\u2014 press Generate.');
+    }
   }
   var quickButtons = panel.querySelectorAll('.ai-quick-action');
   var qi;
   for (qi = 0; qi < quickButtons.length; qi++) {
     quickButtons[qi].addEventListener('click', onQuickClick);
   }
+  if (fullHeroToggle) { fullHeroToggle.addEventListener('change', updateCostNote); }
+  if (fullMidToggle) { fullMidToggle.addEventListener('change', updateCostNote); }
   if (presetSelect) {
     fetch('/api/admin/ai/presets?active_only=true&per_page=200', { credentials: 'same-origin' })
       .then(function (res) { return res.ok ? res.json() : null; })
@@ -649,6 +809,122 @@ export const aiAssistantScripts = `
     return true;
   }
 
+  // ---- Full article: one click, the pipeline's own composer (G3) ----
+  function heroApply(hero) {
+    if (!hero || !hero.media_id) { return false; }
+    var input = document.getElementById('hero-image-input');
+    var preview = document.getElementById('hero-image-preview');
+    var wrap = document.getElementById('hero-image-preview-wrap');
+    var empty = document.getElementById('hero-image-empty');
+    var removeBtn = document.getElementById('hero-image-remove');
+    if (input) { input.value = String(hero.media_id); }
+    if (preview && hero.url) { preview.src = hero.url; }
+    if (wrap) { wrap.hidden = !hero.url; }
+    if (empty) { empty.hidden = !!hero.url; }
+    if (removeBtn) { removeBtn.hidden = !hero.url; }
+    return true;
+  }
+  function applyFullArticle(data) {
+    var filled = [];
+    var f = data.fields || {};
+    if (fillField('#article-title', f.title)) { filled.push('title'); }
+    if (f.subtitle && fillField('#article-subtitle', f.subtitle)) { filled.push('subtitle'); }
+    if (fillField('#article-seo-title', f.seo_title)) { filled.push('SEO title'); }
+    if (fillField('#article-seo-description', f.seo_description)) { filled.push('SEO description'); }
+    if (!fieldValue('#article-author-name') && fillField('#article-author-name', f.author_name)) {
+      filled.push('author');
+    }
+    if (data.content_json && data.content_json.blocks) {
+      var input = document.getElementById('content_json');
+      if (input) {
+        input.value = JSON.stringify(data.content_json);
+        if (window.blockEditor && typeof window.blockEditor.loadFromInput === 'function') {
+          window.blockEditor.loadFromInput();
+          if (typeof window.blockEditor.saveToInput === 'function') {
+            window.blockEditor.saveToInput();
+          }
+        }
+        filled.push(String(data.content_json.blocks.length) + ' content blocks');
+      }
+    }
+    if (heroApply(data.hero)) { filled.push('hero image'); }
+    return filled;
+  }
+  // "Has content" means content a writer could LOSE — empty template
+  // placeholders (the fresh-page starter blocks) do not count, so the
+  // replace-confirm only interrupts when there is real work in the editor.
+  function editorHasContent() {
+    var input = document.getElementById('content_json');
+    if (!input || !input.value) { return false; }
+    var doc = null;
+    try { doc = JSON.parse(input.value); } catch (e) { return false; }
+    if (!doc || !doc.blocks || !doc.blocks.length) { return false; }
+    var i, b, d;
+    for (i = 0; i < doc.blocks.length; i++) {
+      b = doc.blocks[i];
+      if (!b) { continue; }
+      d = b.data || b;
+      if (d.text && String(d.text).replace(/\\s/g, '') !== '') { return true; }
+      if (d.src || d.url) { return true; }
+      if (d.items && d.items.length) { return true; }
+      if (d.question || d.answer) { return true; }
+    }
+    return false;
+  }
+  function generateFullArticleFlow() {
+    var title = fieldValue('#article-title');
+    if (!title || title.replace(/\\s/g, '') === '') {
+      setError('Fill the article Title first \\u2014 it is the topic the article is built from.');
+      var titleEl = document.querySelector('#article-title');
+      if (titleEl) { titleEl.focus(); }
+      return;
+    }
+    var siteId = readSiteId();
+    if (!siteId) {
+      setError('Pick a Site first \\u2014 the voice and the images are site-branded.');
+      return;
+    }
+    if (editorHasContent() &&
+        !window.confirm('Replace the current article body with the generated one?')) {
+      return;
+    }
+    setError('');
+    setBusy(true);
+    setStatus('Building the full article \\u2014 text first, then images. This can take a minute or two\\u2026');
+    var payload = {
+      site_id: siteId,
+      title: title,
+      brief: promptEl && promptEl.value ? promptEl.value.trim() : '',
+      tone: toneEl && toneEl.value ? toneEl.value : '',
+      length: lengthEl && lengthEl.value ? lengthEl.value : '',
+      images: {
+        hero: !!(fullHeroToggle && fullHeroToggle.checked),
+        mid: !!(fullMidToggle && fullMidToggle.checked)
+      }
+    };
+    fetch('/api/admin/ai/article', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      return res.json().then(function (json) { return { ok: res.ok, status: res.status, body: json }; });
+    }).then(function (res) {
+      setBusy(false);
+      if (!res.ok) {
+        setError((res.body && res.body.error) || ('Full article failed (HTTP ' + res.status + ')'));
+        return;
+      }
+      var filled = applyFullArticle(res.body);
+      var note = 'Full article ready \\u2014 filled: ' + filled.join(', ') + '. Review and Save.';
+      var warn = res.body.warnings && res.body.warnings.length ? (' ' + res.body.warnings.join(' ')) : '';
+      setStatus(note + warn);
+    }).catch(function () {
+      setBusy(false);
+      setError('Network error');
+    });
+  }
+
   // ---- Generate: one button, legacy gating, mode-based routing ----
   function composePrompt() {
     var instructions = promptEl && promptEl.value ? promptEl.value.trim() : '';
@@ -683,6 +959,10 @@ export const aiAssistantScripts = `
     if (activePreset) {
       payload.presetId = activePreset.id;
       payload.variables = variableValues();
+      // Dynamic placements: the writer-toggled mapping rides as the FULL
+      // effective object, and only when it differs from the preset's own.
+      var mapping = effectiveMapping();
+      if (mapping) { payload.content_mapping = mapping; }
     }
     // A3: the edited voice overrides the preset system prompt server-side.
     if (voiceEdited && systemPromptEl && systemPromptEl.value.replace(/\\s/g, '') !== '') {
@@ -709,6 +989,11 @@ export const aiAssistantScripts = `
   }
   if (generateBtn) {
     generateBtn.addEventListener('click', function () {
+      // Full-article mode routes to its own endpoint (pipeline composer).
+      if (activeAction === 'full_article') {
+        generateFullArticleFlow();
+        return;
+      }
       // Legacy gate: a preset's required variables block generation.
       if (activePreset) {
         var missing = missingRequired();
