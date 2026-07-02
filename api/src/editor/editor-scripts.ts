@@ -30,6 +30,18 @@ class BlockEditor {
 
     this.blocks = [];
     this.focusedBlockId = null;
+
+    // Writer-grade history: a bounded snapshot stack of the blocks model.
+    // Structural mutations push a pre-mutation snapshot; typing bursts commit
+    // a debounced checkpoint so Cmd+Z reverts burst-by-burst. Cmd+Shift+Z redoes.
+    this._history = [];
+    this._redoStack = [];
+    this._historyLimit = 50;
+    this._lastCheckpoint = null;
+    this._textDirty = false;
+    this._textTimer = null;
+    this._restoring = false;
+
     this.init();
   }
 
@@ -64,6 +76,151 @@ class BlockEditor {
 
     // Set up sticky toolbar behavior
     this.setupStickyToolbar();
+
+    // History baseline + editor-level keyboard: Cmd/Ctrl+Z undo,
+    // Cmd/Ctrl+Shift+Z redo (block-level, burst-granular for text).
+    this._lastCheckpoint = this._serialize();
+    this.container.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) { this.redo(); } else { this.undo(); }
+      }
+    });
+
+    // Click the empty space below the last block -> append a paragraph
+    // (writers expect the page to accept a click anywhere under the text).
+    this.blocksContainer.addEventListener('click', (e) => {
+      if (e.target !== this.blocksContainer) return;
+      const last = this.blocks[this.blocks.length - 1];
+      const lastEmpty = last && (last.type === 'paragraph' || last.type === 'heading') &&
+        !(last.data.text || '').trim();
+      if (last && lastEmpty) { this.focusBlock(last.id); return; }
+      this.addBlock('paragraph');
+    });
+  }
+
+  // ---- Writer-grade history (undo/redo) ----
+
+  _serialize() {
+    return JSON.stringify(this.blocks);
+  }
+
+  _pushHistory(snap) {
+    if (typeof snap !== 'string') return;
+    this._history.push(snap);
+    if (this._history.length > this._historyLimit) this._history.shift();
+  }
+
+  // Commit an in-progress typing burst as one undo step.
+  _commitTextBurst() {
+    if (this._textTimer) { clearTimeout(this._textTimer); this._textTimer = null; }
+    if (!this._textDirty) return;
+    this._textDirty = false;
+    this._pushHistory(this._lastCheckpoint);
+    this._redoStack = [];
+    this._lastCheckpoint = this._serialize();
+  }
+
+  // Called before every STRUCTURAL mutation (add/delete/move/convert/list
+  // item ops/paste-split/markdown-convert): flush any typing burst, then
+  // push the pre-mutation state.
+  snapshot() {
+    if (this._restoring) return;
+    this._commitTextBurst();
+    this._pushHistory(this._serialize());
+    this._redoStack = [];
+  }
+
+  _restore(snap) {
+    this._restoring = true;
+    try {
+      let parsed = [];
+      try { parsed = JSON.parse(snap); } catch (err) { parsed = []; }
+      this.blocks = Array.isArray(parsed) ? parsed : [];
+      if (this.blocks.length === 0) {
+        this.blocks = [{ id: this.generateId(), type: 'paragraph', data: { text: '' } }];
+      }
+      this.renderBlocks();
+      this.saveToInput();
+      this._lastCheckpoint = this._serialize();
+      this._textDirty = false;
+      const first = this.blocks[0];
+      if (first) this.focusBlock(first.id);
+    } finally {
+      this._restoring = false;
+    }
+  }
+
+  undo() {
+    this._commitTextBurst();
+    if (this._history.length === 0) return false;
+    this._redoStack.push(this._serialize());
+    this._restore(this._history.pop());
+    return true;
+  }
+
+  redo() {
+    if (this._redoStack.length === 0) return false;
+    this._pushHistory(this._serialize());
+    this._restore(this._redoStack.pop());
+    return true;
+  }
+
+  // ---- Caret + focus helpers ----
+
+  // Caret offset in plain-text characters within el (-1 when not inside).
+  _caretOffsetIn(el) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return -1;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.startContainer)) return -1;
+    const pre = range.cloneRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  }
+
+  // Place the caret inside el at a plain-text offset (clamped; -1 = end).
+  _placeCaret(el, offset) {
+    el.focus();
+    const sel = window.getSelection();
+    if (!sel) return;
+    const full = el.textContent || '';
+    let target = offset < 0 || offset > full.length ? full.length : offset;
+    const range = document.createRange();
+    let placed = false;
+    const walk = (node) => {
+      if (placed) return;
+      if (node.nodeType === 3) {
+        const len = node.textContent.length;
+        if (target <= len) { range.setStart(node, target); placed = true; }
+        else { target -= len; }
+        return;
+      }
+      for (let i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]);
+    };
+    walk(el);
+    if (!placed) { range.selectNodeContents(el); range.collapse(false); }
+    else { range.collapse(true); }
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // Focus list item itemIndex of block blockId, caret at offset (-1 end).
+  focusListItem(blockId, itemIndex, offset) {
+    this.focusedBlockId = blockId;
+    document.querySelectorAll('.editor-block').forEach(el => {
+      el.classList.toggle('focused', el.dataset.blockId === blockId);
+    });
+    const blockEl = document.querySelector('[data-block-id="' + blockId + '"]');
+    if (!blockEl) return;
+    const item = blockEl.querySelector('[data-item-index="' + itemIndex + '"]');
+    if (item) this._placeCaret(item, typeof offset === 'number' ? offset : -1);
+  }
+
+  // Ordered editable elements of a block element (list items in order).
+  _blockEditables(blockEl) {
+    return Array.from(blockEl.querySelectorAll('[contenteditable="true"]'));
   }
 
   // Set up sticky toolbar with IntersectionObserver
@@ -273,6 +430,7 @@ class BlockEditor {
 
   // Add a new block
   addBlock(type, data = {}, afterBlockId = null) {
+    this.snapshot();
     const id = this.generateId();
     const block = { id, type, data: this.getDefaultData(type, data) };
 
@@ -332,6 +490,7 @@ class BlockEditor {
     const index = this.blocks.findIndex(b => b.id === id);
     if (index === -1) return;
 
+    this.snapshot();
     this.blocks.splice(index, 1);
 
     // If no blocks left, add empty paragraph
@@ -356,6 +515,7 @@ class BlockEditor {
     if (newIndex < 0 || newIndex >= this.blocks.length) return;
 
     // Swap blocks
+    this.snapshot();
     [this.blocks[index], this.blocks[newIndex]] = [this.blocks[newIndex], this.blocks[index]];
 
     this.renderBlocks();
@@ -369,6 +529,8 @@ class BlockEditor {
 
     const block = this.blocks.find(b => b.id === this.focusedBlockId);
     if (!block) return;
+
+    this.snapshot();
 
     // Get current content - read from DOM to capture HTML structure
     let currentText = '';
@@ -415,6 +577,9 @@ class BlockEditor {
 
         // Split by delimiter and filter empty items
         items = text.split(SPLIT_MARKER).map(t => t.trim()).filter(t => t);
+        // Strip literal markdown list markers the writer typed ("* foo",
+        // "- foo", "1. foo") so converting never yields a double bullet.
+        items = items.map(t => t.replace(/^\\s*(?:[*\\u2022-]|\\d+\\.)\\s+/, ''));
         if (items.length === 0) items = [''];
       }
       block.data = {
@@ -464,21 +629,19 @@ class BlockEditor {
         break;
     }
 
-    // Update block data with innerHTML (includes HTML formatting)
+    // Update block data (T7b): plain text stays in data.text; sanitized
+    // inline formatting rides data.html (the publish renderer's contract) —
+    // never raw innerHTML into data.text, which published literal tags.
     if (this.focusedBlockId) {
       const block = this.blocks.find(b => b.id === this.focusedBlockId);
       const element = document.querySelector('[data-block-id="' + this.focusedBlockId + '"] .block-content');
       if (block && element) {
         if (block.type === 'list') {
-          // Handle list items - preserve HTML
           const items = element.querySelectorAll('.list-item-input');
-          block.data.items = Array.from(items).map(i => i.innerHTML || '');
+          block.data.items = Array.from(items).map(i => this._itemValue(i));
         } else {
-          // Get the editable element's innerHTML to preserve formatting
           const editable = element.querySelector('.editable-text');
-          if (editable) {
-            block.data.text = editable.innerHTML || '';
-          }
+          if (editable) this._syncTextAndHtml(block, editable);
         }
         this.saveToInput();
       }
@@ -553,13 +716,13 @@ class BlockEditor {
   }
 
   renderParagraphContent(block) {
-    const text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.text || ''));
+    const text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.html || block.data.text || ''));
     return '<div class="editable-text" contenteditable="true" data-placeholder="' + this.options.placeholder + '">' + text + '</div>';
   }
 
   renderHeadingContent(block) {
     const tag = 'h' + block.data.level;
-    const text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.text || ''));
+    const text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.html || block.data.text || ''));
     return '<' + tag + ' class="editable-text heading-' + block.data.level + '" contenteditable="true" data-placeholder="Heading...">' + text + '</' + tag + '>';
   }
 
@@ -573,7 +736,7 @@ class BlockEditor {
   }
 
   renderQuoteContent(block) {
-    const text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.text || ''));
+    const text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.html || block.data.text || ''));
     const caption = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.caption || ''));
     return \`
       <blockquote class="quote-wrapper">
@@ -587,7 +750,7 @@ class BlockEditor {
   // (mirrors renderQuoteContent but without the attribution line). On publish
   // blocks.ts renders it as <blockquote class="pullquote"> with the .pq-mark.
   renderPullquoteContent(block) {
-    var text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.text || ''));
+    var text = this.sanitizeHtml(this.migrateMarkdownToHtml(block.data.html || block.data.text || ''));
     return '<blockquote class="pullquote-wrapper">' +
       '<div class="editable-text pullquote-text" contenteditable="true" data-placeholder="Key idea\u2026">' + text + '</div>' +
       '</blockquote>';
@@ -1481,7 +1644,7 @@ class BlockEditor {
     editables.forEach(el => {
       el.addEventListener('input', () => this.handleInput(block, content));
       el.addEventListener('keydown', (e) => this.handleKeydown(e, block));
-      el.addEventListener('paste', (e) => this.handlePaste(e));
+      el.addEventListener('paste', (e) => this.handlePaste(e, block));
     });
 
     // PR-3 (issue 12): the FAQ editor uses real <input>/<textarea> fields (not
@@ -1531,13 +1694,50 @@ class BlockEditor {
     }
   }
 
+  // T7b: keep both the plain text (legacy/publish escape path) and, when the
+  // author applied inline formatting, the sanitized HTML (publish data.html).
+  // Without this, typing after Bold silently stripped formatting from the
+  // model, and saving right after Bold published literal tags.
+  _syncTextAndHtml(block, el) {
+    if (!el) { block.data.text = ''; delete block.data.html; return; }
+    const plain = el.textContent || '';
+    block.data.text = plain;
+    const html = this.sanitizeHtml(el.innerHTML || '');
+    if (html !== plain && /<[a-z][^>]*>/i.test(html)) {
+      block.data.html = html;
+    } else {
+      delete block.data.html;
+    }
+  }
+
+  // A stored list item keeps sanitized inline HTML only when real markup is
+  // present; otherwise plain text (publish escapes plain items byte-for-byte).
+  _itemValue(item) {
+    const plain = item.textContent || '';
+    const html = this.sanitizeHtml(item.innerHTML || '');
+    return (html !== plain && /<[a-z][^>]*>/i.test(html)) ? html : plain;
+  }
+
+  // Reset typing-burst bookkeeping after an operation that already produced
+  // its own history snapshot but ran through input events (e.g. paste).
+  _markClean() {
+    if (this._textTimer) { clearTimeout(this._textTimer); this._textTimer = null; }
+    this._textDirty = false;
+    this._lastCheckpoint = this._serialize();
+  }
+
   // Handle input changes
   handleInput(block, content) {
+    if (!this._restoring) {
+      this._textDirty = true;
+      if (this._textTimer) clearTimeout(this._textTimer);
+      this._textTimer = setTimeout(() => this._commitTextBurst(), 700);
+    }
     switch (block.type) {
       case 'paragraph':
       case 'heading':
         const textEl = content.querySelector('.editable-text');
-        block.data.text = textEl ? textEl.textContent || '' : '';
+        this._syncTextAndHtml(block, textEl);
         break;
       case 'list':
         const listItems = content.querySelectorAll('.list-item-input');
@@ -1556,7 +1756,7 @@ class BlockEditor {
             newItems.push(...parts);
             needsRerender = true;
           } else {
-            newItems.push(item.textContent || '');
+            newItems.push(this._itemValue(item));
           }
         });
 
@@ -1589,12 +1789,12 @@ class BlockEditor {
       case 'quote':
         const quoteText = content.querySelector('.quote-text');
         const quoteCaption = content.querySelector('.quote-caption');
-        block.data.text = quoteText ? quoteText.textContent || '' : '';
+        this._syncTextAndHtml(block, quoteText);
         block.data.caption = quoteCaption ? quoteCaption.textContent || '' : '';
         break;
       case 'pullquote':
         const pullquoteText = content.querySelector('.pullquote-text');
-        block.data.text = pullquoteText ? pullquoteText.textContent || '' : '';
+        this._syncTextAndHtml(block, pullquoteText);
         break;
       case 'faqgroup':
         this.readFaqRows(block, content);
@@ -1603,65 +1803,312 @@ class BlockEditor {
     this.saveToInput();
   }
 
+  // Resolve the list-item element the selection sits in (null outside lists).
+  _selectionListItem() {
+    const selection = window.getSelection();
+    if (!selection || !selection.anchorNode) return null;
+    let node = selection.anchorNode;
+    if (node.nodeType === 3) node = node.parentElement;
+    while (node && node !== document.body) {
+      if (node.classList && node.classList.contains('list-item-input')) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  // Plain-text length of a stored item/text that may carry inline HTML
+  // (already-sanitized content; parsed detached via DOMParser, never injected).
+  _plainLength(stored) {
+    if (!stored) return 0;
+    if (stored.indexOf('<') === -1) return stored.length;
+    const doc = new DOMParser().parseFromString(stored, 'text/html');
+    return (doc.body.textContent || '').length;
+  }
+
+  // Markdown-as-you-type: a paragraph whose entire text is a marker converts
+  // on Space. Triggers ONLY when the marker is the whole block ("* ", "- ",
+  // "1. ", "#"-"####" + space, "> ") so a mid-sentence "*" never converts.
+  _maybeMarkdownConvert(e, block) {
+    if (block.type !== 'paragraph') return false;
+    const el = e.target;
+    if (!el || !el.classList || !el.classList.contains('editable-text')) return false;
+    const text = (el.textContent || '');
+    if (this._caretOffsetIn(el) !== text.length) return false;
+    if (!/^(?:\\*|-|>|#{1,4}|1\\.)$/.test(text)) return false;
+    e.preventDefault();
+    this.snapshot();
+    if (text === '*' || text === '-') {
+      block.type = 'list';
+      block.data = { style: 'unordered', items: [''] };
+    } else if (text === '1.') {
+      block.type = 'list';
+      block.data = { style: 'ordered', items: [''] };
+    } else if (text === '>') {
+      block.type = 'quote';
+      block.data = { text: '', caption: '' };
+    } else {
+      block.type = 'heading';
+      block.data = { text: '', level: Math.min(4, text.length) };
+    }
+    this.renderBlocks();
+    this.saveToInput();
+    if (block.type === 'list') {
+      this.focusListItem(block.id, 0, 0);
+    } else {
+      this.focusBlock(block.id);
+    }
+    return true;
+  }
+
+  // Focus the previous/next block relative to index; caret at end/start.
+  _focusAdjacentBlock(index, direction) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= this.blocks.length) return false;
+    const target = this.blocks[nextIndex];
+    const blockEl = document.querySelector('[data-block-id="' + target.id + '"]');
+    if (!blockEl) return false;
+    const editables = this._blockEditables(blockEl);
+    if (editables.length === 0) { this.focusBlock(target.id); return true; }
+    this.focusedBlockId = target.id;
+    document.querySelectorAll('.editor-block').forEach(el => {
+      el.classList.toggle('focused', el.dataset.blockId === target.id);
+    });
+    const el = direction > 0 ? editables[0] : editables[editables.length - 1];
+    this._placeCaret(el, direction > 0 ? 0 : -1);
+    return true;
+  }
+
   // Handle keydown events
   handleKeydown(e, block) {
+    // Markdown shortcuts fire on Space in paragraphs.
+    if (e.key === ' ' && this._maybeMarkdownConvert(e, block)) return;
+
     // Enter key handling
     if (e.key === 'Enter' && !e.shiftKey) {
-      if (block.type === 'paragraph' || block.type === 'heading') {
+      if (block.type === 'paragraph' || block.type === 'heading' || block.type === 'quote' || block.type === 'pullquote') {
         e.preventDefault();
         // Create new paragraph after this block
         this.addBlock('paragraph', {}, block.id);
-      } else if (block.type === 'list') {
-        // Check if we're at the end of an empty list item
-        const selection = window.getSelection();
-        if (selection && selection.anchorNode) {
-          const listItem = selection.anchorNode.parentElement;
-          if (listItem && listItem.classList.contains('list-item-input')) {
-            const text = listItem.textContent || '';
-            if (text === '') {
-              e.preventDefault();
-              // Convert to paragraph and exit list
-              this.addBlock('paragraph', {}, block.id);
-              // Remove empty item from list
-              const index = parseInt(listItem.dataset.itemIndex || '0');
-              block.data.items.splice(index, 1);
-              if (block.data.items.length === 0) {
-                this.deleteBlock(block.id);
-              } else {
-                this.renderBlocks();
-              }
-              return;
-            }
+        return;
+      }
+      if (block.type === 'list') {
+        e.preventDefault();
+        const listItem = this._selectionListItem();
+        if (!listItem) return;
+        const index = parseInt(listItem.dataset.itemIndex || '0', 10);
+        const text = listItem.textContent || '';
+        if (text === '') {
+          // Empty item: exit the list into a fresh paragraph below.
+          // One snapshot, one mutation pass, one render, focus LAST — the
+          // old add-then-splice-then-rerender order lost the caret.
+          this.snapshot();
+          block.data.items.splice(index, 1);
+          const blockIndex = this.blocks.findIndex(b => b.id === block.id);
+          const para = { id: this.generateId(), type: 'paragraph', data: { text: '' } };
+          if (block.data.items.length === 0) {
+            this.blocks.splice(blockIndex, 1, para);
+          } else {
+            this.blocks.splice(blockIndex + 1, 0, para);
           }
+          this.renderBlocks();
+          this.saveToInput();
+          this.focusBlock(para.id);
+          return;
         }
-        // Add new list item - let browser handle it
+        // Non-empty item: split plain text at the caret; items carrying
+        // inline formatting get a new empty item after (never destroy markup).
+        this.snapshot();
+        const html = listItem.innerHTML || '';
+        const hasMarkup = /<[a-z][^>]*>/i.test(html);
+        const caret = this._caretOffsetIn(listItem);
+        if (!hasMarkup && caret >= 0 && caret <= text.length) {
+          block.data.items[index] = text.slice(0, caret);
+          block.data.items.splice(index + 1, 0, text.slice(caret));
+        } else {
+          block.data.items[index] = html;
+          block.data.items.splice(index + 1, 0, '');
+        }
+        this.renderBlocks();
+        this.saveToInput();
+        this.focusListItem(block.id, index + 1, 0);
+        return;
       }
     }
 
-    // Backspace at start of block
+    // Backspace: list item ops first, then block-level merge/convert/delete.
     if (e.key === 'Backspace') {
       const selection = window.getSelection();
-      if (selection && selection.isCollapsed && selection.anchorOffset === 0) {
-        const target = e.target;
-        const text = target.textContent || '';
+      if (!selection || !selection.isCollapsed) return;
 
-        if (text === '' && block.type !== 'paragraph') {
+      if (block.type === 'list') {
+        const listItem = this._selectionListItem();
+        if (!listItem) return;
+        const index = parseInt(listItem.dataset.itemIndex || '0', 10);
+        const caret = this._caretOffsetIn(listItem);
+        if (caret !== 0) return;
+        const text = listItem.textContent || '';
+        if (index > 0) {
+          // Merge this item into the previous one; caret at the junction.
           e.preventDefault();
-          // Convert to paragraph
-          this.convertBlock('paragraph');
-        } else if (text === '' && this.blocks.length > 1) {
-          e.preventDefault();
-          this.deleteBlock(block.id);
+          this.snapshot();
+          const prevStored = (block.data.items[index - 1] || '');
+          const prevPlainLen = this._plainLength(prevStored);
+          block.data.items[index - 1] = prevStored + (block.data.items[index] || '');
+          block.data.items.splice(index, 1);
+          this.renderBlocks();
+          this.saveToInput();
+          this.focusListItem(block.id, index - 1, prevPlainLen);
+          return;
         }
+        if (text === '' && block.data.items.length === 1) {
+          // Lone empty item: exit the list (convert block to paragraph).
+          e.preventDefault();
+          this.convertBlock('paragraph');
+        }
+        return;
+      }
+
+      const target = e.target;
+      const text = target.textContent || '';
+      const caret = this._caretOffsetIn(target);
+      if (caret !== 0) return;
+
+      if (text === '' && block.type !== 'paragraph') {
+        e.preventDefault();
+        // Convert to paragraph
+        this.convertBlock('paragraph');
+        return;
+      }
+      if (text === '' && this.blocks.length > 1) {
+        e.preventDefault();
+        this.deleteBlock(block.id);
+        return;
+      }
+      // Non-empty block, caret at start: merge into the previous text block.
+      const index = this.blocks.findIndex(b => b.id === block.id);
+      if (index <= 0) return;
+      const prev = this.blocks[index - 1];
+      const textTypes = ['paragraph', 'heading', 'quote', 'pullquote'];
+      if (textTypes.indexOf(block.type) === -1 || textTypes.indexOf(prev.type) === -1) return;
+      e.preventDefault();
+      this.snapshot();
+      const prevEl = document.querySelector('[data-block-id="' + prev.id + '"] [contenteditable="true"]');
+      const curEl = target;
+      const prevHtml = prevEl ? (prevEl.innerHTML || '') : (prev.data.html || prev.data.text || '');
+      const prevPlain = prevEl ? (prevEl.textContent || '') : (prev.data.text || '');
+      const curHtml = curEl ? (curEl.innerHTML || '') : (block.data.html || block.data.text || '');
+      const curPlain = curEl ? (curEl.textContent || '') : (block.data.text || '');
+      prev.data.text = prevPlain + curPlain;
+      const mergedHtml = this.sanitizeHtml(prevHtml + curHtml);
+      if (mergedHtml !== prev.data.text) { prev.data.html = mergedHtml; } else { delete prev.data.html; }
+      this.blocks.splice(index, 1);
+      this.renderBlocks();
+      this.saveToInput();
+      const prevBlockEl = document.querySelector('[data-block-id="' + prev.id + '"]');
+      if (prevBlockEl) {
+        this.focusedBlockId = prev.id;
+        document.querySelectorAll('.editor-block').forEach(el => {
+          el.classList.toggle('focused', el.dataset.blockId === prev.id);
+        });
+        const editable = prevBlockEl.querySelector('[contenteditable="true"]');
+        if (editable) this._placeCaret(editable, prevPlain.length);
+      }
+      return;
+    }
+
+    // Arrow traversal: leave a block from its boundary with the keyboard.
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const selection = window.getSelection();
+      if (!selection || !selection.isCollapsed) return;
+      const el = e.target;
+      const caret = this._caretOffsetIn(el);
+      if (caret < 0) return;
+      const atEnd = caret === (el.textContent || '').length;
+      const atStart = caret === 0;
+      const index = this.blocks.findIndex(b => b.id === block.id);
+
+      if (block.type === 'list' && el.classList && el.classList.contains('list-item-input')) {
+        const itemIndex = parseInt(el.dataset.itemIndex || '0', 10);
+        if (e.key === 'ArrowDown' && atEnd) {
+          if (itemIndex < block.data.items.length - 1) {
+            e.preventDefault();
+            this.focusListItem(block.id, itemIndex + 1, 0);
+          } else if (this._focusAdjacentBlock(index, 1)) {
+            e.preventDefault();
+          }
+          return;
+        }
+        if (e.key === 'ArrowUp' && atStart) {
+          if (itemIndex > 0) {
+            e.preventDefault();
+            this.focusListItem(block.id, itemIndex - 1, -1);
+          } else if (this._focusAdjacentBlock(index, -1)) {
+            e.preventDefault();
+          }
+          return;
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowDown' && atEnd && this._focusAdjacentBlock(index, 1)) {
+        e.preventDefault();
+      } else if (e.key === 'ArrowUp' && atStart && this._focusAdjacentBlock(index, -1)) {
+        e.preventDefault();
       }
     }
   }
 
-  // Handle paste - strip formatting
-  handlePaste(e) {
+  // Handle paste — plain text only. Single lines insert at the caret;
+  // multi-line pastes split into list items (inside a list) or new paragraph
+  // blocks (everywhere else), instead of jamming <div>-polluted lines into
+  // one block.
+  handlePaste(e, block) {
     e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    document.execCommand('insertText', false, text);
+    const raw = e.clipboardData.getData('text/plain');
+    if (!raw) return;
+    // Keep the first line's spacing intact (it continues the caret text);
+    // later lines become their own blocks/items and are trimmed.
+    const lines = raw.replace(/\\r/g, '').split(/\\n+/).filter(t => t.trim() !== '');
+    if (lines.length === 0) return;
+    if (lines.length === 1) {
+      document.execCommand('insertText', false, lines[0]);
+      return;
+    }
+
+    this.snapshot();
+    document.execCommand('insertText', false, lines[0]);
+
+    if (block && block.type === 'list') {
+      const listItem = this._selectionListItem();
+      const at = listItem
+        ? parseInt(listItem.dataset.itemIndex || '0', 10)
+        : block.data.items.length - 1;
+      for (let i = 1; i < lines.length; i++) {
+        block.data.items.splice(at + i, 0, lines[i].trim());
+      }
+      this.renderBlocks();
+      this.saveToInput();
+      this._markClean();
+      this.focusListItem(block.id, at + lines.length - 1, -1);
+      return;
+    }
+
+    const index = block ? this.blocks.findIndex(b => b.id === block.id) : this.blocks.length - 1;
+    const newBlocks = [];
+    for (let i = 1; i < lines.length; i++) {
+      newBlocks.push({ id: this.generateId(), type: 'paragraph', data: { text: lines[i].trim() } });
+    }
+    this.blocks.splice((index === -1 ? this.blocks.length - 1 : index) + 1, 0, ...newBlocks);
+    this.renderBlocks();
+    this.saveToInput();
+    this._markClean();
+    const lastNew = newBlocks[newBlocks.length - 1];
+    this.focusedBlockId = lastNew.id;
+    document.querySelectorAll('.editor-block').forEach(el => {
+      el.classList.toggle('focused', el.dataset.blockId === lastNew.id);
+    });
+    const lastEl = document.querySelector('[data-block-id="' + lastNew.id + '"] [contenteditable="true"]');
+    if (lastEl) this._placeCaret(lastEl, -1);
   }
 
   // Focus a block
@@ -1920,6 +2367,12 @@ class BlockEditor {
       input.value = JSON.stringify(content, null, 2);
     }
 
+    // Refresh the history text-checkpoint after settled (non-typing) saves so
+    // the next typing burst diffs from the current state, not a stale one.
+    if (!this._restoring && !this._textDirty) {
+      this._lastCheckpoint = this._serialize();
+    }
+
     if (this.options.onChange) {
       this.options.onChange(content);
     }
@@ -2070,6 +2523,7 @@ export const editorStyles = `
 .editor-blocks {
   min-height: 300px;
   padding: 16px;
+  cursor: text;
 }
 
 /* Individual Block */
