@@ -1,0 +1,13 @@
+{
+  "$comment": "Measured desktop values for the Senior-Saving default listicle layout. Authoritative source is tokens.ts; this file mirrors the accepted (non-BLOCKER) desktop measurements for visual-regression baselining.",
+  "viewport": { "width": "1014px", "height": "857px", "renderedPageWidth": "1000px", "scrollbarWidth": "14px" },
+  "articleContainer": { "maxWidth": "968px", "paddingX": "16px" },
+  "header": { "height": "64px", "backgroundColor": "#ce2e35", "borderBottom": "1px #f4d1d3", "paddingX": "20px" },
+  "logoSlot": { "width": "226px", "height": "36px", "left": "20px", "top": "15px", "note": "only per-host brand swap" },
+  "disclosureTrigger": { "position": "top-right", "color": "#ffffff", "fontSize": "13px", "lineHeight": "16px", "rightOffset": "20px" },
+  "headline": { "align": "center", "fontSize": "38px", "lineHeight": "48px", "fontWeight": "700", "letterSpacing": "-0.4px", "maxWidth": "820px", "marginBottom": "19px", "firstGlyphTopY": "94px", "gapUnderHeader": "30px" },
+  "byline": { "align": "center", "avatarSize": "31px", "gap": "16px", "fontSize": "12px", "fontWeight": "700", "color": "#4b5360", "marginBottom": "16px" },
+  "hero": { "x": "16px", "width": "967px", "height": "484px", "aspectRatio": "2 / 1", "borderRadius": "5px", "marginBottom": "22px" },
+  "bodyParagraph": { "fontSize": "20px", "lineHeight": "30px", "color": "#2a2a2a", "fontWeight": "400", "marginBottom": "15px", "paragraphGap": "14-16px" },
+  "blockersNotIncluded": ["sectionWrapper", "sectionHeading", "sectionImage", "inlineLink", "choiceButton", "textCta", "legalDisclosureBlock", "footer", "disclosureInteraction"]
+}

@@ -87,6 +87,9 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
   "docs/design-contract.md",
   "SHIP_HANDOFF.md",
   "manualQA.md",
+  // Listicles CMS design contract (v1.2.2): its §1 guardrail enumerates the
+  // banned identifiers as red lines, exactly like the legacy reference docs.
+  "docs/listicles/design-contract-v1.2.2.md",
 ];
 
 // Files that legitimately contain Group B identifiers: everything in

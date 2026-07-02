@@ -1,0 +1,17 @@
+{
+  "$comment": "BLOCKER stub — the 390px mobile reference has NOT been captured. Populate every field from a real 390px capture + computed CSS before Phase 6 default-layout parity can be accepted. Provisional values are marked.",
+  "status": "BLOCKER: capture required before final acceptance",
+  "viewport": { "width": "390px" },
+  "articleContainer": { "paddingX": "16px" },
+  "headline": { "fontSize": "32px (provisional)", "lineHeight": "39px (provisional)" },
+  "bodyParagraph": { "fontSize": "18px (provisional)", "lineHeight": "27px (provisional)" },
+  "articleTopSpacing": { "paddingTop": "22px (provisional)" },
+  "toCapture": [
+    "header height + logo scaling at 390px",
+    "disclosure trigger placement/behaviour at 390px",
+    "headline size/line-height + line breaks",
+    "hero width/aspect at 390px",
+    "choiceButton width/padding/stacking",
+    "section heading / image / inline link / final text CTA / legal block / footer"
+  ]
+}
