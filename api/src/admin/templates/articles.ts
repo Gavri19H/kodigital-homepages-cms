@@ -43,6 +43,9 @@ import {
 export interface SiteOption {
   id: string;
   name?: string;
+  // The site's vertical slug rides the <option> as data-vertical so the AI
+  // panel's context resolution can fill {{vertical}} client-side.
+  vertical?: string;
 }
 
 export interface VerticalOption {
@@ -128,7 +131,8 @@ function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string, 
   const opts = sites.map((s) => {
     const value = escapeHtml(s.id);
     const label = escapeHtml(s.name ?? s.id);
-    return `<option value="${value}"${selectedAttr(selected, s.id)}>${label}</option>`;
+    const vertical = escapeHtml(s.vertical ?? "");
+    return `<option value="${value}" data-vertical="${vertical}"${selectedAttr(selected, s.id)}>${label}</option>`;
   }).join("");
   return blank + opts;
 }

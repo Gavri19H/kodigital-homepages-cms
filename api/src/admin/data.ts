@@ -378,7 +378,7 @@ export async function listAdminSites(env: Env): Promise<SiteDto[]> {
   const result = await env.DB.prepare(
     "SELECT id, name, vertical_slug, activity, status, settings_version, last_provisioned_at, created_at, updated_at FROM sites ORDER BY name ASC, id ASC LIMIT 500",
   ).all<SiteRecord>();
-  return (result.results ?? []).map((r) => ({ id: r.id, name: r.name }));
+  return (result.results ?? []).map((r) => ({ id: r.id, name: r.name, vertical: r.vertical_slug }));
 }
 
 // Single statement in this file that reads FROM the domains table.

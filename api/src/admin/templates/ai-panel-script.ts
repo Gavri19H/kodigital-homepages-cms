@@ -1,30 +1,27 @@
-// Admin AI Assistant panel inline script (T14 full legacy port of the
-// renderAIAssistantPanel script from the legacy admin articles template,
-// legacy reference READ-ONLY).
+// AI Assistant panel behavior — the LEGACY panel's writer flow restored
+// (theiwise-legacy-readonly articles.ts aiAssistantScripts), the richest
+// version that ever shipped. The load-bearing legacy behaviors:
 //
-// What this script wires (T14.AC1 behavioral contract):
-//   - the four quick-action handlers (outline, draft, rewrite, seo_meta),
-//     each building a task prompt from the tone/length controls + the
-//     article fields and firing POST /api/admin/ai/chat;
-//   - the preset selector (ai-preset-select): on change it auto-detects the
-//     {{token}} variables in the preset prompt, renders an input chip per
-//     variable, and shows a live interpolated prompt-preview;
-//   - the tone and length controls feed the quick-action prompts;
-//   - the ai-results wiring parses a structured JSON reply and auto-fills the
-//     article form's title / excerpt / meta (seo description) / author fields.
+//   - TWO MODES: a quick action ARMS the panel (highlight, preset cleared,
+//     preset sections hidden) OR a preset is selected (action cleared).
+//     Generation runs from the single Generate button.
+//   - VARIABLES: only the preset's DECLARED variables_schema renders (typed
+//     inputs, required stars, defaults); a required-missing warning gates
+//     Generate and focuses the first missing input.
+//   - AVAILABLE CONTEXT: always-visible chips (Article Title / Category /
+//     Excerpt / Selected Text / Site); click previews the live value; the
+//     values auto-resolve from the article form into every {{token}}.
+//   - RESOLVED PROMPT PREVIEW: collapsible; System + User prompts rendered
+//     with resolved values highlighted and unresolved {{tokens}} flagged,
+//     plus a warning strip listing them.
+//   - Post-mirror additions kept: "Edit voice" (A3 settable system prompt,
+//     sent as the server-side override), image-prompt boxes for
+//     image-category presets (B3), the empty-completion message (#57), and
+//     structured auto-fill incl. faqs/key_idea inserts.
 //
-// HARD CONTRACT (T28.AC4 + T14.AC1): this is an ES5-only string — no arrow
-// functions, no block-scoped declarations, no template literals INSIDE the
-// script string. Module-level TypeScript may use ES6; the LITERAL may not.
-// Regex backslashes are DOUBLE-escaped because the export is a template
-// literal (es5-inline-scripts rule): `\\{` emits `\{` etc.
-//
-// Endpoint contract (this repo, NOT the legacy generate-* routes):
-//   GET  /api/admin/ai/presets?active_only=true  — populate the preset select
-//   POST /api/admin/ai/chat   {prompt, site_id?} -> {ok, model, text, ...}
-//   POST /api/admin/ai/image  {prompt, site_id?} -> {ok, model, image_url, ...}
-// Insert-to-editor goes through window.blockEditor.addBlock (the T27 block
-// editor's programmatic hook).
+// HARD CONTRACT: ES5-only inside the string (var/function, no arrows, no
+// const/let, no template literals). Regex/backslash literals are
+// double-escaped for the outer template literal.
 
 export const aiAssistantScripts = `
 (function () {
@@ -34,30 +31,36 @@ export const aiAssistantScripts = `
   var toggleBtn = document.getElementById('ai-panel-toggle');
   var body = document.getElementById('ai-panel-body');
   var presetSelect = document.getElementById('ai-preset-select');
+  var variablesSection = document.getElementById('ai-variables-section');
   var presetVars = document.getElementById('ai-preset-variables');
-  var presetPreview = document.getElementById('ai-preset-preview');
+  var requiredWarning = document.getElementById('ai-required-warning');
+  var contextPreview = document.getElementById('ai-context-preview');
+  var previewSection = document.getElementById('ai-preview-section');
+  var previewToggle = document.getElementById('ai-preview-toggle');
+  var previewBody = document.getElementById('ai-preview-body');
+  var systemBlock = document.getElementById('ai-system-block');
+  var systemText = document.getElementById('ai-system-text');
   var systemPromptEl = document.getElementById('ai-system-prompt');
-  var systemGroup = document.getElementById('ai-system-preview-group');
-  var systemDirty = false;
-  var placements = document.getElementById('ai-placements');
-  var placementFields = document.getElementById('ai-placement-fields');
-  var placementsDirty = false;
-  var toneHint = document.getElementById('ai-tone-hint');
-  var previewGroup = document.getElementById('ai-preset-preview-group');
+  var editVoiceBtn = document.getElementById('ai-edit-voice');
+  var presetPreview = document.getElementById('ai-preset-preview');
+  var unresolvedWarning = document.getElementById('ai-unresolved-warning');
   var imagePrompts = document.getElementById('ai-image-prompts');
   var toneEl = document.getElementById('ai-tone');
   var lengthEl = document.getElementById('ai-length');
   var promptEl = document.getElementById('ai-prompt');
-  var chatBtn = document.getElementById('ai-chat-btn');
-  var imageBtn = document.getElementById('ai-image-btn');
+  var generateBtn = document.getElementById('ai-generate-btn');
+  var loadingEl = document.getElementById('ai-loading');
   var statusEl = document.getElementById('ai-panel-status');
   var errEl = document.getElementById('ai-panel-error');
   var resultSection = document.getElementById('ai-results');
   var resultEl = document.getElementById('ai-result');
+  var clearBtn = document.getElementById('ai-clear-btn');
   var copyBtn = document.getElementById('ai-copy-btn');
   var insertBtn = document.getElementById('ai-insert-btn');
   var presetsById = {};
   var activePreset = null;
+  var activeAction = null;
+  var voiceEdited = false;
   var lastResult = null;
 
   function setStatus(msg) {
@@ -71,12 +74,11 @@ export const aiAssistantScripts = `
     errEl.textContent = msg || '';
   }
   function setBusy(busy) {
-    if (chatBtn) { chatBtn.disabled = busy; }
-    if (imageBtn) { imageBtn.disabled = busy; }
+    if (generateBtn) { generateBtn.disabled = busy; }
+    if (loadingEl) { loadingEl.hidden = !busy; }
     var qa = panel.querySelectorAll('.ai-quick-action');
     var k;
     for (k = 0; k < qa.length; k++) { qa[k].disabled = busy; }
-    setStatus(busy ? 'Generating\\u2026' : '');
   }
   function readSiteId() {
     var el = document.querySelector('select[name="site_id"], input[name="site_id"]');
@@ -105,7 +107,59 @@ export const aiAssistantScripts = `
     });
   }
 
-  // ---- Preset selector: variables + live interpolated prompt preview ----
+  // ---- Available Context: auto-resolved values from the article form ----
+  function getContextValues() {
+    var categorySelect = document.querySelector('select[name="category_id"]');
+    var categoryName = '';
+    if (categorySelect && categorySelect.selectedIndex >= 0) {
+      var opt = categorySelect.options[categorySelect.selectedIndex];
+      categoryName = opt && opt.value ? opt.text : '';
+    }
+    var siteSelect = document.querySelector('select[name="site_id"]');
+    var brandName = '';
+    var vertical = '';
+    if (siteSelect && siteSelect.selectedIndex >= 0) {
+      var sOpt = siteSelect.options[siteSelect.selectedIndex];
+      brandName = sOpt && sOpt.value ? sOpt.text : '';
+      vertical = sOpt && sOpt.value ? (sOpt.getAttribute('data-vertical') || '') : '';
+    }
+    var selectedText = '';
+    try { selectedText = String(window.getSelection() || ''); } catch (e) { selectedText = ''; }
+    var title = fieldValue('#article-title');
+    return {
+      article_title: title,
+      article_excerpt: fieldValue('#article-excerpt'),
+      category_name: categoryName,
+      brand_name: brandName,
+      vertical: vertical,
+      selected_text: selectedText,
+      title: title,
+      subject: title
+    };
+  }
+  var contextChips = panel.querySelectorAll('.ai-context-chip');
+  function onContextChipClick() {
+    var key = this.getAttribute('data-context-key');
+    var values = getContextValues();
+    var value = values[key];
+    if (!contextPreview) { return; }
+    if (!contextPreview.hidden && contextPreview.getAttribute('data-showing') === key) {
+      contextPreview.hidden = true;
+      contextPreview.removeAttribute('data-showing');
+      return;
+    }
+    contextPreview.textContent = value && String(value).length > 0
+      ? value
+      : '(empty right now \\u2014 fill the matching field above)';
+    contextPreview.setAttribute('data-showing', key);
+    contextPreview.hidden = false;
+  }
+  var ci;
+  for (ci = 0; ci < contextChips.length; ci++) {
+    contextChips[ci].addEventListener('click', onContextChipClick);
+  }
+
+  // ---- Preset population (grouped select) ----
   function groupLabel(category) {
     if (category === 'content' || category === 'outline') { return 'Content'; }
     if (category === 'seo') { return 'SEO'; }
@@ -138,12 +192,11 @@ export const aiAssistantScripts = `
       presetSelect.appendChild(og);
     }
   }
+
+  // ---- Templates, tokens, variables ----
   function presetTemplate(preset) {
-    var sys = preset && preset.system_prompt_template ? preset.system_prompt_template : '';
     var usr = preset && preset.user_prompt_template ? preset.user_prompt_template : '';
-    var base = usr || (preset && preset.prompt_template ? preset.prompt_template : '');
-    if (sys) { return sys + '\\n\\n' + base; }
-    return base;
+    return usr || (preset && preset.prompt_template ? preset.prompt_template : '');
   }
   // Token auto-detect via replace-callback (no stateful matcher loop).
   function detectTokens(tpl) {
@@ -155,17 +208,37 @@ export const aiAssistantScripts = `
     });
     return names;
   }
-  function declaredVariables(preset) {
+  // The preset's DECLARED variables_schema (key/description/default/required,
+  // optional type/rows/placeholder). Legacy behavior: ONLY declared variables
+  // render as inputs; undeclared tokens resolve from the article context or
+  // show as unresolved in the preview.
+  function declaredSchema(preset) {
     var out = [];
-    if (!preset || !preset.variables) { return out; }
+    if (!preset) { return out; }
+    var raw = preset.variables_schema || preset.variables;
+    if (!raw) { return out; }
     var parsed;
-    try { parsed = JSON.parse(preset.variables); } catch (e) { return out; }
+    try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return out; }
     if (!parsed || !parsed.length) { return out; }
-    var i, v, name;
+    var i, v;
     for (i = 0; i < parsed.length; i++) {
       v = parsed[i];
-      name = typeof v === 'string' ? v : (v && (v.name || v.key));
-      if (name) { out.push(String(name)); }
+      if (typeof v === 'string') {
+        out.push({ key: v, description: '', defaultValue: '', required: false, type: 'text', rows: 3, placeholder: '' });
+        continue;
+      }
+      if (!v || typeof v !== 'object') { continue; }
+      var key = v.key || v.name;
+      if (!key) { continue; }
+      out.push({
+        key: String(key),
+        description: v.description ? String(v.description) : '',
+        defaultValue: v['default'] !== undefined && v['default'] !== null ? String(v['default']) : (v.defaultValue ? String(v.defaultValue) : ''),
+        required: v.required === true,
+        type: v.type === 'textarea' || v.type === 'number' ? v.type : 'text',
+        rows: typeof v.rows === 'number' ? v.rows : 3,
+        placeholder: v.placeholder ? String(v.placeholder) : ''
+      });
     }
     return out;
   }
@@ -185,42 +258,203 @@ export const aiAssistantScripts = `
       return (values && values[name] !== undefined && values[name] !== '') ? values[name] : whole;
     });
   }
-  // T7/AC2: a dedicated system-prompt preview that updates on preset select
-  // (and on every variable edit). It shows the interpolated
-  // system_prompt_template the server will apply, so the operator sees the
-  // voice the preset overrides the tone with.
+  // Combined resolution: declared-variable values win, then the auto context.
+  function resolutionValues() {
+    var context = getContextValues();
+    var custom = variableValues();
+    var merged = {};
+    var k;
+    for (k in context) { if (Object.prototype.hasOwnProperty.call(context, k)) { merged[k] = context[k]; } }
+    for (k in custom) {
+      if (Object.prototype.hasOwnProperty.call(custom, k) && custom[k] !== '') { merged[k] = custom[k]; }
+    }
+    return merged;
+  }
+  function resolveText(tpl) {
+    var values = resolutionValues();
+    var unresolved = [];
+    var resolved = String(tpl).replace(TOKEN_RE, function (whole, name) {
+      if (values[name] !== undefined && values[name] !== '') { return values[name]; }
+      unresolved.push(name);
+      return whole;
+    });
+    return { resolved: resolved, unresolved: unresolved };
+  }
+
+  function renderVariableInputs(preset) {
+    if (!presetVars) { return; }
+    while (presetVars.firstChild) { presetVars.removeChild(presetVars.firstChild); }
+    var schema = declaredSchema(preset);
+    if (variablesSection) { variablesSection.hidden = schema.length === 0; }
+    if (requiredWarning) { requiredWarning.hidden = true; }
+    var i, v, wrap, span, star, input;
+    for (i = 0; i < schema.length; i++) {
+      v = schema[i];
+      wrap = document.createElement('label');
+      wrap.className = 'ai-var-chip';
+      span = document.createElement('span');
+      span.className = 'ai-var-name';
+      span.textContent = v.description || v.key;
+      if (v.required) {
+        star = document.createElement('span');
+        star.className = 'ai-var-required';
+        star.textContent = ' *';
+        span.appendChild(star);
+      }
+      if (v.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = v.rows;
+      } else {
+        input = document.createElement('input');
+        input.type = v.type === 'number' ? 'number' : 'text';
+      }
+      input.className = 'form-input ai-var-input ai-variable-input';
+      input.setAttribute('data-var-name', v.key);
+      if (v.required) { input.setAttribute('data-required', '1'); }
+      input.placeholder = v.placeholder || v.key;
+      if (v.defaultValue) { input.value = v.defaultValue; }
+      input.addEventListener('input', renderPreview);
+      wrap.appendChild(span);
+      wrap.appendChild(input);
+      presetVars.appendChild(wrap);
+    }
+  }
+  function missingRequired() {
+    var out = [];
+    if (!presetVars) { return out; }
+    var inputs = presetVars.querySelectorAll('[data-required="1"]');
+    var i;
+    for (i = 0; i < inputs.length; i++) {
+      if (!inputs[i].value || inputs[i].value.replace(/\\s/g, '') === '') { out.push(inputs[i]); }
+    }
+    return out;
+  }
+  function updateRequiredWarning() {
+    if (!requiredWarning || !presetVars) { return; }
+    var missing = missingRequired();
+    var inputs = presetVars.querySelectorAll('.ai-variable-input');
+    var i;
+    for (i = 0; i < inputs.length; i++) { inputs[i].classList.remove('ai-input-missing'); }
+    if (missing.length === 0) { requiredWarning.hidden = true; return; }
+    var names = [];
+    for (i = 0; i < missing.length; i++) {
+      missing[i].classList.add('ai-input-missing');
+      names.push(missing[i].getAttribute('data-var-name'));
+    }
+    requiredWarning.textContent = 'Required: ' + names.join(', ');
+    requiredWarning.hidden = false;
+  }
+
+  // ---- Resolved prompt preview: highlighted values, flagged tokens ----
+  function renderHighlighted(el, tpl) {
+    if (!el) { return; }
+    while (el.firstChild) { el.removeChild(el.firstChild); }
+    var values = resolutionValues();
+    var text = String(tpl);
+    var lastIndex = 0;
+    text.replace(TOKEN_RE, function (whole, name, offset) {
+      if (offset > lastIndex) {
+        el.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
+      }
+      var span = document.createElement('span');
+      if (values[name] !== undefined && values[name] !== '') {
+        span.className = 'prompt-variable';
+        span.title = '{{' + name + '}}';
+        span.textContent = values[name];
+      } else {
+        span.className = 'prompt-variable-unresolved';
+        span.textContent = whole;
+      }
+      el.appendChild(span);
+      lastIndex = offset + whole.length;
+      return whole;
+    });
+    if (lastIndex < text.length) {
+      el.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+  }
+  // T7/AC2: the system-prompt surface renders from system_prompt_template and
+  // updates on preset select + every variable/context edit. "Edit voice"
+  // (A3 settable system prompt) swaps the preview for an editable textarea
+  // prefilled with the RESOLVED voice; the edit rides the next generation.
   function renderSystemPreview() {
-    if (!systemPromptEl) { return; }
-    if (!activePreset || !activePreset.system_prompt_template) {
-      if (!systemDirty) { systemPromptEl.value = ''; }
-      if (systemGroup) { systemGroup.hidden = !systemDirty || systemPromptEl.value.replace(/\\s/g, '') === ''; }
+    if (!systemBlock) { return; }
+    var tpl = activePreset && activePreset.system_prompt_template ? activePreset.system_prompt_template : '';
+    if (!tpl) {
+      systemBlock.hidden = true;
       return;
     }
-    // A3 "settable system prompt": prefilled from the preset (interpolated),
-    // writer-editable; a writer edit sticks until another preset is chosen.
-    if (!systemDirty) {
-      systemPromptEl.value = interpolate(activePreset.system_prompt_template, variableValues());
+    systemBlock.hidden = false;
+    if (voiceEdited) {
+      if (systemText) { systemText.hidden = true; }
+      if (systemPromptEl) { systemPromptEl.hidden = false; }
+      return;
     }
-    if (systemGroup) { systemGroup.hidden = systemPromptEl.value.replace(/\\s/g, '') === ''; }
+    if (systemText) { systemText.hidden = false; }
+    if (systemPromptEl) { systemPromptEl.hidden = true; }
+    renderHighlighted(systemText, tpl);
   }
   function renderPreview() {
     renderSystemPreview();
-    if (!presetPreview) { return; }
+    updateRequiredWarning();
+    if (!previewSection) { return; }
     if (!activePreset) {
-      presetPreview.textContent = '';
-      if (previewGroup) { previewGroup.hidden = true; }
+      previewSection.hidden = true;
       return;
     }
-    var prompt = interpolate(presetTemplate(activePreset), variableValues());
-    presetPreview.textContent = prompt;
-    if (previewGroup) { previewGroup.hidden = prompt.replace(/\\s/g, '') === ''; }
-    if (promptEl) { promptEl.value = prompt; }
+    var userTpl = presetTemplate(activePreset);
+    previewSection.hidden = false;
+    renderHighlighted(presetPreview, userTpl);
+    if (unresolvedWarning) {
+      var sysTpl = activePreset.system_prompt_template || '';
+      var all = resolveText(sysTpl + '\\n' + userTpl).unresolved;
+      var uniq = [];
+      var seen = {};
+      var i;
+      for (i = 0; i < all.length; i++) {
+        if (!seen[all[i]]) { seen[all[i]] = true; uniq.push('{{' + all[i] + '}}'); }
+      }
+      if (uniq.length > 0) {
+        unresolvedWarning.textContent = 'Unresolved: ' + uniq.join(', ') + ' \\u2014 fill a Variable or the matching article field.';
+        unresolvedWarning.hidden = false;
+      } else {
+        unresolvedWarning.hidden = true;
+      }
+    }
+  }
+  if (previewToggle && previewBody) {
+    previewToggle.addEventListener('click', function () {
+      var open = !previewBody.hidden;
+      previewBody.hidden = open;
+      previewToggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+  }
+  if (editVoiceBtn && systemPromptEl) {
+    editVoiceBtn.addEventListener('click', function () {
+      if (!voiceEdited) {
+        var tpl = activePreset && activePreset.system_prompt_template ? activePreset.system_prompt_template : '';
+        systemPromptEl.value = resolveText(tpl).resolved;
+        voiceEdited = true;
+        editVoiceBtn.textContent = 'Use preset voice';
+      } else {
+        voiceEdited = false;
+        editVoiceBtn.textContent = 'Edit voice';
+      }
+      renderSystemPreview();
+    });
+  }
+  // Live preview refresh when the article context changes.
+  var contextSelectors = ['#article-title', '#article-excerpt', 'select[name="category_id"]', 'select[name="site_id"]'];
+  var cs, csEl;
+  for (cs = 0; cs < contextSelectors.length; cs++) {
+    csEl = document.querySelector(contextSelectors[cs]);
+    if (csEl) {
+      csEl.addEventListener('input', renderPreview);
+      csEl.addEventListener('change', renderPreview);
+    }
   }
 
   // ---- Image prompts (content_mapping.image_prompts) ----
-  // A preset that builds images inside the article carries per-image prompts;
-  // the panel surfaces them as editable boxes next to the text prompt, and
-  // Generate image consumes the box content.
   function imagePromptsOf(preset) {
     if (!preset || !preset.content_mapping) { return null; }
     var map = null;
@@ -257,7 +491,7 @@ export const aiAssistantScripts = `
       ta = document.createElement('textarea');
       ta.className = 'form-textarea ai-image-prompt';
       ta.rows = 2;
-      ta.value = interpolate(entries[i].prompt, variableValues());
+      ta.value = resolveText(entries[i].prompt).resolved;
       ta.setAttribute('data-image-key', entries[i].key);
       wrap.appendChild(label);
       wrap.appendChild(ta);
@@ -265,120 +499,42 @@ export const aiAssistantScripts = `
     }
   }
 
-  // ---- Dynamic placements: the preset-tab content-mapping surfaced to the
-  // writer (fields to generate + paragraph count). Prefilled from the active
-  // preset; writer toggles apply to the next generation only.
-  var PLACEMENT_FIELDS = [
-    ['title', 'Title'],
-    ['excerpt', 'Excerpt'],
-    ['content', 'Body content'],
-    ['meta_title', 'Meta title'],
-    ['meta_description', 'Meta description'],
-    ['author_name', 'Author name'],
-    ['author_bio', 'Author bio'],
-    ['tags', 'Tags'],
-    ['generate_h2_subtitles', 'H2 subtitles']
-  ];
-  function presetMappingOf(preset) {
-    if (!preset || !preset.content_mapping) { return {}; }
-    try {
-      var m = JSON.parse(preset.content_mapping);
-      return m && typeof m === 'object' ? m : {};
-    } catch (err) { return {}; }
-  }
-  function renderPlacements(preset) {
-    if (!placements || !placementFields) { return; }
-    while (placementFields.firstChild) { placementFields.removeChild(placementFields.firstChild); }
-    placementsDirty = false;
-    placements.hidden = !preset;
-    if (!preset) { return; }
-    var mapping = presetMappingOf(preset);
-    var i, wrap, cb, txt;
-    for (i = 0; i < PLACEMENT_FIELDS.length; i++) {
-      wrap = document.createElement('label');
-      cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.className = 'ai-placement-field';
-      cb.setAttribute('data-field-key', PLACEMENT_FIELDS[i][0]);
-      cb.checked = mapping[PLACEMENT_FIELDS[i][0]] === true;
-      cb.addEventListener('change', function () { placementsDirty = true; });
-      txt = document.createTextNode(' ' + PLACEMENT_FIELDS[i][1]);
-      wrap.appendChild(cb);
-      wrap.appendChild(txt);
-      placementFields.appendChild(wrap);
-    }
-    var countWrap = document.createElement('div');
-    countWrap.className = 'ai-placement-count';
-    var countLabel = document.createElement('span');
-    countLabel.appendChild(document.createTextNode('Paragraphs:'));
-    var count = document.createElement('input');
-    count.type = 'number';
-    count.min = '0';
-    count.id = 'ai-placement-paragraphs';
-    count.className = 'form-input';
-    if (typeof mapping.paragraph_count === 'number') { count.value = String(mapping.paragraph_count); }
-    count.addEventListener('input', function () { placementsDirty = true; });
-    countWrap.appendChild(countLabel);
-    countWrap.appendChild(count);
-    placementFields.appendChild(countWrap);
-  }
-  // The FULL effective mapping the writer configured (fields + count + edited
-  // image prompts) — sent as one replacement object, no partial-merge ambiguity.
-  function effectiveContentMapping() {
-    if (!placementFields) { return null; }
-    var mapping = {};
-    var any = false;
-    var boxes = placementFields.querySelectorAll('.ai-placement-field');
+  // ---- Modes: quick action vs preset (legacy semantics) ----
+  function clearActionHighlight() {
+    var btns = panel.querySelectorAll('.ai-quick-action');
     var i;
-    for (i = 0; i < boxes.length; i++) {
-      if (boxes[i].checked) { mapping[boxes[i].getAttribute('data-field-key')] = true; any = true; }
-    }
-    var count = document.getElementById('ai-placement-paragraphs');
-    if (count && count.value !== '' && !isNaN(parseInt(count.value, 10))) {
-      mapping.paragraph_count = parseInt(count.value, 10);
-      any = true;
-    }
-    if (imagePrompts && !imagePrompts.hidden) {
-      var im = {};
-      var imAny = false;
-      var tas = imagePrompts.querySelectorAll('.ai-image-prompt');
-      for (i = 0; i < tas.length; i++) {
-        if (tas[i].value && tas[i].value.replace(/\\s/g, '') !== '') {
-          im[tas[i].getAttribute('data-image-key')] = tas[i].value;
-          imAny = true;
-        }
-      }
-      if (imAny) { mapping.image_prompts = im; any = true; }
-    }
-    return any ? mapping : null;
+    for (i = 0; i < btns.length; i++) { btns[i].classList.remove('active'); }
   }
-  function renderVariableInputs(preset) {
-    if (!presetVars) { return; }
-    while (presetVars.firstChild) { presetVars.removeChild(presetVars.firstChild); }
-    if (!preset) { return; }
-    var names = detectTokens(presetTemplate(preset));
-    var declared = declaredVariables(preset);
-    var i, n, wrap, span, input;
-    for (i = 0; i < declared.length; i++) {
-      if (names.indexOf(declared[i]) === -1) { names.push(declared[i]); }
-    }
-    for (i = 0; i < names.length; i++) {
-      n = names[i];
-      wrap = document.createElement('label');
-      wrap.className = 'ai-var-chip';
-      span = document.createElement('span');
-      span.className = 'ai-var-name';
-      span.textContent = '{{' + n + '}}';
-      input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'form-input ai-var-input';
-      input.setAttribute('data-var-name', n);
-      input.placeholder = n;
-      input.addEventListener('input', renderPreview);
-      wrap.appendChild(span);
-      wrap.appendChild(input);
-      presetVars.appendChild(wrap);
-    }
+  function applySelectedPreset() {
+    activePreset = presetsById[presetSelect.value] || null;
+    activeAction = null;
+    voiceEdited = false;
+    if (editVoiceBtn) { editVoiceBtn.textContent = 'Edit voice'; }
+    clearActionHighlight();
+    renderVariableInputs(activePreset);
+    renderImagePrompts(activePreset);
+    renderPreview();
+    if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
+    else { setStatus(''); }
+  }
+  function onQuickClick() {
+    var action = this.getAttribute('data-quick-action');
+    activeAction = action;
+    activePreset = null;
+    voiceEdited = false;
+    if (presetSelect) { presetSelect.value = ''; }
+    clearActionHighlight();
+    this.classList.add('active');
+    renderVariableInputs(null);
+    renderImagePrompts(null);
+    renderPreview();
+    setError('');
+    setStatus('Action armed: ' + action.replace(/_/g, ' ') + ' \\u2014 press Generate.');
+  }
+  var quickButtons = panel.querySelectorAll('.ai-quick-action');
+  var qi;
+  for (qi = 0; qi < quickButtons.length; qi++) {
+    quickButtons[qi].addEventListener('click', onQuickClick);
   }
   if (presetSelect) {
     fetch('/api/admin/ai/presets?active_only=true&per_page=200', { credentials: 'same-origin' })
@@ -387,47 +543,8 @@ export const aiAssistantScripts = `
       .catch(function () { setStatus('Presets unavailable'); });
     presetSelect.addEventListener('change', function () { applySelectedPreset(); });
   }
-  if (systemPromptEl) {
-    systemPromptEl.addEventListener('input', function () { systemDirty = true; });
-  }
 
-  // Shared preset-application path: the change listener and the quick-action
-  // auto-select both go through here so previews, variable chips and image
-  // prompts always reflect the active preset.
-  function applySelectedPreset() {
-    activePreset = presetsById[presetSelect.value] || null;
-    systemDirty = false;
-    renderVariableInputs(activePreset);
-    renderImagePrompts(activePreset);
-    renderPlacements(activePreset);
-    renderPreview();
-    if (toneHint) { toneHint.hidden = !activePreset; }
-    if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
-  }
-
-  // Per-action default preset (mirrors the server's default so the writer
-  // SEES the system prompt that will run): action -> preset category.
-  var ACTION_PRESET_CATEGORY = {
-    outline: 'outline',
-    draft: 'content',
-    rewrite: 'custom',
-    seo_meta: 'seo',
-    faq: 'content',
-    key_idea: 'content'
-  };
-  function presetIdForCategory(category) {
-    var id, row, fallback = '';
-    for (id in presetsById) {
-      if (!Object.prototype.hasOwnProperty.call(presetsById, id)) { continue; }
-      row = presetsById[id];
-      if (row.category !== category) { continue; }
-      if (row.is_system) { return id; }
-      if (!fallback) { fallback = id; }
-    }
-    return fallback;
-  }
-
-  // ---- Quick actions: outline / draft / rewrite / seo_meta ----
+  // ---- Quick-action prompt builders (context-driven) ----
   function buildQuickPrompt(action) {
     var title = fieldValue('#article-title');
     var excerpt = fieldValue('#article-excerpt');
@@ -485,16 +602,10 @@ export const aiAssistantScripts = `
     if (fillField('[name="author_name"]', author)) { filled.push('author'); }
     if (obj.author_bio !== undefined) { fillField('[name="author_bio"]', obj.author_bio); }
     if (obj.content !== undefined && obj.content !== null) { insertContent(String(obj.content)); }
-    // PR-3 (issue 12): structured FAQ + Key-idea inserts. faqs[] becomes ONE
-    // faqgroup block (round-trips into the friendly FAQ editor and expands to
-    // the public .faq-section); key_idea becomes a pullquote block. Both go
-    // through the editor's addBlock; if the editor is absent they degrade to
-    // appended plain text in the content textarea.
     if (insertFaqs(obj.faqs)) { filled.push('faqs'); }
     if (insertKeyIdea(obj.key_idea)) { filled.push('key idea'); }
     return filled;
   }
-
   function insertFaqs(faqs) {
     if (!faqs || Object.prototype.toString.call(faqs) !== '[object Array]') { return false; }
     var items = [];
@@ -524,7 +635,6 @@ export const aiAssistantScripts = `
     }
     return true;
   }
-
   function insertKeyIdea(keyIdea) {
     if (keyIdea == null) { return false; }
     var text = String(keyIdea).trim();
@@ -539,39 +649,44 @@ export const aiAssistantScripts = `
     return true;
   }
 
+  // ---- Generate: one button, legacy gating, mode-based routing ----
+  function composePrompt() {
+    var instructions = promptEl && promptEl.value ? promptEl.value.trim() : '';
+    var base = '';
+    if (activeAction) {
+      base = buildQuickPrompt(activeAction);
+    } else if (activePreset) {
+      base = resolveText(presetTemplate(activePreset)).resolved;
+    }
+    if (base && instructions) { return base + '\\n\\nAdditional instructions: ' + instructions; }
+    return base || instructions;
+  }
   function generate(url, kind, action, promptOverride) {
     var text = promptOverride && promptOverride.trim
       ? promptOverride.trim()
-      : (promptEl && promptEl.value ? promptEl.value.trim() : '');
+      : composePrompt();
     if (!text) {
-      setError('Prompt is required');
-      if (promptEl) { promptEl.focus(); }
+      setError('Pick a quick action or a preset (or type instructions).');
       return;
     }
     setError('');
     setBusy(true);
+    setStatus('Generating\\u2026');
     var payload = { prompt: text };
     var siteId = readSiteId();
     if (siteId) { payload.site_id = siteId; }
-    // T7/AC2: send the tone/length options and, when a preset is selected, the
-    // presetId + its {{variable}} values so the server applies the preset
-    // system_prompt_template, overrides the tone, and maps length->max_tokens.
     payload.options = {
       tone: toneEl && toneEl.value ? toneEl.value : '',
       length: lengthEl && lengthEl.value ? lengthEl.value : ''
     };
+    payload.context = getContextValues();
     if (activePreset) {
       payload.presetId = activePreset.id;
       payload.variables = variableValues();
     }
-    // A3: a writer-edited system prompt overrides the preset voice for this
-    // generation; the placements the writer configured ride content_mapping.
-    if (systemDirty && systemPromptEl && systemPromptEl.value.replace(/\\s/g, '') !== '') {
+    // A3: the edited voice overrides the preset system prompt server-side.
+    if (voiceEdited && systemPromptEl && systemPromptEl.value.replace(/\\s/g, '') !== '') {
       payload.system_prompt = systemPromptEl.value;
-    }
-    if (placementsDirty) {
-      var effMapping = effectiveContentMapping();
-      if (effMapping) { payload.content_mapping = effMapping; }
     }
     fetch(url, {
       method: 'POST',
@@ -592,45 +707,31 @@ export const aiAssistantScripts = `
       setError('Network error');
     });
   }
-  if (chatBtn) {
-    chatBtn.addEventListener('click', function () { generate('/api/admin/ai/chat', 'text', null); });
-  }
-  if (imageBtn) {
-    imageBtn.addEventListener('click', function () {
-      // Prefer the preset's image-prompt box when present (writer-editable);
-      // fall back to the main prompt.
-      var box = imagePrompts && !imagePrompts.hidden ? imagePrompts.querySelector('.ai-image-prompt') : null;
-      var override = box && box.value ? box.value : null;
-      generate('/api/admin/ai/image', 'image', null, override);
+  if (generateBtn) {
+    generateBtn.addEventListener('click', function () {
+      // Legacy gate: a preset's required variables block generation.
+      if (activePreset) {
+        var missing = missingRequired();
+        if (missing.length > 0) {
+          updateRequiredWarning();
+          setError('Fill the required fields first.');
+          missing[0].focus();
+          return;
+        }
+      }
+      // Image-category presets generate an image (the writer-editable
+      // image-prompt box wins as the prompt when present).
+      if (activePreset && activePreset.category === 'image') {
+        var box = imagePrompts && !imagePrompts.hidden ? imagePrompts.querySelector('.ai-image-prompt') : null;
+        var override = box && box.value ? box.value : null;
+        generate('/api/admin/ai/image', 'image', null, override);
+        return;
+      }
+      generate('/api/admin/ai/chat', 'text', activeAction);
     });
   }
 
-  function onQuickClick() {
-    var action = this.getAttribute('data-quick-action');
-    // Auto-select the per-action default preset so the System-prompt box and
-    // previews populate BEFORE generating — the writer sees what will run.
-    // A preset the writer already chose always wins.
-    if (!activePreset && presetSelect) {
-      var category = ACTION_PRESET_CATEGORY[action];
-      var pid = category ? presetIdForCategory(category) : '';
-      if (pid) {
-        presetSelect.value = pid;
-        applySelectedPreset();
-      }
-    }
-    var quick = buildQuickPrompt(action);
-    if (promptEl) { promptEl.value = quick; }
-    // The preview always shows the prompt actually being sent.
-    if (presetPreview) { presetPreview.textContent = quick; }
-    if (previewGroup) { previewGroup.hidden = quick.replace(/\\s/g, '') === ''; }
-    generate('/api/admin/ai/chat', 'text', action);
-  }
-  var quickButtons = panel.querySelectorAll('.ai-quick-action');
-  var qi;
-  for (qi = 0; qi < quickButtons.length; qi++) {
-    quickButtons[qi].addEventListener('click', onQuickClick);
-  }
-
+  // ---- Results ----
   function showResult(kind, data, action) {
     lastResult = { kind: kind, data: data };
     while (resultEl.firstChild) { resultEl.removeChild(resultEl.firstChild); }
@@ -638,15 +739,12 @@ export const aiAssistantScripts = `
     if (kind === 'image' && data.image_url) {
       var img = document.createElement('img');
       img.src = data.image_url;
-      img.alt = promptEl && promptEl.value ? promptEl.value : 'AI generated image';
+      img.alt = 'AI generated image';
       img.className = 'ai-result-image';
       resultEl.appendChild(img);
     } else {
       var resultText = data.text || '';
       if (resultText.replace(/\\s/g, '') === '') {
-        // An empty completion must never show a silent "Done" + empty box:
-        // it happens when the token budget (Length) is too small for the
-        // selected preset's output contract. Say so, actionably.
         resultSection.hidden = true;
         setError('The model returned no text. Try Length: Long, or a lighter preset for this action.');
         setStatus('');
@@ -670,32 +768,42 @@ export const aiAssistantScripts = `
       setStatus('Done (model: ' + (data.model || 'unknown') + ')');
     }
   }
-
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      lastResult = null;
+      while (resultEl.firstChild) { resultEl.removeChild(resultEl.firstChild); }
+      resultSection.hidden = true;
+      setStatus('');
+      setError('');
+    });
+  }
   if (copyBtn) {
     copyBtn.addEventListener('click', function () {
       if (!lastResult) { return; }
       var text = lastResult.kind === 'image' ? (lastResult.data.image_url || '') : (lastResult.data.text || '');
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function () { setStatus('Copied'); }).catch(function () { setStatus('Copy failed'); });
-      } else {
-        setStatus('Clipboard unavailable');
       }
     });
   }
   if (insertBtn) {
     insertBtn.addEventListener('click', function () {
       if (!lastResult) { return; }
-      var editor = window.blockEditor || null;
-      if (!editor) { setError('Editor is not mounted'); return; }
       if (lastResult.kind === 'image') {
-        editor.addBlock('image', {
-          src: lastResult.data.image_url || '',
-          media_id: lastResult.data.media_id || null,
-          alt: promptEl && promptEl.value ? promptEl.value : ''
-        });
-      } else {
-        editor.addBlock('paragraph', { text: lastResult.data.text || '' });
+        var editor = window.blockEditor || null;
+        if (editor && typeof editor.addBlock === 'function' && lastResult.data.image_url) {
+          editor.addBlock('image', { url: lastResult.data.image_url, alt: '', caption: '' });
+          setStatus('Image inserted');
+        }
+        return;
       }
+      var structured = extractStructured(lastResult.data.text || '');
+      if (structured) {
+        var filled = applyStructured(structured);
+        setStatus(filled.length ? ('Auto-filled: ' + filled.join(', ')) : 'Inserted');
+        return;
+      }
+      insertContent(lastResult.data.text || '');
       setStatus('Inserted into editor');
     });
   }
