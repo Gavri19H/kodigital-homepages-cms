@@ -22,9 +22,11 @@ import {
 } from "../../listicles/rules";
 import {
   type AdminContext,
+  buildPaging,
   chunk,
   idSelector,
   parseDateRange,
+  parsePaging,
   placeholders,
   readJsonBody,
 } from "./shared";
@@ -90,7 +92,8 @@ export async function resolveArticleRow(
   return row ?? null;
 }
 
-// GET /api/admin/listicles/articles?site_id= — site-scoped list (§7.1).
+// GET /api/admin/listicles/articles?site_id=&page=&page_size= — site-scoped
+// list + pager (§7.1; same envelope as the offers list).
 export async function listArticlesHandler(c: AdminContext): Promise<Response> {
   const siteId = c.req.query("site_id")?.trim() ?? "";
   if (siteId === "") {
@@ -99,6 +102,7 @@ export async function listArticlesHandler(c: AdminContext): Promise<Response> {
       400,
     );
   }
+  const { page, pageSize, offset } = parsePaging(c);
   const rows = await c.env.DB.prepare(
     `SELECT a.*,
             (SELECT COUNT(*) FROM listicle_article_versions v
@@ -108,11 +112,21 @@ export async function listArticlesHandler(c: AdminContext): Promise<Response> {
      FROM listicle_articles a
      WHERE a.site_id = ?
      ORDER BY a.updated_at DESC, a.id DESC
-     LIMIT 200`,
+     LIMIT ? OFFSET ?`,
+  )
+    .bind(siteId, pageSize, offset)
+    .all<ArticleRowL & { version_count: number; experiment_status: string | null }>();
+  const totalRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM listicle_articles WHERE site_id = ?",
   )
     .bind(siteId)
-    .all<ArticleRowL & { version_count: number; experiment_status: string | null }>();
-  return c.json({ articles: rows.results ?? [], site_id: siteId });
+    .first<{ n: number }>();
+  const total = Number(totalRow?.n ?? 0);
+  return c.json({
+    articles: rows.results ?? [],
+    paging: buildPaging(page, pageSize, total),
+    site_id: siteId,
+  });
 }
 
 async function slugTaken(

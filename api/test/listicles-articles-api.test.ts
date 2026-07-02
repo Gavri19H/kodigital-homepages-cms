@@ -254,16 +254,71 @@ describeDb("article create — base + control Version in ONE batch (§5.3)", () 
     expect(patchedBody.fields.slug).toContain("already exists");
   });
 
-  it("GET /articles requires site_id and lists the site's articles", async () => {
+  it("GET /articles requires site_id and lists the site's articles with the paging envelope", async () => {
     const { env } = newHarness();
     await createArticle(env);
     const missing = await admin.request("/api/admin/listicles/articles", {}, env);
     expect(missing.status).toBe(400);
     const list = await admin.request("/api/admin/listicles/articles?site_id=st_test", {}, env);
     expect(list.status).toBe(200);
-    const listBody = (await list.json()) as { articles: Array<{ version_count: number }> };
+    const listBody = (await list.json()) as {
+      articles: Array<{ version_count: number }>;
+      paging: Record<string, unknown>;
+      site_id: string;
+    };
     expect(listBody.articles).toHaveLength(1);
     expect(listBody.articles[0]?.version_count).toBe(1);
+    expect(listBody.site_id).toBe("st_test");
+    expect(listBody.paging).toEqual({
+      page: 1,
+      page_size: 25,
+      total: 1,
+      has_next: false,
+      has_prev: false,
+    });
+  });
+
+  it("GET /articles paginates via page/page_size like the offers list", async () => {
+    const { env } = newHarness();
+    await createArticle(env, { slug: "list-one", article_name: "One" });
+    await createArticle(env, { slug: "list-two", article_name: "Two" });
+    await createArticle(env, { slug: "list-three", article_name: "Three" });
+
+    const page1 = await admin.request(
+      "/api/admin/listicles/articles?site_id=st_test&page=1&page_size=2",
+      {},
+      env,
+    );
+    expect(page1.status).toBe(200);
+    const page1Body = (await page1.json()) as {
+      articles: Array<{ slug: string }>;
+      paging: { page: number; page_size: number; total: number; has_next: boolean; has_prev: boolean };
+    };
+    expect(page1Body.articles).toHaveLength(2);
+    expect(page1Body.paging).toEqual({
+      page: 1,
+      page_size: 2,
+      total: 3,
+      has_next: true,
+      has_prev: false,
+    });
+
+    const page2 = await admin.request(
+      "/api/admin/listicles/articles?site_id=st_test&page=2&page_size=2",
+      {},
+      env,
+    );
+    expect(page2.status).toBe(200);
+    const page2Body = (await page2.json()) as {
+      articles: Array<{ slug: string }>;
+      paging: { page: number; total: number; has_next: boolean; has_prev: boolean };
+    };
+    expect(page2Body.articles).toHaveLength(1);
+    expect(page2Body.paging).toMatchObject({ page: 2, total: 3, has_next: false, has_prev: true });
+
+    // The two pages tile the full site-scoped set with no overlap.
+    const slugs = [...page1Body.articles, ...page2Body.articles].map((a) => a.slug).sort();
+    expect(slugs).toEqual(["list-one", "list-three", "list-two"]);
   });
 });
 
@@ -605,6 +660,111 @@ describeDb("PUT /versions/:id — atomic replace save (§7.1/§15.6/§23)", () =
     const body = (await res.json()) as { error: string; fields: Record<string, string> };
     expect(body.error).toBe("running_version_immutable");
     expect(body.fields.version).toContain("forks a new Version");
+  });
+
+  it("409 published_version_immutable: a BEHAVIORAL change to a published article's Version writes nothing (§15.6 case c)", async () => {
+    const { sdb, env } = newHarness();
+    const { article, version } = await createArticle(env);
+    const sectionA = seedSection(sdb, "sec_a", "Section A");
+    const sectionB = seedSection(sdb, "sec_b", "Section B");
+
+    // Case (a): the SAME behavioral change on the still-draft article is
+    // allowed and bumps content_version (existing behavior unchanged).
+    const draftSave = await admin.request(
+      `/api/admin/listicles/versions/${version.id}`,
+      jsonInit("PUT", {
+        ...CREATE_ARTICLE,
+        pages: [{ page_index: 0, selection_mode: "single", candidates: [{ section_id: sectionA }] }],
+      }),
+      env,
+    );
+    expect(draftSave.status).toBe(200);
+    const draftBody = (await draftSave.json()) as { version: { content_version: number } };
+    expect(draftBody.version.content_version).toBe(2);
+
+    const published = await admin.request(
+      `/api/admin/listicles/articles/${article.id}/publish`,
+      jsonInit("POST"),
+      env,
+    );
+    expect(published.status).toBe(200);
+
+    // Behavioral: page 0 swaps to a different section → fingerprint differs.
+    const res = await admin.request(
+      `/api/admin/listicles/versions/${version.id}`,
+      jsonInit("PUT", {
+        ...CREATE_ARTICLE,
+        headline: "SHOULD NOT PERSIST",
+        pages: [{ page_index: 0, selection_mode: "single", candidates: [{ section_id: sectionB }] }],
+      }),
+      env,
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; fields: Record<string, string> };
+    expect(body.error).toBe("published_version_immutable");
+    expect(body.fields.version).toContain("fork a new Version");
+
+    // No rows changed: version fields and the page tree survive untouched.
+    const row = sdb
+      .prepare("SELECT headline, content_version FROM listicle_article_versions WHERE id = ?")
+      .get(version.id) as { headline: string; content_version: number };
+    expect(row.headline).toBe(CREATE_ARTICLE.headline);
+    expect(row.content_version).toBe(2);
+    const candSections = sdb
+      .prepare(
+        `SELECT c.section_id FROM listicle_page_section_candidates c
+         JOIN listicle_pages p ON p.id = c.page_id
+         WHERE p.article_version_id = ?`,
+      )
+      .all(version.id) as Array<{ section_id: number }>;
+    expect(candSections).toEqual([{ section_id: sectionA }]);
+  });
+
+  it("published article: byte-identical re-save → 200 no bump; NON-behavioral tweak → 200 + bump, same lander_v (§15.6 case b)", async () => {
+    const { sdb, env } = newHarness();
+    const { article, version } = await createArticle(env);
+    const sectionA = seedSection(sdb, "sec_a", "Section A");
+    const payload = {
+      ...CREATE_ARTICLE,
+      pages: [{ page_index: 0, selection_mode: "single", candidates: [{ section_id: sectionA }] }],
+    };
+    const baseline = await admin.request(
+      `/api/admin/listicles/versions/${version.id}`,
+      jsonInit("PUT", payload),
+      env,
+    );
+    expect(baseline.status).toBe(200);
+    const published = await admin.request(
+      `/api/admin/listicles/articles/${article.id}/publish`,
+      jsonInit("POST"),
+      env,
+    );
+    expect(published.status).toBe(200);
+
+    // Byte-identical re-save: allowed, no content_version bump.
+    const idempotent = await admin.request(
+      `/api/admin/listicles/versions/${version.id}`,
+      jsonInit("PUT", payload),
+      env,
+    );
+    expect(idempotent.status).toBe(200);
+    const idemBody = (await idempotent.json()) as { version: { content_version: number } };
+    expect(idemBody.version.content_version).toBe(2);
+
+    // Non-behavioral tweak (headline only — same page tree): case (b) allowed,
+    // content_version bumps, lander_v (public_id) unchanged.
+    const tweak = await admin.request(
+      `/api/admin/listicles/versions/${version.id}`,
+      jsonInit("PUT", { ...payload, headline: "Freshened headline" }),
+      env,
+    );
+    expect(tweak.status).toBe(200);
+    const tweakBody = (await tweak.json()) as {
+      version: { public_id: string; content_version: number; headline: string };
+    };
+    expect(tweakBody.version.content_version).toBe(3);
+    expect(tweakBody.version.public_id).toBe(version.public_id);
+    expect(tweakBody.version.headline).toBe("Freshened headline");
   });
 });
 

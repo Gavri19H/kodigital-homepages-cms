@@ -8,7 +8,9 @@
 //
 // Running Versions are immutable (§15.6): editing one is refused with 409
 // running_version_immutable — a meaningful edit forks a NEW Version, which
-// arrives with the builder (Phase 5).
+// arrives with the builder (Phase 5). On a PUBLISHED article (§30.7 case c)
+// only BEHAVIORAL saves are refused (409 published_version_immutable);
+// non-behavioral tweaks stay allowed as a content_version bump (case b).
 
 import { mintPublicId, ulid } from "../../listicles/ids";
 import {
@@ -283,6 +285,33 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
   const treeChanged =
     structureFingerprint(currentPages) !==
     structureFingerprint(preparedPages as FingerprintPage[]);
+
+  // §15.6/§30.7 case (c): a BEHAVIORAL change (the same fingerprint that
+  // drives the content_version bump) to a published article's Version must
+  // fork a NEW Version (new lander_v) — forking arrives with the builder
+  // (Phase 5); interim: set the article back to draft via PATCH, edit,
+  // re-publish. Non-behavioral saves fall through (case b: content_version
+  // bump, same lander_v). The running-experiment 409 above stays the
+  // strictest guard — it blocks ALL edits.
+  if (treeChanged) {
+    const article = await c.env.DB.prepare(
+      "SELECT status FROM listicle_articles WHERE id = ? LIMIT 1",
+    )
+      .bind(version.article_id)
+      .first<{ status: string }>();
+    if (article?.status === "published") {
+      return c.json(
+        {
+          error: "published_version_immutable",
+          fields: {
+            version:
+              "meaningful edits to a published Version must fork a new Version (§15.6 case c) — forking arrives with the builder (Phase 5); interim: set the article back to draft via PATCH, edit, then re-publish",
+          },
+        },
+        409,
+      );
+    }
+  }
   const contentVersion = version.content_version + (fieldsChanged || treeChanged ? 1 : 0);
 
   // ATOMIC replace: update fields, drop the old page tree (candidates +
