@@ -152,15 +152,19 @@ Every status flip must cite runnable evidence (command + result) in the PR that 
 
 ## Phase 8 — ClickHouse + D1 mirrors (PR8)
 
+**Verification run (2026-07-03):** `npx tsc --noEmit` green · `npm test` → **241 files / 2011 tests** (38 new) · guard green · `api/scripts/acceptance/listicles-phase8/run_all.sh` → **3/3** · Playwright **48/48**. **DDL applied to LIVE ClickHouse (26.2.1.455) by Claude** (creds `/tmp/ch-creds.sh`, HTTP interface, user `default`): all **15 objects created + verified in `system.tables`** (9 SharedReplacingMergeTree + 6 MaterializedViews); `lst_revenue_attributed` queries clean (0 rows pre-ingestion). **A real DDL bug was caught by live CH and fixed pre-merge**: `lst_revenue_attributed_mv` projected `c.`/`r.`-qualified columns without `AS` → `THERE_IS_NO_COLUMN` (the §17.2 contract SQL's latent defect) → every column explicitly aliased + a counter-proven ddl-lint added (strips a fix → flags exactly 2 violations). **Independent adversarial review: SHIP (0 BLOCKER/MAJOR/MINOR)** — §17 grain verified object-by-object, all 6 §31.8 clean-filters confirmed (incl. the revenue MV's offer_click subquery), sync idempotency proven against real node:sqlite + migration 0033, offer_id↔offer_public_id (DEV-6) confirmed in both mirrors.
+
 | Requirement | Files | Evidence | Status |
 |---|---|---|---|
-| `lst_events_raw`/`lst_sessions`/`lst_revenue_raw` DDL per §17.1 (+v1.2.2 cols) | `infra/listicles/clickhouse-ddl.sql` | applied over CH HTTP; SHOW CREATE checks | PENDING |
-| `lst_revenue_attributed_mv` + 5 daily targets/MVs; offer impressions from `offer_impression`; `WHERE notEmpty(offer_id)` after JOIN (§17.2/§17.3) | same | DDL review + sanity SELECTs | PENDING |
-| Counting rules §17.3 (uniqExact, matched/fallback, read-time rates) | DDL + mirror sync | fixture test | PENDING |
-| `syncListicleAnalytics` in every-minute cron, isolated try/catch, 2-day window, idempotent upsert, rebuild-range (§18) | `api/src/listicles/mirror-sync.ts` + `api/src/index.ts` | run-twice test | PENDING |
-| CMS reads only the 5 mirrors; NULLIF ratios (§8/§18) | admin handlers | zero-denominator fixtures | PENDING |
-| Dashboard compat: shared join keys stable (§18) | DDL | review row | PENDING |
-| CH secrets `CH_URL/CH_USER/CH_PASSWORD` (wrangler secrets via CI) (§18/§24) | GH secrets + deploy.yml step | CI logs; no secret in code | PENDING |
+| `lst_events_raw`/`lst_sessions`/`lst_revenue_raw` DDL per §17.1 (+v1.2.2 cols) | `infra/listicles/clickhouse-ddl.sql` | **applied + verified live in `system.tables`** | PASS |
+| `lst_revenue_attributed_mv` + 5 daily targets/MVs; offer impressions from `offer_impression`; `WHERE notEmpty(offer_id)` after JOIN; every col `AS`-aliased (§17.2/§17.3) | same | live-applied (MV accepted after alias fix); reviewer grain check | PASS |
+| Counting rules §17.3 (uniqExactIf, matched/fallback sessions, read-time rates) | DDL + mirror sync | reviewer object-by-object + fixture test | PASS |
+| `syncListicleAnalytics` in every-minute cron, isolated try/catch, today+yesterday window, idempotent upsert, `rebuildRange` + `POST /analytics/rebuild-range` (§18) | `api/src/listicles/mirror-sync.ts` + `api/src/index.ts` | run-twice deep-equal test on real node:sqlite; per-table isolation | PASS |
+| CH client no-op on absent creds (worker has NO CH secret yet — inert-safe); date params validated, no injection, creds never logged | `api/src/listicles/clickhouse.ts` | fetch-spy no-op proof + injection test | PASS |
+| CMS reads only the 5 mirrors; NULLIF ratios (ctr/cvr/rpc/rpm/pps/rule_match_rate) light up from synced rows (§8/§18) | Phase-2 read handlers + new `GET /articles/:id/link-instances` (§30.7) | seed-mirror read test: non-zero correct ratios (ctr 0.1, rule_match_rate 0.85); zero-denominator → null not NaN | PASS |
+| §31.8: all 6 default MVs filter `traffic_quality_flag='clean'`; raw tables unfiltered (audit) | DDL | reviewer 6/6 + ddl-lint per-MV | PASS |
+| Dashboard compat: shared join keys stable; never rename CH cols; fresh neutral CH client (no cross-repo import) | DDL + `clickhouse.ts` | review (only a provenance comment references the dashboard) | PASS |
+| CH secrets `CH_URL/CH_USER/CH_PASSWORD` | `env.ts` (optional typing) + `infra/listicles/clickhouse-apply.md` | **worker-secret activation is user-owned** (`wrangler secret put` — deploy-safety MUST-NOT; commands surfaced). Code inert-safe until set; no CH data until the external Athena→CH pipeline runs regardless | DEFERRED (user activates) |
 
 ## Phase 9 — Revenue + platforms (PR9)
 

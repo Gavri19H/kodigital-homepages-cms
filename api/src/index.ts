@@ -51,6 +51,7 @@ import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { analyticsRouter } from "./analytics/router";
 import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation";
+import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -241,6 +242,15 @@ const scheduled = async (
     } catch {
       // A provisioning hiccup must never break the publish cron (or surface
       // as an unhandled rejection that fails the scheduled invocation).
+    }
+    try {
+      // Listicles §18 CH→D1 analytics mirror sync — every minute, bounded
+      // rolling window (today+yesterday UTC). Isolated + fail-open: absent CH
+      // secrets is a logged no-op; a CH/D1 error is contained per table and
+      // NEVER surfaces into the homepage publish/provisioning cron above.
+      await syncListicleAnalytics(env);
+    } catch {
+      // mirror sync must never break the publish/provisioning cron.
     }
     try {
       // Listicles §31.6 daily reconciliation (self-gates to 00:05 UTC;

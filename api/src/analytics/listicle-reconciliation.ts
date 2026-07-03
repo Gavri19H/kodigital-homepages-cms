@@ -1,16 +1,16 @@
-// §31.6 daily reconciliation — SKELETON (honest scope, Phase 7).
+// §31.6 daily reconciliation (Phase 7 skeleton; ch_ingested WIRED in Phase 8).
 //
 // Target report: beacon-accepted (204) count vs Athena-landed count vs
-// CH-ingested count per site/day, variance-alerted. What is MEASURABLE
-// TODAY (pre-Phase-8 — no Athena/ClickHouse read path exists in this worker
-// yet):
+// CH-ingested count per site/day, variance-alerted. What is measurable:
 //   * accepted counts    — a KV daily counter this module owns, incremented
 //     at 204-time by /api/lst/track and by the /lc resolver for its
 //     server-emitted offer_click (so "accepted" covers BOTH ingest paths).
 //   * dead-letter counts — D1 `listicle_event_dead_letter` rows for the day.
-//   * athena_landed / ch_ingested — NULL + reason (never a fake zero). The
-//     Phase-8 mirror-sync lands the read path; the counters accumulate NOW
-//     so day-one of Phase 8 has history to reconcile against.
+//   * ch_ingested        — Phase 8: distinct clean CH events for the day
+//     (uniqExact(event_id) over lst_events_raw, §31.8 clean-only) WHEN the CH
+//     secrets exist; NULL + reason otherwise (never a fake zero).
+//   * athena_landed      — always NULL here: Athena is owned by the external
+//     Athena→CH pipeline (data/ops), not this worker (DEV-14).
 //
 // KV-counter honesty (documented): KV has no atomic increment — the
 // read-modify-write below can lose concurrent updates and same-key writes
@@ -25,6 +25,8 @@
 // internal error logs and returns null — the cron never breaks.
 
 import type { Env } from "../env";
+import { readChCleanEventCount } from "../listicles/mirror-sync";
+import type { ListicleChClient } from "../listicles/clickhouse";
 
 const COUNTER_PREFIX = "lst_rcpt:";
 const COUNTER_TTL_SECONDS = 7 * 24 * 3600; // 7 days of accumulation
@@ -62,16 +64,29 @@ export interface ListicleReconciliationReport {
   accepted_by_site: Record<string, number>;
   accepted_total: number;
   dead_letter_rows: number;
+  // athena_landed stays NULL in the worker: Athena is read by the EXTERNAL
+  // Athena→CH pipeline (data/ops), never by this CMS worker (DEV-14).
   athena_landed: null;
-  ch_ingested: null;
-  null_reasons: { athena_landed: string; ch_ingested: string };
-  variance: "UNMEASURABLE_PRE_PHASE8";
+  // ch_ingested is WIRED in Phase 8: distinct clean CH events for the day
+  // (uniqExact(event_id), §31.8 clean-only) when CH secrets exist; NULL + a
+  // reason otherwise (never a fake zero).
+  ch_ingested: number | null;
+  null_reasons: { athena_landed: string; ch_ingested?: string };
+  variance: string;
+}
+
+export interface ReconciliationOptions {
+  now?: Date;
+  force?: boolean;
+  /** Injectable CH client (tests) — otherwise built from env secrets. */
+  chClient?: ListicleChClient;
 }
 
 // The report body for one UTC date. Exported for tests + the Phase-8 cron.
 export async function buildListicleReconciliationReport(
   env: Env,
   date: string,
+  opts?: { chClient?: ListicleChClient },
 ): Promise<ListicleReconciliationReport> {
   const acceptedBySite: Record<string, number> = {};
   let acceptedTotal = 0;
@@ -95,6 +110,30 @@ export async function buildListicleReconciliationReport(
     .bind(dayStart, dayEnd)
     .first<{ n: number }>();
 
+  // §31.6 CH-ingested count — Phase-8 wiring. Honest: NULL + reason when CH
+  // secrets are absent or the query fails (never a fake zero). Own try/catch
+  // via readChCleanEventCount — reconciliation stays fail-open.
+  const chIngested = await readChCleanEventCount(env, date, { client: opts?.chClient });
+
+  const nullReasons: { athena_landed: string; ch_ingested?: string } = {
+    // Kept honest AND mentions Phase 8 (the mirror-sync landed the CH read
+    // path here, but Athena itself is owned by the external Athena→CH job).
+    athena_landed:
+      "athena_landed owned by the external Athena→CH pipeline (data/ops), not the CMS worker; " +
+      "Phase 8 mirror-sync reads CH, not Athena",
+  };
+  if (chIngested.count === null && chIngested.reason !== undefined) {
+    nullReasons.ch_ingested = chIngested.reason;
+  }
+
+  // Variance is only computable with BOTH sides. ch_ingested unmeasurable
+  // (no CH secrets) ⇒ the pre-Phase-8 sentinel (preserved). Once ch_ingested
+  // is measured, athena_landed is still external ⇒ PARTIAL.
+  const variance =
+    chIngested.count === null
+      ? "UNMEASURABLE_PRE_PHASE8"
+      : "PARTIAL: ch_ingested measured; athena_landed external (data/ops)";
+
   return {
     t: "lst_reconciliation",
     date,
@@ -102,12 +141,9 @@ export async function buildListicleReconciliationReport(
     accepted_total: acceptedTotal,
     dead_letter_rows: row?.n ?? 0,
     athena_landed: null,
-    ch_ingested: null,
-    null_reasons: {
-      athena_landed: "no Athena read path in the worker until Phase 8 (mirror sync)",
-      ch_ingested: "ClickHouse ingest lands in Phase 8",
-    },
-    variance: "UNMEASURABLE_PRE_PHASE8",
+    ch_ingested: chIngested.count,
+    null_reasons: nullReasons,
+    variance,
   };
 }
 
@@ -115,14 +151,16 @@ export async function buildListicleReconciliationReport(
 // report fires exactly once per day; `opts` exists for tests/backfills.
 export async function listicleDailyReconciliation(
   env: Env,
-  opts?: { now?: Date; force?: boolean },
+  opts?: ReconciliationOptions,
 ): Promise<ListicleReconciliationReport | null> {
   try {
     const now = opts?.now ?? new Date();
     const force = opts?.force === true;
     if (!force && !(now.getUTCHours() === 0 && now.getUTCMinutes() === 5)) return null;
     const yesterday = new Date(now.getTime() - 24 * 3600 * 1000);
-    const report = await buildListicleReconciliationReport(env, utcDate(yesterday));
+    const report = await buildListicleReconciliationReport(env, utcDate(yesterday), {
+      chClient: opts?.chClient,
+    });
     console.log(JSON.stringify(report));
     return report;
   } catch (err) {

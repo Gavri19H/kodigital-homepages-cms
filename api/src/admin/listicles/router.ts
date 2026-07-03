@@ -49,6 +49,10 @@ import {
 } from "./versions-handlers";
 import { forkVersionHandler } from "./version-fork";
 import { versionPreviewHandler } from "./version-preview";
+import {
+  rebuildAnalyticsRangeHandler,
+  articleLinkInstancesHandler,
+} from "./analytics-admin-handlers";
 
 const routes = new Hono<{ Bindings: Env }>();
 
@@ -90,7 +94,11 @@ routes.delete("/articles/:id", deleteArticleHandler);
 routes.get("/articles/:id/structure", articleStructureHandler);
 routes.get("/articles/:id/analytics", articleAnalyticsHandler);
 routes.get("/articles/:id/drilldown", articleDrilldownHandler);
+routes.get("/articles/:id/link-instances", articleLinkInstancesHandler);
 routes.post("/articles/:id/publish", publishArticleHandler);
+
+// --- Analytics (§18 manual backfill — Phase 8) ------------------------------
+routes.post("/analytics/rebuild-range", rebuildAnalyticsRangeHandler);
 
 // --- Experiments (§5.3 lifecycle — Phase 5) ---------------------------------
 routes.post("/experiments/:id/start", startExperimentHandler);

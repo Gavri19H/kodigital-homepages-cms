@@ -39,6 +39,16 @@ export interface Env {
   // Same AWS creds as the homepage stream; optional so the listicle pipeline
   // no-ops exactly like the homepage one until the stream is provisioned.
   LISTICLE_EVENTS_FIREHOSE_STREAM?: string;
+
+  // Listicles ClickHouse aggregation (§17/§18). The CH Cloud HTTP interface
+  // the mirror-sync reads to populate the five D1 analytics mirrors. All three
+  // are ENCRYPTED SECRETS (set via `wrangler secret put`, Dashboard/CI only —
+  // NEVER in wrangler.toml [vars]; see infra/listicles/clickhouse-apply.md).
+  // Optional so the whole CH read path no-ops (like the Firehose path) until
+  // the secrets are set + the external Athena->CH pipeline lands data.
+  CH_URL?: string;
+  CH_USER?: string;
+  CH_PASSWORD?: string;
 }
 
 export function parseBoolean(value: string | undefined | null): boolean {
