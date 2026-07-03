@@ -85,6 +85,10 @@ import {
   renderPageHtml,
 } from "./render-pages";
 import { renderErrorPage } from "./render-error";
+import {
+  tryServePublishedListicle,
+  serveListicleCandidate,
+} from "./listicle/serve";
 import { renderSeoHead } from "./templates/seo-head";
 import { renderArticleJsonLd } from "./templates/jsonld-article";
 import {
@@ -782,6 +786,11 @@ router.get("/health", (c) =>
   c.json({ ok: true, app: "kodigital-homepages-cms", scope: "public" }),
 );
 
+// Listicles Phase 6 (§22.4): cached per-candidate fragment for over-budget
+// lazy hydration. Two path segments — never collides with the /:slug
+// catch-all below. Tenant-scoped inside the handler.
+router.get("/lst-cand/:cid", (c) => serveListicleCandidate(c));
+
 // T40 [F1] slug canonicalization: the compatibility catch-all never
 // serves raw content_html. A published page renders through the same
 // SEO + cache pipeline as /page/:slug; a published article 301s to its
@@ -804,6 +813,14 @@ router.get("/:slug", async (c) => {
       redirect.status_code === 302 ? 302 : 301,
     );
   }
+  // Listicles Phase 6 (§7.2): a PUBLISHED listicle_articles row on this
+  // site+slug renders the per-Version cached shell (edge sticky pick,
+  // §15.2). Draft/scheduled/archived listicles return null here and fall
+  // through to the normal page/article/404 behavior below, which stays
+  // byte-untouched. Precedence: an operator-published listicle wins over a
+  // same-slug page (listicle slugs are the §7.2 public surface).
+  const listicle = await tryServePublishedListicle(c);
+  if (listicle) return listicle;
   const page = await servePage(c, slug);
   if (page) return page;
   const article = await getArticleBySlug(c.env.DB, slug, {

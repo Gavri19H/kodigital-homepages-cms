@@ -134,3 +134,34 @@ export function robotsKey(siteId: string, settingsVersion: number): string {
 export function adsKey(siteId: string, settingsVersion: number): string {
   return `${NS_ADS}:${requireSiteId(siteId)}:${settingsVersion}`;
 }
+
+// Listicles Phase 6 (design contract §22) — ADDITIVE key formatters.
+//
+// listicleKey: `html:{site_id}:/{slug}:{lander_v}:{content_version}:{template_version}`
+// — the per-Version cached shell. `lander_v` (= the rendered Version's
+// public_id, §15.6) is IN the key so each article-A/B Version is a distinct
+// cached artifact; the Version's own content_version bump (§22.2 fan-out)
+// changes cache identity without touching other Versions. Lives in the
+// existing `html:` namespace with site_id first, so the per-site
+// invalidate/list discipline (prefix `html:{siteId}:`) already covers it,
+// and `html:{siteId}:/{slug}:` scopes one article's shells.
+export function listicleKey(
+  siteId: string,
+  slug: string,
+  landerV: string,
+  contentVersion: number,
+): string {
+  return `${NS_HTML}:${requireSiteId(siteId)}:${normalizePath(`/${slug}`)}:${landerV}:${contentVersion}:${TEMPLATE_VERSION}`;
+}
+
+// Per-candidate lazy-hydration fragment (§22.4 over-budget path,
+// GET /lst-cand/:candidate_public_id). Keyed by the OWNING Version's
+// content_version — the §22.2 fan-out bumps it on any consumed Section save,
+// so candidate fragments and shells change cache identity together.
+export function listicleCandidateKey(
+  siteId: string,
+  candidatePublicId: string,
+  versionContentVersion: number,
+): string {
+  return `${NS_HTML}:${requireSiteId(siteId)}:/lst-cand/${candidatePublicId}:${versionContentVersion}:${TEMPLATE_VERSION}`;
+}

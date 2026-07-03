@@ -6,6 +6,7 @@
 // back together (§5.3 "in a txn").
 
 import { mintPublicId } from "../../listicles/ids";
+import { invalidateAndWarmOnPublish } from "../../listicles/invalidate";
 import {
   validateArticle,
   validateExperiment,
@@ -1153,10 +1154,17 @@ export async function publishArticleHandler(c: AdminContext): Promise<Response> 
   )
     .bind(article.id)
     .run();
-  // TODO(listicles-phase6): cache invalidate + warm the per-lander_v shells
-  // here (§22.2 fan-out + §7.1 "publish via existing workflow → invalidate +
-  // warm"). Phase 2 has no public render surface yet — publish only flips
-  // status/published_at.
+  // Listicles Phase 6 — §7.1 publish → invalidate + warm the per-lander_v
+  // shells: stale keys for this article are wiped and every ACTIVE Version's
+  // shell is re-rendered in-process into the edge cache (listicles/
+  // invalidate.ts), so the very next visitor lands on a cache hit.
+  await invalidateAndWarmOnPublish(c.env, c.env.DB, {
+    id: article.id,
+    public_id: article.public_id,
+    site_id: article.site_id,
+    slug: article.slug,
+    status: "published",
+  });
 
   const updated = await c.env.DB.prepare("SELECT * FROM listicle_articles WHERE id = ? LIMIT 1")
     .bind(article.id)
