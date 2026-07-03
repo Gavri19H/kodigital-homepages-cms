@@ -377,18 +377,20 @@ describeDb("listicles shell routes (§4/§8/§25)", () => {
     expect(chips).not.toContain("clickid");
   });
 
-  it("sections page: list-only — disabled Create + Phase 4 note + §10 columns", async () => {
+  // Phase 4 (§27): the Section editor is LIVE — the Phase-3 disabled button
+  // became a real link to /admin/listicles/sections/new (this assertion
+  // flipped with the phase, mirroring the DEV-10 declaration).
+  it("sections page: live Create Section link + Edit row action + §10 columns", async () => {
     const { env } = newHarness();
     const res = await admin.request("/admin/listicles/sections", {}, env);
     const html = await res.text();
-    expect(html).toContain("Section editor ships in Phase 4");
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>\+ Create Section<\/button>/);
+    expect(html).toContain('href="/admin/listicles/sections/new"');
+    expect(html).toMatch(/<a[^>]*href="\/admin\/listicles\/sections\/new"[^>]*>\+ Create Section<\/a>/);
+    expect(html).not.toContain("Section editor ships in Phase 4");
     for (const th of ["Section name", "Articles using", "Updated", "Status"]) {
       expect(html, `sections column ${th}`).toContain(th);
     }
     expect(html).toContain('data-analytics-url-prefix="/api/admin/listicles/sections/"');
-    // no dead editor routes are advertised
-    expect(html).not.toContain('href="/admin/listicles/sections/new"');
   });
 
   it("articles page: site-scoped list with the repo site select (§11)", async () => {

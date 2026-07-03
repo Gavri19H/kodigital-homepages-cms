@@ -10,16 +10,25 @@
 // DELETE soft-archives; it 409s while any listicle_page_section_candidates
 // row references the section (§5.3).
 
-import { blocksToHtml } from "../../editor/blocks-to-html";
+import { listicleBlocksToHtml } from "../../editor/listicle-blocks";
 import { mintPublicId } from "../../listicles/ids";
 import {
+  applyLinkInstances,
   buildLinkGraphStatements,
   extractLinkInstances,
   resolveLinkInstances,
   type ExistingLinkInstanceRow,
   type ExtractedLinkInstance,
+  type ResolvedLinkInstance,
 } from "../../listicles/link-instances";
-import { validateSection, SECTION_STATUSES, type FieldErrors } from "../../listicles/validation";
+import {
+  parseSectionBlocks,
+  validateSection,
+  SECTION_STATUSES,
+  type FieldErrors,
+  type SectionBlock,
+} from "../../listicles/validation";
+import { renderSectionPreviewDocument } from "./section-preview";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   type AdminContext,
@@ -74,11 +83,16 @@ interface OfferRefRow {
 // Verify every Offer reference in the extracted link graph (numeric ids +
 // inline off_… public ids) exists and is ACTIVE (§12 "validate every
 // data-offer + button.offer_id references an active Offer"). Returns the
-// public-id → internal-id map the instance resolver needs, or field errors.
+// public-id → internal-id map the instance resolver needs (and its inverse,
+// which the §30.5 enrichment uses to canonicalize stored refs), or errors.
 async function verifyOfferReferences(
   db: D1Database,
   instances: ExtractedLinkInstance[],
-): Promise<{ errors: FieldErrors; offerIdByPublicId: Map<string, number> }> {
+): Promise<{
+  errors: FieldErrors;
+  offerIdByPublicId: Map<string, number>;
+  offerPublicIdById: Map<number, string>;
+}> {
   const errors: FieldErrors = {};
   const numericIds = new Set<number>();
   const publicIds = new Set<string>();
@@ -112,6 +126,8 @@ async function verifyOfferReferences(
       byId.set(row.id, row);
     }
   }
+  const offerPublicIdById = new Map<number, string>();
+  for (const row of byId.values()) offerPublicIdById.set(row.id, row.public_id);
 
   for (const id of numericIds) {
     const row = byId.get(id);
@@ -133,7 +149,31 @@ async function verifyOfferReferences(
     }
   }
 
-  return { errors, offerIdByPublicId };
+  return { errors, offerIdByPublicId, offerPublicIdById };
+}
+
+// §30.5/§30.9 enrichment: stamp every governed element's resolved lnk_… id
+// into the stored content_json (offer refs canonicalize to off_… public ids)
+// and render content_html through the LISTICLE block renderers.
+function enrichContent(
+  value: { headline_text: string; headline_offer_id: number | null; blocks: SectionBlock[] },
+  resolved: ResolvedLinkInstance[],
+  offerPublicIdById: Map<number, string>,
+): { blocks: SectionBlock[]; contentJson: string; contentHtml: string } {
+  const blocks = applyLinkInstances(
+    {
+      headline_text: value.headline_text,
+      headline_offer_id: value.headline_offer_id,
+      blocks: value.blocks,
+    },
+    resolved,
+    offerPublicIdById,
+  );
+  return {
+    blocks,
+    contentJson: JSON.stringify({ version: 1, blocks }),
+    contentHtml: listicleBlocksToHtml({ blocks }),
+  };
 }
 
 // GET /api/admin/listicles/sections — list + filters + pager
@@ -207,11 +247,11 @@ export async function createSectionHandler(c: AdminContext): Promise<Response> {
   }
   const resolved = await resolveLinkInstances(extracted, refCheck.offerIdByPublicId, []);
 
-  // content_json → content_html through the EXISTING editor pipeline
-  // (per-block renderers + tag-whitelist sanitizer). Block types the
-  // pipeline does not know yet (PR4's button/offerlink renderers) simply
-  // contribute nothing to the stored HTML.
-  const contentHtml = blocksToHtml(value.content_json);
+  // §30.5 enrichment + LISTICLE renderers: stored content_json carries every
+  // governed element's lnk_… id; content_html renders the governed grammar
+  // (data-offer / data-link-instance / data-block-id / data-link-role + rel,
+  // NO /lc URLs — the live renderer mints those at render time, §12).
+  const enriched = enrichContent(value, resolved, refCheck.offerPublicIdById);
 
   const publicId = mintPublicId("section");
   const statements: D1PreparedStatement[] = [
@@ -226,8 +266,8 @@ export async function createSectionHandler(c: AdminContext): Promise<Response> {
       value.headline_text,
       value.headline_offer_id,
       value.image_json,
-      value.content_json,
-      contentHtml,
+      enriched.contentJson,
+      enriched.contentHtml,
       value.ai_settings_json,
       value.status,
     ),
@@ -244,7 +284,9 @@ export async function createSectionHandler(c: AdminContext): Promise<Response> {
   return c.json({ section: row }, 201);
 }
 
-// GET /api/admin/listicles/sections/:id
+// GET /api/admin/listicles/sections/:id — detail + usage count + the §30.7
+// link-instance rows (the Section editor's CTA/Link Inventory reconciles its
+// client model against these — notably the "__headline__" row's lnk_… id).
 export async function getSectionHandler(c: AdminContext): Promise<Response> {
   const section = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (section === null) return c.json({ error: "Not Found" }, 404);
@@ -253,7 +295,64 @@ export async function getSectionHandler(c: AdminContext): Promise<Response> {
   )
     .bind(section.id)
     .first<{ n: number }>();
-  return c.json({ section, usage_count: Number(usageRow?.n ?? 0) });
+  const instances = await c.env.DB.prepare(
+    `SELECT li.public_id, li.block_id, li.link_role, li.position_index,
+            li.anchor_text, li.button_style_id, li.button_group_id,
+            li.analytics_label, o.public_id AS offer_public_id,
+            o.offer_name AS offer_name
+     FROM listicle_section_link_instances li
+     JOIN listicle_offers o ON o.id = li.offer_id
+     WHERE li.section_id = ?
+     ORDER BY li.position_index ASC`,
+  )
+    .bind(section.id)
+    .all();
+  return c.json({
+    section,
+    usage_count: Number(usageRow?.n ?? 0),
+    link_instances: instances.results ?? [],
+  });
+}
+
+// POST /api/admin/listicles/sections/preview — §30.6 Section preview. Renders
+// the (possibly mid-edit) section inside the token-derived default
+// SectionWrapper. STRUCTURAL parse only: a missing Offer binding still
+// previews (the CTA Inventory carries the missing/invalid state); malformed
+// JSON is the only rejection.
+export async function previewSectionHandler(c: AdminContext): Promise<Response> {
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  let blocks: SectionBlock[] = [];
+  if (body.content_json !== undefined && body.content_json !== null) {
+    const parsed = parseSectionBlocks(body.content_json);
+    if (typeof parsed === "string") {
+      return c.json({ error: "Validation failed", fields: { content_json: parsed } }, 400);
+    }
+    blocks = parsed.blocks;
+  }
+
+  let imageUrl: string | null = null;
+  const imageRaw = body.image_json ?? body.image;
+  if (typeof imageRaw === "string" && imageRaw.trim() !== "") {
+    try {
+      const image = JSON.parse(imageRaw) as { url?: unknown };
+      if (typeof image.url === "string" && image.url.trim() !== "") imageUrl = image.url.trim();
+    } catch {
+      imageUrl = null;
+    }
+  } else if (typeof imageRaw === "object" && imageRaw !== null) {
+    const url = (imageRaw as { url?: unknown }).url;
+    if (typeof url === "string" && url.trim() !== "") imageUrl = url.trim();
+  }
+
+  const html = renderSectionPreviewDocument({
+    headline_text: typeof body.headline_text === "string" ? body.headline_text : "",
+    headline_offer_id: body.headline_offer_id,
+    image_url: imageUrl,
+    blocks,
+  });
+  return c.json({ html });
 }
 
 const SECTION_PATCH_FIELDS = [
@@ -341,11 +440,17 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     existingInstances.results ?? [],
   );
 
-  const contentHtml = blocksToHtml(value.content_json);
+  // §30.5 enrichment (see createSectionHandler). The content-change compare
+  // runs on the ENRICHED json: a round-tripped save (client re-posts the
+  // enriched document it loaded) stays a content_version no-op.
+  const enriched = enrichContent(value, resolved, refCheck.offerPublicIdById);
 
   const contentChanged = CONTENT_FIELDS.some((field) => {
     const before = existing[field] ?? null;
-    const after = (value as unknown as Record<string, unknown>)[field] ?? null;
+    const after =
+      field === "content_json"
+        ? enriched.contentJson
+        : ((value as unknown as Record<string, unknown>)[field] ?? null);
     return before !== after;
   });
   const contentVersion = existing.content_version + (contentChanged ? 1 : 0);
@@ -362,8 +467,8 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
       value.headline_text,
       value.headline_offer_id,
       value.image_json,
-      value.content_json,
-      contentHtml,
+      enriched.contentJson,
+      enriched.contentHtml,
       value.ai_settings_json,
       value.status,
       contentVersion,

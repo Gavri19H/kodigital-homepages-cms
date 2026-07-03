@@ -239,8 +239,10 @@ function renderMacroChips(): string {
   return `<div class="macro-chips" id="offer-macro-chips" role="group" aria-label="Insert URL macro">${chips}</div>`;
 }
 
-// §9 Create/Edit Offer modal.
-function renderOfferModal(): string {
+// §9 Create/Edit Offer modal. EXPORTED (Phase 4): the Section editor embeds
+// the same modal so the §13 Offer picker's "＋ New Offer" opens THIS form
+// inline and returns the created offer pre-selected (no duplicated form).
+export function renderOfferModal(): string {
   return `<div id="offer-modal" class="modal hidden" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="offer-modal-title" aria-hidden="true">
   <div class="modal-content">
     <h2 id="offer-modal-title" class="modal-title">Create an Offer</h2>
@@ -362,10 +364,15 @@ function renderOfferModal(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Offers page inline script (strict ES5)
+// Offer modal inline script (strict ES5) — EXPORTED (Phase 4)
 // ---------------------------------------------------------------------------
+// The Create/Edit-Offer modal machinery, shared by the Offers page and the
+// Section editor (§13 "＋ New Offer" inline). Exposes
+// window.lstOfferModal = { openCreate, openEdit }. When
+// window._lstOfferModalOnSaved is set (the §13 picker sets it), a successful
+// CREATE calls that hook with the created offer instead of reloading.
 
-const OFFERS_PAGE_SCRIPT = `
+export const OFFER_MODAL_SCRIPT = `
 (function () {
   var modal = document.getElementById('offer-modal');
   var form = document.getElementById('offer-form');
@@ -686,6 +693,170 @@ const OFFERS_PAGE_SCRIPT = `
     });
   }
 
+  // --- client validation mirroring §23 (server stays authoritative) ----------
+  function collectBody() {
+    var fd = new FormData(form);
+    var capEnabled = capToggle && capToggle.checked ? 1 : 0;
+    var body = {
+      offer_name: String(fd.get('offer_name') || ''),
+      provider: String(fd.get('provider') || ''),
+      activity: String(fd.get('activity') || ''),
+      vertical: String(fd.get('vertical') || ''),
+      tag: fd.get('tag') ? String(fd.get('tag')) : null,
+      conversion_tracking_method: String(fd.get('conversion_tracking_method') || ''),
+      offer_url_template: String(fd.get('offer_url_template') || ''),
+      payout_method: String(fd.get('payout_method') || ''),
+      payout_currency: null,
+      payout_value: null,
+      cap_enabled: capEnabled,
+      cap_amount: null,
+      cap_timezone: null,
+      cap_count_by: null,
+      cap_fallback_offer_id: null,
+      cap_fallback_url: null
+    };
+    if (body.payout_method === 'in_site') {
+      body.payout_currency = String(fd.get('payout_currency') || '') || null;
+      var pv = parseFloat(String(fd.get('payout_value') || ''));
+      body.payout_value = isNaN(pv) ? null : pv;
+    }
+    if (capEnabled === 1) {
+      var ca = parseInt(String(fd.get('cap_amount') || ''), 10);
+      body.cap_amount = isNaN(ca) ? null : ca;
+      body.cap_timezone = String(fd.get('cap_timezone') || '') || null;
+      body.cap_count_by = String(fd.get('cap_count_by') || '') || null;
+      var fbRaw = fallbackIdInput ? fallbackIdInput.value : '';
+      var fb = parseInt(fbRaw, 10);
+      if (!isNaN(fb) && fb > 0) { body.cap_fallback_offer_id = fb; }
+      var fbUrl = String(fd.get('cap_fallback_url') || '');
+      if (fbUrl.replace(/^\\s+|\\s+$/g, '') !== '') { body.cap_fallback_url = fbUrl; }
+    }
+    if (mode === 'edit') { body.status = String(fd.get('status') || 'active'); }
+    return body;
+  }
+  function validateClient(body) {
+    var errors = {};
+    function requireText(key, label) {
+      if (!body[key] || body[key].replace(/^\\s+|\\s+$/g, '') === '') { errors[key] = label + ' is required'; }
+    }
+    requireText('offer_name', 'Offer name');
+    requireText('provider', 'Provider');
+    requireText('activity', 'Activity');
+    requireText('vertical', 'Vertical');
+    if (!body.conversion_tracking_method) { errors.conversion_tracking_method = 'Conversion tracking method is required'; }
+    var url = (body.offer_url_template || '').replace(/^\\s+|\\s+$/g, '');
+    if (url === '') {
+      errors.offer_url_template = 'Offer URL template is required';
+    } else if (!/^https?:\\/\\//i.test(url)) {
+      errors.offer_url_template = 'Offer URL template must be an absolute http(s) URL';
+    } else {
+      var unknown = unknownMacrosIn(url);
+      if (unknown.length > 0) {
+        errors.offer_url_template = 'Unknown macros: {' + unknown.join('}, {') + '}';
+      }
+    }
+    if (!body.payout_method) { errors.payout_method = 'Payout method is required'; }
+    if (body.payout_method === 'in_site') {
+      if (!body.payout_currency) { errors.payout_currency = 'Payout currency is required for In-site payout'; }
+      if (body.payout_value === null || body.payout_value < 0) { errors.payout_value = 'Payout value (a number >= 0) is required for In-site payout'; }
+    }
+    if (body.cap_enabled === 1) {
+      if (body.cap_amount === null || body.cap_amount <= 0) { errors.cap_amount = 'Cap amount (a positive integer) is required when the cap is enabled'; }
+      if (!body.cap_timezone) { errors.cap_timezone = 'Cap timezone is required when the cap is enabled'; }
+      if (!body.cap_count_by) { errors.cap_count_by = 'Count-by is required when the cap is enabled'; }
+    }
+    return errors;
+  }
+  function renderErrors(errors) {
+    clearFieldErrors();
+    var keys = [];
+    var k;
+    for (k in errors) {
+      if (Object.prototype.hasOwnProperty.call(errors, k)) { keys.push(k); }
+    }
+    if (keys.length === 0) { return false; }
+    var i;
+    for (i = 0; i < keys.length; i++) { setFieldError(keys[i], errors[keys[i]]); }
+    setTopError('Please fix the highlighted field' + (keys.length === 1 ? '' : 's') + ' (' + keys.length + ').');
+    setStatus('Validation failed');
+    var firstField = fieldByName(keys[0]);
+    if (firstField && firstField.focus) { firstField.focus(); }
+    return true;
+  }
+
+  // --- submit: Saving… → toast → reload (§8) ---------------------------------
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    setTopError('');
+    setStatus('');
+    var body = collectBody();
+    if (renderErrors(validateClient(body))) { return; }
+    if (saveBtn) { saveBtn.disabled = true; }
+    setStatus('Saving\\u2026');
+    var url = mode === 'edit'
+      ? '/api/admin/listicles/offers/' + encodeURIComponent(editingId)
+      : '/api/admin/listicles/offers';
+    var method = mode === 'edit' ? 'PATCH' : 'POST';
+    getJson(method, url, body).then(function (res) {
+      if (saveBtn) { saveBtn.disabled = false; }
+      if (res.ok) {
+        dirty = false;
+        setStatus('');
+        // §13 "＋ New Offer" inline: when the Offer picker registered a
+        // saved-hook, hand the created offer back (pre-selected) instead of
+        // reloading the page.
+        var savedOffer = res.body && res.body.offer;
+        if (mode === 'create' && savedOffer && window._lstOfferModalOnSaved) {
+          var onSaved = window._lstOfferModalOnSaved;
+          window._lstOfferModalOnSaved = null;
+          window.showToast('Offer created', 'success');
+          closeModal();
+          onSaved(savedOffer);
+          return;
+        }
+        window.showToast(mode === 'edit' ? 'Offer saved' : 'Offer created', 'success');
+        closeModal();
+        window.setTimeout(function () { window.location.reload(); }, 600);
+        return;
+      }
+      // Server is authoritative: render its field-keyed errors inline (§23).
+      if (res.body && res.body.fields && renderErrors(res.body.fields)) {
+        setStatus('Validation failed');
+        return;
+      }
+      setTopError((res.body && res.body.error) || ('Error ' + res.status));
+      setStatus('Save failed');
+    }).catch(function () {
+      if (saveBtn) { saveBtn.disabled = false; }
+      setTopError('Network error — the offer was not saved.');
+      setStatus('Save failed');
+    });
+  });
+
+  applyPayoutState();
+  applyCapState();
+  macroFeedback();
+
+  // --- modal open triggers + the shared entry points --------------------------
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) { return; }
+    if (t.closest('[data-open-offer-modal]')) { openCreate(); return; }
+    var editBtn = t.closest('[data-offer-edit]');
+    if (editBtn) { openEdit(editBtn.getAttribute('data-offer-edit')); return; }
+  });
+  window.lstOfferModal = { openCreate: openCreate, openEdit: openEdit };
+}());
+`;
+
+// ---------------------------------------------------------------------------
+// Offers page row actions (strict ES5) — delete + 409 dialog + attribution
+// ---------------------------------------------------------------------------
+
+const OFFERS_LIST_ACTIONS_SCRIPT = `
+(function () {
+  var getJson = window.lstUi.getJson;
+
   // --- delete + 409 usage dialog + Archive instead (§8/§9/§26) --------------
   function archiveOffer(id) {
     getJson('PATCH', '/api/admin/listicles/offers/' + encodeURIComponent(id), { status: 'archived' }).then(function (res) {
@@ -801,152 +972,21 @@ const OFFERS_PAGE_SCRIPT = `
     }).catch(showAttributionError);
   }
 
-  // --- row + toolbar action delegation ---------------------------------------
+  // --- row action delegation ---------------------------------------------------
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) { return; }
-    if (t.closest('[data-open-offer-modal]')) { openCreate(); return; }
-    var editBtn = t.closest('[data-offer-edit]');
-    if (editBtn) { openEdit(editBtn.getAttribute('data-offer-edit')); return; }
     var delBtn = t.closest('[data-offer-delete]');
     if (delBtn) { onDelete(delBtn.getAttribute('data-offer-delete'), delBtn.getAttribute('data-offer-name') || 'this offer'); return; }
     var attrBtn = t.closest('[data-offer-attribution]');
     if (attrBtn) { showAttribution(attrBtn.getAttribute('data-offer-attribution'), attrBtn.getAttribute('data-offer-name') || ''); return; }
   });
-
-  // --- client validation mirroring §23 (server stays authoritative) ----------
-  function collectBody() {
-    var fd = new FormData(form);
-    var capEnabled = capToggle && capToggle.checked ? 1 : 0;
-    var body = {
-      offer_name: String(fd.get('offer_name') || ''),
-      provider: String(fd.get('provider') || ''),
-      activity: String(fd.get('activity') || ''),
-      vertical: String(fd.get('vertical') || ''),
-      tag: fd.get('tag') ? String(fd.get('tag')) : null,
-      conversion_tracking_method: String(fd.get('conversion_tracking_method') || ''),
-      offer_url_template: String(fd.get('offer_url_template') || ''),
-      payout_method: String(fd.get('payout_method') || ''),
-      payout_currency: null,
-      payout_value: null,
-      cap_enabled: capEnabled,
-      cap_amount: null,
-      cap_timezone: null,
-      cap_count_by: null,
-      cap_fallback_offer_id: null,
-      cap_fallback_url: null
-    };
-    if (body.payout_method === 'in_site') {
-      body.payout_currency = String(fd.get('payout_currency') || '') || null;
-      var pv = parseFloat(String(fd.get('payout_value') || ''));
-      body.payout_value = isNaN(pv) ? null : pv;
-    }
-    if (capEnabled === 1) {
-      var ca = parseInt(String(fd.get('cap_amount') || ''), 10);
-      body.cap_amount = isNaN(ca) ? null : ca;
-      body.cap_timezone = String(fd.get('cap_timezone') || '') || null;
-      body.cap_count_by = String(fd.get('cap_count_by') || '') || null;
-      var fbRaw = fallbackIdInput ? fallbackIdInput.value : '';
-      var fb = parseInt(fbRaw, 10);
-      if (!isNaN(fb) && fb > 0) { body.cap_fallback_offer_id = fb; }
-      var fbUrl = String(fd.get('cap_fallback_url') || '');
-      if (fbUrl.replace(/^\\s+|\\s+$/g, '') !== '') { body.cap_fallback_url = fbUrl; }
-    }
-    if (mode === 'edit') { body.status = String(fd.get('status') || 'active'); }
-    return body;
-  }
-  function validateClient(body) {
-    var errors = {};
-    function requireText(key, label) {
-      if (!body[key] || body[key].replace(/^\\s+|\\s+$/g, '') === '') { errors[key] = label + ' is required'; }
-    }
-    requireText('offer_name', 'Offer name');
-    requireText('provider', 'Provider');
-    requireText('activity', 'Activity');
-    requireText('vertical', 'Vertical');
-    if (!body.conversion_tracking_method) { errors.conversion_tracking_method = 'Conversion tracking method is required'; }
-    var url = (body.offer_url_template || '').replace(/^\\s+|\\s+$/g, '');
-    if (url === '') {
-      errors.offer_url_template = 'Offer URL template is required';
-    } else if (!/^https?:\\/\\//i.test(url)) {
-      errors.offer_url_template = 'Offer URL template must be an absolute http(s) URL';
-    } else {
-      var unknown = unknownMacrosIn(url);
-      if (unknown.length > 0) {
-        errors.offer_url_template = 'Unknown macros: {' + unknown.join('}, {') + '}';
-      }
-    }
-    if (!body.payout_method) { errors.payout_method = 'Payout method is required'; }
-    if (body.payout_method === 'in_site') {
-      if (!body.payout_currency) { errors.payout_currency = 'Payout currency is required for In-site payout'; }
-      if (body.payout_value === null || body.payout_value < 0) { errors.payout_value = 'Payout value (a number >= 0) is required for In-site payout'; }
-    }
-    if (body.cap_enabled === 1) {
-      if (body.cap_amount === null || body.cap_amount <= 0) { errors.cap_amount = 'Cap amount (a positive integer) is required when the cap is enabled'; }
-      if (!body.cap_timezone) { errors.cap_timezone = 'Cap timezone is required when the cap is enabled'; }
-      if (!body.cap_count_by) { errors.cap_count_by = 'Count-by is required when the cap is enabled'; }
-    }
-    return errors;
-  }
-  function renderErrors(errors) {
-    clearFieldErrors();
-    var keys = [];
-    var k;
-    for (k in errors) {
-      if (Object.prototype.hasOwnProperty.call(errors, k)) { keys.push(k); }
-    }
-    if (keys.length === 0) { return false; }
-    var i;
-    for (i = 0; i < keys.length; i++) { setFieldError(keys[i], errors[keys[i]]); }
-    setTopError('Please fix the highlighted field' + (keys.length === 1 ? '' : 's') + ' (' + keys.length + ').');
-    setStatus('Validation failed');
-    var firstField = fieldByName(keys[0]);
-    if (firstField && firstField.focus) { firstField.focus(); }
-    return true;
-  }
-
-  // --- submit: Saving… → toast → reload (§8) ---------------------------------
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    setTopError('');
-    setStatus('');
-    var body = collectBody();
-    if (renderErrors(validateClient(body))) { return; }
-    if (saveBtn) { saveBtn.disabled = true; }
-    setStatus('Saving\\u2026');
-    var url = mode === 'edit'
-      ? '/api/admin/listicles/offers/' + encodeURIComponent(editingId)
-      : '/api/admin/listicles/offers';
-    var method = mode === 'edit' ? 'PATCH' : 'POST';
-    getJson(method, url, body).then(function (res) {
-      if (saveBtn) { saveBtn.disabled = false; }
-      if (res.ok) {
-        dirty = false;
-        setStatus('');
-        window.showToast(mode === 'edit' ? 'Offer saved' : 'Offer created', 'success');
-        closeModal();
-        window.setTimeout(function () { window.location.reload(); }, 600);
-        return;
-      }
-      // Server is authoritative: render its field-keyed errors inline (§23).
-      if (res.body && res.body.fields && renderErrors(res.body.fields)) {
-        setStatus('Validation failed');
-        return;
-      }
-      setTopError((res.body && res.body.error) || ('Error ' + res.status));
-      setStatus('Save failed');
-    }).catch(function () {
-      if (saveBtn) { saveBtn.disabled = false; }
-      setTopError('Network error — the offer was not saved.');
-      setStatus('Save failed');
-    });
-  });
-
-  applyPayoutState();
-  applyCapState();
-  macroFeedback();
 }());
 `;
+
+// The two atoms concatenated — the Offers page's full inline script.
+const OFFERS_PAGE_SCRIPT = OFFER_MODAL_SCRIPT + OFFERS_LIST_ACTIONS_SCRIPT;
+
 
 export function listiclesOffersPage(
   props: OffersPageProps,

@@ -39,6 +39,12 @@ import {
   type SectionListRow,
   type ArticleListRow,
 } from "./ui-lists";
+import {
+  listiclesSectionEditorPage,
+  listiclesSectionNotFoundPage,
+  type SectionEditorLinkInstance,
+} from "./ui-section-editor";
+import type { SectionRow } from "./sections-handlers";
 
 type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
 type UiContext = Context<AdminEnv>;
@@ -185,6 +191,35 @@ listicleUi.get("/admin/listicles/offers", async (c) => {
         filterOptions,
         timeframe,
         loadError: listed.ok ? null : listed.error,
+      },
+      branding(c),
+    ),
+  );
+});
+
+// §4/§10 Phase 4: the Section rich editor shell routes (replacing the
+// Phase-3 disabled Create button — Sections only; Articles stay Phase 5).
+listicleUi.get("/admin/listicles/sections/new", (c) =>
+  c.html(
+    listiclesSectionEditorPage({ mode: "new", section: null, linkInstances: [] }, branding(c)),
+  ),
+);
+
+listicleUi.get("/admin/listicles/sections/:id/edit", async (c) => {
+  const idParam = c.req.param("id") ?? "";
+  const got = await apiJson<{
+    section: SectionRow;
+    link_instances: SectionEditorLinkInstance[];
+  }>(c.env, `/api/admin/listicles/sections/${encodeURIComponent(idParam)}`);
+  if (!got.ok) {
+    return c.html(listiclesSectionNotFoundPage(branding(c)), 404);
+  }
+  return c.html(
+    listiclesSectionEditorPage(
+      {
+        mode: "edit",
+        section: got.body.section,
+        linkInstances: got.body.link_instances ?? [],
       },
       branding(c),
     ),

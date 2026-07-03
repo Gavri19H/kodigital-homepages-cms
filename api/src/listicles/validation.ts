@@ -7,6 +7,15 @@
 // experiment partial-unique — live in the handlers, which merge their
 // findings into the same field-keyed map.
 
+import {
+  isListicleBlockType,
+  LISTICLE_BUTTON_ALIGNS,
+  LISTICLE_BUTTON_STYLES,
+  LISTICLE_EMOJI_SET,
+  LISTICLE_HIGHLIGHTS,
+  LISTICLE_LIST_MARKERS,
+  LISTICLE_TEXT_COLORS,
+} from "../editor/listicle-blocks";
 import { validateOfferUrlTemplate } from "./macros";
 import { parseConditions, type RuleConditions } from "./rules";
 
@@ -236,11 +245,21 @@ export interface SectionInput {
 
 const IMAGE_TYPES = ["image", "gif", "ai_generated"] as const;
 
-// Block types whose links MUST be offer-bound. `affiliate` is the legacy
-// free-text-URL card — forbidden outright in listicle sections.
-const OFFER_BOUND_BLOCK_TYPES = new Set(["button", "choice_button", "final_text_cta", "cta"]);
+// Block types whose block-level link MUST be offer-bound — this gate is what
+// enforces `final_text_cta`'s offer requirement (its shape check below only
+// adds the text rule). `affiliate` is the legacy free-text-URL card —
+// forbidden outright in listicle sections. (`choice_button` items live INSIDE
+// choice_button_group and are checked per-item; a bare 'choice_button'/'cta'
+// block type is rejected by the vocabulary gate before this set is consulted.)
+const OFFER_BOUND_BLOCK_TYPES = new Set(["button", "final_text_cta"]);
 
 const ANCHOR_WITH_HREF_RE = /<a\b[^>]*\bhref\s*=/i;
+// An anchor that does NOT carry a data-offer reference (§12/§13: the Offer
+// modal is the ONLY link mechanism — an ungoverned anchor blocks the save).
+const ANCHOR_WITHOUT_OFFER_RE = /<a\b(?![^>]*\bdata-offer\s*=)[^>]*>/i;
+// Curated colour tokens (§12): every data-lst-color / data-lst-highlight
+// value in inline HTML must come from the curated palette.
+const LST_COLOR_ATTR_RE = /data-lst-(color|highlight)\s*=\s*["']([^"']*)["']/gi;
 
 // Recursively scan every string in a block's data for raw anchor markup.
 // Listicle content links are governed: they carry `data-offer` (an Offer
@@ -251,6 +270,52 @@ function containsRawHref(value: unknown): boolean {
   if (Array.isArray(value)) return value.some((v) => containsRawHref(v));
   if (isRecord(value)) return Object.values(value).some((v) => containsRawHref(v));
   return false;
+}
+
+function containsUngovernedAnchor(value: unknown): boolean {
+  if (typeof value === "string") return ANCHOR_WITHOUT_OFFER_RE.test(value);
+  if (Array.isArray(value)) return value.some((v) => containsUngovernedAnchor(v));
+  if (isRecord(value)) return Object.values(value).some((v) => containsUngovernedAnchor(v));
+  return false;
+}
+
+function collectUnknownColorTokens(value: unknown, out: Set<string>): void {
+  if (typeof value === "string") {
+    for (const match of value.matchAll(LST_COLOR_ATTR_RE)) {
+      const kind = (match[1] ?? "").toLowerCase();
+      const token = match[2] ?? "";
+      const known =
+        kind === "color"
+          ? LISTICLE_TEXT_COLORS[token] !== undefined
+          : LISTICLE_HIGHLIGHTS[token] !== undefined;
+      if (!known) out.add(`${kind}:${token}`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectUnknownColorTokens(v, out);
+    return;
+  }
+  if (isRecord(value)) {
+    for (const v of Object.values(value)) collectUnknownColorTokens(v, out);
+  }
+}
+
+// An offer reference field: the legacy internal integer id (Phase-2 API) or
+// the off_… public id string (§30.5 shapes). Existence/active checks against
+// the DB stay in the handler.
+function hasOfferRef(value: unknown): boolean {
+  if (positiveInt(value) !== null) return true;
+  return typeof value === "string" && value.trim() !== "";
+}
+
+// Exported for the §30.6 preview endpoint: lenient STRUCTURAL parse of a
+// content_json document (previews render mid-edit content; only malformed
+// JSON is rejected — full §23 validation stays the save gate).
+export function parseSectionBlocks(
+  raw: unknown,
+): { blocks: SectionBlock[]; json: string } | string {
+  return parseBlocks(raw);
 }
 
 function parseBlocks(raw: unknown): { blocks: SectionBlock[]; json: string } | string {
@@ -278,6 +343,112 @@ function parseBlocks(raw: unknown): { blocks: SectionBlock[]; json: string } | s
     blocks.push(block);
   }
   return { blocks, json: JSON.stringify({ version: 1, blocks }) };
+}
+
+// §30.5/§12 per-type shape checks (returns an error message or null).
+// Offer EXISTENCE/ACTIVE checks stay in the handler; this validates shapes.
+function validateListicleBlockShape(block: SectionBlock): string | null {
+  const data = block.data;
+  switch (block.type) {
+    case "button": {
+      if (trimmedString(data.text) === null) {
+        return "a 'button' block needs its button text";
+      }
+      const style = data.style;
+      if (
+        style !== undefined &&
+        style !== null &&
+        !(LISTICLE_BUTTON_STYLES as readonly string[]).includes(asStringOr(style))
+      ) {
+        return `button style must be one of ${LISTICLE_BUTTON_STYLES.join(", ")}`;
+      }
+      const align = data.align;
+      if (
+        align !== undefined &&
+        align !== null &&
+        !(LISTICLE_BUTTON_ALIGNS as readonly string[]).includes(asStringOr(align))
+      ) {
+        return `button align must be one of ${LISTICLE_BUTTON_ALIGNS.join(", ")}`;
+      }
+      return null;
+    }
+    case "choice_button_group": {
+      const items = data.items;
+      if (!Array.isArray(items) || items.length === 0) {
+        return "a choice button group needs at least one button";
+      }
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!isRecord(item)) {
+          return `choice button ${i + 1} must be an object`;
+        }
+        if (trimmedString(item.text) === null) {
+          return `choice button ${i + 1} needs its button text`;
+        }
+        if (!hasOfferRef(item.offer_id)) {
+          return `choice button ${i + 1} must reference an Offer (offer_id) — a button without an Offer blocks the save`;
+        }
+        if (typeof item.url === "string" || typeof item.href === "string") {
+          return "free-text URLs are forbidden in listicle Sections — the link target is derived from the Offer";
+        }
+        const styleId = item.style_id;
+        if (
+          styleId !== undefined &&
+          styleId !== null &&
+          asStringOr(styleId) !== "reference-choice-button"
+        ) {
+          return `choice button ${i + 1} style_id must be "reference-choice-button" (§30.5)`;
+        }
+      }
+      return null;
+    }
+    case "final_text_cta": {
+      if (trimmedString(data.text) === null) {
+        return "a final text CTA needs its link text";
+      }
+      return null;
+    }
+    case "linked_image": {
+      if (!hasOfferRef(data.offer_id)) {
+        return "a linked image must reference an Offer (offer_id) — an image link without an Offer blocks the save";
+      }
+      if (trimmedString(data.alt) === null) {
+        return "a linked image needs alt text (§30.5 LinkedImage.alt)";
+      }
+      const hasMedia = positiveInt(data.media_id) !== null;
+      const hasUrl =
+        trimmedString(data.image_url) !== null || trimmedString(data.url) !== null;
+      if (!hasMedia && !hasUrl) {
+        return "a linked image needs an image (media_id or image_url)";
+      }
+      return null;
+    }
+    case "list": {
+      const marker = data.marker;
+      if (marker !== undefined && marker !== null) {
+        const m = asStringOr(marker);
+        if (!(LISTICLE_LIST_MARKERS as readonly string[]).includes(m)) {
+          return `list marker must be one of ${LISTICLE_LIST_MARKERS.join(", ")}`;
+        }
+        if (m === "emoji") {
+          const emoji = trimmedString(data.emoji);
+          if (emoji === null) {
+            return "an emoji list needs its marker emoji";
+          }
+          if (!LISTICLE_EMOJI_SET.includes(emoji)) {
+            return "the emoji list marker must come from the curated emoji set";
+          }
+        }
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+function asStringOr(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
 }
 
 export interface SectionValidation {
@@ -366,20 +537,42 @@ export function validateSection(raw: Record<string, unknown>): SectionValidation
             "the legacy 'affiliate' block is forbidden in listicle Sections — links must reference an Offer";
           return;
         }
+        if (!isListicleBlockType(block.type)) {
+          errors[key] =
+            `'${block.type}' is not a listicle content block — the listicle grammar (§12) allows: text, headings, lists, quotes, images, buttons, choice button groups, final text CTAs, linked images, and spacers`;
+          return;
+        }
         if (containsRawHref(block.data)) {
           errors[key] =
             "free-text URLs are forbidden in listicle Sections — convert the link to an Offer reference";
           return;
         }
+        if (containsUngovernedAnchor(block.data)) {
+          errors[key] =
+            "every link must reference an Offer — insert links through the Offer modal (an <a> without data-offer blocks the save)";
+          return;
+        }
+        const unknownColors = new Set<string>();
+        collectUnknownColorTokens(block.data, unknownColors);
+        if (unknownColors.size > 0) {
+          errors[key] =
+            `unknown colour token(s) ${[...unknownColors].join(", ")} — text colours and highlights come from the curated palette`;
+          return;
+        }
         if (OFFER_BOUND_BLOCK_TYPES.has(block.type)) {
-          if (positiveInt(block.data.offer_id) === null) {
+          if (!hasOfferRef(block.data.offer_id)) {
             errors[key] = `a '${block.type}' block must reference an Offer (offer_id)`;
             return;
           }
           if (typeof block.data.url === "string" || typeof block.data.href === "string") {
             errors[key] =
               "free-text URLs are forbidden in listicle Sections — the link target is derived from the Offer";
+            return;
           }
+        }
+        const blockError = validateListicleBlockShape(block);
+        if (blockError !== null) {
+          errors[key] = blockError;
         }
       });
     }

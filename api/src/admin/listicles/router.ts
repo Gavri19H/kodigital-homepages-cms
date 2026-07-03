@@ -24,6 +24,7 @@ import {
   getSectionHandler,
   patchSectionHandler,
   deleteSectionHandler,
+  previewSectionHandler,
   sectionUsageHandler,
   sectionOffersHandler,
   sectionAnalyticsHandler,
@@ -61,8 +62,10 @@ routes.get("/offers/:id/usage", offerUsageHandler);
 routes.get("/offers/:id/analytics", offerAnalyticsHandler);
 
 // --- Sections (§7.1 "same verbs" + usage/offers/analytics extras) ----------
+// /sections/preview registers before /sections/:id (static-vs-param order).
 routes.get("/sections", listSectionsHandler);
 routes.post("/sections", createSectionHandler);
+routes.post("/sections/preview", previewSectionHandler);
 routes.get("/sections/:id", getSectionHandler);
 routes.patch("/sections/:id", patchSectionHandler);
 routes.delete("/sections/:id", deleteSectionHandler);
