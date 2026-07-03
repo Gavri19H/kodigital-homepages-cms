@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { parseBoolean, type Env } from "../env";
 import { accessAuth as gate } from "../auth/access-auth";
 import { adminUi } from './ui';
+import { listicleUi } from './listicles/ui';
 // Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi, listicleApi.
 import api from "./api";
 import wfApi from "./workflow-api";
@@ -26,6 +27,9 @@ admin.use("/api/admin/*", gate);
 // shell that previously lived here is gone — all admin GETs now flow
 // through adminLayout via ./ui.
 admin.route("/", adminUi);
+// Listicles CMS Phase 3: server-rendered listicles shell pages under
+// /admin/listicles* (§4) — same accessAuth gate as adminUi above.
+admin.route("/", listicleUi);
 
 // Admin auth-status endpoint. Reports whether the dev-bypass is in
 // effect for this request so the UI can flag it visually.
