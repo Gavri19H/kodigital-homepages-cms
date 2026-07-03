@@ -1,7 +1,8 @@
 // Admin UI shell template — ported from the legacy admin layout
 // (theiwise-legacy-readonly api/src/admin/templates/layout.ts), rebranded.
-// Brand: KoDigital CMS only. 9-entry sidebar nav: Dashboard, Domains, Articles,
-// Pages, Media, Categories, Tags, AI Presets, Settings.
+// Brand: KoDigital CMS only. 10-entry sidebar nav: Dashboard, Domains, Articles,
+// Pages, Listicles (design contract §4 — inserted right after Pages), Media,
+// Categories, Tags, AI Presets, Settings.
 // The inline <script> payload MUST stay ES5 (no arrow/const/let/async) —
 // asserted by test/admin-layout-shell.test.ts via script extraction.
 
@@ -26,6 +27,9 @@ const ICON_DASHBOARD = `<svg width="20" height="20" viewBox="0 0 24 24" fill="no
 const ICON_DOMAINS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const ICON_ARTICLES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
 const ICON_PAGES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+// Listicles (design contract §4): numbered-list glyph in the same feather
+// outline style as the other sidebar icons.
+const ICON_LISTICLES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`;
 const ICON_MEDIA = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 const ICON_CATEGORIES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
 const ICON_TAGS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
@@ -38,6 +42,7 @@ const NAV_ENTRIES: ReadonlyArray<NavEntry> = [
   { href: "/admin/domains", label: "Domains", icon: ICON_DOMAINS },
   { href: "/admin/articles", label: "Articles", icon: ICON_ARTICLES },
   { href: "/admin/pages", label: "Pages", icon: ICON_PAGES },
+  { href: "/admin/listicles", label: "Listicles", icon: ICON_LISTICLES },
   { href: "/admin/media", label: "Media", icon: ICON_MEDIA },
   { href: "/admin/categories", label: "Categories", icon: ICON_CATEGORIES },
   { href: "/admin/tags", label: "Tags", icon: ICON_TAGS },
