@@ -74,6 +74,27 @@ function rule(selector: string, declarations: string[]): string {
   return `${selector}{${declarations.join(";")}}`;
 }
 
+// Phase 6 (styles.ts): the exported group mapper. Maps ONE token group to a
+// `{base, mobile}` pair of CSS rule strings under `selector`, with the exact
+// conventions documented above (Desktop/Mobile suffixes, paddingX/Y
+// expansion, meta fields skipped). `overrides` lets the caller substitute
+// measured drift values (register DEV-13: the LIVE value wins) for specific
+// fields WITHOUT mutating the token group — an override key replaces the
+// token field of the same name before mapping.
+export function tokenGroupCss(
+  selector: string,
+  group: TokenGroup,
+  options?: {
+    only?: ReadonlyArray<string>;
+    overrides?: Readonly<Record<string, string>>;
+  },
+): { base: string; mobile: string } {
+  const source: TokenGroup =
+    options?.overrides !== undefined ? { ...group, ...options.overrides } : group;
+  const { base, mobile } = groupToDeclarations(source, options?.only);
+  return { base: rule(selector, base), mobile: rule(selector, mobile) };
+}
+
 export const DEFAULT_LAYOUT_SCOPE = '[data-layout="default"]';
 
 // Mobile breakpoint: the §30.1 package captures desktop at 1014px and mobile

@@ -98,28 +98,41 @@ describe("curatedColorCss — the §12 palette as CSS", () => {
   });
 });
 
-describe("§31.0 honesty — the vendored token package stays untouched", () => {
-  it("the token OBJECT still carries all 10 BLOCKER status fields", () => {
-    // Programmatic count over the object (the raw file also quotes "BLOCKER"
-    // in its header comment — Phase-1 acceptance counted that 11th hit).
-    let count = 0;
+describe("§31.0 honesty — blockers RESOLVED by the 2026-07-03 capture pass", () => {
+  // Phase 4/5 pinned the package to its BLOCKER statuses (§31.0: never
+  // fabricate). The §31.0 REQUIRED CAPTURE pass landed 2026-07-03 (register
+  // DEV-13: today's live page is the reference), so the SAME honesty
+  // invariant now points the other way: no BLOCKER status may remain, every
+  // resolved group is stamped `measured` + `measuredAt: 2026-07-03`, and the
+  // top-page drift is recorded in the register — never silently overwritten.
+  it("the token OBJECT carries ZERO remaining BLOCKER status fields", () => {
+    let blockers = 0;
+    let measured = 0;
     const walk = (value: unknown): void => {
       if (typeof value !== "object" || value === null) return;
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        if (k === "status" && typeof v === "string" && v.startsWith("BLOCKER")) count++;
+        if (k === "status" && typeof v === "string" && v.startsWith("BLOCKER")) blockers++;
+        if (k === "status" && typeof v === "string" && v.startsWith("measured")) measured++;
         walk(v);
       }
     };
     walk(defaultListicleLayoutTokens);
-    expect(count).toBe(10);
+    expect(blockers).toBe(0);
+    // The 8 lower-page groups + Disclosure interaction + mobile viewport +
+    // the package-level status are all stamped measured.
+    expect(measured).toBeGreaterThanOrEqual(10);
   });
 
-  it("the raw tokens.ts source still quotes the BLOCKER lines verbatim", () => {
+  it("the raw tokens.ts source records the capture date + the drift register (baseline not overwritten)", () => {
     const tokensPath = join(
       dirname(fileURLToPath(import.meta.url)),
       "../src/public/listicle/layouts/default/tokens.ts",
     );
     const raw = readFileSync(tokensPath, "utf8");
-    expect((raw.match(/"BLOCKER/g) ?? []).length).toBeGreaterThanOrEqual(10);
+    expect(raw).not.toContain('"BLOCKER');
+    expect((raw.match(/measuredAt: "2026-07-03"/g) ?? []).length).toBeGreaterThanOrEqual(8);
+    expect(raw).toContain("measuredDriftRegister2026_07_03");
+    // §30.1 baseline values stay recorded (drift register keeps BOTH):
+    expect(raw).toContain("#ce2e35");
   });
 });

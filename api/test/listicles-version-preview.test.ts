@@ -530,8 +530,10 @@ describe("preview pure helpers", () => {
     expect(css).toContain("gap:16px");
     expect(css).toContain("font-size:12px");
     expect(css).toContain("color:#4b5360");
-    // headline mobile override lands in the mobile block.
+    // headline mobile override lands in the mobile block (24px/32px — the
+    // MEASURED 390px variant; the provisional 32px/39px was corrected by the
+    // 2026-07-03 capture).
     expect(css).toContain("@media (max-width: 767px)");
-    expect(css).toContain("font-size:32px");
+    expect(css).toContain("font-size:24px");
   });
 });

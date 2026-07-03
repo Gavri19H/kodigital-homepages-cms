@@ -386,7 +386,9 @@ describeDb("Phase-4 section save — enrichment + listicle render (§30.5/§30.9
     expect(html).toContain("Bound");
     // Token-derived stylesheet (the §30.1 values ride the <style> block).
     expect(html).toContain("max-width:968px");
-    expect(html).toContain("border-radius:6px");
+    // Measured choice-button radius (tokens.choiceButton.borderRadius —
+    // 8px since the 2026-07-03 §31.0 capture corrected the provisional 6px).
+    expect(html).toContain("border-radius:8px");
     // Only the malformed-JSON case rejects.
     const bad = await admin.request(
       "/api/admin/listicles/sections/preview",

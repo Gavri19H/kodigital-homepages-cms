@@ -12,6 +12,7 @@
 
 import { listicleBlocksToHtml } from "../../editor/listicle-blocks";
 import { mintPublicId } from "../../listicles/ids";
+import { fanOutSectionInvalidate } from "../../listicles/invalidate";
 import {
   applyLinkInstances,
   buildLinkGraphStatements,
@@ -477,6 +478,15 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     ...buildLinkGraphStatements(c.env.DB, { id: existing.id }, resolved),
   ];
   await c.env.DB.batch(statements);
+
+  // Listicles Phase 6 — §22.2 Section fan-out: a CONTENT change walks
+  // candidates → pages → versions → articles, bumps each consuming
+  // Version's content_version (new lander_v cache identity) and runs the
+  // per-site invalidate + warm. Awaited: the version bump is business
+  // logic downstream reads depend on (D1 rule).
+  if (contentChanged) {
+    await fanOutSectionInvalidate(c.env, c.env.DB, existing.id);
+  }
 
   const row = await c.env.DB.prepare("SELECT * FROM listicle_sections WHERE id = ? LIMIT 1")
     .bind(existing.id)
