@@ -1,16 +1,23 @@
-// Version save + pre-save page validation (contract §7.1 / §15.5 / §15.6 / §23).
+// Version save + pre-save page validation (contract §7.1 / §15.5 / §15.6 /
+// §23 / §30.7).
 //
-// PUT /versions/:id is the builder's ATOMIC save: version fields + pages +
-// candidates + rules commit in ONE env.DB.batch using a replace strategy
-// (delete the version's pages — candidates/rules cascade — and reinsert from
-// the payload, preserving provided public_ids and minting for new rows).
-// Full §23 validation + the §15.5 rule-conflict guard run BEFORE any write.
+// PUT /versions/:id is the builder's ATOMIC save: version fields (+ the §30.2
+// byline_json) + pages + candidates + rules commit in ONE env.DB.batch using
+// a replace strategy (delete the version's pages — candidates/rules cascade —
+// and reinsert from the payload, preserving provided public_ids and minting
+// for new rows). Full §23 validation + the §15.5 rule-conflict guard run
+// BEFORE any write.
 //
-// Running Versions are immutable (§15.6): editing one is refused with 409
-// running_version_immutable — a meaningful edit forks a NEW Version, which
-// arrives with the builder (Phase 5). On a PUBLISHED article (§30.7 case c)
-// only BEHAVIORAL saves are refused (409 published_version_immutable);
-// non-behavioral tweaks stay allowed as a content_version bump (case b).
+// Running Versions are immutable (§15.6): a PUT is refused with 409
+// running_version_immutable. On a PUBLISHED article (§30.7 case c) BEHAVIORAL
+// saves are refused (409 published_version_immutable); non-behavioral tweaks
+// stay allowed as a content_version bump (case b). The two §15.6-conformant
+// escapes both live here in Phase 5:
+//   * POST /versions/:id/fork (version-fork.ts) — new Version, new lander_v;
+//   * POST /versions/:id/new-revision — the operator EXPLICITLY starts a new
+//     revision period (§30.7 case c): the SAME atomic payload as PUT, applied
+//     with an unconditional content_version bump, bypassing ONLY the two
+//     immutability 409s — every other validation gate still applies.
 
 import { mintPublicId, ulid } from "../../listicles/ids";
 import {
@@ -22,6 +29,7 @@ import {
   type RuleOverlapReport,
 } from "../../listicles/rules";
 import {
+  validateByline,
   validatePage,
   validateVersion,
   type FieldErrors,
@@ -42,7 +50,7 @@ import {
   type StructurePage,
 } from "./structure";
 
-async function resolveVersionRow(db: D1Database, idParam: string): Promise<VersionRowL | null> {
+export async function resolveVersionRow(db: D1Database, idParam: string): Promise<VersionRowL | null> {
   const selector = idSelector(idParam);
   if (selector === null) return null;
   const sql =
@@ -145,7 +153,7 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
   if (version === null) return c.json({ error: "Not Found" }, 404);
 
   // §15.6 immutability: a Version inside a RUNNING experiment cannot be
-  // edited in place.
+  // edited in place — the builder offers the two conformant paths.
   if (version.experiment_id !== null) {
     const experiment = await c.env.DB.prepare(
       "SELECT status FROM listicle_article_experiments WHERE id = ? LIMIT 1",
@@ -158,7 +166,7 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
           error: "running_version_immutable",
           fields: {
             version:
-              "editing a running Version forks a new Version (§15.6) — forking arrives with the builder (Phase 5)",
+              "editing a running Version forks a new Version (§15.6): POST /versions/:id/fork — or the operator explicitly starts a new revision period (§30.7 case c): POST /versions/:id/new-revision",
           },
         },
         409,
@@ -168,10 +176,47 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
 
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+  return applyVersionSave(c, version, body, "put");
+}
 
+// POST /api/admin/listicles/versions/:id/new-revision — §30.7 case c's
+// "unless the operator explicitly starts a new revision period": the SAME
+// atomic payload as PUT /versions/:id, applied with an UNCONDITIONAL
+// content_version bump (a new article_version_revision / cache identity) and
+// the SAME lander_v. Calling this endpoint IS the explicit operator consent,
+// so it bypasses ONLY the two immutability 409s (running_version_immutable /
+// published_version_immutable) — full §23 validation, section-reference
+// checks and the §15.5 conflict guard all still apply.
+export async function newRevisionVersionHandler(c: AdminContext): Promise<Response> {
+  const version = await resolveVersionRow(c.env.DB, c.req.param("id") ?? "");
+  if (version === null) return c.json({ error: "Not Found" }, 404);
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+  return applyVersionSave(c, version, body, "new_revision");
+}
+
+type VersionSaveMode = "put" | "new_revision";
+
+// The shared atomic save core (PUT + new-revision). `mode` differences:
+//   put           — content_version bumps only on real change; a BEHAVIORAL
+//                   change on a published article 409s (§30.7 case c).
+//   new_revision  — content_version ALWAYS bumps (that is what "start a new
+//                   revision period" means); no immutability checks (the
+//                   caller already expressed the explicit §30.7-case-c
+//                   consent by choosing the endpoint).
+async function applyVersionSave(
+  c: AdminContext,
+  version: VersionRowL,
+  body: Record<string, unknown>,
+  mode: VersionSaveMode,
+): Promise<Response> {
   // Full §23 validation FIRST — nothing is written unless everything passes.
   const validation = validateVersion(body);
   const errors: FieldErrors = { ...validation.errors };
+
+  // §30.2 byline (full-replace semantics: absent ⇒ NULL).
+  const byline = validateByline(body.byline ?? body.byline_json);
+  Object.assign(errors, byline.errors);
 
   const sectionIds = validation.pages.flatMap((page) =>
     page.candidates.map((cand) => cand.section_id),
@@ -275,25 +320,31 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
 
   // content_version bumps ON CHANGE (§15.6/§30.7: the bump is a new cache
   // identity + article_version_revision). A byte-identical re-save keeps it.
+  const layoutChanged = fields.layout_style_id !== version.layout_style_id;
   const fieldsChanged =
     fields.headline !== version.headline ||
     fields.intro_paragraph !== version.intro_paragraph ||
     fields.hero_media_id !== version.hero_media_id ||
     fields.hero_media_url !== version.hero_media_url ||
-    fields.layout_style_id !== version.layout_style_id ||
-    (fields.ai_settings_json ?? null) !== (version.ai_settings_json ?? null);
+    layoutChanged ||
+    (fields.ai_settings_json ?? null) !== (version.ai_settings_json ?? null) ||
+    (byline.json ?? null) !== (version.byline_json ?? null);
   const treeChanged =
     structureFingerprint(currentPages) !==
     structureFingerprint(preparedPages as FingerprintPage[]);
 
-  // §15.6/§30.7 case (c): a BEHAVIORAL change (the same fingerprint that
-  // drives the content_version bump) to a published article's Version must
-  // fork a NEW Version (new lander_v) — forking arrives with the builder
-  // (Phase 5); interim: set the article back to draft via PATCH, edit,
-  // re-publish. Non-behavioral saves fall through (case b: content_version
-  // bump, same lander_v). The running-experiment 409 above stays the
-  // strictest guard — it blocks ALL edits.
-  if (treeChanged) {
+  // §15.6/§30.7 case (c): a BEHAVIORAL change to a published article's
+  // Version must fork a NEW Version (new lander_v) — POST /versions/:id/fork
+  // — unless the operator explicitly starts a new revision period (POST
+  // /versions/:id/new-revision, mode "new_revision" here, which skips this
+  // gate BY DESIGN). Behavioral = the page/candidate/rule tree fingerprint
+  // OR the layout — §30.7 case c names "meaningful content/LAYOUT/page/
+  // section change" explicitly. Field tweaks (headline/intro/hero/byline/ai)
+  // fall through as case b (the DEV-9 documented posture): content_version
+  // bump, same lander_v, revisions separable in every mirror. The running-
+  // experiment 409 in putVersionHandler stays the strictest guard — it
+  // blocks ALL plain PUTs.
+  if (mode === "put" && (treeChanged || layoutChanged)) {
     const article = await c.env.DB.prepare(
       "SELECT status FROM listicle_articles WHERE id = ? LIMIT 1",
     )
@@ -305,14 +356,17 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
           error: "published_version_immutable",
           fields: {
             version:
-              "meaningful edits to a published Version must fork a new Version (§15.6 case c) — forking arrives with the builder (Phase 5); interim: set the article back to draft via PATCH, edit, then re-publish",
+              "meaningful edits to a published Version must fork a new Version (§15.6 case c): POST /versions/:id/fork — or explicitly start a new revision period (§30.7 case c): POST /versions/:id/new-revision",
           },
         },
         409,
       );
     }
   }
-  const contentVersion = version.content_version + (fieldsChanged || treeChanged ? 1 : 0);
+  const contentVersion =
+    mode === "new_revision"
+      ? version.content_version + 1
+      : version.content_version + (fieldsChanged || treeChanged ? 1 : 0);
 
   // ATOMIC replace: update fields, drop the old page tree (candidates +
   // rules cascade), reinsert the new tree. Later statements attach through
@@ -323,7 +377,7 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
     c.env.DB.prepare(
       `UPDATE listicle_article_versions
        SET headline = ?, intro_paragraph = ?, hero_media_id = ?, hero_media_url = ?,
-           layout_style_id = ?, ai_settings_json = ?, content_version = ?
+           layout_style_id = ?, byline_json = ?, ai_settings_json = ?, content_version = ?
        WHERE id = ?`,
     ).bind(
       fields.headline,
@@ -331,6 +385,7 @@ export async function putVersionHandler(c: AdminContext): Promise<Response> {
       fields.hero_media_id,
       fields.hero_media_url,
       fields.layout_style_id,
+      byline.json,
       fields.ai_settings_json,
       contentVersion,
       version.id,

@@ -416,14 +416,21 @@ describeDb("listicles shell routes (§4/§8/§25)", () => {
     // first site auto-selected (repo resolveSiteId pattern)
     expect(html).toMatch(/<option value="st_test"[^>]*selected/);
     expect(html).toContain("My Listicle");
-    expect(html).toContain("Article builder ships in Phase 5");
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>\+ Create Article<\/button>/);
+    // Phase 5 (DEV-10 closure): the Create button is a LIVE builder link, the
+    // toolbar carries the ?search= box, and rows gain an Edit action.
+    expect(html).toContain('href="/admin/listicles/articles/new"');
+    expect(html).not.toContain("Article builder ships in Phase 5");
+    expect(html).toMatch(/<input[^>]*name="search"[^>]*aria-label="Search articles"/);
+    // FIX-4: the Edit link deep-links by the stable art_ public id (the route
+    // accepts both identities; public_id is the version-agnostic one that
+    // analytics/events carry).
+    expect(html).toMatch(/href="\/admin\/listicles\/articles\/art_[A-Za-z0-9]+\/edit"/);
+    expect(html).not.toMatch(/href="\/admin\/listicles\/articles\/\d+\/edit"/);
     // §11 summary analytics columns hydrate from the article endpoint's total
     expect(html).toContain('data-analytics-pick="total"');
     for (const metric of ["total_visits", "unique_visits", "pps"]) {
       expect(html, `articles metric ${metric}`).toContain(`data-metric="${metric}"`);
     }
-    expect(html).not.toContain('href="/admin/listicles/articles/new"');
   });
 
   it("articles page: 'Site is required' gate when no site exists", async () => {

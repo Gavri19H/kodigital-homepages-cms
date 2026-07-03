@@ -734,6 +734,110 @@ function allocationInt(value: unknown): number | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Byline (§30.2 ArticleVersionByline — stored on the Version as byline_json)
+// ---------------------------------------------------------------------------
+
+export interface BylineInput {
+  enabled: boolean;
+  author_name: string;
+  author_avatar_media_id?: number;
+  author_avatar_url?: string;
+  label: string; // default "Advertorial" (§30.2)
+  updated_label: string; // e.g. "Updated:"
+  updated_date: string;
+}
+
+const BYLINE_KEYS = new Set([
+  "enabled",
+  "author_name",
+  "author_avatar_media_id",
+  "author_avatar_url",
+  "label",
+  "updated_label",
+  "updated_date",
+]);
+
+// Validate a §30.2 byline payload (object or JSON string). Absent/null ⇒
+// { json: null } — the Version save is a full replace, so "no byline sent"
+// stores NULL. Field rules: when `enabled`, author_name is required; unknown
+// keys are rejected (a typo'd avatar field must not silently vanish); `label`
+// defaults to "Advertorial" and `updated_label`/`updated_date` to "" so the
+// stored JSON is always the full canonical shape.
+export function validateByline(raw: unknown): { errors: FieldErrors; json: string | null } {
+  const errors: FieldErrors = {};
+  if (raw === undefined || raw === null || raw === "") return { errors, json: null };
+
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      errors.byline = "byline must be valid JSON";
+      return { errors, json: null };
+    }
+  }
+  if (!isRecord(value)) {
+    errors.byline = "byline must be an object (§30.2 ArticleVersionByline)";
+    return { errors, json: null };
+  }
+  for (const key of Object.keys(value)) {
+    if (!BYLINE_KEYS.has(key)) {
+      errors[`byline.${key}`] = `unknown byline field '${key}' (§30.2 allows: ${[...BYLINE_KEYS].join(", ")})`;
+    }
+  }
+
+  const enabled = value.enabled === true || value.enabled === 1;
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean" && value.enabled !== 0 && value.enabled !== 1) {
+    errors["byline.enabled"] = "byline.enabled must be a boolean";
+  }
+
+  const author_name = typeof value.author_name === "string" ? value.author_name.trim() : "";
+  if (enabled && author_name === "") {
+    errors["byline.author_name"] = "byline.author_name is required when the byline is enabled";
+  }
+  if (value.author_name !== undefined && typeof value.author_name !== "string") {
+    errors["byline.author_name"] = "byline.author_name must be a string";
+  }
+
+  let author_avatar_media_id: number | undefined;
+  if (value.author_avatar_media_id !== undefined && value.author_avatar_media_id !== null) {
+    const parsed = positiveInt(value.author_avatar_media_id);
+    if (parsed === null) {
+      errors["byline.author_avatar_media_id"] = "byline.author_avatar_media_id must be a positive integer";
+    } else {
+      author_avatar_media_id = parsed;
+    }
+  }
+  let author_avatar_url: string | undefined;
+  if (value.author_avatar_url !== undefined && value.author_avatar_url !== null) {
+    if (typeof value.author_avatar_url !== "string") {
+      errors["byline.author_avatar_url"] = "byline.author_avatar_url must be a string";
+    } else if (value.author_avatar_url.trim() !== "") {
+      author_avatar_url = value.author_avatar_url.trim();
+    }
+  }
+
+  const stringOrDefault = (key: "label" | "updated_label" | "updated_date", fallback: string): string => {
+    const v = value[key];
+    if (v === undefined || v === null) return fallback;
+    if (typeof v !== "string") {
+      errors[`byline.${key}`] = `byline.${key} must be a string`;
+      return fallback;
+    }
+    return v.trim() === "" ? fallback : v.trim();
+  };
+  const label = stringOrDefault("label", "Advertorial");
+  const updated_label = stringOrDefault("updated_label", "");
+  const updated_date = stringOrDefault("updated_date", "");
+
+  if (Object.keys(errors).length > 0) return { errors, json: null };
+  const canonical: BylineInput = { enabled, author_name, label, updated_label, updated_date };
+  if (author_avatar_media_id !== undefined) canonical.author_avatar_media_id = author_avatar_media_id;
+  if (author_avatar_url !== undefined) canonical.author_avatar_url = author_avatar_url;
+  return { errors, json: JSON.stringify(canonical) };
+}
+
 // Parse + validate ONE page payload. Error keys use the contract's
 // `page_<idx>.<field>` convention (§15.5 uses `page_<idx>.rules`).
 export function validatePage(
