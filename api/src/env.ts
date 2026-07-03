@@ -34,6 +34,11 @@ export interface Env {
   AWS_ACCESS_KEY_ID?: string;
   AWS_SECRET_ACCESS_KEY?: string;
   EVENTS_FIREHOSE_STREAM?: string;
+  // Listicles tracking pipeline (§16): POST /api/lst/track + /lc ->
+  // Firehose `listicle-events` -> S3 -> Athena `listicles.events`/`sessions`.
+  // Same AWS creds as the homepage stream; optional so the listicle pipeline
+  // no-ops exactly like the homepage one until the stream is provisioned.
+  LISTICLE_EVENTS_FIREHOSE_STREAM?: string;
 }
 
 export function parseBoolean(value: string | undefined | null): boolean {

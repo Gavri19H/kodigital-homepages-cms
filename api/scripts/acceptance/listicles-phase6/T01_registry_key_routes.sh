@@ -72,8 +72,11 @@ check "/lc URL builder carries a/lv/p/s/c/m/r + lnk/blk/role + the §31.9 pv pla
 # --- §22.4 payload guard ---------------------------------------------------------
 check "budget constants (~40KB + 50% ratio) + above-fold never lazy" \
   bash -c "grep -q 'LST_CANDIDATE_BUDGET_BYTES = 40 \* 1024' '$RENDER' && grep -q 'LST_CANDIDATE_BUDGET_RATIO = 0.5' '$RENDER' && grep -q 'LST_ABOVE_FOLD_PAGE_COUNT' '$RENDER'"
-check "hidden candidates ship as inert <template>; interim single_default style declared" \
-  bash -c "grep -q 'lst-cand-tpl' '$RENDER' && grep -q 'interim-single-default' '$RENDER' && grep -q 'INTERIM' '$RENDER'"
+# Phase-7 supersession: the Phase-6 INTERIM single-default style was
+# contractually REPLACED by the §15.3 pre-paint selector (per-user pick);
+# the inert-<template> alternates + a declared default remain.
+check "hidden candidates ship as inert <template>; single-default now owned by the §15.3 selector (Phase 7)" \
+  bash -c "grep -q 'lst-cand-tpl' '$RENDER' && grep -q 'selectorScriptTag()' '$RENDER' && grep -q 'defaultCandidate' '$RENDER'"
 check "lazy hydration from GET /lst-cand/:candidate_public_id with reserved dims" \
   bash -c "grep -q 'data-lst-lazy' '$RENDER' && grep -q 'LST_LAZY_CANDIDATE_MIN_HEIGHT_PX' '$RENDER' && grep -q 'XMLHttpRequest' '$RENDER'"
 

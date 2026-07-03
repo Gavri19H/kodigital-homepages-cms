@@ -89,6 +89,8 @@ import {
   tryServePublishedListicle,
   serveListicleCandidate,
 } from "./listicle/serve";
+import { handleListicleClick } from "./listicle/resolver";
+import { listicleTrackRouter } from "../analytics/listicle-track";
 import { renderSeoHead } from "./templates/seo-head";
 import { renderArticleJsonLd } from "./templates/jsonld-article";
 import {
@@ -178,6 +180,21 @@ router.get("/assets/public.js", () =>
     },
   }),
 );
+
+// Listicles Phase 7 (§7.2/§7.3): GET /lc/:oid — the first-party click
+// resolver. Registered BEFORE publicSiteContextMiddleware (host-independent,
+// like /favicon.ico): Offers are GLOBAL, the resolver needs no tenant
+// lookup, and §7.3 fail-safety ("never 500 a click") must hold even on a
+// host whose site row was deleted mid-flight. Two path segments — never
+// collides with the /:slug catch-all.
+router.get("/lc/:oid", (c) => handleListicleClick(c));
+
+// Listicles Phase 7 (§16/§24): POST /api/lst/track — the listicle beacon,
+// registered like the homepage analyticsRouter (fire-and-forget, always
+// 204) and like /favicon.ico (host-independent, before the site-context
+// middleware) so it works on every tenant host and is never swallowed by
+// the /:slug catch-all. The homepage POST /api/track stays byte-untouched.
+router.route("/", listicleTrackRouter);
 
 // T26: site-context resolution runs before every public route. Unmapped
 // hostnames (including ADMIN_HOST, which never resolves as a public

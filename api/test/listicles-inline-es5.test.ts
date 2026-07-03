@@ -139,17 +139,22 @@ describe("public listicle shell — inline scripts are strict ES5", () => {
   });
 
   it("hydration is scheduled EAGER ON LOAD-IDLE (review finding 2), never on scroll", () => {
-    const joined = extractScripts(bigDoc).join("\n;\n");
+    // Phase 7 scoping: the §31.5 beacon legitimately uses
+    // IntersectionObserver for impressions, so the no-viewport-trigger
+    // assertion applies to the HYDRATOR script itself (the XHR one), not
+    // the whole document.
+    const hydrator = extractScripts(bigDoc).find((s) => s.includes("XMLHttpRequest")) ?? "";
+    expect(hydrator).not.toBe("");
     // after window load…
-    expect(joined).toContain("window.addEventListener('load',schedule)");
+    expect(hydrator).toContain("window.addEventListener('load',schedule)");
     // …already-loaded documents schedule immediately…
-    expect(joined).toContain("document.readyState==='complete'");
+    expect(hydrator).toContain("document.readyState==='complete'");
     // …via requestIdleCallback with a bounded timeout + ES5 setTimeout(0) fallback.
-    expect(joined).toContain("requestIdleCallback(hydrateAll,{timeout:2000})");
-    expect(joined).toContain("setTimeout(hydrateAll,0)");
+    expect(hydrator).toContain("requestIdleCallback(hydrateAll,{timeout:2000})");
+    expect(hydrator).toContain("setTimeout(hydrateAll,0)");
     // NO viewport/scroll trigger exists — the swap never waits for the user.
-    expect(joined).not.toContain("IntersectionObserver");
-    expect(joined).not.toContain("scroll");
+    expect(hydrator).not.toContain("IntersectionObserver");
+    expect(hydrator).not.toContain("scroll");
   });
 });
 

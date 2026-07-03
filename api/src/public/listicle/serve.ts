@@ -47,6 +47,18 @@ import {
 } from "./render";
 import { getLayout } from "./layouts/registry";
 import type { GovernedUrlContext } from "./governed-url";
+import { parseKoCtx, buildKoCtx, serializeKoCtxCookie, KO_CTX_COOKIE } from "./ko-ctx";
+import {
+  injectListicleContext,
+  buildRuleContext,
+  type InjectedExperimentDims,
+} from "./ctx-inject";
+import {
+  readCfSignals,
+  parseClientUa,
+  geoFromCf,
+  hourInTimezone,
+} from "../../analytics/listicle-quality";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
@@ -61,6 +73,7 @@ export interface ListicleArticleRow {
   public_id: string;
   site_id: string;
   slug: string;
+  article_name: string;
   status: string;
   active_experiment_id: number | null;
 }
@@ -100,7 +113,7 @@ export async function loadPublishedListicle(
 ): Promise<ListicleArticleRow | null> {
   const row = await db
     .prepare(
-      `SELECT id, public_id, site_id, slug, status, active_experiment_id
+      `SELECT id, public_id, site_id, slug, article_name, status, active_experiment_id
        FROM listicle_articles WHERE site_id = ? AND slug = ? LIMIT 1`,
     )
     .bind(siteId, slug)
@@ -264,7 +277,8 @@ async function resolveOfferRefs(
 }
 
 // Structure pages → renderer pages (rule public ids ride along for the
-// governed URL `r` param).
+// governed URL `r` param; allocations + parsed rule conditions ride along
+// for the §15.3 selector boot payload, Phase 7).
 async function loadRenderPages(
   db: D1Database,
   versionId: number,
@@ -282,6 +296,12 @@ async function loadRenderPages(
       section_id: cand.section_id,
       is_fallback: cand.is_fallback,
       rule_public_id: cand.rule?.public_id ?? null,
+      section_public_id: cand.section_public_id,
+      section_name: cand.section_name,
+      traffic_allocation: cand.traffic_allocation,
+      rule_priority: cand.rule?.priority ?? null,
+      rule_conditions_json: cand.rule?.conditions_json ?? null,
+      rule_conditions_hash: cand.rule?.conditions_hash ?? null,
     })),
   }));
 }
@@ -293,7 +313,7 @@ async function loadRenderPages(
 export async function renderListicleShellForVersion(
   db: D1Database,
   site: { siteId: string; hostname: string },
-  article: { public_id: string; slug: string },
+  article: { public_id: string; slug: string; article_name?: string },
   version: ListicleVersionRow,
 ): Promise<{ html: string; lazyCandidateIds: string[] }> {
   const pages = await loadRenderPages(db, version.id);
@@ -318,7 +338,12 @@ export async function renderListicleShellForVersion(
     hostname: site.hostname,
     brand: brandFromSettings(settings, site.hostname),
     settings,
-    article: { public_id: article.public_id, slug: article.slug },
+    siteId: site.siteId,
+    article: {
+      public_id: article.public_id,
+      slug: article.slug,
+      article_name: article.article_name ?? "",
+    },
     version: {
       public_id: version.public_id,
       headline: version.headline,
@@ -391,9 +416,24 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
     version.content_version,
   );
 
+  // ---- Phase 7: per-request context (never part of the cache key) --------
+  // ko_ctx acquisition cookie (§9.4/§16): merge landing params over the
+  // previously captured context; refreshed on every listicle render.
+  const query = c.req.query();
+  const siteBehavior = await loadSiteBehaviorSettings(c.env.DB, siteContext.siteId);
+  const koCtx = buildKoCtx({
+    existing: parseKoCtx(readCookie(cookieHeader, KO_CTX_COOKIE)),
+    query,
+    landerV: version.public_id,
+    siteLanguage: siteBehavior.language,
+    acceptLanguage: c.req.header("Accept-Language") ?? null,
+    nowMs: Date.now(),
+  });
+
   const withCookies = (headers: Headers): Headers => {
     if (sidWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sid));
     headers.append("Set-Cookie", sessionCookie("ko_ver", version.public_id));
+    headers.append("Set-Cookie", serializeKoCtxCookie(koCtx));
     return headers;
   };
 
@@ -405,12 +445,43 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
     });
   }
 
+  // §15.4/§31.3 post-cache injection payload: request-time geo/device from
+  // CF + UA, hour in the SITE timezone (register Q13), acquisition dims from
+  // ko_ctx, and the LIVE experiment dims (§15.7 — request-time state, an
+  // experiment can start/stop while shells stay cached).
+  const cf = readCfSignals(c.req.raw);
+  const uaDetails = parseClientUa(c.req.header("user-agent"));
+  const exp: InjectedExperimentDims | null =
+    experiment !== null
+      ? {
+          experiment_id: experiment.public_id,
+          variant_id: version.public_id,
+          variant_label: version.variant_label,
+          split: version.traffic_allocation,
+        }
+      : null;
+  const inject = (response: Response): Response =>
+    injectListicleContext(response, {
+      sid,
+      ctx: buildRuleContext({
+        geo: geoFromCf(cf),
+        ua: { device: uaDetails.device, os: uaDetails.os, browser: uaDetails.browser },
+        hourSiteTz: hourInTimezone(siteBehavior.timezone, new Date()),
+        koCtx,
+      }),
+      exp,
+    });
+
   const cached = await getCachedHtml(c.env, key);
   if (cached !== null) {
-    return new Response(cached.body, {
-      status: 200,
-      headers: withCookies(publicHtmlCacheHeaders({ etag: cached.etag || etag })),
-    });
+    // The KV entry stays byte-identical; the context script is injected on
+    // the RESPONSE stream only (§15.4 post-cache HTMLRewriter).
+    return inject(
+      new Response(cached.body, {
+        status: 200,
+        headers: withCookies(publicHtmlCacheHeaders({ etag: cached.etag || etag })),
+      }),
+    );
   }
 
   const { html } = await renderListicleShellForVersion(
@@ -420,11 +491,38 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
     version,
   );
   const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_HTML_CACHE_TTL_SECONDS);
+  // Write-through stores the PRISTINE shell (visitor-invariant); the live
+  // response below is the injected variant of the same bytes.
   await putCachedHtml(c.env, key, html, { expirationTtl: ttl, etag });
-  return new Response(html, {
-    status: 200,
-    headers: withCookies(publicHtmlCacheHeaders({ etag })),
-  });
+  return inject(
+    new Response(html, {
+      status: 200,
+      headers: withCookies(publicHtmlCacheHeaders({ etag })),
+    }),
+  );
+}
+
+// site_settings behavior keys the Phase-7 context needs per request:
+// `site_timezone` (register Q13 — the rules hour/daypart basis; "" → UTC)
+// and `site_language` (register Q8 — the {language} fallback). One indexed
+// point query; both default "" when unset.
+async function loadSiteBehaviorSettings(
+  db: D1Database,
+  siteId: string,
+): Promise<{ timezone: string; language: string }> {
+  const result = await db
+    .prepare(
+      "SELECT key AS key, value AS value FROM site_settings WHERE site_id = ? AND key IN ('site_timezone', 'site_language')",
+    )
+    .bind(siteId)
+    .all<{ key: string; value: string | null }>();
+  let timezone = "";
+  let language = "";
+  for (const row of result.results ?? []) {
+    if (row.key === "site_timezone" && typeof row.value === "string") timezone = row.value.trim();
+    if (row.key === "site_language" && typeof row.value === "string") language = row.value.trim();
+  }
+  return { timezone, language };
 }
 
 // ---------------------------------------------------------------------------

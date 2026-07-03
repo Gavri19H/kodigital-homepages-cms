@@ -34,6 +34,12 @@ export interface AffectedArticle {
   public_id: string;
   site_id: string;
   slug: string;
+  // Phase 7: the warm render passes article_name into the shell boot data —
+  // it MUST match what the live cold-render emits so the warmed KV entry is
+  // byte-identical to a live render of the same version. Optional at the
+  // call-site (the publish handler predates the field); resolved from D1
+  // when absent.
+  article_name?: string;
   status: string;
 }
 
@@ -197,7 +203,7 @@ export async function fanOutSectionInvalidate(
   for (const ids of chunk(articleIds)) {
     const rows = await db
       .prepare(
-        `SELECT id, public_id, site_id, slug, status FROM listicle_articles
+        `SELECT id, public_id, site_id, slug, article_name, status FROM listicle_articles
          WHERE id IN (${placeholders(ids.length)})`,
       )
       .bind(...ids)
@@ -222,6 +228,15 @@ export async function invalidateAndWarmOnPublish(
   db: D1Database,
   article: AffectedArticle,
 ): Promise<ListicleFanOutResult> {
+  // Phase 7: resolve article_name when the caller predates the field so the
+  // warmed shell's boot data is byte-identical to a live cold render.
+  if (article.article_name === undefined) {
+    const row = await db
+      .prepare("SELECT article_name FROM listicle_articles WHERE id = ? LIMIT 1")
+      .bind(article.id)
+      .first<{ article_name: string }>();
+    article = { ...article, article_name: row?.article_name ?? "" };
+  }
   const { deleted, warmed } = await invalidateAndWarmArticles(env, db, [article]);
   return {
     affected_versions: 0,

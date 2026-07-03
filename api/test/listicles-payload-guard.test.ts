@@ -121,11 +121,23 @@ describe("under-budget shells inline ALL candidates (§22.4)", () => {
     expect(lazyCandidateIds).toEqual([]);
     expect(html).toContain('<div class="lst-cand" data-cand="cand_0_0"');
     expect(html).toContain('<template class="lst-cand-tpl" data-cand="cand_0_1"');
-    // interim pre-paint visibility style marks the default candidate.
-    expect(html).toContain('data-lst-chosen="interim-single-default"');
-    expect(html).toContain('.lst-cand[data-cand="cand_0_0"]{display:block}');
-    // no lazy machinery on an under-budget shell.
-    expect(html).not.toContain("data-lst-lazy");
+    // Phase 7: the interim static style is REPLACED by the §15.3 pre-paint
+    // selector — the shell carries the boot data + selector script, and the
+    // per-page materializer hook runs right after the page's markup.
+    expect(html).not.toContain('data-lst-chosen="interim-single-default"');
+    expect(html).toContain('<script data-lst="boot">');
+    expect(html).toContain("window.__LST_PAGES=");
+    expect(html).toContain('"ab_test_id":"ab_0"');
+    expect(html).toContain('<script data-lst="selector">');
+    expect(html).toContain("window.__lstMat&&window.__lstMat(0)");
+    // …and the beacon runtime rides the end of body.
+    expect(html).toContain('<script data-lst="beacon">');
+    // No-JS fallback shows the default candidates.
+    expect(html).toContain("<noscript><style>.lst-cand{display:block!important}</style></noscript>");
+    // no lazy machinery on an under-budget shell (the ATTRIBUTE form —
+    // the selector's materializer legitimately names data-lst-lazy in its
+    // placeholder-repoint branch, which is inert without a placeholder).
+    expect(html).not.toContain('data-lst-lazy="');
     expect(html).not.toContain("XMLHttpRequest");
   });
 });
