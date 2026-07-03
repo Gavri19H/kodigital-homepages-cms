@@ -185,14 +185,31 @@ Every status flip must cite runnable evidence (command + result) in the PR that 
 
 ## Phase 10 — Hardening (PR10)
 
+**Verification run (2026-07-03):** `npx tsc --noEmit` green · `npm test` → **245 files / 2071 tests** (7 new) · guard green · `api/scripts/acceptance/listicles-phase10/run_all.sh` → **2/3 + T03 NEEDS_RUNTIME standalone, exit 0** (full drive = Playwright) · `npm run seed:local && npx playwright test` → **63/63** (CLS 0, LCP 28ms, cache 304 HIT, GA4 loads, homepage 200 + /api/track 204). **Independent adversarial review (final, program-level): SHIP (0 BLOCKER/MAJOR)** — expander column-index/hydration isolation verified, pillar-1 code-isolation airtight (diff = 2 admin files only + T01 byte-diffs the protected set), §26 substitutions confirmed honest (server-side offer_click, delegated ChoiceButtonGroup drive), program-completeness sanity found no false PASS. 3 MINOR tightenings applied in-branch (positive homepage-marker assertion, rebuild partial-failure honesty, test-label accuracy).
+
 | Requirement | Evidence | Status |
 |---|---|---|
-| Full §26 manual QA (offers/sections/articles+experiments/tracking+analytics) | Playwright evidence pack (screenshots + network) | PENDING |
-| End-to-end attribution: real click's `click_id` traced Athena→CH→`lst_revenue_attributed`→D1 mirror→drilldown with `link_instance_id` intact (§30.7) | trace transcript | PENDING |
-| CWV + cache-hit target + `/lc` latency (§22) | measurements | PENDING |
-| GA4 + homepage analytics/cache regression green (§21/§25) | test runs | PENDING |
-| §29 final checklist — every box | checklist with evidence | PENDING |
-| A/B validity: frozen vectors, distribution, stickiness, conflict guard (§15.8/§31.2) | test runs | PENDING |
+| §11 drilldown EXPANDER UI (the real gap, Version→Page→candidate + rule_match_rate) | `ui-lists.ts`/`ui-shared.ts`; live render 85.00% rule_match_rate (screenshot `analytics-01-drilldown-expander.png`) | PASS |
+| Rebuild-range control (§18 manual backfill operator-accessible) | ES5 control → existing `POST /analytics/rebuild-range`; honest `configured:false` no-op + partial-failure surfaced | PASS |
+| Full §26 manual QA (offers/sections/articles+experiments/tracking) | `listicles-manual-qa.spec.ts` + evidence pack `test-artifacts/listicles-manual-qa/*` (10 screenshots); each group DRIVEN (review-confirmed non-tautological) | PASS |
+| End-to-end attribution: real click Athena→CH→`lst_revenue_attributed`→D1→drilldown with `link_instance_id` (§30.7) | seeded-mirror read + resolver/postback units + drilldown expander render; **live-data leg needs the external Athena→CH pipeline** | PROXY-PASS (live leg BLOCKED-on-external, honestly labeled) |
+| CWV + cache-hit + `/lc` (§22) | `listicles-perf-regression.spec.ts`: CLS 0, LCP 28ms, 2nd-request 304 HIT + stable ETag; production-instance CWV = ship/deploy concern | PASS (local); prod = deploy-owned |
+| GA4 + homepage analytics/cache regression green (§21/§25) | GA4 gtag via `analytics_script`; homepage 200 + positive marker + `/api/track` 204 (single/batch/unknown-drop); T01 byte-diff of the pillar-1 protected set | PASS |
+| §29 final checklist — every box | `listicles-phase10` T01 (guardrails/write-boundary/ES5) + T02 (per-area coverage present) + T03 (behavioral) | PASS |
+| A/B validity: frozen vectors 6174/3907/1875, 1M distribution + chi-square, stickiness, conflict guard (§15.8/§31.2) | Phase-6/7 suites (frozen-vector + distribution) + Phase-5 conflict-matrix e2e; re-run green | PASS |
+| Residuals re-affirmed honestly: opt-out (Sec-GPC/`ko_optout`; no repo identifier scheme, CMP-owned), office-IP `is_internal` (cookie-only; a CIDR allowlist must fire at BOTH track+resolver or neither — no half-wire) | `PHASE10-QA-REPORT.md` | PASS (declared boundary) |
+
+## §29 Final Implementation Checklist — program close
+
+**Guardrails (every PR):** `verify:no-legacy-prod-refs` green on all 10 PRs ✓ · all inline admin/public scripts ES5 (byte-parse suites) ✓ · no existing table/route/cache/GA4 altered destructively (pillar-1 byte-diff + homepage regression) ✓ · secrets via `wrangler secret`/GH only, account id the sole shared identifier ✓.
+**Schema (P1):** 0032–0035 apply local+remote (23 tables live in prod D1) ✓ · global Offers/Sections, `UNIQUE(site_id,slug)`, Pages FK `article_version_id`, candidates no `rule_id`, partial-unique running experiment, `public_id` minted ✓.
+**API (P2):** CRUD + usage + search + analytics + `/versions/:id` + `/pages/:id/validate`; field-keyed errors; 409 blocked-delete ✓ · `/lc`, `/api/lst/track`, `/api/pb/:provider` correct cache/no-store headers ✓ (prod-probed).
+**Admin UI (P3–P5):** nav + sub-tabs + lists ✓ · Create-Offer modal (fields/reveals/33 chips/`{clickid}`/cap fallback) ✓ · Section editor (governed grammar, no URL field, `section_offers` rebuild) ✓ · Article builder (Versions A/B Σ=100, Pages + modes, rule editor + conflict matrix, view structure) ✓.
+**Rendering & cache (P6):** layout registry + measured default (unknown→default); per-Version cached shell (`listicleKey` incl. `lander_v`) + edge sticky pick; payload guard + below-fold hydrate; Section fan-out invalidation + warm ✓.
+**Tracking & experimentation (P7):** synchronous selectors (edge Version sticky + pre-paint page A/B/rule via `__LST_CTX`, zero CLS) ✓ · `ko_ctx` + resolver mints `click_id`, 33 macros, cap fallback one-hop, fail-safe, full-context `offer_click` ✓ · events carry every dimension + `offer_impression` → Firehose→S3 (proven) ✓.
+**Analytics (P8–P9):** CH raw + `lst_sessions` + MV + targets (offer counts `offer_impression`, WHERE-after-JOIN, non-empty offer_id, clean-filtered); CH→D1 mirror cron (idempotent, bounded) — 15 objects live ✓ · Offer/Section/Article(-by-version) + drilldown expander from D1 with NULLIF ratios ✓ · postback dedup → attribution MV by click_id; outbound S2S dispatcher ✓.
+**Hardening (P10):** manual QA green (local, evidence pack); CWV pass; cache-hit; GA4 + regression guard; homepage analytics/cache untouched ✓ · all `verify:*` + unit/integration/acceptance/e2e green ✓.
+**Open (non-code, external/user-owned):** DEV-13 reference ratification (user) · worker-secret activation for CH + provider tokens (`wrangler secret put`, user/deploy-owned) · live Athena→CH ingestion pipeline (data/ops) · promote-winner (§5.3, deferred feature, composable from `fork`).
 
 ## §28 items not requiring build work
 Q5 (D1 atomic baseline — DO deferred), Q9 (RBAC later; `created_by` captured), Q10 (emoji/GIF later), Q11 (reuse `privacy_opt_outs`), Q12 (multi-language out of scope v1), Q14 (soft cap 4 — UI warning). Q6 providers: FB first, adapter map extensible. Q8 `{language}`: resolve at PR7 from site settings if available, else empty + documented. Q13 daypart tz = site tz.
