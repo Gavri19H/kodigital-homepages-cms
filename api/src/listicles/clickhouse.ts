@@ -33,6 +33,19 @@ export interface ListicleChQueryResult<T> {
   configured: boolean;
 }
 
+export interface ListicleChInsertResult {
+  inserted: number;
+  /** false ⇒ CH secrets absent, no HTTP request was made (structured no-op). */
+  configured: boolean;
+}
+
+// Tables the worker is permitted to WRITE to over the HTTP interface. The only
+// worker→CH write is the §19 provider-revenue shipper (D1 listicle_revenue_raw
+// → CH lst_revenue_raw); every other CH table is populated by the external
+// Athena→CH pipeline (DEV-14). The allowlist keeps `insert` from ever being
+// pointed at an events/session table by a future caller.
+const INSERTABLE_TABLES: ReadonlySet<string> = new Set(["lst_revenue_raw"]);
+
 export interface ListicleChClient {
   /** True when all three CH secrets are present. */
   readonly configured: boolean;
@@ -42,6 +55,24 @@ export interface ListicleChClient {
    * ListicleChError on a configured-but-failed request.
    */
   query<T>(sql: string, params?: Record<string, string | number>): Promise<ListicleChQueryResult<T>>;
+  /**
+   * §19 D1→CH revenue shipper write path: INSERT rows via JSONEachRow.
+   * OPTIONAL on the interface so existing read-only mock clients (tests)
+   * still satisfy the type; callers feature-detect with `typeof insert`.
+   * `table` MUST be in INSERTABLE_TABLES (a fixed literal from our code — never
+   * user input). No-op {inserted:0, configured:false} when unconfigured;
+   * throws ListicleChError on a configured-but-failed request.
+   */
+  insert?(
+    table: string,
+    rows: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<ListicleChInsertResult>;
+  /**
+   * Fire a maintenance command that returns NO rows (e.g. §31.7
+   * `SYSTEM REFRESH VIEW lst_revenue_attributed_mv`). OPTIONAL; no-op when
+   * unconfigured; throws ListicleChError on a configured-but-failed request.
+   */
+  command?(sql: string): Promise<{ ok: boolean; configured: boolean }>;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -144,5 +175,64 @@ export function createListicleChClient(
         clearTimeout(timer);
       }
     },
+
+    // Shared POST scaffold for the non-read paths (insert/command): same auth
+    // headers + timeout + typed-error mapping as `query`, but the body is sent
+    // verbatim (no FORMAT JSONEachRow appended) and no rows are parsed back.
+    async insert(
+      table: string,
+      rows: ReadonlyArray<Record<string, unknown>>,
+    ): Promise<ListicleChInsertResult> {
+      if (!configured) return { inserted: 0, configured: false };
+      if (!INSERTABLE_TABLES.has(table)) {
+        throw new ListicleChError(`refusing to insert into non-allowlisted table '${table}'`, 0);
+      }
+      if (rows.length === 0) return { inserted: 0, configured: true };
+      // JSONEachRow body: the INSERT statement, a newline, then one JSON object
+      // per row. Column values are our own coerced primitives (numbers/strings).
+      const body = `INSERT INTO ${table} FORMAT JSONEachRow\n` + rows.map((r) => JSON.stringify(r)).join("\n");
+      await postBody(body);
+      return { inserted: rows.length, configured: true };
+    },
+
+    async command(sql: string): Promise<{ ok: boolean; configured: boolean }> {
+      if (!configured) return { ok: false, configured: false };
+      await postBody(sql.trim());
+      return { ok: true, configured: true };
+    },
   };
+
+  // Raw POST to the CH HTTP endpoint (used by insert/command). Mirrors the
+  // query scaffold's auth + timeout + typed-error shape; the body is sent
+  // exactly as given.
+  async function postBody(body: string): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await doFetch(`${baseUrl}/`, {
+        method: "POST",
+        headers: {
+          "X-ClickHouse-User": user,
+          "X-ClickHouse-Key": key,
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+        body,
+        signal: controller.signal,
+      });
+      if (!resp.ok) {
+        let errBody = "";
+        try { errBody = await resp.text(); } catch { /* ignore */ }
+        if (resp.status === 401 || resp.status === 403) {
+          throw new ListicleChError(`ClickHouse auth failed (${resp.status})`, resp.status);
+        }
+        throw new ListicleChError(errBody || `ClickHouse HTTP ${resp.status}`, resp.status);
+      }
+    } catch (err) {
+      if (err instanceof ListicleChError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ListicleChError(msg, 0);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }

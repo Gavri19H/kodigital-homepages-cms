@@ -53,6 +53,11 @@ import {
   computeTrafficQuality,
 } from "./listicle-quality";
 import { bumpListicleDailyAcceptCounter } from "./listicle-reconciliation";
+import { getOfferByPublicId, recordInSitePayout } from "../listicles/revenue-ingest";
+import {
+  dispatchMatchedConversionS2S,
+  type S2SDispatchOutcome,
+} from "../listicles/s2s-dispatch";
 
 const ALLOWED_TYPES: ReadonlySet<string> = new Set(LISTICLE_EVENT_TYPES);
 
@@ -225,6 +230,97 @@ function sessionFromPageView(e: ListicleEvent): ListicleSessionRecord {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Phase 9 (§19/§20/§9.3): browser `conversion` event → revenue wiring.
+// A matched conversion (an accepted, CLEAN `conversion` event carrying a
+// click_id) drives two effects, both isolated + best-effort (never the 204's
+// problem):
+//   * §9.3/§19 in-site payout — when its offer's payout_method='in_site', stage
+//     the offer's payout_value/currency as a source='in_site' revenue_raw row
+//     + (conversion-capped) bump conversion_count;
+//   * §20 outbound S2S — fire the media-platform pixel from the event's OWN
+//     traffic_source/fbc/fbclid/click_id (the CH-INDEPENDENT S2S trigger).
+// §31.8: all of this is CLEAN-only (bot/internal/preview conversions never
+// record payout, bump caps, or fire pixels). The outbound {value} is the
+// offer's in-site payout_value when known (the browser event carries no
+// revenue field), else empty — the platform still gets the conversion signal.
+export interface ConversionWiringOutcome {
+  clean: boolean;
+  in_site?: { recorded: boolean; capIncremented?: boolean; deduped?: boolean };
+  s2s?: S2SDispatchOutcome;
+  skipped?: string;
+}
+
+// §31.7 durable booking key for the in-site money path (migration 0035): the
+// CLIENT-provided event_id when present (stable across the client's own
+// retries), else a deterministic click_id|page_view_id|offer_public_id (stable
+// per page view). NULL ⇒ no stable identity (no client event_id, no
+// page_view_id) — the caller emits analytics but MUST NOT book money on it
+// (a server-minted event_id is a fresh UUID per request, NOT replay-dedupable).
+export function deriveConversionBookingKey(clientEventId: string, event: ListicleEvent): string | null {
+  if (clientEventId !== "") return clientEventId;
+  if (event.page_view_id !== "") return `${event.click_id}|${event.page_view_id}|${event.offer_id}`;
+  return null;
+}
+
+export async function processConversionEvent(
+  env: Env,
+  execCtx: ExecutionContext,
+  event: ListicleEvent,
+  opts?: { now?: Date; fetchImpl?: typeof fetch; clientEventId?: string },
+): Promise<ConversionWiringOutcome> {
+  if (event.event_type !== "conversion") return { clean: false, skipped: "not a conversion" };
+  const clean = event.traffic_quality_flag === "clean";
+  if (!clean) return { clean: false, skipped: "non-clean traffic (§31.8)" };
+  if (event.click_id === "") return { clean, skipped: "no click_id" };
+
+  const now = opts?.now ?? new Date();
+  const dtUtc = new Date(event.timestamp).toISOString().slice(0, 10);
+  const offer = event.offer_id !== "" ? await getOfferByPublicId(env.DB, event.offer_id) : null;
+  // §31.7 stable booking key (client event_id | derived | null).
+  const bookingKey = deriveConversionBookingKey(opts?.clientEventId ?? "", event);
+
+  const out: ConversionWiringOutcome = { clean };
+
+  // §9.3/§19 in-site payout (direct, no external postback) — durably deduped by
+  // the booking key. No stable key ⇒ NEVER book (§FIX-1c); analytics still emit.
+  if (offer !== null && offer.payout_method === "in_site") {
+    if (bookingKey === null) {
+      out.in_site = { recorded: false };
+      out.skipped = "in-site conversion has no durable booking key — not booked (analytics still emitted)";
+    } else {
+      const inSite = await recordInSitePayout(env.DB, offer, event.click_id, bookingKey, dtUtc, clean, now);
+      out.in_site = { recorded: inSite.recorded, capIncremented: inSite.capIncremented, deduped: inSite.deduped };
+    }
+  }
+
+  // §20 outbound S2S from the event's own click context. The conversion
+  // IDENTITY (FIX 4) is the booking key when available, else the event_id — so
+  // genuine distinct conversions on the same click fire distinct pixels while a
+  // replay of the SAME conversion is deduped.
+  if (event.traffic_source !== "") {
+    const value =
+      offer !== null && offer.payout_method === "in_site" && typeof offer.payout_value === "number"
+        ? String(offer.payout_value)
+        : "";
+    const currency = (offer?.payout_currency ?? "").trim() || "USD";
+    out.s2s = await dispatchMatchedConversionS2S(
+      env,
+      execCtx,
+      env.DB,
+      {
+        click_id: event.click_id,
+        traffic_source: event.traffic_source,
+        fbc: event.fbc,
+        fbclid: event.fbclid,
+      },
+      { value, currency, conversion_id: bookingKey ?? event.event_id },
+      { now: now.getTime(), fetchImpl: opts?.fetchImpl },
+    );
+  }
+  return out;
+}
+
 const listicleTrackRouter = new Hono<{ Bindings: Env }>();
 
 // Hono's c.executionCtx GETTER throws where no ExecutionContext exists
@@ -287,6 +383,10 @@ listicleTrackRouter.post("/api/lst/track", async (c) => {
   const capped = incoming.slice(0, MAX_LISTICLE_EVENTS_PER_REQUEST);
 
   const accepted: ListicleEvent[] = [];
+  // §31.7: the CLIENT-provided event_id per accepted event, captured BEFORE the
+  // server-mint below (a server-minted UUID is fresh per request → useless as a
+  // replay dedupe key). Drives deriveConversionBookingKey for the money path.
+  const clientEventIds = new Map<ListicleEvent, string>();
   const deadLetters: Array<{ record: ListicleDeadLetterRecord }> = [];
 
   const deadLetter = (eventId: string, payload: unknown, reason: string): void => {
@@ -333,9 +433,12 @@ listicleTrackRouter.post("/api/lst/track", async (c) => {
     }
 
     const event = eventFromPayload(payload, now);
+    // Capture the CLIENT event_id BEFORE any server-mint (stable replay key).
+    const clientEventId = asString(payload.event_id);
     // §31.6: event_id is the idempotency key; a client that failed to mint
     // one gets a server UUID (documented: not replay-dedupable).
     if (event.event_id === "") event.event_id = genUuid();
+    clientEventIds.set(event, clientEventId);
 
     // Server enrichment OVERRIDES the server-owned columns.
     event.received_at = now;
@@ -410,6 +513,20 @@ listicleTrackRouter.post("/api/lst/track", async (c) => {
       }
       for (const [siteId, count] of bySite) {
         await bumpListicleDailyAcceptCounter(c.env, siteId, count, new Date(now));
+      }
+    }
+    // Phase 9 (§19/§20/§9.3): wire each accepted `conversion` event to in-site
+    // payout + outbound S2S. Each is isolated — a revenue-wiring hiccup never
+    // touches the beacon's 204 or the other events.
+    for (const event of fresh) {
+      if (event.event_type !== "conversion") continue;
+      try {
+        await processConversionEvent(c.env, execCtx, event, {
+          now: new Date(now),
+          clientEventId: clientEventIds.get(event) ?? "",
+        });
+      } catch {
+        // conversion revenue wiring is best-effort; never breaks the beacon.
       }
     }
   })().catch(() => {

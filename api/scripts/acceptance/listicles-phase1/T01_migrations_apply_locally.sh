@@ -43,10 +43,12 @@ echo "PASS [T01] wrangler d1 migrations apply --local"
 TABLES=$(npx wrangler d1 execute kodigital-homepages-cms-db --local --json \
   --command "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name LIKE 'listicle_%'" 2>/dev/null \
   | grep -o '"c": *[0-9]*' | grep -o '[0-9]*' | head -1)
-if [ "${TABLES:-0}" -eq 22 ]; then
-  echo "PASS [T01] 22 listicle_ tables exist in local D1"
+# 22 through Phase 1 (0032=11 core + 0033=5 mirrors + 0034=6 revenue infra);
+# +1 at Phase 9 = listicle_conversion_log (0035, durable in-site conversion dedupe).
+if [ "${TABLES:-0}" -eq 23 ]; then
+  echo "PASS [T01] 23 listicle_ tables exist in local D1 (11+5+6+1)"
 else
-  echo "FAIL [T01] expected 22 listicle_ tables, found ${TABLES:-0}"
+  echo "FAIL [T01] expected 23 listicle_ tables, found ${TABLES:-0}"
   exit 1
 fi
 exit 0

@@ -53,6 +53,11 @@ import {
   rebuildAnalyticsRangeHandler,
   articleLinkInstancesHandler,
 } from "./analytics-admin-handlers";
+import {
+  listMediaPlatformsHandler,
+  createMediaPlatformHandler,
+  patchMediaPlatformHandler,
+} from "./media-platforms-handlers";
 
 const routes = new Hono<{ Bindings: Env }>();
 
@@ -99,6 +104,11 @@ routes.post("/articles/:id/publish", publishArticleHandler);
 
 // --- Analytics (§18 manual backfill — Phase 8) ------------------------------
 routes.post("/analytics/rebuild-range", rebuildAnalyticsRangeHandler);
+
+// --- Media platforms (§20 outbound S2S config — Phase 9) --------------------
+routes.get("/media-platforms", listMediaPlatformsHandler);
+routes.post("/media-platforms", createMediaPlatformHandler);
+routes.patch("/media-platforms/:id", patchMediaPlatformHandler);
 
 // --- Experiments (§5.3 lifecycle — Phase 5) ---------------------------------
 routes.post("/experiments/:id/start", startExperimentHandler);

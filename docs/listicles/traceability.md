@@ -168,14 +168,20 @@ Every status flip must cite runnable evidence (command + result) in the PR that 
 
 ## Phase 9 — Revenue + platforms (PR9)
 
+**Verification run (2026-07-03):** `npx tsc --noEmit` green · `npm test` → **244 files / 2064 tests** (53 new) · guard green · `api/scripts/acceptance/listicles-phase9/run_all.sh` → **3/3** · Playwright **48/48** (after `seed:local`) · phase-1 acceptance back to **8/8** after the DEV-15 backfills. **Independent adversarial review: BLOCK → all fixed in-branch.** The BLOCKER was empirically proven: the in-site browser-conversion path had no durable idempotency → a replayed clean beacon double-booked revenue (2×$8.50) + double-burned the conversion cap. Closed with a new migration `0035_listicles_conversion_dedupe` (UNIQUE `(click_id, dedupe_key)`) gating the money writes atomically via `db.batch`. Two MAJORs fixed: token leaked into `payload_json` on the `?token=` path (stripped before serialize); non-atomic postback log+revenue insert → silent-loss (now one transactional batch, 503-retryable on failure). Reviewer confirmed clean-only money paths, SSRF-safe outbound (macro values `encodeURIComponent`'d, host-macro rejected at save), FX null-not-zero.
+
 | Requirement | Files | Evidence | Status |
 |---|---|---|---|
-| `/api/pb/:provider`: verifyToken, dedupe `(provider, external_txn_id)`, insert revenue_raw, fast 200 (§19/§31.7) | `postback-router.ts`, `api/src/listicles/revenue.ts` | replay no-op; 401 | PENDING |
-| Unmatched 72h queue → matched/unattributed; FX `revenue_usd`; UTC; 7-day MV backfill; provider-total reconciliation (§31.7) | revenue.ts + cron | unit + fixture | PENDING |
-| script/API channel scheduled pulls (§19) | revenue.ts cron | integration | PENDING |
-| Browser pixel channel: client `conversion` event (§19) | beacon | e2e | PENDING |
-| in-site payout + conversion cap increment (§9.3/§19) | revenue.ts + caps | unit | PENDING |
-| Outbound S2S dispatcher: config-driven, `ctx.waitUntil`, FB first (fbc/fbclid from ko_ctx), failures logged (§20) | `s2s-dispatch.ts` + platform seed | unit + integration | PENDING |
+| `/api/pb/:provider`: per-provider secret verifyToken (length-safe compare), dedupe `(provider, external_txn_id)`, revenue_raw + dedup-log in ONE atomic batch (503-retryable, no silent loss), fast 200, no reflection, no secret-at-rest, rate-limited (§19/§24/§31.7) | `api/src/public/listicle/postback.ts` + router | replay no-op-200; 401 bad token; 404 unknown provider; atomicity test (RAISE-ABORT trigger → 0 log rows + 503) | PASS |
+| Durable in-site conversion idempotency (§9.3/§31.7) | `api/migrations/0035_listicles_conversion_dedupe.sql` + `revenue-ingest.ts` | **BLOCKER fix**: 2 identical clean conversions → 1 revenue row + cap==1; distinct keys → 2; underivable key → 0 booked (event still emits) | PASS |
+| Unmatched 72h queue → matched/unattributed; FX `revenue_usd` (null-not-zero); UTC revenue + offer-tz caps; 7-day MV backfill trigger; daily provider reconciliation | `revenue-recon.ts` + `fx.ts` + cron | sweep unit; re-match runs vs CH offer_click (clean); provider-report-total honest NULL (no source) | PASS |
+| script/API channel scheduled pulls (§19) | `revenue-recon.ts` | framework + stub adapter (no-op until a provider report source configured — declared) | PASS (framework) |
+| Browser pixel channel: client `conversion` event (§19) | `listicle-track.ts` processConversionEvent | e2e conversion → revenue/cap (durable-deduped) | PASS |
+| in-site payout + conversion-cap increment, clean-only (§9.3/§19/§31.8) | `revenue-ingest.ts` + caps | unit; cap bump only on newly-booked clean conversion | PASS |
+| Outbound S2S dispatcher: config-driven, `ctx.waitUntil`, FB seeded disabled, `fbc`-from-`fbclid`, macros encoded, host-macro rejected, per-conversion dedup, failures logged never block (§20) | `s2s-dispatch.ts` + `media-platforms-handlers.ts` (admin CRUD, `auth_secret_ref` name-not-value) | unit + integration; SSRF/encoding review clean | PASS |
+| Activation (per-provider postback tokens + platform S2S tokens) | `env.ts` (typed optional) + `infra/listicles/revenue-secrets.md` | user-owned `wrangler secret put`; inert-safe until set (401 without token; disabled platforms don't fire) | DEFERRED (user activates) |
+
+**DEV-15 — acceptance backfills (found + fixed in PR9, conductor-owned):** (1) **T01** migration/table count 22→**23** (the authorized `0035_listicles_conversion_dedupe` adds `listicle_conversion_log`; stays an EXACT-count assertion, not weakened). (2) **T08** was a **stale assertion since Phase 6 (#67)**: PR1 asserted the §31.0 layout blockers stay UNRESOLVED (correct for phases 1–5); Phase 6 legitimately MEASURED them all (`tokens.ts` BLOCKER count 0 on main, mobile JSON filled) per §31.0/DEV-13 — verified Phase-9 touched neither file. T08 now asserts the POST-Phase-6 resolved state (zero unresolved BLOCKERs + ≥5 measured stamps + no capture-required stub) — the honest inversion. Process note: the phase-1 suite should have been updated at #67; re-running earlier-phase acceptance after a later phase resolves a documented blocker is now part of the ship checklist.
 
 ## Phase 10 — Hardening (PR10)
 

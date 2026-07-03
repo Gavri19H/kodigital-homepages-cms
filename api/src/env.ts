@@ -49,6 +49,36 @@ export interface Env {
   CH_URL?: string;
   CH_USER?: string;
   CH_PASSWORD?: string;
+
+  // Listicles §19/§24 — inbound provider-postback shared secrets. One ENCRYPTED
+  // secret per revenue provider, named LISTICLE_PB_TOKEN_<PROVIDER> where
+  // <PROVIDER> is the UPPERCASED provider path param of POST /api/pb/<provider>.
+  // Set via `wrangler secret put` (Dashboard/CI only — NEVER wrangler.toml).
+  // Optional so the pipeline no-ops until configured: absent ⇒ that provider's
+  // postbacks are rejected 401 (unverifiable), never silently accepted. The two
+  // declared here back the seeded adapters (generic + capi); readEnvSecret()
+  // resolves the name dynamically so a new provider needs only a secret + a
+  // one-line adapter alias (see infra/listicles/revenue-secrets.md).
+  LISTICLE_PB_TOKEN_GENERIC?: string;
+  LISTICLE_PB_TOKEN_CAPI?: string;
+
+  // Listicles §20 — outbound S2S platform tokens. One ENCRYPTED secret per media
+  // platform, named by that platform row's `auth_secret_ref` (convention
+  // LISTICLE_S2S_TOKEN_<PLATFORM>). Optional: absent ⇒ the `{auth_token}` macro
+  // resolves empty and the platform fires tokenless per its own template — an
+  // S2S failure is logged, never blocks ingestion. The one declared here backs
+  // the seeded (disabled-by-default) facebook row.
+  LISTICLE_S2S_TOKEN_FACEBOOK?: string;
+}
+
+// Read a named secret/var off the env by STRING key. The listicles revenue
+// pipeline resolves per-provider postback tokens (LISTICLE_PB_TOKEN_<PROVIDER>)
+// and per-platform S2S tokens (a platform row's auth_secret_ref) by CONSTRUCTED
+// name, which a static interface field cannot express. Returns undefined for an
+// absent / blank / non-string value; the caller validates the name shape first.
+export function readEnvSecret(env: Env, name: string): string | undefined {
+  const v = (env as unknown as Record<string, unknown>)[name];
+  return typeof v === "string" && v.trim() !== "" ? v : undefined;
 }
 
 export function parseBoolean(value: string | undefined | null): boolean {
