@@ -91,6 +91,7 @@ import {
 } from "./listicle/serve";
 import { handleListicleClick } from "./listicle/resolver";
 import { listicleTrackRouter } from "../analytics/listicle-track";
+import { listiclePostbackRouter } from "./listicle/postback";
 import { renderSeoHead } from "./templates/seo-head";
 import { renderArticleJsonLd } from "./templates/jsonld-article";
 import {
@@ -195,6 +196,14 @@ router.get("/lc/:oid", (c) => handleListicleClick(c));
 // middleware) so it works on every tenant host and is never swallowed by
 // the /:slug catch-all. The homepage POST /api/track stays byte-untouched.
 router.route("/", listicleTrackRouter);
+
+// Listicles Phase 9 (§19/§24): POST /api/pb/:provider — the inbound provider
+// revenue postback. Registered like /api/lst/track (host-independent, BEFORE
+// the site-context middleware, pre-catch-all): postbacks are provider→origin
+// S2S calls that need no tenant lookup, and the two path segments never collide
+// with the single-segment /:slug catch-all. Per-provider token + idempotent +
+// rate-limited inside the handler (§24).
+router.route("/", listiclePostbackRouter);
 
 // T26: site-context resolution runs before every public route. Unmapped
 // hostnames (including ADMIN_HOST, which never resolves as a public

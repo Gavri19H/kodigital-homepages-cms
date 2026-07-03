@@ -52,6 +52,7 @@ import previewRouter from "./preview";
 import { analyticsRouter } from "./analytics/router";
 import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation";
 import { syncListicleAnalytics } from "./listicles/mirror-sync";
+import { runListicleRevenueCron } from "./listicles/revenue-recon";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -258,6 +259,17 @@ const scheduled = async (
       await listicleDailyReconciliation(env);
     } catch {
       // reconciliation must never break the publish/provisioning cron.
+    }
+    try {
+      // Listicles Phase 9 §19/§31.7 revenue maintenance — every minute ships
+      // NEW listicle_revenue_raw rows to CH + re-matches the unmatched queue;
+      // self-gates the daily tasks (FX refresh + attribution-MV backfill +
+      // provider reconciliation + report ingest) to 00:07 UTC. Isolated +
+      // fail-open: absent CH secrets is a logged no-op; any error is contained
+      // and NEVER surfaces into the homepage publish/provisioning cron.
+      await runListicleRevenueCron(env);
+    } catch {
+      // revenue maintenance must never break the publish/provisioning cron.
     }
   })();
   ctx.waitUntil(work);

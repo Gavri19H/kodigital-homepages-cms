@@ -28,6 +28,15 @@ EVENTS_FIREHOSE_STREAM = "homepage-events"
 # Listicles tracking stream (§16). Same AWS creds/secrets as the homepage
 # stream; the worker no-ops until the stream exists in AWS.
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
+# Listicles Phase 9 revenue pipeline (§19/§20/§24) uses ONLY encrypted secrets —
+# NONE appear here (they are set via `wrangler secret put`, Dashboard/CI only,
+# exactly like the AWS + CH creds). Typed optional in api/src/env.ts; full names
+# + set commands in infra/listicles/revenue-secrets.md:
+#   LISTICLE_PB_TOKEN_<PROVIDER>   — inbound postback shared secret per provider
+#                                    (<PROVIDER> = the uppercased /api/pb/<x> param)
+#   LISTICLE_S2S_TOKEN_<PLATFORM>  — outbound S2S token per media platform
+#                                    (named by that platform row's auth_secret_ref)
+# Absent ⇒ that leg no-ops (postback 401 / S2S skipped), never a hard failure.
 ADMIN_HOST = "localhost"
 ADMIN_BASE_URL = "http://localhost:8787"
 ADMIN_BASE_PATH = "/admin"
