@@ -85,6 +85,30 @@ export function findUnknownMacros(template: string): string[] {
   return unknown;
 }
 
+// ---------------------------------------------------------------------------
+// Runtime macro resolution (§7.3 / §9.4 — the /lc click resolver)
+// ---------------------------------------------------------------------------
+
+// Substitute every macro token with its runtime value:
+//   * the template is alias-normalized first, so `{clickid}` resolves as
+//     `{click_id}` at runtime too (§9.4 "resolver also accepts the alias");
+//   * every substituted value is encodeURIComponent-escaped — a macro value
+//     can never smuggle a scheme/host/query-structure byte into the provider
+//     URL (§24 "macros only, resolved server-side");
+//   * UNRESOLVED-MACRO POLICY (authored, documented): a macro with no
+//     runtime value — unknown name (validation should have rejected it) or
+//     an empty context dim — substitutes as the EMPTY STRING. Deterministic
+//     over leaky: a provider never receives a literal `{token}`.
+export function resolveMacros(
+  template: string,
+  values: Readonly<Record<string, string>>,
+): string {
+  return normalizeTemplate(template).replace(MACRO_TOKEN_RE, (_token, name: string) => {
+    const value = values[name];
+    return typeof value === "string" ? encodeURIComponent(value) : "";
+  });
+}
+
 export interface OfferUrlTemplateVerdict {
   ok: boolean;
   // The alias-normalized template (what should be persisted when ok).
@@ -116,10 +140,27 @@ export function validateOfferUrlTemplate(template: string): OfferUrlTemplateVerd
     errors.push(`unknown macros: ${unknown.map((n) => `{${n}}`).join(", ")}`);
   }
 
+  // No C0/DEL control chars (NIT-4 / root cause of MINOR-1): WHATWG strips
+  // them on parse, so a template like `https://track.com/c\n?x=1` would pass
+  // the parse guard yet inject a `\n` into the resolved provider URL. Reject
+  // at SAVE so the resolver never has to sanitize a stored bad row.
+  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
+    errors.push("offer_url_template must not contain control characters");
+  }
+
   // Absolute http(s) only — a macro cannot supply the scheme/host.
   if (!/^https?:\/\//i.test(normalized)) {
     errors.push("offer_url_template must be an absolute http(s) URL");
   } else {
+    // A macro token MUST NOT sit in the authority (host[:port]) position
+    // (NIT-4): `https://{sub1}/x` would let a client-controlled dim CHOOSE
+    // the destination host — a latent open-redirect / host-choice vector.
+    // The authority is everything between `://` and the first `/`, `?` or
+    // `#`; a `{` there is rejected. (Macros in path/query stay legal.)
+    const authority = normalized.replace(/^https?:\/\//i, "").split(/[/?#]/, 1)[0] ?? "";
+    if (authority.includes("{")) {
+      errors.push("offer_url_template must not place a macro in the host/authority position");
+    }
     const substituted = normalized.replace(MACRO_TOKEN_RE, "x");
     try {
       const parsed = new URL(substituted);

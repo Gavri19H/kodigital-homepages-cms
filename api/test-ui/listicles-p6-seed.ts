@@ -41,11 +41,46 @@ async function json<T>(res: { ok(): boolean; status(): number; json(): Promise<u
   return (await res.json()) as T;
 }
 
+// Transient-socket retry for SEED calls only: wrangler dev (miniflare)
+// occasionally resets a keep-alive socket under sustained full-suite load
+// (read ECONNRESET on an otherwise-healthy server). One bounded retry after
+// a short pause absorbs it; every seeded resource is unique-suffixed, so a
+// rare double-apply cannot collide with another test's data.
+async function withTransientRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!/ECONNRESET|ECONNREFUSED|socket hang up/i.test(message)) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log(`[seed-retry] ${label}: transient socket error, retrying once`);
+    return run();
+  }
+}
+
+// Wrap an APIRequestContext so get/post/patch/put self-retry transient
+// socket errors (seed-time only; specs keep using their own raw contexts).
+function retryingRequest(request: APIRequestContext): APIRequestContext {
+  const verbs = new Set(["get", "post", "patch", "put", "delete"]);
+  return new Proxy(request, {
+    get(target, prop, receiver) {
+      const original = Reflect.get(target, prop, receiver) as unknown;
+      if (typeof prop !== "string" || !verbs.has(prop) || typeof original !== "function") {
+        return original;
+      }
+      const fn = original as (...args: unknown[]) => Promise<unknown>;
+      return (...args: unknown[]) =>
+        withTransientRetry(`${prop} ${String(args[0] ?? "")}`, () => fn.apply(target, args));
+    },
+  });
+}
+
 export async function seedActiveSite(
-  request: APIRequestContext,
+  rawRequest: APIRequestContext,
   host: string,
   siteName: string,
 ): Promise<string> {
+  const request = retryingRequest(rawRequest);
   const created = await json<{ resource: { id: string } }>(
     await request.post("/api/admin/sites", {
       data: { domain: host, name: siteName, vertical_slug: "finance", activity: "main" },
@@ -78,9 +113,10 @@ export async function seedActiveSite(
 }
 
 export async function uploadPng(
-  request: APIRequestContext,
+  rawRequest: APIRequestContext,
   name: string,
 ): Promise<{ id: number; storage_key: string }> {
+  const request = retryingRequest(rawRequest);
   const res = await request.post("/api/admin/media/upload", {
     multipart: {
       file: { name, mimeType: "image/png", buffer: PNG_1PX },
@@ -191,15 +227,30 @@ export interface SeedListicleOptions {
   gaMeasurementId?: string;
   /** true ⇒ pages become 50/50 ab_test pairs (two Section candidates each) */
   abPairs?: boolean;
+  /**
+   * Phase 7: full custom pages payload built from the seeded section ids
+   * (the version PUT `pages` shape — ab_test/rule_based composition for the
+   * tracking e2e). Wins over abPairs when provided.
+   */
+  pages?: (sectionIds: number[]) => unknown[];
+  /**
+   * Phase 7: override the offer's URL template. The tracking e2e points it
+   * at a locally-REACHABLE host (`http://offers.e2e.test:8787/health?...`,
+   * the worker's own any-host route) because Playwright cannot intercept
+   * requests that continue a redirect chain — a /lc 302 to an unroutable
+   * provider host would strand the navigation.
+   */
+  offerUrlTemplate?: string;
 }
 
 // Mirrors the REFERENCE STRUCTURE (§30.8 fixture contract): two-line title,
 // hero, byline, 6 sections with 6/2/4/4/–/3 button groups — all with neutral
 // our-own copy.
 export async function seedPublishedListicle(
-  request: APIRequestContext,
+  rawRequest: APIRequestContext,
   opts: SeedListicleOptions,
 ): Promise<SeededListicle> {
+  const request = retryingRequest(rawRequest);
   const uniq = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
   const host = `${opts.hostPrefix}-${uniq}.e2e.test`;
   const gaMeasurementId = opts.gaMeasurementId ?? `G-E2E${uniq.slice(-6)}`;
@@ -242,7 +293,7 @@ export async function seedPublishedListicle(
         activity: "lead",
         vertical: "finance",
         conversion_tracking_method: "browser_side_pixel",
-        offer_url_template: "https://offers.e2e.test/c?cid={click_id}",
+        offer_url_template: opts.offerUrlTemplate ?? "https://offers.e2e.test/c?cid={click_id}",
         payout_method: "offsite",
       },
     }),
@@ -326,7 +377,9 @@ export async function seedPublishedListicle(
           updated_date: "July 1, 2026",
         },
         pages:
-          opts.abPairs === true
+          opts.pages !== undefined
+            ? opts.pages(sectionIds)
+            : opts.abPairs === true
             ? // 50/50 ab_test pairs: [s0,s1] [s2,s3] [s4,s5] → 3 pages with a
               // hidden alternate each (the §22.4 budget probe shape).
               Array.from({ length: Math.floor(sectionIds.length / 2) }, (_, index) => ({
@@ -369,9 +422,10 @@ export async function seedPublishedListicle(
 
 // Fork the control + start a RUNNING 50/50 experiment (for sticky tests).
 export async function startFiftyFiftyExperiment(
-  request: APIRequestContext,
+  rawRequest: APIRequestContext,
   seeded: SeededListicle,
 ): Promise<{ experimentPublicId: string; versionBPublicId: string }> {
+  const request = retryingRequest(rawRequest);
   const fork = await json<{ version: { id: number; public_id: string } }>(
     await request.post(`/api/admin/listicles/versions/${seeded.versionId}/fork`, {
       data: { variant_label: "B" },

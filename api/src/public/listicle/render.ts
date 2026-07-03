@@ -23,6 +23,11 @@ import {
   collectOfferRefs,
   type GovernedUrlContext,
 } from "./governed-url";
+import {
+  selectorScriptTag,
+  beaconScriptTag,
+  safeInlineJson,
+} from "./runtime";
 
 // ---------------------------------------------------------------------------
 // §22.4 payload-guard constants (config consts, "~40 KB or ~50% whichever
@@ -77,6 +82,15 @@ export interface RenderCandidate {
   section_id: number;
   is_fallback: number;
   rule_public_id: string | null;
+  // Phase-7 selector boot data (optional — Phase-6 call sites/tests omit
+  // them; the boot payload then carries ""/null and the client selector
+  // degrades exactly like a page with no metadata).
+  section_public_id?: string;
+  section_name?: string;
+  traffic_allocation?: number | null;
+  rule_priority?: number | null;
+  rule_conditions_json?: string | null;
+  rule_conditions_hash?: string | null;
 }
 
 export interface RenderPage {
@@ -101,6 +115,8 @@ export interface RenderVersion {
 export interface RenderArticle {
   public_id: string;
   slug: string;
+  // Phase-7 boot data (optional — older call sites omit it → "").
+  article_name?: string;
 }
 
 export interface ListicleRenderInput {
@@ -113,6 +129,9 @@ export interface ListicleRenderInput {
   sections: ReadonlyMap<number, RenderSectionRow>;
   // data-offer value (off_… public id OR legacy numeric string) → off_… id.
   offerPublicIdByRef: ReadonlyMap<string, string>;
+  // Phase-7 boot data: the tenant site id for the §16 site_id column
+  // (optional — older call sites omit it → "").
+  siteId?: string;
 }
 
 export interface ListicleRenderResult {
@@ -282,6 +301,9 @@ const LAZY_HYDRATE_SCRIPT = [
   "el.className=el.className.replace(/\\s*lst-cand-pending/g,'');",
   "el.style.minHeight='';",
   "el.removeAttribute('data-lst-lazy');",
+  // Phase 7: re-run the beacon scan so freshly hydrated governed anchors
+  // get pv= stamped + observed (idempotent — see runtime.ts __lstScan).
+  "if(window.__lstScan){try{window.__lstScan();}catch(e){}}",
   "}",
   "};",
   "x.send();",
@@ -407,32 +429,67 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
   const lazyCandidateIds: string[] = [];
   const pagesHtml = builds
     .map((build) => {
+      // Phase 7: right after each page's markup, the shell calls the §15.3
+      // materializer so a chosen NON-default candidate is stamped out of its
+      // inert <template> (or the lazy placeholder is re-pointed at the
+      // chosen /lst-cand fragment) DURING parse — before that region ever
+      // paints (zero CLS).
+      const materialize = `<script>window.__lstMat&&window.__lstMat(${build.page.page_index})</script>`;
       const isAboveFold = build.page.page_index < LST_ABOVE_FOLD_PAGE_COUNT;
       if (overBudget && !isAboveFold) {
         // Below-fold page on an over-budget shell: the DEFAULT candidate
         // lazy-hydrates from the cached per-candidate endpoint
         // GET /lst-cand/:candidate_public_id with a reserved box (zero CLS);
-        // hidden alternates are NOT shipped (the Phase-7 selector fetches
-        // any non-default candidate from the same endpoint).
+        // hidden alternates are NOT shipped (the §15.3 selector re-points
+        // the placeholder at the CHOSEN candidate's /lst-cand fragment).
         const def = build.defaultCand;
         if (def === null) return layout.renderPage(build.vm, "");
         lazyCandidateIds.push(def.public_id);
         const placeholder = `<div class="lst-cand lst-cand-pending" data-cand="${escapeAttr(def.public_id)}" data-lst-lazy="/lst-cand/${encodeURIComponent(def.public_id)}" style="min-height:${LST_LAZY_CANDIDATE_MIN_HEIGHT_PX}px"></div>`;
-        return layout.renderPage(build.vm, placeholder);
+        return layout.renderPage(build.vm, placeholder) + materialize;
       }
-      return layout.renderPage(build.vm, build.visibleHtml + build.hiddenHtml);
+      return layout.renderPage(build.vm, build.visibleHtml + build.hiddenHtml) + materialize;
     })
     .join("\n");
 
-  // ---- interim chosen-candidate style (server-side single_default) --------
-  // Pre-paint visibility for the default candidate of every page — a STATIC
-  // inline <style>, so the cached shell paints its default state with zero
-  // flicker. INTERIM until the Phase-7 pre-paint selector replaces it with
-  // the per-user pick (§15.3).
-  const visibilityCss = builds
-    .filter((b) => b.vm.defaultCandidateId !== "")
-    .map((b) => `[data-layout="default"] .lst-cand[data-cand="${b.vm.defaultCandidateId}"]{display:block}`)
-    .join("");
+  // ---- §15.3 selector boot data (per-shell, visitor-invariant) ------------
+  // Everything the pre-paint selector + beacon need that is a property of
+  // the VERSION (cache-safe): the page/candidate graph incl. allocations +
+  // parsed rule conditions, and the article identity dims. Per-REQUEST
+  // context (_LST_SID/__LST_CTX/__LST_EXP) is injected post-cache
+  // (ctx-inject.ts) and is NEVER part of this cached payload.
+  const bootPages = builds.map((build) => ({
+    page_index: build.page.page_index,
+    mode: build.page.selection_mode,
+    ab_test_id: build.page.ab_test_id ?? "",
+    rule_set_id: build.page.rule_set_id ?? "",
+    default_candidate_id: build.vm.defaultCandidateId,
+    candidates: build.page.candidates.map((cand) => ({
+      id: cand.public_id,
+      section_id: cand.section_public_id ?? "",
+      section_name: cand.section_name ?? "",
+      allocation: cand.traffic_allocation ?? null,
+      is_fallback: cand.is_fallback,
+      rule:
+        cand.rule_public_id !== null && cand.rule_public_id !== ""
+          ? {
+              id: cand.rule_public_id,
+              priority: cand.rule_priority ?? 100,
+              conditions: parseRuleConditionsJson(cand.rule_conditions_json ?? null),
+              hash: cand.rule_conditions_hash ?? "",
+            }
+          : null,
+    })),
+  }));
+  const boot = {
+    site_id: input.siteId ?? "",
+    article_id: input.article.public_id,
+    article_name: input.article.article_name ?? "",
+    article_url: `https://${input.hostname}/${encodeURIComponent(input.article.slug)}`,
+    lander_v: input.version.public_id,
+    article_version_revision: input.version.content_version,
+  };
+  const bootScript = `<script data-lst="boot">window.__LST_BOOT=${safeInlineJson(boot)};window.__LST_PAGES=${safeInlineJson(bootPages)};window.__LST_CHOSEN={}</script>`;
 
   // ---- shell ---------------------------------------------------------------
   const heroHtml =
@@ -483,9 +540,18 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
     `<meta property="og:type" content="article">`,
     `<meta property="og:url" content="${escapeAttr(canonical)}">`,
     `<style>${defaultLayoutCss()}</style>`,
-    `<style data-lst-chosen="interim-single-default">.lst-cand{display:none}${visibilityCss}</style>`,
+    // No-JS fallback: without the §15.3 selector, the DEFAULT candidates
+    // (the only .lst-cand divs in the shell — alternates are inert
+    // <template>s) render. The Phase-6 interim static style is REPLACED by
+    // the selector's §15.3 pre-paint style pass.
+    `<noscript><style>.lst-cand{display:block!important}</style></noscript>`,
     consentHead,
     customHead,
+    // §15.3 boot data + pre-paint selector. The post-cache context script
+    // (_LST_SID/__LST_CTX/__LST_EXP, ctx-inject.ts) is injected immediately
+    // BEFORE the selector tag on the live response.
+    bootScript,
+    selectorScriptTag(),
   ]
     .filter((part) => part !== "")
     .join("\n");
@@ -503,10 +569,24 @@ ${shellHtml}
 ${renderLegalDisclosureBlock()}
 ${renderListicleFooter(input.brand, input.hostname)}
 ${lazyScript}
+${beaconScriptTag()}
 </body>
 </html>`;
 
   return { html, lazyCandidateIds };
+}
+
+// Parse a stored rule conditions_json for the selector boot payload.
+// Corrupt/absent → {} (the client treats it as "any audience" — the same
+// degradation the edge rules evaluator applies to an empty conditions set).
+function parseRuleConditionsJson(raw: string | null): unknown {
+  if (raw === null || raw.trim() === "") return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function byteLength(s: string): number {

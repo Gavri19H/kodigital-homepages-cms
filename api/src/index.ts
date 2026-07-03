@@ -50,6 +50,7 @@ import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { analyticsRouter } from "./analytics/router";
+import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -240,6 +241,13 @@ const scheduled = async (
     } catch {
       // A provisioning hiccup must never break the publish cron (or surface
       // as an unhandled rejection that fails the scheduled invocation).
+    }
+    try {
+      // Listicles §31.6 daily reconciliation (self-gates to 00:05 UTC;
+      // fail-open by design — see analytics/listicle-reconciliation.ts).
+      await listicleDailyReconciliation(env);
+    } catch {
+      // reconciliation must never break the publish/provisioning cron.
     }
   })();
   ctx.waitUntil(work);
