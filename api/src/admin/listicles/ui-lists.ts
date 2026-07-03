@@ -1,8 +1,8 @@
-// Listicles admin UI — Sections + Articles tabs, LIST-ONLY this phase
-// (design contract §8 / §10 / §11; Phase 3 scope per §27 — the Section
-// editor is Phase 4 and the Article builder is Phase 5, so the Create
-// buttons render disabled with a visible phase note and NO /new|/:id/edit
-// shell routes exist yet — no dead routes, no fake surfaces).
+// Listicles admin UI — Sections + Articles list tabs (design contract
+// §8 / §10 / §11). Phase 4: the Sections tab links to the LIVE Section
+// editor (/admin/listicles/sections/new + /:id/edit — ui-section-editor.ts);
+// the Articles Create button stays disabled until the Phase-5 builder
+// (no dead routes, no fake surfaces).
 //
 // Shared anatomy with the Offers tab: tabs → toolbar → card/table with
 // server-rendered management columns + after-paint analytics hydration
@@ -75,8 +75,7 @@ function renderSectionsToolbar(props: SectionsPageProps): string {
     })
     .join("");
   return `<div class="toolbar">
-  <button type="button" class="btn btn-primary" disabled aria-disabled="true" title="Section editor ships in Phase 4">+ Create Section</button>
-  <span class="form-help lst-phase-note">Section editor ships in Phase 4</span>
+  <a href="/admin/listicles/sections/new" class="btn btn-primary">+ Create Section</a>
   <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search sections…" value="${escapeHtml(f.search)}" aria-label="Search sections" /></div>
   <div class="toolbar-filters">
     <select name="status" class="form-select" aria-label="Status filter">${statusOptions}</select>
@@ -95,6 +94,7 @@ function renderSectionRow(s: SectionListRow): string {
   <td><span class="${statusBadgeClass(s.status)}">${escapeHtml(s.status)}</span></td>
   ${renderAnalyticsSkeletonCells(ENTITY_ANALYTICS_COLUMNS)}
   <td><div class="table-actions">
+    <a class="btn btn-sm btn-secondary" href="/admin/listicles/sections/${s.id}/edit">Edit</a>
     <button type="button" class="btn btn-sm btn-outline" data-section-offers="${s.id}" data-section-name="${name}" title="View Offers used">Offers used</button>
     <button type="button" class="btn btn-sm btn-outline" data-section-usage="${s.id}" data-section-name="${name}" title="View usage in Articles">Usage in Articles</button>
     <button type="button" class="btn btn-sm btn-outline" data-lst-analytics-action>Analytics</button>
@@ -107,7 +107,7 @@ function renderSectionsTable(props: SectionsPageProps): string {
     props.filters.search !== "" || props.filters.status !== "";
   const empty = hasActiveFilters
     ? `<div class="empty-state"><p>No sections match the current filters.</p></div>`
-    : `<div class="empty-state"><p>No sections yet.</p><p class="form-help">Section editor ships in Phase 4.</p></div>`;
+    : `<div class="empty-state"><p>No sections yet.</p><a href="/admin/listicles/sections/new" class="btn btn-primary">+ Create Section</a></div>`;
   const rows =
     props.sections.length === 0
       ? `<tr><td colspan="${SECTION_COLUMN_COUNT}">${empty}</td></tr>`

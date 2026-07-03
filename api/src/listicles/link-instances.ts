@@ -64,6 +64,16 @@ function asPositiveInt(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
+// An offer reference is either the legacy internal integer id (Phase-2 API
+// writes) or the off_… public id string (§30.5 shapes store strings).
+function offerRef(value: unknown): { id: number | null; publicId: string | null } {
+  const id = asPositiveInt(value);
+  if (id !== null) return { id, publicId: null };
+  const publicId = asOptionalString(value);
+  if (publicId !== null) return { id: null, publicId };
+  return { id: null, publicId: null };
+}
+
 // Role for a block-level offer binding, from the block type. Unknown block
 // types default to 'button' — a block-level Offer binding is a CTA.
 function blockRole(type: string): LinkRole {
@@ -75,7 +85,12 @@ function blockRole(type: string): LinkRole {
     case "final_text_cta":
       return "final_text_cta";
     case "image":
+    case "linked_image":
       return "linked_image";
+    case "heading":
+      // §30.2 LinkedSectionHeading — a governed link inside content; the
+      // §30.7 'headline' role is reserved for the Section headline field.
+      return "inline";
     default:
       return "button";
   }
@@ -124,26 +139,29 @@ export function extractLinkInstances(source: SectionLinkSource): ExtractedLinkIn
     const blockId =
       block.id ?? asOptionalString(block.data.id) ?? `blk_${blockIndex}`;
 
-    // (a) Block-level binding: data.offer_id (internal numeric id).
-    const blockOfferId = asPositiveInt(block.data.offer_id);
-    if (blockOfferId !== null) {
+    // (a) Block-level binding: data.offer_id (internal numeric id or off_…
+    // public id — §30.5 shapes store strings).
+    const blockOffer = offerRef(block.data.offer_id);
+    if (blockOffer.id !== null || blockOffer.publicId !== null) {
       instances.push({
         block_id: blockId,
         link_role: blockRole(block.type),
         position_index: position++,
-        offer_id: blockOfferId,
-        offer_public_id: null,
+        offer_id: blockOffer.id,
+        offer_public_id: blockOffer.publicId,
         anchor_text:
           asOptionalString(block.data.text) ??
           asOptionalString(block.data.cta) ??
-          asOptionalString(block.data.title),
-        button_style_id: asOptionalString(block.data.style),
+          asOptionalString(block.data.title) ??
+          asOptionalString(block.data.alt),
+        button_style_id:
+          asOptionalString(block.data.style_id) ?? asOptionalString(block.data.style),
         button_group_id: asOptionalString(block.data.group_id),
         analytics_label: asOptionalString(block.data.analytics_label),
       });
     }
 
-    // (b) Nested button lists (PR4 choice-button groups): data.buttons[] /
+    // (b) Nested button lists (§30.5 choice-button groups): data.buttons[] /
     // data.items[] entries carrying their own offer_id.
     for (const listKey of ["buttons", "items"] as const) {
       const list = block.data[listKey];
@@ -151,25 +169,26 @@ export function extractLinkInstances(source: SectionLinkSource): ExtractedLinkIn
       for (const entry of list) {
         if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
         const item = entry as Record<string, unknown>;
-        const itemOfferId = asPositiveInt(item.offer_id);
-        if (itemOfferId === null) continue;
+        const itemOffer = offerRef(item.offer_id);
+        if (itemOffer.id === null && itemOffer.publicId === null) continue;
         instances.push({
           block_id: blockId,
           link_role: block.type.includes("choice") ? "choice_button" : blockRole(block.type),
           position_index: position++,
-          offer_id: itemOfferId,
-          offer_public_id: null,
+          offer_id: itemOffer.id,
+          offer_public_id: itemOffer.publicId,
           anchor_text: asOptionalString(item.text) ?? asOptionalString(item.cta),
-          button_style_id: asOptionalString(item.style),
+          button_style_id:
+            asOptionalString(item.style_id) ?? asOptionalString(item.style),
           button_group_id: asOptionalString(block.data.group_id) ?? blockId,
           analytics_label: asOptionalString(item.analytics_label),
         });
       }
     }
 
-    // (c) Inline offerlink marks inside the block's rich html.
-    const html = block.data.html;
-    if (typeof html === "string" && html !== "") {
+    // (c) Inline offerlink marks inside the block's rich html — and, for
+    // list blocks, inside each string item (items support inline marks).
+    for (const html of inlineHtmlSources(block)) {
       for (const match of html.matchAll(OFFERLINK_RE)) {
         const publicId = match[1];
         if (typeof publicId !== "string" || publicId.trim() === "") continue;
@@ -189,6 +208,22 @@ export function extractLinkInstances(source: SectionLinkSource): ExtractedLinkIn
   });
 
   return instances;
+}
+
+// The inline-mark carriers of one block, in document order: data.html first,
+// then each STRING entry of data.items (list items). Object items (choice
+// buttons) are block-level bindings, not inline carriers.
+function inlineHtmlSources(block: SectionBlock): string[] {
+  const sources: string[] = [];
+  if (typeof block.data.html === "string" && block.data.html !== "") {
+    sources.push(block.data.html);
+  }
+  if (Array.isArray(block.data.items)) {
+    for (const item of block.data.items) {
+      if (typeof item === "string" && item !== "") sources.push(item);
+    }
+  }
+  return sources;
 }
 
 // SHA-256 hex of the anchor text (anchor_text_hash — §30.7 carries it through
@@ -259,6 +294,129 @@ export async function resolveLinkInstances(
     });
   }
   return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Enrichment (§30.5/§30.9): write the RESOLVED link_instance_id back into the
+// stored content_json so every governed link/button/image/text-CTA carries
+// its lnk_… id, and normalize every offer reference to the off_… public id
+// (the §30.5 shapes store strings; legacy numeric ids are canonicalized).
+// ---------------------------------------------------------------------------
+//
+// The walk MIRRORS extractLinkInstances exactly — headline first, then per
+// block: (a) block-level binding, (b) buttons[]/items[] entries, (c) inline
+// offerlink anchors in data.html + string list items — consuming `resolved`
+// sequentially. Parity is pinned by test/listicles-link-extraction.test.ts
+// (extract → resolve → apply → re-extract must line up 1:1).
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizedOfferRef(
+  value: unknown,
+  offerPublicIdById: ReadonlyMap<number, string>,
+): unknown {
+  const id = asPositiveInt(value);
+  if (id !== null) {
+    const publicId = offerPublicIdById.get(id);
+    return publicId !== undefined ? publicId : value;
+  }
+  return value;
+}
+
+// Rewrite the Nth offerlink anchor's opening tag to carry the given
+// data-link-instance (replacing any stale value).
+function stampInlineAnchors(html: string, ids: string[]): string {
+  let index = 0;
+  return html.replace(OFFERLINK_RE, (whole) => {
+    const id = ids[index++];
+    if (id === undefined) return whole;
+    const openEnd = whole.indexOf(">");
+    if (openEnd < 0) return whole;
+    let openTag = whole.slice(0, openEnd + 1);
+    const rest = whole.slice(openEnd + 1);
+    openTag = openTag.replace(/\s+data-link-instance\s*=\s*("[^"]*"|'[^']*')/gi, "");
+    openTag = `${openTag.slice(0, -1)} data-link-instance="${id}">`;
+    return openTag + rest;
+  });
+}
+
+// Enrich a validated Section's blocks with their resolved link-instance ids.
+// Returns a NEW blocks array (deep copy); `source.blocks` is not mutated.
+export function applyLinkInstances(
+  source: SectionLinkSource,
+  resolved: ResolvedLinkInstance[],
+  offerPublicIdById: ReadonlyMap<number, string>,
+): SectionBlock[] {
+  const blocks = JSON.parse(JSON.stringify(source.blocks)) as SectionBlock[];
+  let cursor = 0;
+  const take = (): ResolvedLinkInstance | undefined => resolved[cursor++];
+
+  if (source.headline_offer_id !== null && source.headline_offer_id > 0) {
+    // The headline instance is DB-only (block_id "__headline__"); nothing to
+    // write into blocks — consume its slot to stay aligned with extraction.
+    take();
+  }
+
+  for (const block of blocks) {
+    const data = block.data;
+
+    // (a) block-level binding
+    const blockOffer = offerRef(data.offer_id);
+    if (blockOffer.id !== null || blockOffer.publicId !== null) {
+      const instance = take();
+      if (instance !== undefined) {
+        data.link_instance_id = instance.public_id;
+        data.offer_id = normalizedOfferRef(data.offer_id, offerPublicIdById);
+      }
+    }
+
+    // (b) nested button lists
+    for (const listKey of ["buttons", "items"] as const) {
+      const list = data[listKey];
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        if (!isPlainObject(entry)) continue;
+        const itemOffer = offerRef(entry.offer_id);
+        if (itemOffer.id === null && itemOffer.publicId === null) continue;
+        const instance = take();
+        if (instance !== undefined) {
+          entry.link_instance_id = instance.public_id;
+          entry.offer_id = normalizedOfferRef(entry.offer_id, offerPublicIdById);
+        }
+      }
+    }
+
+    // (c) inline offerlink anchors: data.html first, then string list items —
+    // matching inlineHtmlSources() order.
+    if (typeof data.html === "string" && data.html !== "") {
+      const count = [...data.html.matchAll(OFFERLINK_RE)].length;
+      if (count > 0) {
+        const ids: string[] = [];
+        for (let i = 0; i < count; i++) {
+          const instance = take();
+          ids.push(instance !== undefined ? instance.public_id : "");
+        }
+        data.html = stampInlineAnchors(data.html, ids);
+      }
+    }
+    if (Array.isArray(data.items)) {
+      data.items = (data.items as unknown[]).map((item) => {
+        if (typeof item !== "string" || item === "") return item;
+        const count = [...item.matchAll(OFFERLINK_RE)].length;
+        if (count === 0) return item;
+        const ids: string[] = [];
+        for (let i = 0; i < count; i++) {
+          const instance = take();
+          ids.push(instance !== undefined ? instance.public_id : "");
+        }
+        return stampInlineAnchors(item, ids);
+      });
+    }
+  }
+
+  return blocks;
 }
 
 // Aggregate instances into the derived listicle_section_offers rows:

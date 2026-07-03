@@ -26,7 +26,23 @@ class BlockEditor {
       hiddenInputId: options.hiddenInputId || 'content_json',
       onChange: options.onChange || null,
       placeholder: options.placeholder || 'Start writing...',
+      // Listicle editor configuration (§12/§30.5): presets, curated colour
+      // tokens, emoji set, markers. null (the default) keeps every existing
+      // page byte-identical — all listicle branches are gated on this.
+      listicle: options.listicle || null,
     };
+
+    // Listicle-only edit surfaces, keyed by block type (values escape every
+    // user value through this.escapeHtml).
+    this._lstRenderers = this.options.listicle
+      ? {
+          button: this.renderLstButtonContent,
+          choice_button_group: this.renderLstChoiceGroupContent,
+          final_text_cta: this.renderLstFinalCtaContent,
+          linked_image: this.renderLstLinkedImageContent,
+          spacer: this.renderLstSpacerContent,
+        }
+      : null;
 
     this.blocks = [];
     this.focusedBlockId = null;
@@ -283,12 +299,43 @@ class BlockEditor {
     }, { passive: true });
   }
 
+  // Listicle toolbar spec (§12): Bold · Italic · Text colour · Highlight ·
+  // Convert selection → Offer link (Offer modal, NO URL prompt) · list
+  // markers (disc/dash/ordered/check/emoji) · Button (Offer modal) · Image ·
+  // Emoji library · AI image. Only used when options.listicle is set — the
+  // default toolbar below is untouched.
+  _listicleToolbarButtons() {
+    return [
+      { type: 'heading', level: 2, label: 'H2', title: 'Section heading' },
+      { type: 'heading', level: 3, label: 'H3', title: 'Sub heading' },
+      { type: 'paragraph', label: 'P', title: 'Paragraph' },
+      { type: 'divider' },
+      { type: 'list-marker', marker: 'disc', label: '• List', title: 'Bullet list' },
+      { type: 'list-marker', marker: 'dash', label: '– List', title: 'Dash list' },
+      { type: 'list-marker', marker: 'ordered', label: '1. List', title: 'Numbered list' },
+      { type: 'list-marker', marker: 'check', label: '✔ List', title: 'Checkmark list' },
+      { type: 'list-marker', marker: 'emoji', label: '😀 List', title: 'Emoji list' },
+      { type: 'divider' },
+      { type: 'format', format: 'bold', label: 'B', title: 'Bold' },
+      { type: 'format', format: 'italic', label: 'I', title: 'Italic' },
+      { type: 'color-menu', kind: 'color', label: 'A', title: 'Text colour (curated tokens)' },
+      { type: 'color-menu', kind: 'highlight', label: '🖍', title: 'Highlight (curated tokens)' },
+      { type: 'offerlink', label: '🔗 Offer link', title: 'Convert selection into an Offer link (opens the Offer modal — links never take a URL)' },
+      { type: 'divider' },
+      { type: 'insert-button', label: '⬜ Button', title: 'Insert a Button (Offer modal)' },
+      { type: 'image', label: '🖼', title: 'Insert Image' },
+      { type: 'emoji-menu', label: '😊', title: 'Emoji library' },
+      { type: 'divider', style: 'ai' },
+      { type: 'ai-image', label: '✨ AI', title: 'Generate AI Image' },
+    ];
+  }
+
   // Create the formatting toolbar
   createToolbar() {
     const toolbar = document.createElement('div');
     toolbar.className = 'editor-toolbar';
 
-    const buttons = [
+    const defaultButtons = [
       { type: 'heading', level: 1, label: 'H1', title: 'Heading 1' },
       { type: 'heading', level: 2, label: 'H2', title: 'Heading 2' },
       { type: 'heading', level: 3, label: 'H3', title: 'Heading 3' },
@@ -312,6 +359,9 @@ class BlockEditor {
       { type: 'format', format: 'link', label: '🔗', title: 'Link ([text](url))' },
     ];
 
+    // Listicle mode swaps the button SPEC only; construction is shared.
+    const buttons = this.options.listicle ? this._listicleToolbarButtons() : defaultButtons;
+
     buttons.forEach(btn => {
       if (btn.type === 'divider') {
         const divider = document.createElement('span');
@@ -334,6 +384,19 @@ class BlockEditor {
         button.addEventListener('click', () => this.convertBlock('heading', { level: btn.level }));
       } else if (btn.type === 'list') {
         button.addEventListener('click', () => this.convertBlock('list', { style: btn.style }));
+      } else if (btn.type === 'list-marker') {
+        button.addEventListener('click', () => this.applyListMarker(btn.marker));
+      } else if (btn.type === 'color-menu') {
+        button.addEventListener('mousedown', (e) => e.preventDefault());
+        button.addEventListener('click', () => this.showColorMenu(button, btn.kind));
+      } else if (btn.type === 'emoji-menu') {
+        button.addEventListener('mousedown', (e) => e.preventDefault());
+        button.addEventListener('click', () => this.showEmojiMenu(button, null));
+      } else if (btn.type === 'offerlink') {
+        button.addEventListener('mousedown', (e) => e.preventDefault());
+        button.addEventListener('click', () => this.applyOfferLink());
+      } else if (btn.type === 'insert-button') {
+        button.addEventListener('click', () => this.insertOfferButton());
       } else if (btn.type === 'image') {
         button.addEventListener('click', () => this.showImageUploadDialog());
       } else if (btn.type === 'ai-image') {
@@ -370,7 +433,7 @@ class BlockEditor {
     const menu = document.createElement('div');
     menu.className = 'block-menu';
 
-    const blockTypes = [
+    const defaultBlockTypes = [
       { type: 'paragraph', label: 'Paragraph', icon: '¶' },
       { type: 'heading', label: 'Heading 2', icon: 'H2', data: { level: 2 } },
       { type: 'heading', label: 'Heading 3', icon: 'H3', data: { level: 3 } },
@@ -384,6 +447,34 @@ class BlockEditor {
       { type: 'menu-separator' },
       { type: 'ai-image', label: 'AI Image', icon: '✨' },
     ];
+
+    // Listicle menu (§12/§30.5): governed block types + the 17 reference
+    // presets (each carrying its layout_binding; offer-bearing presets open
+    // the §13 Offer modal first).
+    let blockTypes = defaultBlockTypes;
+    if (this.options.listicle) {
+      blockTypes = [
+        { type: 'paragraph', label: 'Paragraph', icon: '¶' },
+        { type: 'heading', label: 'Heading 2', icon: 'H2', data: { level: 2 } },
+        { type: 'heading', label: 'Heading 3', icon: 'H3', data: { level: 3 } },
+        { type: 'list-unordered', label: 'Bullet List', icon: '•' },
+        { type: 'list-ordered', label: 'Numbered List', icon: '1.' },
+        { type: 'quote', label: 'Quote', icon: '"' },
+        { type: 'image', label: 'Image', icon: '🖼' },
+        { type: 'divider', label: 'Divider', icon: '—' },
+        { type: 'lst-insert-button', label: 'Button (Offer)', icon: '⬜' },
+        { type: 'lst-insert-preset', presetKey: 'reference-choice-button-group', label: 'Choice Button Group', icon: '🔘' },
+        { type: 'lst-insert-preset', presetKey: 'reference-final-text-cta', label: 'Final Text CTA', icon: '➡️' },
+        { type: 'lst-insert-preset', presetKey: 'reference-linked-image', label: 'Linked Image (Offer)', icon: '🖼' },
+        { type: 'menu-separator' },
+        { type: 'ai-image', label: 'AI Image', icon: '✨' },
+        { type: 'menu-separator' },
+      ];
+      const presets = (this.options.listicle.presets || []);
+      for (const preset of presets) {
+        blockTypes.push({ type: 'lst-insert-preset', presetKey: preset.key, label: preset.label, icon: '§' });
+      }
+    }
 
     blockTypes.forEach(bt => {
       // Handle menu separator
@@ -412,6 +503,10 @@ class BlockEditor {
           this.showImageUploadDialog();
         } else if (bt.type === 'ai-image') {
           this.showAIImageDialog();
+        } else if (bt.type === 'lst-insert-button') {
+          this.insertOfferButton();
+        } else if (bt.type === 'lst-insert-preset') {
+          this.insertListiclePreset(bt.presetKey);
         } else {
           this.addBlock(bt.type);
         }
@@ -461,13 +556,66 @@ class BlockEditor {
 
   // Get default data for a block type
   getDefaultData(type, data = {}) {
+    // Listicle preset insertion passes the preset's EXACT §30.5 data shape
+    // (incl. layout_binding / link_instance_id / offer_id) — preserve it
+    // verbatim. Gated on the marker key, so every existing path is untouched.
+    if (this.options.listicle && data && data.__lstPreset) {
+      const preserved = {};
+      for (const k in data) {
+        if (Object.prototype.hasOwnProperty.call(data, k) && k !== '__lstPreset') {
+          preserved[k] = data[k];
+        }
+      }
+      return preserved;
+    }
     switch (type) {
+      case 'button':
+        return {
+          text: data.text || '',
+          style: data.style || 'primary',
+          align: data.align || 'center',
+          offer_id: data.offer_id || '',
+          link_instance_id: data.link_instance_id || '',
+        };
+      case 'choice_button_group':
+        return {
+          layout_binding: data.layout_binding || 'default.choiceButtonGroup',
+          prompt: data.prompt || '',
+          items: Array.isArray(data.items) ? data.items : [],
+        };
+      case 'final_text_cta':
+        return {
+          link_instance_id: data.link_instance_id || '',
+          text: data.text || '',
+          offer_id: data.offer_id || '',
+          layout_binding: data.layout_binding || 'default.textCta',
+        };
+      case 'linked_image':
+        return {
+          image_url: data.image_url || '',
+          media_id: data.media_id || null,
+          alt: data.alt || '',
+          offer_id: data.offer_id || '',
+          link_instance_id: data.link_instance_id || '',
+          layout_binding: data.layout_binding || 'default.sectionImage',
+        };
+      case 'spacer':
+        return { layout_binding: data.layout_binding || 'default.sectionWrapper' };
       case 'paragraph':
         return { text: data.text || '' };
       case 'heading':
         return { text: data.text || '', level: data.level || 2 };
-      case 'list':
-        return { style: data.style || 'unordered', items: data.items || [''] };
+      case 'list': {
+        const listData = { style: data.style || 'unordered', items: data.items || [''] };
+        // Listicle-only fields (§12 markers + §30.5 bindings) attach ONLY in
+        // listicle mode — the default editor's list shape stays byte-stable.
+        if (this.options.listicle) {
+          if (data.marker) { listData.marker = data.marker; }
+          if (data.emoji) { listData.emoji = data.emoji; }
+          if (data.layout_binding) { listData.layout_binding = data.layout_binding; }
+        }
+        return listData;
+      }
       case 'quote':
         return { text: data.text || '', caption: data.caption || '' };
       case 'image':
@@ -605,6 +753,12 @@ class BlockEditor {
         style: newData.style || 'unordered',
         items: items
       };
+      // Listicle list markers (§12) ride the conversion — listicle mode only,
+      // so the default editor's conversion output stays byte-stable.
+      if (this.options.listicle) {
+        if (newData.marker) { block.data.marker = newData.marker; }
+        if (newData.emoji) { block.data.emoji = newData.emoji; }
+      }
     } else if (newType === 'heading') {
       block.data = { text: currentText, level: newData.level || 2 };
     } else if (newType === 'quote') {
@@ -726,9 +880,28 @@ class BlockEditor {
         content.innerHTML = this.renderCalloutContent(block);
         break;
       case 'affiliate':
+        // §12/§13 (listicle mode): the legacy free-URL affiliate card is not
+        // part of the governed grammar — its edit surface (which carries a
+        // URL input) never renders; the block shows as a preserved unknown
+        // card instead (validation rejects it on save).
+        if (this.options.listicle) {
+          const affiliateNote = document.createElement('div');
+          affiliateNote.className = 'unknown-block-card';
+          affiliateNote.textContent = 'The legacy "affiliate" block is not allowed in listicle Sections — replace it with a Button bound to an Offer.';
+          content.textContent = '';
+          content.appendChild(affiliateNote);
+          break;
+        }
         content.innerHTML = this.renderAffiliateContent(block);
         break;
       default: {
+        // Listicle governed blocks (§12/§30.5) — only in listicle mode. The
+        // render methods escape every user value via this.escapeHtml (the
+        // same discipline as every renderXContent above).
+        if (this.options.listicle && this._lstRenderers && this._lstRenderers[block.type]) {
+          content.innerHTML = this._lstRenderers[block.type].call(this, block);
+          break;
+        }
         // C14: an unknown block type is NEVER shown as raw JSON garbage and
         // NEVER destroyed - a labeled read-only card; its data rides along
         // untouched through save.
@@ -765,7 +938,15 @@ class BlockEditor {
       const text = this.sanitizeHtml(this.migrateMarkdownToHtml(item));
       return '<li><span class="list-item-input" contenteditable="true" data-item-index="' + i + '">' + text + '</span></li>';
     }).join('');
-    return '<' + tag + ' class="editable-list">' + items + '</' + tag + '>';
+    let listHtml = '<' + tag + ' class="editable-list">' + items + '</' + tag + '>';
+    // Listicle mode shows the active §12 marker above the list (the toolbar's
+    // marker buttons switch it; the marker glyph renders in preview/publish).
+    if (this.options.listicle) {
+      const marker = block.data.marker || (block.data.style === 'ordered' ? 'ordered' : 'disc');
+      const markerLabel = marker === 'emoji' ? 'emoji ' + (block.data.emoji || '') : marker;
+      listHtml = '<div class="lst-list-markerbar">Marker: <strong>' + this.escapeHtml(markerLabel) + '</strong></div>' + listHtml;
+    }
+    return listHtml;
   }
 
   renderQuoteContent(block) {
@@ -1657,6 +1838,724 @@ class BlockEditor {
     }
   }
 
+  // ===========================================================================
+  // Listicle extension (§12 / §13 / §30.5 / §30.6) — every method below is
+  // reachable ONLY when options.listicle is set (the listicle Section editor
+  // page). The §13 Offer modal is the single link mechanism: no method here
+  // ever prompts for, stores, or renders a URL.
+  // ===========================================================================
+
+  _lstConfig() {
+    return this.options.listicle || {};
+  }
+
+  // Offer display names, cached page-wide (the §13 picker + the editor and
+  // the CTA inventory all share it).
+  _rememberOffer(offer) {
+    if (!offer) return;
+    window.lstOfferNames = window.lstOfferNames || {};
+    if (offer.public_id) window.lstOfferNames[offer.public_id] = offer.offer_name || offer.public_id;
+    if (offer.id !== undefined && offer.id !== null) {
+      window.lstOfferNames[String(offer.id)] = offer.offer_name || String(offer.id);
+    }
+  }
+
+  offerLabel(ref) {
+    const key = ref === undefined || ref === null ? '' : String(ref);
+    if (key === '') return '';
+    const names = window.lstOfferNames || {};
+    return names[key] || key;
+  }
+
+  _offerRefString(value) {
+    if (typeof value === 'number' && value > 0) return String(value);
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+    return '';
+  }
+
+  _openOfferPicker(title, onSelect) {
+    if (!window.lstOfferPicker) {
+      if (window.showToast) window.showToast('Offer picker is not available on this page', 'error');
+      return;
+    }
+    window.lstOfferPicker.open({
+      title: title,
+      onSelect: (offer) => {
+        this._rememberOffer(offer);
+        onSelect(offer);
+      },
+    });
+  }
+
+  _lstOfferChipHtml(offerRef, onclickCall) {
+    const ref = this._offerRefString(offerRef);
+    const bound = ref !== '';
+    const label = bound ? this.offerLabel(ref) : 'No Offer — required';
+    return '<span class="lst-offer-chip' + (bound ? '' : ' lst-offer-missing') + '">' +
+      '<span class="lst-offer-chip-label">' + this.escapeHtml(label) + '</span>' +
+      '<button type="button" class="lst-chip-btn" onclick="' + onclickCall + '">' +
+      (bound ? 'Change' : 'Choose Offer') + '</button></span>';
+  }
+
+  // ---- listicle edit surfaces -----------------------------------------------
+
+  renderLstButtonContent(block) {
+    const d = block.data || {};
+    const config = this._lstConfig();
+    const styles = config.buttonStyles || ['primary', 'outline'];
+    const aligns = config.buttonAligns || ['left', 'center', 'right'];
+    const styleOptions = styles.map(s =>
+      '<option value="' + this.escapeHtml(s) + '"' + (d.style === s ? ' selected' : '') + '>' + this.escapeHtml(s) + '</option>').join('');
+    const alignOptions = aligns.map(a =>
+      '<option value="' + this.escapeHtml(a) + '"' + (d.align === a ? ' selected' : '') + '>' + this.escapeHtml(a) + '</option>').join('');
+    return '<div class="lst-edit-card" data-lst-kind="button">' +
+      '<div class="lst-edit-kind">Button</div>' +
+      '<div class="lst-edit-row"><input type="text" class="lst-field" data-lst-field="text" value="' + this.escapeHtml(d.text || '') + '" placeholder="Button text…" aria-label="Button text" /></div>' +
+      '<div class="lst-edit-row">' +
+      '<label>Style <select class="lst-field" data-lst-field="style" aria-label="Button style">' + styleOptions + '</select></label>' +
+      '<label>Align <select class="lst-field" data-lst-field="align" aria-label="Button align">' + alignOptions + '</select></label>' +
+      this._lstOfferChipHtml(d.offer_id, "window.blockEditor.pickBlockOffer('" + block.id + "')") +
+      '</div></div>';
+  }
+
+  renderLstChoiceGroupContent(block) {
+    const d = block.data || {};
+    const items = Array.isArray(d.items) ? d.items : [];
+    const rows = items.map((item, i) => {
+      const tools =
+        '<span class="lst-choice-tools">' +
+        '<button type="button" class="lst-tool-btn" title="Move up" onclick="window.blockEditor.moveChoiceItem(\\'' + block.id + '\\',' + i + ',-1)">↑</button>' +
+        '<button type="button" class="lst-tool-btn" title="Move down" onclick="window.blockEditor.moveChoiceItem(\\'' + block.id + '\\',' + i + ',1)">↓</button>' +
+        '<button type="button" class="lst-tool-btn" title="Duplicate" onclick="window.blockEditor.duplicateChoiceItem(\\'' + block.id + '\\',' + i + ')">⧉</button>' +
+        '<button type="button" class="lst-tool-btn lst-tool-danger" title="Remove" onclick="window.blockEditor.removeChoiceItem(\\'' + block.id + '\\',' + i + ')">×</button>' +
+        '</span>';
+      return '<div class="lst-choice-item-row" data-item-index="' + i + '">' +
+        '<input type="text" class="lst-field lst-choice-text" data-lst-item-field="text" data-item-index="' + i + '" value="' + this.escapeHtml(item.text || '') + '" placeholder="Answer choice…" aria-label="Choice button text" />' +
+        this._lstOfferChipHtml(item.offer_id, "window.blockEditor.pickChoiceOffer('" + block.id + "'," + i + ')') +
+        tools +
+        '</div>';
+    }).join('');
+    return '<div class="lst-edit-card" data-lst-kind="choice-group">' +
+      '<div class="lst-edit-kind">Choice button group <span class="lst-choice-count">(' + items.length + ' button' + (items.length === 1 ? '' : 's') + ')</span></div>' +
+      '<div class="lst-edit-row"><input type="text" class="lst-field" data-lst-field="prompt" value="' + this.escapeHtml(d.prompt || '') + '" placeholder="Question prompt (optional)…" aria-label="Group prompt" /></div>' +
+      '<div class="lst-choice-items">' + rows + '</div>' +
+      '<div class="lst-edit-row lst-choice-actions">' +
+      '<button type="button" class="lst-tool-btn" onclick="window.blockEditor.addChoiceItem(\\'' + block.id + '\\')">+ Add button</button>' +
+      '<button type="button" class="lst-tool-btn" onclick="window.blockEditor.bulkAssignGroupOffer(\\'' + block.id + '\\')">Same Offer for all</button>' +
+      '</div></div>';
+  }
+
+  renderLstFinalCtaContent(block) {
+    const d = block.data || {};
+    return '<div class="lst-edit-card" data-lst-kind="final-cta">' +
+      '<div class="lst-edit-kind">Final text CTA</div>' +
+      '<div class="lst-edit-row"><input type="text" class="lst-field" data-lst-field="text" value="' + this.escapeHtml(d.text || '') + '" placeholder="CTA text…" aria-label="Final CTA text" />' +
+      this._lstOfferChipHtml(d.offer_id, "window.blockEditor.pickBlockOffer('" + block.id + "')") +
+      '</div></div>';
+  }
+
+  renderLstLinkedImageContent(block) {
+    const d = block.data || {};
+    const src = typeof d.image_url === 'string' ? d.image_url : '';
+    const preview = src
+      ? '<img class="lst-li-preview-img" src="' + this.escapeHtml(src) + '" alt="' + this.escapeHtml(d.alt || '') + '" />'
+      : '<span class="lst-li-preview-empty">No image yet</span>';
+    return '<div class="lst-edit-card" data-lst-kind="linked-image">' +
+      '<div class="lst-edit-kind">Linked image (governed)</div>' +
+      '<div class="lst-li-preview">' + preview + '</div>' +
+      '<input type="file" class="lst-li-file" accept="image/*" style="display:none" data-block-id="' + block.id + '" onchange="window.blockEditor.handleLinkedImageUpload(this, \\'' + block.id + '\\')" />' +
+      '<div class="lst-edit-row">' +
+      '<button type="button" class="lst-tool-btn" onclick="window.blockEditor.triggerLinkedImageUpload(\\'' + block.id + '\\')">' + (src ? 'Replace image' : 'Upload image') + '</button>' +
+      '<input type="text" class="lst-field" data-lst-field="alt" value="' + this.escapeHtml(d.alt || '') + '" placeholder="Alt text (required)…" aria-label="Linked image alt text" />' +
+      this._lstOfferChipHtml(d.offer_id, "window.blockEditor.pickBlockOffer('" + block.id + "')") +
+      '</div></div>';
+  }
+
+  renderLstSpacerContent() {
+    return '<div class="lst-edit-spacer" aria-hidden="true">— spacer / gap —</div>';
+  }
+
+  // ---- field syncing ---------------------------------------------------------
+
+  _lstSyncFields(block, content) {
+    const d = block.data || (block.data = {});
+    const fields = content.querySelectorAll('[data-lst-field]');
+    for (const el of Array.from(fields)) {
+      d[el.getAttribute('data-lst-field')] = el.value || '';
+    }
+    const itemFields = content.querySelectorAll('[data-lst-item-field]');
+    if (itemFields.length > 0 && Array.isArray(d.items)) {
+      for (const el of Array.from(itemFields)) {
+        const idx = parseInt(el.getAttribute('data-item-index') || '', 10);
+        const field = el.getAttribute('data-lst-item-field');
+        if (!isNaN(idx) && d.items[idx]) d.items[idx][field] = el.value || '';
+      }
+    }
+    this.saveToInput();
+  }
+
+  // ---- offer binding actions -------------------------------------------------
+
+  pickBlockOffer(blockId) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block) return;
+    this._openOfferPicker('Choose an Offer', (offer) => {
+      this.snapshot();
+      block.data.offer_id = offer.public_id;
+      this.renderBlocks();
+      this.saveToInput();
+    });
+  }
+
+  pickChoiceOffer(blockId, index) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block || !Array.isArray(block.data.items) || !block.data.items[index]) return;
+    this._openOfferPicker('Choose an Offer for this button', (offer) => {
+      this.snapshot();
+      block.data.items[index].offer_id = offer.public_id;
+      this.renderBlocks();
+      this.saveToInput();
+    });
+  }
+
+  // ---- choice button group mutations (§30.5 buttons requirement) -------------
+
+  _newChoiceItem(offerRef) {
+    return {
+      id: this.generateId(),
+      link_instance_id: '',
+      text: '',
+      offer_id: offerRef || '',
+      style_id: 'reference-choice-button',
+      layout_binding: 'default.choiceButton',
+    };
+  }
+
+  addChoiceItem(blockId) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block) return;
+    if (!Array.isArray(block.data.items)) block.data.items = [];
+    const items = block.data.items;
+    // Reuse-previous-binding affordance (§30.5): a new button inherits the
+    // last button's Offer; with no previous binding the Offer modal opens.
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const inherited = last ? this._offerRefString(last.offer_id) : '';
+    const finish = (offerRef) => {
+      this.snapshot();
+      items.push(this._newChoiceItem(offerRef));
+      this.renderBlocks();
+      this.saveToInput();
+      const row = document.querySelector('[data-block-id="' + blockId + '"] .lst-choice-item-row[data-item-index="' + (items.length - 1) + '"] .lst-choice-text');
+      if (row) row.focus();
+    };
+    if (inherited !== '') { finish(inherited); return; }
+    this._openOfferPicker('Choose an Offer for the new button', (offer) => finish(offer.public_id));
+  }
+
+  duplicateChoiceItem(blockId, index) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block || !Array.isArray(block.data.items) || !block.data.items[index]) return;
+    this.snapshot();
+    const copy = JSON.parse(JSON.stringify(block.data.items[index]));
+    copy.id = this.generateId();
+    copy.link_instance_id = ''; // a new placement mints a fresh lnk_… id on save
+    block.data.items.splice(index + 1, 0, copy);
+    this.renderBlocks();
+    this.saveToInput();
+  }
+
+  moveChoiceItem(blockId, index, delta) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block || !Array.isArray(block.data.items)) return;
+    const items = block.data.items;
+    const target = index + delta;
+    if (index < 0 || index >= items.length || target < 0 || target >= items.length) return;
+    this.snapshot();
+    const tmp = items[index];
+    items[index] = items[target];
+    items[target] = tmp;
+    this.renderBlocks();
+    this.saveToInput();
+  }
+
+  removeChoiceItem(blockId, index) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block || !Array.isArray(block.data.items) || !block.data.items[index]) return;
+    this.snapshot();
+    block.data.items.splice(index, 1);
+    this.renderBlocks();
+    this.saveToInput();
+  }
+
+  bulkAssignGroupOffer(blockId) {
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block || !Array.isArray(block.data.items)) return;
+    this._openOfferPicker('Assign one Offer to every button in the group', (offer) => {
+      this.snapshot();
+      for (const item of block.data.items) item.offer_id = offer.public_id;
+      this.renderBlocks();
+      this.saveToInput();
+    });
+  }
+
+  // Append a Reference Choice Button (§30.5 preset) to the focused/nearest
+  // group; with no group present a fresh group block is created around it.
+  appendChoiceItem(nearBlockId, offer) {
+    let group = null;
+    const focused = nearBlockId ? this.blocks.find(b => b.id === nearBlockId) : null;
+    if (focused && focused.type === 'choice_button_group') group = focused;
+    if (!group) {
+      for (let i = this.blocks.length - 1; i >= 0; i--) {
+        if (this.blocks[i].type === 'choice_button_group') { group = this.blocks[i]; break; }
+      }
+    }
+    const offerRef = offer ? offer.public_id : '';
+    if (!group) {
+      this.addBlock('choice_button_group', {
+        __lstPreset: true,
+        layout_binding: 'default.choiceButtonGroup',
+        prompt: '',
+        items: [this._newChoiceItem(offerRef)],
+      }, nearBlockId);
+      return;
+    }
+    this.snapshot();
+    if (!Array.isArray(group.data.items)) group.data.items = [];
+    group.data.items.push(this._newChoiceItem(offerRef));
+    this.renderBlocks();
+    this.saveToInput();
+  }
+
+  // ---- governed block insertion (toolbar / menu / presets) --------------------
+
+  insertOfferButton() {
+    const after = this.focusedBlockId;
+    this._openOfferPicker('Choose the Offer this button links to', (offer) => {
+      this.addBlock('button', {
+        text: offer.offer_name || '',
+        style: 'primary',
+        align: 'center',
+        offer_id: offer.public_id,
+        link_instance_id: '',
+      }, after);
+    });
+  }
+
+  insertListiclePreset(key) {
+    const config = this._lstConfig();
+    const presets = config.presets || [];
+    let preset = null;
+    for (const p of presets) { if (p.key === key) { preset = p; break; } }
+    if (!preset) return;
+    const after = this.focusedBlockId;
+
+    const doInsert = (offer) => {
+      if (key === 'reference-choice-button') {
+        this.appendChoiceItem(after, offer);
+        return;
+      }
+      const data = JSON.parse(JSON.stringify(preset.block.data || {}));
+      data.__lstPreset = true;
+      if (offer) {
+        if (preset.block.type === 'choice_button_group') {
+          data.items = [this._newChoiceItem(offer.public_id)];
+        } else if (key === 'reference-inline-offer-link') {
+          data.text = offer.offer_name || '';
+          data.html = '<a data-offer="' + offer.public_id + '">' + this.escapeHtml(offer.offer_name || offer.public_id) + '</a>';
+        } else {
+          data.offer_id = offer.public_id;
+        }
+      }
+      this.addBlock(preset.block.type, data, after);
+    };
+
+    if (preset.needs_offer) {
+      this._openOfferPicker(preset.label, (offer) => doInsert(offer));
+    } else {
+      doInsert(null);
+    }
+  }
+
+  // ---- list markers + emoji + curated colours (§12 toolbar) -------------------
+
+  applyListMarker(marker) {
+    const finish = (emoji) => {
+      const block = this.focusedBlockId ? this.blocks.find(b => b.id === this.focusedBlockId) : null;
+      if (block && block.type === 'list') {
+        this.snapshot();
+        block.data.marker = marker;
+        block.data.style = marker === 'ordered' ? 'ordered' : 'unordered';
+        if (emoji) block.data.emoji = emoji;
+        this.renderBlocks();
+        this.focusBlock(block.id);
+        this.saveToInput();
+        return;
+      }
+      const convert = { style: marker === 'ordered' ? 'ordered' : 'unordered', marker: marker };
+      if (emoji) convert.emoji = emoji;
+      this.convertBlock('list', convert);
+    };
+    if (marker === 'emoji') {
+      this.showEmojiMenu(null, (emoji) => finish(emoji));
+      return;
+    }
+    finish(null);
+  }
+
+  _closeLstMenu() {
+    const open = document.querySelector('.lst-popover');
+    if (open) open.remove();
+  }
+
+  _openLstMenu(anchorEl) {
+    this._closeLstMenu();
+    const menu = document.createElement('div');
+    menu.className = 'lst-popover';
+    const rect = anchorEl ? anchorEl.getBoundingClientRect() : this.toolbar.getBoundingClientRect();
+    menu.style.left = Math.max(8, rect.left) + 'px';
+    menu.style.top = (rect.bottom + 4) + 'px';
+    document.body.appendChild(menu);
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener('mousedown', closeMenu);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeMenu), 0);
+    return menu;
+  }
+
+  showEmojiMenu(anchorEl, onPick) {
+    const config = this._lstConfig();
+    const emojis = config.emojis || [];
+    const menu = this._openLstMenu(anchorEl);
+    menu.classList.add('lst-emoji-menu');
+    const savedRange = this._captureSelection(true);
+    for (const emoji of emojis) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lst-emoji-btn';
+      btn.textContent = emoji;
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => {
+        menu.remove();
+        if (onPick) { onPick(emoji); return; }
+        this._insertTextAtSelection(emoji, savedRange);
+      });
+      menu.appendChild(btn);
+    }
+  }
+
+  showColorMenu(anchorEl, kind) {
+    const config = this._lstConfig();
+    const palette = kind === 'highlight' ? (config.highlights || {}) : (config.textColors || {});
+    const menu = this._openLstMenu(anchorEl);
+    menu.classList.add('lst-color-menu');
+    const savedRange = this._captureSelection(false);
+    for (const name in palette) {
+      if (!Object.prototype.hasOwnProperty.call(palette, name)) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lst-color-swatch';
+      btn.title = name;
+      btn.style.backgroundColor = palette[name];
+      btn.setAttribute('data-token', name);
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => {
+        menu.remove();
+        this._applyInlineTokenWrap(kind, name, savedRange);
+      });
+      menu.appendChild(btn);
+    }
+  }
+
+  _captureSelection(allowCollapsed) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!allowCollapsed && range.collapsed) return null;
+    return range.cloneRange();
+  }
+
+  _restoreSelection(range) {
+    if (!range) return false;
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  }
+
+  _insertTextAtSelection(text, savedRange) {
+    if (savedRange) this._restoreSelection(savedRange);
+    const blockId = this.focusedBlockId;
+    document.execCommand('insertText', false, text);
+    if (blockId) this._syncFocusedInline(blockId);
+  }
+
+  _applyInlineTokenWrap(kind, token, savedRange) {
+    const range = savedRange || this._captureSelection(false);
+    if (!range || range.collapsed) {
+      if (window.showToast) window.showToast('Select the text to colour first', 'warning');
+      return;
+    }
+    const blockId = this.focusedBlockId;
+    this._restoreSelection(range);
+    this.snapshot();
+    const span = document.createElement('span');
+    span.setAttribute(kind === 'highlight' ? 'data-lst-highlight' : 'data-lst-color', token);
+    try {
+      range.surroundContents(span);
+    } catch (e) {
+      const frag = range.extractContents();
+      span.appendChild(frag);
+      range.insertNode(span);
+    }
+    if (blockId) this._syncFocusedInline(blockId);
+  }
+
+  // Convert the selection into a governed Offer link (§12/§13): the Offer
+  // modal is the ONLY mechanism — there is no URL prompt anywhere.
+  applyOfferLink() {
+    const range = this._captureSelection(false);
+    if (!range) {
+      if (window.showToast) window.showToast('Select the text to convert into an Offer link', 'warning');
+      return;
+    }
+    const blockId = this.focusedBlockId;
+    this._openOfferPicker('Link the selection to an Offer', (offer) => {
+      this._restoreSelection(range);
+      this.snapshot();
+      const a = document.createElement('a');
+      a.setAttribute('data-offer', offer.public_id);
+      try {
+        range.surroundContents(a);
+      } catch (e) {
+        const frag = range.extractContents();
+        a.appendChild(frag);
+        range.insertNode(a);
+      }
+      if (blockId) this._syncFocusedInline(blockId);
+    });
+  }
+
+  // Re-read the focused block's inline HTML into the model (post-wrap) and
+  // re-render so the sanitized markup is what the DOM shows.
+  _syncFocusedInline(blockId) {
+    const block = this.blocks.find(b => b.id === blockId);
+    const element = document.querySelector('[data-block-id="' + blockId + '"] .block-content');
+    if (!block || !element) return;
+    if (block.type === 'list') {
+      const items = element.querySelectorAll('.list-item-input');
+      block.data.items = Array.from(items).map(i => this._itemValue(i));
+    } else {
+      const editable = element.querySelector('.editable-text');
+      if (editable) this._syncTextAndHtml(block, editable);
+    }
+    this.saveToInput();
+    this.renderBlocks();
+  }
+
+  // ---- linked image upload (reuses the /api/admin/media/upload endpoint) ----
+
+  triggerLinkedImageUpload(blockId) {
+    const input = document.querySelector('.lst-li-file[data-block-id="' + blockId + '"]');
+    if (input) input.click();
+  }
+
+  async handleLinkedImageUpload(input, blockId) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('Image must be smaller than 10MB'); return; }
+    const block = this.blocks.find(b => b.id === blockId);
+    if (!block) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', '/listicles/sections');
+    try {
+      const response = await fetch('/api/admin/media/upload', { method: 'POST', body: formData });
+      const result = await response.json();
+      if (response.ok && result.item) {
+        this.snapshot();
+        block.data.media_id = result.item.id;
+        block.data.image_url = '/media/' + result.item.storage_key;
+        if (!block.data.alt) block.data.alt = result.item.alt_text || result.item.filename || '';
+        this.renderBlocks();
+        this.saveToInput();
+        if (window.showToast) window.showToast('Image uploaded', 'success');
+      } else {
+        alert('Error: ' + ((result && result.error) || 'Failed to upload image'));
+      }
+    } catch (err) {
+      alert('Error: Failed to upload image');
+    }
+    input.value = '';
+  }
+
+  // ---- CTA / Link Inventory model (§30.6) -------------------------------------
+  //
+  // The client twin of the server extractor's walk (link-instances.ts):
+  // block-level binding → items → inline anchors (html, then string list
+  // items). Governed TYPES appear even when unbound (missing state) so the
+  // inventory can flag them; the page's inventory panel renders THIS model,
+  // so the panel and content_json can never drift.
+
+  getGovernedElements() {
+    const out = [];
+    const anchorRe = /<a\\b[^>]*\\bdata-offer\\s*=\\s*["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+    const liRe = /\\bdata-link-instance\\s*=\\s*["']([^"']*)["']/i;
+    const stripTags = (h) => String(h).replace(/<[^>]*>/g, '').trim();
+    const roleForBlock = (type) => {
+      if (type === 'button') return 'button';
+      if (type === 'final_text_cta') return 'final_text_cta';
+      if (type === 'linked_image' || type === 'image') return 'linked_image';
+      if (type === 'heading') return 'inline';
+      return 'button';
+    };
+    this.blocks.forEach((block, index) => {
+      const d = block.data || {};
+      const blockId = block.id || ('blk_' + index);
+      const governedType = block.type === 'button' || block.type === 'final_text_cta' || block.type === 'linked_image';
+      const blockOffer = this._offerRefString(d.offer_id);
+      if (governedType || blockOffer !== '') {
+        out.push({
+          blockId: blockId,
+          blockIndex: index,
+          itemIndex: null,
+          role: roleForBlock(block.type),
+          text: d.text || d.alt || d.title || '',
+          offer: blockOffer,
+          styleId: d.style_id || d.style || '',
+          linkInstanceId: d.link_instance_id || '',
+          missing: blockOffer === '',
+        });
+      }
+      const lists = ['buttons', 'items'];
+      for (const listKey of lists) {
+        const list = d[listKey];
+        if (!Array.isArray(list)) continue;
+        for (let i = 0; i < list.length; i++) {
+          const item = list[i];
+          if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+          const isChoice = block.type.indexOf('choice') !== -1;
+          const itemOffer = this._offerRefString(item.offer_id);
+          if (!isChoice && itemOffer === '') continue;
+          out.push({
+            blockId: blockId,
+            blockIndex: index,
+            itemIndex: i,
+            role: isChoice ? 'choice_button' : roleForBlock(block.type),
+            text: item.text || '',
+            offer: itemOffer,
+            styleId: item.style_id || item.style || '',
+            linkInstanceId: item.link_instance_id || '',
+            missing: itemOffer === '',
+          });
+        }
+      }
+      const inlineSources = [];
+      if (typeof d.html === 'string' && d.html !== '') inlineSources.push(d.html);
+      if (Array.isArray(d.items)) {
+        for (const item of d.items) {
+          if (typeof item === 'string' && item !== '') inlineSources.push(item);
+        }
+      }
+      for (const html of inlineSources) {
+        let match;
+        anchorRe.lastIndex = 0;
+        while ((match = anchorRe.exec(html)) !== null) {
+          const open = match[0].slice(0, match[0].indexOf('>') + 1);
+          const liMatch = open.match(liRe);
+          out.push({
+            blockId: blockId,
+            blockIndex: index,
+            itemIndex: null,
+            role: 'inline',
+            text: stripTags(match[2] || ''),
+            offer: match[1] || '',
+            styleId: '',
+            linkInstanceId: liMatch ? liMatch[1] : '',
+            missing: (match[1] || '') === '',
+          });
+        }
+      }
+    });
+    return out;
+  }
+
+  // ---- inventory actions (§30.6) ----------------------------------------------
+
+  setGovernedOffer(blockId, itemIndex) {
+    if (itemIndex === null || itemIndex === undefined || itemIndex === '') {
+      this.pickBlockOffer(blockId);
+    } else {
+      this.pickChoiceOffer(blockId, Number(itemIndex));
+    }
+  }
+
+  duplicateGoverned(blockId, itemIndex) {
+    if (itemIndex !== null && itemIndex !== undefined && itemIndex !== '') {
+      this.duplicateChoiceItem(blockId, Number(itemIndex));
+      return;
+    }
+    const index = this.blocks.findIndex(b => b.id === blockId);
+    if (index === -1) return;
+    this.snapshot();
+    const copy = JSON.parse(JSON.stringify(this.blocks[index]));
+    copy.id = this.generateId();
+    if (copy.data) copy.data.link_instance_id = ''; // fresh placement → fresh lnk_… id on save
+    this.blocks.splice(index + 1, 0, copy);
+    this.renderBlocks();
+    this.saveToInput();
+  }
+
+  moveGoverned(blockId, itemIndex, delta) {
+    if (itemIndex !== null && itemIndex !== undefined && itemIndex !== '') {
+      this.moveChoiceItem(blockId, Number(itemIndex), delta);
+      return;
+    }
+    this.moveBlock(blockId, delta < 0 ? 'up' : 'down');
+  }
+
+  jumpToBlock(blockId) {
+    const el = document.querySelector('[data-block-id="' + blockId + '"]');
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    this.focusBlock(blockId);
+  }
+
+  // Bulk-replace ONE Offer across the whole Section (§30.6): every block-level
+  // binding, choice item, and inline data-offer mark referencing fromRef
+  // switches to the picked Offer. The clickable-headline binding is page
+  // state — the page script handles it with the same picked Offer.
+  replaceOfferEverywhere(fromRef, offer) {
+    const from = this._offerRefString(fromRef);
+    const to = offer.public_id;
+    if (from === '' || !to) return;
+    this.snapshot();
+    const replaceInHtml = (html) =>
+      String(html).replace(/(data-offer\\s*=\\s*["'])([^"']+)(["'])/gi, (m, p1, ref, p3) =>
+        ref === from ? p1 + to + p3 : m);
+    for (const block of this.blocks) {
+      const d = block.data || {};
+      if (this._offerRefString(d.offer_id) === from) d.offer_id = to;
+      for (const listKey of ['buttons', 'items']) {
+        if (!Array.isArray(d[listKey])) continue;
+        d[listKey] = d[listKey].map((item) => {
+          if (item && typeof item === 'object' && !Array.isArray(item)) {
+            if (this._offerRefString(item.offer_id) === from) item.offer_id = to;
+            return item;
+          }
+          if (typeof item === 'string') return replaceInHtml(item);
+          return item;
+        });
+      }
+      if (typeof d.html === 'string' && d.html !== '') d.html = replaceInHtml(d.html);
+    }
+    this.renderBlocks();
+    this.saveToInput();
+  }
+
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -1671,8 +2570,12 @@ class BlockEditor {
     const temp = document.createElement('div');
     temp.innerHTML = html;
 
-    // Allowed tags (whitelist)
-    const allowedTags = ['strong', 'b', 'em', 'i', 'a', 'br'];
+    // Allowed tags (whitelist). Listicle mode additionally allows <span>
+    // (curated colour tokens only — see the span branch below).
+    const listicle = this.options && this.options.listicle;
+    const allowedTags = listicle
+      ? ['strong', 'b', 'em', 'i', 'a', 'br', 'span']
+      : ['strong', 'b', 'em', 'i', 'a', 'br'];
 
     // Recursive function to sanitize nodes
     const sanitizeNode = (node) => {
@@ -1690,14 +2593,49 @@ class BlockEditor {
             if (tagName === 'br') {
               result.push('<br>');
             } else if (tagName === 'a') {
-              // For links, only preserve href attribute
-              const href = child.getAttribute('href');
-              if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('/'))) {
-                const safeHref = this.escapeHtml(href);
-                const innerContent = sanitizeNode(child);
-                result.push('<a href="' + safeHref + '">' + innerContent + '</a>');
+              if (listicle) {
+                // §12/§13 governed grammar: an anchor survives ONLY as an
+                // Offer reference (data-offer [+ data-link-instance]); href
+                // never survives — a pasted URL link degrades to plain text.
+                const dataOffer = child.getAttribute('data-offer');
+                if (dataOffer) {
+                  let attrs = ' data-offer="' + this.escapeHtml(dataOffer) + '"';
+                  const dli = child.getAttribute('data-link-instance');
+                  if (dli) attrs += ' data-link-instance="' + this.escapeHtml(dli) + '"';
+                  result.push('<a' + attrs + '>' + sanitizeNode(child) + '</a>');
+                } else {
+                  result.push(sanitizeNode(child));
+                }
               } else {
-                // Invalid or suspicious href, just output the content without link
+                // For links, only preserve href attribute
+                const href = child.getAttribute('href');
+                if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('/'))) {
+                  const safeHref = this.escapeHtml(href);
+                  const innerContent = sanitizeNode(child);
+                  result.push('<a href="' + safeHref + '">' + innerContent + '</a>');
+                } else {
+                  // Invalid or suspicious href, just output the content without link
+                  result.push(sanitizeNode(child));
+                }
+              }
+            } else if (tagName === 'span') {
+              // Listicle-only branch (span is whitelisted only in listicle
+              // mode): keep curated data-lst-color / data-lst-highlight
+              // tokens; anything else unwraps to its content.
+              const colors = (listicle && listicle.textColors) || {};
+              const highlights = (listicle && listicle.highlights) || {};
+              const colorTok = child.getAttribute('data-lst-color');
+              const hlTok = child.getAttribute('data-lst-highlight');
+              let spanAttrs = '';
+              if (colorTok && Object.prototype.hasOwnProperty.call(colors, colorTok)) {
+                spanAttrs += ' data-lst-color="' + this.escapeHtml(colorTok) + '"';
+              }
+              if (hlTok && Object.prototype.hasOwnProperty.call(highlights, hlTok)) {
+                spanAttrs += ' data-lst-highlight="' + this.escapeHtml(hlTok) + '"';
+              }
+              if (spanAttrs !== '') {
+                result.push('<span' + spanAttrs + '>' + sanitizeNode(child) + '</span>');
+              } else {
                 result.push(sanitizeNode(child));
               }
             } else {
@@ -1777,6 +2715,16 @@ class BlockEditor {
       const faqFields = content.querySelectorAll('.faq-edit-q, .faq-edit-a');
       faqFields.forEach(el => {
         el.addEventListener('input', () => this.handleInput(block, content));
+      });
+    }
+
+    // Listicle edit surfaces use real <input>/<select> fields; sync them into
+    // block.data on every change (same pattern as the FAQ editor above).
+    if (this.options.listicle && this._lstRenderers && this._lstRenderers[block.type]) {
+      const lstFields = content.querySelectorAll('.lst-field');
+      lstFields.forEach(el => {
+        el.addEventListener('input', () => this._lstSyncFields(block, content));
+        el.addEventListener('change', () => this._lstSyncFields(block, content));
       });
     }
 
@@ -3899,4 +4847,35 @@ export const editorStyles = `
   animation: spin 0.8s linear infinite;
   z-index: 10;
 }
+
+/* ---- Listicle edit surfaces (§12/§30.5) — inert on non-listicle pages ---- */
+.lst-edit-card{border:1px dashed var(--color-border);border-radius:8px;padding:12px;background:var(--color-bg-alt)}
+.lst-edit-kind{font-size:12px;font-weight:600;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px}
+.lst-edit-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.lst-edit-row label{font-size:12px;color:var(--color-text-muted);display:inline-flex;gap:4px;align-items:center}
+.lst-field{padding:6px 8px;border:1px solid var(--color-border);border-radius:6px;font-size:14px;background:var(--color-bg)}
+.lst-field[data-lst-field="text"],.lst-field[data-lst-field="prompt"],.lst-field[data-lst-field="alt"]{flex:1;min-width:180px}
+.lst-choice-items{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.lst-choice-item-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px;border:1px solid var(--color-border);border-radius:6px;background:var(--color-bg)}
+.lst-choice-text{flex:1;min-width:140px}
+.lst-choice-tools{display:inline-flex;gap:2px}
+.lst-tool-btn{border:1px solid var(--color-border);background:var(--color-bg);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
+.lst-tool-btn:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.lst-tool-danger:hover{border-color:var(--color-error);color:var(--color-error)}
+.lst-choice-count{font-weight:400;text-transform:none;letter-spacing:0}
+.lst-offer-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:9999px;border:1px solid var(--color-primary-light);background:var(--color-primary-light);font-size:12px;max-width:260px}
+.lst-offer-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lst-offer-missing{border-color:var(--color-error);background:#fee2e2;color:#991b1b}
+.lst-chip-btn{border:0;background:transparent;color:var(--color-primary);font-size:12px;cursor:pointer;text-decoration:underline}
+.lst-offer-missing .lst-chip-btn{color:#991b1b}
+.lst-li-preview{margin-bottom:8px}
+.lst-li-preview-img{max-width:280px;max-height:140px;border-radius:6px;display:block}
+.lst-li-preview-empty{font-size:13px;color:var(--color-text-muted)}
+.lst-edit-spacer{text-align:center;color:var(--color-text-muted);font-size:12px;padding:10px;border:1px dashed var(--color-border);border-radius:8px}
+.lst-list-markerbar{font-size:12px;color:var(--color-text-muted);margin-bottom:4px}
+.lst-popover{position:fixed;z-index:1200;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.12);padding:8px;display:flex;flex-wrap:wrap;gap:4px;max-width:320px}
+.lst-emoji-btn{border:0;background:transparent;font-size:18px;line-height:1;padding:4px;cursor:pointer;border-radius:4px}
+.lst-emoji-btn:hover{background:var(--color-bg-dark)}
+.lst-color-swatch{width:22px;height:22px;border-radius:9999px;border:1px solid var(--color-border);cursor:pointer}
+.lst-color-swatch:hover{outline:2px solid var(--color-primary)}
 `;
