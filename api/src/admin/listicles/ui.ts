@@ -44,6 +44,13 @@ import {
   listiclesSectionNotFoundPage,
   type SectionEditorLinkInstance,
 } from "./ui-section-editor";
+import {
+  listiclesArticleBuilderPage,
+  listiclesArticleNotFoundPage,
+  type BuilderExperiment,
+  type BuilderVersion,
+} from "./ui-article-builder";
+import type { ArticleRowL } from "./articles-handlers";
 import type { SectionRow } from "./sections-handlers";
 
 type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
@@ -257,10 +264,47 @@ listicleUi.get("/admin/listicles/sections", async (c) => {
   );
 });
 
-// §11: Articles tab — site-scoped list + analytics (list-only this phase).
-// Site resolution mirrors admin/ui.ts: explicit ?site_id= wins, else the
-// first available site; with no sites at all the "Site is required" gate
-// renders instead of the table.
+// §4/§11 Phase 5: the Article builder shell routes (replacing the Phase-3
+// disabled Create button). /new registers before /:id/edit (static-vs-param).
+listicleUi.get("/admin/listicles/articles/new", async (c) => {
+  const sites = await data.listAdminSites(c.env);
+  return c.html(
+    listiclesArticleBuilderPage(
+      { mode: "new", sites, article: null, experiment: null, versions: [] },
+      branding(c),
+    ),
+  );
+});
+
+listicleUi.get("/admin/listicles/articles/:id/edit", async (c) => {
+  const idParam = c.req.param("id") ?? "";
+  const got = await apiJson<{
+    article: ArticleRowL;
+    experiment: BuilderExperiment | null;
+    versions: BuilderVersion[];
+  }>(c.env, `/api/admin/listicles/articles/${encodeURIComponent(idParam)}/structure`);
+  if (!got.ok) {
+    return c.html(listiclesArticleNotFoundPage(branding(c)), 404);
+  }
+  const sites = await data.listAdminSites(c.env);
+  return c.html(
+    listiclesArticleBuilderPage(
+      {
+        mode: "edit",
+        sites,
+        article: got.body.article,
+        experiment: got.body.experiment ?? null,
+        versions: got.body.versions ?? [],
+      },
+      branding(c),
+    ),
+  );
+});
+
+// §11: Articles tab — site-scoped list + analytics. Site resolution mirrors
+// admin/ui.ts: explicit ?site_id= wins, else the first available site; with
+// no sites at all the "Site is required" gate renders instead of the table.
+// ?search= (name/slug) passes through to the Phase-2 list API (DEV-10).
 listicleUi.get("/admin/listicles/articles", async (c) => {
   const timeframe = resolveTimeframe(c.req.query("range"));
   const sites = await data.listAdminSites(c.env);
@@ -272,6 +316,7 @@ listicleUi.get("/admin/listicles/articles", async (c) => {
       : firstSite !== undefined
         ? firstSite.id
         : null;
+  const search = queryParam(c, "search");
 
   if (selectedSiteId === null) {
     return c.html(
@@ -281,6 +326,7 @@ listicleUi.get("/admin/listicles/articles", async (c) => {
           paging: EMPTY_PAGING,
           sites,
           selectedSiteId: null,
+          search,
           range: timeframe.key,
           timeframe,
           loadError: null,
@@ -290,7 +336,7 @@ listicleUi.get("/admin/listicles/articles", async (c) => {
     );
   }
 
-  const qs = buildQuery({ site_id: selectedSiteId, page: pageParam(c) });
+  const qs = buildQuery({ site_id: selectedSiteId, search, page: pageParam(c) });
   const listed = await apiJson<{ articles: ArticleListRow[]; paging: Paging }>(
     c.env,
     `/api/admin/listicles/articles${qs}`,
@@ -302,6 +348,7 @@ listicleUi.get("/admin/listicles/articles", async (c) => {
         paging: listed.ok ? listed.body.paging : EMPTY_PAGING,
         sites,
         selectedSiteId,
+        search,
         range: timeframe.key,
         timeframe,
         loadError: listed.ok ? null : listed.error,

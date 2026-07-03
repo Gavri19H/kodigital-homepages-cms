@@ -24,6 +24,7 @@ import {
   type AdminContext,
   buildPaging,
   chunk,
+  escapeLike,
   idSelector,
   parseDateRange,
   parsePaging,
@@ -92,8 +93,10 @@ export async function resolveArticleRow(
   return row ?? null;
 }
 
-// GET /api/admin/listicles/articles?site_id=&page=&page_size= — site-scoped
-// list + pager (§7.1; same envelope as the offers list).
+// GET /api/admin/listicles/articles?site_id=&search=&page=&page_size= —
+// site-scoped list + pager (§7.1; same envelope as the offers list).
+// ?search= filters on article_name/slug (LIKE, wildcard-escaped) — the DEV-10
+// deferral ("search ships with the Phase-5 builder") closes here.
 export async function listArticlesHandler(c: AdminContext): Promise<Response> {
   const siteId = c.req.query("site_id")?.trim() ?? "";
   if (siteId === "") {
@@ -102,7 +105,17 @@ export async function listArticlesHandler(c: AdminContext): Promise<Response> {
       400,
     );
   }
+  const search = c.req.query("search")?.trim() ?? "";
   const { page, pageSize, offset } = parsePaging(c);
+
+  let where = "a.site_id = ?";
+  const whereBinds: unknown[] = [siteId];
+  if (search !== "") {
+    const like = `%${escapeLike(search)}%`;
+    where += " AND (a.article_name LIKE ? ESCAPE '\\' OR a.slug LIKE ? ESCAPE '\\')";
+    whereBinds.push(like, like);
+  }
+
   const rows = await c.env.DB.prepare(
     `SELECT a.*,
             (SELECT COUNT(*) FROM listicle_article_versions v
@@ -110,16 +123,16 @@ export async function listArticlesHandler(c: AdminContext): Promise<Response> {
             (SELECT e.status FROM listicle_article_experiments e
               WHERE e.id = a.active_experiment_id) AS experiment_status
      FROM listicle_articles a
-     WHERE a.site_id = ?
+     WHERE ${where}
      ORDER BY a.updated_at DESC, a.id DESC
      LIMIT ? OFFSET ?`,
   )
-    .bind(siteId, pageSize, offset)
+    .bind(...whereBinds, pageSize, offset)
     .all<ArticleRowL & { version_count: number; experiment_status: string | null }>();
   const totalRow = await c.env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM listicle_articles WHERE site_id = ?",
+    `SELECT COUNT(*) AS n FROM listicle_articles a WHERE ${where}`,
   )
-    .bind(siteId)
+    .bind(...whereBinds)
     .first<{ n: number }>();
   const total = Number(totalRow?.n ?? 0);
   return c.json({
@@ -349,15 +362,36 @@ export async function patchArticleHandler(c: AdminContext): Promise<Response> {
   return c.json({ article: updated });
 }
 
-// POST /api/admin/listicles/articles/:id/experiments — start article-level
+// POST /api/admin/listicles/articles/:id/experiments — create article-level
 // A/B (§15.8/§23: Σ allocations == 100, exactly one control; the 0032 partial
 // unique index enforces at most ONE running experiment per article — a
 // violation surfaces as a clean 409).
+//
+// Phase 5 addition: `status: "draft"` creates the experiment WITHOUT starting
+// it (started_at NULL, article.active_experiment_id untouched — §5.2 keeps
+// that pointer for the RUNNING experiment). The builder always creates as
+// draft so operators can build every arm's pages (PUT /versions/:id only
+// 409s on RUNNING experiments) and then POST /experiments/:id/start. The
+// default stays "running" — the Phase-2 create-and-start behavior unchanged.
 export async function createExperimentHandler(c: AdminContext): Promise<Response> {
   const article = await resolveArticleRow(c.env.DB, c.req.param("id") ?? "");
   if (article === null) return c.json({ error: "Not Found" }, 404);
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  let createStatus: "draft" | "running" = "running";
+  if (body.status !== undefined) {
+    if (body.status !== "draft" && body.status !== "running") {
+      return c.json(
+        {
+          error: "Validation failed",
+          fields: { status: "experiment status at create must be draft or running" },
+        },
+        400,
+      );
+    }
+    createStatus = body.status;
+  }
 
   const { errors, value } = validateExperiment(body);
   if (value === null) return c.json({ error: "Validation failed", fields: errors }, 400);
@@ -410,10 +444,15 @@ export async function createExperimentHandler(c: AdminContext): Promise<Response
 
   const experimentPublicId = mintPublicId("experiment");
   const statements: D1PreparedStatement[] = [
-    c.env.DB.prepare(
-      `INSERT INTO listicle_article_experiments (public_id, article_id, name, status, started_at)
-       VALUES (?, ?, ?, 'running', unixepoch())`,
-    ).bind(experimentPublicId, article.id, value.name),
+    createStatus === "running"
+      ? c.env.DB.prepare(
+          `INSERT INTO listicle_article_experiments (public_id, article_id, name, status, started_at)
+           VALUES (?, ?, ?, 'running', unixepoch())`,
+        ).bind(experimentPublicId, article.id, value.name)
+      : c.env.DB.prepare(
+          `INSERT INTO listicle_article_experiments (public_id, article_id, name, status)
+           VALUES (?, ?, ?, 'draft')`,
+        ).bind(experimentPublicId, article.id, value.name),
   ];
   const versionPublicIds: string[] = [];
   for (let i = 0; i < value.versions.length; i++) {
@@ -470,13 +509,19 @@ export async function createExperimentHandler(c: AdminContext): Promise<Response
       );
     }
   }
+  // §5.2: active_experiment_id points at the RUNNING experiment only — a
+  // draft creation leaves it untouched (start flips it).
   statements.push(
-    c.env.DB.prepare(
-      `UPDATE listicle_articles
-       SET active_experiment_id = (SELECT id FROM listicle_article_experiments WHERE public_id = ?),
-           updated_at = unixepoch()
-       WHERE id = ?`,
-    ).bind(experimentPublicId, article.id),
+    createStatus === "running"
+      ? c.env.DB.prepare(
+          `UPDATE listicle_articles
+           SET active_experiment_id = (SELECT id FROM listicle_article_experiments WHERE public_id = ?),
+               updated_at = unixepoch()
+           WHERE id = ?`,
+        ).bind(experimentPublicId, article.id)
+      : c.env.DB.prepare(
+          "UPDATE listicle_articles SET updated_at = unixepoch() WHERE id = ?",
+        ).bind(article.id),
   );
 
   try {
@@ -515,6 +560,226 @@ export async function createExperimentHandler(c: AdminContext): Promise<Response
   return c.json({ experiment, versions: versions.results ?? [] }, 201);
 }
 
+async function resolveExperimentRow(
+  db: D1Database,
+  idParam: string,
+): Promise<ExperimentRowL | null> {
+  const selector = idSelector(idParam);
+  if (selector === null) return null;
+  const sql =
+    selector.column === "id"
+      ? "SELECT * FROM listicle_article_experiments WHERE id = ? LIMIT 1"
+      : "SELECT * FROM listicle_article_experiments WHERE public_id = ? LIMIT 1";
+  const row = await db.prepare(sql).bind(selector.value).first<ExperimentRowL>();
+  return row ?? null;
+}
+
+// POST /api/admin/listicles/experiments/:id/start — draft → running (§5.3
+// "start experiment (→running)"). The body may carry the FINAL allocations
+// ({ versions: [{version_id, traffic_allocation, is_control?, variant_label?}] })
+// — the builder's rail edits allocations client-side while the experiment is
+// draft and persists them HERE, atomically with the start. Validation
+// (§15.8/§23): every ACTIVE version attached to the experiment ends with an
+// integer allocation, Σ across them == 100, exactly one control. The 0032
+// partial unique index still guards the one-running-per-article invariant
+// against races (→ 409).
+export async function startExperimentHandler(c: AdminContext): Promise<Response> {
+  const experiment = await resolveExperimentRow(c.env.DB, c.req.param("id") ?? "");
+  if (experiment === null) return c.json({ error: "Not Found" }, 404);
+  if (experiment.status !== "draft") {
+    return c.json(
+      {
+        error: "experiment_not_startable",
+        fields: {
+          experiment: `experiment '${experiment.public_id}' is ${experiment.status} — only a draft experiment can be started`,
+        },
+      },
+      409,
+    );
+  }
+  const body = (await readJsonBody(c)) ?? {};
+
+  const versionRows = await c.env.DB.prepare(
+    "SELECT * FROM listicle_article_versions WHERE experiment_id = ? AND status = 'active' ORDER BY id ASC",
+  )
+    .bind(experiment.id)
+    .all<VersionRowL>();
+  const versions = versionRows.results ?? [];
+  if (versions.length === 0) {
+    return c.json(
+      {
+        error: "Validation failed",
+        fields: { versions: "the experiment has no active Versions to start" },
+      },
+      400,
+    );
+  }
+
+  // Merge the caller's allocation entries over the stored rows.
+  interface StartEntry {
+    traffic_allocation: number;
+    is_control: boolean | null;
+    variant_label: string | null;
+  }
+  const overrides = new Map<number, StartEntry>();
+  const errors: FieldErrors = {};
+  if (body.versions !== undefined) {
+    if (!Array.isArray(body.versions)) {
+      return c.json(
+        { error: "Validation failed", fields: { versions: "versions must be an array" } },
+        400,
+      );
+    }
+    body.versions.forEach((rawEntry, index) => {
+      const key = (field: string): string => `versions[${index}].${field}`;
+      if (typeof rawEntry !== "object" || rawEntry === null || Array.isArray(rawEntry)) {
+        errors[key("entry")] = "each version entry must be an object";
+        return;
+      }
+      const entry = rawEntry as Record<string, unknown>;
+      const ref = entry.version_id;
+      const target = versions.find((v) =>
+        typeof ref === "number" ? v.id === ref : typeof ref === "string" && v.public_id === ref.trim(),
+      );
+      if (target === undefined) {
+        errors[key("version_id")] = `unknown version for this experiment: ${String(ref)}`;
+        return;
+      }
+      const alloc = entry.traffic_allocation;
+      if (typeof alloc !== "number" || !Number.isInteger(alloc) || alloc < 0 || alloc > 100) {
+        errors[key("traffic_allocation")] = "traffic_allocation must be an integer 0-100";
+        return;
+      }
+      overrides.set(target.id, {
+        traffic_allocation: alloc,
+        is_control:
+          entry.is_control === undefined ? null : entry.is_control === true || entry.is_control === 1,
+        variant_label:
+          typeof entry.variant_label === "string" && entry.variant_label.trim() !== ""
+            ? entry.variant_label.trim()
+            : null,
+      });
+    });
+  }
+  if (Object.keys(errors).length > 0) {
+    return c.json({ error: "Validation failed", fields: errors }, 400);
+  }
+
+  // §15.8/§23 over the MERGED final state: Σ == 100 + exactly one control.
+  const finalState = versions.map((v) => {
+    const o = overrides.get(v.id);
+    return {
+      version: v,
+      traffic_allocation: o?.traffic_allocation ?? v.traffic_allocation,
+      is_control: o?.is_control ?? v.is_control === 1,
+      variant_label: o?.variant_label ?? v.variant_label,
+    };
+  });
+  const sum = finalState.reduce((acc, s) => acc + s.traffic_allocation, 0);
+  if (sum !== 100) {
+    errors.traffic_allocation = `version allocations must total 100 (got ${sum})`;
+  }
+  const controls = finalState.filter((s) => s.is_control).length;
+  if (controls !== 1) {
+    errors.is_control = `exactly one control version is required (got ${controls})`;
+  }
+  // FIX-3: variant labels identify arms (§15.7 article_variant_label) — a
+  // start whose FINAL merged state carries a duplicate label is rejected.
+  const seenLabels = new Map<string, string>();
+  for (const s of finalState) {
+    const key = s.variant_label.trim().toUpperCase();
+    const other = seenLabels.get(key);
+    if (other !== undefined) {
+      errors.variant_label = `duplicate variant_label '${s.variant_label}' (also used by version '${other}') — arm labels must be unique within the experiment`;
+      break;
+    }
+    seenLabels.set(key, s.version.public_id);
+  }
+  if (Object.keys(errors).length > 0) {
+    return c.json({ error: "Validation failed", fields: errors }, 400);
+  }
+
+  const statements: D1PreparedStatement[] = finalState.map((s) =>
+    c.env.DB.prepare(
+      `UPDATE listicle_article_versions
+       SET traffic_allocation = ?, is_control = ?, variant_label = ?
+       WHERE id = ?`,
+    ).bind(s.traffic_allocation, s.is_control ? 1 : 0, s.variant_label, s.version.id),
+  );
+  statements.push(
+    c.env.DB.prepare(
+      "UPDATE listicle_article_experiments SET status = 'running', started_at = unixepoch() WHERE id = ?",
+    ).bind(experiment.id),
+    c.env.DB.prepare(
+      "UPDATE listicle_articles SET active_experiment_id = ?, updated_at = unixepoch() WHERE id = ?",
+    ).bind(experiment.id, experiment.article_id),
+  );
+
+  try {
+    await c.env.DB.batch(statements);
+  } catch (err) {
+    const message = (err as Error).message ?? "";
+    if (/UNIQUE/i.test(message)) {
+      return c.json(
+        {
+          error: "experiment_already_running",
+          fields: {
+            experiment:
+              "article already has a running experiment (at most one running experiment per Article)",
+          },
+        },
+        409,
+      );
+    }
+    return c.json({ error: `Experiment start failed: ${message}` }, 500);
+  }
+
+  const updated = await resolveExperimentRow(c.env.DB, String(experiment.id));
+  const updatedVersions = await c.env.DB.prepare(
+    "SELECT * FROM listicle_article_versions WHERE experiment_id = ? ORDER BY is_control DESC, variant_label ASC",
+  )
+    .bind(experiment.id)
+    .all<VersionRowL>();
+  return c.json({ experiment: updated, versions: updatedVersions.results ?? [] });
+}
+
+// POST /api/admin/listicles/experiments/:id/stop — running → stopped (§5.3
+// "stopping keeps versions + history"): versions keep their experiment_id and
+// allocations; only the status flips (+ stopped_at) and the article's
+// active_experiment_id pointer clears (it is defined as the RUNNING
+// experiment, §5.2).
+//
+// DECLARED (Phase 5): §5.3's "promote-winner clones winner to control" is
+// deliberately OUT of this phase — a winner is an ANALYTICS verdict, and the
+// per-version mirrors that identify one land in Phase 8. The §15.6-conformant
+// clone primitive it needs (POST /versions/:id/fork) ships here, so
+// promote-winner becomes a thin composition once the numbers exist.
+export async function stopExperimentHandler(c: AdminContext): Promise<Response> {
+  const experiment = await resolveExperimentRow(c.env.DB, c.req.param("id") ?? "");
+  if (experiment === null) return c.json({ error: "Not Found" }, 404);
+  if (experiment.status !== "running") {
+    return c.json(
+      {
+        error: "experiment_not_running",
+        fields: {
+          experiment: `experiment '${experiment.public_id}' is ${experiment.status} — only a running experiment can be stopped`,
+        },
+      },
+      409,
+    );
+  }
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE listicle_article_experiments SET status = 'stopped', stopped_at = unixepoch() WHERE id = ?",
+    ).bind(experiment.id),
+    c.env.DB.prepare(
+      "UPDATE listicle_articles SET active_experiment_id = NULL, updated_at = unixepoch() WHERE id = ? AND active_experiment_id = ?",
+    ).bind(experiment.article_id, experiment.id),
+  ]);
+  const updated = await resolveExperimentRow(c.env.DB, String(experiment.id));
+  return c.json({ experiment: updated });
+}
+
 // DELETE /api/admin/listicles/articles/:id — hard delete; the 0032 FK
 // cascades remove experiments → versions → pages → candidates → rules.
 // Analytics mirror rows are keyed by public_id and intentionally retained
@@ -543,11 +808,24 @@ export async function articleStructureHandler(c: AdminContext): Promise<Response
     versions.map((v) => v.id),
   );
 
+  // The RUNNING experiment (active_experiment_id, §5.2) wins; otherwise the
+  // builder needs the latest DRAFT to resume configuring it (Phase 5 —
+  // active_experiment_id intentionally stays running-only per §5.2, so a
+  // draft is found by status). Stopped experiments are history, not surfaced
+  // here.
   let experiment: ExperimentRowL | null = null;
   if (article.active_experiment_id !== null) {
     experiment =
       (await c.env.DB.prepare("SELECT * FROM listicle_article_experiments WHERE id = ? LIMIT 1")
         .bind(article.active_experiment_id)
+        .first<ExperimentRowL>()) ?? null;
+  }
+  if (experiment === null) {
+    experiment =
+      (await c.env.DB.prepare(
+        "SELECT * FROM listicle_article_experiments WHERE article_id = ? AND status = 'draft' ORDER BY id DESC LIMIT 1",
+      )
+        .bind(article.id)
         .first<ExperimentRowL>()) ?? null;
   }
 

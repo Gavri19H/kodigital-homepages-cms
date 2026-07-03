@@ -100,6 +100,7 @@ const articlesProps: ArticlesPageProps = {
   paging,
   sites: [{ id: "st_a", name: "Site A" }],
   selectedSiteId: "st_a",
+  search: "",
   range: "30d",
   timeframe,
   loadError: null,

@@ -34,13 +34,21 @@ import {
   createArticleHandler,
   patchArticleHandler,
   createExperimentHandler,
+  startExperimentHandler,
+  stopExperimentHandler,
   deleteArticleHandler,
   articleStructureHandler,
   articleAnalyticsHandler,
   articleDrilldownHandler,
   publishArticleHandler,
 } from "./articles-handlers";
-import { putVersionHandler, validatePageHandler } from "./versions-handlers";
+import {
+  newRevisionVersionHandler,
+  putVersionHandler,
+  validatePageHandler,
+} from "./versions-handlers";
+import { forkVersionHandler } from "./version-fork";
+import { versionPreviewHandler } from "./version-preview";
 
 const routes = new Hono<{ Bindings: Env }>();
 
@@ -84,8 +92,15 @@ routes.get("/articles/:id/analytics", articleAnalyticsHandler);
 routes.get("/articles/:id/drilldown", articleDrilldownHandler);
 routes.post("/articles/:id/publish", publishArticleHandler);
 
-// --- Versions / Pages (§7.1) -------------------------------------------------
+// --- Experiments (§5.3 lifecycle — Phase 5) ---------------------------------
+routes.post("/experiments/:id/start", startExperimentHandler);
+routes.post("/experiments/:id/stop", stopExperimentHandler);
+
+// --- Versions / Pages (§7.1 + Phase-5 §15.6/§30.6/§30.7 additions) ----------
 routes.put("/versions/:id", putVersionHandler);
+routes.post("/versions/:id/fork", forkVersionHandler);
+routes.post("/versions/:id/new-revision", newRevisionVersionHandler);
+routes.post("/versions/:id/preview", versionPreviewHandler);
 routes.post("/pages/:id/validate", validatePageHandler);
 
 const listicleApi = new Hono<{ Bindings: Env }>();

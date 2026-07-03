@@ -280,6 +280,7 @@ export interface ArticlesPageProps {
   paging: Paging;
   sites: ReadonlyArray<ArticlesSiteOption>;
   selectedSiteId: string | null;
+  search: string;
   range: string;
   timeframe: Timeframe;
   loadError: string | null;
@@ -287,6 +288,8 @@ export interface ArticlesPageProps {
 
 const ARTICLE_COLUMN_COUNT = 4 + ARTICLE_ANALYTICS_COLUMNS.length + 1;
 
+// Phase 5: the Create button is a LIVE link to the Article builder and the
+// toolbar gains the ?search= box (name/slug — DEV-10 closed).
 function renderArticlesToolbar(props: ArticlesPageProps): string {
   const siteOptions = props.sites
     .map((s) => {
@@ -295,8 +298,8 @@ function renderArticlesToolbar(props: ArticlesPageProps): string {
     })
     .join("");
   return `<div class="toolbar">
-  <button type="button" class="btn btn-primary" disabled aria-disabled="true" title="Article builder ships in Phase 5">+ Create Article</button>
-  <span class="form-help lst-phase-note">Article builder ships in Phase 5</span>
+  <a href="/admin/listicles/articles/new" class="btn btn-primary">+ Create Article</a>
+  <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search articles…" value="${escapeHtml(props.search)}" aria-label="Search articles" /></div>
   <div class="toolbar-filters">
     <select name="site_id" class="form-select" aria-label="Site filter" required aria-required="true">
       <option value="">Choose a site…</option>
@@ -320,13 +323,17 @@ function renderArticleRow(a: ArticleListRow): string {
   <td><span class="${statusBadgeClass(a.status)}">${escapeHtml(a.status)}</span></td>
   ${renderAnalyticsSkeletonCells(ARTICLE_ANALYTICS_COLUMNS)}
   <td><div class="table-actions">
+    <a class="btn btn-sm btn-secondary" href="/admin/listicles/articles/${escapeHtml(a.public_id)}/edit">Edit</a>
     <button type="button" class="btn btn-sm btn-outline" data-lst-analytics-action>Analytics</button>
   </div></td>
 </tr>`;
 }
 
 function renderArticlesTable(props: ArticlesPageProps): string {
-  const empty = `<div class="empty-state"><p>No listicle articles for this site yet.</p><p class="form-help">Article builder ships in Phase 5.</p></div>`;
+  const empty =
+    props.search !== ""
+      ? `<div class="empty-state"><p>No articles match the current search.</p></div>`
+      : `<div class="empty-state"><p>No listicle articles for this site yet.</p><a href="/admin/listicles/articles/new" class="btn btn-primary">+ Create Article</a></div>`;
   const rows =
     props.articles.length === 0
       ? `<tr><td colspan="${ARTICLE_COLUMN_COUNT}">${empty}</td></tr>`
@@ -380,6 +387,7 @@ export function listiclesArticlesPage(
         },
         {
           site_id: props.selectedSiteId ?? undefined,
+          search: props.search,
           range: props.range,
         },
       );
