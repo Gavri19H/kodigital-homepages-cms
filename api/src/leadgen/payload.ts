@@ -157,6 +157,16 @@ export interface LeadgenPayloadSchemaValidation {
 // segments joined by single dots; numeric segments are array indices.
 const PAYLOAD_PATH_RE = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 
+// Path segments that would let a stored schema walk into the prototype chain
+// during setAtPath and pollute Object.prototype for the whole (shared) Worker
+// isolate. The grammar above admits them (all [A-Za-z0-9_]), so they are
+// rejected explicitly at validate AND guarded defensively in the writer.
+const FORBIDDEN_PATH_SEGMENTS: ReadonlySet<string> = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+
 const NODE_TYPE_SET: ReadonlySet<string> = new Set(LEADGEN_PAYLOAD_NODE_TYPES);
 const SOURCE_SET: ReadonlySet<string> = new Set(LEADGEN_PAYLOAD_SOURCES);
 const CONDITION_OPS: readonly LeadgenConditionOp[] = [
@@ -289,6 +299,14 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
         code: "path_invalid",
         path: path === "" ? undefined : path,
         message: "path must be a dotted [A-Za-z0-9_] path",
+      });
+      continue;
+    }
+    if (path.split(".").some((seg) => FORBIDDEN_PATH_SEGMENTS.has(seg))) {
+      errors.push({
+        code: "path_invalid",
+        path,
+        message: "path may not contain __proto__, constructor, or prototype",
       });
       continue;
     }
@@ -674,6 +692,10 @@ function coerceToType(value: unknown, type: LeadgenPayloadNodeType): unknown {
 // (`drivers.0.age` ⇒ { drivers: [ { age } ] }).
 function setAtPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split(".");
+  // Defense in depth: validatePayloadSchema already rejects these, but the
+  // writer must never walk the prototype chain even if fed an unvalidated
+  // schema (e.g. a future caller that skips validation).
+  if (segments.some((seg) => FORBIDDEN_PATH_SEGMENTS.has(seg))) return;
   let cursor: Record<string, unknown> | unknown[] = target;
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i] ?? "";
@@ -833,7 +855,10 @@ export function inferSchemaFromExample(example: unknown): LeadgenPayloadSchema {
       for (const [key, item] of entries) {
         // Keys outside the dotted-path grammar cannot be addressed by a
         // flat node list; they are skipped (the admin adds them manually).
+        // Prototype-chain keys are likewise skipped so the inferred schema is
+        // valid (validatePayloadSchema rejects them).
         if (!/^[A-Za-z0-9_]+$/.test(key)) continue;
+        if (FORBIDDEN_PATH_SEGMENTS.has(key)) continue;
         walk(item, path === "" ? key : `${path}.${key}`);
       }
       return;

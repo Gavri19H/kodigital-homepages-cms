@@ -1,26 +1,33 @@
-// LeadGen admin UI shell routes (contract 01 §5 / 03 §9 — Phase-3 shells).
+// LeadGen admin UI shell routes (contract 01 §5 / 03 §9).
 //
 // Registered on `leadgenUi` and mounted from src/admin/router.ts right next
 // to the listicles UI — so the existing `accessAuth` gate on /admin/* and
 // the index.ts ADMIN_HOST 404 wall both apply unchanged (03 §9.1). Routes:
 //
-//   GET /admin/leadgen           → 302 /admin/leadgen/offers (01 §5.2)
-//   GET /admin/leadgen/offers    → Offers list scaffold (03 §9.2)
-//   GET /admin/leadgen/sections  → Sections list scaffold (03 §9.3)
-//   GET /admin/leadgen/quotes    → Quotes list scaffold (03 §9.4)
-//   GET /admin/leadgen/auction   → Auction list scaffold (03 §9.5 — the tab
-//                                  path is SINGULAR per contract 01 §5.2)
+//   GET /admin/leadgen                 → 302 /admin/leadgen/offers (01 §5.2)
+//   GET /admin/leadgen/offers          → Offers list + create modal +
+//                                        analytics (03 §9.2 — LIVE, Phase-4
+//                                        Stage B2; ui-offers.ts)
+//   GET /admin/leadgen/offers/new      → the list with the create modal
+//                                        auto-open (01 §5.2; static BEFORE
+//                                        the :id param sibling)
+//   GET /admin/leadgen/offers/:id/edit → the full-page offer editor
+//   GET /admin/leadgen/sections        → Sections list scaffold (03 §9.3)
+//   GET /admin/leadgen/quotes          → Quotes list scaffold (03 §9.4)
+//   GET /admin/leadgen/auction         → Auction list scaffold (03 §9.5 —
+//                                        the tab path is SINGULAR per 01 §5.2)
 //
-// The 01 §5.2 /new|/:id/edit editor shells are deliberately NOT registered
-// this phase — each entity's editor/modal ships in that entity's own phase,
-// so the Create buttons render disabled with a visible phase note (the
-// listicles Phase-3 pattern; no dead routes, no fake surfaces).
+// The sections/quotes/auction /new|/:id/edit editor shells are deliberately
+// NOT registered — each remaining entity's editor/modal ships in that
+// entity's own phase, so those Create buttons render disabled with a visible
+// phase note (the listicles Phase-3 pattern; no dead routes, no fake
+// surfaces).
 //
-// Data access: the list scaffolds render server-side by driving the Phase-3
-// JSON API in-process (`leadgenApi.request(...)` — the exact same handler +
-// SQL path the XHR surface runs, no duplicated SQL). Derived columns
-// (placements, counts) and analytics columns render as em-dashes until their
-// endpoints ship.
+// Data access: pages render server-side by driving the JSON API in-process
+// (`leadgenApi.request(...)` — the exact same handler + SQL path the XHR
+// surface runs, no duplicated SQL). Scaffold analytics columns render as
+// em-dashes until their endpoints ship; the live Offers list hydrates its
+// analytics columns after paint (03 §9.1).
 
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -34,14 +41,18 @@ import {
   renderListPager,
 } from "../templates/layout";
 import type {
-  LeadgenOfferApi,
   LeadgenSectionApi,
   LeadgenQuoteApi,
   LeadgenAuctionApi,
 } from "./db-types";
+import {
+  leadgenOffersListPage,
+  leadgenOffersNewPage,
+  leadgenOfferEditorPage,
+} from "./ui-offers";
 
-type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
-type UiContext = Context<AdminEnv>;
+export type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
+export type UiContext = Context<AdminEnv>;
 
 export const leadgenUi = new Hono<AdminEnv>();
 
@@ -62,14 +73,14 @@ const shellNoStore = async (
 leadgenUi.use("/admin/leadgen", shellNoStore);
 leadgenUi.use("/admin/leadgen/*", shellNoStore);
 
-function branding(c: UiContext): { userEmail?: string } {
+export function branding(c: UiContext): { userEmail?: string } {
   const access = c.get("access");
   const email =
     access && access.mode === "identity" ? access.email : undefined;
   return data.getAdminBranding(email);
 }
 
-const EMPTY_PAGING: Paging = {
+export const EMPTY_PAGING: Paging = {
   page: 1,
   page_size: 25,
   total: 0,
@@ -77,13 +88,14 @@ const EMPTY_PAGING: Paging = {
   has_prev: false,
 };
 
-type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string };
+export type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string };
 
-// Drive the Phase-3 admin JSON API in-process. The sub-app is unauthenticated
-// by itself (auth is layered on in admin/router.ts), so an internal request
+// Drive the admin JSON API in-process. The sub-app is unauthenticated by
+// itself (auth is layered on in admin/router.ts), so an internal request
 // with the live env exercises the identical handler + SQL path the browser
-// XHRs hit.
-async function apiJson<T>(env: Env, path: string): Promise<ApiResult<T>> {
+// XHRs hit. Non-GET calls pass an init (the offers editor SSR never needs
+// one — mutations stay browser-side).
+export async function apiJson<T>(env: Env, path: string): Promise<ApiResult<T>> {
   const res = await leadgenApi.request(path, {}, env);
   let body: unknown = null;
   try {
@@ -101,7 +113,7 @@ async function apiJson<T>(env: Env, path: string): Promise<ApiResult<T>> {
   return { ok: false, error: errText };
 }
 
-function pageParam(c: UiContext): string {
+export function pageParam(c: UiContext): string {
   const raw = c.req.query("page") ?? "";
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? String(Math.floor(n)) : "";
@@ -125,7 +137,7 @@ const TABS: ReadonlyArray<{ key: LeadgenTab; href: string; label: string }> = [
 ];
 
 // 01 §5.2 / 03 §9.1: four sub-tabs — Offers · Sections · Quotes · Auction.
-function renderLeadgenTabs(active: LeadgenTab): string {
+export function renderLeadgenTabs(active: LeadgenTab): string {
   const items = TABS.map((t) => {
     const cls = t.key === active ? "leadgen-tab active" : "leadgen-tab";
     const aria = t.key === active ? ' aria-current="page"' : "";
@@ -134,7 +146,7 @@ function renderLeadgenTabs(active: LeadgenTab): string {
   return `<nav class="leadgen-tabs" aria-label="LeadGen sections">${items}</nav>`;
 }
 
-const LEADGEN_STYLES = `
+export const LEADGEN_STYLES = `
 .leadgen-tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--c-border)}
 .leadgen-tab{padding:8px 16px;color:var(--c-muted);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
 .leadgen-tab:hover{color:var(--c-text);text-decoration:none}
@@ -143,8 +155,27 @@ const LEADGEN_STYLES = `
 .lg-phase-note{align-self:center}
 `;
 
+// One adminLayout wrapper for every LeadGen page (title + base styles) —
+// ui-offers.ts composes page-specific styles/scripts on top.
+export function leadgenPageShell(options: {
+  activePath: string;
+  userEmail?: string;
+  content: string;
+  styles?: string;
+  scripts?: string;
+}): string {
+  return adminLayout({
+    title: "LeadGen",
+    activePath: options.activePath,
+    userEmail: options.userEmail,
+    content: options.content,
+    styles: LEADGEN_STYLES + (options.styles ?? ""),
+    scripts: options.scripts ?? "",
+  });
+}
+
 // Shared status-badge class mapping (layout.ts badge palette).
-function statusBadge(status: string): string {
+export function statusBadge(status: string): string {
   const cls =
     status === "active"
       ? "badge badge-published"
@@ -181,7 +212,7 @@ function renderHeaderCells(columns: ReadonlyArray<ListColumn>): string {
     .join("");
 }
 
-const EM_DASH = "—";
+export const EM_DASH = "—";
 
 function dashCell(numeric: boolean): string {
   return numeric ? `<td class="lg-num">${EM_DASH}</td>` : `<td>${EM_DASH}</td>`;
@@ -256,45 +287,6 @@ ${pager}`;
     content,
     styles: LEADGEN_STYLES,
   });
-}
-
-// ---------------------------------------------------------------------------
-// Offers tab (03 §9.2 list columns)
-// ---------------------------------------------------------------------------
-
-const OFFER_COLUMNS: ReadonlyArray<ListColumn> = [
-  { label: "Name" },
-  { label: "Placement ID" },
-  { label: "Provider" },
-  { label: "Vertical / Activity" },
-  { label: "Type" },
-  { label: "Dynamic/Static" },
-  { label: "Cap" },
-  { label: "Status" },
-  { label: "Impressions", numeric: true },
-  { label: "Clicks", numeric: true },
-  { label: "CTR", numeric: true },
-  { label: "Conversions", numeric: true },
-  { label: "CVR", numeric: true },
-  { label: "Revenue", numeric: true },
-  { label: "RPC", numeric: true },
-  { label: "RPM", numeric: true },
-  { label: "Actions" },
-];
-
-function renderOfferRow(o: LeadgenOfferApi): string {
-  return `<tr data-entity-id="${o.id}" data-entity-name="${escapeHtml(o.offer_name)}">
-  <td>${escapeHtml(o.offer_name)}</td>
-  ${dashCell(false)}
-  <td>${o.provider !== null ? escapeHtml(o.provider) : EM_DASH}</td>
-  <td>${escapeHtml(o.vertical)} / ${escapeHtml(o.activity)}</td>
-  <td>${escapeHtml(o.offer_type)}</td>
-  <td><span class="badge badge-draft">${o.bid_source === "response" ? "Dynamic" : "Static"}</span></td>
-  <td>${o.cap_enabled ? '<span class="badge badge-scheduled">Cap</span>' : EM_DASH}</td>
-  <td>${statusBadge(o.status)}</td>
-  ${dashCells(8)}
-  <td>${EM_DASH}</td>
-</tr>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,39 +397,17 @@ leadgenUi.get("/admin/leadgen", (c) =>
   c.redirect("/admin/leadgen/offers", 302),
 );
 
-interface ListBody<T> {
+export interface ListBody<T> {
   items: T[];
   paging: Paging;
 }
 
-leadgenUi.get("/admin/leadgen/offers", async (c) => {
-  const page = pageParam(c);
-  const listed = await apiJson<ListBody<LeadgenOfferApi>>(
-    c.env,
-    `/api/admin/leadgen/offers${pageQuery(page)}`,
-  );
-  return c.html(
-    leadgenTabPage(
-      {
-        tab: "offers",
-        createLabel: "Create an Offer",
-        phaseNote: "Offer editor ships in a later phase",
-        table: renderListTable({
-          tableClass: "leadgen-offers-list",
-          ariaLabel: "Offers list",
-          columns: OFFER_COLUMNS,
-          rows: (listed.ok ? listed.body.items : []).map(renderOfferRow),
-          emptyEntity: "offers",
-          phaseNote: "Offer editor ships in a later phase",
-        }),
-        paging: listed.ok ? listed.body.paging : EMPTY_PAGING,
-        page,
-        loadError: listed.ok ? null : listed.error,
-      },
-      branding(c),
-    ),
-  );
-});
+// Offers tab — LIVE (Phase-4 Stage B2, contract 03 §9.2 / 04 §10–§11).
+// Editor shells registered static-before-param (01 §5.2): /offers/new
+// precedes /offers/:id/edit.
+leadgenUi.get("/admin/leadgen/offers", leadgenOffersListPage);
+leadgenUi.get("/admin/leadgen/offers/new", leadgenOffersNewPage);
+leadgenUi.get("/admin/leadgen/offers/:id/edit", leadgenOfferEditorPage);
 
 leadgenUi.get("/admin/leadgen/sections", async (c) => {
   const page = pageParam(c);

@@ -88,6 +88,33 @@ describe("validatePayloadSchema — §11.5 shape", () => {
     expect(codes).toContain("path_prefix_conflict");
   });
 
+  it("rejects prototype-chain path segments (__proto__/constructor/prototype)", () => {
+    for (const path of ["__proto__.polluted", "constructor.prototype.x", "a.__proto__", "prototype"]) {
+      const res = validatePayloadSchema(
+        schemaWith([{ path, name: path.split(".").pop()!, type: "string", source: "static", value: "y" }]),
+      );
+      expect(res.ok, `${path} must be rejected`).toBe(false);
+      expect(res.errors.map((e) => e.code)).toContain("path_invalid");
+    }
+  });
+
+  it("buildPayload never pollutes Object.prototype even from an unvalidated hostile path", () => {
+    // The writer is defense-in-depth: fed a schema that skipped validation,
+    // it must still refuse to walk into the prototype chain.
+    const schema = schemaWith([
+      { path: "__proto__.polluted", name: "polluted", type: "string", source: "static", value: "yes" },
+    ]);
+    buildPayload(schema, { answers: {} } as unknown as LeadgenPayloadBuildContext);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("inferSchemaFromExample skips prototype-chain keys so the inferred schema is valid", () => {
+    const inferred = inferSchemaFromExample(JSON.parse('{"__proto__":{"x":1},"safe":"v"}'));
+    const paths = inferred.root.children.map((c) => c.path);
+    expect(paths.some((p) => p.split(".").includes("__proto__"))).toBe(false);
+    expect(validatePayloadSchema(inferred).ok).toBe(true);
+  });
+
   it("allows container-typed nodes as prefixes of nested paths", () => {
     const schema = schemaWith([
       { path: "drivers", name: "drivers", type: "array", source: "static", value: [] },

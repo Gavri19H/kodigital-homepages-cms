@@ -7,6 +7,12 @@
 // the active schema row, and writes ONE redacted
 // leadgen_provider_request_log row.
 //
+// `dry_run: true` (04 §11.1 "Test with sample answers") runs the identical
+// build/resolve/mask pipeline and stops short of the fetch: no outbound
+// request, no sample persistence, no log row, no debug blob — the response
+// carries the built payload + masked headers with null
+// response/status/latency/carriers.
+//
 // Secret handling (§30.2 — normative):
 //   * resolved via readEnvSecret(env, <name>); an ABSENT secret is a TYPED
 //     no-op (`notes[]` entry) — that leg simply does not attach, NEVER a
@@ -123,6 +129,17 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     );
   }
   const sampleAnswers: Record<string, unknown> = rawAnswers ?? {};
+
+  // §11.1 "Test with sample answers" = a DRY RUN of this same cycle: build +
+  // resolve + mask exactly like the live path, then stop short of the fetch.
+  const rawDryRun = body["dry_run"];
+  if (rawDryRun !== undefined && typeof rawDryRun !== "boolean") {
+    return c.json(
+      { error: "Validation failed", fields: { dry_run: "dry_run must be a boolean" } },
+      400,
+    );
+  }
+  const dryRun = rawDryRun === true;
 
   if (offer.calls_provider_api !== 1) {
     return c.json(
@@ -291,6 +308,30 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     sentHeaders["content-type"] = "application/json";
   }
 
+  // --- §11.1 dry run: everything above ran EXACTLY like the live path -------
+  // (schema/endpoint validation, payload build, header/token resolution,
+  // typed notes, §30.2 masking). SKIPPED: the outbound fetch, the
+  // sample_response_json persistence, the provider_request_log row, and the
+  // debug blob — a dry run leaves NO trace beyond its response.
+  if (dryRun) {
+    return c.json({
+      dry_run: true,
+      environment,
+      endpoint: displayUrl,
+      method,
+      request: {
+        payload: maskPaths(payload, tokenPaths),
+        headers: maskSecretHeaders(sentHeaders, secretHeaderNames),
+      },
+      response: { status: null, latency_ms: null, body: null },
+      parse: { carriers: null, errors: [] },
+      response_field_paths: [],
+      notes,
+      provider_error_reason: null,
+      debug_ref: null,
+    });
+  }
+
   // --- bounded server-side fetch -------------------------------------------
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TEST_FETCH_TIMEOUT_MS);
@@ -418,6 +459,7 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   // exactly (the admin typed them). The stored LOG additionally PII-hashes
   // the payload/response; the ephemeral admin response does not.
   return c.json({
+    dry_run: false,
     environment,
     endpoint: displayUrl,
     method,

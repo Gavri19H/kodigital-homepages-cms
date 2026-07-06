@@ -344,11 +344,21 @@ describeDb("leadgen shell routes (01 §5.2 / 03 §9)", () => {
         expect(html, `${path} must link ${tabPath}`).toContain(`href="${tabPath}"`);
       }
       expect(html).toContain(`href="${path}" class="leadgen-tab active"`);
-      // Phase-3 scaffold anatomy: disabled Create button + toolbar + table
+      // Shared anatomy on every tab: toolbar + empty-state (empty DB)
       expect(html).toContain('class="toolbar"');
-      expect(html).toMatch(/<button[^>]*disabled[^>]*>\+ Create a/);
-      expect(html).toContain("ships in a later phase");
       expect(html).toContain('class="empty-state"');
+      if (path === "/admin/leadgen/offers") {
+        // Phase-4 Stage B2: the Offers tab is LIVE — an ENABLED Create
+        // button that opens the §10.1 modal (leadgen-offers-ui.test.ts
+        // covers the full live anatomy).
+        expect(html).toContain("data-open-offer-modal");
+        expect(html).not.toMatch(/<button[^>]*disabled[^>]*>\+ Create an Offer/);
+        expect(html).not.toContain("ships in a later phase");
+      } else {
+        // Phase-3 scaffold anatomy: disabled Create button + phase note
+        expect(html).toMatch(/<button[^>]*disabled[^>]*>\+ Create a/);
+        expect(html).toContain("ships in a later phase");
+      }
     }
   });
 

@@ -10,9 +10,11 @@
 // (payload/response/status/latency/masked headers/parse errors/carriers/
 // response field paths), typed no-op notes for absent secrets, the
 // LEADGEN_DEBUG_ENCRYPTION_KEY debug blob (AES-GCM into KV, expirationTtl
-// 259200, debug_ref NULL when the secret is absent), and failure modes
-// (non-2xx / timeout / malformed response). Then pruneLeadgenRetention:
-// old-vs-new row selection per §30.3 windows + bounded batching + isolation.
+// 259200, debug_ref NULL when the secret is absent), the §11.1 dry_run
+// (identical build/mask, ZERO side effects — no fetch/sample/log/blob), and
+// failure modes (non-2xx / timeout / malformed response). Then
+// pruneLeadgenRetention: old-vs-new row selection per §30.3 windows +
+// bounded batching + isolation.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -319,12 +321,14 @@ const PROVIDER_BODY = {
 const SAMPLE_ANSWERS = { email: " John@X.com ", zip: "90210" };
 
 interface TestToolResponse {
+  dry_run: boolean;
   environment: string;
   endpoint: string;
   method: string;
   request: { payload: Record<string, unknown>; headers: Record<string, string> };
-  response: { status: number | null; latency_ms: number; body: unknown };
-  parse: { carriers: Array<Record<string, unknown>>; errors: Array<Record<string, unknown>> };
+  response: { status: number | null; latency_ms: number | null; body: unknown };
+  // carriers is null ONLY on a §11.1 dry run (no response to parse).
+  parse: { carriers: Array<Record<string, unknown>> | null; errors: Array<Record<string, unknown>> };
   response_field_paths: string[];
   notes: Array<{ scope: string; code: string; header_name?: string }>;
   provider_error_reason: string | null;
@@ -387,9 +391,9 @@ describeDb("POST /offers/:id/test — §11.6 success cycle (mocked outbound fetc
     expect(body.response.body).toEqual(PROVIDER_BODY);
     expect(body.parse.errors).toEqual([]);
     expect(body.parse.carriers).toHaveLength(1);
-    expect(body.parse.carriers[0]?.["carrier_key"]).toBe("acme-life");
-    expect(body.parse.carriers[0]?.["carrier_name"]).toBe("Acme Life");
-    expect(body.parse.carriers[0]?.["bid"]).toBe(3.2);
+    expect(body.parse.carriers?.[0]?.["carrier_key"]).toBe("acme-life");
+    expect(body.parse.carriers?.[0]?.["carrier_name"]).toBe("Acme Life");
+    expect(body.parse.carriers?.[0]?.["bid"]).toBe(3.2);
     expect(body.response_field_paths).toEqual([
       "carriers.0.name",
       "carriers.0.bid",
@@ -526,6 +530,108 @@ describeDb("POST /offers/:id/test — absent secrets no-op (§30.2)", () => {
         expect.objectContaining({ scope: "header", code: "secret_absent", header_name: "X-Secret" }),
       ]),
     );
+  });
+});
+
+// --- §11.1 dry run ---------------------------------------------------------------------
+
+describeDb("POST /offers/:id/test — §11.1 dry_run (build + mask, no side effects)", () => {
+  it("builds + masks exactly like the live path but never fetches, persists, logs or blobs", async () => {
+    // The debug-encryption key is PRESENT on purpose: even then a dry run
+    // writes NO blob — it must leave zero trace beyond its response.
+    const h = await setupOffer({
+      withTokenNode: true,
+      tokenPlacement: "payload",
+      envExtra: { [DEBUG_ENCRYPTION_SECRET_NAME]: "dry-run-key" },
+    });
+    const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+
+    const { status, body } = await runTest(h, {
+      environment: "staging",
+      sample_answers: SAMPLE_ANSWERS,
+      dry_run: true,
+    });
+    expect(status).toBe(200);
+    expect(body.dry_run).toBe(true);
+
+    // NO outbound fetch was invoked
+    expect(calls).toHaveLength(0);
+
+    // the build/resolve/mask surface is IDENTICAL to the live §11.6 path
+    expect(body.environment).toBe("staging");
+    expect(body.endpoint).toBe(STAGING_URL);
+    expect(body.method).toBe("POST");
+    expect(body.request.payload).toEqual({
+      contact: { email: " John@X.com ", zip: "90210" },
+      meta: { offer: h.offerPublicId },
+      plan: "gold",
+      auth: { api_token: "[REDACTED]" }, // token node masked at its schema path (§30.2)
+    });
+    expect(body.request.headers["X-Static"]).toBe("fixed-value");
+    expect(body.request.headers["X-Macro"]).toBe(h.offerPublicId);
+    expect(body.request.headers["X-Secret"]).toBe("[REDACTED]");
+    expect(body.request.headers["content-type"]).toBe("application/json");
+    expect(body.notes).toEqual([]);
+
+    // the dry-run contract: null response/status/latency/carriers
+    expect(body.response).toEqual({ status: null, latency_ms: null, body: null });
+    expect(body.parse).toEqual({ carriers: null, errors: [] });
+    expect(body.response_field_paths).toEqual([]);
+    expect(body.provider_error_reason).toBeNull();
+    expect(body.debug_ref).toBeNull();
+
+    // NO log row, NO sample persisted, NO debug blob
+    expect(lastLogRow(h.sdb)).toBeNull();
+    const row = h.sdb
+      .prepare("SELECT sample_response_json FROM leadgen_offer_payload_schemas WHERE id = ?")
+      .get(h.schemaId) as { sample_response_json: string | null };
+    expect(row.sample_response_json).toBeNull();
+    expect(h.puts).toHaveLength(0);
+
+    // §30.2 holds on the dry-run bytes too
+    const responseBytes = JSON.stringify(body);
+    expect(responseBytes).not.toContain(PROVIDER_TOKEN);
+    expect(responseBytes).not.toContain(HEADER_SECRET);
+  });
+
+  it("masks a query-placed token in the echoed endpoint on a dry run", async () => {
+    const h = await setupOffer({ tokenPlacement: "query" });
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const { body } = await runTest(h, { environment: "staging", sample_answers: {}, dry_run: true });
+    expect(calls).toHaveLength(0);
+    expect(body.endpoint).toBe(`${STAGING_URL}?token=[REDACTED]`);
+    expect(JSON.stringify(body)).not.toContain(PROVIDER_TOKEN);
+  });
+
+  it("keeps the live-path validations: a missing environment endpoint is a typed 400, still no fetch", async () => {
+    const h = await setupOffer({ skipEndpointStaging: true });
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const res = await admin.request(
+      `${API}/offers/${h.offerId}/test`,
+      jsonInit("POST", { environment: "staging", sample_answers: {}, dry_run: true }),
+      h.env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { fields: Record<string, string> }).fields["environment"]).toContain(
+      "no staging endpoint",
+    );
+    expect(calls).toHaveLength(0);
+    expect(lastLogRow(h.sdb)).toBeNull();
+  });
+
+  it("rejects a non-boolean dry_run; the live path reports dry_run:false", async () => {
+    const h = await setupOffer();
+    stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+    const bad = await admin.request(
+      `${API}/offers/${h.offerId}/test`,
+      jsonInit("POST", { environment: "staging", dry_run: "yes" }),
+      h.env,
+    );
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { fields: Record<string, string> }).fields["dry_run"]).toBeTruthy();
+
+    const { body } = await runTest(h, { environment: "staging", sample_answers: {} });
+    expect(body.dry_run).toBe(false);
   });
 });
 

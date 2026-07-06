@@ -23,8 +23,10 @@ import {
   deleteOfferHandler,
   getOfferHandler,
   idSelector,
+  listActivitiesHandler,
   listOffersHandler,
   listPayloadSchemasHandler,
+  listVerticalsHandler,
   offerAnalyticsHandler,
   offerCapHandler,
   offerUsageHandler,
@@ -135,6 +137,12 @@ routes.use("*", async (c, next) => {
   c.res.headers.set("Cache-Control", "private, no-store");
   c.res.headers.set("X-Content-Type-Options", "nosniff");
 });
+
+// --- Shared (03 §8.2): DISTINCT filter options -------------------------------
+// STATIC paths, registered before every entity block (03 §8.1 static-before-
+// param discipline — nothing may ever capture them as an :id).
+routes.get("/verticals", listVerticalsHandler);
+routes.get("/activities", listActivitiesHandler);
 
 // --- Offers (03 §8.2 + 04 §10–§11 — Phase-4 Stage B1 full surface) -----------
 routes.get("/offers", listOffersHandler);

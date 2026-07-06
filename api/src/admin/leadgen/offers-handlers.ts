@@ -15,9 +15,18 @@
 //   * 03 §8.2 defines NO dedicated offers-rules route; §10.4 puts region
 //     rules in the Offer editor — so `region_rules[]` (and `headers[]`)
 //     ride the Offer GET/PATCH as replace-set nested collections.
+//   * `placements[]` rides the same PATCH replace-set surface (03 §9.2
+//     Basics "placement id" + 04 §10.1 "≥1 placement, exactly one default")
+//     with one mechanical difference: leadgen_auction_offers references
+//     placement rows BY NUMERIC ID (§7.4), so preserved rows (incoming
+//     lgpl_ public_id) are UPDATEd in place — never delete-and-reinsert —
+//     and a placement referenced by an auction refuses deletion.
 //   * every payload-schema save creates the NEXT immutable version AND
 //     makes it the offer's active schema (§11.8 "every save = a new
 //     immutable version"); versions are never updated or deleted.
+//   * the 03 §8.2 Shared `/verticals` + `/activities` endpoints live here
+//     too — DISTINCT filter options unioned across the three
+//     vertical/activity-carrying entities (fixed-literal reads).
 
 import type { Context } from "hono";
 import type { Env } from "../../env";
@@ -223,19 +232,28 @@ export async function readOfferHeaders(db: D1Database, offerId: number): Promise
   return result.results ?? [];
 }
 
+export async function readOfferPlacements(
+  db: D1Database,
+  offerId: number,
+): Promise<LeadgenOfferPlacementRow[]> {
+  const result = await db
+    .prepare(
+      "SELECT * FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY is_default DESC, id ASC",
+    )
+    .bind(offerId)
+    .all<LeadgenOfferPlacementRow>();
+  return result.results ?? [];
+}
+
 // The Offer detail shape: the mapped API row + its three editor collections
-// (placements are created with the offer, §10.1; headers + region rules ride
-// the editor tabs, §10.4/§11.3 — no dedicated routes in 03 §8.2).
+// (placements seed with the offer, §10.1, and ride the PATCH replace-set;
+// headers + region rules ride the editor tabs, §10.4/§11.3 — no dedicated
+// routes in 03 §8.2).
 async function offerDetailJson(
   db: D1Database,
   row: LeadgenOfferRow,
 ): Promise<Record<string, unknown>> {
-  const placements = await db
-    .prepare(
-      "SELECT * FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY is_default DESC, id ASC",
-    )
-    .bind(row.id)
-    .all<LeadgenOfferPlacementRow>();
+  const placements = await readOfferPlacements(db, row.id);
   const headers = await readOfferHeaders(db, row.id);
   const rules = await db
     .prepare(
@@ -245,7 +263,7 @@ async function offerDetailJson(
     .all<LeadgenOfferRegionRuleRow>();
   return {
     ...offerRowToApi(row),
-    placements: (placements.results ?? []).map(placementRowToApi),
+    placements: placements.map(placementRowToApi),
     headers,
     region_rules: (rules.results ?? []).map(regionRuleRowToApi),
   };
@@ -472,7 +490,8 @@ export async function getOfferHandler(c: AdminContext): Promise<Response> {
 
 // Allow-listed §7.1 scalar columns. active_payload_schema_id is deliberately
 // absent — the schema pointer moves ONLY through the payload-schemas POST
-// path (§11.8). Placements are create-time-only in this phase.
+// path (§11.8). Placements are a nested replace-set (like headers /
+// region_rules), not a scalar column.
 const OFFER_PATCH_COLUMNS = [
   "offer_name",
   "provider",
@@ -513,6 +532,13 @@ interface HeaderInput {
 interface RegionRuleInput {
   public_id: string | null;
   value: LeadgenRegionRuleCreateInput;
+}
+
+interface PlacementInput {
+  public_id: string | null;
+  placement_id: string;
+  label: string | null;
+  is_default: boolean;
 }
 
 // Validate the provided scalar PATCH fields into a column→value map. Enum /
@@ -764,6 +790,84 @@ function collectRegionRuleInputs(raw: unknown, errors: FieldErrors): RegionRuleI
   return out;
 }
 
+// §10.1 placements (replace-set): rows carrying an existing lgpl_ public_id
+// are PRESERVED (updated in place — auctions reference the numeric row id,
+// §7.4); rows without one mint a fresh lgpl_ at write. Set-level §10.1/§7.1
+// invariants enforced here: ≥1 placement, EXACTLY one default
+// (uq_leadgen_offerplacement_default), no duplicate placement_id
+// (UNIQUE(offer_id, placement_id)).
+function collectPlacementInputs(raw: unknown, errors: FieldErrors): PlacementInput[] | null {
+  if (!Array.isArray(raw)) {
+    errors["placements"] = "placements must be an array";
+    return null;
+  }
+  if (raw.length === 0) {
+    errors["placements"] = "at least one placement is required";
+    return null;
+  }
+  const out: PlacementInput[] = [];
+  const seenPlacementIds = new Set<string>();
+  const seenPublicIds = new Set<string>();
+  raw.forEach((item, index) => {
+    if (!isRecord(item)) {
+      errors[`placements[${index}]`] = "placement must be an object";
+      return;
+    }
+    const placementId = trimmedString(item["placement_id"]);
+    if (placementId === null) {
+      errors[`placements[${index}].placement_id`] = "placement_id must be a non-empty string";
+      return;
+    }
+    if (seenPlacementIds.has(placementId)) {
+      errors[`placements[${index}].placement_id`] = `duplicate placement_id '${placementId}'`;
+      return;
+    }
+    seenPlacementIds.add(placementId);
+    let label: string | null = null;
+    if (item["label"] !== undefined && item["label"] !== null) {
+      if (typeof item["label"] !== "string") {
+        errors[`placements[${index}].label`] = "label must be a string or null";
+        return;
+      }
+      const trimmed = item["label"].trim();
+      label = trimmed === "" ? null : trimmed;
+    }
+    let isDefault = false;
+    if (item["is_default"] !== undefined) {
+      const toggled = asToggle(item["is_default"]);
+      if (toggled === null) {
+        errors[`placements[${index}].is_default`] = "is_default must be a boolean";
+        return;
+      }
+      isDefault = toggled;
+    }
+    let publicId: string | null = null;
+    if (item["public_id"] !== undefined && item["public_id"] !== null) {
+      const provided = item["public_id"];
+      if (typeof provided !== "string" || !isPublicId("offer_placement", provided)) {
+        errors[`placements[${index}].public_id`] = "public_id must be an lgpl_ public id";
+        return;
+      }
+      if (seenPublicIds.has(provided)) {
+        errors[`placements[${index}].public_id`] = "duplicate placement public_id";
+        return;
+      }
+      seenPublicIds.add(provided);
+      publicId = provided;
+    }
+    out.push({ public_id: publicId, placement_id: placementId, label, is_default: isDefault });
+  });
+  // Enforce the default-count invariant only once every row parsed — a row
+  // error already explains the failure, and a partial count would mislead.
+  if (out.length === raw.length) {
+    const defaults = out.filter((p) => p.is_default).length;
+    if (defaults !== 1) {
+      errors["placements"] = `exactly one placement must be the default (got ${defaults})`;
+    }
+  }
+  return out;
+}
+
 function mergedNumber(
   existing: LeadgenOfferRow,
   updates: Map<string, unknown>,
@@ -796,11 +900,14 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
   const headerInputs = body["headers"] !== undefined ? collectHeaderInputs(body["headers"], errors) : null;
   const ruleInputs =
     body["region_rules"] !== undefined ? collectRegionRuleInputs(body["region_rules"], errors) : null;
+  const placementInputs =
+    body["placements"] !== undefined ? collectPlacementInputs(body["placements"], errors) : null;
 
   const unknownScalars = Object.keys(body).filter(
     (key) =>
       key !== "headers" &&
       key !== "region_rules" &&
+      key !== "placements" &&
       !(OFFER_PATCH_COLUMNS as readonly string[]).includes(key),
   );
   for (const key of unknownScalars) errors[key] = `${key} is not an updatable field`;
@@ -809,6 +916,7 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
   const providedAnything =
     body["headers"] !== undefined ||
     body["region_rules"] !== undefined ||
+    body["placements"] !== undefined ||
     (OFFER_PATCH_COLUMNS as readonly string[]).some((key) => body[key] !== undefined);
   if (!providedAnything && unknownScalars.length === 0) {
     return c.json({ error: "No updatable fields provided" }, 400);
@@ -871,6 +979,43 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
     }
   }
 
+  // --- placements referential guards (§10.1 replace-set) -----------------
+  // A provided lgpl_ must belong to THIS offer; a row the replace-set drops
+  // must not be an auction participant (leadgen_auction_offers joins the
+  // CONCRETE placement row, §7.4 — deleting it would orphan the auction).
+  let existingPlacements: LeadgenOfferPlacementRow[] = [];
+  let removedPlacements: LeadgenOfferPlacementRow[] = [];
+  if (placementInputs !== null) {
+    existingPlacements = await readOfferPlacements(c.env.DB, existing.id);
+    const existingByPublicId = new Map(existingPlacements.map((p) => [p.public_id, p]));
+    placementInputs.forEach((input, index) => {
+      if (
+        input.public_id !== null &&
+        !existingByPublicId.has(input.public_id) &&
+        errors[`placements[${index}].public_id`] === undefined
+      ) {
+        errors[`placements[${index}].public_id`] = "unknown placement public_id for this offer";
+      }
+    });
+    const keptPublicIds = new Set(
+      placementInputs.map((p) => p.public_id).filter((v): v is string => v !== null),
+    );
+    removedPlacements = existingPlacements.filter((p) => !keptPublicIds.has(p.public_id));
+    if (removedPlacements.length > 0) {
+      const referenced = await c.env.DB.prepare(
+        "SELECT DISTINCT offer_placement_id FROM leadgen_auction_offers WHERE offer_id = ?",
+      )
+        .bind(existing.id)
+        .all<{ offer_placement_id: number }>();
+      const referencedIds = new Set((referenced.results ?? []).map((r) => r.offer_placement_id));
+      const blocked = removedPlacements.find((p) => referencedIds.has(p.id));
+      if (blocked !== undefined && errors["placements"] === undefined) {
+        errors["placements"] =
+          `placement '${blocked.placement_id}' participates in an auction and cannot be removed`;
+      }
+    }
+  }
+
   if (Object.keys(errors).length > 0) {
     return c.json({ error: "Validation failed", fields: errors }, 400);
   }
@@ -928,7 +1073,80 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
       );
     }
   }
-  await c.env.DB.batch(statements);
+  if (placementInputs !== null) {
+    const existingByPublicId = new Map(existingPlacements.map((p) => [p.public_id, p]));
+    // Ordering discipline for the two §7.1 unique constraints:
+    //   1. deletes free their placement_id first;
+    //   2. renamed preserved rows PARK on a collision-proof temp id (their
+    //      own lgpl_ public id) so an intra-batch swap can never trip
+    //      UNIQUE(offer_id, placement_id) mid-transaction (SQLite checks
+    //      per statement, not deferred);
+    //   3. every kept/new row lands with is_default=0;
+    //   4. ONE final flip satisfies uq_leadgen_offerplacement_default.
+    for (const removed of removedPlacements) {
+      statements.push(
+        c.env.DB.prepare("DELETE FROM leadgen_offer_placements WHERE id = ?").bind(removed.id),
+      );
+    }
+    for (const input of placementInputs) {
+      if (input.public_id === null) continue;
+      const current = existingByPublicId.get(input.public_id);
+      if (current !== undefined && current.placement_id !== input.placement_id) {
+        statements.push(
+          c.env.DB.prepare("UPDATE leadgen_offer_placements SET placement_id = ? WHERE id = ?").bind(
+            `~${current.public_id}`,
+            current.id,
+          ),
+        );
+      }
+    }
+    let defaultPublicId: string | null = null;
+    for (const input of placementInputs) {
+      if (input.public_id !== null) {
+        const current = existingByPublicId.get(input.public_id);
+        if (current === undefined) continue; // guarded above; defensive
+        statements.push(
+          c.env.DB.prepare(
+            "UPDATE leadgen_offer_placements SET placement_id = ?, label = ?, is_default = 0 WHERE id = ?",
+          ).bind(input.placement_id, input.label, current.id),
+        );
+        if (input.is_default) defaultPublicId = input.public_id;
+      } else {
+        const minted = mintPublicId("offer_placement");
+        statements.push(
+          c.env.DB.prepare(
+            "INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, label, is_default) VALUES (?, ?, ?, ?, 0)",
+          ).bind(minted, existing.id, input.placement_id, input.label),
+        );
+        if (input.is_default) defaultPublicId = minted;
+      }
+    }
+    if (defaultPublicId !== null) {
+      statements.push(
+        c.env.DB.prepare("UPDATE leadgen_offer_placements SET is_default = 1 WHERE public_id = ?").bind(
+          defaultPublicId,
+        ),
+      );
+    }
+  }
+  try {
+    await c.env.DB.batch(statements);
+  } catch (err) {
+    // Safety net for the two placement uniques (validation catches the
+    // in-set cases; this types any residual constraint race as a 400
+    // instead of a 500 — the batch rolled back atomically).
+    const message = err instanceof Error ? err.message : String(err);
+    if (placementInputs !== null && message.includes("leadgen_offer_placements")) {
+      return c.json(
+        {
+          error: "Validation failed",
+          fields: { placements: "placement ids conflict with existing rows (UNIQUE offer_id + placement_id)" },
+        },
+        400,
+      );
+    }
+    throw err;
+  }
 
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_offers WHERE id = ? LIMIT 1")
     .bind(existing.id)
@@ -1280,4 +1498,46 @@ export async function createPayloadSchemaFromExampleHandler(c: AdminContext): Pr
   );
   if (created === null) return c.json({ error: "Insert failed" }, 500);
   return c.json(schemaRowToApi(created), 201);
+}
+
+// ---------------------------------------------------------------------------
+// GET /verticals + /activities — 03 §8.2 Shared ("DISTINCT filter options,
+// fixed-literal reads, like Listicles distinctOfferValues")
+// ---------------------------------------------------------------------------
+
+// DISTINCT non-empty values unioned from the three vertical/activity-carrying
+// entities. Both statements are FIXED LITERALS — no user input, no column
+// interpolation. Quotes store verticals as a JSON ARRAY (§7.3
+// `verticals_json`), so that leg reads through json_each over the
+// json_valid-filtered rows; sections/offers carry scalar columns.
+const SHARED_VERTICALS_SQL = `SELECT DISTINCT v FROM (
+  SELECT vertical AS v FROM leadgen_offers
+  UNION SELECT vertical AS v FROM leadgen_sections
+  UNION SELECT je.value AS v
+    FROM (SELECT verticals_json FROM leadgen_quotes
+          WHERE verticals_json IS NOT NULL AND json_valid(verticals_json)) q,
+         json_each(q.verticals_json) AS je
+) WHERE v IS NOT NULL AND v <> '' ORDER BY v ASC LIMIT 200`;
+
+const SHARED_ACTIVITIES_SQL = `SELECT DISTINCT v FROM (
+  SELECT activity AS v FROM leadgen_offers
+  UNION SELECT activity AS v FROM leadgen_sections
+  UNION SELECT activity AS v FROM leadgen_quotes
+) WHERE v IS NOT NULL AND v <> '' ORDER BY v ASC LIMIT 200`;
+
+// Non-string union members (a number in a quote's verticals array) are
+// dropped here, mirroring the defensive filter the toolbar helper used.
+async function distinctSharedValues(db: D1Database, sql: string): Promise<string[]> {
+  const result = await db.prepare(sql).all<{ v: unknown }>();
+  return (result.results ?? [])
+    .map((r) => r.v)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+}
+
+export async function listVerticalsHandler(c: AdminContext): Promise<Response> {
+  return c.json({ items: await distinctSharedValues(c.env.DB, SHARED_VERTICALS_SQL) });
+}
+
+export async function listActivitiesHandler(c: AdminContext): Promise<Response> {
+  return c.json({ items: await distinctSharedValues(c.env.DB, SHARED_ACTIVITIES_SQL) });
 }

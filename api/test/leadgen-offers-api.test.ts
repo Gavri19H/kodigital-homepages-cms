@@ -194,7 +194,13 @@ interface OfferDetail {
   calls_provider_api: boolean;
   cap_enabled: boolean;
   banner_url_template: string | null;
-  placements: Array<{ id: number; public_id: string; placement_id: string; is_default: boolean }>;
+  placements: Array<{
+    id: number;
+    public_id: string;
+    placement_id: string;
+    label: string | null;
+    is_default: boolean;
+  }>;
   headers: Array<{ header_name: string; value_kind: string; value_text: string | null }>;
   region_rules: Array<{
     public_id: string;
@@ -720,6 +726,233 @@ describeDb("PATCH /offers/:id — partial update + nested collections", () => {
   });
 });
 
+// --- PATCH placements[] — the §10.1 replace-set --------------------------------------
+
+describeDb("PATCH /offers/:id — placements[] replace-set (04 §10.1 / 03 §9.2)", () => {
+  it("preserves rows by lgpl_ public_id (same DB row id), mints new, deletes omitted", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-1", "pl-2"] });
+    const [keep, drop] = offer.placements;
+    expect(keep?.placement_id).toBe("pl-1");
+    expect(drop?.placement_id).toBe("pl-2");
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [
+          { public_id: keep?.public_id, placement_id: "pl-1-renamed", label: "Main feed", is_default: true },
+          { placement_id: "pl-3", is_default: false },
+        ],
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as OfferDetail;
+    expect(body.placements).toHaveLength(2);
+
+    const kept = body.placements.find((p) => p.public_id === keep?.public_id);
+    // Preserved IN PLACE: the same numeric row id survives (auctions join
+    // leadgen_offer_placements BY id, §7.4 — delete+reinsert would orphan them).
+    expect(kept?.id).toBe(keep?.id);
+    expect(kept?.placement_id).toBe("pl-1-renamed");
+    expect(kept?.label).toBe("Main feed");
+    expect(kept?.is_default).toBe(true);
+
+    const minted = body.placements.find((p) => p.placement_id === "pl-3");
+    expect(isPublicId("offer_placement", minted?.public_id ?? "")).toBe(true);
+    expect(minted?.is_default).toBe(false);
+    expect(body.placements.some((p) => p.public_id === drop?.public_id)).toBe(false);
+
+    // DB truth: two rows, the dropped one is gone, exactly one default.
+    const rows = sdb
+      .prepare("SELECT public_id, placement_id, is_default FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY id")
+      .all(offer.id) as Array<{ public_id: string; placement_id: string; is_default: number }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.placement_id).sort()).toEqual(["pl-1-renamed", "pl-3"]);
+    expect(rows.filter((r) => r.is_default === 1).map((r) => r.public_id)).toEqual([keep?.public_id]);
+  });
+
+  it("moves the default between rows in one PATCH (uq_leadgen_offerplacement_default holds both sides)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-a", "pl-b"] });
+    const [a, b] = offer.placements;
+    expect(a?.is_default).toBe(true);
+
+    const res = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [
+          { public_id: a?.public_id, placement_id: "pl-a", is_default: false },
+          { public_id: b?.public_id, placement_id: "pl-b", is_default: true },
+        ],
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const rows = sdb
+      .prepare("SELECT public_id, is_default FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY id")
+      .all(offer.id) as Array<{ public_id: string; is_default: number }>;
+    expect(rows.filter((r) => r.is_default === 1).map((r) => r.public_id)).toEqual([b?.public_id]);
+
+    // Swapping placement_id values in one PATCH also lands (the temp-park
+    // ordering keeps UNIQUE(offer_id, placement_id) quiet mid-batch).
+    const swap = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [
+          { public_id: a?.public_id, placement_id: "pl-b", is_default: false },
+          { public_id: b?.public_id, placement_id: "pl-a", is_default: true },
+        ],
+      }),
+      env,
+    );
+    expect(swap.status).toBe(200);
+    const swapped = sdb
+      .prepare("SELECT public_id, placement_id FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY id")
+      .all(offer.id) as Array<{ public_id: string; placement_id: string }>;
+    expect(swapped.find((r) => r.public_id === a?.public_id)?.placement_id).toBe("pl-b");
+    expect(swapped.find((r) => r.public_id === b?.public_id)?.placement_id).toBe("pl-a");
+  });
+
+  it("rejects zero defaults, two defaults, an empty set, and duplicate placement_id (typed)", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-1"] });
+    const keep = offer.placements[0];
+
+    const zero = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", { placements: [{ public_id: keep?.public_id, placement_id: "pl-1", is_default: false }] }),
+      env,
+    );
+    expect(zero.status).toBe(400);
+    expect(((await zero.json()) as { fields: Record<string, string> }).fields["placements"]).toContain(
+      "exactly one placement must be the default",
+    );
+
+    const two = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [
+          { public_id: keep?.public_id, placement_id: "pl-1", is_default: true },
+          { placement_id: "pl-2", is_default: true },
+        ],
+      }),
+      env,
+    );
+    expect(two.status).toBe(400);
+    expect(((await two.json()) as { fields: Record<string, string> }).fields["placements"]).toContain(
+      "exactly one placement must be the default",
+    );
+
+    // ≥1 placement (§10.1) — an empty replace-set is refused, never applied.
+    const empty = await admin.request(`${API}/offers/${offer.id}`, jsonInit("PATCH", { placements: [] }), env);
+    expect(empty.status).toBe(400);
+    expect(((await empty.json()) as { fields: Record<string, string> }).fields["placements"]).toContain(
+      "at least one placement",
+    );
+
+    // duplicate placement_id in the set — the UNIQUE(offer_id, placement_id)
+    // violation surfaces as a typed field error at validation, not a 500.
+    const dup = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [
+          { public_id: keep?.public_id, placement_id: "pl-1", is_default: true },
+          { placement_id: "pl-1", is_default: false },
+        ],
+      }),
+      env,
+    );
+    expect(dup.status).toBe(400);
+    expect(((await dup.json()) as { fields: Record<string, string> }).fields["placements[1].placement_id"]).toContain(
+      "duplicate placement_id",
+    );
+  });
+
+  it("rejects a foreign/unknown lgpl_ public_id and a malformed one", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-1"] });
+    const other = await createOffer(env, { offer_name: "Other", placements: ["pl-x"] });
+
+    // another offer's placement id is NOT this offer's row
+    const foreign = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [{ public_id: other.placements[0]?.public_id, placement_id: "pl-1", is_default: true }],
+      }),
+      env,
+    );
+    expect(foreign.status).toBe(400);
+    expect(((await foreign.json()) as { fields: Record<string, string> }).fields["placements[0].public_id"]).toContain(
+      "unknown placement",
+    );
+
+    // a non-lgpl public id is malformed for this collection
+    const malformed = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [{ public_id: mintPublicId("offer"), placement_id: "pl-1", is_default: true }],
+      }),
+      env,
+    );
+    expect(malformed.status).toBe(400);
+    expect(
+      ((await malformed.json()) as { fields: Record<string, string> }).fields["placements[0].public_id"],
+    ).toContain("lgpl_");
+  });
+
+  it("refuses removing a placement referenced by leadgen_auction_offers (typed guard)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-auction", "pl-free"] });
+    const [inAuction, free] = offer.placements;
+
+    // an Auction joins the offer THROUGH the concrete default placement row
+    sdb
+      .prepare("INSERT INTO leadgen_auctions (public_id, auction_name, auction_type) VALUES (?, 'Main', 'dynamic')")
+      .run(mintPublicId("auction"));
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions LIMIT 1").get() as { id: number }).id;
+    sdb
+      .prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id) VALUES (?, ?, ?)")
+      .run(auctionId, inAuction?.id, offer.id);
+
+    // dropping the participating placement is refused with a typed error
+    const blocked = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [{ public_id: free?.public_id, placement_id: "pl-free", is_default: true }],
+      }),
+      env,
+    );
+    expect(blocked.status).toBe(400);
+    const fields = ((await blocked.json()) as { fields: Record<string, string> }).fields;
+    expect(fields["placements"]).toContain("pl-auction");
+    expect(fields["placements"]).toContain("participates in an auction");
+
+    // ...and the rows are untouched (the batch never ran)
+    const count = (
+      sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_placements WHERE offer_id = ?").get(offer.id) as {
+        n: number;
+      }
+    ).n;
+    expect(count).toBe(2);
+
+    // keeping the participating row (still allowed to edit its label) passes
+    const kept = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        placements: [
+          { public_id: inAuction?.public_id, placement_id: "pl-auction", label: "Live", is_default: true },
+          { public_id: free?.public_id, placement_id: "pl-free", is_default: false },
+        ],
+      }),
+      env,
+    );
+    expect(kept.status).toBe(200);
+    const body = (await kept.json()) as OfferDetail;
+    expect(body.placements.find((p) => p.public_id === inAuction?.public_id)?.label).toBe("Live");
+  });
+});
+
 // --- DELETE = archive ----------------------------------------------------------------
 
 describeDb("DELETE /offers/:id — archive semantics (03 §9.6)", () => {
@@ -1013,6 +1246,49 @@ describeDb("payload-schemas — §11.8 immutable versioning + active pointer", (
     expect(res.status).toBe(400);
     expect(((await res.json()) as { fields: Record<string, string> }).fields["carrier_parse_json"]).toBeTruthy();
   });
+
+  it("persists carrier_parse_json byte-identical on the new version (§11.6 — the parser versions WITH the schema)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    // The full §11.7 authored shape incl. a first-wins fallback ARRAY.
+    const parseConfig = {
+      carriers_path: "data.carriers",
+      fields: {
+        provider_id: "id",
+        carrier_name: ["display_name", "name"],
+        carrier_logo: "logo",
+        bid: ["price.amount", "bid"],
+        bid_currency: "price.currency",
+        click_url: "url",
+        tracking_id: "tid",
+        headline: "headline",
+        subheadline: "sub",
+        disclaimer: "legal",
+        pricing_model: "model",
+      },
+    };
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA, carrier_parse_json: parseConfig }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: number; version: number; carrier_parse_json: unknown };
+    // API echo: the parsed config round-trips structurally...
+    expect(created.carrier_parse_json).toEqual(parseConfig);
+    // ...and the STORED column is byte-identical to the authored JSON —
+    // §7.1: carrier_parse_json is a column on the schema-version row.
+    const row = sdb
+      .prepare("SELECT carrier_parse_json, carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ?")
+      .get(created.id) as { carrier_parse_json: string; carrier_parse_version: number };
+    expect(row.carrier_parse_json).toBe(JSON.stringify(parseConfig));
+    expect(row.carrier_parse_version).toBe(1);
+    // the new version became the active pointer (§11.8)
+    const active = sdb.prepare("SELECT active_payload_schema_id FROM leadgen_offers WHERE id = ?").get(offer.id) as {
+      active_payload_schema_id: number;
+    };
+    expect(active.active_payload_schema_id).toBe(created.id);
+  });
 });
 
 describeDb("payload-schemas/from-example — §11.2 automatic generation", () => {
@@ -1069,5 +1345,46 @@ describeDb("payload-schemas/from-example — §11.2 automatic generation", () =>
     );
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { fields: Record<string, string> }).fields["example"]).toBeTruthy();
+  });
+});
+
+// --- Shared: /verticals + /activities (03 §8.2) ---------------------------------------------
+
+describeDb("GET /verticals + /activities — 03 §8.2 Shared filter options", () => {
+  it("unions DISTINCT non-empty values from offers ∪ sections ∪ quotes, deduped + sorted", async () => {
+    const { sdb, env } = newHarness();
+    // offers leg (through the real API) — 'life' also recurs in a quote below
+    await createOffer(env, { offer_name: "V1", vertical: "life", activity: "quote_funnel", placements: ["sv-1"] });
+    await createOffer(env, { offer_name: "V2", vertical: "auto", activity: "quote_funnel", placements: ["sv-2"] });
+    // sections leg (direct insert — the sections POST ships in its own phase)
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, 'S', 'banner', 'home', 'H', '{}')",
+      )
+      .run(mintPublicId("section"));
+    // quotes leg: activity is a scalar column; verticals are a JSON ARRAY
+    // (§7.3 verticals_json) — the union must read THROUGH the array.
+    sdb
+      .prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'Q', 'quiz', ?)")
+      .run(mintPublicId("quote"), JSON.stringify(["pet", "life"]));
+
+    const v = await admin.request(`${API}/verticals`, {}, env);
+    expect(v.status).toBe(200);
+    // deduped ('life' appears in offers AND a quote array) + sorted
+    expect(await v.json()).toEqual({ items: ["auto", "home", "life", "pet"] });
+
+    const a = await admin.request(`${API}/activities`, {}, env);
+    expect(a.status).toBe(200);
+    expect(await a.json()).toEqual({ items: ["banner", "quiz", "quote_funnel"] });
+  });
+
+  it("returns { items: [] } on an empty DB and both paths carry no-store", async () => {
+    const { env } = newHarness();
+    for (const path of ["/verticals", "/activities"]) {
+      const res = await admin.request(`${API}${path}`, {}, env);
+      expect(res.status, `${path} status`).toBe(200);
+      expect(await res.json()).toEqual({ items: [] });
+      expect(res.headers.get("Cache-Control"), `${path} no-store`).toBe("private, no-store");
+    }
   });
 });
