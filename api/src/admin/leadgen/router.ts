@@ -37,9 +37,19 @@ import {
   type AdminContext,
 } from "./offers-handlers";
 import { testOfferHandler } from "./payload-builder-handlers";
+import {
+  createSectionHandler,
+  deleteSectionHandler,
+  getSectionHandler,
+  listSectionsHandler,
+  patchSectionHandler,
+  previewSectionHandler,
+  sectionAnalyticsHandler,
+  sectionOffersHandler,
+  sectionUsageHandler,
+  validateSectionPayloadHandler,
+} from "./sections-handlers";
 import type {
-  LeadgenSectionRow,
-  LeadgenSectionApi,
   LeadgenQuoteRow,
   LeadgenQuoteApi,
   LeadgenAuctionRow,
@@ -50,16 +60,8 @@ import type {
 export type { Paging } from "./offers-handlers";
 
 // --- Row→API mapping (03 §8.5: INTEGER bools → boolean, JSON → parsed) ------
-
-function sectionRowToApi(row: LeadgenSectionRow): LeadgenSectionApi {
-  return {
-    ...row,
-    image_json: parseJsonColumn(row.image_json),
-    content_json: parseJsonColumn(row.content_json),
-    design_overrides_json: parseJsonColumn(row.design_overrides_json),
-    address_validation_enabled: row.address_validation_enabled !== 0,
-  };
-}
+// Sections own their Row→API mapping in sections-handlers.ts (the full §8.2
+// Sections surface ships there); quotes + auctions keep the Phase-3 skeleton.
 
 function quoteRowToApi(row: LeadgenQuoteRow): LeadgenQuoteApi {
   return {
@@ -159,9 +161,18 @@ routes.post("/offers/:id/payload-schemas", createPayloadSchemaHandler);
 routes.post("/offers/:id/payload-schemas/from-example", createPayloadSchemaFromExampleHandler);
 routes.post("/offers/:id/test", testOfferHandler);
 
-// --- Sections (03 §8.2) ------------------------------------------------------
-routes.get("/sections", listHandler<LeadgenSectionRow, LeadgenSectionApi>("leadgen_sections", sectionRowToApi));
-routes.get("/sections/:id", getHandler<LeadgenSectionRow, LeadgenSectionApi>("section", "leadgen_sections", sectionRowToApi));
+// --- Sections (03 §8.2 + 05 §12–§14 — Phase-5 Stage B full surface) ----------
+// Static paths BEFORE /sections/:id (03 §8.1 static-before-param discipline).
+routes.get("/sections", listSectionsHandler);
+routes.post("/sections", createSectionHandler);
+routes.post("/sections/preview", previewSectionHandler); // static BEFORE /sections/:id
+routes.get("/sections/:id", getSectionHandler);
+routes.patch("/sections/:id", patchSectionHandler);
+routes.delete("/sections/:id", deleteSectionHandler);
+routes.get("/sections/:id/usage", sectionUsageHandler);
+routes.get("/sections/:id/offers", sectionOffersHandler);
+routes.get("/sections/:id/analytics", sectionAnalyticsHandler);
+routes.post("/sections/:id/validate-payload", validateSectionPayloadHandler);
 
 // --- Quotes (03 §8.2) --------------------------------------------------------
 routes.get("/quotes", listHandler<LeadgenQuoteRow, LeadgenQuoteApi>("leadgen_quotes", quoteRowToApi));

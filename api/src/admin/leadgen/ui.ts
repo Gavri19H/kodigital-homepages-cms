@@ -41,7 +41,6 @@ import {
   renderListPager,
 } from "../templates/layout";
 import type {
-  LeadgenSectionApi,
   LeadgenQuoteApi,
   LeadgenAuctionApi,
 } from "./db-types";
@@ -50,6 +49,11 @@ import {
   leadgenOffersNewPage,
   leadgenOfferEditorPage,
 } from "./ui-offers";
+import {
+  leadgenSectionsListPage,
+  leadgenSectionsNewPage,
+  leadgenSectionEditorPage,
+} from "./ui-sections";
 
 export type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
 export type UiContext = Context<AdminEnv>;
@@ -290,33 +294,9 @@ ${pager}`;
 }
 
 // ---------------------------------------------------------------------------
-// Sections tab (03 §9.3 list columns)
+// Sections tab (03 §9.3) — LIVE (Phase-5 Stage B, ui-sections.ts). List + the
+// full-page editor register below; the scaffold row renderer is retired.
 // ---------------------------------------------------------------------------
-
-const SECTION_COLUMNS: ReadonlyArray<ListColumn> = [
-  { label: "Name" },
-  { label: "Activity / Vertical" },
-  { label: "Questions", numeric: true },
-  { label: "Mapped Offers", numeric: true },
-  { label: "Mapping completeness" },
-  { label: "Status" },
-  { label: "Views", numeric: true },
-  { label: "Continue rate", numeric: true },
-  { label: "Validation-error rate", numeric: true },
-  { label: "Actions" },
-];
-
-function renderSectionRow(s: LeadgenSectionApi): string {
-  return `<tr data-entity-id="${s.id}" data-entity-name="${escapeHtml(s.section_name)}">
-  <td>${escapeHtml(s.section_name)}</td>
-  <td>${escapeHtml(s.activity)} / ${escapeHtml(s.vertical)}</td>
-  ${dashCells(2)}
-  ${dashCell(false)}
-  <td>${statusBadge(s.status)}</td>
-  ${dashCells(3)}
-  <td>${EM_DASH}</td>
-</tr>`;
-}
 
 // ---------------------------------------------------------------------------
 // Quotes tab (03 §9.4 list columns)
@@ -409,34 +389,12 @@ leadgenUi.get("/admin/leadgen/offers", leadgenOffersListPage);
 leadgenUi.get("/admin/leadgen/offers/new", leadgenOffersNewPage);
 leadgenUi.get("/admin/leadgen/offers/:id/edit", leadgenOfferEditorPage);
 
-leadgenUi.get("/admin/leadgen/sections", async (c) => {
-  const page = pageParam(c);
-  const listed = await apiJson<ListBody<LeadgenSectionApi>>(
-    c.env,
-    `/api/admin/leadgen/sections${pageQuery(page)}`,
-  );
-  return c.html(
-    leadgenTabPage(
-      {
-        tab: "sections",
-        createLabel: "Create a Section",
-        phaseNote: "Section editor ships in a later phase",
-        table: renderListTable({
-          tableClass: "leadgen-sections-list",
-          ariaLabel: "Sections list",
-          columns: SECTION_COLUMNS,
-          rows: (listed.ok ? listed.body.items : []).map(renderSectionRow),
-          emptyEntity: "sections",
-          phaseNote: "Section editor ships in a later phase",
-        }),
-        paging: listed.ok ? listed.body.paging : EMPTY_PAGING,
-        page,
-        loadError: listed.ok ? null : listed.error,
-      },
-      branding(c),
-    ),
-  );
-});
+// Sections tab — LIVE (Phase-5 Stage B, contract 03 §9.3 / 05 §12–§14).
+// Editor shells registered static-before-param (01 §5.2): /sections/new
+// precedes /sections/:id/edit.
+leadgenUi.get("/admin/leadgen/sections", leadgenSectionsListPage);
+leadgenUi.get("/admin/leadgen/sections/new", leadgenSectionsNewPage);
+leadgenUi.get("/admin/leadgen/sections/:id/edit", leadgenSectionEditorPage);
 
 leadgenUi.get("/admin/leadgen/quotes", async (c) => {
   const page = pageParam(c);
