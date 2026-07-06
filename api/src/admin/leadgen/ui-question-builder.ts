@@ -313,6 +313,9 @@ interface AnswerMapView {
   default_value: string | null;
   fallback_value: string | null;
   mapping_status: string;
+  // The pinned versioned schema's public_id (`lgp_…`) — named in the §12.11
+  // `orphaned` cell copy ("…no longer exists in schema <id>").
+  payload_schema_public_id?: string;
 }
 
 // The §12.11 semantic four-state, derived 1:1 from the DDL-storable
@@ -338,11 +341,14 @@ function completenessStateOf(mappingStatus: string): CompletenessCellState {
 //   ok               → green check
 //   missing_required → red "map required field"
 //   type_mismatch    → amber "answer type X not coercible to Y"
-//   orphaned         → gray "Offer field no longer exists in schema"
+//   orphaned         → gray "Offer field no longer exists in schema <version>"
 // The `data-mapping-status` (DB value) attribute is preserved for back-compat;
 // `data-mapping-cell` carries the §12.11 semantic state so tests + CSS target it.
 function completenessCell(m: AnswerMapView): string {
   const state = completenessStateOf(m.mapping_status);
+  // §12.11 names the schema "vN"; the answer-map row pins the versioned
+  // schema's stable public_id (lgp_…), which uniquely identifies that version.
+  const schemaRef = m.payload_schema_public_id ? ` ${m.payload_schema_public_id}` : "";
   const cells: Record<CompletenessCellState, { cls: string; text: string; prefix: string }> = {
     ok: { cls: "lg-cell lg-cell-ok badge badge-published", text: "ok", prefix: "&#10003; " },
     missing_required: { cls: "lg-cell lg-cell-missing badge badge-scheduled", text: "map required field", prefix: "" },
@@ -351,7 +357,7 @@ function completenessCell(m: AnswerMapView): string {
       text: `answer type ${m.answer_type === "" ? "?" : m.answer_type} not coercible to ${m.provider_expected_type}`,
       prefix: "",
     },
-    orphaned: { cls: "lg-cell lg-cell-orphaned badge badge-archived", text: "Offer field no longer exists in schema", prefix: "" },
+    orphaned: { cls: "lg-cell lg-cell-orphaned badge badge-archived", text: `Offer field no longer exists in schema${schemaRef}`, prefix: "" },
   };
   const chosen = cells[state];
   return `<span class="${chosen.cls}" data-mapping-status="${escapeHtml(m.mapping_status)}" data-mapping-cell="${state}" title="${escapeHtml(chosen.text)}">${chosen.prefix}${escapeHtml(chosen.text)}</span>`;

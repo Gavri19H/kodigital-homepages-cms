@@ -80,6 +80,10 @@ function isAnswered(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === "string") return value.trim() !== "";
   if (Array.isArray(value)) return value.length > 0;
+  // Empty object counts as unanswered too (exact parity with cleanObject,
+  // which drops empty objects); normalized answers are scalars/arrays in
+  // practice, but the equivalence must hold for any shape.
+  if (typeof value === "object") return Object.keys(value as object).length > 0;
   return true;
 }
 

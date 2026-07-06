@@ -22,6 +22,11 @@ import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { renderMappingGrid, type AnswerMapView, type MappingSummary } from "../src/admin/leadgen/ui-question-builder";
+import {
+  mappingSummaryOf,
+  type AnswerMapApiRow,
+  type AvailableOfferRow,
+} from "../src/admin/leadgen/ui-sections";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -655,6 +660,64 @@ describe("§12.11 mapping grid — the four field-level cell states + publish su
     expect(ok).toContain('data-publishable="true"');
     expect(ok).toContain("Publishable");
     expect(ok).toContain('data-required-missing="0"');
+  });
+
+  it("the orphaned cell names the pinned schema by its public_id (§12.11 'vN')", () => {
+    const withSchema = renderMappingGrid(
+      [mapView("orphaned", { payload_schema_public_id: "lgp_00000000000000000000000001" })],
+      new Map<number, string>([[7, "OfferX"]]),
+      { publishable: false, status: "error", required_missing_total: 0 },
+    );
+    expect(withSchema).toContain("no longer exists in schema lgp_00000000000000000000000001");
+  });
+});
+
+// MAJOR-#1 regression: mappingSummaryOf (the REAL editor derivation, not a
+// hand-built MappingSummary) must agree with sectionValidationStatus — a
+// per-edge non-complete mapping_status blocks publish even when the aggregated
+// available-offer counts look complete.
+describe("mappingSummaryOf — edge-level errors block publish (sectionValidationStatus parity)", () => {
+  const cleanOffer: AvailableOfferRow = {
+    offer_id: 7,
+    selected: true,
+    mapping_state: "complete",
+    required_fields_total: 1,
+    required_fields_mapped: 1, // aggregate looks fully mapped
+  };
+  const edge = (mapping_status: string): AnswerMapApiRow => ({
+    question_id: "q1",
+    question_key: "q1",
+    internal_field: "f1",
+    answer_type: "string",
+    offer_id: 7,
+    offer_payload_field_path: "data.f1",
+    provider_expected_type: "string",
+    output_value_map: null,
+    value_transform: null,
+    required_for_offer: true,
+    default_value: null,
+    fallback_value: null,
+    mapping_status,
+  });
+
+  it("aggregate-clean + a complete edge → publishable", () => {
+    const s = mappingSummaryOf([cleanOffer], [edge("complete")]);
+    expect(s.publishable).toBe(true);
+  });
+
+  it("aggregate-clean but an `incomplete` edge → NOT publishable (the missed case)", () => {
+    const s = mappingSummaryOf([cleanOffer], [edge("incomplete")]);
+    expect(s.publishable).toBe(false);
+  });
+
+  it("aggregate-clean but a `type_mismatch` / `orphaned` edge → NOT publishable", () => {
+    expect(mappingSummaryOf([cleanOffer], [edge("type_mismatch")]).publishable).toBe(false);
+    expect(mappingSummaryOf([cleanOffer], [edge("orphaned")]).publishable).toBe(false);
+  });
+
+  it("an `invalid` offer state → NOT publishable even with complete edges", () => {
+    const invalid: AvailableOfferRow = { ...cleanOffer, mapping_state: "invalid" };
+    expect(mappingSummaryOf([invalid], [edge("complete")]).publishable).toBe(false);
   });
 });
 

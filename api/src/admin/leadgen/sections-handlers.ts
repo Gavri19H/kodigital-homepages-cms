@@ -1356,24 +1356,33 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
 // (one of `props.internal_fields`, default set street/city/state/zip). Mirrors
 // answers.ts fieldsOf so the fields checked here == the fields normalizeAnswers
 // produced (no divergent field vocabulary).
+// Mirrors answers.ts `fieldsOf` exactly so the ZIP check probes the SAME
+// internal fields normalizeAnswers populates: a top-level `internal_field`
+// wins for any node (incl. AddressAutocompleteQuestion); otherwise an
+// AddressAutocompleteQuestion expands to `props.internal_fields` (default
+// street/city/state/zip). Then keeps only the zip-ish fields.
 function zipFieldsOfContent(content: LeadgenSectionContent): string[] {
   const out: string[] = [];
   for (const node of content.components) {
     if (!isRecord(node)) continue;
     const type = node["type"];
+    const topField = trimmedString(node["internal_field"]);
     if (type === "ZIPInputQuestion") {
-      const field = trimmedString(node["internal_field"]);
-      if (field !== null) out.push(field);
+      if (topField !== null) out.push(topField);
     } else if (type === "AddressAutocompleteQuestion") {
-      const fields = Array.isArray(node["internal_fields"])
-        ? node["internal_fields"]
-        : isRecord(node["props"]) && Array.isArray((node["props"] as Record<string, unknown>)["internal_fields"])
-          ? ((node["props"] as Record<string, unknown>)["internal_fields"] as unknown[])
+      if (topField !== null) {
+        // A singular top-level internal_field is what normalizeAnswers uses;
+        // count it only if it is itself a ZIP field.
+        if (/zip/i.test(topField)) out.push(topField);
+      } else {
+        const props = isRecord(node["props"]) ? (node["props"] as Record<string, unknown>) : {};
+        const fields = Array.isArray(props["internal_fields"])
+          ? (props["internal_fields"] as unknown[])
           : ["street", "city", "state", "zip"];
-      for (const f of fields) {
-        if (typeof f === "string" && /zip/i.test(f)) out.push(f);
+        for (const f of fields) {
+          if (typeof f === "string" && /zip/i.test(f)) out.push(f);
+        }
       }
-      if (!fields.some((f) => typeof f === "string" && /zip/i.test(f))) out.push("zip");
     }
   }
   return [...new Set(out)];

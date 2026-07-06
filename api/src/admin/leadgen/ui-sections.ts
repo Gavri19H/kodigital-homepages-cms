@@ -50,7 +50,7 @@ type SectionListItem = LeadgenSectionApi & {
   completeness: "complete" | "incomplete" | "invalid" | "none";
 };
 
-interface AnswerMapApiRow {
+export interface AnswerMapApiRow {
   question_id: string;
   question_key: string;
   internal_field: string;
@@ -66,11 +66,12 @@ interface AnswerMapApiRow {
   default_value: string | null;
   fallback_value: string | null;
   mapping_status: string;
+  payload_schema_public_id?: string;
 }
 
 // The derived available-offer row (§12.1 rebuild output) carries the per-Offer
 // mapping_state + the required-field counts the §12.11 publish verdict reads.
-interface AvailableOfferRow {
+export interface AvailableOfferRow {
   offer_id: number;
   selected: boolean;
   mapping_state: string;
@@ -84,11 +85,15 @@ type SectionDetail = LeadgenSectionApi & {
 };
 
 // §12.11 / §35: derive the section-level publish verdict + missing-required
-// count from the persisted available-offer rows — the SAME derived truth
-// sectionValidationStatus() consumes (a Section is publishable ⇔ no Offer is
-// `invalid` AND every provider-required field is mapped). Reads the truth
-// machine's output; never re-implements the completeness logic.
-function mappingSummaryOf(availableOffers: readonly AvailableOfferRow[]): MappingSummary {
+// count. This MUST agree with sectionValidationStatus() (the authoritative
+// gate), which flags an Offer `error` on EITHER an aggregated unmapped-required
+// count OR a per-edge non-`complete` mapping_status (missing_required /
+// type_mismatch / orphaned). Reading only the aggregated available-offer row
+// misses the edge-level errors, so this also scans the loaded answer-map edges.
+export function mappingSummaryOf(
+  availableOffers: readonly AvailableOfferRow[],
+  answerMaps: readonly AnswerMapApiRow[],
+): MappingSummary {
   let requiredMissing = 0;
   let publishable = true;
   for (const o of availableOffers) {
@@ -96,6 +101,12 @@ function mappingSummaryOf(availableOffers: readonly AvailableOfferRow[]): Mappin
     const mapped = o.required_fields_mapped ?? 0;
     if (total > mapped) requiredMissing += total - mapped;
     if (o.mapping_state === "invalid" || total > mapped) publishable = false;
+  }
+  // Per-edge errors (sectionValidationStatus parity): any edge that is not
+  // `complete` makes the Section unpublishable, exactly as the truth machine
+  // pushes an `error` reason per non-complete edge.
+  for (const m of answerMaps) {
+    if (m.mapping_status !== "complete") publishable = false;
   }
   return { publishable, status: publishable ? "ok" : "error", required_missing_total: requiredMissing };
 }
@@ -348,6 +359,7 @@ function toAnswerMapViews(rows: AnswerMapApiRow[]): AnswerMapView[] {
     default_value: m.default_value,
     fallback_value: m.fallback_value,
     mapping_status: m.mapping_status,
+    payload_schema_public_id: m.payload_schema_public_id,
   }));
 }
 
@@ -515,7 +527,7 @@ export async function leadgenSectionEditorPage(c: UiContext): Promise<Response> 
         section,
         offerLabelById,
         maps: toAnswerMapViews(section.answer_maps),
-        summary: mappingSummaryOf(section.available_offers ?? []),
+        summary: mappingSummaryOf(section.available_offers ?? [], section.answer_maps ?? []),
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
       },
       branding(c),
