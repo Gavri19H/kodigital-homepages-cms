@@ -14,10 +14,10 @@ Head verified `0035` at program start (2026-07-06, main@6ff0102); contract numbe
 
 | Contract file | Shipped as | Applied (local) | Applied (remote) |
 |---|---|---|---|
-| `0036_leadgen_core.sql` | `0036` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
-| `0037_leadgen_analytics_mirror.sql` | `0037` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
-| `0038_leadgen_revenue_infra.sql` | `0038` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
-| `0039_leadgen_conversion_dedupe.sql` | `0039` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
+| `0036_leadgen_core.sql` | `0036` (unchanged) | ☑ 2026-07-06 | ☑ 2026-07-06 (run 28794699290) |
+| `0037_leadgen_analytics_mirror.sql` | `0037` (unchanged) | ☑ 2026-07-06 | ☑ 2026-07-06 (run 28794699290) |
+| `0038_leadgen_revenue_infra.sql` | `0038` (unchanged) | ☑ 2026-07-06 | ☑ 2026-07-06 (run 28794699290) |
+| `0039_leadgen_conversion_dedupe.sql` | `0039` (unchanged) | ☑ 2026-07-06 | ☑ 2026-07-06 (run 28794699290) |
 
 Local apply evidence: `npm run db:migrate:local` → all four ✅; local D1 `sqlite_master` count of `leadgen_%` tables = **40** (24 core + 9 mirrors + 6 revenue + 1 dedupe — the physical count per the normative DDL; matrix row 8's "26 tables" is a loose entity-group count).
 
@@ -34,7 +34,7 @@ Each shipped migration MUST be anchored in `.github/workflows/deploy.yml` in the
 | DEV-5 | Where older §-prose conflicts with v2.3.7 status (e.g. `10`§34 OQ-2 "provisional tokens"), the README/`12`-matrix v2 status governs: measured tokens are shipped; screenshots are capability examples only. | Contract's own versioning. |
 | DEV-6 | `docs/MISSION-CMS-RESCUE-4.md` (foreign untracked local mission doc) added to `GROUP_A_ALLOWED_FILES`. | It made every LOCAL scanner run + 3 verify-green vitest files fail pre-program (2 prose lines naming the reference product); CI unaffected (untracked). Precedent: `docs/MISSION-CMS-RESCUE-2.md` already allowlisted. Baseline evidence in P1 section. |
 | DEV-7 | Contract source seeds (`components/registry.ts`, `designs/default-funnel/tokens.ts`) verified **token-clean** at vendoring — no comment-stripping needed at P5; vendor verbatim. | Token pre-scan at P1 (grep over all 26 files): only 8 prose/audit docs carry banned tokens; both seeds + all migrations/infra DDL are clean. |
-| DEV-8 | **Delivery-model change (operator instruction 2026-07-06):** per-PR review + contract-alignment validation + merge + deploy delegated to the agent ("do it independently for each pr"); CP0–CP5 are agent-executed verification stations, not user stops. `ENABLE_STAGING_DEPLOY` is unset and setting it was permission-denied → staging CI deploys skip; each PR deploys via `gh workflow run deploy.yml -f target_env=production` (which also applies migrations). Operator may set the variable to restore staging-first. | Operator message + permission-classifier denial, this session. |
+| DEV-8 | **Delivery-model change (operator instruction 2026-07-06):** per-PR review + contract-alignment validation + merge + deploy delegated to the agent ("do it independently for each pr"); CP0–CP5 are agent-executed verification stations, not user stops. `ENABLE_STAGING_DEPLOY` is unset and setting it was permission-denied → staging CI deploys skip; each PR deploys via `gh workflow run deploy.yml -f target_env=production` (which also applies migrations). **Ratified 2026-07-06 (post-P2): the operator ruled staging is skipped entirely for this program** — new-product routes are dark-by-construction, the full regression suite runs pre-merge, and staging shares production's D1 so it isolates nothing; production dispatch is the standing deploy path for every PR. | Operator messages (delegation + staging ruling) + permission-classifier denial, this session. |
 | DEV-9 | §7.8's "Seed 5 disabled `leadgen_media_platforms`" is implemented **app-level at P13** (media-platforms admin CRUD + optional `seed-local`), NOT as migration INSERTs. | The normative vendored `0038` contains no INSERTs; the Listicles precedent (`0034`) is likewise INSERT-free (platforms created via admin CRUD); repo D2 deploy-safety forbids unconditional seed-INSERTs into admin-managed tables. |
 
 ## OQ resolutions (contract `10`§34)
@@ -59,8 +59,8 @@ Each shipped migration MUST be anchored in `.github/workflows/deploy.yml` in the
 | Google Maps browser + server keys (wrangler secrets) | P6 live autofill leg | PENDING (code no-ops until set) |
 | Athena `leadgen` DDL + Athena→ClickHouse ingest job (ops) | P12–P13 live analytics/revenue legs | PENDING (DDL delivered at P12) |
 | Per-provider example payloads (captured via Test tool) | provider onboarding (post-P4) | PENDING |
-| Staging-deploy repo variable state + CP1 watched deploy | P2 merge | PENDING |
-| Production `workflow_dispatch` + post-deploy behavioral verification | CP4 (optional) / CP5 | PENDING |
+| Staging-deploy repo variable state + CP1 watched deploy | P2 merge | RESOLVED — staging skipped by operator ruling (DEV-8); CP1 executed against the production dispatch (run 28794699290) + live D1 probe (P2 addendum) |
+| Production `workflow_dispatch` + post-deploy behavioral verification | every PR (agent-executed per DEV-8); final sign-off dispatch at CP5 | IN FORCE — P1 run 28793161710 ✅, P2 run 28794699290 ✅; CP5 final PENDING |
 
 ---
 
@@ -78,7 +78,7 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 6 | CMS navigation | P3 | `src/admin/templates/layout.ts` nav + `admin/leadgen/ui.ts` | `test-ui/leadgen-nav.spec.ts`; NAV count-test update | PENDING |
 | 7 | Ownership + site activation | P7 | `leadgen_site_quotes` (0036) + `admin/leadgen/quotes-handlers.ts` + `public/leadgen/resolver.ts` | `test/leadgen-activation.test.ts` | PENDING |
 | 8 | Data model (40 physical tables) | P2 | `migrations/0036–0039` + `admin/leadgen/db-types.ts` (40 Row/API pairs) | `test/leadgen-migrations.test.ts` + `tsc` (P2 header) | PASS |
-| 9 | Full D1 migration DDL | P2 | `migrations/0036_leadgen_core.sql` … `0039_…` (cmp-identical to contract) + deploy.yml anchors | apply local ✅ + constraint tests 8/8 (P2 header); remote via P2 deploy | PASS |
+| 9 | Full D1 migration DDL | P2 | `migrations/0036_leadgen_core.sql` … `0039_…` (cmp-identical to contract) + deploy.yml anchors | apply local ✅ + constraint tests 8/8 (P2 header); remote applied ✅ run 28794699290 (P2 addendum) | PASS |
 | 10 | Full API route contract | P3+ | `admin/leadgen/router.ts` (static-before-param) + `public/leadgen/*` routes | `test/leadgen-routes-auth.test.ts` (404 off ADMIN_HOST; 401/403; no-store) | PENDING |
 | 11 | Admin UI contract | P3+ | `admin/leadgen/ui.ts` + `ui-*.ts` (apiJson in-process SSR) | `test-ui/leadgen-admin.spec.ts` flows | PENDING |
 | 12 | Offers tab | P4 | `admin/leadgen/offers-handlers.ts`, `ui-offers.ts`, `leadgen/validation.ts` | `test/leadgen-offers-api.test.ts` + UI spec | PENDING |
@@ -203,6 +203,12 @@ Evidence:
 - **Constraints proven** (`api/test/leadgen-migrations.test.ts`, 8 tests): 40-table existence + key names; idempotent re-run; `offer_type` CHECK rejects `cpm`; UNIQUE `(provider,external_txn_id)`, `(click_id,dedupe_key)`, `(variant_id,position)`; partial uniques `uq_leadgen_sitequote_root` (one enabled NULL-slug root per site, disabled/slugged/other-site all accepted) + `uq_leadgen_offerplacement_default` (one default placement per offer).
 - **Row/API types:** `api/src/admin/leadgen/db-types.ts` (1193 lines) — 40 Row + 40 Api pairs, 38 CHECK-derived unions, typed `conditions_json` (07§21.4) + canonical Carrier (07§20); mechanical set-equality vs DDL 40/40; compiles under `tsc --noEmit`.
 - Remote apply happens at this PR's production deploy (workflow migration step); post-deploy probe recorded in the P2 addendum below.
+
+**P2 deploy addendum — 2026-07-06, squash-merge `6e48207` (PR #73), production dispatch run `28794699290` (success):**
+- Workflow migration step applied `0036–0039` to the LIVE shared D1 (`kodigital-homepages-cms-db`) before the Worker deploy — remote ticks recorded in the numbering table above.
+- Post-deploy D1 probe (cf-bindings `d1_database_query` on the live DB): `leadgen_%` tables **0→40**, `listicle_%` **23→23** (untouched), total 49→89; all 3 partial-unique indexes present (`uq_leadgen_sitequote_root`, `uq_leadgen_offerplacement_default`, `uq_leadgen_abtest_running`).
+- Live worker checks: tenant `/health` 200 `{"ok":true}`; public tenant page 200; `/admin/leadgen` off-`ADMIN_HOST` → 404; admin host fronted by CF Access (302) — posture unchanged.
+- **CP1 discharged** (agent-executed per DEV-8): watched deploy + live `sqlite_master` probe. Staging permanently skipped — operator ratified (DEV-8).
 
 ### P3 — Admin nav + shell
 _(pending)_
