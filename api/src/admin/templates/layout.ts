@@ -1,8 +1,9 @@
 // Admin UI shell template — ported from the legacy admin layout
 // (theiwise-legacy-readonly api/src/admin/templates/layout.ts), rebranded.
-// Brand: KoDigital CMS only. 10-entry sidebar nav: Dashboard, Domains, Articles,
-// Pages, Listicles (design contract §4 — inserted right after Pages), Media,
-// Categories, Tags, AI Presets, Settings.
+// Brand: KoDigital CMS only. 11-entry sidebar nav: Dashboard, Domains, Articles,
+// Pages, Listicles (design contract §4 — inserted right after Pages), LeadGen
+// (LeadGen contract 01 §5.1 — right after Listicles), Media, Categories, Tags,
+// AI Presets, Settings.
 // The inline <script> payload MUST stay ES5 (no arrow/const/let/async) —
 // asserted by test/admin-layout-shell.test.ts via script extraction.
 
@@ -30,6 +31,9 @@ const ICON_PAGES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" 
 // Listicles (design contract §4): numbered-list glyph in the same feather
 // outline style as the other sidebar icons.
 const ICON_LISTICLES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`;
+// LeadGen (contract 01 §5.1): funnel/filter glyph in the same feather
+// outline style as the other sidebar icons.
+const ICON_LEADGEN = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
 const ICON_MEDIA = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 const ICON_CATEGORIES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
 const ICON_TAGS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
@@ -43,6 +47,7 @@ const NAV_ENTRIES: ReadonlyArray<NavEntry> = [
   { href: "/admin/articles", label: "Articles", icon: ICON_ARTICLES },
   { href: "/admin/pages", label: "Pages", icon: ICON_PAGES },
   { href: "/admin/listicles", label: "Listicles", icon: ICON_LISTICLES },
+  { href: "/admin/leadgen", label: "LeadGen", icon: ICON_LEADGEN },
   { href: "/admin/media", label: "Media", icon: ICON_MEDIA },
   { href: "/admin/categories", label: "Categories", icon: ICON_CATEGORIES },
   { href: "/admin/tags", label: "Tags", icon: ICON_TAGS },
