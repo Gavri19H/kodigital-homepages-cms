@@ -451,8 +451,12 @@ export interface LeadgenSectionAnswerMapApi {
   payload_schema_public_id: string;
   offer_payload_field_path: string;
   provider_expected_type: string;
-  output_value_map_json: unknown;
-  transform_json: unknown;
+  // §8.5: the `*_json` columns parsed to their §12.11 API names. The API shape
+  // deliberately does NOT carry the raw `output_value_map_json`/`transform_json`
+  // column names — read and write share one key vocabulary (see
+  // sections-handlers.answerMapRowToApi / parseAnswerMaps).
+  output_value_map: Record<string, unknown> | null;
+  value_transform: unknown[] | null;
   required_for_offer: boolean;
   default_value: string | null;
   fallback_value: string | null;

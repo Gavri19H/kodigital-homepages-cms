@@ -563,6 +563,46 @@ describe("RangeQuestion / CurrencyRangeQuestion (§14.5)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ProgressBar — a11y (accessibility.md: role=progressbar + aria-valuenow)
+// ---------------------------------------------------------------------------
+
+describe("ProgressBar (a11y — role=progressbar + aria-value*)", () => {
+  it("percent mode emits role=progressbar + aria-valuemin/max/now (0..100)", () => {
+    const html = renderComponent(
+      { type: "ProgressBar", question_id: "p1", props: { mode: "percent", percent: 40 } },
+      DESIGN,
+    );
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuemin="0"');
+    expect(html).toContain('aria-valuemax="100"');
+    expect(html).toContain('aria-valuenow="40"');
+  });
+
+  it("step mode sets aria-valuemax to the step count + aria-valuenow to the step", () => {
+    const html = renderComponent(
+      { type: "ProgressBar", question_id: "p2", props: { mode: "step", step: 2, totalSteps: 5 } },
+      DESIGN,
+    );
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuemin="0"');
+    expect(html).toContain('aria-valuemax="5"'); // the step count, not 100
+    expect(html).toContain('aria-valuenow="2"');
+    // the derived "Step 2 of 5" label is exposed to AT via aria-valuetext.
+    expect(html).toContain('aria-valuetext="Step 2 of 5"');
+  });
+
+  it("escapes a hostile author label in aria-valuetext (never raw markup)", () => {
+    const html = renderComponent(
+      { type: "ProgressBar", question_id: "p3", props: { mode: "percent", percent: 10, label: `<img src=x onerror=alert(1)>` } },
+      DESIGN,
+    );
+    expect(html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(html).toContain("aria-valuetext=");
+    expect(html).toContain("&lt;img");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §14.6 continue — navy (NOT blue) full-width pill + loading spinner
 // ---------------------------------------------------------------------------
 

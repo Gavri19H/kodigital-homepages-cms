@@ -366,6 +366,111 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// M1 — the §13 builder / §14.8 inspector / §12.4 mapping grid can AUTHOR
+// (palette seeds editable nodes; inspector collects; mapping add/edit/remove)
+// ---------------------------------------------------------------------------
+
+// Extract a <script type="application/json" id="…"> data blob and JSON.parse it.
+function extractJsonBlob(html: string, id: string): Record<string, unknown> {
+  const marker = `id="${id}">`;
+  const start = html.indexOf(marker);
+  expect(start, `blob ${id} present`).toBeGreaterThan(-1);
+  const from = start + marker.length;
+  const end = html.indexOf("</script>", from);
+  const raw = html.slice(from, end).split("\\u003c").join("<");
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
+describeDb("leadgen section editor — M1 authoring wired", () => {
+  it("palette-add seed templates carry the catalog-required authorable fields", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+
+    // The seed blob the ES5 builder reads on palette click.
+    expect(html).toContain('id="lg-component-seeds"');
+    const seeds = extractJsonBlob(html, "lg-component-seeds");
+
+    // IconCardAnswerGrid needs internal_field + a (fillable) choices array +
+    // required, and declares its enum answer_type — enough for the inspector to
+    // complete it toward validity.
+    expect(seeds["IconCardAnswerGrid"]).toMatchObject({
+      internal_field: "",
+      required: false,
+      choices: [],
+      answer_type: "enum",
+    });
+    // A yes/no question seeds internal_field + boolean answer_type.
+    expect(seeds["TwoButtonYesNo"]).toMatchObject({ internal_field: "", answer_type: "boolean" });
+    // A choice question seeds a choices array; a range question seeds internal_field.
+    expect(seeds["ButtonAnswerGroup"]).toHaveProperty("choices");
+    expect(seeds["RangeQuestion"]).toMatchObject({ internal_field: "", answer_type: "number" });
+    // chrome with no authorable answer fields seeds an empty (but present) object.
+    expect(seeds["ProgressBar"]).toEqual({});
+  });
+
+  it("the inspector renders the §13.1 authoring controls (not just style tokens)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    expect(html).toContain("data-inspector-authoring");
+    expect(html).toContain('data-inspector-field="internal_field"');
+    expect(html).toContain('data-inspector-field="required"');
+    expect(html).toContain('data-inspector-field="valid_values"');
+    expect(html).toContain('data-inspector-cond="when"');
+    expect(html).toContain('data-inspector-cond="op"');
+    expect(html).toContain("data-inspector-choices");
+    expect(html).toContain('id="lg-choice-add"');
+  });
+
+  it("the ES5 builder COLLECTS inspector edits back into the selected node (not just markDirty)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+
+    // the collectors exist and are wired to input/change (not only markDirty)
+    expect(html).toContain("function collectInspectorField(");
+    expect(html).toContain("function collectInspectorOverride(");
+    expect(html).toContain("function collectConditional(");
+    expect(html).toContain("function collectChoices(");
+    expect(html).toContain("collectInspectorField(this)");
+    // it reads the data-collect hooks and writes into the selected content node
+    expect(html).toContain("getAttribute('data-inspector-field')");
+    expect(html).toContain("getAttribute('data-inspector-override')");
+    expect(html).toContain("data-inspector-cond=");
+    expect(html).toContain("getAttribute('data-choice-field')");
+    expect(html).toContain("function selectedNode(");
+    // palette-add seeds from the catalog blob (not a bare {type, question_id})
+    expect(html).toContain("componentSeeds[type]");
+  });
+
+  it("the mapping grid has a working add-row control + collects data-map-field into state.answer_maps", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const section = await createSection(env, {
+      answer_maps: [{ question_id: "q1", offer_id: offer.id, offer_payload_field_path: "data.insured", provider_expected_type: "boolean", required_for_offer: true }],
+    });
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+
+    expect(html).toContain('id="lg-mapping-add"');
+    // "+ Add mapping" appends an edge into state.answer_maps
+    expect(html).toContain("state.answer_maps.push(");
+    // per-row edit/remove/collect wiring reads data-map-field back into state
+    expect(html).toContain("function collectMappings(");
+    expect(html).toContain("function readMapRow(");
+    expect(html).toContain("function removeMapping(");
+    expect(html).toContain("getAttribute('data-map-field')");
+    expect(html).toContain("data-map-field");
+    // per-row Test hits the §12.11 validate-payload endpoint
+    expect(html).toContain("function testMapping(");
+    expect(html).toContain("/validate-payload");
+    // collectSection serializes BOTH the content nodes and the answer_maps
+    expect(html).toContain("content_json: JSON.stringify(state.content)");
+    expect(html).toContain("answer_maps: state.answer_maps");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // XSS escaping
 // ---------------------------------------------------------------------------
 

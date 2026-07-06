@@ -254,7 +254,15 @@ interface SectionDetail {
   status: string;
   content_json: unknown;
   available_offers: Array<{ offer_id: number; selected: boolean; mapping_state: string; required_fields_total: number; required_fields_mapped: number }>;
-  answer_maps: Array<{ offer_id: number; offer_payload_field_path: string; mapping_status: string; validation_status: string; payload_schema_public_id: string }>;
+  answer_maps: Array<{
+    offer_id: number;
+    offer_payload_field_path: string;
+    mapping_status: string;
+    validation_status: string;
+    payload_schema_public_id: string;
+    output_value_map: Record<string, unknown> | null;
+    value_transform: Array<Record<string, unknown>> | null;
+  }>;
   [key: string]: unknown;
 }
 
@@ -357,6 +365,56 @@ describeDb("POST /sections — create + §12.1 derived rebuild", () => {
       sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_section_answer_maps WHERE section_id = ?").get(section.id) as { n: number }
     ).n;
     expect(count).toBe(1);
+  });
+
+  it("B1: a GET→PATCH round-trip preserves output_value_map + value_transform (no silent wipe)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createMappableOffer(env);
+    // A NON-trivial per-Offer value map + transform (the §12.7/§16 core Section
+    // feature). This must survive a read-modify-write.
+    const section = await createSection(
+      env,
+      sectionBody({
+        answer_maps: [
+          mapEdge(offer.id, { output_value_map: { true: "Y", false: "N" }, value_transform: [{ kind: "toString" }] }),
+        ],
+      }),
+    );
+
+    // GET the detail — the READ shape the admin editor collectSection resends,
+    // and the shape any API GET→PATCH client round-trips.
+    const getRes = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    expect(getRes.status).toBe(200);
+    const got = (await getRes.json()) as SectionDetail;
+    expect(got.answer_maps).toHaveLength(1);
+    // §8.5 Row-vs-API contract: the READ shape exposes the §12.11 API names
+    // (output_value_map / value_transform), NOT the DB `_json` column names.
+    expect(got.answer_maps[0]?.output_value_map).toEqual({ true: "Y", false: "N" });
+    expect(got.answer_maps[0]?.value_transform).toEqual([{ kind: "toString" }]);
+
+    // PATCH the returned object back VERBATIM (the collectSection resend path).
+    const patchRes = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { answer_maps: got.answer_maps }),
+      env,
+    );
+    expect(patchRes.status, await patchRes.clone().text()).toBe(200);
+
+    // Re-GET: the map + transform MUST still be present (the bug wiped them to null).
+    const reRes = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    const re = (await reRes.json()) as SectionDetail;
+    expect(re.answer_maps).toHaveLength(1);
+    expect(re.answer_maps[0]?.output_value_map).toEqual({ true: "Y", false: "N" });
+    expect(re.answer_maps[0]?.value_transform).toEqual([{ kind: "toString" }]);
+
+    // DB truth: the columns are NOT null (a wipe would store null).
+    const dbRow = sdb
+      .prepare("SELECT output_value_map_json, transform_json FROM leadgen_section_answer_maps WHERE section_id = ?")
+      .get(section.id) as { output_value_map_json: string | null; transform_json: string | null };
+    expect(dbRow.output_value_map_json).not.toBeNull();
+    expect(JSON.parse(dbRow.output_value_map_json ?? "null")).toEqual({ true: "Y", false: "N" });
+    expect(dbRow.transform_json).not.toBeNull();
+    expect(JSON.parse(dbRow.transform_json ?? "null")).toEqual([{ kind: "toString" }]);
   });
 
   it("DELETE archives (status flip, never a hard delete)", async () => {

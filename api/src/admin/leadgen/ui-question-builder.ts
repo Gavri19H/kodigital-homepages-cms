@@ -73,6 +73,45 @@ export function renderComponentPalette(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Palette-add seed templates (§13) — the authorable-field skeleton a freshly
+// added component carries so the inspector can complete it toward validity.
+// Derived from the components/registry.ts COMPONENT_CATALOG `props` contract:
+// an `internal_field` / `required` / `choices…` prop becomes an editable node
+// field, and `answer_type` is seeded from the catalog `produces`. Serialized
+// into a JSON blob the ES5 builder reads on palette click (never a live look-up
+// of the catalog on the client).
+// ---------------------------------------------------------------------------
+
+function seedTemplateForType(type: ComponentType): Record<string, unknown> {
+  const entry = COMPONENT_CATALOG[type];
+  const props = entry.props as readonly string[];
+  const seed: Record<string, unknown> = {};
+  let hasChoices = false;
+  for (const prop of props) {
+    if (prop === "internal_field") seed["internal_field"] = "";
+    else if (prop === "required") seed["required"] = false;
+    else if (prop.indexOf("choices") === 0) hasChoices = true;
+  }
+  if (hasChoices) seed["choices"] = [];
+  if (entry.produces !== null) seed["answer_type"] = entry.produces;
+  return seed;
+}
+
+export function componentSeedTemplates(): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const type of Object.keys(COMPONENT_CATALOG) as ComponentType[]) {
+    out[type] = seedTemplateForType(type);
+  }
+  return out;
+}
+
+// The #lg-component-seeds JSON blob. `<`-escaped so it can never break out of
+// the <script type="application/json"> element (the #lg-section-data pattern).
+export function renderComponentSeedData(): string {
+  return `<script type="application/json" id="lg-component-seeds">${JSON.stringify(componentSeedTemplates()).replace(/</g, "\\u003c")}</script>`;
+}
+
+// ---------------------------------------------------------------------------
 // Builder canvas (LEFT) — the ordered component list (§13, add/reorder)
 // ---------------------------------------------------------------------------
 
@@ -188,6 +227,58 @@ function renderInspectorTokens(): string {
 </div>`;
 }
 
+// The §13.1 answer/content authoring controls the inspector COLLECTS back into
+// the selected node (internal_field / required / valid_values / a primary text
+// prop / the §12.3 inline conditional / the per-choice list). These are the
+// node CONTENT fields (distinct from the §14.8 style tokens above); the ES5
+// builder reads each `data-inspector-field` / `data-inspector-cond` /
+// `data-choice-field` back into `state.content` so collectSection serializes a
+// real authored node.
+const CONDITION_OP_OPTIONS: ReadonlyArray<string> = [
+  "eq",
+  "neq",
+  "gt",
+  "lt",
+  "gte",
+  "lte",
+  "range",
+  "in",
+  "not_in",
+];
+
+function renderInspectorAuthoring(): string {
+  const opOptions = CONDITION_OP_OPTIONS.map((op) => `<option value="${escapeHtml(op)}">${escapeHtml(op)}</option>`).join("");
+  return `<div class="lg-inspector-section" data-inspector-authoring>
+  <h4 class="lg-inspector-heading">Answer / content (§13.1)</h4>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-inspector-internal-field">Internal field (normalized answer name)</label>
+    <input id="lg-inspector-internal-field" class="form-input" type="text" data-inspector-field="internal_field" placeholder="e.g. currently_insured" />
+  </div>
+  <div class="form-group lg-inspector-field">
+    <label class="lg-check"><input type="checkbox" data-inspector-field="required" /> Required</label>
+  </div>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-inspector-text">Primary text / content</label>
+    <input id="lg-inspector-text" class="form-input" type="text" data-inspector-field="text" placeholder="headline / label / copy" />
+  </div>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-inspector-valid-values">Valid values (comma-separated)</label>
+    <input id="lg-inspector-valid-values" class="form-input" type="text" data-inspector-field="valid_values" placeholder="e.g. yes, no, maybe" />
+  </div>
+  <fieldset class="form-group lg-inspector-field lg-inspector-conditional">
+    <legend class="form-label">Inline dependency (§12.3)</legend>
+    <input class="form-input" type="text" data-inspector-cond="when" placeholder="show when field…" />
+    <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
+    <input class="form-input" type="text" data-inspector-cond="value" placeholder="equals value" />
+  </fieldset>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label">Choices (§13.1 per-choice label / value / analytics_id / icon / description)</label>
+    <div class="lg-choice-list" data-inspector-choices></div>
+    <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-add">+ Add choice</button>
+  </div>
+</div>`;
+}
+
 // ---------------------------------------------------------------------------
 // Mapping grid (§12.4 columns + §12.11 field-level states)
 // ---------------------------------------------------------------------------
@@ -206,14 +297,18 @@ const MAPPING_COLUMNS: ReadonlyArray<string> = [
 ];
 
 interface AnswerMapView {
+  question_id: string;
   question_key: string;
   internal_field: string;
   offer_id: number;
   offer_payload_field_path: string;
   provider_expected_type: string;
-  output_value_map_json: unknown;
-  transform_json: unknown;
+  // §8.5 API names (parsed JSON columns), matching the B1 read/write vocabulary.
+  output_value_map: unknown;
+  value_transform: unknown;
   required_for_offer: boolean;
+  default_value: string | null;
+  fallback_value: string | null;
   mapping_status: string;
 }
 
@@ -251,8 +346,8 @@ function renderMappingRow(m: AnswerMapView, offerLabelById: ReadonlyMap<number, 
   <td>${escapeHtml(offerLabel)}</td>
   <td><code>${escapeHtml(m.offer_payload_field_path)}</code></td>
   <td>${escapeHtml(m.provider_expected_type)}</td>
-  <td>${escapeHtml(valueMapSummary(m.output_value_map_json))}</td>
-  <td>${escapeHtml(transformSummary(m.transform_json))}</td>
+  <td>${escapeHtml(valueMapSummary(m.output_value_map))}</td>
+  <td>${escapeHtml(transformSummary(m.value_transform))}</td>
   <td>${m.required_for_offer ? "required" : "optional"}</td>
   <td>${completenessBadge(m.mapping_status)}</td>
   <td><button type="button" class="btn btn-sm btn-outline" data-mapping-test aria-label="Test generated payload">Test</button></td>
@@ -278,6 +373,7 @@ export function renderMappingGrid(
   </div>
   <button type="button" class="btn btn-sm btn-secondary" id="lg-mapping-add">+ Add mapping</button>
   <p id="lg-mapping-error" class="alert alert-error" hidden role="alert"></p>
+  <pre id="lg-mapping-test-result" class="lg-mapping-test-result" hidden aria-live="polite"></pre>
 </div>`;
 }
 
@@ -287,6 +383,7 @@ export function renderInspector(
 ): string {
   return `<aside class="lg-inspector" id="lg-inspector" aria-label="Component inspector">
   <div class="lg-inspector-head"><h3 class="card-title">Inspector</h3><span class="form-help" id="lg-inspector-target">Select a component</span></div>
+  ${renderInspectorAuthoring()}
   ${renderInspectorTokens()}
   ${renderMappingGrid(maps, offerLabelById)}
 </aside>`;
@@ -344,6 +441,12 @@ export const QUESTION_BUILDER_STYLES = `
 .lg-preview-frame[data-viewport="mobile"]{max-width:375px}
 .lg-viewport-toggle,.lg-states-simulator{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
 .lg-check{display:flex;align-items:center;gap:6px}
+.lg-choice-list{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}
+.lg-choice-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.lg-choice-row .form-input{flex:1 1 90px;min-width:0}
+.lg-inspector-conditional{display:flex;gap:4px;flex-wrap:wrap;border:0;padding:0;margin:0}
+.lg-mapping-grid .form-input{font-size:11px;padding:4px 6px;min-width:70px}
+.lg-mapping-test-result{background:var(--c-surface);border:1px solid var(--c-border);border-radius:6px;padding:8px;font-size:11px;overflow:auto;max-height:220px;white-space:pre-wrap;margin-top:8px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -365,8 +468,19 @@ export const QUESTION_BUILDER_SCRIPT = `
   try { state = JSON.parse(dataEl.textContent || '{}'); } catch (e) { state = {}; }
   if (!state.content || !state.content.components) { state.content = { components: [] }; }
   if (!state.answer_maps) { state.answer_maps = []; }
+
+  // Catalog-derived seed templates (the authorable-field skeleton per type).
+  var componentSeeds = {};
+  var seedEl = document.getElementById('lg-component-seeds');
+  if (seedEl) { try { componentSeeds = JSON.parse(seedEl.textContent || '{}'); } catch (e2) { componentSeeds = {}; } }
+
+  var selectedQuestionId = null;
+  var PROVIDER_TYPES = ['string', 'number', 'boolean', 'enum', 'object', 'array'];
   var dirty = false;
   function markDirty() { dirty = true; }
+
+  function cloneJson(v) { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return {}; } }
+  function trimStr(s) { if (s === undefined || s === null) { return ''; } return String(s).trim(); }
 
   function newQuestionId() {
     return 'q_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
@@ -378,9 +492,17 @@ export const QUESTION_BUILDER_SCRIPT = `
   for (pi = 0; pi < palette.length; pi++) {
     palette[pi].addEventListener('click', function () {
       var type = this.getAttribute('data-add-component');
-      state.content.components.push({ type: type, question_id: newQuestionId() });
+      // Seed the new node with the catalog-required authorable fields so the
+      // inspector can complete it toward validity (internal_field / choices /
+      // required / answer_type).
+      var seed = componentSeeds[type];
+      var node = seed ? cloneJson(seed) : {};
+      node.type = type;
+      node.question_id = newQuestionId();
+      state.content.components.push(node);
       markDirty();
       renderCanvas();
+      selectComponent(node.question_id);
     });
   }
 
@@ -403,6 +525,7 @@ export const QUESTION_BUILDER_SCRIPT = `
   }
 
   function selectComponent(questionId) {
+    selectedQuestionId = questionId;
     var cards = document.querySelectorAll('.lg-canvas-card');
     var i;
     for (i = 0; i < cards.length; i++) {
@@ -410,6 +533,13 @@ export const QUESTION_BUILDER_SCRIPT = `
     }
     var target = document.getElementById('lg-inspector-target');
     if (target) { target.textContent = 'Editing ' + questionId; }
+    populateInspector();
+  }
+
+  function selectedNode() {
+    if (selectedQuestionId === null) { return null; }
+    var at = findIndex(selectedQuestionId);
+    return at > -1 ? state.content.components[at] : null;
   }
 
   function renderCanvas() {
@@ -565,8 +695,328 @@ export const QUESTION_BUILDER_SCRIPT = `
     });
   }
 
+  // --- inspector: collect edits back into the selected node (§14.8/§13.1) ---
+  function ensureObj(node, key) {
+    if (!node[key] || typeof node[key] !== 'object') { node[key] = {}; }
+    return node[key];
+  }
+  function setOrDelete(obj, key, value) {
+    if (value === undefined || value === null || value === '') { delete obj[key]; } else { obj[key] = value; }
+  }
+  function cleanupEmpty(node, key) {
+    var o = node[key];
+    if (o && typeof o === 'object') {
+      var has = false, k;
+      for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { has = true; break; } }
+      if (!has) { delete node[key]; }
+    }
+  }
+  function splitCsv(s) {
+    var parts = (s || '').split(','), out = [], i, t;
+    for (i = 0; i < parts.length; i++) { t = trimStr(parts[i]); if (t !== '') { out.push(t); } }
+    return out;
+  }
+
+  function collectInspectorField(input) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var field = input.getAttribute('data-inspector-field');
+    if (!field) { return; }
+    if (field === 'required') { node.required = !!input.checked; }
+    else if (field === 'internal_field') { setOrDelete(node, 'internal_field', input.value); }
+    else if (field === 'design_preset') { setOrDelete(node, 'design_preset', input.value); }
+    else if (field === 'valid_values') {
+      var list = splitCsv(input.value);
+      if (list.length > 0) { node.valid_values = list; } else { delete node.valid_values; }
+    } else {
+      var props = ensureObj(node, 'props');
+      if (input.type === 'checkbox') { props[field] = !!input.checked; }
+      else if (input.value === '') { delete props[field]; }
+      else { props[field] = input.value; }
+      cleanupEmpty(node, 'props');
+    }
+    markDirty();
+  }
+
+  function collectInspectorOverride(input) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var key = input.getAttribute('data-inspector-override');
+    if (!key) { return; }
+    var ov = ensureObj(node, 'design_overrides');
+    if (input.value === '') { delete ov[key]; }
+    else if (input.type === 'number') { var n = Number(input.value); ov[key] = isNaN(n) ? input.value : n; }
+    else { ov[key] = input.value; }
+    cleanupEmpty(node, 'design_overrides');
+    markDirty();
+  }
+
+  function collectConditional() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var whenEl = document.querySelector('[data-inspector-cond="when"]');
+    var opEl = document.querySelector('[data-inspector-cond="op"]');
+    var valEl = document.querySelector('[data-inspector-cond="value"]');
+    var whenVal = whenEl ? trimStr(whenEl.value) : '';
+    if (whenVal === '') { delete node.conditional; }
+    else { node.conditional = { when: whenVal, op: opEl ? opEl.value : 'eq', value: valEl ? valEl.value : '' }; }
+    markDirty();
+  }
+
+  // --- per-choice editor (§13.1 label/value/analytics_id/icon/description) --
+  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'icon', 'description'];
+  function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
+
+  function buildChoiceRow(choice) {
+    var wrap = document.createElement('div');
+    wrap.className = 'lg-choice-row';
+    wrap.setAttribute('data-choice-row', '');
+    var i, inp, val;
+    for (i = 0; i < CHOICE_FIELDS.length; i++) {
+      inp = document.createElement('input');
+      inp.className = 'form-input';
+      inp.setAttribute('data-choice-field', CHOICE_FIELDS[i]);
+      inp.setAttribute('placeholder', CHOICE_FIELDS[i]);
+      val = choice ? choice[CHOICE_FIELDS[i]] : undefined;
+      inp.value = (val === undefined || val === null) ? '' : String(val);
+      inp.addEventListener('input', collectChoices);
+      inp.addEventListener('change', collectChoices);
+      wrap.appendChild(inp);
+    }
+    var rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'btn btn-sm btn-danger';
+    rm.setAttribute('data-choice-remove', '');
+    rm.textContent = 'Remove';
+    rm.addEventListener('click', function () {
+      if (wrap.parentNode) { wrap.parentNode.removeChild(wrap); }
+      collectChoices();
+    });
+    wrap.appendChild(rm);
+    return wrap;
+  }
+
+  function renderChoiceEditor(node) {
+    var c = choiceContainer();
+    if (!c) { return; }
+    while (c.firstChild) { c.removeChild(c.firstChild); }
+    var choices = (node && node.choices && node.choices.length) ? node.choices : [];
+    var i;
+    for (i = 0; i < choices.length; i++) { c.appendChild(buildChoiceRow(choices[i])); }
+  }
+
+  function collectChoices() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var c = choiceContainer();
+    if (!c) { return; }
+    var rows = c.querySelectorAll('[data-choice-row]');
+    var choices = [], i, j, inputs, choice, f, v;
+    for (i = 0; i < rows.length; i++) {
+      inputs = rows[i].querySelectorAll('[data-choice-field]');
+      choice = {};
+      for (j = 0; j < inputs.length; j++) {
+        f = inputs[j].getAttribute('data-choice-field');
+        v = inputs[j].value;
+        if (v !== '') { choice[f] = v; }
+      }
+      choices.push(choice);
+    }
+    if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
+    markDirty();
+  }
+
+  function inspectorFieldValue(node, field) {
+    if (!node) { return ''; }
+    if (field === 'required') { return node.required === true; }
+    if (field === 'internal_field') { return node.internal_field; }
+    if (field === 'design_preset') { return node.design_preset; }
+    if (field === 'valid_values') { return (node.valid_values && node.valid_values.length) ? node.valid_values.join(', ') : ''; }
+    return node.props ? node.props[field] : '';
+  }
+
+  function populateInspector() {
+    var node = selectedNode();
+    var fieldInputs = document.querySelectorAll('[data-inspector-field]');
+    var i, el, field, val;
+    for (i = 0; i < fieldInputs.length; i++) {
+      el = fieldInputs[i];
+      field = el.getAttribute('data-inspector-field');
+      val = inspectorFieldValue(node, field);
+      if (el.type === 'checkbox') { el.checked = !!val; }
+      else { el.value = (val === undefined || val === null) ? '' : String(val); }
+    }
+    var ovInputs = document.querySelectorAll('[data-inspector-override]');
+    var oel, key, oval;
+    for (i = 0; i < ovInputs.length; i++) {
+      oel = ovInputs[i];
+      key = oel.getAttribute('data-inspector-override');
+      oval = (node && node.design_overrides) ? node.design_overrides[key] : undefined;
+      oel.value = (oval === undefined || oval === null) ? '' : String(oval);
+    }
+    var whenEl = document.querySelector('[data-inspector-cond="when"]');
+    var opEl = document.querySelector('[data-inspector-cond="op"]');
+    var valEl = document.querySelector('[data-inspector-cond="value"]');
+    var cond = (node && node.conditional) ? node.conditional : null;
+    if (whenEl) { whenEl.value = (cond && cond.when) ? cond.when : ''; }
+    if (opEl) { opEl.value = (cond && cond.op) ? cond.op : 'eq'; }
+    if (valEl) { valEl.value = (cond && cond.value !== undefined && cond.value !== null) ? String(cond.value) : ''; }
+    renderChoiceEditor(node);
+  }
+
+  // --- §12.4/§12.11 answer to Offer mapping grid (add/edit/remove into state)
+  function mappingTbody() {
+    var grid = document.getElementById('lg-mapping-grid');
+    return grid ? grid.getElementsByTagName('tbody')[0] : null;
+  }
+  function jsonText(v) { if (v === undefined || v === null) { return ''; } try { return JSON.stringify(v); } catch (e) { return ''; } }
+  function jsonOrNull(text) {
+    var t = trimStr(text);
+    if (t === '') { return null; }
+    try { return JSON.parse(t); } catch (e) { return null; }
+  }
+  function appendCell(tr, child) { var td = document.createElement('td'); td.appendChild(child); tr.appendChild(td); }
+  function mapInput(field, value, kind) {
+    var el = document.createElement('input');
+    el.className = 'form-input';
+    el.setAttribute('data-map-field', field);
+    if (kind === 'checkbox') { el.type = 'checkbox'; el.checked = !!value; }
+    else { el.type = (kind === 'number') ? 'number' : 'text'; el.value = (value === undefined || value === null) ? '' : String(value); }
+    el.addEventListener('input', collectMappings);
+    el.addEventListener('change', collectMappings);
+    return el;
+  }
+  function mapSelect(field, value) {
+    var el = document.createElement('select');
+    el.className = 'form-input';
+    el.setAttribute('data-map-field', field);
+    var i, opt;
+    for (i = 0; i < PROVIDER_TYPES.length; i++) {
+      opt = document.createElement('option');
+      opt.value = PROVIDER_TYPES[i];
+      opt.textContent = PROVIDER_TYPES[i];
+      if (PROVIDER_TYPES[i] === value) { opt.selected = true; }
+      el.appendChild(opt);
+    }
+    el.addEventListener('change', collectMappings);
+    return el;
+  }
+
+  function buildMappingRow(edge, index) {
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-map-row', String(index));
+    if (edge && edge.offer_id) { tr.setAttribute('data-mapping-offer', String(edge.offer_id)); }
+    appendCell(tr, mapInput('question_id', edge ? edge.question_id : '', 'text'));
+    appendCell(tr, mapInput('internal_field', edge ? edge.internal_field : '', 'text'));
+    appendCell(tr, mapInput('offer_id', edge ? edge.offer_id : '', 'number'));
+    appendCell(tr, mapInput('offer_payload_field_path', edge ? edge.offer_payload_field_path : '', 'text'));
+    appendCell(tr, mapSelect('provider_expected_type', edge ? edge.provider_expected_type : 'string'));
+    appendCell(tr, mapInput('output_value_map', jsonText(edge ? edge.output_value_map : null), 'text'));
+    appendCell(tr, mapInput('value_transform', jsonText(edge ? edge.value_transform : null), 'text'));
+    appendCell(tr, mapInput('required_for_offer', edge ? edge.required_for_offer : false, 'checkbox'));
+    appendCell(tr, mapInput('default_value', edge ? edge.default_value : '', 'text'));
+    appendCell(tr, mapInput('fallback_value', edge ? edge.fallback_value : '', 'text'));
+    var td = document.createElement('td');
+    var testBtn = document.createElement('button');
+    testBtn.type = 'button';
+    testBtn.className = 'btn btn-sm btn-outline';
+    testBtn.setAttribute('data-mapping-test', '');
+    testBtn.textContent = 'Test';
+    testBtn.addEventListener('click', function () { testMapping(index); });
+    var rmBtn = document.createElement('button');
+    rmBtn.type = 'button';
+    rmBtn.className = 'btn btn-sm btn-danger';
+    rmBtn.setAttribute('data-map-remove', '');
+    rmBtn.textContent = 'Remove';
+    rmBtn.addEventListener('click', function () { removeMapping(index); });
+    td.appendChild(testBtn);
+    td.appendChild(rmBtn);
+    tr.appendChild(td);
+    return tr;
+  }
+
+  function renderMaps() {
+    var tbody = mappingTbody();
+    if (!tbody) { return; }
+    while (tbody.firstChild) { tbody.removeChild(tbody.firstChild); }
+    var i;
+    if (!state.answer_maps.length) {
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.setAttribute('colspan', '11');
+      td.appendChild(document.createTextNode('No answer to Offer mappings yet. Click "+ Add mapping".'));
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    for (i = 0; i < state.answer_maps.length; i++) {
+      tbody.appendChild(buildMappingRow(state.answer_maps[i], i));
+    }
+  }
+
+  function readMapRow(row) {
+    var inputs = row.querySelectorAll('[data-map-field]');
+    var edge = {}, j, inp, field, n;
+    for (j = 0; j < inputs.length; j++) {
+      inp = inputs[j];
+      field = inp.getAttribute('data-map-field');
+      if (field === 'required_for_offer') { edge[field] = !!inp.checked; }
+      else if (field === 'offer_id') { n = parseInt(inp.value, 10); edge[field] = isNaN(n) ? null : n; }
+      else if (field === 'output_value_map' || field === 'value_transform') { edge[field] = jsonOrNull(inp.value); }
+      else { edge[field] = inp.value; }
+    }
+    return edge;
+  }
+
+  function collectMappings() {
+    var tbody = mappingTbody();
+    if (!tbody) { return; }
+    var rows = tbody.querySelectorAll('tr[data-map-row]');
+    var maps = [], i;
+    for (i = 0; i < rows.length; i++) { maps.push(readMapRow(rows[i])); }
+    state.answer_maps = maps;
+    markDirty();
+  }
+
+  function removeMapping(index) {
+    collectMappings();
+    if (index > -1 && index < state.answer_maps.length) { state.answer_maps.splice(index, 1); }
+    renderMaps();
+    markDirty();
+  }
+
+  function testMapping(index) {
+    collectMappings();
+    var errEl = document.getElementById('lg-mapping-error');
+    var resEl = document.getElementById('lg-mapping-test-result');
+    if (errEl) { errEl.hidden = true; }
+    if (!state.public_id) {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Save the Section first to test the generated payload.'; }
+      return;
+    }
+    var edge = state.answer_maps[index];
+    var offerIds = (edge && edge.offer_id) ? [edge.offer_id] : [];
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/validate-payload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ answers: {}, offer_ids: offerIds })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body) {
+        if (errEl) { errEl.hidden = false; errEl.textContent = (res.body && res.body.error) || 'Test failed'; }
+        return;
+      }
+      if (resEl) { resEl.hidden = false; resEl.textContent = JSON.stringify(res.body.offers || [], null, 2); }
+    }).catch(function () {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Test request failed'; }
+    });
+  }
+
   // --- Save (POST create / PATCH update) ------------------------------------
   function collectSection() {
+    collectMappings();
     var nameEl = document.getElementById('lg-section-name');
     var actEl = document.getElementById('lg-section-activity');
     var verEl = document.getElementById('lg-section-vertical');
@@ -638,14 +1088,53 @@ export const QUESTION_BUILDER_SCRIPT = `
     if (dirty) { ev.preventDefault(); ev.returnValue = ''; return ''; }
   });
 
-  // watch scalar inputs for the dirty flag
-  var watched = document.querySelectorAll('#lg-section-form input, #lg-section-form textarea, [data-inspector-override], [data-inspector-field]');
+  // watch scalar form inputs for the dirty flag
+  var watched = document.querySelectorAll('#lg-section-form input, #lg-section-form textarea');
   var wi;
   for (wi = 0; wi < watched.length; wi++) {
     watched[wi].addEventListener('input', markDirty);
     watched[wi].addEventListener('change', markDirty);
   }
 
+  // inspector collect wiring: every edit flows back into the selected node.
+  var fieldEls = document.querySelectorAll('[data-inspector-field]');
+  var fe;
+  for (fe = 0; fe < fieldEls.length; fe++) {
+    fieldEls[fe].addEventListener('input', function () { collectInspectorField(this); });
+    fieldEls[fe].addEventListener('change', function () { collectInspectorField(this); });
+  }
+  var ovEls = document.querySelectorAll('[data-inspector-override]');
+  var oe;
+  for (oe = 0; oe < ovEls.length; oe++) {
+    ovEls[oe].addEventListener('input', function () { collectInspectorOverride(this); });
+    ovEls[oe].addEventListener('change', function () { collectInspectorOverride(this); });
+  }
+  var condEls = document.querySelectorAll('[data-inspector-cond]');
+  var ce;
+  for (ce = 0; ce < condEls.length; ce++) {
+    condEls[ce].addEventListener('input', collectConditional);
+    condEls[ce].addEventListener('change', collectConditional);
+  }
+  var choiceAdd = document.getElementById('lg-choice-add');
+  if (choiceAdd) {
+    choiceAdd.addEventListener('click', function () {
+      var c = choiceContainer();
+      if (c) { c.appendChild(buildChoiceRow({})); }
+    });
+  }
+
+  // mapping grid: "+ Add mapping" appends an editable edge into state.
+  var mappingAdd = document.getElementById('lg-mapping-add');
+  if (mappingAdd) {
+    mappingAdd.addEventListener('click', function () {
+      collectMappings();
+      state.answer_maps.push({ question_id: '', internal_field: '', offer_id: null, offer_payload_field_path: '', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: false, default_value: null, fallback_value: null });
+      renderMaps();
+      markDirty();
+    });
+  }
+
+  renderMaps();
   runPreview();
 }());
 `;

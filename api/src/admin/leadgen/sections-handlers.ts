@@ -51,6 +51,7 @@ import {
   type AdminContext,
 } from "./offers-handlers";
 import type {
+  LeadgenSectionAnswerMapApi,
   LeadgenSectionAnswerMapRow,
   LeadgenSectionApi,
   LeadgenSectionAvailableOfferRow,
@@ -130,11 +131,18 @@ function availableOfferRowToApi(row: LeadgenSectionAvailableOfferRow): Record<st
   return { ...row, selected: row.selected !== 0 };
 }
 
-function answerMapRowToApi(row: LeadgenSectionAnswerMapRow): Record<string, unknown> {
+// §8.5 Row-vs-API split: the API shape uses the §12.11 stable snake_case names
+// (output_value_map / value_transform) with the JSON columns PARSED — never the
+// DB `_json` column names. Emitting the `_json` names here caused the read shape
+// to diverge from the write shape (parseAnswerMaps reads output_value_map /
+// value_transform), so any read-modify-write silently wiped the per-Offer value
+// map + transform. Read and write now share one key vocabulary end-to-end.
+function answerMapRowToApi(row: LeadgenSectionAnswerMapRow): LeadgenSectionAnswerMapApi {
+  const { output_value_map_json, transform_json, ...rest } = row;
   return {
-    ...row,
-    output_value_map_json: parseJsonColumn(row.output_value_map_json),
-    transform_json: parseJsonColumn(row.transform_json),
+    ...rest,
+    output_value_map: parseObjectColumn(output_value_map_json),
+    value_transform: parseTransformColumn(transform_json),
     required_for_offer: row.required_for_offer !== 0,
   };
 }
@@ -375,15 +383,24 @@ async function parseAnswerMaps(
       return;
     }
 
+    // Primary key names are the §12.11 API names (output_value_map /
+    // value_transform); the DB `_json` column names are accepted defensively as
+    // aliases so a legacy client resending the raw column shape still round-trips
+    // (B1 read/write key-consistency safety net).
+    const rawOutputValueMap = item["output_value_map"] ?? item["output_value_map_json"];
     let outputValueMap: Record<string, unknown> | null = null;
-    if (item["output_value_map"] !== undefined && item["output_value_map"] !== null) {
-      if (!isRecord(item["output_value_map"])) {
+    if (rawOutputValueMap !== undefined && rawOutputValueMap !== null) {
+      if (!isRecord(rawOutputValueMap)) {
         errors[`${base}.output_value_map`] = "output_value_map must be an object";
         return;
       }
-      outputValueMap = item["output_value_map"];
+      outputValueMap = rawOutputValueMap;
     }
-    const transform = parseTransformSteps(item["value_transform"], `${base}.value_transform`, errors);
+    const transform = parseTransformSteps(
+      item["value_transform"] ?? item["transform_json"],
+      `${base}.value_transform`,
+      errors,
+    );
     if (errors[`${base}.value_transform`] !== undefined) return;
 
     // Defaults from the content node fill omitted fields.
@@ -1185,10 +1202,13 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
     }
   }
 
-  const offerIds = [...new Set(storedMaps.map((m) => m.offer_id))].filter(
-    (id) => filter.size === 0 || filter.has(id),
-  );
-  const offerSchemas = await loadOfferSchemas(c.env.DB, offerIds);
+  // Load the ACTIVE payload schemas for every stored-map Offer ONCE — the
+  // superset that the filtered per-Offer preview AND the section-level rebuild
+  // both read (loadOfferSchemas returns a Map; a filtered id looks up the same
+  // info). Avoids the prior duplicate load of the same schemas.
+  const allOfferIds = [...new Set(storedMaps.map((m) => m.offer_id))];
+  const offerSchemas = await loadOfferSchemas(c.env.DB, allOfferIds);
+  const offerIds = allOfferIds.filter((id) => filter.size === 0 || filter.has(id));
 
   const results = offerIds.map((offerId) => {
     const edges = storedMaps.filter((m) => m.offer_id === offerId);
@@ -1251,12 +1271,9 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
     };
   });
 
-  const rebuild: RebuildResult = {
-    answerMaps: [],
-    availableOffers: [],
-  };
   // Derive the section-level publish verdict from the SAME rebuild the save
-  // uses, so the preview agrees with the stored validation_status.
+  // uses, so the preview agrees with the stored validation_status. Reuses the
+  // offer schemas loaded once above (superset of the filtered preview set).
   const rebuilt = rebuildDerivedIndexes({
     content,
     answerMaps: storedMaps.map((e) => ({
@@ -1273,9 +1290,8 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
       default_value: e.default_value,
       fallback_value: e.fallback_value,
     })),
-    offerSchemas: await loadOfferSchemas(c.env.DB, storedMaps.map((m) => m.offer_id)),
+    offerSchemas,
   });
-  void rebuild;
   const verdict = sectionValidationStatus(rebuilt);
 
   return c.json({

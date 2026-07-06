@@ -101,13 +101,22 @@ export function renderProgressBar(node: LeadgenComponentNode, design: DefaultFun
   const step = propNum(node, "step");
   const total = propNum(node, "totalSteps");
   let label = propStr(node, "label");
+  // ARIA progressbar values (accessibility.md: role=progressbar + aria-valuenow;
+  // valuemin 0, valuemax 100 or the step count, valuenow from the mode/props).
+  let ariaNow = clampInt(pct, 0, 100);
+  let ariaMax = 100;
   if (mode === "step" && step !== undefined && total !== undefined && total > 0) {
     pct = (step / total) * 100;
     label = label ?? `Step ${step} of ${total}`;
+    ariaMax = Math.round(total);
+    ariaNow = clampInt(step, 0, ariaMax);
   }
   const width = `${clampInt(pct, 0, 100)}%`;
   return (
-    `<div class="lg-progress"${hydration(node)} data-mode="${mode}">` +
+    `<div class="lg-progress"${hydration(node)} data-mode="${mode}"` +
+    ` role="progressbar" aria-valuemin="0" aria-valuemax="${ariaMax}" aria-valuenow="${ariaNow}"` +
+    (label !== undefined ? ` aria-valuetext="${esc(label)}"` : "") +
+    `>` +
     `<div class="lg-progress-track">` +
     `<div class="lg-progress-fill"${style({ width, background: design.progress.fillColor })}></div>` +
     `</div>` +

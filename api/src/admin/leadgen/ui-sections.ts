@@ -29,6 +29,7 @@ import {
   QUESTION_BUILDER_STYLES,
   renderBuilderCanvas,
   renderComponentPalette,
+  renderComponentSeedData,
   renderInspector,
   renderPreviewToggle,
   type AnswerMapView,
@@ -46,14 +47,18 @@ type SectionListItem = LeadgenSectionApi & {
 };
 
 interface AnswerMapApiRow {
+  question_id: string;
   question_key: string;
   internal_field: string;
   offer_id: number;
   offer_payload_field_path: string;
   provider_expected_type: string;
-  output_value_map_json: unknown;
-  transform_json: unknown;
+  // §8.5 API names (the parsed JSON columns) — NOT the DB `_json` column names.
+  output_value_map: unknown;
+  value_transform: unknown;
   required_for_offer: boolean;
+  default_value: string | null;
+  fallback_value: string | null;
   mapping_status: string;
 }
 
@@ -293,14 +298,17 @@ interface EditorData {
 
 function toAnswerMapViews(rows: AnswerMapApiRow[]): AnswerMapView[] {
   return rows.map((m) => ({
+    question_id: m.question_id,
     question_key: m.question_key,
     internal_field: m.internal_field,
     offer_id: m.offer_id,
     offer_payload_field_path: m.offer_payload_field_path,
     provider_expected_type: m.provider_expected_type,
-    output_value_map_json: m.output_value_map_json,
-    transform_json: m.transform_json,
+    output_value_map: m.output_value_map,
+    value_transform: m.value_transform,
     required_for_offer: m.required_for_offer,
+    default_value: m.default_value,
+    fallback_value: m.fallback_value,
     mapping_status: m.mapping_status,
   }));
 }
@@ -385,6 +393,7 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
     <div class="card">${renderInspector(data.maps, data.offerLabelById)}</div>
   </div>
   <script type="application/json" id="lg-section-data">${sectionDataBlob(s)}</script>
+  ${renderComponentSeedData()}
 </div>`;
 
   return leadgenPageShell({
