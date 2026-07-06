@@ -224,6 +224,11 @@ Evidence:
 - **Auth/host wall:** off-`ADMIN_HOST` flat 404 (shell + API); unauthenticated requests rejected with exact status parity vs the listicles equivalents — no new auth code, inherited gate (03 §8.1).
 - **Live leg:** the admin shell sits behind CF Access in production — live behavioral verification is local-Playwright-proven (65/65) + posture-checked at deploy; recorded in the P3 deploy addendum below.
 
+**P3 deploy addendum — 2026-07-06, squash-merge `680790f` (PR #74), production dispatch run `28799408632` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — the deploy's migration step was an idempotent no-op; live D1 unchanged.
+- Live posture: tenant `/health` 200 `{"ok":true,"app":"kodigital-homepages-cms"}` (thecontentandcareer.com); `/admin/leadgen` off-`ADMIN_HOST` → 404 (the NEW route is host-walled — new-code behavioral evidence); admin host `/admin/leadgen` unauthenticated → CF Access 302 carrying `redirect_url=/admin/leadgen` (the new path is live behind the gate).
+- Shell behavior itself is local-proven (Playwright 65/65 incl. `leadgen-nav.spec.ts`); production admin UI sits behind CF Access — operator can eyeball `/admin/leadgen` at any CP station.
+
 ### P4 — Offers + payload builder + Test tool
 _(pending)_
 
