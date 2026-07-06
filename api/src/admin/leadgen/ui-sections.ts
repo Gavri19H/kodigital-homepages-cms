@@ -33,7 +33,11 @@ import {
   renderInspector,
   renderPreviewToggle,
   type AnswerMapView,
+  type MappingSummary,
 } from "./ui-question-builder";
+// §30.2 operator-owned browser Maps key — read ONLY to surface the absent-state
+// note in the editor (the key value is NEVER embedded; the live geocode is P7).
+import { resolveBrowserMapsKey } from "../../leadgen/maps";
 import type { LeadgenSectionApi } from "./db-types";
 
 // ---------------------------------------------------------------------------
@@ -46,10 +50,12 @@ type SectionListItem = LeadgenSectionApi & {
   completeness: "complete" | "incomplete" | "invalid" | "none";
 };
 
-interface AnswerMapApiRow {
+export interface AnswerMapApiRow {
   question_id: string;
   question_key: string;
   internal_field: string;
+  // §12.7 normalized answer_type — feeds the §12.11 type_mismatch cell text.
+  answer_type: string;
   offer_id: number;
   offer_payload_field_path: string;
   provider_expected_type: string;
@@ -60,12 +66,50 @@ interface AnswerMapApiRow {
   default_value: string | null;
   fallback_value: string | null;
   mapping_status: string;
+  payload_schema_public_id?: string;
+}
+
+// The derived available-offer row (§12.1 rebuild output) carries the per-Offer
+// mapping_state + the required-field counts the §12.11 publish verdict reads.
+export interface AvailableOfferRow {
+  offer_id: number;
+  selected: boolean;
+  mapping_state: string;
+  required_fields_total: number;
+  required_fields_mapped: number;
 }
 
 type SectionDetail = LeadgenSectionApi & {
-  available_offers: Array<{ offer_id: number; selected: boolean; mapping_state: string }>;
+  available_offers: AvailableOfferRow[];
   answer_maps: AnswerMapApiRow[];
 };
+
+// §12.11 / §35: derive the section-level publish verdict + missing-required
+// count. This MUST agree with sectionValidationStatus() (the authoritative
+// gate), which flags an Offer `error` on EITHER an aggregated unmapped-required
+// count OR a per-edge non-`complete` mapping_status (missing_required /
+// type_mismatch / orphaned). Reading only the aggregated available-offer row
+// misses the edge-level errors, so this also scans the loaded answer-map edges.
+export function mappingSummaryOf(
+  availableOffers: readonly AvailableOfferRow[],
+  answerMaps: readonly AnswerMapApiRow[],
+): MappingSummary {
+  let requiredMissing = 0;
+  let publishable = true;
+  for (const o of availableOffers) {
+    const total = o.required_fields_total ?? 0;
+    const mapped = o.required_fields_mapped ?? 0;
+    if (total > mapped) requiredMissing += total - mapped;
+    if (o.mapping_state === "invalid" || total > mapped) publishable = false;
+  }
+  // Per-edge errors (sectionValidationStatus parity): any edge that is not
+  // `complete` makes the Section unpublishable, exactly as the truth machine
+  // pushes an `error` reason per non-complete edge.
+  for (const m of answerMaps) {
+    if (m.mapping_status !== "complete") publishable = false;
+  }
+  return { publishable, status: publishable ? "ok" : "error", required_missing_total: requiredMissing };
+}
 
 interface SectionOffersBody {
   offers: Array<{ id: number; public_id: string; offer_name: string; status: string; has_active_schema: boolean }>;
@@ -294,6 +338,10 @@ interface EditorData {
   section: SectionDetail | null; // null = new
   offerLabelById: Map<number, string>;
   maps: AnswerMapView[];
+  summary: MappingSummary;
+  // §30.2: whether the operator-owned browser Maps key is configured. false ⇒
+  // the editor shows "Maps key not configured — autofill disabled".
+  mapsKeyConfigured: boolean;
 }
 
 function toAnswerMapViews(rows: AnswerMapApiRow[]): AnswerMapView[] {
@@ -301,6 +349,7 @@ function toAnswerMapViews(rows: AnswerMapApiRow[]): AnswerMapView[] {
     question_id: m.question_id,
     question_key: m.question_key,
     internal_field: m.internal_field,
+    answer_type: typeof m.answer_type === "string" ? m.answer_type : "",
     offer_id: m.offer_id,
     offer_payload_field_path: m.offer_payload_field_path,
     provider_expected_type: m.provider_expected_type,
@@ -310,8 +359,12 @@ function toAnswerMapViews(rows: AnswerMapApiRow[]): AnswerMapView[] {
     default_value: m.default_value,
     fallback_value: m.fallback_value,
     mapping_status: m.mapping_status,
+    payload_schema_public_id: m.payload_schema_public_id,
   }));
 }
+
+// An empty summary for the /new editor (no offers, nothing to publish yet).
+const EMPTY_SUMMARY: MappingSummary = { publishable: true, status: "ok", required_missing_total: 0 };
 
 // The #lg-section-data JSON state blob. Serialized + `<`-escaped so a hostile
 // author value can never break out of the <script type="application/json">.
@@ -327,10 +380,16 @@ function sectionDataBlob(section: SectionDetail | null): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
 
-function renderSectionScalarForm(section: SectionDetail | null): string {
+function renderSectionScalarForm(section: SectionDetail | null, mapsKeyConfigured: boolean): string {
   const s = section;
   const continueMode = s?.continue_mode ?? "button";
   const addressOn = s?.address_validation_enabled ?? false;
+  // §30.2: surface the operator-owned browser Maps key's ACTUAL state. Absent ⇒
+  // autofill disabled (the validate/geocode leg no-ops); the key VALUE is never
+  // embedded here — only its presence.
+  const mapsKeyNote = mapsKeyConfigured
+    ? `<span class="lg-maps-note" data-maps-key="configured">Maps key configured (operator-owned browser key) — autofill available.</span>`
+    : `<span class="lg-maps-note" data-maps-key="absent">Maps key not configured — autofill disabled (§30.2 no-op).</span>`;
   return `<form id="lg-section-form" novalidate>
   <div class="lg-section-scalars">
     <div class="form-group">
@@ -362,6 +421,7 @@ function renderSectionScalarForm(section: SectionDetail | null): string {
   <div class="form-group">
     <label class="lg-check"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${addressOn ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
     <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key ⇒ the validation leg no-ops.</span>
+    ${mapsKeyNote}
   </div>
 </form>`;
 }
@@ -383,14 +443,14 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
 <div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>
   ${head}
   <p id="lg-section-error" class="alert alert-error" hidden role="alert"></p>
-  ${renderSectionScalarForm(s)}
+  ${renderSectionScalarForm(s, data.mapsKeyConfigured)}
   <div class="lg-editor-grid">
     <div class="card">${renderComponentPalette()}</div>
     <div class="card">
       ${renderBuilderCanvas(s !== null ? s.content_json : { components: [] })}
       ${renderPreviewToggle()}
     </div>
-    <div class="card">${renderInspector(data.maps, data.offerLabelById)}</div>
+    <div class="card">${renderInspector(data.maps, data.offerLabelById, data.summary)}</div>
   </div>
   <script type="application/json" id="lg-section-data">${sectionDataBlob(s)}</script>
   ${renderComponentSeedData()}
@@ -423,7 +483,16 @@ function sectionNotFoundPage(brand: { userEmail?: string }): string {
 // /admin/leadgen/sections/new — the editor with an empty Section.
 export async function leadgenSectionsNewPage(c: UiContext): Promise<Response> {
   return c.html(
-    sectionEditorHtml({ section: null, offerLabelById: new Map(), maps: [] }, branding(c)),
+    sectionEditorHtml(
+      {
+        section: null,
+        offerLabelById: new Map(),
+        maps: [],
+        summary: EMPTY_SUMMARY,
+        mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
+      },
+      branding(c),
+    ),
   );
 }
 
@@ -454,7 +523,13 @@ export async function leadgenSectionEditorPage(c: UiContext): Promise<Response> 
 
   return c.html(
     sectionEditorHtml(
-      { section, offerLabelById, maps: toAnswerMapViews(section.answer_maps) },
+      {
+        section,
+        offerLabelById,
+        maps: toAnswerMapViews(section.answer_maps),
+        summary: mappingSummaryOf(section.available_offers ?? [], section.answer_maps ?? []),
+        mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
+      },
       branding(c),
     ),
   );

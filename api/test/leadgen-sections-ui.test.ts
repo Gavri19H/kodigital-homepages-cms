@@ -21,6 +21,12 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
+import { renderMappingGrid, type AnswerMapView, type MappingSummary } from "../src/admin/leadgen/ui-question-builder";
+import {
+  mappingSummaryOf,
+  type AnswerMapApiRow,
+  type AvailableOfferRow,
+} from "../src/admin/leadgen/ui-sections";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -575,5 +581,187 @@ describeDb("leadgen sections pages — ES5-only inline scripts", () => {
       });
       expect(errors, errors.join("\n\n")).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §12.11 field-level mapping-completeness cell states (pure render — no DB)
+// ---------------------------------------------------------------------------
+
+function mapView(mappingStatus: string, over: Partial<AnswerMapView> = {}): AnswerMapView {
+  return {
+    question_id: "q1",
+    question_key: "insured_q",
+    internal_field: "insured",
+    answer_type: "boolean",
+    offer_id: 7,
+    offer_payload_field_path: "data.insured",
+    provider_expected_type: "boolean",
+    output_value_map: null,
+    value_transform: null,
+    required_for_offer: true,
+    default_value: null,
+    fallback_value: null,
+    mapping_status: mappingStatus,
+    ...over,
+  };
+}
+
+describe("§12.11 mapping grid — the four field-level cell states + publish summary", () => {
+  const summary: MappingSummary = { publishable: false, status: "error", required_missing_total: 2 };
+  // one row per §12.11 state: complete→ok, incomplete→missing_required,
+  // type_mismatch, orphaned. The type_mismatch row names a coercion (string→boolean).
+  const html = renderMappingGrid(
+    [
+      mapView("complete"),
+      mapView("incomplete"),
+      mapView("type_mismatch", { answer_type: "string" }),
+      mapView("orphaned"),
+    ],
+    new Map<number, string>([[7, "OfferX"]]),
+    summary,
+  );
+
+  it("renders each of the four §12.11 semantic cell states with the exact copy", () => {
+    // the semantic state attribute for each cell
+    expect(html).toContain('data-mapping-cell="ok"');
+    expect(html).toContain('data-mapping-cell="missing_required"');
+    expect(html).toContain('data-mapping-cell="type_mismatch"');
+    expect(html).toContain('data-mapping-cell="orphaned"');
+    // the §12.11 exact per-state copy
+    expect(html).toContain("map required field"); // missing_required (red)
+    expect(html).toContain("answer type string not coercible to boolean"); // type_mismatch (amber)
+    expect(html).toContain("Offer field no longer exists in schema"); // orphaned (gray)
+    // the DB mapping_status attribute is preserved (back-compat)
+    expect(html).toContain('data-mapping-status="complete"');
+  });
+
+  it("colours each cell (green ok / red missing / amber mismatch / gray orphaned)", () => {
+    expect(html).toContain("lg-cell-ok");
+    expect(html).toContain("lg-cell-missing");
+    expect(html).toContain("lg-cell-mismatch");
+    expect(html).toContain("lg-cell-orphaned");
+  });
+
+  it("renders the section-level publish verdict + 'N required mappings missing' summary (§12.11 gate)", () => {
+    expect(html).toContain("data-mapping-summary");
+    expect(html).toContain('data-publishable="false"'); // §12.11 publish gate blocked
+    expect(html).toContain("Blocked from publish");
+    expect(html).toContain('data-required-missing="2"');
+    expect(html).toContain("2 required mappings missing");
+  });
+
+  it("a fully-mapped, publishable section shows the publishable verdict", () => {
+    const ok = renderMappingGrid(
+      [mapView("complete")],
+      new Map<number, string>([[7, "OfferX"]]),
+      { publishable: true, status: "ok", required_missing_total: 0 },
+    );
+    expect(ok).toContain('data-publishable="true"');
+    expect(ok).toContain("Publishable");
+    expect(ok).toContain('data-required-missing="0"');
+  });
+
+  it("the orphaned cell names the pinned schema by its public_id (§12.11 'vN')", () => {
+    const withSchema = renderMappingGrid(
+      [mapView("orphaned", { payload_schema_public_id: "lgp_00000000000000000000000001" })],
+      new Map<number, string>([[7, "OfferX"]]),
+      { publishable: false, status: "error", required_missing_total: 0 },
+    );
+    expect(withSchema).toContain("no longer exists in schema lgp_00000000000000000000000001");
+  });
+});
+
+// MAJOR-#1 regression: mappingSummaryOf (the REAL editor derivation, not a
+// hand-built MappingSummary) must agree with sectionValidationStatus — a
+// per-edge non-complete mapping_status blocks publish even when the aggregated
+// available-offer counts look complete.
+describe("mappingSummaryOf — edge-level errors block publish (sectionValidationStatus parity)", () => {
+  const cleanOffer: AvailableOfferRow = {
+    offer_id: 7,
+    selected: true,
+    mapping_state: "complete",
+    required_fields_total: 1,
+    required_fields_mapped: 1, // aggregate looks fully mapped
+  };
+  const edge = (mapping_status: string): AnswerMapApiRow => ({
+    question_id: "q1",
+    question_key: "q1",
+    internal_field: "f1",
+    answer_type: "string",
+    offer_id: 7,
+    offer_payload_field_path: "data.f1",
+    provider_expected_type: "string",
+    output_value_map: null,
+    value_transform: null,
+    required_for_offer: true,
+    default_value: null,
+    fallback_value: null,
+    mapping_status,
+  });
+
+  it("aggregate-clean + a complete edge → publishable", () => {
+    const s = mappingSummaryOf([cleanOffer], [edge("complete")]);
+    expect(s.publishable).toBe(true);
+  });
+
+  it("aggregate-clean but an `incomplete` edge → NOT publishable (the missed case)", () => {
+    const s = mappingSummaryOf([cleanOffer], [edge("incomplete")]);
+    expect(s.publishable).toBe(false);
+  });
+
+  it("aggregate-clean but a `type_mismatch` / `orphaned` edge → NOT publishable", () => {
+    expect(mappingSummaryOf([cleanOffer], [edge("type_mismatch")]).publishable).toBe(false);
+    expect(mappingSummaryOf([cleanOffer], [edge("orphaned")]).publishable).toBe(false);
+  });
+
+  it("an `invalid` offer state → NOT publishable even with complete edges", () => {
+    const invalid: AvailableOfferRow = { ...cleanOffer, mapping_state: "invalid" };
+    expect(mappingSummaryOf([invalid], [edge("complete")]).publishable).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P6 editor wiring — §12.3 dependency simulator + §30.2 Maps-key state
+// ---------------------------------------------------------------------------
+
+describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key state", () => {
+  it("renders the §12.3 dependency simulator control + wires it to /sections/preview with sample_answers", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    // the dependency sample-answers panel + apply control + aria-live status line
+    expect(html).toContain("data-dependency-panel");
+    expect(html).toContain("data-dependency-answers");
+    expect(html).toContain('id="lg-dependency-apply"');
+    expect(html).toContain("data-dependency-status");
+    // the P5 "dependency" sim button now drives the state variable
+    expect(html).toContain('data-sim-state="dependency"');
+    expect(html).toContain("simState = stateName");
+    // runPreview sends sample_answers ONLY in dependency mode + reflects the verdict
+    expect(html).toContain("function sampleAnswers(");
+    expect(html).toContain("function renderDependencyStatus(");
+    expect(html).toContain("requestBody.sample_answers = sampleAnswers()");
+    expect(html).toContain("simState === 'dependency'");
+  });
+
+  it("surfaces the §30.2 Maps-key ABSENT state when no browser key is configured", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    expect(html).toContain('data-maps-key="absent"');
+    expect(html).toContain("Maps key not configured");
+    expect(html).toContain("autofill disabled");
+  });
+
+  it("surfaces the CONFIGURED Maps-key state when the browser-key secret is present (value never embedded)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const withKey = { ...env, GOOGLE_MAPS_BROWSER_KEY: "browser-abc" } as Env;
+    const res = await admin.request(`/admin/leadgen/sections/${section.public_id}/edit`, {}, withKey);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-maps-key="configured"');
+    expect(html).not.toContain("browser-abc"); // §30.2 — the key VALUE is never embedded
   });
 });
