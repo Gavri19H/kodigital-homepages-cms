@@ -14,10 +14,12 @@ Head verified `0035` at program start (2026-07-06, main@6ff0102); contract numbe
 
 | Contract file | Shipped as | Applied (local) | Applied (remote) |
 |---|---|---|---|
-| `0036_leadgen_core.sql` | `0036` (unchanged) | ☐ | ☐ |
-| `0037_leadgen_analytics_mirror.sql` | `0037` (unchanged) | ☐ | ☐ |
-| `0038_leadgen_revenue_infra.sql` | `0038` (unchanged) | ☐ | ☐ |
-| `0039_leadgen_conversion_dedupe.sql` | `0039` (unchanged) | ☐ | ☐ |
+| `0036_leadgen_core.sql` | `0036` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
+| `0037_leadgen_analytics_mirror.sql` | `0037` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
+| `0038_leadgen_revenue_infra.sql` | `0038` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
+| `0039_leadgen_conversion_dedupe.sql` | `0039` (unchanged) | ☑ 2026-07-06 | ☐ (P2 deploy) |
+
+Local apply evidence: `npm run db:migrate:local` → all four ✅; local D1 `sqlite_master` count of `leadgen_%` tables = **40** (24 core + 9 mirrors + 6 revenue + 1 dedupe — the physical count per the normative DDL; matrix row 8's "26 tables" is a loose entity-group count).
 
 Each shipped migration MUST be anchored in `.github/workflows/deploy.yml` in the same commit that adds it.
 
@@ -32,6 +34,8 @@ Each shipped migration MUST be anchored in `.github/workflows/deploy.yml` in the
 | DEV-5 | Where older §-prose conflicts with v2.3.7 status (e.g. `10`§34 OQ-2 "provisional tokens"), the README/`12`-matrix v2 status governs: measured tokens are shipped; screenshots are capability examples only. | Contract's own versioning. |
 | DEV-6 | `docs/MISSION-CMS-RESCUE-4.md` (foreign untracked local mission doc) added to `GROUP_A_ALLOWED_FILES`. | It made every LOCAL scanner run + 3 verify-green vitest files fail pre-program (2 prose lines naming the reference product); CI unaffected (untracked). Precedent: `docs/MISSION-CMS-RESCUE-2.md` already allowlisted. Baseline evidence in P1 section. |
 | DEV-7 | Contract source seeds (`components/registry.ts`, `designs/default-funnel/tokens.ts`) verified **token-clean** at vendoring — no comment-stripping needed at P5; vendor verbatim. | Token pre-scan at P1 (grep over all 26 files): only 8 prose/audit docs carry banned tokens; both seeds + all migrations/infra DDL are clean. |
+| DEV-8 | **Delivery-model change (operator instruction 2026-07-06):** per-PR review + contract-alignment validation + merge + deploy delegated to the agent ("do it independently for each pr"); CP0–CP5 are agent-executed verification stations, not user stops. `ENABLE_STAGING_DEPLOY` is unset and setting it was permission-denied → staging CI deploys skip; each PR deploys via `gh workflow run deploy.yml -f target_env=production` (which also applies migrations). Operator may set the variable to restore staging-first. | Operator message + permission-classifier denial, this session. |
+| DEV-9 | §7.8's "Seed 5 disabled `leadgen_media_platforms`" is implemented **app-level at P13** (media-platforms admin CRUD + optional `seed-local`), NOT as migration INSERTs. | The normative vendored `0038` contains no INSERTs; the Listicles precedent (`0034`) is likewise INSERT-free (platforms created via admin CRUD); repo D2 deploy-safety forbids unconditional seed-INSERTs into admin-managed tables. |
 
 ## OQ resolutions (contract `10`§34)
 
@@ -73,8 +77,8 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 5 | Namespace plan | P2 | `leadgen_*` DDL, `lg_*` DDL, routes, ULID prefixes (`leadgen/ids.ts`) | `verify:infra`; grep-proof zero `listicle_` reuse | PENDING |
 | 6 | CMS navigation | P3 | `src/admin/templates/layout.ts` nav + `admin/leadgen/ui.ts` | `test-ui/leadgen-nav.spec.ts`; NAV count-test update | PENDING |
 | 7 | Ownership + site activation | P7 | `leadgen_site_quotes` (0036) + `admin/leadgen/quotes-handlers.ts` + `public/leadgen/resolver.ts` | `test/leadgen-activation.test.ts` | PENDING |
-| 8 | Data model (26 tables) | P2 | `migrations/0036–0039` + `admin/leadgen/db-types.ts` (Row/API split) | `test/leadgen-migrations.test.ts` | PENDING |
-| 9 | Full D1 migration DDL | P2 | `migrations/0036_leadgen_core.sql` … `0039_…` + deploy.yml anchors | migrations apply local + remote-dry; constraint tests | PENDING |
+| 8 | Data model (40 physical tables) | P2 | `migrations/0036–0039` + `admin/leadgen/db-types.ts` (40 Row/API pairs) | `test/leadgen-migrations.test.ts` + `tsc` (P2 header) | PASS |
+| 9 | Full D1 migration DDL | P2 | `migrations/0036_leadgen_core.sql` … `0039_…` (cmp-identical to contract) + deploy.yml anchors | apply local ✅ + constraint tests 8/8 (P2 header); remote via P2 deploy | PASS |
 | 10 | Full API route contract | P3+ | `admin/leadgen/router.ts` (static-before-param) + `public/leadgen/*` routes | `test/leadgen-routes-auth.test.ts` (404 off ADMIN_HOST; 401/403; no-store) | PENDING |
 | 11 | Admin UI contract | P3+ | `admin/leadgen/ui.ts` + `ui-*.ts` (apiJson in-process SSR) | `test-ui/leadgen-admin.spec.ts` flows | PENDING |
 | 12 | Offers tab | P4 | `admin/leadgen/offers-handlers.ts`, `ui-offers.ts`, `leadgen/validation.ts` | `test/leadgen-offers-api.test.ts` + UI spec | PENDING |
@@ -128,8 +132,8 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 3 | Patterns to reuse | ☑ P1 |
 | 4 | Product architecture | ☐ |
 | 5 | CMS navigation | ☐ |
-| 6 | Data model | ☐ |
-| 7 | D1 schema/migrations | ☐ |
+| 6 | Data model | ☑ P2 |
+| 7 | D1 schema/migrations | ☑ P2 |
 | 8 | API/route design | ☐ |
 | 9 | Admin UI | ☐ |
 | 10 | Offers tab | ☐ |
@@ -182,8 +186,23 @@ Evidence collected so far (2026-07-06, branch `leadgen/p01-contract-traceability
 - **OQ-9**: migration head `0035` (`0035_listicles_conversion_dedupe.sql`); `0036–0039` free; deploy.yml anchor comments end at `0035` → contract numbers hold (table above).
 - **Second live bite (unplanned, kept as evidence):** the first draft of this register quoted the reference-product token literally in the DEV-6 rationale — the phase-exit scanner run failed on `docs/leadgen/traceability.md:33` and the 3 verify-green vitest files failed with it. Reworded (this register stays token-free by policy, like the Listicles register); gates re-run green. This is the "token leakage into new prose" risk observed live; per-commit scanner runs are the mitigation.
 
+**P1 addendum — merge + contract-alignment validation + deploy (2026-07-06, post-delegation, recorded in P2's PR):**
+- PR #72 squash-merged as `0e625b2` (MERGED 2026-07-06T12:56Z); PR CI run green.
+- **Contract alignment 100% VERIFIED post-land:** every committed `docs/leadgen/contract/` file byte-compared against an INDEPENDENT fresh fetch + second transcription from the design project — `cmp` IDENTICAL for 25/26; `README.md` verified via the two-transcription calibration chain (fresh-fetch write ≡ from-context write ≡ committed copy). Result: **26 verified, 0 failed**; `shasum -c MANIFEST.sha256` re-check 26/26 OK. (Method note: a first attempt to reuse the original download as the comparison copy was caught and discarded as circular — comparisons only count against a second independent transcription.)
+- **Production deploy:** run `28793161710` success — `typecheck + test + verify` green, `Deploy to production` green, `Deploy to staging` skipped (`ENABLE_STAGING_DEPLOY` unset; see DEV-8). Live verification: tenant `/health` → 200 `{"ok":true,"app":"kodigital-homepages-cms"}`; public tenant page 200; `/admin/leadgen` off-`ADMIN_HOST` → 404; admin host fronted by CF Access (302 to login) — posture intact.
+
 ### P2 — D1 migrations / core data model
-_(pending)_
+
+**Verification header — 2026-07-06, commit `97ced4b`, branch `leadgen/p02-d1-migrations` (base main@`0e625b2`):**
+`npm run typecheck` exit 0 · `npm test` **246/246 files, 2079/2079 tests** (54.36s; +1 file/+8 tests = `leadgen-migrations.test.ts` in-suite) · `verify:all` exit 0 · `npx playwright test` **63/63** (52.0s) with `0036–0039` applied to local D1 — Listicles/homepage suites unaffected. Matrix rows flipped this phase: **8, 9 → PASS**.
+
+Evidence:
+- **Contract alignment (P2 scope):** `api/migrations/0036–0039` are `cmp`-IDENTICAL to `docs/leadgen/contract/migrations/` (which is itself 26/26 byte-verified against the design project — see P1 addendum) → the shipped DDL is transitively verified against the SSOT.
+- **deploy.yml anchors:** all four filenames grep-anchored (same commit as the migration files, per the D1-file rule).
+- **Local apply:** `db:migrate:local` all four ✅; local D1 `leadgen_%` table count = **40**.
+- **Constraints proven** (`api/test/leadgen-migrations.test.ts`, 8 tests): 40-table existence + key names; idempotent re-run; `offer_type` CHECK rejects `cpm`; UNIQUE `(provider,external_txn_id)`, `(click_id,dedupe_key)`, `(variant_id,position)`; partial uniques `uq_leadgen_sitequote_root` (one enabled NULL-slug root per site, disabled/slugged/other-site all accepted) + `uq_leadgen_offerplacement_default` (one default placement per offer).
+- **Row/API types:** `api/src/admin/leadgen/db-types.ts` (1193 lines) — 40 Row + 40 Api pairs, 38 CHECK-derived unions, typed `conditions_json` (07§21.4) + canonical Carrier (07§20); mechanical set-equality vs DDL 40/40; compiles under `tsc --noEmit`.
+- Remote apply happens at this PR's production deploy (workflow migration step); post-deploy probe recorded in the P2 addendum below.
 
 ### P3 — Admin nav + shell
 _(pending)_
