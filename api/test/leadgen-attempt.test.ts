@@ -151,8 +151,14 @@ describe("mintFunnelAttempt — signed (secret configured)", () => {
     const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
     const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
     const parts = attempt.signed_config_token.split(".");
-    const lastChar = parts[2]!.slice(-1) === "A" ? "B" : "A";
-    const tamperedSig = `${parts[0]}.${parts[1]}.${parts[2]!.slice(0, -1)}${lastChar}`;
+    // Tamper the FIRST base64url char of the signature (mirrors the payload-
+    // tamper test below). The LAST char of a no-padding 32-byte base64url
+    // signature carries 2 unused padding bits, so an "A"↔"B" flip there can
+    // decode to the IDENTICAL bytes (~1/16 of random signatures) — a
+    // non-deterministic tamper. The first char encodes only real bits, so the
+    // flip always changes byte 0 → the signature always differs.
+    const firstChar = parts[2]!.slice(0, 1) === "A" ? "B" : "A";
+    const tamperedSig = `${parts[0]}.${parts[1]}.${firstChar}${parts[2]!.slice(1)}`;
     expect(await verifyConfigToken(SIGNED_ENV, tamperedSig, tuple)).toBe(false);
   });
 

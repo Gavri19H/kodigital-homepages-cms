@@ -165,3 +165,40 @@ export function listicleCandidateKey(
 ): string {
   return `${NS_HTML}:${requireSiteId(siteId)}:/lst-cand/${candidatePublicId}:${versionContentVersion}:${TEMPLATE_VERSION}`;
 }
+
+// LeadGen Phase 7 (contract 09 §28) — the funnel-shell + client-config cache
+// keys. LEADGEN_TEMPLATE_VERSION is the shell-shape version axis: bumping it
+// rolls ALL cached funnel shells + configs forward at once (the §28 global
+// axis), exactly as TEMPLATE_VERSION does for CMS/Listicles HTML. It is a CODE
+// DEFAULT CONSTANT (mirroring TEMPLATE_VERSION above) — NOT a wrangler.toml
+// [vars] key — so no Env-interface change and no verify:worker-config impact.
+export const LEADGEN_TEMPLATE_VERSION = 1 as const;
+
+const NS_LG_SHELL = "lg-shell";
+const NS_LG_CONFIG = "lg-config";
+
+// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{content_version}:{template_version}
+// (§28). site_id first so per-site list+invalidate stays cheap
+// (env.CACHE.list({ prefix: "lg-shell:{siteId}:" })), versions as suffix so a
+// content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The
+// single enabled root activation (NULL slug — at most one per site, §17.1) uses
+// the EMPTY slug segment; a named activation uses its slug.
+export function leadgenShellKey(
+  siteId: string,
+  quoteSlug: string | null,
+  funnelId: string,
+  contentVersion: number,
+): string {
+  const slugSeg = quoteSlug ?? "";
+  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
+}
+
+// lg-config:{funnel_id}:{content_version} (§28). The public client config is
+// funnel-level content (NOT per-session, NOT site-specific in the key), so it
+// carries neither site_id nor template_version — matching the §28 shape. P7
+// serves the single control variant per funnel, so the (funnel_id,
+// content_version) entry is always the control's config; P8 (multiple running
+// variants) extends this key with the variant id.
+export function leadgenConfigKey(funnelId: string, contentVersion: number): string {
+  return `${NS_LG_CONFIG}:${funnelId}:${contentVersion}`;
+}
