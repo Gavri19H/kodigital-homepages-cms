@@ -53,6 +53,7 @@ import { analyticsRouter } from "./analytics/router";
 import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation";
 import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { runListicleRevenueCron } from "./listicles/revenue-recon";
+import { pruneLeadgenRetention } from "./leadgen/retention";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -270,6 +271,15 @@ const scheduled = async (
       await runListicleRevenueCron(env);
     } catch {
       // revenue maintenance must never break the publish/provisioning cron.
+    }
+    try {
+      // LeadGen §30.3 retention prune — bounded DELETEs (provider request
+      // log 7d, session clicked offers 24h; KV debug blobs self-expire via
+      // TTL). Isolated + fail-open like every task above: an error is
+      // contained and NEVER surfaces into the publish/provisioning cron.
+      await pruneLeadgenRetention(env);
+    } catch {
+      // retention prune must never break the publish/provisioning cron.
     }
   })();
   ctx.waitUntil(work);
