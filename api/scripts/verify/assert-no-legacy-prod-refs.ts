@@ -90,6 +90,22 @@ const GROUP_A_ALLOWED_FILES: readonly string[] = [
   // Listicles CMS design contract (v1.2.2): its §1 guardrail enumerates the
   // banned identifiers as red lines, exactly like the legacy reference docs.
   "docs/listicles/design-contract-v1.2.2.md",
+  // LeadGen CMS design contract (v2.3.7), vendored verbatim at
+  // docs/leadgen/contract/: its evidence/audit prose cites the reference
+  // product + legacy identifiers as red lines, exactly like the Listicles
+  // design contract above. Generated LeadGen SOURCE stays token-free.
+  "docs/leadgen/contract/README.md",
+  "docs/leadgen/contract/00-repository-findings-evidence.md",
+  "docs/leadgen/contract/01-overview-architecture-navigation.md",
+  "docs/leadgen/contract/05-sections-question-builder-design-tokens.md",
+  "docs/leadgen/contract/12-traceability-matrix.md",
+  "docs/leadgen/contract/docs/default-funnel-design-audit.md",
+  "docs/leadgen/contract/docs/reference-design-desktop.json",
+  "docs/leadgen/contract/docs/reference-design-mobile.json",
+  // cms-rescue-4 mission doc (same class as MISSION-CMS-RESCUE-2 above):
+  // quotes a banned identifier in prose; untracked on CI, present in local
+  // checkouts — without this entry every local scanner run fails.
+  "docs/MISSION-CMS-RESCUE-4.md",
 ];
 
 // Files that legitimately contain Group B identifiers: everything in
