@@ -41,7 +41,6 @@ import {
   renderListPager,
 } from "../templates/layout";
 import type {
-  LeadgenQuoteApi,
   LeadgenAuctionApi,
 } from "./db-types";
 import {
@@ -54,6 +53,11 @@ import {
   leadgenSectionsNewPage,
   leadgenSectionEditorPage,
 } from "./ui-sections";
+import {
+  leadgenQuotesListPage,
+  leadgenQuotesNewPage,
+  leadgenQuoteEditorPage,
+} from "./ui-quotes";
 
 export type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
 export type UiContext = Context<AdminEnv>;
@@ -299,43 +303,6 @@ ${pager}`;
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Quotes tab (03 §9.4 list columns)
-// ---------------------------------------------------------------------------
-
-const QUOTE_COLUMNS: ReadonlyArray<ListColumn> = [
-  { label: "Name" },
-  { label: "Activity" },
-  { label: "Verticals" },
-  { label: "Variants", numeric: true },
-  { label: "A/B status" },
-  { label: "Active sites", numeric: true },
-  { label: "Visits", numeric: true },
-  { label: "Completion rate", numeric: true },
-  { label: "Avg RPS", numeric: true },
-  { label: "Unfilled rate", numeric: true },
-  { label: "Revenue", numeric: true },
-  { label: "Actions" },
-];
-
-function quoteVerticals(q: LeadgenQuoteApi): string {
-  return Array.isArray(q.verticals_json)
-    ? q.verticals_json.filter((v): v is string => typeof v === "string").join(", ")
-    : EM_DASH;
-}
-
-function renderQuoteRow(q: LeadgenQuoteApi): string {
-  return `<tr data-entity-id="${q.id}" data-entity-name="${escapeHtml(q.quote_name)}">
-  <td>${escapeHtml(q.quote_name)}</td>
-  <td>${escapeHtml(q.activity)}</td>
-  <td>${escapeHtml(quoteVerticals(q))}</td>
-  ${dashCell(true)}
-  ${dashCell(false)}
-  ${dashCells(6)}
-  <td>${EM_DASH}</td>
-</tr>`;
-}
-
-// ---------------------------------------------------------------------------
 // Auction tab (03 §9.5 list columns)
 // ---------------------------------------------------------------------------
 
@@ -396,34 +363,12 @@ leadgenUi.get("/admin/leadgen/sections", leadgenSectionsListPage);
 leadgenUi.get("/admin/leadgen/sections/new", leadgenSectionsNewPage);
 leadgenUi.get("/admin/leadgen/sections/:id/edit", leadgenSectionEditorPage);
 
-leadgenUi.get("/admin/leadgen/quotes", async (c) => {
-  const page = pageParam(c);
-  const listed = await apiJson<ListBody<LeadgenQuoteApi>>(
-    c.env,
-    `/api/admin/leadgen/quotes${pageQuery(page)}`,
-  );
-  return c.html(
-    leadgenTabPage(
-      {
-        tab: "quotes",
-        createLabel: "Create a Quote",
-        phaseNote: "Quote editor ships in a later phase",
-        table: renderListTable({
-          tableClass: "leadgen-quotes-list",
-          ariaLabel: "Quotes list",
-          columns: QUOTE_COLUMNS,
-          rows: (listed.ok ? listed.body.items : []).map(renderQuoteRow),
-          emptyEntity: "quotes",
-          phaseNote: "Quote editor ships in a later phase",
-        }),
-        paging: listed.ok ? listed.body.paging : EMPTY_PAGING,
-        page,
-        loadError: listed.ok ? null : listed.error,
-      },
-      branding(c),
-    ),
-  );
-});
+// Quotes tab — LIVE (Phase-7 Stage B, contract 03 §9.4 / 06 §15–§17).
+// Editor shells registered static-before-param (01 §5.2): /quotes/new precedes
+// /quotes/:id/edit.
+leadgenUi.get("/admin/leadgen/quotes", leadgenQuotesListPage);
+leadgenUi.get("/admin/leadgen/quotes/new", leadgenQuotesNewPage);
+leadgenUi.get("/admin/leadgen/quotes/:id/edit", leadgenQuoteEditorPage);
 
 // The Auction tab path is SINGULAR (01 §5.2); it drives the plural
 // /api/admin/leadgen/auctions entity endpoint (03 §8.2).
