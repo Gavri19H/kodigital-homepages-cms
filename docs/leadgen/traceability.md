@@ -66,9 +66,9 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 
 | # | Deliverable | Phase | Implementation file(s) (planned) | Test(s) (planned) | Status |
 |---|---|---|---|---|---|
-| 1 | Repository findings evidence | P1 | `docs/leadgen/contract/00-…` (vendored) + this register | (evidence) | PENDING |
-| 2 | Existing patterns to reuse | P1 | contract `01`§3 (vendored) | — | PENDING |
-| 3 | Anti-patterns / guardrails | P1 | scanner allowlist additions; token-clean source discipline | `verify:no-legacy-prod-refs` + bite-proof | PENDING |
+| 1 | Repository findings evidence | P1 | `docs/leadgen/contract/00-…` (vendored, SHA in MANIFEST) + this register | (evidence — P1 section) | PASS |
+| 2 | Existing patterns to reuse | P1 | contract `01`§3 (vendored, SHA in MANIFEST) | — (ratified at CP0) | PASS |
+| 3 | Anti-patterns / guardrails | P1 | scanner allowlist additions (`assert-no-legacy-prod-refs.ts`); token-clean source discipline | scanner exit 0 + bite-proof + second live bite (P1 evidence) | PASS |
 | 4 | Product architecture | P2–P3 | module skeleton per `01`§4.2 | `typecheck` | PENDING |
 | 5 | Namespace plan | P2 | `leadgen_*` DDL, `lg_*` DDL, routes, ULID prefixes (`leadgen/ids.ts`) | `verify:infra`; grep-proof zero `listicle_` reuse | PENDING |
 | 6 | CMS navigation | P3 | `src/admin/templates/layout.ts` nav + `admin/leadgen/ui.ts` | `test-ui/leadgen-nav.spec.ts`; NAV count-test update | PENDING |
@@ -123,9 +123,9 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 
 | # | Deliverable | Tick |
 |---|---|---|
-| 1 | Executive summary (contract vendored) | ☐ |
-| 2 | Repository findings | ☐ |
-| 3 | Patterns to reuse | ☐ |
+| 1 | Executive summary (contract vendored) | ☑ P1 |
+| 2 | Repository findings | ☑ P1 |
+| 3 | Patterns to reuse | ☑ P1 |
 | 4 | Product architecture | ☐ |
 | 5 | CMS navigation | ☐ |
 | 6 | Data model | ☐ |
@@ -168,7 +168,9 @@ Implemented in `api/src/leadgen/validation.ts` (server-side, per entity) and ass
 ## Phase sections (verification headers + evidence appended at each phase exit)
 
 ### P1 — Findings + contract landing + traceability seed
-_(in progress — this PR; full five-gate verification header appended at phase exit)_
+
+**Verification header — 2026-07-06, commit `a56f51f`, branch `leadgen/p01-contract-traceability` (base main@`6ff0102`):**
+`npm run typecheck` exit 0 · `npm test` **245/245 files, 2071/2071 tests** (54.73s) · `verify:no-legacy-prod-refs` + `verify:infra` + `verify:worker-config` (`verify:all`) exit 0 · `npx playwright test` **63/63** (50.2s, after `db:migrate:local`). Matrix rows flipped this phase: **1, 2, 3 → PASS**.
 
 Evidence collected so far (2026-07-06, branch `leadgen/p01-contract-traceability` off main@`6ff0102` — which equals the contract's cited baseline tree exactly):
 
