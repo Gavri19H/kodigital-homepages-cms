@@ -246,17 +246,19 @@ function choiceList(node: LeadgenComponentNode): LeadgenChoice[] {
   return Array.isArray(node.choices) ? node.choices : [];
 }
 
-export function renderButtonAnswerGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+// Answer buttons are a "pick-one" affordance (like the icon card), NOT the navy
+// primary. Their base white/2px-border chrome + §14.6 hover/selected/focus state
+// rules live in the scoped chrome CSS (.lg-btn.lg-btn-answer, styles.ts) — never
+// inline — so the "selected animation" state wins by cascade (no !important; the
+// compound .lg-btn.lg-btn-answer outranks the .lg-btn primary base/hover). Only
+// class + role/aria + hydration data attrs are emitted here (no per-instance
+// style at all), so `design` is unused (kept for the uniform dispatcher shape).
+export function renderButtonAnswerGroup(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
   const autoAdvance = propBool(node, "auto_advance");
   const buttons = choiceList(node)
     .map(
       (c) =>
         `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
-        style({
-          background: design.color.card,
-          color: design.page.textColor,
-          border: design.input.border,
-        }) +
         attr("data-value", c.value) +
         attr("data-analytics-id", c.analytics_id) +
         `>${esc(c.label)}</button>`,
@@ -269,13 +271,15 @@ export function renderButtonAnswerGroup(node: LeadgenComponentNode, design: Defa
   );
 }
 
-export function renderTwoButtonYesNo(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderTwoButtonYesNo(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
   const yes = propStr(node, "yesLabel") ?? "Yes";
   const no = propStr(node, "noLabel") ?? "No";
   const autoAdvance = propBool(node, "auto_advance");
+  // Same discipline as renderButtonAnswerGroup: base + state chrome is fully
+  // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply;
+  // no inline background/color/border to defeat them.
   const btn = (label: string, value: boolean): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
-    style({ background: design.color.card, color: design.page.textColor, border: design.input.border }) +
     ` data-value="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
     `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
@@ -307,9 +311,11 @@ function renderCardGrid(
         c.description !== undefined && c.description !== ""
           ? `<span class="lg-card-desc">${esc(c.description)}</span>`
           : "";
+      // Base border/background live in the scoped chrome CSS (.lg-card) — NOT
+      // inline — so the §14.4 selected/hover/focus/error state rules win by
+      // cascade (no !important). Only class + hydration attrs are emitted here.
       return (
         `<button type="button" class="lg-card" role="radio" aria-checked="false"` +
-        style({ border: design.iconCard.border, background: design.iconCard.background }) +
         attr("data-value", c.value) +
         attr("data-analytics-id", c.analytics_id) +
         `>${media}<span class="lg-card-title">${esc(c.label)}</span>${desc}</button>`
@@ -336,8 +342,9 @@ export function renderMultiChoiceCardGroup(node: LeadgenComponentNode, design: D
   const cards = choiceList(node)
     .map(
       (c) =>
+        // Base border/background live in the scoped chrome CSS (.lg-card) — not
+        // inline — so the §14.4 selected/hover/focus state rules apply.
         `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
-        style({ border: design.iconCard.border, background: design.iconCard.background }) +
         attr("data-value", c.value) +
         attr("data-analytics-id", c.analytics_id) +
         `><span class="lg-card-title">${esc(c.label)}</span></button>`,
@@ -357,9 +364,10 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   const options = choiceList(node)
     .map((c) => `<option value="${esc(c.value)}"${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`)
     .join("");
+  // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
+  // the :focus / [aria-invalid] state rules win by cascade (no !important).
   return (
     `<select class="lg-input lg-dropdown"${hydration(node)}` +
-    style({ border: design.input.border }) +
     `>` +
     `<option value="" disabled selected>${esc(placeholder)}</option>` +
     options +
@@ -379,9 +387,10 @@ function renderTextInput(
 ): string {
   const placeholder = propStr(node, "placeholder");
   const maxLen = propNum(node, "maxLen");
+  // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
+  // the :focus / [aria-invalid] state rules win by cascade (no !important).
   return (
     `<input class="lg-input" type="${type}"${hydration(node)}` +
-    style({ border: design.input.border }) +
     attr("placeholder", placeholder) +
     attr("maxlength", maxLen) +
     (node.required === true ? " required" : "") +
@@ -418,9 +427,11 @@ export function renderZIPInputQuestion(node: LeadgenComponentNode, design: Defau
 export function renderNameFieldsGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const first = propStr(node, "firstLabel") ?? "First name";
   const last = propStr(node, "lastLabel") ?? "Surname";
+  // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
+  // the :focus / [aria-invalid] state rules win by cascade (no !important).
   const field = (label: string, name: string, autocomplete: string): string =>
     `<label class="lg-field"><span class="lg-label">${esc(label)}</span>` +
-    `<input class="lg-input" type="text"${style({ border: design.input.border })}` +
+    `<input class="lg-input" type="text"` +
     ` data-name-field="${name}" autocomplete="${autocomplete}"` +
     (node.required === true ? " required" : "") +
     `></label>`;
@@ -437,7 +448,9 @@ export function renderAddressAutocompleteQuestion(node: LeadgenComponentNode, de
   const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
   return (
     `<div class="lg-address"${hydration(node)} data-provider="${esc(provider)}">` +
-    `<input class="lg-input lg-address-input" type="text"${style({ border: design.input.border })}` +
+    // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
+    // the :focus / [aria-invalid] state rules win by cascade (no !important).
+    `<input class="lg-input lg-address-input" type="text"` +
     ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
     (node.required === true ? " required" : "") +
     ` data-address-autocomplete="true">` +
@@ -455,12 +468,17 @@ export function renderAddressAutocompleteQuestion(node: LeadgenComponentNode, de
 export function renderContinueButton(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const label = propStr(node, "label") ?? "Continue";
   const loadingLabel = propStr(node, "loadingLabel") ?? label;
-  // §14.6: navy primary (NOT blue), full-width pill; curated overrides allowed.
-  const bg = ov(node, "buttonBackground") ?? design.primaryButton.background;
+  // §14.6: navy primary (NOT blue), full-width pill. The base navy background
+  // lives in the scoped chrome CSS (.lg-btn) so the :hover/:active/disabled
+  // state rules win by cascade (no !important). A curated §14.8 buttonBackground
+  // override rides the --lg-btn-bg custom property (the .lg-continue chrome rule
+  // reads it) — NOT an inline background that would defeat :hover. buttonText
+  // has no state variant, so it stays a per-instance inline value.
+  const bgOverride = ov(node, "buttonBackground");
   const fg = ov(node, "buttonText") ?? design.primaryButton.color;
   return (
     `<button type="submit" class="lg-btn lg-continue"${hydration(node)}` +
-    style({ background: bg, color: fg }) +
+    style({ "--lg-btn-bg": bgOverride, color: fg }) +
     attr("data-loading-label", loadingLabel) +
     ` data-loading="false">` +
     `<span class="lg-btn-spinner" aria-hidden="true"></span>` +
@@ -471,11 +489,14 @@ export function renderContinueButton(node: LeadgenComponentNode, design: Default
 
 export function renderAutoAdvanceButton(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const label = propStr(node, "label") ?? "Continue";
-  const bg = ov(node, "buttonBackground") ?? design.primaryButton.background;
+  // Same discipline as renderContinueButton: the navy base lives in the chrome
+  // CSS (.lg-btn) so :hover applies; the §14.8 buttonBackground override rides
+  // the --lg-btn-bg custom property (read by the .lg-auto-advance chrome rule).
+  const bgOverride = ov(node, "buttonBackground");
   const fg = ov(node, "buttonText") ?? design.primaryButton.color;
   return (
     `<button type="button" class="lg-btn lg-auto-advance"${hydration(node)}` +
-    style({ background: bg, color: fg }) +
+    style({ "--lg-btn-bg": bgOverride, color: fg }) +
     ` data-auto-advance="true">${esc(label)}</button>`
   );
 }

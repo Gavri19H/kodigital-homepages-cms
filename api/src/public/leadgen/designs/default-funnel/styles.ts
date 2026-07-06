@@ -344,12 +344,20 @@ export function funnelChromeCss(
       opacity: primaryButton.disabledOpacity,
       cursor: "not-allowed",
     }),
-    // Continue is the full-width centred pill (§14.6): navy, NOT blue.
+    // Continue is the full-width centred pill (§14.6): navy, NOT blue. The base
+    // navy background lives on the shared .lg-btn rule above; here .lg-continue
+    // (and .lg-auto-advance) additionally read the §14.8 --lg-btn-bg override
+    // custom property (token navy fallback) at REST — kept off .lg-btn so the
+    // higher-specificity .lg-btn:hover darken still wins by cascade (no !important).
     rule(`${scope} .lg-continue`, {
       width: "100%",
       "max-width": primaryButton.maxWidth,
       "margin-left": "auto",
       "margin-right": "auto",
+      background: `var(--lg-btn-bg, ${primaryButton.background})`,
+    }),
+    rule(`${scope} .lg-auto-advance`, {
+      background: `var(--lg-btn-bg, ${primaryButton.background})`,
     }),
     // Loading state: hide the label, show the spinner (§14.6).
     rule(`${scope} .lg-btn[data-loading="true"] .lg-btn-label`, { visibility: "hidden" }),
@@ -366,6 +374,43 @@ export function funnelChromeCss(
   );
   mobile.push(rule(`${scope} .lg-continue`, { width: primaryButton.widthMobile }));
   out.push(`@keyframes lg-spin{to{transform:rotate(360deg)}}`);
+
+  // ---- answer buttons (§14.6 selected animation / §13.2 TwoButtonYesNo +
+  // ButtonAnswerGroup) ------------------------------------------------------
+  // An answer button is a "pick-one" affordance like the icon card — a white
+  // 2px-bordered chip that washes navy when selected, NOT the navy primary FILL.
+  // Its base + hover + selected + focus chrome lives here (never inline in the
+  // preset) so the state rules win by cascade. The compound .lg-btn.lg-btn-answer
+  // (two classes) cleanly outranks both the .lg-btn primary base AND .lg-btn:hover
+  // without !important or source-order dependence, so the shared primary navy
+  // fill/hover can never bleed onto a white answer button. Every value REUSES an
+  // existing token (no new values): base = color.card / page.textColor /
+  // input.border; hover + selected = the SAME iconCard state tokens the icon card
+  // uses (§14.4); focus ring = the .lg-card:focus-visible ring.
+  out.push(
+    rule(`${scope} .lg-btn.lg-btn-answer`, {
+      background: color.card,
+      color: page.textColor,
+      border: input.border,
+      transition: `border-color var(--lg-transition-card), background var(--lg-transition-card)`,
+    }),
+    rule(`${scope} .lg-btn.lg-btn-answer:hover`, {
+      "border-color": iconCard.hoverBorderColor,
+      background: iconCard.hoverBackground,
+    }),
+    rule(
+      `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
+      {
+        "border-color": iconCard.selectedBorderColor,
+        background: iconCard.selectedBackground,
+        "font-weight": "700",
+      },
+    ),
+    rule(`${scope} .lg-btn.lg-btn-answer:focus-visible`, {
+      outline: `2px solid ${color.primary}`,
+      "outline-offset": "2px",
+    }),
+  );
 
   // ---- reassurance badge (§14.2 reassuranceBadge / §14.7) -----------------
   out.push(

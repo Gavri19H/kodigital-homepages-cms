@@ -20,6 +20,7 @@ import {
   renderSectionComponents,
 } from "../src/public/leadgen/components/presets";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
 
 const DESIGN = defaultFunnelDesign;
 const codes = (content: unknown): string[] => validateSectionContent(content).errors.map((e) => e.code);
@@ -300,6 +301,27 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
 
 const ALL_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];
 
+// Post-fix: the pure-stateful presets carry NO inline style at all — their base
+// border/background/color lives in the scoped chrome CSS so the state rules win
+// by cascade (no !important): the :focus / [aria-invalid] rules for the text
+// inputs + dropdown, AND the :hover / [aria-checked] selected rules for the
+// answer buttons (ButtonAnswerGroup / TwoButtonYesNo) — the §14.6 answer-button
+// fix, which leaves no per-instance value to emit. Every OTHER preset still emits
+// token-derived per-instance inline style (grid cols, range fill %, icon color,
+// progress fill, chrome colours with no state).
+const NO_INLINE_STYLE_TYPES = new Set<ComponentType>([
+  "DropdownQuestion",
+  "FreeTextQuestion",
+  "EmailInputQuestion",
+  "PhoneInputQuestion",
+  "DateQuestion",
+  "ZIPInputQuestion",
+  "NameFieldsGroup",
+  "AddressAutocompleteQuestion",
+  "ButtonAnswerGroup",
+  "TwoButtonYesNo",
+]);
+
 describe("renderComponent — every catalog type", () => {
   it("NODE_SPECS covers every catalog type (lockstep guard)", () => {
     expect(Object.keys(NODE_SPECS).sort()).toEqual([...ALL_TYPES].sort());
@@ -318,8 +340,14 @@ describe("renderComponent — every catalog type", () => {
       expect(html.length, type).toBeGreaterThan(0);
       expect(html, type).toContain(`data-component-type="${type}"`);
       expect(html, type).toContain('class="lg-');
-      // token-derived inline style present on every preset.
-      expect(html, type).toContain('style="');
+      if (NO_INLINE_STYLE_TYPES.has(type)) {
+        // FIX proof: the stateful input/dropdown presets emit NO inline style —
+        // base styling is fully class-driven so the :focus/[aria-invalid] rules apply.
+        expect(html, `${type} carries NO inline style (base styling is class-driven)`).not.toContain('style="');
+      } else {
+        // token-derived per-instance inline style present (no-state values).
+        expect(html, type).toContain('style="');
+      }
       // §14.3/§14.10: no preset emits a <style> block or a <script>.
       expect(html.includes("<style"), type).toBe(false);
       expect(html.includes("<script"), type).toBe(false);
@@ -432,11 +460,71 @@ describe("IconCardAnswerGrid (§14.4)", () => {
     for (const c of choices) expect(html).toContain(c.label.replace("(", "(")); // labels present
     expect(html).toContain('role="radiogroup"');
     expect(html).toContain('role="radio"');
-    // navy icon color (§14.4 default-funnel skin: icons navy #1B3A5C)
+    // navy icon color (§14.4 default-funnel skin: icons navy #1B3A5C) — a
+    // per-choice inline value with NO state variant, so it stays inline.
     expect(html).toContain("color:#1B3A5C");
-    // per-card selectable + card border token
+    // per-card selectable
     expect(html).toContain('aria-checked="false"');
-    expect(html).toContain("border:2px solid #D2D9E5");
+    // FIX: the base card border is NO LONGER inline (moved to the scoped chrome
+    // CSS) so the §14.4 selected/hover/focus state rules win by cascade.
+    expect(html).not.toContain("border:2px solid #D2D9E5");
+    const chrome = funnelChromeCss(DESIGN);
+    // (base) the card border token lives in the .lg-card chrome rule …
+    expect(chrome).toContain("border:2px solid #D2D9E5");
+    // … and (NEW) the §14.4 SELECTED state carries navy border #1B3A5C + wash
+    // bg #E8EEF4 — it now APPLIES (no inline base border/background outranks it).
+    expect(chrome).toContain('.lg-card[aria-checked="true"]');
+    expect(chrome).toContain("border-color:#1B3A5C;background:#E8EEF4");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §14.6 answer buttons — ButtonAnswerGroup + TwoButtonYesNo (§13.2 "Are you
+// insured? [Yes][No]"). Base + selected/hover/focus chrome is CLASS-DRIVEN
+// (.lg-btn.lg-btn-answer) so the "selected animation" applies; NO inline
+// background/color/border defeats it (the sibling of the icon-card fix).
+// ---------------------------------------------------------------------------
+
+describe("ButtonAnswerGroup + TwoButtonYesNo (§14.6 answer-button state)", () => {
+  it("both answer-button presets emit NO inline style (base + state fully class-driven)", () => {
+    const group = renderComponent(NODE_SPECS.ButtonAnswerGroup, DESIGN);
+    const yesno = renderComponent(NODE_SPECS.TwoButtonYesNo, DESIGN);
+    // FIX proof: the per-instance inline base (background/color/border) that used
+    // to outrank the scoped chrome state rules is GONE from BOTH presets.
+    expect(group, "ButtonAnswerGroup carries NO inline style").not.toContain('style="');
+    expect(yesno, "TwoButtonYesNo carries NO inline style").not.toContain('style="');
+    // …but the class + role/aria + hydration attrs the runtime needs remain.
+    expect(group).toContain('class="lg-btn lg-btn-answer"');
+    expect(group).toContain('role="radio"');
+    expect(group).toContain('aria-checked="false"');
+    expect(group).toContain('data-value="sole_prop"');
+    expect(group).toContain('data-analytics-id="biz_sole"');
+    expect(yesno).toContain('class="lg-btn lg-btn-answer"');
+    expect(yesno).toContain('data-value="true"');
+    expect(yesno).toContain('data-value="false"');
+  });
+
+  it("the .lg-btn.lg-btn-answer chrome is base white + 2px #D2D9E5, navy selected, non-navy-fill hover", () => {
+    const chrome = funnelChromeCss(DESIGN);
+    // BASE: white bg + dark ink + 2px #D2D9E5 border (reuses color.card /
+    // page.textColor / input.border) + the icon-card transition — the compound
+    // .lg-btn.lg-btn-answer (2 classes) outranks the .lg-btn primary base (1 class).
+    expect(chrome).toContain(
+      ".lg-btn.lg-btn-answer{background:#FFFFFF;color:#1A1F36;border:2px solid #D2D9E5;transition:border-color var(--lg-transition-card), background var(--lg-transition-card)}",
+    );
+    // SELECTED (§14.6 "selected animation"): navy #1B3A5C border + #E8EEF4 wash bg
+    // + weight 700 — the SAME iconCard.selectedBorderColor / selectedBackground
+    // the icon card uses (§14.4). Asserted on the [data-selected] half of the
+    // selector group (a clean contiguous substring) + presence of [aria-checked].
+    expect(chrome).toContain(
+      '.lg-btn.lg-btn-answer[data-selected="true"]{border-color:#1B3A5C;background:#E8EEF4;font-weight:700}',
+    );
+    expect(chrome).toContain('.lg-btn.lg-btn-answer[aria-checked="true"]');
+    // HOVER: navy border + #F2F6FA wash (iconCard.hover*) — the exact match proves
+    // it is NOT the primary navy FILL #0F2440 the bare .lg-btn:hover imposes.
+    expect(chrome).toContain(".lg-btn.lg-btn-answer:hover{border-color:#1B3A5C;background:#F2F6FA}");
+    // FOCUS: the same visible focus ring the .lg-card:focus-visible rule uses.
+    expect(chrome).toContain(".lg-btn.lg-btn-answer:focus-visible{outline:2px solid #1B3A5C;outline-offset:2px}");
   });
 });
 
@@ -481,7 +569,13 @@ describe("RangeQuestion / CurrencyRangeQuestion (§14.5)", () => {
 describe("ContinueButton (§14.6)", () => {
   it("is navy #1B3A5C, NOT blue, full-width pill with a loading spinner", () => {
     const html = renderComponent(NODE_SPECS.ContinueButton, DESIGN);
-    expect(html).toContain("background:#1B3A5C"); // navy
+    // FIX: the navy base background is NO LONGER inline (moved to the .lg-btn
+    // chrome rule) so the §14.6 :hover darken wins by cascade.
+    expect(html).not.toContain("background:#1B3A5C");
+    const chrome = funnelChromeCss(DESIGN);
+    expect(chrome).toContain("background:#1B3A5C"); // navy base on the .lg-btn chrome rule
+    // (NEW) §14.6 hover darkens to navy-dark #0F2440 (state rule, now unblocked).
+    expect(chrome).toContain(".lg-btn:hover{background:#0F2440}");
     expect(html.toLowerCase()).not.toContain("#2a6fdb"); // not the discarded blue
     expect(html).toContain("lg-continue");
     expect(html).toContain("lg-btn-spinner");
@@ -489,12 +583,15 @@ describe("ContinueButton (§14.6)", () => {
     expect(html).toContain('data-loading-label="Loading…"');
   });
 
-  it("honours a curated buttonBackground override", () => {
+  it("honours a curated buttonBackground override via the --lg-btn-bg custom property", () => {
     const html = renderComponent(
       { type: "ContinueButton", question_id: "c", design_overrides: { buttonBackground: "#0F2440" }, props: { label: "Go" } },
       DESIGN,
     );
-    expect(html).toContain("background:#0F2440");
+    // The override flows to the --lg-btn-bg custom property (read by the
+    // .lg-continue chrome rule) — NOT an inline background that would defeat :hover.
+    expect(html).toContain("--lg-btn-bg:#0F2440");
+    expect(html).not.toContain("background:#0F2440");
   });
 });
 
