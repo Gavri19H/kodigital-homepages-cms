@@ -249,6 +249,10 @@ Built (contract 04 §10–11 + 03 §8.2/§9.2 + 09 §30):
 - **Gap-fixes (found by B2, fixed in-phase before review):** F1 shared endpoints; F2 placement replace-set (default-uniqueness both sides + auction-reference guard); F3 §11.1 dry-run build; F4 `carrier_parse_json` authoring UI (B1 POST persistence confirmed by byte-roundtrip, no handler bug).
 - **Live leg:** offers admin behind CF Access — behavior local-proven (Playwright CP2 6/6); no migrations this phase; production posture recorded in the P4 deploy addendum below. **CP2 discharged** (agent-executed per DEV-8): the Offers slice click-through (create → editor → save → list badge → dynamic builder → archive) is green end-to-end.
 
+**P4 deploy addendum — 2026-07-06, squash-merge `d0659cd` (PR #75), production dispatch run `28810617057` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — deploy's migration step idempotent no-op; live D1 unchanged (still 40 leadgen / 23 listicle / 89 total).
+- Live posture: tenant `/health` 200 `{"ok":true,"app":"kodigital-homepages-cms"}`; `/admin/leadgen` off-`ADMIN_HOST` → 404; admin host `/admin/leadgen/offers` unauthenticated → CF Access 302 (the new offers route is live behind the gate). Offers admin UI + API sit behind CF Access — full behavior is local-Playwright-proven (CP2); operator can eyeball at any CP station.
+
 ### P5 — Sections + design system
 _(pending)_
 
