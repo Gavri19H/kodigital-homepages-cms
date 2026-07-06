@@ -36,6 +36,7 @@ Each shipped migration MUST be anchored in `.github/workflows/deploy.yml` in the
 | DEV-7 | Contract source seeds (`components/registry.ts`, `designs/default-funnel/tokens.ts`) verified **token-clean** at vendoring — no comment-stripping needed at P5; vendor verbatim. | Token pre-scan at P1 (grep over all 26 files): only 8 prose/audit docs carry banned tokens; both seeds + all migrations/infra DDL are clean. |
 | DEV-8 | **Delivery-model change (operator instruction 2026-07-06):** per-PR review + contract-alignment validation + merge + deploy delegated to the agent ("do it independently for each pr"); CP0–CP5 are agent-executed verification stations, not user stops. `ENABLE_STAGING_DEPLOY` is unset and setting it was permission-denied → staging CI deploys skip; each PR deploys via `gh workflow run deploy.yml -f target_env=production` (which also applies migrations). **Ratified 2026-07-06 (post-P2): the operator ruled staging is skipped entirely for this program** — new-product routes are dark-by-construction, the full regression suite runs pre-merge, and staging shares production's D1 so it isolates nothing; production dispatch is the standing deploy path for every PR. | Operator messages (delegation + staging ruling) + permission-classifier denial, this session. |
 | DEV-9 | §7.8's "Seed 5 disabled `leadgen_media_platforms`" is implemented **app-level at P13** (media-platforms admin CRUD + optional `seed-local`), NOT as migration INSERTs. | The normative vendored `0038` contains no INSERTs; the Listicles precedent (`0034`) is likewise INSERT-free (platforms created via admin CRUD); repo D2 deploy-safety forbids unconditional seed-INSERTs into admin-managed tables. |
+| DEV-10 | **Prefix-set resolution (`01`§3 vs `02`§6.1/§6.3):** the `01`§3 summary lists `lgv_` quote-version / `lgc_` carrier / generic `lgr_` rule; the normative `02` entity table has none of these (v2.3.7 replaced quote-version with Quote→Funnel(`lgf_`)→Variant(`lgn_`)+A/B(`lgx_`); carriers key on `carrier_key`, no public_id; rules are the concrete `lgrr_`/`lgfr_`/`lgar_`) and adds `lgpl_` offer-placement. `leadgen/ids.ts` implements the `02` set — exactly 14 prefixes. | DEV-5 principle (normative v2.3.7 section governs older summary prose); adversarial review verified against all 40 `CREATE TABLE`s — no quote-version/carrier table exists. |
 
 ## OQ resolutions (contract `10`§34)
 
@@ -73,14 +74,14 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 1 | Repository findings evidence | P1 | `docs/leadgen/contract/00-…` (vendored, SHA in MANIFEST) + this register | (evidence — P1 section) | PASS |
 | 2 | Existing patterns to reuse | P1 | contract `01`§3 (vendored, SHA in MANIFEST) | — (ratified at CP0) | PASS |
 | 3 | Anti-patterns / guardrails | P1 | scanner allowlist additions (`assert-no-legacy-prod-refs.ts`); token-clean source discipline | scanner exit 0 + bite-proof + second live bite (P1 evidence) | PASS |
-| 4 | Product architecture | P2–P3 | module skeleton per `01`§4.2 | `typecheck` | PENDING |
-| 5 | Namespace plan | P2 | `leadgen_*` DDL, `lg_*` DDL, routes, ULID prefixes (`leadgen/ids.ts`) | `verify:infra`; grep-proof zero `listicle_` reuse | PENDING |
-| 6 | CMS navigation | P3 | `src/admin/templates/layout.ts` nav + `admin/leadgen/ui.ts` | `test-ui/leadgen-nav.spec.ts`; NAV count-test update | PENDING |
+| 4 | Product architecture | P2–P3 | module skeleton per `01`§4.2 | `typecheck` | PENDING — P3 partial: `src/leadgen/` + `src/admin/leadgen/` live; `src/public/leadgen/` from P5+ |
+| 5 | Namespace plan | P2 | `leadgen_*` DDL, `lg_*` DDL, routes, ULID prefixes (`leadgen/ids.ts`) | `verify:infra`; grep-proof zero `listicle_` reuse | PENDING — P2 DDL + P3 `ids.ts` 14 prefixes (02-governed, DEV-10); `lg_*` DDL at P12 |
+| 6 | CMS navigation | P3 | `src/admin/templates/layout.ts` nav (after Listicles) + `admin/leadgen/ui.ts` (302→offers, 4 tabs, singular `auction`) | `test-ui/leadgen-nav.spec.ts` 2/2 ✅; NAV count-test 10→11 same commit ✅ (P3 header) | PASS |
 | 7 | Ownership + site activation | P7 | `leadgen_site_quotes` (0036) + `admin/leadgen/quotes-handlers.ts` + `public/leadgen/resolver.ts` | `test/leadgen-activation.test.ts` | PENDING |
 | 8 | Data model (40 physical tables) | P2 | `migrations/0036–0039` + `admin/leadgen/db-types.ts` (40 Row/API pairs) | `test/leadgen-migrations.test.ts` + `tsc` (P2 header) | PASS |
 | 9 | Full D1 migration DDL | P2 | `migrations/0036_leadgen_core.sql` … `0039_…` (cmp-identical to contract) + deploy.yml anchors | apply local ✅ + constraint tests 8/8 (P2 header); remote applied ✅ run 28794699290 (P2 addendum) | PASS |
-| 10 | Full API route contract | P3+ | `admin/leadgen/router.ts` (static-before-param) + `public/leadgen/*` routes | `test/leadgen-routes-auth.test.ts` (404 off ADMIN_HOST; 401/403; no-store) | PENDING |
-| 11 | Admin UI contract | P3+ | `admin/leadgen/ui.ts` + `ui-*.ts` (apiJson in-process SSR) | `test-ui/leadgen-admin.spec.ts` flows | PENDING |
+| 10 | Full API route contract | P3+ | `admin/leadgen/router.ts` (static-before-param) + `public/leadgen/*` routes | `test/leadgen-admin-shell.test.ts` (404 off ADMIN_HOST; 401 parity; headers-TOTAL; dual `:id`; envelopes) | PENDING — P3 partial: skeleton proven (P3 header); full §8.2 surface ships P4–P9, `/lg/*` P7+ |
+| 11 | Admin UI contract | P3+ | `admin/leadgen/ui.ts` + `ui-*.ts` (apiJson in-process SSR) | `test-ui/leadgen-admin.spec.ts` flows | PENDING — P3 partial: shell live (adminLayout, 4-tab bar, apiJson SSR, disabled Create scaffolds) |
 | 12 | Offers tab | P4 | `admin/leadgen/offers-handlers.ts`, `ui-offers.ts`, `leadgen/validation.ts` | `test/leadgen-offers-api.test.ts` + UI spec | PENDING |
 | 13 | Dynamic payload builder | P4 | `leadgen/payload.ts`, `admin/leadgen/payload-builder-handlers.ts`, `ui-payload-builder.ts` | `test/leadgen-payload.test.ts` (build, value_map, cleanObject, conditional drop, token placement, auto-from-example) | PENDING |
 | 14 | Offer Test tool | P4 | `admin/leadgen/payload-builder-handlers.ts` (proxy) + `leadgen_provider_request_log` | `test/leadgen-test-tool.test.ts` (mask, persist, log) | PENDING |
@@ -131,7 +132,7 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 2 | Repository findings | ☑ P1 |
 | 3 | Patterns to reuse | ☑ P1 |
 | 4 | Product architecture | ☐ |
-| 5 | CMS navigation | ☐ |
+| 5 | CMS navigation | ☑ P3 |
 | 6 | Data model | ☑ P2 |
 | 7 | D1 schema/migrations | ☑ P2 |
 | 8 | API/route design | ☐ |
@@ -211,7 +212,17 @@ Evidence:
 - **CP1 discharged** (agent-executed per DEV-8): watched deploy + live `sqlite_master` probe. Staging permanently skipped — operator ratified (DEV-8).
 
 ### P3 — Admin nav + shell
-_(pending)_
+
+**Verification header — 2026-07-06, commit `a92fcc6`, branch `leadgen/p03-admin-shell` (base main@`6e48207`):**
+`npm run typecheck` exit 0 · `npm test` **247/247 files, 2110/2110 tests** (+1 file/+31 tests = `leadgen-admin-shell.test.ts`) · `verify:all` exit 0 (scanner + infra 8 + worker-config 3 checks) · `npx playwright test` **65/65** (+2 = `test-ui/leadgen-nav.spec.ts`) — Listicles/homepage suites unaffected by the sidebar change. Matrix rows flipped this phase: **6 → PASS**; §35.3 row 5 ☑; rows 4/5/10/11 carry P3-partial notes.
+
+Evidence:
+- **Shipped:** `src/leadgen/ids.ts` (14 `public_id` prefixes per normative `02`§6.1/§6.3 — DEV-10; listicles-identical ULID core), `src/admin/leadgen/{router,ui}.ts` mounted beside the listicles pair in `src/admin/router.ts`, LeadGen nav item immediately after Listicles in `layout.ts` + NAV count-test 10→11 (same commit), `test/leadgen-admin-shell.test.ts` (31 tests), `test-ui/leadgen-nav.spec.ts` (2 tests).
+- **Contract fidelity — fresh-context adversarial review (12 mandated checks): verdict SHIP, zero BLOCKER/MAJOR.** Prefixes character-exact vs `02`§6.1 (full-object equality); tab paths singular-`auction` / API plural-`auctions` proven from both sides (01 §5.2 + 03 §8.2); paging shape byte-identical to listicles (`03`§8.4); Row→API mappers enumerated column-by-column vs `0036` DDL (offers 2 bools; sections 3 JSON + 1 bool; quotes 1 JSON; auctions 3 bools + 1 JSON — exact sets, no misses); SQL: fixed-literal tables + `.bind()`-only + `??` numeric defaults; XSS sweep clean (escapeHtml everywhere; hostile-name runtime probe).
+- **Headers-TOTAL (03 §8.1/§9.1):** `private, no-store` + `nosniff` asserted on redirect / 4 tab pages / API-200 / API-404 / HTML-404 / bare API root / method-miss / thrown-500 (review's one MINOR — the last four classes untested — closed in-phase with a poisoned-DB 500 probe through the real router + onError).
+- **Dual `:id` (03 §8.1):** numeric and `public_id` resolve the SAME seeded entity; malformed / foreign-kind / nonexistent → 404 `{error}` with no DB read on malformed; shared-stem prefixes (`lga_`/`lgar_`, `lgp_`/`lgpl_`) cannot cross-accept.
+- **Auth/host wall:** off-`ADMIN_HOST` flat 404 (shell + API); unauthenticated requests rejected with exact status parity vs the listicles equivalents — no new auth code, inherited gate (03 §8.1).
+- **Live leg:** the admin shell sits behind CF Access in production — live behavioral verification is local-Playwright-proven (65/65) + posture-checked at deploy; recorded in the P3 deploy addendum below.
 
 ### P4 — Offers + payload builder + Test tool
 _(pending)_
