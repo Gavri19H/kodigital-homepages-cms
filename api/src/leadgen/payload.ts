@@ -614,8 +614,10 @@ export interface LeadgenPayloadBuildContext {
 
 // 07 §21.4 semantics scoped to one field: OR within `values`, numeric
 // comparisons only over finite numbers. An ABSENT answer never satisfies a
-// conditional (deterministic: unmet ⇒ node dropped).
-function conditionalMet(
+// conditional (deterministic: unmet ⇒ node dropped). Exported as the single
+// source of condition-op truth: the §12.3 dependency engine (dependencies.ts)
+// reuses THIS evaluator so payload-build and show/hide/require never diverge.
+export function conditionalMet(
   conditional: LeadgenPayloadConditional,
   answers: Readonly<Record<string, unknown>>,
 ): boolean {
