@@ -670,3 +670,139 @@ describeDb("GET /sections/:id — dual-id, no-store headers, 404 semantics", () 
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// §12.3 / §14.9 conditional-dependency preview (POST /sections/preview + sample_answers)
+// ---------------------------------------------------------------------------
+
+// q2 (insurer) shows only when q1 (insured) === true, and is required-when-shown.
+const DEP_CONTENT = {
+  components: [
+    { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "insured", answer_type: "boolean" },
+    {
+      type: "FreeTextQuestion",
+      question_id: "q2",
+      question_key: "insurer_q",
+      internal_field: "insurer",
+      answer_type: "string",
+      required: true,
+      conditional: { when: "insured", op: "eq", value: true },
+    },
+  ],
+};
+
+interface DepPreviewBody {
+  preview: { component_count: number; desktop: string; mobile: string };
+  dependencies?: {
+    components: Array<{ question_id: string; visible: boolean; required_now: boolean }>;
+    continue_blocked: boolean;
+    blocking_question_ids: string[];
+    visible_question_ids: string[];
+  };
+}
+
+describeDb("POST /sections/preview — §12.3/§14.9 conditional dependency preview", () => {
+  it("no sample_answers ⇒ classic full render, no dependencies block (backward compatible)", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(`${API}/sections/preview`, jsonInit("POST", { content_json: JSON.stringify(DEP_CONTENT) }), env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as DepPreviewBody;
+    expect(body.preview.component_count).toBe(2); // both components rendered
+    expect(body.dependencies).toBeUndefined();
+  });
+
+  it("sample answers HIDE the dependent when its condition is unmet (rendered AND reported)", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", { content_json: JSON.stringify(DEP_CONTENT), sample_answers: { insured: false } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as DepPreviewBody;
+    // q2 hidden → only q1 survives into the rendered HTML (proves hidden nodes
+    // are dropped from the render, not just flagged).
+    expect(body.preview.component_count).toBe(1);
+    expect(body.dependencies?.visible_question_ids).toEqual(["q1"]);
+    expect(body.dependencies?.components.find((cc) => cc.question_id === "q2")?.visible).toBe(false);
+    // a HIDDEN required component never blocks continue (§12.3).
+    expect(body.dependencies?.continue_blocked).toBe(false);
+  });
+
+  it("sample answers REVEAL the dependent when met; a visible required unanswered field blocks continue", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", { content_json: JSON.stringify(DEP_CONTENT), sample_answers: { insured: true } }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as DepPreviewBody;
+    expect(body.preview.component_count).toBe(2); // both visible → both rendered
+    expect(body.dependencies?.visible_question_ids).toEqual(["q1", "q2"]);
+    // q2 is visible + required + unanswered → §12.3 continue gate closes on it.
+    expect(body.dependencies?.continue_blocked).toBe(true);
+    expect(body.dependencies?.blocking_question_ids).toContain("q2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §12.8 server-side ZIP validation in the validate flow (maps.validateZip)
+// ---------------------------------------------------------------------------
+
+const ZIP_CONTENT = {
+  components: [{ type: "ZIPInputQuestion", question_id: "zq", question_key: "zip_q", internal_field: "zip" }],
+};
+
+interface ZipValidationBody {
+  address_validation: {
+    enabled: boolean;
+    zip_fields: string[];
+    checks: Array<{ field: string; present: boolean; valid: boolean | null }>;
+    malformed: string[];
+    has_malformed: boolean;
+  } | null;
+}
+
+describeDb("POST /sections/:id/validate-payload — §12.8 ZIP validation", () => {
+  it("flags a malformed ZIP when address_validation_enabled + a ZIP component", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, sectionBody({ content_json: JSON.stringify(ZIP_CONTENT), address_validation_enabled: true }));
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { zip: "9021" } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as ZipValidationBody;
+    expect(body.address_validation?.enabled).toBe(true);
+    expect(body.address_validation?.has_malformed).toBe(true);
+    expect(body.address_validation?.malformed).toContain("zip");
+    expect(body.address_validation?.checks.find((cc) => cc.field === "zip")?.valid).toBe(false);
+  });
+
+  it("a well-formed 5-digit ZIP passes maps.validateZip", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, sectionBody({ content_json: JSON.stringify(ZIP_CONTENT), address_validation_enabled: true }));
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { zip: "90210" } }),
+      env,
+    );
+    const body = (await res.json()) as ZipValidationBody;
+    expect(body.address_validation?.has_malformed).toBe(false);
+    expect(body.address_validation?.checks.find((cc) => cc.field === "zip")?.valid).toBe(true);
+  });
+
+  it("address_validation is null when the toggle is off (the leg does not apply)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, sectionBody({ content_json: JSON.stringify(ZIP_CONTENT) })); // address_validation_enabled defaults false
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { zip: "9021" } }),
+      env,
+    );
+    const body = (await res.json()) as ZipValidationBody;
+    expect(body.address_validation).toBeNull();
+  });
+});

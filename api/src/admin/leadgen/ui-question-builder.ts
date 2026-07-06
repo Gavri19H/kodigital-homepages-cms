@@ -300,6 +300,9 @@ interface AnswerMapView {
   question_id: string;
   question_key: string;
   internal_field: string;
+  // The normalized answer_type (§12.7) — drives the §12.11 type_mismatch text
+  // ("answer type X not coercible to Y").
+  answer_type: string;
   offer_id: number;
   offer_payload_field_path: string;
   provider_expected_type: string;
@@ -312,16 +315,46 @@ interface AnswerMapView {
   mapping_status: string;
 }
 
-// §12.11 field-level state → badge class + label.
-function completenessBadge(status: string): string {
-  const map: Record<string, { cls: string; label: string }> = {
-    complete: { cls: "badge badge-published", label: "ok" },
-    incomplete: { cls: "badge badge-scheduled", label: "missing required" },
-    type_mismatch: { cls: "badge badge-draft", label: "type mismatch" },
-    orphaned: { cls: "badge badge-archived", label: "orphaned" },
+// The §12.11 semantic four-state, derived 1:1 from the DDL-storable
+// mapping_status column. The DB stores `incomplete` for §12.11 `missing_required`
+// (sections.ts toMappingStatusColumn maps missing_required→incomplete), so
+// `incomplete` decodes back to `missing_required`; the other three are identical.
+type CompletenessCellState = "ok" | "missing_required" | "type_mismatch" | "orphaned";
+
+function completenessStateOf(mappingStatus: string): CompletenessCellState {
+  switch (mappingStatus) {
+    case "complete":
+      return "ok";
+    case "type_mismatch":
+      return "type_mismatch";
+    case "orphaned":
+      return "orphaned";
+    default:
+      return "missing_required"; // "incomplete"
+  }
+}
+
+// §12.11 field-level error UI states (mapping grid). Each cell shows one of:
+//   ok               → green check
+//   missing_required → red "map required field"
+//   type_mismatch    → amber "answer type X not coercible to Y"
+//   orphaned         → gray "Offer field no longer exists in schema"
+// The `data-mapping-status` (DB value) attribute is preserved for back-compat;
+// `data-mapping-cell` carries the §12.11 semantic state so tests + CSS target it.
+function completenessCell(m: AnswerMapView): string {
+  const state = completenessStateOf(m.mapping_status);
+  const cells: Record<CompletenessCellState, { cls: string; text: string; prefix: string }> = {
+    ok: { cls: "lg-cell lg-cell-ok badge badge-published", text: "ok", prefix: "&#10003; " },
+    missing_required: { cls: "lg-cell lg-cell-missing badge badge-scheduled", text: "map required field", prefix: "" },
+    type_mismatch: {
+      cls: "lg-cell lg-cell-mismatch badge badge-draft",
+      text: `answer type ${m.answer_type === "" ? "?" : m.answer_type} not coercible to ${m.provider_expected_type}`,
+      prefix: "",
+    },
+    orphaned: { cls: "lg-cell lg-cell-orphaned badge badge-archived", text: "Offer field no longer exists in schema", prefix: "" },
   };
-  const chosen = map[status] ?? { cls: "badge badge-draft", label: status };
-  return `<span class="${chosen.cls}" data-mapping-status="${escapeHtml(status)}">${escapeHtml(chosen.label)}</span>`;
+  const chosen = cells[state];
+  return `<span class="${chosen.cls}" data-mapping-status="${escapeHtml(m.mapping_status)}" data-mapping-cell="${state}" title="${escapeHtml(chosen.text)}">${chosen.prefix}${escapeHtml(chosen.text)}</span>`;
 }
 
 function transformSummary(transformJson: unknown): string {
@@ -349,14 +382,39 @@ function renderMappingRow(m: AnswerMapView, offerLabelById: ReadonlyMap<number, 
   <td>${escapeHtml(valueMapSummary(m.output_value_map))}</td>
   <td>${escapeHtml(transformSummary(m.value_transform))}</td>
   <td>${m.required_for_offer ? "required" : "optional"}</td>
-  <td>${completenessBadge(m.mapping_status)}</td>
+  <td>${completenessCell(m)}</td>
   <td><button type="button" class="btn btn-sm btn-outline" data-mapping-test aria-label="Test generated payload">Test</button></td>
 </tr>`;
+}
+
+// §12.11 / §35: the section-level publish verdict + "N required mappings
+// missing" summary. Derived (in ui-sections) from the persisted
+// leadgen_section_available_offers rows — the SAME derived truth
+// sectionValidationStatus consumes (publishable ⇔ no invalid Offer AND every
+// provider-required field mapped).
+interface MappingSummary {
+  publishable: boolean;
+  status: "ok" | "error";
+  required_missing_total: number;
+}
+
+// The publish-gate badge + missing-required count (§12.11 "a Section with any
+// error row cannot be included in a published Quote").
+function renderMappingSummary(summary: MappingSummary): string {
+  const badge = summary.publishable
+    ? `<span class="badge badge-published" data-publishable="true">Publishable</span>`
+    : `<span class="badge badge-archived" data-publishable="false">Blocked from publish (§12.11)</span>`;
+  const missing =
+    summary.required_missing_total > 0
+      ? `<span class="lg-mapping-missing" data-required-missing="${summary.required_missing_total}">${summary.required_missing_total} required mapping${summary.required_missing_total === 1 ? "" : "s"} missing</span>`
+      : `<span class="lg-mapping-missing" data-required-missing="0">All required fields mapped</span>`;
+  return `<div class="lg-mapping-summary" data-mapping-summary>${badge}${missing}</div>`;
 }
 
 export function renderMappingGrid(
   maps: ReadonlyArray<AnswerMapView>,
   offerLabelById: ReadonlyMap<number, string>,
+  summary: MappingSummary,
 ): string {
   const headerCells = MAPPING_COLUMNS.map((c) => `<th scope="col">${escapeHtml(c)}</th>`).join("");
   const rows =
@@ -365,6 +423,7 @@ export function renderMappingGrid(
       : maps.map((m) => renderMappingRow(m, offerLabelById)).join("");
   return `<div class="lg-inspector-section" data-inspector-mapping>
   <h4 class="lg-inspector-heading">Answer → Offer mapping (§12.4 / §12.11)</h4>
+  ${renderMappingSummary(summary)}
   <div class="table-wrapper">
     <table class="table lg-mapping-grid" id="lg-mapping-grid" aria-label="Answer to Offer mapping">
       <thead><tr>${headerCells}</tr></thead>
@@ -380,16 +439,17 @@ export function renderMappingGrid(
 export function renderInspector(
   maps: ReadonlyArray<AnswerMapView>,
   offerLabelById: ReadonlyMap<number, string>,
+  summary: MappingSummary,
 ): string {
   return `<aside class="lg-inspector" id="lg-inspector" aria-label="Component inspector">
   <div class="lg-inspector-head"><h3 class="card-title">Inspector</h3><span class="form-help" id="lg-inspector-target">Select a component</span></div>
   ${renderInspectorAuthoring()}
   ${renderInspectorTokens()}
-  ${renderMappingGrid(maps, offerLabelById)}
+  ${renderMappingGrid(maps, offerLabelById, summary)}
 </aside>`;
 }
 
-export type { AnswerMapView };
+export type { AnswerMapView, MappingSummary };
 
 // ---------------------------------------------------------------------------
 // Desktop/Mobile preview toggle + states simulator (§14.9)
@@ -408,6 +468,12 @@ export function renderPreviewToggle(): string {
     <button type="button" class="btn btn-sm btn-outline" data-sim-state="selected" aria-pressed="false">Selected</button>
     <button type="button" class="btn btn-sm btn-outline" data-sim-state="error" aria-pressed="false">Error</button>
     <button type="button" class="btn btn-sm btn-outline" data-sim-state="dependency" aria-pressed="false">Dependency</button>
+  </div>
+  <div class="lg-dependency-panel" data-dependency-panel hidden>
+    <label class="form-label" for="lg-dependency-answers">Sample answers (JSON, keyed by internal field) — §12.3 conditional dependency preview</label>
+    <textarea id="lg-dependency-answers" class="form-input" data-dependency-answers rows="3" aria-label="Sample answers for dependency preview" placeholder='{ "currently_insured": true }'></textarea>
+    <button type="button" class="btn btn-sm btn-secondary" id="lg-dependency-apply">Apply sample answers</button>
+    <p class="lg-dependency-status" data-dependency-status role="status" aria-live="polite"></p>
   </div>
   <p id="lg-preview-error" class="alert alert-error" hidden role="alert"></p>
   <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview (default funnel design)" sandbox="" data-viewport="desktop"></iframe>
@@ -447,6 +513,18 @@ export const QUESTION_BUILDER_STYLES = `
 .lg-inspector-conditional{display:flex;gap:4px;flex-wrap:wrap;border:0;padding:0;margin:0}
 .lg-mapping-grid .form-input{font-size:11px;padding:4px 6px;min-width:70px}
 .lg-mapping-test-result{background:var(--c-surface);border:1px solid var(--c-border);border-radius:6px;padding:8px;font-size:11px;overflow:auto;max-height:220px;white-space:pre-wrap;margin-top:8px}
+/* §12.11 field-level cell colors — green ok / red missing / amber mismatch / gray orphaned. */
+.lg-cell{font-size:11px}
+.lg-cell-ok{color:#0f5132;background:#d1e7dd;border-color:#badbcc}
+.lg-cell-missing{color:#842029;background:#f8d7da;border-color:#f5c2c7}
+.lg-cell-mismatch{color:#664d03;background:#fff3cd;border-color:#ffecb5}
+.lg-cell-orphaned{color:#41464b;background:#e2e3e5;border-color:#d3d6d8}
+.lg-mapping-summary{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
+.lg-mapping-missing{font-size:12px;color:var(--c-muted)}
+.lg-dependency-panel{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
+.lg-dependency-panel textarea{width:100%;font-family:var(--font-mono,monospace);font-size:12px;margin-bottom:6px}
+.lg-dependency-status{font-size:12px;margin:6px 0 0}
+.lg-dependency-status[data-continue-blocked="true"]{color:#842029}
 `;
 
 // ---------------------------------------------------------------------------
@@ -614,15 +692,48 @@ export const QUESTION_BUILDER_SCRIPT = `
 
   // --- Desktop/Mobile preview (POST /sections/preview → sandboxed iframe) ----
   var previewViewport = 'desktop';
+  // §14.9 states simulator: which state the preview renders. 'dependency' drives
+  // the §12.3 conditional preview (sample answers hide/show components live).
+  var simState = 'default';
+
+  // Sample answers for the §12.3 dependency preview (JSON keyed by internal
+  // field). Empty / unparseable → {} (no dependency filtering).
+  function sampleAnswers() {
+    var el = document.getElementById('lg-dependency-answers');
+    if (!el) { return {}; }
+    var t = trimStr(el.value);
+    if (t === '') { return {}; }
+    try { var parsed = JSON.parse(t); return (parsed && typeof parsed === 'object') ? parsed : {}; } catch (e) { return {}; }
+  }
+
+  // Reflect the server's dependency verdict (visible count + continue gate)
+  // into the aria-live status line.
+  function renderDependencyStatus(dep) {
+    var el = document.querySelector('[data-dependency-status]');
+    if (!el) { return; }
+    while (el.firstChild) { el.removeChild(el.firstChild); }
+    if (!dep) { el.setAttribute('data-continue-blocked', 'false'); return; }
+    var visible = dep.visible_question_ids || [];
+    var blocking = dep.blocking_question_ids || [];
+    var msg = 'Visible: ' + visible.length + ' component(s). ';
+    msg = msg + (dep.continue_blocked ? ('Continue BLOCKED — required: ' + blocking.join(', ')) : 'Continue allowed.');
+    el.appendChild(document.createTextNode(msg));
+    el.setAttribute('data-continue-blocked', dep.continue_blocked ? 'true' : 'false');
+  }
+
   function runPreview() {
     var frame = document.getElementById('lg-preview-frame');
     var errEl = document.getElementById('lg-preview-error');
     if (errEl) { errEl.hidden = true; }
+    var requestBody = { content_json: JSON.stringify(state.content) };
+    // Only the dependency state sends sample answers → the server renders with
+    // hidden components actually hidden + returns the per-component visibility.
+    if (simState === 'dependency') { requestBody.sample_answers = sampleAnswers(); }
     fetch('/api/admin/leadgen/sections/preview', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ content_json: JSON.stringify(state.content) })
+      body: JSON.stringify(requestBody)
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -637,6 +748,7 @@ export const QUESTION_BUILDER_SCRIPT = `
         // innerHTML. The fragment is server-rendered + escaped by the presets.
         frame.setAttribute('srcdoc', '<style>' + res.body.preview.css + '</style>' + html);
       }
+      renderDependencyStatus(res.body.dependencies || null);
     }).catch(function () {
       if (errEl) { errEl.hidden = false; errEl.textContent = 'Preview request failed'; }
     });
@@ -665,8 +777,12 @@ export const QUESTION_BUILDER_SCRIPT = `
   for (si = 0; si < simBtns.length; si++) {
     simBtns[si].addEventListener('click', function () {
       var stateName = this.getAttribute('data-sim-state');
+      simState = stateName;
       var frame = document.getElementById('lg-preview-frame');
       if (frame) { frame.setAttribute('data-sim-state', stateName); }
+      // The dependency sample-answers panel is revealed only in dependency mode.
+      var panel = document.querySelector('[data-dependency-panel]');
+      if (panel) { panel.hidden = (stateName !== 'dependency'); }
       var all = document.querySelectorAll('[data-sim-state]');
       var k;
       for (k = 0; k < all.length; k++) {
@@ -674,8 +790,16 @@ export const QUESTION_BUILDER_SCRIPT = `
         all[k].setAttribute('aria-pressed', on ? 'true' : 'false');
         all[k].className = on ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
       }
+      // Re-render the preview for the chosen state (dependency ⇒ filtered).
+      runPreview();
     });
   }
+
+  // --- §12.3 dependency preview controls: Apply button + live re-eval --------
+  var depApply = document.getElementById('lg-dependency-apply');
+  if (depApply) { depApply.addEventListener('click', runPreview); }
+  var depAnswers = document.getElementById('lg-dependency-answers');
+  if (depAnswers) { depAnswers.addEventListener('change', runPreview); }
 
   // --- Google-Maps toggle (§12.8) — the key is a secret, never embedded -----
   var mapsToggle = document.getElementById('lg-address-validation');

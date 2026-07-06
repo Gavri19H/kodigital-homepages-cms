@@ -19,7 +19,10 @@
 
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import { renderSectionComponents } from "../../public/leadgen/components/presets";
-import type { LeadgenSectionContent } from "../../public/leadgen/components/content-schema";
+import type {
+  LeadgenComponentNode,
+  LeadgenSectionContent,
+} from "../../public/leadgen/components/content-schema";
 import { isPublicId, mintPublicId } from "../../leadgen/ids";
 import {
   buildOfferPayload,
@@ -27,6 +30,11 @@ import {
   type LeadgenRawAnswers,
   normalizeAnswers,
 } from "../../leadgen/answers";
+// Stage-A pure engines (P6) — CONSUMED here, never modified: the §12.3 IF/THEN
+// dependency evaluator (admin preview + P7 runtime share it) and the §12.8
+// server-side ZIP validator (`/^\d{5}$/`).
+import { evaluateDependencies, type LeadgenDependencyState } from "../../leadgen/dependencies";
+import { validateZip } from "../../leadgen/maps";
 import {
   mappingCompleteness,
   rebuildDerivedIndexes,
@@ -944,22 +952,58 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", fields: { content_json: "content_json is required" } }, 400);
   }
 
+  // §12.3/§14.9 conditional-dependency preview: when the caller supplies
+  // `sample_answers`, normalize them (answers.ts §12.7) and run the Stage-A
+  // evaluateDependencies over the draft component nodes. The preview then
+  // renders with hidden components ACTUALLY hidden (the editor's "dependency"
+  // simulator state shows the real show/hide), and the response carries the
+  // per-component {visible, required_now} + the section-level continue gate.
+  // No sample_answers ⇒ the classic full-render preview (unchanged).
   const design = getFunnelDesign(null);
-  const rendered = renderSectionComponents(content.components, design);
+  const nodes = content.components as LeadgenComponentNode[];
+  const rawSample = body["sample_answers"] ?? body["answers"];
+  let dependencies: LeadgenDependencyState | null = null;
+  let renderNodes: LeadgenComponentNode[] = nodes;
+  if (isRecord(rawSample)) {
+    const normalized = normalizeAnswers(content, rawSample as LeadgenRawAnswers);
+    dependencies = evaluateDependencies(nodes, normalized.answers);
+    const visible = new Set(
+      dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
+    );
+    // Filter the render to the visible components only — a component whose
+    // inline conditional is unmet (or fail-closed on an unanswered `when`) is
+    // dropped from the previewed HTML, exactly as the P7 runtime will hide it.
+    renderNodes = nodes.filter(
+      (n) => isRecord(n) && typeof n.question_id === "string" && visible.has(n.question_id),
+    );
+  }
+
+  const rendered = renderSectionComponents(renderNodes, design);
   const wrap = (viewport: "desktop" | "mobile", maxWidth: string): string =>
     `<div data-funnel-design="${design.id}" data-viewport="${viewport}" class="lg-preview lg-preview-${viewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
 
   // The scoped chrome CSS is imported lazily so this handler stays free of the
   // styles module unless a preview is requested.
   const { funnelChromeCss } = await import("../../public/leadgen/designs/default-funnel/styles");
-  return c.json({
+  const responseBody: Record<string, unknown> = {
     preview: {
       css: funnelChromeCss(design),
       desktop: wrap("desktop", design.header.contentMaxWidth),
       mobile: wrap("mobile", design.breakpoints.mobileMax),
-      component_count: content.components.length,
+      component_count: renderNodes.length,
     },
-  });
+  };
+  if (dependencies !== null) {
+    responseBody["dependencies"] = {
+      components: dependencies.components,
+      continue_blocked: dependencies.continue_blocked,
+      blocking_question_ids: dependencies.blocking_question_ids,
+      visible_question_ids: dependencies.components
+        .filter((cc) => cc.visible)
+        .map((cc) => cc.question_id),
+    };
+  }
+  return c.json(responseBody);
 }
 
 // ---------------------------------------------------------------------------
@@ -1299,7 +1343,66 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
     answer_sources: normalized.sources,
     offers: results,
     section_validation: { status: verdict.status, publishable: verdict.publishable },
+    // §12.8 server-side ZIP validation over the SAME normalized answers. Null
+    // when address validation is off or the Section has no ZIP/Address field
+    // (the live geocode/autofill is P7 + operator-key-gated; this admin leg is
+    // validation-only and never needs the Maps key).
+    address_validation: zipValidation(row, content, normalized.answers),
   });
+}
+
+// §12.8 ZIP internal-field discovery: a ZIPInputQuestion contributes its own
+// `internal_field`; an AddressAutocompleteQuestion contributes its zip sub-field
+// (one of `props.internal_fields`, default set street/city/state/zip). Mirrors
+// answers.ts fieldsOf so the fields checked here == the fields normalizeAnswers
+// produced (no divergent field vocabulary).
+function zipFieldsOfContent(content: LeadgenSectionContent): string[] {
+  const out: string[] = [];
+  for (const node of content.components) {
+    if (!isRecord(node)) continue;
+    const type = node["type"];
+    if (type === "ZIPInputQuestion") {
+      const field = trimmedString(node["internal_field"]);
+      if (field !== null) out.push(field);
+    } else if (type === "AddressAutocompleteQuestion") {
+      const fields = Array.isArray(node["internal_fields"])
+        ? node["internal_fields"]
+        : isRecord(node["props"]) && Array.isArray((node["props"] as Record<string, unknown>)["internal_fields"])
+          ? ((node["props"] as Record<string, unknown>)["internal_fields"] as unknown[])
+          : ["street", "city", "state", "zip"];
+      for (const f of fields) {
+        if (typeof f === "string" && /zip/i.test(f)) out.push(f);
+      }
+      if (!fields.some((f) => typeof f === "string" && /zip/i.test(f))) out.push("zip");
+    }
+  }
+  return [...new Set(out)];
+}
+
+// §12.8: validate every ZIP answer with maps.validateZip (`/^\d{5}$/`) when the
+// Section enabled address validation. Returns per-field {present, valid} + the
+// list of malformed fields; null when the leg does not apply.
+function zipValidation(
+  row: LeadgenSectionRow,
+  content: LeadgenSectionContent,
+  answers: Readonly<Record<string, unknown>>,
+): {
+  enabled: boolean;
+  zip_fields: string[];
+  checks: Array<{ field: string; present: boolean; valid: boolean | null }>;
+  malformed: string[];
+  has_malformed: boolean;
+} | null {
+  if (row.address_validation_enabled === 0) return null;
+  const fields = zipFieldsOfContent(content);
+  if (fields.length === 0) return null;
+  const checks = fields.map((field) => {
+    const value = answers[field];
+    const present = value !== undefined && value !== null && String(value).trim() !== "";
+    return { field, present, valid: present ? validateZip(String(value)) : null };
+  });
+  const malformed = checks.filter((cc) => cc.present && cc.valid === false).map((cc) => cc.field);
+  return { enabled: true, zip_fields: fields, checks, malformed, has_malformed: malformed.length > 0 };
 }
 
 function parseObjectColumn(raw: string | null): Record<string, unknown> | null {
