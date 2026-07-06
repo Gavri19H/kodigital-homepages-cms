@@ -1,0 +1,25 @@
+{
+  "$meta": {
+    "viewport": "desktop (>=640px)",
+    "provenance": "reference-code measured (a2z-agent-demo/api/src/insureprimo/templates/funnel-styles*.ts @ b484748e96dc)",
+    "blocked": "green/blue/serif screenshot palette + range slider + reassurance badge + category label are UNMEASURED (B1/B2) — measure from operator screenshots in Phase 5",
+    "note": "values are the reference funnel's real CSS; where the operator screenshots differ, see screenshotIntended in tokens.ts"
+  },
+  "page": { "backgroundColor": "#F5F7FA", "textColor": "#1A1F36", "fontFamilyBody": "'Sora', sans-serif", "fontFamilyDisplay": "'Literata', serif", "minHeight": "100vh" },
+  "header": { "backgroundColor": "#FFFFFF", "paddingY": "16px", "paddingX": "24px", "contentMaxWidth": "600px", "align": "center", "sticky": true, "boxShadow": "0 1px 3px rgba(27,58,92,0.06)", "logo": { "fontFamily": "'Literata', serif", "fontSize": "17.6px", "fontWeight": 700, "color": "#1B3A5C", "accentSpanColor": "#E85D26" }, "screenshotIntendedBLOCKED": "dark navy full-width; left back-arrow; centered logo; top-right Disclosures" },
+  "content": { "containerMaxWidth": "500px", "mainPadding": "24px", "cardPadding": "24px 20px (>=640: 48px)", "cardRadius": "14px", "cardBoxShadow": "0 4px 8px rgba(27,58,92,0.06)" },
+  "progress": { "height": "8px", "trackColor": "#E8EEF4", "fillColor": "linear-gradient(90deg,#1B3A5C,#2A5080)", "borderRadius": "9999px", "text": { "fontSize": "11.2px", "color": "#1B3A5C", "fontWeight": 600 }, "marginBottom": "32px", "screenshotIntendedBLOCKED": "solid green fill #1f9d57, no % text" },
+  "categoryLabelBLOCKED": { "status": "net-new", "screenshotIntended": { "textTransform": "uppercase", "letterSpacing": "~2px", "color": "#1f9d57", "fontSize": "~13px", "fontWeight": 700, "marginBottom": "~12px" } },
+  "headline": { "fontFamily": "'Literata', serif", "fontSizeDesktop": "28px", "fontWeight": 700, "lineHeight": 1.25, "color": "#1A1F36", "textAlign": "center", "textWrap": "balance", "marginBottom": "6px", "screenshotIntendedBLOCKED": "~40px serif, family unconfirmed" },
+  "subheadline": { "fontSize": "13.2px", "color": "#4A5568", "textAlign": "center", "marginBottom": "20px" },
+  "rangeQuestionBLOCKED": { "status": "net-new", "screenshotIntended": { "valueFontSize": "~44px", "valueFontWeight": 700, "trackHeight": "~8px", "filledTrackColor": "#1f9d57", "unfilledTrackColor": "#d7dbe2", "thumbSize": "~28px", "thumbBackground": "#111827", "thumbBorder": "3px solid #fff", "minMaxLabel": { "fontSize": "~13px", "color": "#6b7280" } } },
+  "primaryButton": { "background": "#1B3A5C", "color": "#FFFFFF", "paddingY": "14px", "paddingX": "16px", "minHeight": "52px", "maxWidth": "320px", "borderRadius": "10px", "fontSize": "15px", "fontWeight": 600, "hoverBackground": "#0F2440", "activePress": "scale(0.98)", "disabledOpacity": 0.6, "focusRing": "2px #1B3A5C offset 2px", "screenshotIntendedBLOCKED": "blue #2a6fdb, pill radius ~999px" },
+  "reassuranceBadgeBLOCKED": { "status": "net-new", "screenshotIntended": { "border": "1px solid #1f9d57", "background": "#eaf7ef", "borderRadius": "10px", "padding": "10px 16px", "iconColor": "#1f9d57", "textColor": "#14663a", "fontSize": "14px", "gap": "8px" } },
+  "iconCardGrid": { "columnsDesktop": 3, "gap": "8px", "maxHeightScroll": "320px", "marginBottom": "24px", "screenshotIntendedBLOCKED": "2/3/4/5 cols, non-scrolling for small sets" },
+  "iconCard": { "border": "2px solid #D2D9E5", "borderRadius": "10px", "background": "#FFFFFF", "minHeight": "48px", "fontSize": "14px", "fontWeight": 500, "logoMaxHeight": "32px", "hover": { "borderColor": "#1B3A5C", "background": "#F2F6FA" }, "selected": { "borderColor": "#1B3A5C", "background": "#E8EEF4", "fontWeight": 600 }, "focus": "2px #1B3A5C offset 2px", "screenshotIntendedBLOCKED": "taller ~96-132px, green outline icons, green selected wash, title ~16px/700" },
+  "input": { "padding": "16px", "border": "2px solid #D2D9E5", "borderRadius": "10px", "fontSize": "16px", "focusBorderColor": "#1B3A5C", "errorBorderColor": "#D32F2F", "placeholderColor": "#718096" },
+  "dropdown": { "appearance": "none", "chevronFill": "#5A6178", "chevronPosition": "right 16px center", "backgroundColor": "#FFFFFF" },
+  "validation": { "errorTextColor": "#D32F2F", "errorFontSize": "14px", "errorMarginTop": "4px", "successColor": "#0E7C3A", "helperColor": "#718096" },
+  "offerBanner": { "cardBorder": "2px solid #D2D9E5", "cardRadius": "20px", "cardPadding": "24px", "logo": "140x60", "recommended": { "border": "2px solid #E85D26", "background": "#FFFAF7", "glow": "0 4px 20px rgba(232,93,38,0.12)", "logo": "160x72", "ctaBackground": "#E85D26" }, "name": { "fontSize": "18px", "fontWeight": 700 }, "cta": { "background": "#1B3A5C", "color": "#FFFFFF", "padding": "14px 24px", "borderRadius": "10px", "textTransform": "uppercase", "fontWeight": 700 }, "recommendedBadge": { "top": "-12px", "background": "#1B3A5C", "color": "#FFFFFF", "fontSize": "11px", "fontWeight": 700, "borderRadius": "6px" } },
+  "transitions": { "stepFadeInMs": 300, "cardHoverMs": 150, "btnHoverMs": 200, "btnEasing": "cubic-bezier(0.34,1.56,0.64,1)", "progressFillMs": 400 }
+}

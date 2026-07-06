@@ -1,0 +1,20 @@
+{
+  "$meta": {
+    "viewport": "mobile (<=480px; small<=400; tiny<=375)",
+    "provenance": "reference-code measured (a2z-agent-demo/api/src/insureprimo/templates/funnel-styles*.ts @ b484748e96dc)",
+    "blocked": "green/blue/serif screenshot palette + range slider + reassurance badge + category label UNMEASURED (B1/B2)"
+  },
+  "page": { "backgroundColor": "#F5F7FA", "textColor": "#1A1F36", "fontFamilyBody": "'Sora', sans-serif" },
+  "header": { "backgroundColor": "#FFFFFF", "paddingY": "16px", "paddingX": "24px", "align": "center", "sticky": true, "screenshotIntendedBLOCKED": "dark navy full-width; left back-arrow; centered logo; top-right Disclosures" },
+  "content": { "mainPadding": "16px (<=375)", "cardPadding": "24px 20px", "cardRadius": "14px" },
+  "progress": { "height": "8px", "trackColor": "#E8EEF4", "fillColor": "linear-gradient(90deg,#1B3A5C,#2A5080)", "borderRadius": "9999px", "screenshotIntendedBLOCKED": "solid green #1f9d57" },
+  "headline": { "fontFamily": "'Literata', serif", "fontSizeMobile": "22px", "fontWeight": 700, "lineHeight": 1.25, "textAlign": "center", "marginBottom": "6px", "screenshotIntendedBLOCKED": "~28px serif" },
+  "subheadline": { "fontSize": "13.2px", "color": "#4A5568", "textAlign": "center", "marginBottom": "20px" },
+  "primaryButton": { "background": "#1B3A5C", "color": "#FFFFFF", "minHeight": "52px", "width": "100%", "maxWidth": "320px", "borderRadius": "10px", "fontSize": "15px", "fontWeight": 600, "screenshotIntendedBLOCKED": "blue #2a6fdb pill full-width" },
+  "iconCardGrid": { "columnsMobile": 1, "smallMaxCols3to2": "<=400px .cols-3 becomes 2-col", "gap": "8px", "screenshotIntendedBLOCKED": "1-2 cols" },
+  "iconCard": { "minHeight": "48px", "border": "2px solid #D2D9E5", "borderRadius": "10px", "fontSize": "14px", "screenshotIntendedBLOCKED": "taller icon cards, green icons" },
+  "inputRow": { "cols3ToCols2At": "400px", "lastChildSpan2": true },
+  "offerBanner": { "cardPaddingTiny": "16px (<=375)", "logoTiny": "100x60", "recommendedLogoTiny": "140x70", "offersListMaxWidth": "100% (<=480)" },
+  "rangeQuestionBLOCKED": { "status": "net-new — measure from mobile screenshot", "screenshotIntended": { "thumbSize": "~28px (>=44px touch target guidance)", "filledTrackColor": "#1f9d57" } },
+  "touchTargets": { "minInteractive": "48-52px (reference .btn min-height 52, .card-item 48)", "guidance": ">=44px per accessibility" }
+}
