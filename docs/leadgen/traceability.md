@@ -293,6 +293,11 @@ Built (contract 05 §12.3/§12.7/§12.8/§12.11 + 09 §30.2/§30.3):
   - **Verified clean (per the review):** maps.ts order/no-op/secret-never-leaks/bounded-timeout; `conditionalMet` export is logic-unchanged (payload's 50 tests pass); dependency engine op-parity; preview backward-compat (no `sample_answers` ⇒ byte-identical, why visual 10/10 holds); §12.11 cells + escaping + ES5; ZIP wiring; §30.3 address payload-only (never an analytics dim); single-level chaining sufficient for §12.3; P7 corner-painting none (the pure engine + per-request browser-key resolver are P7-ready).
 - **Live leg:** no migrations this phase; admin behind CF Access — behavior local-proven (full suite + visual); Maps LIVE geocode BLOCKED-until-operator-key (`maps.ts` no-ops cleanly, proven). Production posture in the P6 deploy addendum below.
 
+**P6 deploy addendum — 2026-07-07, squash-merge `60de1ae` (PR #77), production dispatch run `28825964334` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — deploy's migration step idempotent no-op; live D1 unchanged (40 leadgen / 23 listicle / 89 total).
+- Live posture: tenant `/health` 200 `{"ok":true,"app":"kodigital-homepages-cms"}`; `/admin/leadgen/sections` off-`ADMIN_HOST` → 404. Dependency-preview + §12.11 cells + ZIP validation are admin-side behind CF Access — local-proven (full suite + visual 10/10). Google Maps live geocode remains BLOCKED-until-operator-key (`maps.ts` no-ops, proven).
+- Process note: the P5 deploy addendum was committed on local `main` before the P6 branch cut, so it rode into PR #77's squash rather than standing alone; local main was realigned to `origin/main` (`git reset --hard`, content-identical — nothing lost). Going forward, per-phase deploy addenda are committed on the NEXT phase's branch.
+
 ### P7 — Quotes + funnel builder + activation
 _(pending)_
 
