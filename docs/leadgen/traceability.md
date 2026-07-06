@@ -274,6 +274,10 @@ Built (contract 05 §12–14 + 03 §8.2/§9.3 + 09 §30.2/§30.3):
   - **Adjudicated non-blocking (recorded):** DEV-16 icon-card geometry (tokens.ts authoritative — net-new component); DEV-17 field substitutions; "LendingTree" in the vendored seed comment is inherited verbatim from the authorized contract (scanner-clean; the primary banned name is absent everywhere).
 - **Live leg:** no migrations this phase; sections admin behind CF Access — behavior local-proven (visual 10/10 + full suite); production posture in the P5 deploy addendum below.
 
+**P5 deploy addendum — 2026-07-06, squash-merge `1178d3b` (PR #76), production dispatch run `28822628627` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — deploy's migration step idempotent no-op; live D1 unchanged (40 leadgen / 23 listicle / 89 total).
+- Live posture: tenant `/health` 200 `{"ok":true,"app":"kodigital-homepages-cms"}`; `/admin/leadgen/sections` off-`ADMIN_HOST` → 404; admin host `/admin/leadgen/sections` unauthenticated → CF Access 302 (the new sections route live behind the gate). Sections admin UI/API behind CF Access — full behavior local-Playwright-proven (visual 10/10); operator can eyeball at any CP station.
+
 ### P6 — Mapping + dependencies + Google Maps
 _(pending)_
 
