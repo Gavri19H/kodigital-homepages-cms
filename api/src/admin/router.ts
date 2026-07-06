@@ -9,11 +9,13 @@ import { parseBoolean, type Env } from "../env";
 import { accessAuth as gate } from "../auth/access-auth";
 import { adminUi } from './ui';
 import { listicleUi } from './listicles/ui';
-// Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi, listicleApi.
+import { leadgenUi } from './leadgen/ui';
+// Sub-routers mounted under /api/admin (via the gate above): api, workflowApi, aiApi, listicleApi, leadgenApi.
 import api from "./api";
 import wfApi from "./workflow-api";
 import aiApi from "./ai-api";
 import listicleApi from "./listicles/router";
+import leadgenApi from "./leadgen/router";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -30,6 +32,9 @@ admin.route("/", adminUi);
 // Listicles CMS Phase 3: server-rendered listicles shell pages under
 // /admin/listicles* (§4) — same accessAuth gate as adminUi above.
 admin.route("/", listicleUi);
+// LeadGen CMS Phase 3: server-rendered leadgen shell pages under
+// /admin/leadgen* (contract 01 §5) — same accessAuth gate as adminUi above.
+admin.route("/", leadgenUi);
 
 // Admin auth-status endpoint. Reports whether the dev-bypass is in
 // effect for this request so the UI can flag it visually.
@@ -46,5 +51,7 @@ admin.route("/", wfApi);
 admin.route("/", aiApi);
 // Listicles CMS Phase 2: JSON CRUD under /api/admin/listicles/* (§7.1).
 admin.route("/", listicleApi);
+// LeadGen CMS Phase 3: JSON API under /api/admin/leadgen/* (contract 03 §8).
+admin.route("/", leadgenApi);
 
 export default admin;
