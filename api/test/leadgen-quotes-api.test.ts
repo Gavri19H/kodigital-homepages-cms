@@ -599,6 +599,30 @@ describeDb("§17 activation — one enabled root per site, dup slug, preview URL
     expect(JSON.stringify(await dup.json())).toMatch(/duplicate_slug/);
   });
 
+  it("rejects a non-URL-safe activation slug — cache-key segment safety (P14 finding 4)", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env, { quote_name: "QBadSlug" });
+    // A ':' would misalign the lg-shell cache-key funnel-narrowing split
+    // (invalidate.ts split(':')[3]); uppercase / spaces / path chars are likewise
+    // rejected so the slug is always a clean single URL segment.
+    for (const bad of ["a:b", "Bad Slug", "UPPER", "a/b", "a%2Fb"]) {
+      const r = await admin.request(
+        `${API}/quotes/${q.public_id}/activation/site-1`,
+        jsonInit("PUT", { enabled: true, slug: bad }),
+        env,
+      );
+      expect(r.status, `slug "${bad}" must be rejected`).toBe(400);
+      expect(JSON.stringify(await r.json())).toMatch(/slug/);
+    }
+    // a valid lowercase-alphanumeric-hyphen slug is accepted.
+    const ok = await admin.request(
+      `${API}/quotes/${q.public_id}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "valid-slug-1" }),
+      env,
+    );
+    expect(ok.status).not.toBe(400);
+  });
+
   it("DELETE deactivates (enabled → 0, reversible) and frees the root", async () => {
     const { env } = newHarness();
     const q1 = await createQuote(env, { quote_name: "Q1" });

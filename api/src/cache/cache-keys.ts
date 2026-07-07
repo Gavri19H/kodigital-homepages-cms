@@ -189,15 +189,25 @@ const NS_LG_CONFIG = "lg-config";
 // content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The single
 // enabled root activation (NULL slug — at most one per site, §17.1) uses the
 // EMPTY slug segment; a named activation uses its slug.
+// `activationVersion` = leadgen_site_quotes.updated_at (bumps on EVERY activation
+// write — enable/disable/slug/settings_overrides). §28 correctness: the shell body
+// bakes in the activation's ga4_measurement_id (from settings_overrides_json), and
+// a settings-only edit does NOT bump content_version. Without this axis a GA4-id
+// change would serve the stale id: the caches.default colo mirror + distributed
+// ETag-holders (the ETag mirrors this material) would 304-loop on the old shell
+// until an unrelated content/template bump. Folding updated_at in makes any
+// activation edit mint a FRESH key + ETag → self-correcting, mirror-safe, no
+// invalidation cron dependency (the invalidate.ts pass is then pure courtesy).
 export function leadgenShellKey(
   siteId: string,
   quoteSlug: string | null,
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  activationVersion: number,
 ): string {
   const slugSeg = quoteSlug ?? "";
-  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${funnelVariantId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
+  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${funnelVariantId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}:${activationVersion}`;
 }
 
 // lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}.
@@ -223,12 +233,18 @@ export function leadgenShellKey(
 // funnel_variant_id, then content_version + ab_rev as suffixes so a bump orphans
 // old entries. The /lg/config ETag hashes the SAME material (site + funnel +
 // variant + content_version + ab_rev) so key and ETag always agree.
+// `activationVersion` (leadgen_site_quotes.updated_at) is folded in for the SAME
+// reason as leadgenShellKey: the config DTO bakes in the site's ga4_measurement_id
+// from settings_overrides_json, and a settings-only edit does not move
+// content_version — so without this axis a GA4-id change would 304-loop the stale
+// config. An activation edit mints a fresh key + ETag.
 export function leadgenConfigKey(
   siteId: string,
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
   abRev: number,
+  activationVersion: number,
 ): string {
-  return `${NS_LG_CONFIG}:${requireSiteId(siteId)}:${funnelId}:${funnelVariantId}:${contentVersion}:${abRev}`;
+  return `${NS_LG_CONFIG}:${requireSiteId(siteId)}:${funnelId}:${funnelVariantId}:${contentVersion}:${abRev}:${activationVersion}`;
 }

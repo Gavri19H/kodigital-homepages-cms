@@ -85,9 +85,13 @@ async function deleteByPrefix(
       if (result.list_complete) break;
       cursor = result.cursor;
     }
-  } catch {
-    // list hiccup contained (fail-open) — the content_version / key discipline
-    // still guarantees a fresh read misses the orphaned entry.
+  } catch (err) {
+    // list hiccup contained (fail-open) — the activation-versioned key + the
+    // content_version discipline already guarantee a fresh read misses the
+    // orphaned entry, so this eviction is a COURTESY pass, not the correctness
+    // mechanism. Logged (namespace + err.name only — no site_id / PII) for ops
+    // visibility since the swallow is otherwise invisible.
+    console.warn(`[lg-invalidate] ${prefix.split(":")[0]} list failed: ${err instanceof Error ? err.name : "error"}`);
   }
   return deleted;
 }

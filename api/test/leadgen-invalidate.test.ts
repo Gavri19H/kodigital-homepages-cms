@@ -74,14 +74,17 @@ function buildEnv(behavior: KvBehavior = {}): BuiltEnv {
   return { env, store, deletes };
 }
 
-// Realistic keys (cache-keys.ts wire format):
-//   lg-shell:{site}:{slug}:{funnel}:{variant}:{content_version}:{template_version}
-//   lg-config:{site}:{funnel}:{variant}:{content_version}:{ab_rev}
+// Realistic keys (cache-keys.ts wire format — the trailing :1 is the §28
+// activation_version = leadgen_site_quotes.updated_at):
+//   lg-shell:{site}:{slug}:{funnel}:{variant}:{content_version}:{template_version}:{activation_version}
+//   lg-config:{site}:{funnel}:{variant}:{content_version}:{ab_rev}:{activation_version}
+// The activation_version suffix does not move the per-site prefix or the
+// funnel-narrowing segment (index 3), so invalidation is unaffected — asserted here.
 function shellKey(site: string, slug: string, funnel: string, variant: string): string {
-  return `lg-shell:${site}:${slug}:${funnel}:${variant}:1:1`;
+  return `lg-shell:${site}:${slug}:${funnel}:${variant}:1:1:1`;
 }
 function configKey(site: string, funnel: string, variant: string): string {
-  return `lg-config:${site}:${funnel}:${variant}:1:0`;
+  return `lg-config:${site}:${funnel}:${variant}:1:0:1`;
 }
 
 describe("invalidateOnQuoteActivation", () => {

@@ -116,13 +116,15 @@ function leadgenShellEtag(
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  activationVersion: number,
 ): Promise<string> {
-  // Material mirrors leadgenShellKey (now variant-scoped, §16.2/§28) so the ETag
-  // changes iff the key would — two assigned variants get DISTINCT ETags and a
-  // conditional GET never 304s one variant's shell against another's.
+  // Material mirrors leadgenShellKey (now variant-scoped + activation-versioned,
+  // §16.2/§28) so the ETag changes iff the key would — two assigned variants get
+  // DISTINCT ETags, and an activation/settings edit (incl. the baked-in GA4 id)
+  // mints a fresh ETag so a returning visitor never 304-loops the stale shell.
   return computeEtag({
     site_id: siteId,
-    path: `/lg/${quoteSlug ?? ""}:${funnelId}:${funnelVariantId}`,
+    path: `/lg/${quoteSlug ?? ""}:${funnelId}:${funnelVariantId}:${activationVersion}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
@@ -134,17 +136,18 @@ function leadgenConfigEtag(
   funnelVariantId: string,
   contentVersion: number,
   abRev: number,
+  activationVersion: number,
 ): Promise<string> {
-  // Material = site + funnel + variant + content_version + ab_rev, matching
-  // leadgenConfigKey so the ETag changes iff the cache key would. site_id is a
-  // first-class component (the config bakes in the site-specific ga4 id), so two
+  // Material = site + funnel + variant + content_version + ab_rev + activation_version,
+  // matching leadgenConfigKey so the ETag changes iff the cache key would. site_id is
+  // a first-class component (the config bakes in the site-specific ga4 id), so two
   // tenant sites serving the SAME funnel/variant get DISTINCT ETags. ab_rev (the
-  // running-test revision, 0 when none) is folded into the path so a test
-  // start/stop/re-bump changes the ETag — a conditional GET never 304s a stale
-  // single_control body against a now-running (ab_hash) config, and vice versa.
+  // running-test revision, 0 when none) makes a test start/stop/re-bump change the
+  // ETag; activation_version (leadgen_site_quotes.updated_at) makes a settings-only
+  // GA4-id edit change it too — a conditional GET never 304s a stale body.
   return computeEtag({
     site_id: siteId,
-    path: `/lg/config/${funnelId}/${funnelVariantId}/${abRev}`,
+    path: `/lg/config/${funnelId}/${funnelVariantId}/${abRev}/${activationVersion}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
@@ -376,12 +379,16 @@ export async function serveFunnelShell(
   const variantId = resolved.variant.public_id; // the ASSIGNED variant (§16.2)
   const contentVersion = resolved.variant.content_version;
   const slug = resolved.site_quote.slug;
+  // §28: the activation's updated_at bumps on any enable/disable/slug/settings
+  // (incl. the baked-in GA4 id) edit → a fresh key + ETag, so a settings-only
+  // GA4 change never serves a stale shell (no content_version move on that path).
+  const activationVersion = resolved.site_quote.updated_at;
 
   // §28 cache correctness: key by the ASSIGNED variant (never the control
   // unconditionally) so a running 2-variant test serves two DISTINCT cached
   // shells — one per assigned variant.
-  const key = leadgenShellKey(siteContext.siteId, slug, funnelId, variantId, contentVersion);
-  const etag = await leadgenShellEtag(siteContext.siteId, slug, funnelId, variantId, contentVersion);
+  const key = leadgenShellKey(siteContext.siteId, slug, funnelId, variantId, contentVersion, activationVersion);
+  const etag = await leadgenShellEtag(siteContext.siteId, slug, funnelId, variantId, contentVersion, activationVersion);
 
   // A freshly-minted ko_sid rides the RESPONSE (never the cached body) so the
   // assignment is sticky across this session's requests (§16.2).
@@ -434,12 +441,15 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   // when the baked §16.3 dims do — a start/stop/re-bump mints a fresh key/ETag and
   // never serves the stale pre-transition config body.
   const abRev = resolved.assignment.funnel_ab_test_revision;
+  // §28: activation updated_at → a fresh key/ETag on any settings edit (the GA4
+  // id lives in settings_overrides_json and does not move content_version).
+  const activationVersion = resolved.site_quote.updated_at;
 
   // site_id + funnel_variant_id are part of the key + ETag material so one
   // funnel activated on two tenant sites can never share a cached config entry
   // (each site bakes in its OWN ga4_measurement_id from settings_overrides_json).
-  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev);
-  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev);
+  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev, activationVersion);
+  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev, activationVersion);
 
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {

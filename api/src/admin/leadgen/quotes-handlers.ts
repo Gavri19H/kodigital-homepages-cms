@@ -1594,6 +1594,17 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
 
   const enabled = asToggle(body["enabled"]) ?? true;
   const slug = body["slug"] === undefined ? null : trimmedString(body["slug"]);
+  // §28 cache-key safety: the slug is a SEGMENT of the lg-shell: cache key
+  // (lg-shell:{site}:{slug}:{funnel}:…), so it MUST be URL-safe and colon-free —
+  // a ':' (or other metachar) would misalign the funnel-narrowed invalidation
+  // split (invalidate.ts) and could over-/under-delete a funnel's shells. Reject
+  // anything but a standard slug: lowercase alphanumerics + hyphens.
+  if (slug !== null && slug !== "" && !/^[a-z0-9-]+$/.test(slug)) {
+    return c.json(
+      { error: "invalid slug", fields: { slug: "must be lowercase letters, digits, and hyphens (/^[a-z0-9-]+$/)" } },
+      400,
+    );
+  }
   const overrides = body["settings_overrides_json"] !== undefined || body["settings_overrides"] !== undefined
     ? jsonStringOrNull(body["settings_overrides_json"] ?? body["settings_overrides"])
     : null;
