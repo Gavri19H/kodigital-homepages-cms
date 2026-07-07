@@ -610,17 +610,19 @@ describeDb("leadgen auctions API — analytics (§18.9 NULLIF)", () => {
   });
 });
 
-// --- /simulate P10 seam + headers --------------------------------------------
+// --- /simulate — P10 dry-run trace + headers ---------------------------------
 
-describeDb("leadgen auctions API — /simulate P10 seam + envelope", () => {
-  it("POST /simulate returns 501 with a documented P10 seam for a real auction", async () => {
+describeDb("leadgen auctions API — /simulate dry-run envelope", () => {
+  it("POST /simulate returns a 200 dry-run trace for a real auction (no 501 seam)", async () => {
     const { env } = newHarness();
     const quote = await createQuote(env);
     const { json } = await createAuction(env, { auction_name: "A", quote_id: quote.id });
-    const res = await admin.request(`${API}/auctions/${json.public_id}/simulate`, jsonInit("POST", { answers: {} }), env);
-    expect(res.status).toBe(501);
-    const j = (await res.json()) as { seam?: string };
-    expect(j.seam).toBe("P10");
+    const res = await admin.request(`${API}/auctions/${json.public_id}/simulate`, jsonInit("POST", { sample_answers: {} }), env);
+    expect(res.status, `simulate: ${await res.clone().text()}`).toBe(200);
+    const j = (await res.json()) as { dry_run?: boolean; auction_public_id?: string; offers_considered?: unknown[] };
+    expect(j.dry_run).toBe(true);
+    expect(j.auction_public_id).toBe(json.public_id);
+    expect(Array.isArray(j.offers_considered)).toBe(true);
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 

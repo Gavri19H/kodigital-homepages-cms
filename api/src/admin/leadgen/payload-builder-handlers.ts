@@ -50,7 +50,10 @@ export const TEST_FETCH_TIMEOUT_MS = 10_000;
 
 export const DEBUG_ENCRYPTION_SECRET_NAME = "LEADGEN_DEBUG_ENCRYPTION_KEY";
 export const DEBUG_BLOB_TTL_SECONDS = 259_200; // 72 h — §30.3 retention via KV TTL
-const DEBUG_REF_PREFIX = "lg-debug:";
+// Exported (P10 §19 reuse): the auction runtime encrypts its per-provider debug
+// records with the SAME convention (no divergent crypto). The opaque debug_ref
+// prefix + encryptDebugBlob + randomHex are the single shared implementation.
+export const DEBUG_REF_PREFIX = "lg-debug:";
 
 // A typed no-op note (§30.2): the leg that could not attach, and why. Never
 // an HTTP failure — the test still runs without that leg.
@@ -81,7 +84,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function encryptDebugBlob(secret: string, plaintext: string): Promise<string> {
+export async function encryptDebugBlob(secret: string, plaintext: string): Promise<string> {
   const keyMaterial = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
   const key = await crypto.subtle.importKey("raw", keyMaterial, { name: "AES-GCM" }, false, [
     "encrypt",
@@ -95,7 +98,7 @@ async function encryptDebugBlob(secret: string, plaintext: string): Promise<stri
   return `${toBase64(iv)}.${toBase64(new Uint8Array(ciphertext))}`;
 }
 
-function randomHex(bytes: number): string {
+export function randomHex(bytes: number): string {
   const buf = new Uint8Array(bytes);
   crypto.getRandomValues(buf);
   let out = "";
