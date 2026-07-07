@@ -13,10 +13,13 @@
 // router must run its host→site resolution ONLY for /lg requests and otherwise
 // fall through cleanly to the next app (the admin-host net, then publicRouter).
 //
-// Reserved head: /lg/attempt + /lg/config (P7), /lg/auction (P10), and now
-// /lg/track + /lg/lc (P11 Stage B) are all registered BEFORE the single-segment
-// /lg/:quote_slug param route so the slug catch never swallows them. /lg/pb|px
-// (P13) remain unregistered — a request to one falls to /lg/:quote_slug → 404.
+// Reserved head: /lg/attempt + /lg/config (P7), /lg/auction (P10), /lg/track +
+// /lg/lc (P11 Stage B), and now /lg/pb/:provider + /lg/px/:token (P13 Stage B)
+// are all registered BEFORE the single-segment /lg/:quote_slug param route so
+// the slug catch never swallows them. /lg/pb + /lg/auction run the §30.4
+// runtimeRequestGuard (blocklist → rate limit → bot) BEFORE any money write /
+// provider fetch; a block returns the guard's typed status (no-store) and the
+// auction/ingest never runs.
 
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -24,6 +27,8 @@ import type { Env } from "../../env";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
 import { serveFunnelShell, serveLeadgenConfig, serveLeadgenAttempt } from "./serve";
 import { serveLeadgenAuction } from "./serve-auction";
+import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
+import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
 import type { LeadgenCapOffer } from "../../leadgen/caps";
@@ -320,15 +325,59 @@ async function serveLeadgenTrack(c: PublicContext): Promise<Response> {
   return new Response(res.body, { status: res.status, headers });
 }
 
+// §30.4 guard-block response: the guard's typed status (403 blocklist/bot, 429
+// rate-limit), no-store, no body reflection — returned BEFORE the auction runs /
+// any money write happens (mirrors serve-auction's no-provider-call posture).
+function guardBlockResponse(guard: Extract<GuardOutcome, { ok: false }>): Response {
+  return new Response(JSON.stringify({ error: "blocked", reason: guard.reason }), {
+    status: guard.status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+// POST /lg/auction with the §30.4 guard retrofitted FIRST: a block short-circuits
+// to the guard's status (no-store) WITHOUT running the auction (no provider call,
+// no writes) — exactly serve-auction.ts's tamper/no-auction posture.
+async function serveLeadgenAuctionGuarded(c: PublicContext): Promise<Response> {
+  const guard = await runtimeRequestGuard(c.env, c.req.raw);
+  if (!guard.ok) return guardBlockResponse(guard);
+  return serveLeadgenAuction(c);
+}
+
+// POST/GET /lg/pb/:provider — the §25 provider postback. The §30.4 guard runs
+// FIRST (before any money write); a block returns the guard's status no-store.
+async function serveLeadgenPostback(c: PublicContext): Promise<Response> {
+  const guard = await runtimeRequestGuard(c.env, c.req.raw);
+  if (!guard.ok) return guardBlockResponse(guard);
+  const provider = c.req.param("provider") ?? "";
+  return ingestProviderPostback(c.env, safeExecutionCtx(c), provider, c.req.raw);
+}
+
+// GET /lg/px/:token — the §27 browser pixel (no guard per §30.4, which scopes the
+// guard to /lg/auction + /lg/pb; the pixel books only CLEAN traffic + a 1x1 GIF).
+async function serveLeadgenPixel(c: PublicContext): Promise<Response> {
+  const token = c.req.param("token") ?? "";
+  return ingestBrowserPixel(c.env, safeExecutionCtx(c), token, c.req.raw);
+}
+
 // Static/two-segment /lg heads BEFORE the single-segment /lg/:quote_slug param
 // route so `attempt` / `config/:id` / `auction` / `track` and the 3-segment
-// `lc/:offer_id` are never swallowed by the slug catch. /lg/auction (P10 §19) +
-// /lg/track (P11 §22) are POST + no-store; /lg/lc (P11 §19.16) is GET + 302.
+// `lc/:offer_id` + `pb/:provider` + `px/:token` are never swallowed by the slug
+// catch. /lg/auction (P10 §19) + /lg/track (P11 §22) + /lg/pb (P13 §25) are POST
+// + no-store; /lg/lc (P11 §19.16) + /lg/px (P13 §27) are GET.
 leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttempt(c));
 leadgenPublicRouter.get("/lg/config/:funnel_variant_id", (c) => serveLeadgenConfig(c));
-leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuction(c));
+leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuctionGuarded(c));
 leadgenPublicRouter.post("/lg/track", (c) => serveLeadgenTrack(c));
 leadgenPublicRouter.get("/lg/lc/:offer_id", (c) => serveLeadgenClick(c));
+// P13 §25/§27: the revenue-intake routes, registered BEFORE /lg/:quote_slug.
+leadgenPublicRouter.post("/lg/pb/:provider", (c) => serveLeadgenPostback(c));
+leadgenPublicRouter.get("/lg/pb/:provider", (c) => serveLeadgenPostback(c));
+leadgenPublicRouter.get("/lg/px/:token", (c) => serveLeadgenPixel(c));
 leadgenPublicRouter.get("/lg", (c) => serveFunnelShell(c, null));
 leadgenPublicRouter.get("/lg/:quote_slug", (c) => serveFunnelShell(c, c.req.param("quote_slug")));
 

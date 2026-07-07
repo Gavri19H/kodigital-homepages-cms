@@ -56,6 +56,7 @@ import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { runListicleRevenueCron } from "./listicles/revenue-recon";
 import { pruneLeadgenRetention } from "./leadgen/retention";
 import { syncLeadgenAnalytics } from "./leadgen/mirror-sync";
+import { runLeadgenRevenueCron } from "./leadgen/revenue-recon";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -297,6 +298,18 @@ const scheduled = async (
       await syncLeadgenAnalytics(env);
     } catch {
       // mirror sync must never break the publish/provisioning cron.
+    }
+    try {
+      // LeadGen §25/§26/§29 revenue maintenance — every minute ships NEW
+      // leadgen_revenue_raw rows to CH + re-matches the unmatched queue;
+      // self-gates the daily tasks (FX refresh + attribution-MV backfill +
+      // provider reconciliation + report ingest + media-platform seed) to
+      // 00:07 UTC. Isolated + fail-open (mirrors the Listicles revenue cron
+      // block above): absent CH secrets is a structured no-op; any error is
+      // contained and NEVER surfaces into the homepage publish/provisioning cron.
+      await runLeadgenRevenueCron(env);
+    } catch {
+      // revenue maintenance must never break the publish/provisioning cron.
     }
   })();
   ctx.waitUntil(work);
