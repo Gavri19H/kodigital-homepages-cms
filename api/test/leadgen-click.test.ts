@@ -4,10 +4,13 @@
 //
 // Proves the resolve→mint→side-effects flow: canonical + {response:*} macro
 // resolution with the freshly-minted {click_id} injected; the lgl_ click_id;
-// cap increment ONLY for cap_count_by='clicks'; the remove-clicked row written
-// with the correct removal_scope; carrier_click + offer_click emitted; a 302
-// target on success; NEVER a 302 to a javascript:/non-http URL; a required
-// {response:*} macro missing at click time → safe no-redirect.
+// cap increment for a LIVE clicks-cap (cap_enabled + effectiveCountBy=clicks,
+// NULL count_by ⇒ clicks — m1); the remove-clicked row written with the correct
+// removal_scope; EXACTLY ONE §22.3 click event per physical click (carrier_click
+// when carrier-scoped, offer_click when offer-level — M1: never both, else P12
+// double-counts clicks + revenue); a 302 target on success; NEVER a 302 to a
+// javascript:/non-http/control-char URL; a required {response:*} macro missing
+// at click time → safe no-redirect.
 
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
@@ -156,7 +159,7 @@ describe("resolveLeadgenClick — URL resolution (§19 step 16 / §10.5)", () =>
     expect(out.redirect).toBe(false);
     expect(out.destination_url).toBeNull();
     expect(out.unresolved_reason).toBe("required_missing");
-    expect(out.events).toHaveLength(2); // the click still happened
+    expect(out.events).toHaveLength(1); // the click still happened (exactly ONE event — §22.3/M1)
   });
 
   it("NEVER 302s to a javascript: / non-http URL (no usable target → no_click_target)", async () => {
@@ -168,6 +171,23 @@ describe("resolveLeadgenClick — URL resolution (§19 step 16 / §10.5)", () =>
     expect(out.redirect).toBe(false);
     expect(out.destination_url).toBeNull();
     expect(out.unresolved_reason).toBe("no_click_target");
+  });
+
+  it("NEVER 302s to a provider click_url carrying a C0/DEL control char (§10.5) — m3", async () => {
+    // A provider click_url wins RAW (07 §20; only .trim()'d) and is NOT
+    // save-validated like the banner template is. The WHATWG URL parser
+    // SILENTLY STRIPS \r\n/\t, so `new URL()` "accepts" a CRLF-bearing URL and
+    // the raw string (with the CRLF still in it) would land in a 302 Location —
+    // response-splitting risk. The resolver must reject any resolved URL
+    // carrying a C0/DEL control char rather than lean on URL() alone.
+    const { db } = makeDb();
+    const out = await resolveLeadgenClick(makeEnv(db), ctxStub(), baseInput({
+      carrier: carrier({ click_url: "https://p.example.com/x\r\nSet-Cookie: evil=1" }),
+      banner_url_template: null,
+    }));
+    expect(out.redirect).toBe(false);
+    expect(out.destination_url).toBeNull();
+    expect(out.unresolved_reason).toBe("non_http_destination");
   });
 });
 
@@ -213,6 +233,32 @@ describe("resolveLeadgenClick — cap increment on the click (§10.6)", () => {
     expect(out.cap_incremented).toBe(false);
     expect(calls.find((c) => c.sql.includes("leadgen_offer_cap_counters"))).toBeUndefined();
   });
+
+  it("cap_count_by=NULL + cap_enabled → increments click_count (auction-time effectiveCountBy parity — m1)", async () => {
+    // caps. effectiveCountBy treats NULL as 'clicks' (the §10.6 primary flow),
+    // so the auction-time gate (capExceeded) counts a NULL-count_by cap as a
+    // clicks cap. The click-time increment MUST agree, or a live NULL-count_by
+    // cap never increments and runs unbounded.
+    const { db, calls } = makeDb();
+    const out = await resolveLeadgenClick(makeEnv(db), ctxStub(), baseInput({
+      carrier: carrier({ click_url: "https://p.example.com/x" }),
+      offer: capOffer({ cap_enabled: 1, cap_count_by: null }),
+    }));
+    expect(out.cap_incremented).toBe(true);
+    const capCall = calls.find((c) => c.sql.includes("leadgen_offer_cap_counters"));
+    expect(capCall).toBeDefined();
+    expect(capCall?.sql).toContain("click_count");
+  });
+
+  it("cap_enabled=0 → does NOT increment even for cap_count_by='clicks' (a disabled cap never gates — m1)", async () => {
+    const { db, calls } = makeDb();
+    const out = await resolveLeadgenClick(makeEnv(db), ctxStub(), baseInput({
+      carrier: carrier({ click_url: "https://p.example.com/x" }),
+      offer: capOffer({ cap_enabled: 0, cap_count_by: "clicks" }),
+    }));
+    expect(out.cap_incremented).toBe(false);
+    expect(calls.find((c) => c.sql.includes("leadgen_offer_cap_counters"))).toBeUndefined();
+  });
 });
 
 // --- remove-clicked (§18.7) ----------------------------------------------------
@@ -250,33 +296,52 @@ describe("resolveLeadgenClick — remove-clicked suppression row (§18.7)", () =
 
 // --- events (§22.3) ------------------------------------------------------------
 
-describe("resolveLeadgenClick — carrier_click + offer_click events (§22.3)", () => {
-  it("emits both events stamped with the click_id + auction ids", async () => {
+describe("resolveLeadgenClick — exactly ONE §22.3 click event per physical click (M1)", () => {
+  // The P12 CH DDL counts offer/quote clicks as sumIf(event_type IN
+  // ('offer_click','carrier_click')) and joins revenue on the SAME union — so
+  // emitting BOTH per physical click = 2× clicks AND 2× revenue-attribution
+  // rows. Contract 01§210 + 12-row-16 map /lg/lc → carrier_click for a
+  // carrier-scoped click; an offer-level click (empty carrier_key) is
+  // offer_click. Exactly one fires; never both.
+  it("carrier-scoped click (carrier_key present) → ONLY carrier_click (01§210)", async () => {
     const { db } = makeDb();
     const out = await resolveLeadgenClick(makeEnv(db), ctxStub(), baseInput({
       carrier: carrier({ click_url: "https://p.example.com/x", carrier_name: "Acme Life" }),
+      carrier_key: "acme",
       mintClickId: () => "lgl_ABC",
       event_context: { funnel_id: "lgf_1", site_id: "st_1", quote_id: "lgq_1" },
     }));
-    expect(out.events).toHaveLength(2);
-    const carrierClick = out.events.find((e) => e.event_type === "carrier_click");
-    const offerClick = out.events.find((e) => e.event_type === "offer_click");
-    expect(carrierClick).toBeDefined();
-    expect(offerClick).toBeDefined();
-    for (const ev of out.events) {
-      expect(ev.click_id).toBe("lgl_ABC");
-      expect(ev.offer_id).toBe("lgo_x");
-      expect(ev.carrier_key).toBe("acme");
-      expect(ev.auction_instance_id).toBe("aiid-1");
-      expect(ev.banner_render_id).toBe("brid-1");
-      expect(ev.carrier_position).toBe(1);
-      expect(ev.funnel_attempt_id).toBe("fa-1");
-      // server-derived context merged
-      expect(ev.funnel_id).toBe("lgf_1");
-      expect(ev.site_id).toBe("st_1");
-      // §30.3: no raw answer PII on click events
-      expect(ev.answer_value_raw).toBe("");
-    }
-    expect(carrierClick?.carrier_name).toBe("Acme Life");
+    expect(out.events).toHaveLength(1);
+    const [ev] = out.events;
+    expect(ev?.event_type).toBe("carrier_click");
+    expect(out.events.some((e) => e.event_type === "offer_click")).toBe(false);
+    // full identity + context stamped on the single event
+    expect(ev?.click_id).toBe("lgl_ABC");
+    expect(ev?.offer_id).toBe("lgo_x");
+    expect(ev?.carrier_key).toBe("acme");
+    expect(ev?.auction_instance_id).toBe("aiid-1");
+    expect(ev?.banner_render_id).toBe("brid-1");
+    expect(ev?.carrier_position).toBe(1);
+    expect(ev?.funnel_attempt_id).toBe("fa-1");
+    expect(ev?.funnel_id).toBe("lgf_1");
+    expect(ev?.site_id).toBe("st_1");
+    expect(ev?.answer_value_raw).toBe(""); // §30.3 no raw answer PII
+    expect(ev?.carrier_name).toBe("Acme Life");
+  });
+
+  it("offer-level click (empty carrier_key) → ONLY offer_click", async () => {
+    const { db } = makeDb();
+    const out = await resolveLeadgenClick(makeEnv(db), ctxStub(), baseInput({
+      carrier: carrier({ click_url: "https://p.example.com/x" }),
+      carrier_key: "", // no specific carrier — an offer-level click
+      mintClickId: () => "lgl_OFR",
+    }));
+    expect(out.events).toHaveLength(1);
+    const [ev] = out.events;
+    expect(ev?.event_type).toBe("offer_click");
+    expect(out.events.some((e) => e.event_type === "carrier_click")).toBe(false);
+    expect(ev?.click_id).toBe("lgl_OFR");
+    expect(ev?.offer_id).toBe("lgo_x");
+    expect(ev?.carrier_key).toBe("");
   });
 });

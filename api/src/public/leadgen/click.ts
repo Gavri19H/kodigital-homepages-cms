@@ -26,15 +26,18 @@
 //      `leadgen_session_clicked_offers` keyed on funnel_attempt_id
 //      (removal_scope 'offer' ⇒ carrier_key '' — suppress the whole Offer;
 //      'carrier' ⇒ this carrier_key).
-//   6. §22.3 emit `carrier_click` + `offer_click` (via leadgen-events → Firehose
-//      on waitUntil), stamped with the minted click_id + the auction ids.
+//   6. §22.3 emit EXACTLY ONE click event (via leadgen-events → Firehose on
+//      waitUntil), stamped with the minted click_id + the auction ids:
+//      `carrier_click` when carrier-scoped (01§210 / 12-row-16), else
+//      `offer_click`. NEVER both — the P12 CH DDL union-counts them, so a double
+//      emit is 2× clicks + 2× revenue attribution.
 //
 // ALL side effects are FAIL-OPEN: a cap / clicked-row / Firehose failure never
 // prevents the resolved 302 (or the safe no-redirect fallback).
 
 import type { Env } from "../../env";
 import { mintPublicId } from "../../leadgen/ids";
-import { incrementCap, type LeadgenCapOffer } from "../../leadgen/caps";
+import { incrementCap, effectiveCountBy, type LeadgenCapOffer } from "../../leadgen/caps";
 import {
   analyzeResponseMacros,
   resolveMacros,
@@ -104,8 +107,9 @@ export interface LeadgenClickResult {
   unresolved_reason: LeadgenClickUnresolvedReason | null;
   cap_incremented: boolean;
   clicked_recorded: boolean;
-  // The two §22.3 click events built + handed to Firehose (returned so a caller
-  // /test can assert them without intercepting the stream).
+  // The single §22.3 click event built + handed to Firehose (returned so a
+  // caller/test can assert it without intercepting the stream). Exactly one per
+  // physical click: carrier_click when carrier-scoped, else offer_click.
   events: LeadgenEvent[];
 }
 
@@ -127,6 +131,11 @@ function asText(value: unknown): string {
 function isSafeDestination(url: string): boolean {
   if (!isHttpUrl(url)) return false;
   if (url.includes("{")) return false; // unresolved macro token (authority or elsewhere)
+  // §10.5 no C0/DEL control chars: a provider click_url wins RAW (not
+  // save-validated), and the WHATWG URL parser SILENTLY STRIPS \r\n/\t — which
+  // can change the effective destination (response-splitting / authority
+  // rewrite). Reject here rather than trust `new URL()` to have preserved them.
+  if (/[\u0000-\u001f\u007f]/.test(url)) return false;
   try {
     const parsed = new URL(url.trim());
     return parsed.protocol === "http:" || parsed.protocol === "https:";
@@ -247,7 +256,12 @@ export async function resolveLeadgenClick(
   // 4. §10.6 cap increment — clicks-capped Offers only; the click is the counted
   //    event. FAIL-OPEN. (A conversions-capped Offer counts on conversion, P13.)
   let capIncremented = false;
-  if (input.offer !== undefined && input.offer !== null && input.offer.cap_count_by === "clicks") {
+  if (
+    input.offer !== undefined &&
+    input.offer !== null &&
+    input.offer.cap_enabled === 1 &&
+    effectiveCountBy(input.offer) === "clicks"
+  ) {
     try {
       await incrementCap(env.DB, input.offer, new Date(now));
       capIncremented = true;
@@ -290,10 +304,15 @@ export async function resolveLeadgenClick(
     }
   }
 
-  // 6. §22.3 emit carrier_click + offer_click (FAIL-OPEN Firehose, on waitUntil).
-  const carrierClick = buildClickEvent("carrier_click", now, input, clickId);
-  const offerClick = buildClickEvent("offer_click", now, input, clickId);
-  const events = [carrierClick, offerClick];
+  // 6. §22.3 emit EXACTLY ONE click event (FAIL-OPEN Firehose, on waitUntil).
+  //    Carrier-scoped click (a specific carrier — carrier_key present) ⇒
+  //    `carrier_click` (01§210 / 12-row-16); offer-level click (no carrier) ⇒
+  //    `offer_click`. NEVER both: the P12 CH DDL counts offer/quote clicks as
+  //    sumIf(event_type IN ('offer_click','carrier_click')) and joins revenue on
+  //    the same union, so a double emit is 2× clicks + 2× revenue attribution.
+  const clickType: "carrier_click" | "offer_click" =
+    input.carrier_key !== "" ? "carrier_click" : "offer_click";
+  const events = [buildClickEvent(clickType, now, input, clickId)];
   emitLeadgenRecords(env, ctx, [...events]);
 
   return {

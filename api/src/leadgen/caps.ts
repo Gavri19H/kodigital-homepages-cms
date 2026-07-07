@@ -58,8 +58,11 @@ export function capPeriodKey(timezone: string | null | undefined, at: Date): str
 }
 
 // The effective count_by: the DDL allows NULL (cap disabled); a live cap
-// without an explicit choice gates on clicks (the §10.6 primary flow).
-function effectiveCountBy(offer: LeadgenCapOffer): LeadgenCapCountBy {
+// without an explicit choice gates on clicks (the §10.6 primary flow). Exported
+// so the click-time increment (public/leadgen/click.ts) shares EXACTLY this
+// NULL⇒clicks rule with the auction-time gate (capExceeded) — never a divergent
+// `=== 'clicks'` check that would leave a NULL-count_by cap uncounted (m1).
+export function effectiveCountBy(offer: LeadgenCapOffer): LeadgenCapCountBy {
   return offer.cap_count_by === "conversions" ? "conversions" : "clicks";
 }
 

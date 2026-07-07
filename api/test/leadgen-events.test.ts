@@ -1,9 +1,14 @@
 // LeadGen Phase 11 STAGE A — tracking event schema (contract 08 §22.2 dims +
 // §22.3 event types + §22.5 accuracy + §30.3 raw-PII suppression).
 //
-// Proves: the §22.3 enumerated event-type set (the 30 types the contract lists
-// verbatim — the SSOT enumeration; the §12 matrix's "31" is a documented
-// off-by-one summary); every §22.2 normative dimension is a first-class column
+// Proves: the full event-type set (31 types) = the §22.3 enumeration PLUS
+// `offer_impression` — the §6.4 normative sibling of `carrier_impression`
+// (deduped by (auction_instance_id, offer_id)) that §22.3's flat list dropped,
+// but §6.4 defines it, §04§10.7 derives offer CTR (clicks/offer_impressions)
+// from it, migration 0037 mirrors it, and the P12 ClickHouse DDL counts it
+// (`sumIf offer_impression`) — so it MUST be an accepted type or /lg/track
+// dead-letters the beacon and P12's column stays NULL (DEV-23); every §22.2
+// normative dimension is a first-class column
 // on the blank event (incl. the issue-22 auction IDs, the issue-31
 // reasons-in-dedicated-fields, the 3-way answer_source, event_id + page_view_id);
 // leadgenEventFromPayload stamps client-issued dims + SUPPRESSES raw answer PII
@@ -22,7 +27,9 @@ import {
   type LeadgenStreamRecord,
 } from "../src/analytics/leadgen-events";
 
-// The 30 §22.3 event types, enumerated verbatim from the contract line.
+// The 31 event types: the §22.3 enumeration in order, PLUS `offer_impression`
+// (the §6.4 sibling of `carrier_impression`, deduped (auction_instance_id,
+// offer_id) — DEV-23) placed next to its sibling.
 const EXPECTED_EVENT_TYPES = [
   "quote_view",
   "opening_lander_view",
@@ -48,6 +55,7 @@ const EXPECTED_EVENT_TYPES = [
   "auction_filled",
   "auction_unfilled",
   "carrier_impression",
+  "offer_impression",
   "carrier_click",
   "offer_click",
   "conversion",
@@ -80,6 +88,7 @@ describe("LEADGEN_EVENT_TYPES — §22.3 enumerated event types", () => {
       "auction_filled",
       "auction_unfilled",
       "carrier_impression",
+      "offer_impression",
       "carrier_click",
       "offer_click",
     ]) {
@@ -89,6 +98,18 @@ describe("LEADGEN_EVENT_TYPES — §22.3 enumerated event types", () => {
     for (const t of ["conversion", "revenue_received", "redirect_rule_triggered", "direct_offer_redirect"]) {
       expect(set.has(t)).toBe(true);
     }
+  });
+
+  it("includes `offer_impression` — the §6.4 sibling of `carrier_impression` that P12 counts (DEV-23), so /lg/track never dead-letters it", () => {
+    // §6.4 defines BOTH impression events; §04§10.7 offer CTR = clicks /
+    // offer_impressions; migration 0037 + the P12 CH DDL (`sumIf
+    // offer_impression`) consume it. If it is not an accepted type,
+    // leadgen-track dead-letters the beacon (`invalid_event_type`) and the
+    // offer_impressions column stays NULL forever. Both siblings must exist.
+    const set = new Set<string>(LEADGEN_EVENT_TYPES);
+    expect(set.has("offer_impression")).toBe(true);
+    expect(set.has("carrier_impression")).toBe(true);
+    expect(LEADGEN_EVENT_TYPES.length).toBe(31);
   });
 });
 

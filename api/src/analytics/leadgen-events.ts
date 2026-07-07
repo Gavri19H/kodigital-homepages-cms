@@ -29,10 +29,14 @@
 import { sendToFirehose } from "./firehose";
 import { readEnvSecret, type Env } from "../env";
 
-// The §22.3 event-type set. The contract §22.3 line ENUMERATES these 30 types
-// verbatim; that explicit enumeration is the SSOT for which types exist. (The
-// §12 traceability matrix row 38 summarizes them as "31 event types" — a
-// documented off-by-one against the enumerated list; the enumeration governs.)
+// The LeadGen event-type set — 31 types (DEV-23). §22.3 flatly enumerates 30,
+// but it DROPPED `offer_impression`, which §6.4 normatively DEFINES (the sibling
+// of `carrier_impression`, deduped by (auction_instance_id, offer_id)), §04§10.7
+// derives offer CTR (clicks/offer_impressions) from, migration 0037 mirrors, and
+// the P12 ClickHouse DDL counts (`sumIf offer_impression`). The normative,
+// multiply-referenced definition governs over the flat enumeration: the type
+// MUST exist here, or a client offer_impression beacon dead-letters at /lg/track
+// (`invalid_event_type`) and P12's offer_impressions column stays NULL forever.
 export const LEADGEN_EVENT_TYPES = [
   // funnel / quote lifecycle
   "quote_view",
@@ -60,6 +64,7 @@ export const LEADGEN_EVENT_TYPES = [
   "auction_filled",
   "auction_unfilled",
   "carrier_impression",
+  "offer_impression", // §6.4 sibling of carrier_impression (deduped (auction_instance_id, offer_id)); §22.3 dropped it — DEV-23
   "carrier_click",
   "offer_click",
   // monetization / redirect
