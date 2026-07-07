@@ -214,11 +214,18 @@ export async function verifyConfigToken(
   env: Env,
   token: string,
   expectedTuple: ConfigTokenTuple,
+  opts?: { requireSigned?: boolean },
 ): Promise<boolean> {
   const secret = readEnvSecret(env, LEADGEN_CONFIG_SIGNING_KEY_NAME);
   const parts = token.split(".");
 
   if (parts[0] === UNSIGNED_SCHEME) {
+    // `requireSigned` FAILS CLOSED on the money path (`/lg/auction`): an
+    // unsigned token is rejected regardless of secret presence, so a prod
+    // deploy that forgot LEADGEN_CONFIG_SIGNING_KEY can NEVER silently void
+    // anti-tamper (it would reject all auctions instead of accepting forged
+    // bindings). The unsigned-accept branch below is the dev/local path only.
+    if (opts?.requireSigned) return false;
     if (parts.length !== 2) return false;
     if (secret !== undefined) return false; // production never accepts unsigned
     const decoded = decodeTuple(parts[1]!);

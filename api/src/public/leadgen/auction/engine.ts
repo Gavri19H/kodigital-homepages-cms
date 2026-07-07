@@ -434,7 +434,11 @@ export async function validateAntiTamper(
     content_version: resolved.variant.content_version,
     funnel_attempt_id: input.funnel_attempt_id,
   };
-  const tokenOk = await verifyConfigToken(env, input.signed_config_token, tuple);
+  // requireSigned: the live /lg/auction path (validateAntiTamper is invoked
+  // ONLY on the non-dry money path) must FAIL CLOSED — an unsigned token is
+  // rejected even when LEADGEN_CONFIG_SIGNING_KEY is absent, so a misconfigured
+  // deploy can never silently void anti-tamper.
+  const tokenOk = await verifyConfigToken(env, input.signed_config_token, tuple, { requireSigned: true });
   if (!tokenOk) return { ok: false, reason: "signed_token_invalid" };
 
   // (d) answer_mapping_version(s) -- reconcile against the resolved sections

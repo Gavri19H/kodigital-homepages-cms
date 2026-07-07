@@ -567,6 +567,55 @@ describeDb("leadgen §19.1 anti-tamper (RED LINE 2)", () => {
     expect(verdict).toEqual({ ok: false, reason: "auction_config_version_mismatch" });
   });
 
+  it("FAILS CLOSED: an UNSIGNED token is rejected on the live path even with NO signing secret (money-path guard)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const resolved = resolvedWithSections();
+    // Strip the signing secret → mintFunnelAttempt yields an EXPLICIT unsigned token.
+    const noSecretEnv = { ...env, LEADGEN_CONFIG_SIGNING_KEY: undefined } as unknown as Env;
+    const binding = await validBinding(noSecretEnv, resolved);
+    expect(binding.signed_config_token.startsWith("unsigned.")).toBe(true);
+    // validateAntiTamper (live path) passes requireSigned:true → the unsigned token
+    // is rejected as signed_token_invalid, so a prod deploy missing the secret fails
+    // CLOSED (rejects) rather than OPEN (accepting a forged binding). Pre-fix this
+    // returned { ok: true } because verifyConfigToken accepted the tuple-matching
+    // unsigned token when the secret was absent.
+    const verdict = await validateAntiTamper(noSecretEnv, resolved, auction, binding);
+    expect(verdict).toEqual({ ok: false, reason: "signed_token_invalid" });
+  });
+
+  // §18.4-normative / §21: engine-level composition of carrier rules (the unit
+  // logic is in leadgen-auction-rules.test.ts; this pins it THROUGH runAuction).
+  it("a carrier EXCLUDE rule filters the carrier through runAuction (excluded pre-floor, not shown, not winning)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const o1 = seedOffer(sdb);
+    attachOffer(sdb, auction.id, o1, 0);
+    // Carrier-level EXCLUDE targeting "Acme" (the high bid) by name; empty groups → context always matches.
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, carrier_match_json, strictly_override, priority, enabled)
+         VALUES (?, ?, 'carrier', 'exclude', ?, 'h', ?, 0, 100, 1)`,
+      )
+      .run(mintPublicId("auction_rule"), auction.id, JSON.stringify({ groups: [] }), JSON.stringify({ carrier_names: ["Acme"] }));
+    // Provider returns Acme (bid 12, would win) + Beta (bid 3).
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }, { name: "Beta", bid: 3 }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+
+    // Acme is filtered with a carrier-exclude reason; Beta survives + is shown.
+    const filtered = result.explain.carriers_filtered.map((f) => f.carrier_key);
+    const shown = result.explain.carriers_shown.map((s) => s.carrier_key);
+    const acmeShown = shown.some((k) => /acme/i.test(k));
+    const betaShown = shown.some((k) => /beta/i.test(k));
+    expect(filtered.some((k) => /acme/i.test(k))).toBe(true); // excluded pre-floor
+    expect(acmeShown).toBe(false); // never surfaced
+    expect(betaShown).toBe(true); // Beta (the non-excluded carrier) is shown
+    // The winner is not Acme's offer via Acme's (removed) bid — Acme set no floor.
+    expect(result.explain.carriers_filtered.find((f) => /acme/i.test(f.carrier_key))?.carrier_filtered_reason).toMatch(/exclude|block/);
+  });
+
   it("runAuction (non-dry) with a bad binding is 422 + tampered + NO fetch + NO writes", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);

@@ -213,6 +213,22 @@ describe("mintFunnelAttempt — absent secret (dev fallback, fails closed in pro
     expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, { ...tuple, content_version: 99 })).toBe(false);
   });
 
+  it("requireSigned FAILS CLOSED: an unsigned token is rejected even with NO secret (the money-path guard)", async () => {
+    const resolved = buildResolved();
+    const attempt = await mintFunnelAttempt(NO_SECRET_ENV, resolved);
+    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    // Without requireSigned (dev), the tuple-matching unsigned token is accepted…
+    expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, tuple)).toBe(true);
+    // …but requireSigned (the live /lg/auction path) rejects it REGARDLESS of secret
+    // presence, so a prod deploy that forgot the signing key fails CLOSED (rejects
+    // all) instead of OPEN (accepting forged bindings).
+    expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, tuple, { requireSigned: true })).toBe(false);
+    // And a genuinely signed token still passes requireSigned when the secret is present (no regression).
+    const signed = await mintFunnelAttempt(SIGNED_ENV, resolved);
+    const signedTuple = expectedTupleFor(resolved, signed.funnel_attempt_id);
+    expect(await verifyConfigToken(SIGNED_ENV, signed.signed_config_token, signedTuple, { requireSigned: true })).toBe(true);
+  });
+
   it("PRODUCTION (secret configured) REJECTS an unsigned token", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(NO_SECRET_ENV, resolved);
