@@ -766,11 +766,12 @@ export async function putAuctionOffersHandler(c: AdminContext): Promise<Response
 
     let staticOrder: number | null = null;
     if (entry["static_order"] !== undefined && entry["static_order"] !== null) {
-      const so = asIntId(entry["static_order"]);
-      // static_order is a 0-based sort index; asIntId rejects 0, so parse directly.
+      // static_order is a 0-based sort index (numeric only — a stringized "2" is
+      // REJECTED, never silently dropped to NULL). asIntId rejects 0, so the
+      // non-negative-integer check is done directly here.
       const raw = entry["static_order"];
       if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) staticOrder = raw;
-      else if (so === INVALID) errors[`offers.${i}.static_order`] = "static_order must be a non-negative integer";
+      else errors[`offers.${i}.static_order`] = "static_order must be a non-negative integer";
     }
     let staticBid: number | null = null;
     if (entry["static_bid_override"] !== undefined && entry["static_bid_override"] !== null) {

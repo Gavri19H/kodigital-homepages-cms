@@ -92,10 +92,32 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`;
 }
 
-// sha256Hex over the canonical conditions JSON (reuses parse.ts's synchronous
-// SHA-256; no divergent hash impl).
+// Canonicalize a §21.4 conditions object so LOGICALLY-identical rule sets hash
+// identically (the analytics `matched_rule_json_hash` must not split one logical
+// rule into two). §21.4 semantics are order-independent: AND across `groups`
+// (group order is irrelevant) and OR within a group's `values` (value order is
+// irrelevant). So sort `groups` by their own canonical string, and sort each
+// group's `values` by canonical string, before hashing. Evaluation
+// (evaluateOfferRules/evaluateCarrierRules) is already order-independent, so this
+// only affects the stored hash, never a verdict.
+function canonicalizeConditions(conditions: LeadgenRuleConditions): unknown {
+  const groups = Array.isArray(conditions?.groups) ? conditions.groups : [];
+  const canonGroups = groups
+    .map((g) => {
+      const group = g as unknown as Record<string, unknown>;
+      const values = Array.isArray(group["values"])
+        ? [...(group["values"] as unknown[])].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1))
+        : group["values"];
+      return { ...group, ...(values !== undefined ? { values } : {}) };
+    })
+    .sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1));
+  return { ...conditions, groups: canonGroups };
+}
+
+// sha256Hex over the CANONICAL conditions JSON (reuses parse.ts's synchronous
+// SHA-256; no divergent hash impl). Order-independent per §21.4.
 export function conditionsHash(conditions: LeadgenRuleConditions): string {
-  return sha256Hex(stableStringify(conditions));
+  return sha256Hex(stableStringify(canonicalizeConditions(conditions)));
 }
 
 // ---------------------------------------------------------------------------

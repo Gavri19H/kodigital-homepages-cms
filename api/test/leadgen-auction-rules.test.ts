@@ -94,14 +94,32 @@ describe("conditionsHash", () => {
     expect(h).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("is key-order independent (canonical) but value-order sensitive", () => {
+  it("is canonical: key-order, value-order (OR-within), AND group-order (AND-across) independent — §21.4 logically-equal rules hash equal", () => {
     const a: LeadgenRuleConditions = { groups: [{ field: "state", op: "in", values: ["CA", "NY"] }] };
     // same logical rule, group object keys inserted in a different order.
     const b: LeadgenRuleConditions = { groups: [{ op: "in", values: ["CA", "NY"], field: "state" }] };
     expect(conditionsHash(a)).toBe(conditionsHash(b));
-    // values array order IS significant.
+    // values array order is NOT significant (OR within a field, §21.4) — so
+    // ["NY","CA"] is the SAME logical rule as ["CA","NY"] and hashes equal.
     const c: LeadgenRuleConditions = { groups: [{ field: "state", op: "in", values: ["NY", "CA"] }] };
-    expect(conditionsHash(a)).not.toBe(conditionsHash(c));
+    expect(conditionsHash(a)).toBe(conditionsHash(c));
+    // group array order is NOT significant (AND across fields, §21.4).
+    const d: LeadgenRuleConditions = {
+      groups: [
+        { field: "age", op: "gt", value: 25 },
+        { field: "state", op: "in", values: ["CA", "NY"] },
+      ],
+    };
+    const e: LeadgenRuleConditions = {
+      groups: [
+        { field: "state", op: "in", values: ["NY", "CA"] },
+        { field: "age", op: "gt", value: 25 },
+      ],
+    };
+    expect(conditionsHash(d)).toBe(conditionsHash(e));
+    // a genuinely different rule still hashes differently.
+    const f: LeadgenRuleConditions = { groups: [{ field: "state", op: "in", values: ["CA", "TX"] }] };
+    expect(conditionsHash(a)).not.toBe(conditionsHash(f));
   });
 });
 

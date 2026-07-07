@@ -382,6 +382,23 @@ describeDb("leadgen auctions API — participating offers (§18.5 replace-set)",
     expect(res.status).toBe(400);
   });
 
+  it("PUT rejects a stringized static_order (never silently drops it to NULL)", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env, { activity: "quote_funnel", verticals: ["life"] });
+    const { json } = await createAuction(env, { auction_name: "A", quote_id: quote.id });
+    const o1 = seedOfferWithPlacement(sdb, { activity: "quote_funnel", vertical: "life" });
+    const res = await admin.request(
+      `${API}/auctions/${json.public_id}/offers`,
+      jsonInit("PUT", { offers: [{ offer_placement_id: o1.placement_id, static_order: "2" }] }),
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { fields: Record<string, string> }).fields["offers.0.static_order"]).toMatch(/non-negative integer/);
+    // nothing was persisted (the whole replace-set is rejected atomically).
+    const n = sdb.prepare("SELECT COUNT(*) AS c FROM leadgen_auction_offers WHERE auction_id = ?").get(json.id) as { c: number };
+    expect(n.c).toBe(0);
+  });
+
   it("GET /offers returns per-offer columns (schema version + last_test_status)", async () => {
     const { env, sdb } = newHarness();
     const quote = await createQuote(env, { activity: "quote_funnel", verticals: ["life"] });
@@ -484,6 +501,25 @@ describeDb("leadgen auctions API — rules (§21 / §21.4)", () => {
     const list = await admin.request(`${API}/auctions/${json.public_id}/rules`, {}, env);
     const lj = (await list.json()) as { items: unknown[] };
     expect(lj.items.length).toBe(0);
+  });
+
+  it("a rule of auction A cannot be PATCHed or DELETEd via auction B's id (cross-auction scoping → 404)", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    const a = await createAuction(env, { auction_name: "A", quote_id: quote.id });
+    const b = await createAuction(env, { auction_name: "B", quote_id: quote.id });
+    const created = await admin.request(`${API}/auctions/${a.json.public_id}/rules`, jsonInit("POST", { rule_level: "carrier", action: "exclude", conditions_json: { groups: [] } }), env);
+    expect(created.status).toBe(201);
+    const rule = (await created.json()) as { public_id: string };
+    expect(rule.public_id).toMatch(/^lgar_/);
+    // address A's rule via B's id → 404, no cross-auction reach.
+    const patchViaB = await admin.request(`${API}/auctions/${b.json.public_id}/rules/${rule.public_id}`, jsonInit("PATCH", { priority: 9 }), env);
+    expect(patchViaB.status).toBe(404);
+    const delViaB = await admin.request(`${API}/auctions/${b.json.public_id}/rules/${rule.public_id}`, { method: "DELETE" }, env);
+    expect(delViaB.status).toBe(404);
+    // the rule still lives under A (untouched).
+    const list = await admin.request(`${API}/auctions/${a.json.public_id}/rules`, {}, env);
+    expect(((await list.json()) as { items: unknown[] }).items.length).toBe(1);
   });
 });
 
