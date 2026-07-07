@@ -37,6 +37,7 @@
     "@cloudflare/workers-types": "^4.20240925.0",
     "@playwright/test": "1.59.1",
     "@types/node": "^22.7.4",
+    "esbuild": "0.28.1",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",
     "vitest": "^2.1.1",

@@ -56,3 +56,14 @@ ALLOWED_CF_SERVICE_TOKEN_IDS=KODIGITAL_CMS_SMOKE_TESTS
 # production deploy with DEV_BYPASS_AUTH=true STILL enforces auth.
 # NEVER set this in staging or production.
 DEV_BYPASS_AUTH=true
+
+# LeadGen fix-contract v2.4 (Phase 1) — local runtime/auction testing.
+# HMAC key for the /lg/attempt signed_config_token. Any non-empty string
+# works locally; production value is a Dashboard-managed secret (never
+# committed, never set by the agent). Without it, /lg/attempt mints an
+# explicit `unsigned.` dev token and /lg/auction fails closed (422).
+LEADGEN_CONFIG_SIGNING_KEY
+
+# Optional: Google Maps browser key for local Places Autocomplete testing.
+# Absent key = graceful manual-entry fallback (contract 08 §8.8).
+GOOGLE_MAPS_BROWSER_KEY
