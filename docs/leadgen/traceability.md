@@ -90,14 +90,14 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 1 | Repository findings evidence | P1 | `docs/leadgen/contract/00-…` (vendored, SHA in MANIFEST) + this register | (evidence — P1 section) | PASS |
 | 2 | Existing patterns to reuse | P1 | contract `01`§3 (vendored, SHA in MANIFEST) | — (ratified at CP0) | PASS |
 | 3 | Anti-patterns / guardrails | P1 | scanner allowlist additions (`assert-no-legacy-prod-refs.ts`); token-clean source discipline | scanner exit 0 + bite-proof + second live bite (P1 evidence) | PASS |
-| 4 | Product architecture | P2–P3 | module skeleton per `01`§4.2 | `typecheck` | PENDING — P3 partial: `src/leadgen/` + `src/admin/leadgen/` live; `src/public/leadgen/` from P5+ |
-| 5 | Namespace plan | P2 | `leadgen_*` DDL, `lg_*` DDL, routes, ULID prefixes (`leadgen/ids.ts`) | `verify:infra`; grep-proof zero `listicle_` reuse | PENDING — P2 DDL + P3 `ids.ts` 14 prefixes (02-governed, DEV-10); `lg_*` DDL at P12 |
+| 4 | Product architecture | P2–P15 | `01`§4.2 module layout fully realized: `src/leadgen/` + `src/admin/leadgen/` + `src/public/leadgen/` (+`auction/`,`components/`,`designs/`) | `tsc --noEmit` exit 0 (full tree, P15 gate) | PASS — full layout complete; 2 reconciliations not gaps (`winner.ts`→`auction-core.ts` DEV-19; banner builder→`ui-auctions.ts`) |
+| 5 | Namespace plan | P2–P12 | 40 `leadgen_*` tables (`0036–0039`), 23 `lg_*` CH (`infra/leadgen/clickhouse-ddl.sql`), Athena `leadgen`, 14 ULID prefixes (`leadgen/ids.ts`), `/admin/leadgen`+`/api/admin/leadgen`+`/lg/*` | `verify:infra` exit 0; grep-proof zero `listicle_` reuse; deploy.yml 4/4 migration anchors | PASS (02-governed prefix set, DEV-10) |
 | 6 | CMS navigation | P3 | `src/admin/templates/layout.ts` nav (after Listicles) + `admin/leadgen/ui.ts` (302→offers, 4 tabs, singular `auction`) | `test-ui/leadgen-nav.spec.ts` 2/2 ✅; NAV count-test 10→11 same commit ✅ (P3 header) | PASS |
 | 7 | Ownership + site activation | P7 | `leadgen_site_quotes` + `admin/leadgen/quotes-handlers.ts` (activation) + `public/leadgen/resolver.ts` | `leadgen-quotes-api.test.ts` (one-root-per-site + dup-slug + preview URL) + `leadgen-runtime-api.test.ts` (host→site→quote resolution, disabled→404) | PASS |
 | 8 | Data model (40 physical tables) | P2 | `migrations/0036–0039` + `admin/leadgen/db-types.ts` (40 Row/API pairs) | `test/leadgen-migrations.test.ts` + `tsc` (P2 header) | PASS |
 | 9 | Full D1 migration DDL | P2 | `migrations/0036_leadgen_core.sql` … `0039_…` (cmp-identical to contract) + deploy.yml anchors | apply local ✅ + constraint tests 8/8 (P2 header); remote applied ✅ run 28794699290 (P2 addendum) | PASS |
-| 10 | Full API route contract | P3+ | `admin/leadgen/router.ts` (static-before-param) + `public/leadgen/*` routes | `test/leadgen-admin-shell.test.ts` (404 off ADMIN_HOST; 401 parity; headers-TOTAL; dual `:id`; envelopes) | PENDING — P3 partial: skeleton proven (P3 header); full §8.2 surface ships P4–P9, `/lg/*` P7+ |
-| 11 | Admin UI contract | P3+ | `admin/leadgen/ui.ts` + `ui-*.ts` (apiJson in-process SSR) | `test-ui/leadgen-admin.spec.ts` flows | PENDING — P3 shell + P4 Offers tab live (list/create/editor/builders); sections/quotes/auction UIs P5+ |
+| 10 | Full API route contract | P3–P14 | `admin/leadgen/router.ts` (full §8.2, static-before-`:id`) + `public/leadgen/runtime-routes.ts` (9 `/lg/*` routes) | `leadgen-admin-shell.test.ts` (404 off ADMIN_HOST; 401 parity; headers-TOTAL; dual `:id`) + `leadgen-runtime-routes.test.ts` + `leadgen-runtime-api.test.ts` | PASS — full §8.2/§4.3 surface |
+| 11 | Admin UI contract | P3–P9 | `admin/leadgen/ui.ts` (shell, 302→offers, 4 tabs) + `ui-offers/-sections/-quotes/-auctions/-payload-builder/-question-builder.ts` | `leadgen-offers-ui`/`-sections-ui`/`-quotes-ui`/`-auctions-ui`.test.ts + `test-ui/leadgen-offers.spec.ts` | PASS — all editors present |
 | 12 | Offers tab | P4 | `admin/leadgen/offers-handlers.ts`, `ui-offers.ts`, `leadgen/validation.ts` | `test/leadgen-offers-api.test.ts` (32) + `leadgen-offers-ui.test.ts` (16) + `test-ui/leadgen-offers.spec.ts` CP2 (6) | PASS |
 | 13 | Dynamic payload builder | P4 | `leadgen/payload.ts`, `admin/leadgen/payload-builder-handlers.ts`, `ui-payload-builder.ts` | `test/leadgen-payload.test.ts` (53: build, value_map, 05:222 transforms, cleanObject, conditional drop, token×mode matrix, auto-from-example, prototype-pollution guard) | PASS |
 | 14 | Offer Test tool | P4 | `admin/leadgen/payload-builder-handlers.ts` (proxy) + `leadgen/redact.ts` + `leadgen_provider_request_log` | `test/leadgen-test-tool.test.ts` (§11.6 cycle, mask, secret-byte-absence sweep, AES-GCM debug blob roundtrip + 72h TTL, dry-run no-fetch, prune) + `leadgen-redact.test.ts` | PASS |
@@ -121,9 +121,9 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 32 | Site activation | P7 | `leadgen_site_quotes` + activation panel (`ui-quotes.ts`) + `resolver.ts` + `serve.ts` | `leadgen-quotes-api.test.ts` (activation both-sides) + `leadgen-runtime-api.test.ts` (`/lg` root + `/lg/:slug` resolve, deactivated→404, cross-tenant→404) | PASS |
 | 33 | Auction config | P9 | `admin/leadgen/auctions-handlers.ts` + `ui-auctions.ts` + `leadgen/auction-core.ts` (engine) + `auction-rules.ts` + `designs/banner-default/*` | `leadgen-auction-core.test.ts` (§18.4 golden) + `leadgen-auction-rules.test.ts` + `leadgen-auctions-api.test.ts` + `leadgen-auctions-ui.test.ts` + `leadgen-banner-design.test.ts` | PASS (config + engine; the `/lg/auction` RUNTIME is P10) |
 | 34 | Auction runtime | P10 | `public/leadgen/auction/{engine,fetch,banner,explain,parse}.ts` + `leadgen/fx.ts` + `/lg/auction` (serve-auction.ts) + `/auctions/:id/simulate` | `leadgen-auction-runtime.test.ts` (§19 every branch vs mocked providers + 422 anti-tamper + fail-closed + secret-not-to-D1 + carrier-rule) + `leadgen-auction-simulate.test.ts` + `leadgen-fx/fetch/banner/explain.test.ts` | PASS (runtime + simulate; §48 runtime-guard deferred to P13 w/ /lg/pb, DEV-22) |
-| 35 | Banner builder / design registry | P9 | `designs/banner-default/*`, `ui-banner-builder.ts`, `leadgen_auction_banners` | banner manual/auto tests | PENDING |
-| 36 | Carrier identity + carrier rules | P9/P10 | `leadgen/rules.ts` (carrier level, `strictly_override`) + `leadgen_auction_rules` | carrier identity + rules tests | PENDING |
-| 37 | Multi-offer / backfill / remove-clicked | P10 | `public/leadgen/auction/winner.ts` + `session_clicked_offers` | 3 modes + backfill + remove tests | PENDING |
+| 35 | Banner builder / design registry | P9 | `designs/banner-default/{tokens,styles}.ts` + `designs/registry.ts` `getBannerDesign` + `renderBannerPanel` (`ui-auctions.ts`, manual/auto) + `leadgen_auction_banners` (`0036`) + `auction/banner.ts` | `leadgen-banner-design.test.ts` (16) + `leadgen-auction-banner.test.ts` (9) | PASS — builder co-located in `ui-auctions.ts` (not a separate file) |
+| 36 | Carrier identity + carrier rules | P9 | `leadgen/auction-rules.ts` (`strictly_override`, include_only/exclude force-in/out) + canonical Carrier (`parse.ts`/`db-types.ts` §20) + `leadgen_auction_rules` | `leadgen-auction-rules.test.ts` (29) | PASS — carrier rules in `auction-rules.ts` (P9), Offer region-block in `rules.ts` (DEV-21) |
+| 37 | Multi-offer / backfill / remove-clicked | P10 | `leadgen/auction-core.ts` `surfaceCarriers` (multi_offer disabled/enabled/enabled_unique) + `backfillExhausted` + remove-clicked (`leadgen_session_clicked_offers` `0036`) + `auction/engine.ts` | `leadgen-auction-core.test.ts` (33) + `leadgen-auction-runtime.test.ts` (26) | PASS — `winner.ts` folded into `auction-core.ts` (DEV-19) |
 | 38 | Tracking event schema (31 events) | P11 | `analytics/leadgen-events.ts` (31-type set + §22.2 dims) + `analytics/leadgen-track.ts` (`/lg/track`) + `public/leadgen/click.ts` | `test/leadgen-events.test.ts` (31 types + dims + §30.3) + `test/leadgen-track.test.ts` | PASS — 31 types incl. `offer_impression` (DEV-23 B1); full §22.2 dims; fail-open + dead-letter; §30.3 raw-PII suppression |
 | 39 | Athena tables | P12 | `infra/leadgen/athena-ddl.sql` (ops applies) | vendored byte-identical (cmp) | PASS(DDL vendored+delivered) / BLOCKED(ops Athena+CH ingest) — OQ-3 |
 | 40 | ClickHouse tables + MVs | P12 | `infra/leadgen/clickhouse-ddl.sql` (ops applies) | `test/leadgen-mirror-sync.test.ts` vs mocked CH + `clickhouse.ts` client | PASS(DDL vendored byte-identical; sync tested vs mocked CH) / BLOCKED(ops CH feed) — DEV-24 erratum: `continued_count` (lg_events_raw missing `continued_to_next_section`) |
@@ -132,13 +132,13 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 43 | S2S media platform reporting | P13 | `leadgen/s2s-dispatch.ts` + `leadgen_media_platforms` + `admin/leadgen/media-platforms-handlers.ts` (+ router) | `leadgen-s2s-dispatch`/`media-platforms-admin`.test.ts (fire/value×mult/KV-dedupe `lg_s2s:`/absent-secret tokenless/disabled/CRUD/dup⇒409/SSRF denylist/secret-NAME-only) | PASS(code+tests) / BLOCKED-on-CH(live outbound fire needs CH click-context; OQ-3) |
 | 44 | GA4 validation | P14 | `public/leadgen/serve.ts` `ga4HeadSnippet` (non-destructive gtag, per-site, double-escaped) | `test-ui/leadgen-ga4.spec.ts` (dataLayer grows/gtag/config-carries-id/no-errors + `/lg/track` non-destructive + absent-id + per-tenant isolation) | PASS |
 | 45 | Performance / caching | P14 | `leadgen/invalidate.ts` (per-site list+delete) + `cache-keys.ts` `activation_version` axis + wired activation/publish invalidation | `test/leadgen-invalidate.test.ts` (cross-tenant-safe) + `test/cache-keys.test.ts` (activation_version axis) + `test-ui/leadgen-perf.spec.ts` (CLS=0, JS<40KB gzip, cache-hit 304) | PASS |
-| 46 | Data accuracy / dedupe / reconciliation | P13 | dedupe UNIQUEs + `leadgen_event_dead_letter` + idempotency dims | recon + dedupe tests | PENDING |
-| 47 | Security / PII / secrets | P4/P13 | `readEnvSecret` per-Offer tokens; masking; PII hashing; redaction | auth + secret-mask + PII tests | PENDING |
-| 48 | Testing plan | P2–P15 | `test/leadgen-*.test.ts` + `test-ui/leadgen-*.spec.ts` + acceptance suites | all green | PENDING |
-| 49 | Manual QA checklist | P15 | `manualQA.md` LeadGen section | operator run | PENDING |
-| 50 | Implementation phases | P1–P15 | this register per-phase sections | per-phase gates | PENDING |
-| 51 | Risks / open questions | P1+ | OQ table above | resolved/acknowledged | PENDING |
-| 52 | Final traceability matrix | P15 | this register (final read-out) | all rows ticked | PENDING |
+| 46 | Data accuracy / dedupe / reconciliation | P13 | dedupe UNIQUEs (`leadgen_postback_log` (provider,external_txn_id) `0038`; `leadgen_conversion_log` (click_id,dedupe_key) `0039`) + `leadgen_event_dead_letter` `0038` + `revenue-recon.ts` (72h re-match, daily recon) | `leadgen-revenue-recon.test.ts` (16) + `leadgen-migrations.test.ts` (dup-reject) | PASS — dedupe/idempotency proven; live daily-recon-vs-CH folded into OQ-3 (BLOCKED-on-CH) |
+| 47 | Security / PII / secrets | P4/P13 | `leadgen/redact.ts` (`isPiiKey`/`hashPiiValue`→`sha256:`/`REDACTED_VALUE` §30.3) + `readEnvSecret` (10 modules, masked, absent⇒no-op) + client-mode secret_ref reject + constant-time PB token + SSRF denylist | `leadgen-redact.test.ts` (16) + `leadgen-test-tool.test.ts` (secret-byte-absence) + `leadgen-validation.test.ts` + `verify:no-legacy-prod-refs` | PASS |
+| 48 | Testing plan | P2–P15 | `test/leadgen-*.test.ts` (54 files) + `test-ui/leadgen-*.spec.ts` (6) | FULL gate suite green by the conductor's own hand: `tsc --noEmit` 0 · `npm test` **3257/3257 (299 files)** · `verify:all` (scanner+infra8+worker-config3) · `npx playwright test` **91/91** | PASS |
+| 49 | Manual QA checklist | P15 | `docs/leadgen/manualQA.md` — 27 MQA scenarios 1:1 with §32's 27 checks (repo scenario format; Steps/Expected/Evidence; blank operator Sign-off table) | AUTHORED + scanner-clean; operator RUN pending (`manual_qa_visual` — operator-owned; 10 scenarios also need operator secrets/activation, marked BLOCKED-until) | PASS (authored) — operator run pending |
+| 50 | Implementation phases | P1–P15 | this register's per-phase sections P1–P14 (each: commit + gate counts + rows-flipped + PR# + deploy addendum) + the P15 sign-off | per-phase five-gate runs + PRs #72–#85 merged + prod-deployed | PASS |
+| 51 | Risks / open questions | P1+ | OQ-1..10 resolved/acknowledged + operator-owned residuals list + DEV-1..26 | §OQ resolutions + the CP5 operator-owned BLOCKED table | PASS — OQ-3/OQ-6 tracked BLOCKED (operator-owned), not unresolved |
+| 52 | Final traceability matrix | P15 | this register — all 52 rows RESOLVED (CP5 sign-off below) | every row PASS with runnable evidence; operator-owned LIVE legs (rows 27 Maps · 39/40/41 CH/mirrors · 42/43 revenue/S2S · 44/45 activation-dark · 46-live daily-recon — all OQ-3 / secret / activation) + row 49 operator-run are documented BLOCKED-until-operator-input, NEVER FAIL; ZERO code gaps | PASS |
 
 ## §35.3 contract checklist (ticked when code + tests are green; cross-references matrix rows above)
 
@@ -147,12 +147,12 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 1 | Executive summary (contract vendored) | ☑ P1 |
 | 2 | Repository findings | ☑ P1 |
 | 3 | Patterns to reuse | ☑ P1 |
-| 4 | Product architecture | ☐ |
+| 4 | Product architecture | ☑ P1–P15 (`01`§4.2 layout fully realized; matrix row 4) |
 | 5 | CMS navigation | ☑ P3 |
 | 6 | Data model | ☑ P2 |
 | 7 | D1 schema/migrations | ☑ P2 |
-| 8 | API/route design | ☐ |
-| 9 | Admin UI | ☐ |
+| 8 | API/route design | ☑ P3–P14 (full §8.2 admin API + 9 `/lg/*` routes; matrix row 10) |
+| 9 | Admin UI | ☑ P3–P9 (shell + all editor tabs; matrix row 11) |
 | 10 | Offers tab | ☑ P4 |
 | 11 | Payload builder | ☑ P4 |
 | 12 | Sections | ☑ P5 |
@@ -172,13 +172,13 @@ All paths relative to `api/` unless noted. `admin/leadgen/` = `src/admin/leadgen
 | 26 | S2S/media | ☑ P13 (§26 `dispatchMatchedConversionS2S` value×multiplier + KV dedupe + `leadgen_media_platforms` admin CRUD; live outbound fire BLOCKED-on-CH) |
 | 27 | GA4 validation | ☑ P14 (`ga4HeadSnippet` non-destructive pass-through + Playwright dataLayer/gtag/config/no-errors/isolation) |
 | 28 | Performance/caching | ☑ P14 (per-site invalidation + `activation_version` cache axis + CLS=0/JS<40KB/cache-hit-304; warm lazy, auction-P95 at engine unit) |
-| 29 | Reconciliation | ☐ |
-| 30 | Security/secrets | ☐ |
-| 31 | Testing plan | ☐ |
-| 32 | Manual QA | ☐ |
-| 33 | Phases | ☐ |
-| 34 | Risks/open questions | ☐ |
-| 35 | Final checklist | ☐ |
+| 29 | Reconciliation | ☑ P13 (dedupe UNIQUEs + `leadgen_event_dead_letter` + 72h re-match; live daily-recon-vs-CH BLOCKED-on-CH OQ-3; matrix row 46) |
+| 30 | Security/secrets | ☑ P4/P13 (PII SHA-256 redaction + `readEnvSecret` masking + constant-time token + SSRF denylist; matrix row 47) |
+| 31 | Testing plan | ☑ P2–P15 (`tsc` 0 · vitest **3257/3257** · `verify:all` · Playwright **91/91**; matrix row 48) |
+| 32 | Manual QA | ☑ P15 (`docs/leadgen/manualQA.md` — 27 scenarios = §32's 27 checks; operator run pending, `manual_qa_visual`; matrix row 49) |
+| 33 | Phases | ☑ P1–P15 (per-phase headers + PRs #72–#85 merged + prod-deployed; matrix row 50) |
+| 34 | Risks/open questions | ☑ P1+ (OQ-1..10 + DEV-1..26 + operator-owned residuals; matrix row 51) |
+| 35 | Final checklist | ☑ P15 (CP5 sign-off below — all 52 matrix rows + all §35.3 resolved; operator-owned residuals listed) |
 
 ## §35.1 validation rules + §35.2 acceptance groups
 
@@ -461,5 +461,28 @@ Built (contract 07 §19 + §18 + §20 + 09 §28/§30.3/§30.4):
 
 **Deferred (documented, DEV-26):** warm-on-activation is a lazy re-prime (the first post-activation visitor cold-renders + write-throughs — §28 "warm" is the perf optimization; correct invalidation + the fresh key are the hard requirement, both met). Auction P95 is asserted at the P10 engine unit level (`Promise.race` vs `timeout_ms`+parse — §28 defines P95 as that property, not a load metric). Edge TTFB<200 ms / LCP<2.5 s-4G are field metrics, left to field measurement.
 
-### P15 — QA + visual + sign-off
-_(pending)_
+**P14 deploy addendum — 2026-07-07, squash-merge `5c6e93d` (PR #85), production dispatch run `28869795584` (success: CI `typecheck+test+verify` green, `Apply D1 migrations` a no-op [P14 adds none], `Deploy to production`; staging skipped per DEV-8):**
+- **No D1 migration** — GA4 + caching are code; the `activation_version` axis reads the existing `leadgen_site_quotes.updated_at`. Live D1 schema unchanged.
+- **Live posture (behavioral per D4, Worker-served tenant `thecontentandcareer.com`):** homepage `/` 200 (blast-radius clean); `/lg` 404 (dark); `POST /lg/pb` no-token → 401, `GET /lg/px` → 200 `image/gif` no-store, `POST /lg/track` → 204 no-store (P11/P13 routes still live — NO regression from the shared `serve.ts`/`cache-keys.ts` changes); `/lg/config/:variant` mounted (404 on a nonexistent variant).
+- **GA4 pass-through + per-site cache invalidation are DARK-in-prod** (the `/lg/*` funnel runtime is dark-by-construction until an operator activates a quote on a live tenant + sets `ga4_measurement_id`); both are behaviorally proven by the **91/91** Playwright suite on a local activated + GA4-configured funnel (dataLayer grows/gtag/config/no-errors/per-tenant-isolation; CLS=0 / JS<40KB gzip / cache-hit 304). Live GA4 + cache-invalidation verification is **BLOCKED-on-activation** (operator-owned), consistent with the whole funnel runtime.
+
+### P15 — QA + visual + sign-off (CP5)
+
+**Verification header — 2026-07-07, branch `leadgen/p15-qa-signoff` (P14 addendum `c203904` + this sign-off):** FULL gate suite green by the conductor's OWN hand: `npm run typecheck` exit 0 · `npm test` **299/299 files, 3257/3257 tests** · `verify:all` exit 0 (scanner + infra 8 + worker-config 3) · `npx playwright test` **91/91** (fresh D1). No new product code this phase (QA + sign-off + the manualQA deliverable). Matrix rows flipped: **4, 5, 10, 11, 35, 36, 37, 46, 47, 48, 49, 50, 51, 52**; §35.3 rows 4, 8, 9, 29, 30, 31, 32, 33, 34, 35 ☑ — **all §35.3 now ticked**.
+
+**P15 work:**
+- **Register reconciliation (flipped with runnable evidence — NOT blind):** the conductor re-ran the full gate suite (above) AND spot-verified each register-lag row's source anchor by hand — 4/5/10/11 (`01`§4.2 layout + full `/api/admin/leadgen` + 9 `/lg/*` routes + all editor tabs now complete), 35/36/37 (P9/P10: `getBannerDesign`+`renderBannerPanel`; `auction-rules.ts` `strictly_override`; `auction-core.ts` `surfaceCarriers`/`backfillExhausted`/remove-clicked), 46/47 (P13: dedupe UNIQUEs `0038`/`0039` + `leadgen_event_dead_letter` + `redact.ts` PII SHA-256 + `readEnvSecret` masking). Two contract-vs-code reconciliations (NOT gaps) confirmed: `winner.ts`→`auction-core.ts` (DEV-19), the banner builder→`ui-auctions.ts`.
+- **`docs/leadgen/manualQA.md` (NEW — the row-49 / §32 deliverable):** 27 MQA scenarios 1:1 with §32's 27 checks (repo scenario format: Steps/Expected/Evidence + a blank operator Sign-off table), adversarial per `.claude/rules/manualqa-patterns.md` (dedupe no-op, off-ADMIN_HOST 404, em-dash-on-0-denominator, GA4 non-destructive), scanner-clean. 17 scenarios are operator-runnable now (admin-only, CF Access); 10 are marked BLOCKED-until the operator's secret/activation input.
+- **Visual regression:** `test-ui/leadgen-visual.spec.ts` (computed-style EXACT at desktop+mobile vs the measured reference JSONs) + the P14 CLS=0 spec — green in the 91/91 Playwright run.
+
+**CP5 FINAL SIGN-OFF — all 52 matrix rows RESOLVED; ZERO FAIL; ZERO code gaps.**
+- **Fully PASS (code + tests green, no operator dependency)** — every row EXCEPT the operator-owned-LIVE-leg rows below: the CMS shell/nav (6), Offers (12–17), Sections + design + components (18–26), Quotes + funnel + A/B + activation (28–32), Auction config + runtime + carrier rules + banner + simulate (33–37), tracking event schema + click (16/38), the security/PII/secret surface (47), the testing plan (48), and the phases/risks meta rows (50/51) — each mapped requirement → file(s) → test(s), green in the full gate suite.
+- **Code-complete + test-green, LIVE leg OPERATOR-OWNED (documented BLOCKED-until, NEVER claimed live-PASS):**
+  - **CH / OQ-3** (39 Athena · 40 CH tables · 41 mirror live-numbers · 42 revenue attribution · 43 S2S fire · 46 daily-recon): the Worker's CH read + the 9 D1 mirrors + revenue/S2S are proven vs mocked CH + seeded D1; the LIVE legs need ops to set `CH_URL/CH_USER/CH_PASSWORD`, apply `infra/leadgen/{clickhouse,athena}-ddl.sql`, and run the Athena→CH ingest. Until then `/lg/pb` postbacks queue durable in `leadgen_revenue_unmatched` (72h re-match) + no S2S fires — nothing lost.
+  - **Google Maps** (27 live geocode): `maps.ts` no-ops cleanly until `GOOGLE_MAPS_BROWSER_KEY`/`GOOGLE_MAPS_SERVER_KEY` (OQ-6).
+  - **Per-site activation** (44 GA4 · 45 cache-invalidation + the whole dark `/lg/*` runtime): behaviorally proven by the 91/91 Playwright suite on a locally-activated + GA4-configured funnel; live end-to-end needs the operator to activate a quote on a live tenant.
+  - **`LEADGEN_CONFIG_SIGNING_KEY`** — MANDATORY before live auction traffic (P10 fails CLOSED without it); per-provider **`LEADGEN_PB_TOKEN_*`** / **`LEADGEN_S2S_TOKEN_*`** (absent ⇒ 401 / tokenless).
+  - **DEV-24 contract erratum** (`lg_events_raw.continued_to_next_section`): vendored CH DDL byte-identical to the contract SSOT; D1 mirror unaffected; live CH `continued_count` awaits a one-line contract-SSOT fix. Flagged.
+  - **Row 49** — the LeadGen manual-QA checklist is AUTHORED; the operator RUN is the one remaining action (`manual_qa_visual` — operator-owned, like activation/secrets).
+
+**PROGRAM STATUS: P1–P15 COMPLETE.** All 52 contract deliverables implemented 1:1, every requirement → file(s) + test(s), full gate suite green (tsc 0 · vitest 3257/3257 · verify:all · Playwright 91/91). PRs #72–#85 merged + production-deployed through the delegated per-PR loop; each phase carried a fresh-context adversarial contract review whose found issues were fixed IN-PHASE (incl. the P11 `offer_impression` BLOCKER + click double-count, the P12 enum poison-row, the P13 §30.4-guard-kills-all-provider-revenue BLOCKER, the P14 GA4 304-loop cache-coherence MAJOR). The remaining actions are OPERATOR-OWNED by the contract's own design: set CH/Maps/signing/provider secrets, apply the ops-owned Athena→CH ingest, activate funnels on live tenants, run the manual-QA checklist, and fix the DEV-24 contract erratum.
