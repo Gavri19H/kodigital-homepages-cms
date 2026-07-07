@@ -1,4 +1,7 @@
 // LeadGen Phase 10 STAGE A — banner render (contract 07 §20 + §19 step 14).
+// UPDATED in P11 Stage A: the rendered anchor href is the GOVERNED /lg/lc URL
+// (§19 step 16), never the raw provider click_url — the direct resolved URL is
+// retained server-side in slots[].click_url only.
 // PURE (no I/O). Proves: automatic field_map → slots; manual banner_config_json;
 // missing click_url → banner_url_template + {response:*} (canonical + response
 // macros, optional safe_fallback); a required response macro missing → the
@@ -83,7 +86,13 @@ describe("renderBanners — automatic field_map → slots (§20)", () => {
     expect(out.css).toContain(".lg-banner");
     expect(out.html).toContain('data-banner-render-id="brid_1"');
     expect(out.html).toContain("Acme Life");
-    expect(out.html).toContain('href="https://p.example.com/click"');
+    // P11 governed rewrite (§19 step 16): the anchor points at /lg/lc carrying
+    // ck/aiid/brid/slot/faid — NEVER the raw provider click_url. The resolved
+    // direct URL is retained server-side in slots[].click_url (asserted above).
+    expect(out.html).toContain(
+      'href="/lg/lc/lgo_x?ck=acme-life&amp;aiid=ai_1&amp;brid=brid_1&amp;slot=1&amp;faid="',
+    );
+    expect(out.html).not.toContain("https://p.example.com/click");
     expect(out.html).toContain('class="lg-banner-logo"');
   });
 
@@ -117,7 +126,11 @@ describe("renderBanners — manual banner_config_json (§20)", () => {
     expect(out.html).toContain("Compare top carriers");
     expect(out.html).toContain("Get my quote"); // CTA label from config
     expect(out.html).toContain("Terms apply");
-    expect(out.html).toContain('href="https://p.example.com/click"');
+    // governed href even in manual mode; raw provider URL never rendered.
+    expect(out.html).toContain(
+      'href="/lg/lc/lgo_x?ck=acme-life&amp;aiid=ai_1&amp;brid=brid_1&amp;slot=1&amp;faid="',
+    );
+    expect(out.html).not.toContain("https://p.example.com/click");
   });
 });
 
@@ -198,7 +211,9 @@ describe("renderBanners — HTML escaping", () => {
     expect(out.html).not.toContain("<script>");
     expect(out.html).toContain("&lt;script&gt;");
     expect(out.html).toContain("&quot;");
-    // the & in the href is entity-escaped in the attribute
-    expect(out.html).toContain("a=1&amp;b=2");
+    // the & separators in the GOVERNED href are entity-escaped in the attribute
+    expect(out.html).toContain("ck=acme-life&amp;aiid=ai_1");
+    // the raw provider click_url never renders (governed rewrite)
+    expect(out.html).not.toContain("p.example.com/c?a=1");
   });
 });
