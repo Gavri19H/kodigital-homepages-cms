@@ -461,5 +461,10 @@ Built (contract 07 §19 + §18 + §20 + 09 §28/§30.3/§30.4):
 
 **Deferred (documented, DEV-26):** warm-on-activation is a lazy re-prime (the first post-activation visitor cold-renders + write-throughs — §28 "warm" is the perf optimization; correct invalidation + the fresh key are the hard requirement, both met). Auction P95 is asserted at the P10 engine unit level (`Promise.race` vs `timeout_ms`+parse — §28 defines P95 as that property, not a load metric). Edge TTFB<200 ms / LCP<2.5 s-4G are field metrics, left to field measurement.
 
+**P14 deploy addendum — 2026-07-07, squash-merge `5c6e93d` (PR #85), production dispatch run `28869795584` (success: CI `typecheck+test+verify` green, `Apply D1 migrations` a no-op [P14 adds none], `Deploy to production`; staging skipped per DEV-8):**
+- **No D1 migration** — GA4 + caching are code; the `activation_version` axis reads the existing `leadgen_site_quotes.updated_at`. Live D1 schema unchanged.
+- **Live posture (behavioral per D4, Worker-served tenant `thecontentandcareer.com`):** homepage `/` 200 (blast-radius clean); `/lg` 404 (dark); `POST /lg/pb` no-token → 401, `GET /lg/px` → 200 `image/gif` no-store, `POST /lg/track` → 204 no-store (P11/P13 routes still live — NO regression from the shared `serve.ts`/`cache-keys.ts` changes); `/lg/config/:variant` mounted (404 on a nonexistent variant).
+- **GA4 pass-through + per-site cache invalidation are DARK-in-prod** (the `/lg/*` funnel runtime is dark-by-construction until an operator activates a quote on a live tenant + sets `ga4_measurement_id`); both are behaviorally proven by the **91/91** Playwright suite on a local activated + GA4-configured funnel (dataLayer grows/gtag/config/no-errors/per-tenant-isolation; CLS=0 / JS<40KB gzip / cache-hit 304). Live GA4 + cache-invalidation verification is **BLOCKED-on-activation** (operator-owned), consistent with the whole funnel runtime.
+
 ### P15 — QA + visual + sign-off
 _(pending)_
