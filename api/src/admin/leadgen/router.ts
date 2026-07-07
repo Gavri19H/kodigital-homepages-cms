@@ -31,6 +31,7 @@ import {
   searchOffersHandler,
 } from "./offers-handlers";
 import { testOfferHandler } from "./payload-builder-handlers";
+import { rebuildLeadgenAnalyticsRangeHandler } from "./analytics-admin-handlers";
 import {
   createSectionHandler,
   deleteSectionHandler,
@@ -197,6 +198,11 @@ routes.post("/auctions/:id/simulate", auctionSimulateHandler);
 routes.get("/auctions/:id", getAuctionHandler);
 routes.patch("/auctions/:id", patchAuctionHandler);
 routes.delete("/auctions/:id", deleteAuctionHandler);
+
+// --- Analytics (03 §8 + 08 §24 — Phase-12 CH→D1 mirror manual backfill) ------
+// The every-minute cron (index.ts scheduled → syncLeadgenAnalytics) syncs a
+// bounded rolling window; this endpoint runs an explicit [from,to] window.
+routes.post("/analytics/rebuild-range", rebuildLeadgenAnalyticsRangeHandler);
 
 const leadgenApi = new Hono<{ Bindings: Env }>();
 leadgenApi.route("/api/admin/leadgen", routes);

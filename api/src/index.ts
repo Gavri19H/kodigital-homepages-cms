@@ -55,6 +55,7 @@ import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation
 import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { runListicleRevenueCron } from "./listicles/revenue-recon";
 import { pruneLeadgenRetention } from "./leadgen/retention";
+import { syncLeadgenAnalytics } from "./leadgen/mirror-sync";
 import { processScheduledArticles } from "./workflow";
 import {
   driveInProgressProvisioning,
@@ -286,6 +287,16 @@ const scheduled = async (
       await pruneLeadgenRetention(env);
     } catch {
       // retention prune must never break the publish/provisioning cron.
+    }
+    try {
+      // LeadGen §24 CH→D1 analytics mirror sync — every minute, bounded rolling
+      // window. Isolated + fail-open: absent CH secrets (CH_URL/CH_USER/
+      // CH_PASSWORD) is a structured no-op; a CH/D1 error is contained per
+      // table (and by an overall try/catch) and NEVER surfaces into the
+      // homepage publish/provisioning cron above.
+      await syncLeadgenAnalytics(env);
+    } catch {
+      // mirror sync must never break the publish/provisioning cron.
     }
   })();
   ctx.waitUntil(work);
