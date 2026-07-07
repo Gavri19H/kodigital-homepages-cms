@@ -1047,3 +1047,203 @@ describeDb("dual-id + no-store headers + 404 semantics", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §28 admin-write cache invalidation — proves the four writes TRIGGER the
+// per-site lg-shell:/lg-config: eviction (through the REAL router). The handlers
+// ride c.executionCtx.waitUntil, so these tests pass a COLLECTING ExecutionContext
+// (Hono app.request's 4th arg) + a SPY KV and drain the captured promises before
+// asserting the deletes. The existing suite passes NO ctx (safeExecutionCtx →
+// no-op), so those tests never touch KV — this behaviour is opt-in per call.
+// ---------------------------------------------------------------------------
+
+// Spy KV: list() filters the seeded key set by prefix; delete() records the key.
+function spyCache(seedKeys: string[]): { cache: KVNamespace; deletes: string[] } {
+  const store = new Set(seedKeys);
+  const deletes: string[] = [];
+  const cache = {
+    async list(opts?: { prefix?: string; cursor?: string }) {
+      const prefix = opts?.prefix ?? "";
+      const keys = [...store]
+        .filter((k) => k.startsWith(prefix))
+        .sort()
+        .map((name) => ({ name }));
+      return { keys, list_complete: true, cacheStatus: null };
+    },
+    async delete(k: string) {
+      deletes.push(k);
+      store.delete(k);
+    },
+    async get() {
+      return null;
+    },
+    async put() {
+      /* no-op */
+    },
+  } as unknown as KVNamespace;
+  return { cache, deletes };
+}
+
+// Collecting ExecutionContext: captures every waitUntil promise so the test can
+// await the background invalidation before asserting.
+function collectingCtx(): { ctx: ExecutionContext; settled: () => Promise<void> } {
+  const promises: Array<Promise<unknown>> = [];
+  const ctx = {
+    waitUntil(p: Promise<unknown>): void {
+      promises.push(Promise.resolve(p));
+    },
+    passThroughOnException(): void {
+      /* no-op */
+    },
+  } as unknown as ExecutionContext;
+  return { ctx, settled: async () => void (await Promise.all(promises)) };
+}
+
+describeDb("§28 admin-write cache invalidation (waitUntil trigger)", () => {
+  it("PUT activation evicts the WHOLE site's funnel surface; a sibling site survives", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const fid = q.funnels[0]!.funnel_id;
+    const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
+    const siteShell = `lg-shell:site-1:auto:${fid}:${vid}:1:1`;
+    const siteConfig = `lg-config:site-1:${fid}:${vid}:1:0`;
+    const otherSite = "lg-shell:site-2:auto:lgf_other0000000000000000000:lgn_other000000000000000000:1:1";
+    const { cache, deletes } = spyCache([siteShell, siteConfig, otherSite]);
+    env.CACHE = cache;
+    const { ctx, settled } = collectingCtx();
+
+    const res = await admin.request(
+      `${API}/quotes/${q.public_id}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "auto" }),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    await settled();
+
+    expect(deletes).toContain(siteShell);
+    expect(deletes).toContain(siteConfig);
+    expect(deletes).not.toContain(otherSite); // per-site scoped — no cross-tenant wipe
+  });
+
+  it("DELETE activation (deactivate) evicts the site's funnel surface", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const fid = q.funnels[0]!.funnel_id;
+    const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
+    // activate first (no ctx → the setup write does not invalidate).
+    await admin.request(
+      `${API}/quotes/${q.public_id}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "auto" }),
+      env,
+    );
+    const siteShell = `lg-shell:site-1:auto:${fid}:${vid}:1:1`;
+    const siteConfig = `lg-config:site-1:${fid}:${vid}:1:0`;
+    const { cache, deletes } = spyCache([siteShell, siteConfig]);
+    env.CACHE = cache;
+    const { ctx, settled } = collectingCtx();
+
+    const res = await admin.request(
+      `${API}/quotes/${q.public_id}/activation/site-1`,
+      { method: "DELETE" },
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    await settled();
+
+    expect(deletes).toContain(siteShell);
+    expect(deletes).toContain(siteConfig);
+  });
+
+  it("PUT variant fans out to every activated site, narrowed to the funnel", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const fid = q.funnels[0]!.funnel_id;
+    const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
+    // activate on BOTH seeded sites (no ctx on the setup writes).
+    await admin.request(`${API}/quotes/${q.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "auto" }), env);
+    await admin.request(`${API}/quotes/${q.public_id}/activation/site-2`, jsonInit("PUT", { enabled: true, slug: "auto" }), env);
+
+    const s1Shell = `lg-shell:site-1:auto:${fid}:${vid}:1:1`;
+    const s1Config = `lg-config:site-1:${fid}:${vid}:1:0`;
+    const s2Shell = `lg-shell:site-2:auto:${fid}:${vid}:1:1`;
+    const s2Config = `lg-config:site-2:${fid}:${vid}:1:0`;
+    // a DIFFERENT funnel on site-1 — MUST survive (funnel-narrowed).
+    const otherFunnel = "lg-shell:site-1:home:lgf_other0000000000000000000:lgn_o00000000000000000000000:1:1";
+    const { cache, deletes } = spyCache([s1Shell, s1Config, s2Shell, s2Config, otherFunnel]);
+    env.CACHE = cache;
+    const { ctx, settled } = collectingCtx();
+
+    const res = await admin.request(
+      `${API}/variants/${q.funnels[0]!.variants[0]!.public_id}`,
+      jsonInit("PUT", { lander_headline: "Hi" }),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    await settled();
+
+    expect(deletes).toContain(s1Shell);
+    expect(deletes).toContain(s1Config);
+    expect(deletes).toContain(s2Shell);
+    expect(deletes).toContain(s2Config);
+    expect(deletes).not.toContain(otherFunnel); // narrowed to the published funnel
+  });
+
+  it("fork variant triggers a funnel-narrowed per-site eviction", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const fid = q.funnels[0]!.funnel_id;
+    const vid = q.funnels[0]!.variants[0]!.funnel_variant_id;
+    await admin.request(`${API}/quotes/${q.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "auto" }), env);
+
+    const siteShell = `lg-shell:site-1:auto:${fid}:${vid}:1:1`;
+    const otherFunnel = "lg-shell:site-1:home:lgf_other0000000000000000000:lgn_o00000000000000000000000:1:1";
+    const { cache, deletes } = spyCache([siteShell, otherFunnel]);
+    env.CACHE = cache;
+    const { ctx, settled } = collectingCtx();
+
+    const res = await admin.request(
+      `${API}/variants/${q.funnels[0]!.variants[0]!.public_id}/fork`,
+      jsonInit("POST", {}),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(201);
+    await settled();
+
+    expect(deletes).toContain(siteShell);
+    expect(deletes).not.toContain(otherFunnel);
+  });
+
+  it("a KV hiccup during invalidation NEVER breaks the admin write (fail-open)", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    // a CACHE whose list() always throws — the write must still succeed.
+    env.CACHE = {
+      async list() {
+        throw new Error("kv down");
+      },
+      async delete() {
+        throw new Error("kv down");
+      },
+      async get() {
+        return null;
+      },
+      async put() {
+        /* no-op */
+      },
+    } as unknown as KVNamespace;
+    const { ctx, settled } = collectingCtx();
+
+    const res = await admin.request(
+      `${API}/quotes/${q.public_id}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "auto" }),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    await expect(settled()).resolves.toBeUndefined(); // background work swallowed the hiccup
+  });
+});

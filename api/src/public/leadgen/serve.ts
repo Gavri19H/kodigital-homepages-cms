@@ -196,6 +196,37 @@ function jsStringLiteral(value: string): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
+// §28 GA4 pass-through — emit the site's GA4 into the shell <head> when the
+// resolved activation has a ga4_measurement_id (from settings_overrides_json).
+// The STANDARD non-destructive gtag snippet: the async gtag.js loader + the
+// inline dataLayer/gtag bootstrap. RULES:
+//   (a) `window.dataLayer = window.dataLayer || []` — an existing dataLayer (a
+//       site-level GA4 tag, a §27 browser pixel) is NEVER reset;
+//   (b) the id is the PER-SITE ga4_measurement_id and the shell is cached per
+//       site_id (lg-shell:{site_id}:…), so baking it in is correct and can never
+//       carry another tenant's id (the key is site-scoped);
+//   (c) absent id ⇒ emit NOTHING;
+//   (d) /lg/track is a header-only no-store beacon — it never touches
+//       window.dataLayer (proven in leadgen-ga4.spec.ts).
+// The measurement id is operator-authored, so it is escaped for BOTH the JS-string
+// context (jsStringLiteral) and the URL/attribute context (encodeURIComponent +
+// escapeHtml) — no `</script>` / markup can be forged. The shell sets no CSP, so
+// no host allowlist is required; if one is ever added it MUST allow
+// www.googletagmanager.com.
+function ga4HeadSnippet(measurementId: string | null): string {
+  if (measurementId === null) return "";
+  const id = measurementId.trim();
+  if (id === "") return "";
+  const srcId = encodeURIComponent(id);
+  return (
+    `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(srcId)}"></script>` +
+    "<script>window.dataLayer=window.dataLayer||[];" +
+    "function gtag(){dataLayer.push(arguments);}" +
+    "gtag('js',new Date());" +
+    `gtag('config',${jsStringLiteral(id)});</script>`
+  );
+}
+
 // Splice the per-request browser Maps key onto the RESPONSE body only. The
 // `pristine` shell (the exact bytes cached + ETag'd) carries only the sentinel;
 // the key global is set before the bootstrap runs. No address section OR no key
@@ -287,6 +318,9 @@ function renderFunnelShell(resolved: ResolvedActivatedFunnel, design: FunnelDesi
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<title>${escapeHtml(resolved.funnel.funnel_name)}</title>` +
+    // §28 GA4: the site's measurement id is baked into this per-site-cached shell
+    // (absent id ⇒ nothing). Non-destructive: it never resets an existing dataLayer.
+    ga4HeadSnippet(resolved.ga4_measurement_id) +
     `<style>${chromeCss}</style>` +
     MAPS_KEY_SENTINEL +
     "</head>" +
