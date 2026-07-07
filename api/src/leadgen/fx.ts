@@ -25,6 +25,14 @@
 //
 // Pure/deterministic given the DB rows; parameterized SQL only; the rate is
 // guarded (`typeof number` + `Number.isFinite`) before use.
+//
+// P13 EXTENSION (contract 08 §25 provider revenue + 09 §29 reconciliation):
+// the revenue pipeline reuses the SAME leadgen_fx_rates table + the SAME
+// lookupFxRate below, adding `computeRevenueUsd` (revenue × rate, null when
+// unconvertible) and the §29 daily `refreshFxRates` seeder. All auction FX
+// exports above are unchanged.
+
+import type { Env } from "../env";
 
 export const BASE_CURRENCY = "USD";
 
@@ -220,4 +228,78 @@ export async function normalizeCarrierBidsToUsd(
     });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Revenue-side FX (08 §25 provider revenue + 09 §29 currency normalization)
+// ---------------------------------------------------------------------------
+
+// revenue_usd for (date, currency, revenue) via the SAME lookupFxRate above
+// (exact-date → most-recent-on-or-before → null). null ⇒ NO known rate — the
+// caller stores native revenue + NULL revenue_usd and flags it for backfill
+// (§29), NEVER a fabricated USD figure. USD (or blank) is the identity (rate 1).
+// Deterministic; never throws (lookupFxRate degrades a DB error to null).
+export async function computeRevenueUsd(
+  db: D1Database,
+  date: string,
+  currency: string,
+  revenue: number,
+): Promise<number | null> {
+  if (typeof revenue !== "number" || !Number.isFinite(revenue)) return null;
+  const rate = await lookupFxRate(db, date, currency);
+  if (rate === null) return null;
+  const usd = revenue * rate;
+  return Number.isFinite(usd) ? usd : null;
+}
+
+// The typed summary refreshFxRates returns. The leadgen-namespaced `t` keeps it
+// distinct from any listicles refresh in a shared log stream (§30.5 namespace).
+export interface FxRefreshSummary {
+  t: "lg_fx_refresh";
+  date: string;
+  seeded: number; // rows upserted this run
+  source: "identity_only" | "seeded_rates";
+  note: string;
+}
+
+// §29 daily FX refresh. Idempotent (INSERT OR IGNORE on the (date,currency) PK
+// so a re-run never clobbers a rate already recorded for the day). Seeds the
+// USD identity always; applies any `seededRates` the caller injects (a static
+// seed table or a future FX-API adapter — the single extension point). NEVER
+// throws (the cron wraps it too). FX-SOURCE HONESTY: this repo wires no live FX
+// provider secret, so absent `seededRates` it seeds ONLY the USD identity and
+// names the missing source — a non-USD postback with no seeded rate stores NULL
+// revenue_usd until a rate lands, never an invented number.
+export async function refreshFxRates(
+  env: Env,
+  opts?: { now?: Date; seededRates?: Readonly<Record<string, number>> },
+): Promise<FxRefreshSummary> {
+  const now = opts?.now ?? new Date();
+  const date = now.toISOString().slice(0, 10);
+  const rates: Record<string, number> = { [BASE_CURRENCY]: 1, ...(opts?.seededRates ?? {}) };
+  let seeded = 0;
+  for (const [currencyRaw, rate] of Object.entries(rates)) {
+    const currency = normCurrency(currencyRaw);
+    if (currency === "" || typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) continue;
+    try {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO leadgen_fx_rates (date, currency, usd_rate) VALUES (?, ?, ?)",
+      )
+        .bind(date, currency, rate)
+        .run();
+      seeded += 1;
+    } catch {
+      // FX seeding is best-effort; a write hiccup never breaks the cron.
+    }
+  }
+  const hasSeed = opts?.seededRates !== undefined && Object.keys(opts.seededRates).length > 0;
+  return {
+    t: "lg_fx_refresh",
+    date,
+    seeded,
+    source: hasSeed ? "seeded_rates" : "identity_only",
+    note: hasSeed
+      ? "seeded USD identity + injected static/adapter rates"
+      : "USD identity only — no live FX-rate source configured (non-USD revenue stores NULL revenue_usd until a rate is seeded)",
+  };
 }

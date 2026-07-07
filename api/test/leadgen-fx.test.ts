@@ -8,11 +8,15 @@
 import { describe, expect, it } from "vitest";
 import {
   BASE_CURRENCY,
+  computeRevenueUsd,
   lookupFxRate,
   normalizeToUsd,
   normalizeCarrierBidsToUsd,
+  refreshFxRates,
   type CarrierBidInput,
+  type FxRefreshSummary,
 } from "../src/leadgen/fx";
+import type { Env } from "../src/env";
 
 // --- node:sqlite harness (repo pattern; only the fx table is needed) ---------
 
@@ -204,5 +208,115 @@ describeDb("normalizeCarrierBidsToUsd — bid-set normalization + missing-rate p
   it("never throws and returns [] for an empty carrier set", async () => {
     const { db } = freshDb();
     await expect(normalizeCarrierBidsToUsd(db, [], { date: DATE })).resolves.toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P13 revenue-side FX — computeRevenueUsd (08 §25 / 09 §29)
+// ---------------------------------------------------------------------------
+
+describeDb("computeRevenueUsd — revenue currency normalization", () => {
+  it("USD passthrough: revenue × 1 (no fabrication, no lookup)", async () => {
+    const { db } = freshDb();
+    expect(await computeRevenueUsd(db, DATE, "USD", 12.5)).toBe(12.5);
+    expect(await computeRevenueUsd(db, DATE, "", 4)).toBe(4); // blank ⇒ USD identity
+    expect(BASE_CURRENCY).toBe("USD");
+  });
+
+  it("applies an exact (date,currency) rate: usd = revenue × usd_rate", async () => {
+    const { sdb, db } = freshDb();
+    seedRate(sdb, DATE, "EUR", 1.1);
+    expect(await computeRevenueUsd(db, DATE, "eur", 10)).toBeCloseTo(11, 10);
+  });
+
+  it("unknown currency → null (unconvertible; caller stores NULL revenue_usd, never a fabricated figure)", async () => {
+    const { db } = freshDb();
+    expect(await computeRevenueUsd(db, DATE, "JPY", 100)).toBeNull();
+  });
+
+  it("non-finite revenue → null, never throws", async () => {
+    const { db } = freshDb();
+    expect(await computeRevenueUsd(db, DATE, "USD", Number.NaN)).toBeNull();
+    expect(await computeRevenueUsd(db, DATE, "USD", Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P13 revenue-side FX — refreshFxRates (09 §29 daily FX seed)
+// ---------------------------------------------------------------------------
+
+function ratesOf(sdb: SqliteDb, date: string): Array<{ currency: string; usd_rate: number }> {
+  return sdb
+    .prepare("SELECT currency, usd_rate FROM leadgen_fx_rates WHERE date = ? ORDER BY currency ASC")
+    .all(date) as Array<{ currency: string; usd_rate: number }>;
+}
+
+describeDb("refreshFxRates — idempotent daily FX seed (honest no-op without a source)", () => {
+  const NOW = new Date("2026-07-07T00:07:00Z");
+
+  it("seeds ONLY the USD identity without a source (never a fabricated non-USD rate)", async () => {
+    const { sdb, db } = freshDb();
+    const summary: FxRefreshSummary = await refreshFxRates({ DB: db } as unknown as Env, { now: NOW });
+    expect(summary.t).toBe("lg_fx_refresh");
+    expect(summary.source).toBe("identity_only");
+    expect(summary.date).toBe("2026-07-07");
+    const rows = ratesOf(sdb, "2026-07-07");
+    expect(rows).toEqual([{ currency: "USD", usd_rate: 1 }]);
+  });
+
+  it("applies injected seededRates (a static seed / future FX adapter) alongside the USD identity", async () => {
+    const { sdb, db } = freshDb();
+    const summary = await refreshFxRates({ DB: db } as unknown as Env, {
+      now: NOW,
+      seededRates: { EUR: 1.1, gbp: 1.25 },
+    });
+    expect(summary.source).toBe("seeded_rates");
+    const rows = ratesOf(sdb, "2026-07-07");
+    expect(rows).toEqual([
+      { currency: "EUR", usd_rate: 1.1 },
+      { currency: "GBP", usd_rate: 1.25 },
+      { currency: "USD", usd_rate: 1 },
+    ]);
+  });
+
+  it("is idempotent: a re-run never clobbers a rate already recorded for the day (INSERT OR IGNORE)", async () => {
+    const { sdb, db } = freshDb();
+    const env = { DB: db } as unknown as Env;
+    await refreshFxRates(env, { now: NOW, seededRates: { EUR: 1.1 } });
+    // A later run with a DIFFERENT rate must NOT overwrite the PK (date,EUR) row.
+    await refreshFxRates(env, { now: NOW, seededRates: { EUR: 9.99 } });
+    const eur = ratesOf(sdb, "2026-07-07").find((r) => r.currency === "EUR");
+    expect(eur?.usd_rate).toBe(1.1); // original preserved
+  });
+
+  it("skips a non-positive / non-finite injected rate (never seeds a bad rate)", async () => {
+    const { sdb, db } = freshDb();
+    await refreshFxRates({ DB: db } as unknown as Env, {
+      now: NOW,
+      seededRates: { EUR: 0, GBP: -1, JPY: Number.NaN },
+    });
+    const currencies = ratesOf(sdb, "2026-07-07").map((r) => r.currency);
+    expect(currencies).toEqual(["USD"]); // only the identity survived
+  });
+
+  it("never throws even when the write path fails (fail-open cron leg)", async () => {
+    const throwingEnv = {
+      DB: {
+        prepare() {
+          return {
+            bind() {
+              return {
+                async run() {
+                  throw new Error("d1 down");
+                },
+              };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+    const summary = await refreshFxRates(throwingEnv, { now: NOW });
+    expect(summary.seeded).toBe(0); // nothing seeded, but no throw
+    expect(summary.t).toBe("lg_fx_refresh");
   });
 });
