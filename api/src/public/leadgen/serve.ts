@@ -65,10 +65,13 @@ const DEFAULT_TTL_SECONDS = 300;
 const MAPS_KEY_SENTINEL = "<!--LG_MAPS_KEY-->";
 
 // The sentinel the cached shell carries for the §16.3 A/B assignment. The
-// PER-SESSION dims (esp. assignment_bucket) are injected on the RESPONSE only —
-// never baked into the per-variant cached body — so one cached shell serves
-// every session assigned that variant while each still gets its OWN bucket for
-// the P11 quote_view beacon. Mirrors the Maps-key sentinel discipline exactly.
+// NON-session assignment dims are injected on the RESPONSE only (never baked into
+// the per-variant cached body). The per-SESSION `assignment_bucket` is deliberately
+// NOT emitted on this `public` response (m1): the shell is a public, cacheable
+// artifact and a per-session datum must not ride it. The P11 quote_view beacon
+// recomputes the bucket itself from its own ko_sid + the injected non-session
+// funnel_ab_test_id/revision (§16.2 edge/client parity). Mirrors the Maps-key
+// sentinel discipline exactly.
 const ASSIGN_SENTINEL = "<!--LG_ASSIGN-->";
 
 // /lg/config Cache-Control (contract 03 §4.3 route map): a shared-cache
@@ -130,14 +133,18 @@ function leadgenConfigEtag(
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  abRev: number,
 ): Promise<string> {
-  // Material = site + funnel + variant + content_version, matching
+  // Material = site + funnel + variant + content_version + ab_rev, matching
   // leadgenConfigKey so the ETag changes iff the cache key would. site_id is a
   // first-class component (the config bakes in the site-specific ga4 id), so two
-  // tenant sites serving the SAME funnel/variant get DISTINCT ETags.
+  // tenant sites serving the SAME funnel/variant get DISTINCT ETags. ab_rev (the
+  // running-test revision, 0 when none) is folded into the path so a test
+  // start/stop/re-bump changes the ETag — a conditional GET never 304s a stale
+  // single_control body against a now-running (ab_hash) config, and vice versa.
   return computeEtag({
     site_id: siteId,
-    path: `/lg/config/${funnelId}/${funnelVariantId}`,
+    path: `/lg/config/${funnelId}/${funnelVariantId}/${abRev}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
@@ -207,19 +214,29 @@ function injectMapsKey(pristine: string, resolved: ResolvedActivatedFunnel, env:
   return pristine.replace(MAPS_KEY_SENTINEL, () => script);
 }
 
-// Splice the §16.3 assignment dims onto the RESPONSE body only (per-request).
-// window.__LG_ASSIGNMENT__ = { funnel_ab_test_id, funnel_ab_test_revision,
-// variant_label, traffic_allocation_bp, assignment_bucket, assignment_reason }
-// — the P11 quote_view beacon reads this. assignment_bucket is the per-SESSION
-// §16.2 bucket (0..9999) on the ab_hash path, null on single_control. `<` is
-// neutralized so an authored variant_label can never forge </script> / markup.
-function injectAssignment(html: string, assignment: FunnelAssignment): string {
+// Splice the NON-session §16.3 assignment dims onto the RESPONSE body only
+// (per-request). window.__LG_ASSIGNMENT__ = { funnel_ab_test_id,
+// funnel_ab_test_revision, variant_label, traffic_allocation_bp,
+// funnel_variant_id, assignment_bucket: null, assignment_reason } — the P11
+// quote_view beacon reads this. All emitted fields are TEST/VARIANT-scoped (not
+// per-session); `assignment_bucket` is deliberately null even on the ab_hash path
+// (m1): a per-session datum must not ride a `public` cacheable-shell response, so
+// the client recomputes the §16.2 bucket from its own ko_sid + funnel_ab_test_id +
+// funnel_ab_test_revision (edge/client parity). This matches the cached /lg/config
+// DTO, which already omits the per-session bucket. `<` is neutralized so an
+// authored variant_label can never forge </script> / markup.
+function injectAssignment(
+  html: string,
+  assignment: FunnelAssignment,
+  funnelVariantId: string,
+): string {
   const json = JSON.stringify({
     funnel_ab_test_id: assignment.funnel_ab_test_id,
     funnel_ab_test_revision: assignment.funnel_ab_test_revision,
     variant_label: assignment.variant_label,
     traffic_allocation_bp: assignment.traffic_allocation_bp,
-    assignment_bucket: assignment.assignment_bucket,
+    funnel_variant_id: funnelVariantId,
+    assignment_bucket: null,
     assignment_reason: assignment.assignment_reason,
   }).replace(/</g, "\\u003c");
   const script = `<script>window.__LG_ASSIGNMENT__=${json};</script>`;
@@ -357,9 +374,10 @@ export async function serveFunnelShell(
   }
 
   // Per-request injections on the RESPONSE stream only (never cached): the Maps
-  // key, then the §16.3 assignment dims (incl. the per-session bucket).
+  // key, then the NON-session §16.3 assignment dims (the per-session bucket is
+  // deliberately null on this public shell — the client recomputes it, m1).
   let body = injectMapsKey(pristine, resolved, c.env);
-  body = injectAssignment(body, resolved.assignment);
+  body = injectAssignment(body, resolved.assignment, toFunnelVariantId(resolved.variant.public_id));
   return new Response(body, { status: 200, headers: withSession(publicHtmlCacheHeaders({ etag })) });
 }
 
@@ -376,12 +394,18 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   const funnelId = resolved.funnel.public_id;
   const funnelVariantId = resolved.variant.public_id;
   const contentVersion = resolved.variant.content_version;
+  // §16.2 ab_rev axis: the running test's revision (0 on the single_control path).
+  // The resolver already detected the running test and surfaced its revision on the
+  // assignment dims, so keying by it guarantees the cache identity changes exactly
+  // when the baked §16.3 dims do — a start/stop/re-bump mints a fresh key/ETag and
+  // never serves the stale pre-transition config body.
+  const abRev = resolved.assignment.funnel_ab_test_revision;
 
   // site_id + funnel_variant_id are part of the key + ETag material so one
   // funnel activated on two tenant sites can never share a cached config entry
   // (each site bakes in its OWN ga4_measurement_id from settings_overrides_json).
-  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion);
-  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion);
+  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev);
+  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev);
 
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {

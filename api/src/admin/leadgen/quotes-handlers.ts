@@ -339,6 +339,31 @@ async function readActiveFunnelVariants(
   return result.results ?? [];
 }
 
+// True iff the funnel has a RUNNING A/B test (status='running',
+// uq_leadgen_abtest_running → 0..1 per funnel). The single running-test detection
+// reused by the allocation-PUT Σ guard AND the B1 arm-set/label freeze below.
+async function funnelHasRunningTest(db: D1Database, funnelId: number): Promise<boolean> {
+  const running = await db
+    .prepare("SELECT id FROM leadgen_funnel_ab_tests WHERE funnel_id = ? AND status = 'running' LIMIT 1")
+    .bind(funnelId)
+    .first<{ id: number }>();
+  return running !== null;
+}
+
+// B1 (contract 06 §16.2 line 35 / 09 §29 line 24): while a funnel has a RUNNING
+// test, its ACTIVE-variant SET and the variant sort keys (variant_label — the
+// ab-hash arm order, §16.2) are FROZEN. Runtime arms = the funnel's active
+// variants (resolver.getActiveVariantsForFunnel); the §16.2 Σ==10000 gate + the
+// revision bump run ONLY at start. A live relabel reorders the arms so a session's
+// bucket maps to a DIFFERENT arm; a live add/fork grows Σ past 10000 — both with
+// NO revision bump and NO Σ re-gate, silently corrupting the running comparison.
+// The safe operator path is stop → edit → start (start re-gates Σ==10000, bumps
+// the revision, and cleanly re-buckets). 409 Conflict = the funnel is in a running
+// state that conflicts with the mutation. The allocation-PUT guard (which keeps
+// Σ==10000 for allowed live allocation edits) is unchanged.
+const RUNNING_TEST_ARM_LOCK_MESSAGE =
+  "stop the running A/B test before changing its variants/labels";
+
 // The funnel's A/B tests (newest first) — surfaced in the builder structure so
 // the A/B tab shows lifecycle status + drives start/stop + the §16.2 assignment
 // preview. At most one is status='running' (uq_leadgen_abtest_running).
@@ -695,6 +720,12 @@ async function createVariantUnderFunnel(
   funnel: LeadgenFunnelRow,
   body: Record<string, unknown>,
 ): Promise<Response> {
+  // B1: adding an ACTIVE variant to a funnel with a RUNNING test grows the arm set
+  // (Σ past 10000) with no revision bump / Σ re-gate — refuse until the test stops.
+  // Covers POST /quotes/:id/variants + POST /funnels/:id/variants (both land here).
+  if (await funnelHasRunningTest(c.env.DB, funnel.id)) {
+    return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
+  }
   const existing = await readFunnelVariants(c.env.DB, funnel.id);
   const label = trimmedString(body["variant_label"]) ?? String.fromCharCode(65 + existing.length); // A, B, C…
   // First variant of a funnel defaults to control; additional variants are not.
@@ -907,6 +938,23 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   const owner = await quoteOfVariant(c.env.DB, variant);
   if (owner === null) return c.json({ error: "Not Found" }, 404);
 
+  // B1: refuse a variant_label CHANGE on an ACTIVE arm while the funnel has a
+  // running test — relabelling reorders the ab-hash arm set (assignVariant sorts
+  // by variant_label), silently remapping every session's bucket to a DIFFERENT
+  // arm with no revision bump. Only a real change is blocked (a no-op relabel or a
+  // save that omits variant_label is unaffected, as are allocation/lander edits).
+  if (body["variant_label"] !== undefined) {
+    const newLabel = trimmedString(body["variant_label"]);
+    if (
+      newLabel !== null &&
+      newLabel !== variant.variant_label &&
+      variant.status === "active" &&
+      (await funnelHasRunningTest(c.env.DB, variant.funnel_id))
+    ) {
+      return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
+    }
+  }
+
   const errors: FieldErrors = {};
 
   // --- scalar / lander / design / auction fields (merge over existing) ------
@@ -956,9 +1004,9 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   let trafficBp = variant.traffic_allocation_bp;
   if (body["traffic_allocation_bp"] !== undefined) {
     const v = body["traffic_allocation_bp"];
-    // Range-check here; the per-test Σ==10000 invariant is enforced below ONLY
-    // when a RUNNING test exists (a draft's allocations are tuned freely before
-    // start — start is the hard Σ gate). UI sends bp (= percent * 100).
+    // Range-check here; a CHANGE on a running test's active arm is refused
+    // below (§16.2 — rebalance via stop→edit→start). Draft allocations are
+    // tuned freely (start is the hard Σ gate). UI sends bp (= percent * 100).
     if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 10000) errors["traffic_allocation_bp"] = "traffic_allocation_bp must be an integer 0..10000";
     else trafficBp = v;
   }
@@ -1003,29 +1051,22 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     }
   }
 
-  // §16.2 running-test allocation invariant: a running test must always sum to
-  // 10000, so a save that CHANGES this variant's allocation while its funnel has
-  // a RUNNING test is validated against the resulting per-test Σ (this variant's
-  // new bp + its active siblings' current bp). No running test → range-check only
-  // (draft tuning is free; start is the hard gate).
-  if (body["traffic_allocation_bp"] !== undefined && errors["traffic_allocation_bp"] === undefined) {
-    const runningTest = await c.env.DB.prepare(
-      "SELECT id FROM leadgen_funnel_ab_tests WHERE funnel_id = ? AND status = 'running' LIMIT 1",
-    )
-      .bind(variant.funnel_id)
-      .first<{ id: number }>();
-    if (runningTest) {
-      const siblings = await readActiveFunnelVariants(c.env.DB, variant.funnel_id);
-      const projected = siblings.map((v) => ({
-        variant_label: v.variant_label,
-        traffic_allocation_bp: v.id === variant.id ? trafficBp : v.traffic_allocation_bp,
-      }));
-      const verdict = validateAbAllocations(projected);
-      if (!verdict.ok) {
-        errors["traffic_allocation_bp"] =
-          `running-test allocation must keep the per-test Σ == 10000: ${verdict.errors.map((e) => e.message).join("; ")}`;
-      }
-    }
+  // §16.2 line 35: "changing allocations … bumps the revision and cleanly
+  // re-buckets." A running test must therefore NEVER take a silent in-place
+  // allocation edit — the stored split would diverge from the actual (unchanged-
+  // revision) session assignment, silently corrupting the comparison (§29). So
+  // — consistently with the B1 arm-set/label freeze — a traffic_allocation_bp
+  // CHANGE on an ACTIVE variant whose funnel has a RUNNING test is REFUSED (409):
+  // the operator rebalances via stop → edit → start, and START bumps the
+  // revision + re-gates Σ==10000 + cleanly re-buckets. Draft tuning is free
+  // (no running test → range-check only, start is the hard gate).
+  if (
+    body["traffic_allocation_bp"] !== undefined &&
+    trafficBp !== variant.traffic_allocation_bp &&
+    variant.status === "active" &&
+    (await funnelHasRunningTest(c.env.DB, variant.funnel_id))
+  ) {
+    return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
   }
 
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
@@ -1097,6 +1138,13 @@ function jsonStringOrNull(value: unknown): string | null {
 export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   const source = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
   if (source === null) return c.json({ error: "Not Found" }, 404);
+
+  // B1: a fork inserts a new ACTIVE variant under the source's funnel → grows the
+  // running test's arm set silently. Refuse while that funnel has a running test
+  // (simplest + safest; the operator path is stop → fork → start).
+  if (await funnelHasRunningTest(c.env.DB, source.funnel_id)) {
+    return c.json({ error: RUNNING_TEST_ARM_LOCK_MESSAGE }, 409);
+  }
 
   const existing = await readFunnelVariants(c.env.DB, source.funnel_id);
   const newLabel = `${source.variant_label}-fork-${existing.length}`;

@@ -812,13 +812,17 @@ describeDb("P8 — a RUNNING 2-variant test buckets by session (§16.2/§16.3)",
       const html = await res.text();
       // the SERVED variant matches the deterministic edge hash for THIS session.
       expect(shellVariantId(html), `served variant for ${sid}`).toBe(expected);
-      // the per-request §16.3 dims are injected on the RESPONSE (P11 beacon).
+      // the NON-session §16.3 dims are injected on the RESPONSE (P11 beacon reads them).
       const assign = parseInjectedAssignment(html);
       expect(assign, `assignment injected for ${sid}`).not.toBeNull();
       expect(assign!["assignment_reason"]).toBe("ab_hash");
       expect(assign!["funnel_ab_test_id"]).toBe(seed.testId);
       expect(assign!["funnel_ab_test_revision"]).toBe(seed.revision);
-      expect(assign!["assignment_bucket"]).toBe(expectedBucketFor(seed, sid));
+      // the served (non-session) variant id rides the dims too.
+      expect(assign!["funnel_variant_id"]).toBe(expected);
+      // m1: the per-SESSION bucket must NOT ride this public shell — it is null even
+      // on the ab_hash path (P11 recomputes it; the dedicated m1 test asserts this).
+      expect(assign!["assignment_bucket"]).toBeNull();
     }
   });
 
@@ -914,5 +918,86 @@ describeDb("P8 — a RUNNING 2-variant test buckets by session (§16.2/§16.3)",
     const assign = parseInjectedAssignment(html);
     expect(assign!["assignment_reason"]).toBe("single_control");
     expect(assign!["assignment_bucket"]).toBeNull();
+  });
+
+  // m1 — a per-session datum must not ride a `public` (cacheable-shell) response.
+  // The shell injects the NON-session §16.3 dims but assignment_bucket is null even
+  // on the ab_hash path; the P11 beacon recomputes the bucket from its OWN ko_sid +
+  // the injected funnel_ab_test_id/revision. FAILS pre-fix (the shell emitted the
+  // server-computed per-session bucket) — the /lg/config primary cache is unchanged.
+  it("m1: the public shell injects the NON-session dims with assignment_bucket:null; /lg/config still carries the §16.3 constants", async () => {
+    const { sdb, env } = newHarness();
+    const seed = await seedRunning2VariantTest(env, sdb, { quoteName: "m1 Quote", slug: "m1" });
+    const sid = "m1-session-x";
+    const served = expectedVariantFor(seed, sid);
+    const servedArm = seed.arms.find((a) => a.public_id === served)!;
+    // the bucket the P11 client RECOMPUTES from its own ko_sid + the injected test
+    // id/revision — a valid 0..9999 value the shell deliberately does NOT emit.
+    const recomputable = expectedBucketFor(seed, sid);
+    expect(recomputable).toBeGreaterThanOrEqual(0);
+    expect(recomputable).toBeLessThan(10000);
+
+    const html = await (await get(env, "/lg/m1", { Cookie: `ko_sid=${sid}` })).text();
+    expect(shellVariantId(html)).toBe(served);
+    const assign = parseInjectedAssignment(html);
+    expect(assign, "assignment injected").not.toBeNull();
+    // RED LINE (m1): assignment_bucket is null on the public shell, even on ab_hash.
+    expect(assign!["assignment_bucket"], "per-session bucket must NOT ride the public shell").toBeNull();
+    // the NON-session dims ARE present (P11 needs them to recompute the bucket).
+    expect(assign!["funnel_ab_test_id"]).toBe(seed.testId);
+    expect(assign!["funnel_ab_test_revision"]).toBe(seed.revision);
+    expect(assign!["variant_label"]).toBe(servedArm.variant_label);
+    expect(assign!["assignment_reason"]).toBe("ab_hash");
+    expect(assign!["funnel_variant_id"]).toBe(served);
+
+    // the /lg/config primary cache STILL carries the §16.3 constants (variant/test-
+    // scoped, cacheable) and STILL carries no per-session bucket.
+    const config = JSON.parse(await (await get(env, `/lg/config/${served}`)).text()) as Record<string, unknown>;
+    expect(config["funnel_ab_test_id"]).toBe(seed.testId);
+    expect(config["funnel_ab_test_revision"]).toBe(seed.revision);
+    expect(config["variant_label"]).toBe(servedArm.variant_label);
+    expect(config["assignment_reason"]).toBe("ab_hash");
+    expect(Object.prototype.hasOwnProperty.call(config, "assignment_bucket")).toBe(false);
+  });
+});
+
+describeDb("M1 — /lg/config never goes stale across a test start (ab_rev cache axis, §16.2)", () => {
+  it("the control variant's config flips single_control → ab_hash after a start (NOT the stale cached body)", async () => {
+    const { sdb, env } = newHarness();
+    const seeded = await seedActivatedFunnel(env, sdb, { quoteName: "M1 Quote", slug: "m1cfg" });
+
+    // 1) BEFORE any test: config is single_control (revision 0) — and is now CACHED
+    // at the ab_rev=0 key.
+    const before = JSON.parse(await (await get(env, `/lg/config/${seeded.variantId}`)).text()) as {
+      assignment_reason: string;
+      funnel_ab_test_id: string;
+      funnel_ab_test_revision: number;
+    };
+    expect(before.assignment_reason).toBe("single_control");
+    expect(before.funnel_ab_test_id).toBe("");
+    expect(before.funnel_ab_test_revision).toBe(0);
+
+    // 2) create + start a test on THAT funnel. The lone control is at bp 10000 →
+    // Σ==10000 → start succeeds, bumps the test revision, flips it to running. start
+    // does NOT touch the variant's content_version (so ONLY ab_rev distinguishes the
+    // cache identity — the whole point of M1).
+    const create = await admin.request(`${API}/quotes/${seeded.quotePublicId}/experiments`, jsonInit("POST", {}), env);
+    expect(create.status, `create ab: ${await create.clone().text()}`).toBe(201);
+    const ab = (await create.json()) as { public_id: string };
+    const startRes = await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env);
+    expect(startRes.status, `start: ${await startRes.clone().text()}`).toBe(200);
+    const started = (await startRes.json()) as { public_id: string; revision: number; status: string };
+    expect(started.status).toBe("running");
+
+    // 3) fetch the SAME control variant's config again → it now reflects the running
+    // test (ab_hash + the started test id/revision), NOT the stale single_control body.
+    const after = JSON.parse(await (await get(env, `/lg/config/${seeded.variantId}`)).text()) as {
+      assignment_reason: string;
+      funnel_ab_test_id: string;
+      funnel_ab_test_revision: number;
+    };
+    expect(after.assignment_reason, "config must NOT serve the stale single_control body after a start").toBe("ab_hash");
+    expect(after.funnel_ab_test_id).toBe(started.public_id);
+    expect(after.funnel_ab_test_revision).toBe(started.revision);
   });
 });
