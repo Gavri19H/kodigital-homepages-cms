@@ -84,6 +84,17 @@ interface VariantNode {
   auction_entry_position: number | null;
 }
 
+interface AbTestNode {
+  id: number;
+  public_id: string;
+  funnel_id: number;
+  name: string;
+  revision: number;
+  status: string;
+  started_at: number | null;
+  stopped_at: number | null;
+}
+
 interface FunnelNode {
   id: number;
   public_id: string;
@@ -91,6 +102,7 @@ interface FunnelNode {
   funnel_name: string;
   status: string;
   variants: VariantNode[];
+  ab_tests: AbTestNode[];
 }
 
 interface StructureBody {
@@ -603,27 +615,68 @@ function renderRulesPanel(variant: VariantNode): string {
 </div>`;
 }
 
-// A/B panel — variant list + the explicit P8 seam note.
+// A/B panel (§16.2) — per-variant percent allocation (stored as basis points),
+// a live Σ indicator, the test lifecycle (create / start / stop), and an
+// assignment preview. Scoped to the SELECTED variant's funnel (its arms).
 function renderAbPanel(structure: StructureBody, selected: VariantNode): string {
-  const variantItems: string[] = [];
-  for (const f of structure.funnels) {
-    for (const v of f.variants) {
-      const pct = (v.traffic_allocation_bp / 100).toFixed(2);
-      variantItems.push(
-        `<li data-variant="${escapeHtml(v.public_id)}"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""} — funnel ${escapeHtml(v.funnel_id)} — allocation ${pct}% <code class="lg-editor-pubid">${escapeHtml(v.public_id)}</code></li>`,
-      );
-    }
+  const funnel =
+    structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? structure.funnels[0] ?? null;
+  const variants = funnel?.variants ?? [];
+  const tests = funnel?.ab_tests ?? [];
+  const running = tests.find((t) => t.status === "running") ?? null;
+  const activeTest = running ?? tests[0] ?? null; // ab_tests are newest-first
+
+  // Per-variant percent input. UI shows % (bp/100); the client stores bp (%*100).
+  const allocRows = variants
+    .map((v) => {
+      const pct = v.traffic_allocation_bp / 100;
+      return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
+    <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""}</span>
+    <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
+      data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
+      min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
+    <code class="lg-editor-pubid">${escapeHtml(v.public_id)}</code>
+  </div>`;
+    })
+    .join("");
+
+  let lifecycle: string;
+  if (running !== null) {
+    lifecycle = `<span class="lg-ab-status" data-ab-status="running">Running · rev ${running.revision}</span>
+      <button type="button" class="btn btn-outline" data-stop-experiment="${escapeHtml(running.public_id)}">Stop A/B test</button>`;
+  } else if (activeTest !== null) {
+    lifecycle = `<span class="lg-ab-status" data-ab-status="${escapeHtml(activeTest.status)}">${escapeHtml(activeTest.status)} · rev ${activeTest.revision}</span>
+      <button type="button" class="btn btn-secondary" data-start-experiment="${escapeHtml(activeTest.public_id)}">Start A/B test</button>`;
+  } else {
+    lifecycle = `<button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="${escapeHtml(structure.quote.public_id)}">Create A/B test</button>`;
   }
+
+  const preview =
+    activeTest !== null
+      ? `<div class="card lg-ab-preview">
+    <h3>Assignment preview (§16.2)</h3>
+    <p class="form-help">Enter a sample session id to see which variant it deterministically buckets to (the same edge hash the runtime serves).</p>
+    <div class="lg-ab-preview-row">
+      <input type="text" class="form-input" id="lg-ab-preview-session" placeholder="sample ko_sid value" />
+      <button type="button" class="btn btn-outline" data-preview-assignment="${escapeHtml(activeTest.public_id)}">Preview assignment</button>
+    </div>
+    <p class="form-help" id="lg-ab-preview-result" data-ab-preview-result></p>
+  </div>`
+      : "";
+
   return `<div class="lg-qpanel" data-panel="ab">
   <div class="card">
-    <h3>Variants</h3>
-    <ul id="lg-ab-variant-list">${variantItems.join("")}</ul>
+    <h3>Traffic allocation (§16.2)</h3>
+    <p class="form-help">Each variant's share of traffic. Percentages must sum to <strong>100%</strong> (stored as basis points; per-test Σ == 10000) before a test can start.</p>
+    <div id="lg-ab-variant-list" class="lg-alloc-list">${allocRows || `<p class="form-help">No variants.</p>`}</div>
+    <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="${escapeHtml(structure.quote.public_id)}">Create A/B test</button>
+      <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" class="btn btn-outline" data-fork-variant="${escapeHtml(selected.public_id)}">Fork this variant</button>
+      ${lifecycle}
     </div>
-    <p class="lg-ab-note" data-p8-seam>Running traffic allocation, percentage-split assignment, and the distribution test ship in P8 (§16.2). This phase creates the A/B test row and the single control variant only.</p>
   </div>
+  ${preview}
 </div>`;
 }
 
@@ -1027,7 +1080,61 @@ const QUOTE_EDITOR_SCRIPT = `
     });
   }
 
-  // --- A/B lifecycle (P8 seam: create test row + fork only) ------------------
+  // --- A/B (§16.2): allocation Σ, save, lifecycle (create/start/stop), preview -
+  function allocInputs() { return root.querySelectorAll('[data-alloc-input]'); }
+  function recomputeAllocSum() {
+    var inputs = allocInputs();
+    var sumBp = 0;
+    var i;
+    for (i = 0; i < inputs.length; i++) {
+      var pct = parseFloat(inputs[i].value);
+      if (isFinite(pct)) { sumBp += Math.round(pct * 100); }
+    }
+    var sumEl = root.querySelector('[data-alloc-sum]');
+    var noteEl = root.querySelector('[data-alloc-sum-note]');
+    if (sumEl) { sumEl.textContent = (sumBp / 100).toFixed(2) + '%'; }
+    if (noteEl) {
+      noteEl.textContent = sumBp === 10000 ? '(ok — sums to 100%)' : '(must equal 100% to start)';
+    }
+    return sumBp;
+  }
+  var allocList = byId('lg-ab-variant-list');
+  if (allocList) {
+    allocList.addEventListener('input', function (ev) {
+      if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-alloc-input') !== null) { recomputeAllocSum(); }
+    });
+    recomputeAllocSum();
+  }
+
+  var saveAllocBtn = byId('lg-save-allocations');
+  if (saveAllocBtn) {
+    saveAllocBtn.addEventListener('click', function () {
+      var inputs = allocInputs();
+      var puts = [];
+      var i;
+      for (i = 0; i < inputs.length; i++) {
+        var vid = inputs[i].getAttribute('data-variant-id');
+        var pct = parseFloat(inputs[i].value);
+        if (!vid || !isFinite(pct)) { continue; }
+        var bp = Math.round(pct * 100);
+        puts.push(fetch('/api/admin/leadgen/variants/' + encodeURIComponent(vid), {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ traffic_allocation_bp: bp })
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }));
+      }
+      saveAllocBtn.disabled = true;
+      Promise.all(puts).then(function (results) {
+        saveAllocBtn.disabled = false;
+        var k;
+        var failed = null;
+        for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
+        if (failed) { showMsg('lg-quote-error', (failed && failed.fields && failed.fields.traffic_allocation_bp) ? failed.fields.traffic_allocation_bp : 'Allocation save failed'); }
+        else { showMsg('lg-quote-ok', 'Allocations saved.'); recomputeAllocSum(); }
+      });
+    });
+  }
+
   var createExpBtn = byId('lg-create-experiment');
   if (createExpBtn) {
     createExpBtn.addEventListener('click', function () {
@@ -1039,9 +1146,11 @@ const QUOTE_EDITOR_SCRIPT = `
       }).then(function (r) { return r.json(); }).then(function () { window.location.reload(); });
     });
   }
+
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
+
     var forkId = el.getAttribute('data-fork-variant');
     if (forkId) {
       fetch('/api/admin/leadgen/variants/' + encodeURIComponent(forkId) + '/fork', {
@@ -1049,6 +1158,48 @@ const QUOTE_EDITOR_SCRIPT = `
       }).then(function (r) { return r.json(); }).then(function (body) {
         if (body && body.public_id) { window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(body.public_id); }
       });
+      return;
+    }
+
+    var startId = el.getAttribute('data-start-experiment');
+    if (startId) {
+      el.disabled = true;
+      fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(startId) + '/start', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+        el.disabled = false;
+        if (res.ok) { window.location.reload(); }
+        else { showMsg('lg-quote-error', (res.body && res.body.fields && res.body.fields.traffic_allocation_bp) ? res.body.fields.traffic_allocation_bp : ((res.body && res.body.error) ? res.body.error : 'Start failed')); }
+      });
+      return;
+    }
+
+    var stopId = el.getAttribute('data-stop-experiment');
+    if (stopId) {
+      el.disabled = true;
+      fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(stopId) + '/stop', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function () { window.location.reload(); });
+      return;
+    }
+
+    var previewId = el.getAttribute('data-preview-assignment');
+    if (previewId) {
+      var sessEl = byId('lg-ab-preview-session');
+      var resultEl = byId('lg-ab-preview-result');
+      var sid = sessEl && sessEl.value ? sessEl.value : '';
+      if (!sid) { if (resultEl) { resultEl.textContent = 'Enter a sample session id first.'; } return; }
+      fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(previewId) + '/assignment-preview?session_id=' + encodeURIComponent(sid), {
+        credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+        if (!resultEl) { return; }
+        if (res.ok && res.body && res.body.variant) {
+          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ' (' + res.body.variant.funnel_variant_id + '), bucket ' + res.body.assignment_bucket + ' of 10000.';
+        } else {
+          resultEl.textContent = (res.body && res.body.error) ? res.body.error : 'Preview failed.';
+        }
+      });
+      return;
     }
   });
 

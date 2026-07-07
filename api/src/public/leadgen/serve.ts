@@ -26,13 +26,22 @@ import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
 import { escapeHtml } from "../../editor/sanitize";
-import { resolveActivatedFunnel, type ResolvedActivatedFunnel } from "./resolver";
+import {
+  resolveActivatedFunnel,
+  resolveActivatedFunnelByVariant,
+  type ResolvedActivatedFunnel,
+  type FunnelAssignment,
+} from "./resolver";
 import { buildPublicConfig } from "./config-dto";
 import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
-import { toFunnelId, toFunnelVariantId, isFunnelVariantId } from "../../leadgen/funnel";
+import { toFunnelId, toFunnelVariantId } from "../../leadgen/funnel";
 import { resolveBrowserMapsKey } from "../../leadgen/maps";
+// §16.2 sticky assignment reads the SAME ko_sid session cookie the listicle
+// runtime uses (set-if-absent, path=/, Max-Age=1800, SameSite=Lax) — reused
+// verbatim so a funnel assignment is sticky per session and never a new cookie.
+import { readCookie, genSessionId, sessionCookie } from "../listicle/experiment-pick";
 import {
   leadgenShellKey,
   leadgenConfigKey,
@@ -54,6 +63,16 @@ const DEFAULT_TTL_SECONDS = 300;
 // the RESPONSE only — so the Maps browser key is never part of the cached body
 // / ETag material (§30.4). Absent-key funnels get the sentinel stripped.
 const MAPS_KEY_SENTINEL = "<!--LG_MAPS_KEY-->";
+
+// The sentinel the cached shell carries for the §16.3 A/B assignment. The
+// NON-session assignment dims are injected on the RESPONSE only (never baked into
+// the per-variant cached body). The per-SESSION `assignment_bucket` is deliberately
+// NOT emitted on this `public` response (m1): the shell is a public, cacheable
+// artifact and a per-session datum must not ride it. The P11 quote_view beacon
+// recomputes the bucket itself from its own ko_sid + the injected non-session
+// funnel_ab_test_id/revision (§16.2 edge/client parity). Mirrors the Maps-key
+// sentinel discipline exactly.
+const ASSIGN_SENTINEL = "<!--LG_ASSIGN-->";
 
 // /lg/config Cache-Control (contract 03 §4.3 route map): a shared-cache
 // s-maxage=1800 on top of the browser max-age=300 + swr=86400. cache-control.ts
@@ -95,11 +114,15 @@ function leadgenShellEtag(
   siteId: string,
   quoteSlug: string | null,
   funnelId: string,
+  funnelVariantId: string,
   contentVersion: number,
 ): Promise<string> {
+  // Material mirrors leadgenShellKey (now variant-scoped, §16.2/§28) so the ETag
+  // changes iff the key would — two assigned variants get DISTINCT ETags and a
+  // conditional GET never 304s one variant's shell against another's.
   return computeEtag({
     site_id: siteId,
-    path: `/lg/${quoteSlug ?? ""}:${funnelId}`,
+    path: `/lg/${quoteSlug ?? ""}:${funnelId}:${funnelVariantId}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
@@ -110,94 +133,26 @@ function leadgenConfigEtag(
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  abRev: number,
 ): Promise<string> {
-  // Material = site + funnel + variant + content_version, matching
+  // Material = site + funnel + variant + content_version + ab_rev, matching
   // leadgenConfigKey so the ETag changes iff the cache key would. site_id is a
   // first-class component (the config bakes in the site-specific ga4 id), so two
-  // tenant sites serving the SAME funnel/variant get DISTINCT ETags.
+  // tenant sites serving the SAME funnel/variant get DISTINCT ETags. ab_rev (the
+  // running-test revision, 0 when none) is folded into the path so a test
+  // start/stop/re-bump changes the ETag — a conditional GET never 304s a stale
+  // single_control body against a now-running (ab_hash) config, and vice versa.
   return computeEtag({
     site_id: siteId,
-    path: `/lg/config/${funnelId}/${funnelVariantId}`,
+    path: `/lg/config/${funnelId}/${funnelVariantId}/${abRev}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
 }
 
-// ---------------------------------------------------------------------------
 // §17.2 reverse resolution for /lg/config + /lg/attempt (variant-id → activation)
-// ---------------------------------------------------------------------------
-
-interface VariantLookupRow {
-  id: number;
-  public_id: string;
-  funnel_id: number;
-  status: string;
-}
-interface FunnelLookupRow {
-  id: number;
-  quote_id: number;
-  status: string;
-}
-
-// Resolve the activated funnel bundle for a `funnel_variant_id` on THIS site —
-// or null (the caller 404s). The anti-leak (§30.4) contract: NEVER return a
-// config/attempt for a variant that is not the actively-served control variant
-// of an ENABLED activation on this host. Chain:
-//   variant(active) → funnel(active) → enabled leadgen_site_quotes(site,quote)
-//   → resolveActivatedFunnel(site, that slug) → and the resolved control
-//   variant MUST equal the requested one.
-// Every hop is a fast 404 for a foreign / disabled / non-active / non-control
-// variant; the Stage-A resolveActivatedFunnel remains the authority for the
-// served bundle. All queries are .bind()-parameterized (fixed table names).
-export async function resolveActivatedFunnelByVariant(
-  env: Env,
-  siteId: string,
-  variantPublicId: string,
-): Promise<ResolvedActivatedFunnel | null> {
-  // Shape guard: a param that is not a well-formed lgn_ id can never be a real
-  // variant — refuse before touching the DB (no cross-tenant existence oracle).
-  if (!isFunnelVariantId(variantPublicId)) return null;
-
-  const db = env.DB;
-
-  const variant = await db
-    .prepare(
-      "SELECT id, public_id, funnel_id, status FROM leadgen_funnel_variants WHERE public_id = ? AND status = 'active' LIMIT 1",
-    )
-    .bind(variantPublicId)
-    .first<VariantLookupRow>();
-  if (variant === null) return null;
-
-  const funnel = await db
-    .prepare(
-      "SELECT id, quote_id, status FROM leadgen_funnels WHERE id = ? AND status = 'active' LIMIT 1",
-    )
-    .bind(variant.funnel_id)
-    .first<FunnelLookupRow>();
-  if (funnel === null) return null;
-
-  // UNIQUE(site_id, quote_id) → at most one activation per quote per site; the
-  // enabled filter makes a disabled activation a clean 404.
-  const siteQuote = await db
-    .prepare(
-      "SELECT slug FROM leadgen_site_quotes WHERE site_id = ? AND quote_id = ? AND enabled = 1 LIMIT 1",
-    )
-    .bind(siteId, funnel.quote_id)
-    .first<{ slug: string | null }>();
-  if (siteQuote === null) return null;
-
-  const resolved = await resolveActivatedFunnel(env, {
-    site_id: siteId,
-    quote_slug: siteQuote.slug,
-  });
-  if (resolved === null) return null;
-
-  // The requested variant MUST be the served (control) variant of this
-  // activation — never a draft / non-control variant under the same funnel.
-  if (resolved.variant.public_id !== variantPublicId) return null;
-
-  return resolved;
-}
+// now lives in resolver.ts (resolveActivatedFunnelByVariant, imported above) so
+// all §17.2 SQL + the P8 servability/anti-leak rules stay in one module.
 
 // ---------------------------------------------------------------------------
 // Maps-key presence + per-request injection (§30.2 / §30.4)
@@ -259,6 +214,35 @@ function injectMapsKey(pristine: string, resolved: ResolvedActivatedFunnel, env:
   return pristine.replace(MAPS_KEY_SENTINEL, () => script);
 }
 
+// Splice the NON-session §16.3 assignment dims onto the RESPONSE body only
+// (per-request). window.__LG_ASSIGNMENT__ = { funnel_ab_test_id,
+// funnel_ab_test_revision, variant_label, traffic_allocation_bp,
+// funnel_variant_id, assignment_bucket: null, assignment_reason } — the P11
+// quote_view beacon reads this. All emitted fields are TEST/VARIANT-scoped (not
+// per-session); `assignment_bucket` is deliberately null even on the ab_hash path
+// (m1): a per-session datum must not ride a `public` cacheable-shell response, so
+// the client recomputes the §16.2 bucket from its own ko_sid + funnel_ab_test_id +
+// funnel_ab_test_revision (edge/client parity). This matches the cached /lg/config
+// DTO, which already omits the per-session bucket. `<` is neutralized so an
+// authored variant_label can never forge </script> / markup.
+function injectAssignment(
+  html: string,
+  assignment: FunnelAssignment,
+  funnelVariantId: string,
+): string {
+  const json = JSON.stringify({
+    funnel_ab_test_id: assignment.funnel_ab_test_id,
+    funnel_ab_test_revision: assignment.funnel_ab_test_revision,
+    variant_label: assignment.variant_label,
+    traffic_allocation_bp: assignment.traffic_allocation_bp,
+    funnel_variant_id: funnelVariantId,
+    assignment_bucket: null,
+    assignment_reason: assignment.assignment_reason,
+  }).replace(/</g, "\\u003c");
+  const script = `<script>window.__LG_ASSIGNMENT__=${json};</script>`;
+  return html.replace(ASSIGN_SENTINEL, () => script);
+}
+
 // ---------------------------------------------------------------------------
 // Shell render (pristine, cacheable — visitor-invariant, no secrets)
 // ---------------------------------------------------------------------------
@@ -316,6 +300,9 @@ function renderFunnelShell(resolved: ResolvedActivatedFunnel, design: FunnelDesi
     "<noscript>This funnel requires JavaScript to load.</noscript>" +
     "</main>" +
     "</div>" +
+    // Per-request §16.3 assignment dims are spliced here (injectAssignment) BEFORE
+    // the bootstrap so window.__LG_ASSIGNMENT__ is set when lg:bootstrap fires.
+    ASSIGN_SENTINEL +
     `<script>${LEADGEN_BOOTSTRAP_JS}</script>` +
     "</body></html>"
   );
@@ -331,9 +318,20 @@ export async function serveFunnelShell(
   quoteSlug: string | null,
 ): Promise<Response> {
   const siteContext = c.get("siteContext");
+
+  // §16.2 sticky assignment: read the ko_sid session cookie (generate + set it
+  // when absent, same semantics as the listicle runtime) and thread it into the
+  // resolver, which runs the deterministic edge hash BEFORE the cache key is
+  // built — so a running test decides WHICH variant's cached shell to serve.
+  const cookieHeader = c.req.header("Cookie") ?? null;
+  let sid = readCookie(cookieHeader, "ko_sid");
+  const sidWasAbsent = sid === "";
+  if (sidWasAbsent) sid = genSessionId();
+
   const resolved = await resolveActivatedFunnel(c.env, {
     site_id: siteContext.siteId,
     quote_slug: quoteSlug,
+    session_id: sid,
   });
   // Disabled / missing activation → 404 (the reserved /lg head never falls
   // through to publicRouter's /:slug catch-all — §17.2 / §4.3).
@@ -341,15 +339,26 @@ export async function serveFunnelShell(
 
   const design = getFunnelDesign(resolved.variant.funnel_design_id);
   const funnelId = resolved.funnel.public_id;
+  const variantId = resolved.variant.public_id; // the ASSIGNED variant (§16.2)
   const contentVersion = resolved.variant.content_version;
   const slug = resolved.site_quote.slug;
 
-  const key = leadgenShellKey(siteContext.siteId, slug, funnelId, contentVersion);
-  const etag = await leadgenShellEtag(siteContext.siteId, slug, funnelId, contentVersion);
+  // §28 cache correctness: key by the ASSIGNED variant (never the control
+  // unconditionally) so a running 2-variant test serves two DISTINCT cached
+  // shells — one per assigned variant.
+  const key = leadgenShellKey(siteContext.siteId, slug, funnelId, variantId, contentVersion);
+  const etag = await leadgenShellEtag(siteContext.siteId, slug, funnelId, variantId, contentVersion);
+
+  // A freshly-minted ko_sid rides the RESPONSE (never the cached body) so the
+  // assignment is sticky across this session's requests (§16.2).
+  const withSession = (headers: Headers): Headers => {
+    if (sidWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sid));
+    return headers;
+  };
 
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {
-    return new Response(null, { status: 304, headers: publicHtmlCacheHeaders({ etag }) });
+    return new Response(null, { status: 304, headers: withSession(publicHtmlCacheHeaders({ etag })) });
   }
 
   let pristine: string;
@@ -359,13 +368,17 @@ export async function serveFunnelShell(
   } else {
     pristine = renderFunnelShell(resolved, design);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
-    // Write-through stores the PRISTINE shell (visitor-invariant, no Maps key).
+    // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
+    // no per-session assignment dims — only the sentinels).
     await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag });
   }
 
-  // Per-request Maps key injection on the RESPONSE stream only (never cached).
-  const body = injectMapsKey(pristine, resolved, c.env);
-  return new Response(body, { status: 200, headers: publicHtmlCacheHeaders({ etag }) });
+  // Per-request injections on the RESPONSE stream only (never cached): the Maps
+  // key, then the NON-session §16.3 assignment dims (the per-session bucket is
+  // deliberately null on this public shell — the client recomputes it, m1).
+  let body = injectMapsKey(pristine, resolved, c.env);
+  body = injectAssignment(body, resolved.assignment, toFunnelVariantId(resolved.variant.public_id));
+  return new Response(body, { status: 200, headers: withSession(publicHtmlCacheHeaders({ etag })) });
 }
 
 // GET /lg/config/:funnel_variant_id — the cacheable public client config
@@ -381,12 +394,18 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   const funnelId = resolved.funnel.public_id;
   const funnelVariantId = resolved.variant.public_id;
   const contentVersion = resolved.variant.content_version;
+  // §16.2 ab_rev axis: the running test's revision (0 on the single_control path).
+  // The resolver already detected the running test and surfaced its revision on the
+  // assignment dims, so keying by it guarantees the cache identity changes exactly
+  // when the baked §16.3 dims do — a start/stop/re-bump mints a fresh key/ETag and
+  // never serves the stale pre-transition config body.
+  const abRev = resolved.assignment.funnel_ab_test_revision;
 
   // site_id + funnel_variant_id are part of the key + ETag material so one
   // funnel activated on two tenant sites can never share a cached config entry
   // (each site bakes in its OWN ga4_measurement_id from settings_overrides_json).
-  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion);
-  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion);
+  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev);
+  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion, abRev);
 
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {

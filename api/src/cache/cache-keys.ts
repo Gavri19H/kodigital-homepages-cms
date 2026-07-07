@@ -177,39 +177,58 @@ export const LEADGEN_TEMPLATE_VERSION = 1 as const;
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
 
-// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{content_version}:{template_version}
-// (§28). site_id first so per-site list+invalidate stays cheap
-// (env.CACHE.list({ prefix: "lg-shell:{siteId}:" })), versions as suffix so a
-// content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The
-// single enabled root activation (NULL slug — at most one per site, §17.1) uses
-// the EMPTY slug segment; a named activation uses its slug.
+// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{template_version}
+// (§28). The §16.2 A/B assignment is a cheap deterministic edge hash that picks
+// WHICH variant to serve, and "the shell is cached per variant" (§28) — so
+// funnel_variant_id is IN the key. A running 2-variant test then serves two
+// DISTINCT cached shells (one per assigned variant); WITHOUT the variant segment
+// two variants sharing a content_version (every variant defaults to 1) collide on
+// one entry and serve the wrong variant's shell body (data-funnel-variant-id +
+// per-variant design CSS). site_id first so per-site list+invalidate stays cheap
+// (env.CACHE.list({ prefix: "lg-shell:{siteId}:" })); versions as suffix so a
+// content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The single
+// enabled root activation (NULL slug — at most one per site, §17.1) uses the
+// EMPTY slug segment; a named activation uses its slug.
 export function leadgenShellKey(
   siteId: string,
   quoteSlug: string | null,
   funnelId: string,
+  funnelVariantId: string,
   contentVersion: number,
 ): string {
   const slugSeg = quoteSlug ?? "";
-  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
+  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${funnelVariantId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
 }
 
-// lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}. The
-// public client config bakes in the SITE-SPECIFIC ga4_measurement_id (resolved
+// lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}.
+// The public client config bakes in the SITE-SPECIFIC ga4_measurement_id (resolved
 // from the activation's settings_overrides_json) and is VARIANT-scoped, so the
 // key MUST carry both site_id and funnel_variant_id. A funnel-only key would
 // let one funnel activated on two tenant sites share a single entry (whichever
 // site warms it first poisons the other → cross-tenant GA4 bleed + §29
 // mis-attribution), and would collide across the per-variant configs P8 serves
-// while their ETags already differ per variant. site_id is first so per-site
-// list+invalidate stays cheap (env.CACHE.list({ prefix: "lg-config:{siteId}:" })),
-// then funnel_id + funnel_variant_id, then content_version as the suffix so a
-// bump orphans old entries. The /lg/config ETag hashes the SAME material
-// (site + funnel + variant + content_version) so key and ETag always agree.
+// while their ETags already differ per variant.
+//
+// `ab_rev` is the §16.2 running-test axis = the funnel's RUNNING A/B test revision
+// when a test is running, else 0. The DTO (config-dto.ts) bakes the §16.3 dims
+// (funnel_ab_test_id / funnel_ab_test_revision / assignment_reason / variant_label
+// / traffic_allocation_bp) INTO the cached body, but start/stop only flip the test
+// status + bump the test revision — they do NOT touch the variant's content_version.
+// Without ab_rev in the key, a start (single_control→ab_hash) or stop (ab_hash→
+// single_control) would serve the STALE pre-transition body until the TTL (wrong
+// §16.3 dims + broken §16.2 edge/client parity). Folding ab_rev in makes start
+// (0→N) / stop / re-bump mint a FRESH key → no stale serve, self-correcting with no
+// invalidation cron. site_id is first so per-site list+invalidate stays cheap
+// (env.CACHE.list({ prefix: "lg-config:{siteId}:" })), then funnel_id +
+// funnel_variant_id, then content_version + ab_rev as suffixes so a bump orphans
+// old entries. The /lg/config ETag hashes the SAME material (site + funnel +
+// variant + content_version + ab_rev) so key and ETag always agree.
 export function leadgenConfigKey(
   siteId: string,
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  abRev: number,
 ): string {
-  return `${NS_LG_CONFIG}:${requireSiteId(siteId)}:${funnelId}:${funnelVariantId}:${contentVersion}`;
+  return `${NS_LG_CONFIG}:${requireSiteId(siteId)}:${funnelId}:${funnelVariantId}:${contentVersion}:${abRev}`;
 }

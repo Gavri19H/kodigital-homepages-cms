@@ -182,7 +182,7 @@ describeDb("Quotes /new create form", () => {
 
 // Build a quote whose control variant has 2 ordered sections + 1 rule, so the
 // editor renders the section list, the auction-entry marker, and a rule row.
-async function editorHtmlWithContent(): Promise<{ html: string; env: Env; variantId: string }> {
+async function editorHtmlWithContent(): Promise<{ html: string; env: Env; variantId: string; quotePublicId: string }> {
   const { sdb, env } = newHarness();
   const q = await createQuote(env, { quote_name: "<b>Quote</b>" });
   const variantId = q.funnels[0]!.variants[0]!.public_id;
@@ -191,7 +191,7 @@ async function editorHtmlWithContent(): Promise<{ html: string; env: Env; varian
   const put = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: s1.id }, { section_id: s2.id }], rules: [{ rule_type: "eligibility" }] }), env);
   expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
   const html = await getHtml(env, `/admin/leadgen/quotes/${q.public_id}/edit`);
-  return { html, env, variantId };
+  return { html, env, variantId, quotePublicId: q.public_id };
 }
 
 describeDb("Quotes editor — the five sub-tabs (03 §9.4 / 06 §15–§17)", () => {
@@ -244,12 +244,37 @@ describeDb("Quotes editor — the five sub-tabs (03 §9.4 / 06 §15–§17)", ()
     expect(html).toContain("data-rule-allowlisted");
   });
 
-  it("A/B panel carries the explicit P8 allocation-seam note + variant list", async () => {
+  it("A/B panel renders the §16.2 allocation UI (percent inputs + Σ indicator + save) — no P8 placeholder", async () => {
     const { html } = await editorHtmlWithContent();
-    expect(html).toContain("data-p8-seam");
-    expect(html).toMatch(/ship[s]? in P8/i);
+    // per-variant percent input (rendered class, panel-only) + the live Σ row.
+    expect(html).toContain("lg-alloc-input");
+    expect(html).toContain("lg-alloc-summary");
+    expect(html).toContain("data-alloc-sum");
     expect(html).toContain('id="lg-ab-variant-list"');
-    expect(html).toContain("data-fork-variant");
+    expect(html).toContain('id="lg-save-allocations"');
+    expect(html).toContain('data-fork-variant="');
+    // the P8 "ships in P8" seam placeholder is GONE.
+    expect(html).not.toContain("data-p8-seam");
+    expect(html).not.toMatch(/ship[s]? in P8/i);
+  });
+
+  it("A/B panel: create-experiment when none exists; start + assignment preview once a test exists", async () => {
+    const noTest = await editorHtmlWithContent();
+    // no test yet → Create A/B test, and NO assignment-preview / start controls
+    // rendered (the ="…" attribute form is panel-only; the client JS references
+    // the bare attribute name, so we match the rendered attribute specifically).
+    expect(noTest.html).toContain('id="lg-create-experiment"');
+    expect(noTest.html).not.toContain('data-preview-assignment="');
+    expect(noTest.html).not.toContain('data-start-experiment="');
+
+    // create an A/B test → the panel now offers Start + the assignment preview.
+    const create = await admin.request(`${API}/quotes/${noTest.quotePublicId}/experiments`, jsonInit("POST", {}), noTest.env);
+    expect(create.status, `create ab: ${await create.clone().text()}`).toBe(201);
+    const html2 = await getHtml(noTest.env, `/admin/leadgen/quotes/${noTest.quotePublicId}/edit`);
+    expect(html2).toContain('data-start-experiment="');
+    expect(html2).toContain('data-preview-assignment="');
+    expect(html2).toContain('id="lg-ab-preview-session"');
+    expect(html2).toContain('id="lg-ab-preview-result"');
   });
 
   it("Activation panel lists sites with enable + slug + preview URL (§17)", async () => {

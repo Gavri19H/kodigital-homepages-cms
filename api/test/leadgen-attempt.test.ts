@@ -106,7 +106,24 @@ function buildResolved(): ResolvedActivatedFunnel {
     created_at: 0,
     updated_at: 0,
   };
-  return { site_quote, quote, funnel, variant, sections: [section(0), section(1)], ga4_measurement_id: null };
+  return {
+    site_quote,
+    quote,
+    funnel,
+    variant,
+    sections: [section(0), section(1)],
+    ga4_measurement_id: null,
+    // attempt.ts binds the variant/hash/content_version regardless of A/B; the
+    // single_control dims satisfy the resolved-bundle type.
+    assignment: {
+      funnel_ab_test_id: "",
+      funnel_ab_test_revision: 0,
+      variant_label: variant.variant_label,
+      traffic_allocation_bp: variant.traffic_allocation_bp,
+      assignment_bucket: null,
+      assignment_reason: "single_control",
+    },
+  };
 }
 
 function expectedTupleFor(resolved: ResolvedActivatedFunnel, funnelAttemptId: string): ConfigTokenTuple {

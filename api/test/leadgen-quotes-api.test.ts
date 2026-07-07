@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { isPublicId, mintPublicId } from "../src/leadgen/ids";
+import { assignVariant } from "../src/public/leadgen/ab-hash";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -656,8 +657,8 @@ describeDb("§15.6 analytics — per-funnel NULLIF ratios at read", () => {
   });
 });
 
-describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only)", () => {
-  it("creates an ab_test (draft) with a P8 allocation note; start → running, stop → stopped", async () => {
+describeDb("A/B — §16.2 allocation + lifecycle (P8)", () => {
+  it("creates an ab_test (draft) with a §16.2 allocation note; a single-variant (Σ=10000) start → running, stop → stopped", async () => {
     const { env } = newHarness();
     const q = await createQuote(env);
     const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", { name: "Test 1" }), env);
@@ -665,8 +666,11 @@ describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only
     const cj = (await create.json()) as { public_id: string; status: string; allocation_note: string };
     expect(isPublicId("funnel_ab_test", cj.public_id)).toBe(true);
     expect(cj.status).toBe("draft");
-    expect(cj.allocation_note).toMatch(/P8/);
+    // the note now describes the LIVE Σ==10000 rule (no longer "ships in P8").
+    expect(cj.allocation_note).toMatch(/10000/);
+    expect(cj.allocation_note).not.toMatch(/ships in P8/i);
 
+    // single control variant defaults to bp 10000 → Σ==10000 → start succeeds.
     const start = await admin.request(`${API}/experiments/${cj.public_id}/start`, { method: "POST" }, env);
     expect(((await start.json()) as { status: string }).status).toBe("running");
 
@@ -678,6 +682,119 @@ describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only
 
     const stop = await admin.request(`${API}/experiments/${cj.public_id}/stop`, { method: "POST" }, env);
     expect(((await stop.json()) as { status: string }).status).toBe("stopped");
+  });
+
+  it("start REJECTS a test whose active variants' bp do NOT sum to 10000 (§16.2 Σ gate)", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    // fork the control → a 2nd active variant that COPIES bp 10000 → Σ = 20000.
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    expect(fork.status).toBe(201);
+    const forked = (await fork.json()) as { public_id: string };
+
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+
+    // Σ = 20000 ≠ 10000 → start 400 with a traffic_allocation_bp field error.
+    const bad = await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env);
+    expect(bad.status, `start should reject Σ≠10000`).toBe(400);
+    const badBody = (await bad.json()) as { error: string; fields: Record<string, string> };
+    expect(badBody.fields.traffic_allocation_bp).toMatch(/10000/);
+    // it did NOT start — the structure (which now surfaces ab_tests) shows draft.
+    const struct1 = (await (await admin.request(`${API}/quotes/${q.public_id}/structure`, {}, env)).json()) as {
+      funnels: Array<{ ab_tests: Array<{ public_id: string; status: string }> }>;
+    };
+    const abRow1 = struct1.funnels[0]!.ab_tests.find((t) => t.public_id === ab.public_id);
+    expect(abRow1?.status).toBe("draft");
+
+    // split 50/50 (bp 5000 each) → Σ = 10000 → start succeeds AND bumps revision.
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+    expect((await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+    const ok = await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env);
+    expect(ok.status, `start should accept Σ==10000: ${await ok.clone().text()}`).toBe(200);
+    const okBody = (await ok.json()) as { status: string; revision: number };
+    expect(okBody.status).toBe("running");
+    // create seeds revision=1; start bumps to 2 (§16.2 re-bucket).
+    expect(okBody.revision).toBe(2);
+  });
+
+  it("§16.2/§29: ANY allocation change on a RUNNING test's active arm is refused 409 (no silent in-place re-split); the freeze lifts after stop", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    const forked = (await fork.json()) as { public_id: string };
+    // draft editing is free (no running test) → split 50/50, then start.
+    await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+    expect((await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env)).status).toBe(200);
+
+    // While RUNNING: bumping one arm to 6000 (→ would-be Σ 11000, breaks the
+    // invariant) → 409 refuse (arm-lock), NOT a Σ-validation 400. The revision
+    // would otherwise NOT bump → sessions would not re-bucket (§16.2). Refuse.
+    const bad = await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 6000 }), env);
+    expect(bad.status).toBe(409);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/stop the running A\/B test/);
+    // And even a would-be-Σ-preserving edit is refused (any change re-splits without a revision bump).
+    const bad2 = await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 4000 }), env);
+    expect(bad2.status).toBe(409);
+    // the stored allocations are UNCHANGED after the refused calls (still 5000/5000).
+    const struct = (await (await admin.request(`${API}/quotes/${q.public_id}/structure`, {}, env)).json()) as {
+      funnels: Array<{ variants: Array<{ public_id: string; traffic_allocation_bp: number }> }>;
+    };
+    for (const v of struct.funnels[0]!.variants) expect(v.traffic_allocation_bp).toBe(5000);
+
+    // a NON-allocation save (lander only) is unaffected by the guard while running.
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { lander_headline: "Hi" }), env)).status).toBe(200);
+    // a no-op bp save (same value) is not a "change" → not refused.
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+
+    // stop the test → per-variant allocation edits are free again (draft-style; start re-buckets).
+    await admin.request(`${API}/experiments/${ab.public_id}/stop`, { method: "POST" }, env);
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 6000 }), env)).status).toBe(200);
+  });
+
+  it("assignment-preview returns the SAME variant + bucket assignVariant computes (zero drift)", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    const forked = (await fork.json()) as { public_id: string };
+    await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+    const started = (await (await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env)).json()) as {
+      public_id: string;
+      revision: number;
+    };
+
+    // arms exactly as the runtime resolver sees them (funnel-scoped, from structure).
+    const struct = (await (await admin.request(`${API}/quotes/${q.public_id}/structure`, {}, env)).json()) as {
+      funnels: Array<{ variants: Array<{ public_id: string; variant_label: string; traffic_allocation_bp: number; status: string }> }>;
+    };
+    const arms = struct.funnels[0]!.variants
+      .filter((v) => v.status === "active")
+      .map((v) => ({ variant_label: v.variant_label, traffic_allocation_bp: v.traffic_allocation_bp, public_id: v.public_id }));
+
+    for (const sid of ["preview-a", "preview-b", "preview-c"]) {
+      const expected = assignVariant(started.public_id, started.revision, sid, arms);
+      const res = await admin.request(
+        `${API}/experiments/${ab.public_id}/assignment-preview?session_id=${encodeURIComponent(sid)}`,
+        {},
+        env,
+      );
+      expect(res.status, `preview ${sid}`).toBe(200);
+      const body = (await res.json()) as { assignment_bucket: number; variant: { funnel_variant_id: string } };
+      expect(body.variant.funnel_variant_id).toBe(expected.variant.public_id);
+      expect(body.assignment_bucket).toBe(expected.assignment_bucket);
+    }
+
+    // a missing session_id is a clean 400.
+    expect((await admin.request(`${API}/experiments/${ab.public_id}/assignment-preview`, {}, env)).status).toBe(400);
   });
 
   it("POST /variants/:id/fork clones sections+rules into a NEW lgn_ variant", async () => {
@@ -695,6 +812,107 @@ describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only
     expect(fj.is_control).toBe(false);
     expect(fj.sections).toHaveLength(1);
     expect(fj.rules).toHaveLength(1);
+  });
+});
+
+// B1 — while a funnel has a RUNNING test, its ACTIVE-variant SET + the variant
+// sort keys (variant_label — the §16.2 ab-hash arm order) are FROZEN. The runtime
+// arms are the funnel's active variants, and the §16.2 Σ==10000 gate + revision
+// bump run ONLY at start; mutating the set/labels live silently corrupts the
+// running comparison (06 §16.2 line 35 / 09 §29). Every mutation is refused with a
+// typed 409 until the test stops (operator path: stop → edit → start). These
+// regressions FAIL pre-fix (the endpoints were unguarded for the arm set/labels).
+describeDb("B1 — a running test's arm set + labels are frozen (§16.2/§29)", () => {
+  // A funnel with TWO active arms (control "A" + a fork) split 50/50 and a RUNNING
+  // A/B test over them — the fork + allocation edits all happen BEFORE start (when
+  // editing is free), so the running-test freeze is the ONLY thing under test.
+  async function seedRunning2VariantTest(env: Env): Promise<{
+    quotePublicId: string;
+    funnelId: string;
+    control: string;
+    forked: string;
+    testId: string;
+  }> {
+    const q = await createQuote(env);
+    const funnelId = q.funnels[0]!.public_id;
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    expect(fork.status, `fork (pre-start): ${await fork.clone().text()}`).toBe(201);
+    const forked = ((await fork.json()) as { public_id: string }).public_id;
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+    expect((await admin.request(`${API}/variants/${forked}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+    const started = (await (await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env)).json()) as {
+      public_id: string;
+      status: string;
+    };
+    expect(started.status).toBe("running");
+    return { quotePublicId: q.public_id, funnelId, control, forked, testId: started.public_id };
+  }
+
+  // The funnel's active arm set as {id,label} pairs (public_id-sorted) — the exact
+  // set the runtime resolver buckets over. Used to prove a rejected call is inert.
+  async function armSet(env: Env, quotePublicId: string): Promise<Array<{ public_id: string; variant_label: string }>> {
+    const struct = (await (await admin.request(`${API}/quotes/${quotePublicId}/structure`, {}, env)).json()) as {
+      funnels: Array<{ variants: Array<{ public_id: string; variant_label: string; status: string }> }>;
+    };
+    return struct.funnels[0]!.variants
+      .filter((v) => v.status === "active")
+      .map((v) => ({ public_id: v.public_id, variant_label: v.variant_label }))
+      .sort((a, b) => (a.public_id < b.public_id ? -1 : a.public_id > b.public_id ? 1 : 0));
+  }
+
+  it("(a) PUT variant_label on an active arm is refused (409); the arm set + labels are unchanged", async () => {
+    const { env } = newHarness();
+    const seed = await seedRunning2VariantTest(env);
+    const before = await armSet(env, seed.quotePublicId);
+    const res = await admin.request(`${API}/variants/${seed.control}`, jsonInit("PUT", { variant_label: "ZZZ" }), env);
+    expect(res.status, `relabel while running: ${await res.clone().text()}`).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/stop the running A\/B test/i);
+    expect(await armSet(env, seed.quotePublicId)).toEqual(before);
+    // a NO-OP relabel (same label) + an allocation edit are still allowed while running.
+    const controlLabel = before.find((v) => v.public_id === seed.control)!.variant_label;
+    expect((await admin.request(`${API}/variants/${seed.control}`, jsonInit("PUT", { variant_label: controlLabel }), env)).status).toBe(200);
+    expect((await admin.request(`${API}/variants/${seed.control}`, jsonInit("PUT", { lander_headline: "Hi" }), env)).status).toBe(200);
+  });
+
+  it("(b) POST /funnels/:id/variants + POST /quotes/:id/variants adding a 3rd arm are refused (409); the arm set is unchanged", async () => {
+    const { env } = newHarness();
+    const seed = await seedRunning2VariantTest(env);
+    const before = await armSet(env, seed.quotePublicId);
+    const viaFunnel = await admin.request(`${API}/funnels/${seed.funnelId}/variants`, jsonInit("POST", { variant_label: "C" }), env);
+    expect(viaFunnel.status, `add via funnel: ${await viaFunnel.clone().text()}`).toBe(409);
+    const viaQuote = await admin.request(`${API}/quotes/${seed.quotePublicId}/variants`, jsonInit("POST", { variant_label: "C", funnel_id: seed.funnelId }), env);
+    expect(viaQuote.status, `add via quote: ${await viaQuote.clone().text()}`).toBe(409);
+    expect(await armSet(env, seed.quotePublicId)).toEqual(before);
+  });
+
+  it("(c) POST /variants/:id/fork of a running arm is refused (409); the arm set is unchanged", async () => {
+    const { env } = newHarness();
+    const seed = await seedRunning2VariantTest(env);
+    const before = await armSet(env, seed.quotePublicId);
+    const res = await admin.request(`${API}/variants/${seed.control}/fork`, { method: "POST" }, env);
+    expect(res.status, `fork while running: ${await res.clone().text()}`).toBe(409);
+    expect(await armSet(env, seed.quotePublicId)).toEqual(before);
+  });
+
+  it("(d) after stop, relabel + add-variant + fork all succeed again (stop → edit → start)", async () => {
+    const { env } = newHarness();
+    const seed = await seedRunning2VariantTest(env);
+    expect((await admin.request(`${API}/experiments/${seed.testId}/stop`, { method: "POST" }, env)).status).toBe(200);
+    expect(
+      (await admin.request(`${API}/variants/${seed.control}`, jsonInit("PUT", { variant_label: "ZZZ" }), env)).status,
+      "relabel after stop",
+    ).toBe(200);
+    expect(
+      (await admin.request(`${API}/funnels/${seed.funnelId}/variants`, jsonInit("POST", { variant_label: "C" }), env)).status,
+      "add variant after stop",
+    ).toBe(201);
+    expect(
+      (await admin.request(`${API}/variants/${seed.control}/fork`, { method: "POST" }, env)).status,
+      "fork after stop",
+    ).toBe(201);
   });
 });
 
