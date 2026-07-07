@@ -22,6 +22,7 @@ import { Hono } from "hono";
 import type { Env } from "../../env";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
 import { serveFunnelShell, serveLeadgenConfig, serveLeadgenAttempt } from "./serve";
+import { serveLeadgenAuction } from "./serve-auction";
 
 const leadgenPublicRouter = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
 
@@ -30,9 +31,11 @@ leadgenPublicRouter.use("/lg", publicSiteContextMiddleware);
 leadgenPublicRouter.use("/lg/*", publicSiteContextMiddleware);
 
 // Static/two-segment /lg heads BEFORE the single-segment /lg/:quote_slug param
-// route so `attempt` / `config/:id` are never swallowed by the slug catch.
+// route so `attempt` / `config/:id` / `auction` are never swallowed by the slug
+// catch. /lg/auction (P10 §19) is POST + no-store — the funnel-terminal money path.
 leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttempt(c));
 leadgenPublicRouter.get("/lg/config/:funnel_variant_id", (c) => serveLeadgenConfig(c));
+leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuction(c));
 leadgenPublicRouter.get("/lg", (c) => serveFunnelShell(c, null));
 leadgenPublicRouter.get("/lg/:quote_slug", (c) => serveFunnelShell(c, c.req.param("quote_slug")));
 

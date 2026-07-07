@@ -97,7 +97,7 @@ function leadgenConfigCacheHeaders(etag: string): Headers {
 // adminCacheHeaders is private,no-store BUT stamps X-Robots-Tag noindex,nofollow
 // (admin semantics) — wrong for a public runtime endpoint, so a scoped no-store
 // header lives here (GAP reported).
-function leadgenNoStoreHeaders(): Headers {
+export function leadgenNoStoreHeaders(): Headers {
   const h = new Headers();
   h.set("Cache-Control", "no-store");
   h.set("Content-Type", "application/json; charset=utf-8");

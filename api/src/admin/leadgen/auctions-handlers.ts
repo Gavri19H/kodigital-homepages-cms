@@ -22,6 +22,8 @@ import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
+import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
+import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   buildPaging,
@@ -46,6 +48,10 @@ import type {
   LeadgenBannerMode,
   LeadgenConditionOp,
   LeadgenFloorType,
+  LeadgenFunnelRow,
+  LeadgenFunnelVariantRow,
+  LeadgenQuoteRow,
+  LeadgenSiteQuoteRow,
   LeadgenMultiOfferMode,
   LeadgenRenderMode,
   LeadgenRemovalScope,
@@ -1506,25 +1512,128 @@ export async function auctionAnalyticsHandler(c: AdminContext): Promise<Response
 }
 
 // ---------------------------------------------------------------------------
-// POST /auctions/:id/simulate — P10 SEAM (§19). The dry-run auction engine +
-// explainability trace ships in Phase 10; this endpoint returns 501 with a
-// documented seam so the editor's Simulator tab has a stable contract to call.
+// POST /auctions/:id/simulate — the §19.2 dry-run explainability trace (P10).
+// Runs the FULL §19 pipeline (runAuction dryRun=true) against admin-supplied
+// sample answers + optional context and returns the trace: offers considered /
+// excluded / requested / responded / carriers shown / carriers filtered /
+// winner / banners / unfilled_reason. WRITES NOTHING — no result log, no
+// provider log, no debug blob, no cap increment, no revenue (OQ-10). Provider
+// requests hit STAGING endpoints (bounded, fail-open) — a bid request books no
+// revenue; a dry-run never mutates state. Admin-gated by the /api/admin/* CF
+// Access wall (03 §8.1). anti-tamper (§19.1) is skipped: a dry-run has no real
+// client binding (the admin is trusted behind CF Access).
 // ---------------------------------------------------------------------------
+
+// Build a minimal ResolvedActivatedFunnel for the dry-run. The bound variant +
+// funnel are loaded when present (so the trace carries their public ids); the
+// site_quote/quote/assignment/ga4 fields are unread by runAuction in dry-run
+// (anti-tamper skipped, sections replaced by the sample answers) and are typed
+// stubs. sections is [] because the sample answers ARE the normalized space.
+async function buildSimulateResolved(
+  db: D1Database,
+  auction: LeadgenAuctionRow,
+): Promise<ResolvedActivatedFunnel> {
+  let variant: LeadgenFunnelVariantRow | null = null;
+  if (auction.funnel_variant_id !== null) {
+    variant = await db
+      .prepare("SELECT * FROM leadgen_funnel_variants WHERE id = ? LIMIT 1")
+      .bind(auction.funnel_variant_id)
+      .first<LeadgenFunnelVariantRow>();
+  }
+  let funnel: LeadgenFunnelRow | null = null;
+  const funnelId = variant?.funnel_id ?? auction.funnel_id;
+  if (funnelId !== null && funnelId !== undefined) {
+    funnel = await db.prepare("SELECT * FROM leadgen_funnels WHERE id = ? LIMIT 1").bind(funnelId).first<LeadgenFunnelRow>();
+  }
+
+  const variantRow: LeadgenFunnelVariantRow = variant ?? {
+    id: 0, public_id: "", funnel_id: funnel?.id ?? 0, ab_test_id: null, variant_label: "A", is_control: 1,
+    traffic_allocation_bp: 10000, funnel_design_id: "default", auction_id: auction.id, lander_enabled: 0,
+    lander_headline: null, lander_subheadline: null, lander_body_json: null, lander_hero_media_id: null,
+    lander_hero_media_url: null, lander_cta_json: null, content_version: 1, status: "active", created_at: 0,
+  };
+  const funnelRow: LeadgenFunnelRow = funnel ?? {
+    id: 0, public_id: "", quote_id: auction.quote_id ?? 0, funnel_name: auction.auction_name,
+    active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0,
+  };
+  const siteQuote: LeadgenSiteQuoteRow = {
+    id: 0, site_id: "", quote_id: funnelRow.quote_id, enabled: 1, slug: null, settings_overrides_json: null,
+    created_at: 0, updated_at: 0,
+  };
+  const quote: LeadgenQuoteRow = {
+    id: funnelRow.quote_id, public_id: "", quote_name: "", activity: "", verticals_json: "[]",
+    status: "active", created_by: null, created_at: 0, updated_at: 0,
+  };
+  const assignment: FunnelAssignment = {
+    funnel_ab_test_id: "", funnel_ab_test_revision: 0, variant_label: variantRow.variant_label,
+    traffic_allocation_bp: variantRow.traffic_allocation_bp, assignment_bucket: null, assignment_reason: "single_control",
+  };
+  return { site_quote: siteQuote, quote, funnel: funnelRow, variant: variantRow, sections: [], ga4_measurement_id: null, assignment };
+}
 
 export async function auctionSimulateHandler(c: AdminContext): Promise<Response> {
   const auction = await resolveAuctionRow(c.env.DB, c.req.param("id") ?? "");
   if (auction === null) return c.json({ error: "Not Found" }, 404);
-  return c.json(
+
+  const body = await readJsonBody(c);
+  const sampleAnswers =
+    body !== null && typeof body["sample_answers"] === "object" && body["sample_answers"] !== null && !Array.isArray(body["sample_answers"])
+      ? (body["sample_answers"] as Record<string, unknown>)
+      : {};
+  const context =
+    body !== null && typeof body["context"] === "object" && body["context"] !== null && !Array.isArray(body["context"])
+      ? (body["context"] as Record<string, unknown>)
+      : {};
+
+  const resolved = await buildSimulateResolved(c.env.DB, auction);
+  const bundle = await loadAuctionBundle(c.env.DB, auction, resolved.variant.id === 0 ? null : resolved.variant.id);
+
+  const result = await runAuction(
+    c.env,
     {
-      error: "Auction simulation ships in Phase 10 (P10)",
-      seam: "P10",
-      auction_id: auction.id,
-      auction_public_id: auction.public_id,
-      // §19: the dry-run runs the full pipeline (offer/carrier rules → floor →
-      // winner logic → surfacing → multi_offer/backfill → banners) against
-      // sample answers and returns the explainability trace, no revenue writes.
-      detail: "The dry-run auction engine + §19 explainability trace are implemented in Phase 10; the auction editor configures it here (Phase 9).",
+      resolved,
+      bundle,
+      environment: "staging",
+      binding: {
+        funnel_variant_id: resolved.variant.public_id,
+        funnel_attempt_id: "",
+        section_order_hash: "",
+        signed_config_token: "",
+        session_id: null,
+      },
+      session_id: null,
+      raw_answers: {},
+      normalizedAnswersOverride: sampleAnswers,
+      request_context: context,
+      clicked: [],
     },
-    501,
+    { dryRun: true },
   );
+
+  // The full §19.2 trace. WRITES NOTHING (dryRun) — persistAuctionResult is
+  // never called. Provider requested/responded + carriers filtered are the
+  // §19.2 join-surfaced extras (not result-log columns).
+  return c.json({
+    dry_run: true,
+    auction_public_id: auction.public_id,
+    status: result.status,
+    winner: result.explain.winner,
+    unfilled_reason: result.explain.unfilled_reason,
+    offers_considered: result.explain.offers_considered,
+    offers_excluded: result.explain.offers_excluded,
+    providers_requested: result.explain.providers_requested,
+    providers_responded: result.explain.providers_responded,
+    carriers_shown: result.explain.carriers_shown,
+    carriers_filtered: result.explain.carriers_filtered,
+    banner_render_ids: result.explain.banner_render_ids,
+    banners: result.banners.map((b) => ({
+      slot: b.slot,
+      carrier_key: b.carrier_key,
+      offer_public_id: b.offer_public_id,
+      source: b.source,
+      bid: b.bid,
+      click_url: b.click_url,
+    })),
+    banners_html: result.banners_html,
+  });
 }
