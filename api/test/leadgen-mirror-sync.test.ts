@@ -430,6 +430,18 @@ describe("rowIsValid (drops rows missing a PK / with an invalid date)", () => {
     expect(rowIsValid(carrier, { auction_public_id: "a", carrier_key: "", date: "2026-07-06" })).toBe(false);
     expect(rowIsValid(carrier, { auction_public_id: "", carrier_key: "c", date: "2026-07-06" })).toBe(false);
   });
+  it("drops an answer_distribution row whose answer_source violates the D1 CHECK enum (0037) — a poison row would roll back the whole atomic batch chunk", () => {
+    const ad = specByD1("leadgen_analytics_answer_distribution");
+    const base = { section_public_id: "lgs_1", question_key: "age", answer_value_normalized: "30", date: "2026-07-06", count: 1, continued_count: 1 };
+    expect(rowIsValid(ad, { ...base, answer_source: "user_selected" })).toBe(true);
+    expect(rowIsValid(ad, { ...base, answer_source: "default_applied" })).toBe(true);
+    expect(rowIsValid(ad, { ...base, answer_source: "user_confirmed_default" })).toBe(true);
+    // Out-of-enum (e.g. "" from a malformed answer_click, or garbage): DROPPED
+    // here, never sent to D1 where the CHECK IN(...) would fail the INSERT and
+    // (db.batch being one transaction) roll back up to 80 good sibling rows.
+    expect(rowIsValid(ad, { ...base, answer_source: "" })).toBe(false);
+    expect(rowIsValid(ad, { ...base, answer_source: "bogus" })).toBe(false);
+  });
 });
 
 // --- batch chunking (recording D1) -------------------------------------------

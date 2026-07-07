@@ -46,6 +46,12 @@ export interface MirrorSpec {
   columns: ColumnMap[]; // bound INSERT columns (synced_at is a literal unixepoch())
   pk: string[];         // D1 PK columns (ON CONFLICT target)
   notNull: string[];    // identity columns that must be non-empty — skip garbage rows
+  // D1 CHECK-constrained columns (migration 0037, e.g. answer_source): a CH row
+  // whose value is outside the allowed set is DROPPED in rowIsValid — otherwise
+  // its D1 INSERT fails the CHECK and, since db.batch() is ONE atomic
+  // transaction, rolls back the whole ≤80-row chunk (a poison row would block
+  // every good sibling row in that batch).
+  enumGuards?: Record<string, readonly string[]>;
 }
 
 // The nine mirrors. The `*_id` → `*_public_id` rename (§24) applies wherever the
@@ -100,6 +106,9 @@ export const MIRRORS: MirrorSpec[] = [
     d1Table: "leadgen_analytics_answer_distribution",
     pk: ["section_public_id", "question_key", "answer_value_normalized", "answer_source", "date"],
     notNull: ["section_public_id", "question_key"],
+    // 0037 CHECK: answer_source IN (…). Drop any out-of-enum CH value so it
+    // can't fail the D1 INSERT and roll back the atomic batch chunk.
+    enumGuards: { answer_source: ["default_applied", "user_selected", "user_confirmed_default"] },
     columns: [
       { d1: "section_public_id", ch: "section_id", kind: "text" }, // §24 rename
       { d1: "question_key", ch: "question_key", kind: "text" },
@@ -334,6 +343,14 @@ export function rowIsValid(spec: MirrorSpec, mapped: Record<string, string | num
   }
   const d = mapped["date"];
   if (typeof d !== "string" || !DATE_RE.test(d)) return false;
+  // Drop rows that violate a D1 CHECK enum (else the failing INSERT rolls back
+  // the whole atomic batch chunk — a poison row would block its good siblings).
+  if (spec.enumGuards !== undefined) {
+    for (const [col, allowed] of Object.entries(spec.enumGuards)) {
+      const v = mapped[col];
+      if (typeof v !== "string" || !allowed.includes(v)) return false;
+    }
+  }
   return true;
 }
 
