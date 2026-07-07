@@ -28,6 +28,11 @@ EVENTS_FIREHOSE_STREAM = "homepage-events"
 # Listicles tracking stream (§16). Same AWS creds/secrets as the homepage
 # stream; the worker no-ops until the stream exists in AWS.
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
+# LeadGen tracking stream (contract 08 §22.1: POST /lg/track → Firehose
+# `leadgen-events`). NON-secret stream NAME — belongs in [vars] (the AWS creds
+# are wrangler SECRETS, never here). Same reuse posture as the Listicles stream;
+# the worker no-ops until the stream exists in AWS.
+LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
 # Listicles Phase 9 revenue pipeline (§19/§20/§24) uses ONLY encrypted secrets —
 # NONE appear here (they are set via `wrangler secret put`, Dashboard/CI only,
 # exactly like the AWS + CH creds). Typed optional in api/src/env.ts; full names
@@ -109,6 +114,7 @@ APP_ENV = "staging"
 AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
+LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
 ADMIN_HOST = "staging-cms.kodigital.app"
 ADMIN_BASE_URL = "https://staging-cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"
@@ -163,6 +169,7 @@ APP_ENV = "production"
 AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
+LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
 ADMIN_HOST = "cms.kodigital.app"
 ADMIN_BASE_URL = "https://cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"

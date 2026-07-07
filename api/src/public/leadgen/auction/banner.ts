@@ -22,12 +22,22 @@
 // `safe_fallback`. No banner_url_template and no click_url ⇒ dropped
 // (`missing_click_url`).
 //
-// SAFETY: every interpolated value is HTML-escaped; the href only accepts an
-// absolute http(s) URL (a provider click_url that is not http(s) is treated as
-// absent and falls through to banner_url_template); response/canonical macro
-// values are encodeURIComponent-escaped by macros.ts / here before entering a
-// URL. Reuses macros.ts / parse.ts / banner-default/styles.ts / registry.ts —
-// no divergent re-implementation.
+// GOVERNED CLICK URL (P11 §19 step 16 / §18.7): the rendered banner `<a href>`
+// NEVER carries the raw provider click_url. It points at the first-party
+// resolver `/lg/lc/{offer_public_id}?ck=&aiid=&brid=&slot=&faid=` (mirroring
+// the listicles governed /lc pattern) — the /lg/lc resolver mints the click_id,
+// re-resolves the destination (+ {response:*}) and 302s. The direct resolved
+// click_url is still computed (it decides the §10.5 render-time DROP) and kept
+// in the server-side `slots[].click_url` for explainability, but it does NOT
+// enter the rendered HTML.
+//
+// SAFETY: every interpolated value is HTML-escaped; the governed href is a
+// first-party path carrying only opaque ids (a provider click_url that is not
+// http(s) is still treated as absent and falls through to banner_url_template
+// for the DROP decision); response/canonical macro values are
+// encodeURIComponent-escaped by macros.ts / here before entering a URL. Reuses
+// macros.ts / parse.ts / banner-default/styles.ts / registry.ts — no divergent
+// re-implementation.
 
 import { getAtPath, type LeadgenParsedCarrier } from "./parse";
 import {
@@ -78,6 +88,11 @@ export interface BannerAuctionContext {
   auction_instance_id?: string | null;
   banner_design_id?: string | null;
   canonical_macros?: Readonly<Record<string, string>>;
+  // The per-session funnel_attempt_id carried into the governed /lg/lc href
+  // (§19 step 16 / §18.7 remove-clicked scoping). Optional: the caller
+  // (auction runtime) threads it in Stage B; absent ⇒ the href carries an empty
+  // faid= (still a valid governed link).
+  funnel_attempt_id?: string | null;
 }
 
 // The banner config for the render. `mode` + `field_map_json` come from
@@ -231,9 +246,10 @@ function resolveClickUrl(
 
 // Render one carrier's banner card. `slotData` is the resolved per-field data
 // (automatic: canonical field → value; manual: the static config fields).
+// `href` is the GOVERNED /lg/lc URL (never the raw provider click_url).
 function renderCard(
   entry: BannerRenderCarrier,
-  clickUrl: string,
+  href: string,
   mode: LeadgenBannerMode,
   slotData: Record<string, unknown>,
   ctaLabel: string,
@@ -278,11 +294,35 @@ function renderCard(
   parts.push(`<span class="lg-banner-cta">${esc(cta)}</span>`);
 
   return (
-    `<a class="lg-banner" href="${esc(clickUrl)}"` +
+    `<a class="lg-banner" href="${esc(href)}"` +
     ` data-recommended="${recommended ? "true" : "false"}"` +
     ` data-slot="${entry.slot}" data-carrier-key="${esc(entry.carrier.carrier_key)}"` +
     ` data-offer="${esc(entry.offer_public_id)}">${parts.join("")}</a>`
   );
+}
+
+// Build the GOVERNED first-party click URL for a rendered slot (§19 step 16 /
+// §18.7). The rendered `<a href>` points here — NOT at the raw provider
+// click_url. The /lg/lc resolver (click.ts) re-resolves the destination, mints
+// the click_id, increments the cap, writes the remove-clicked row and 302s.
+// Mirrors the listicles governed-url builder (URLSearchParams-encoded values).
+export function buildLeadgenClickUrl(
+  offerPublicId: string,
+  params: {
+    carrier_key: string;
+    auction_instance_id: string | null;
+    banner_render_id: string;
+    slot: number;
+    funnel_attempt_id: string;
+  },
+): string {
+  const q = new URLSearchParams();
+  q.set("ck", params.carrier_key); // carrier_key (§18.8)
+  q.set("aiid", params.auction_instance_id ?? ""); // auction_instance_id (issue 22)
+  q.set("brid", params.banner_render_id); // banner_render_id
+  q.set("slot", String(params.slot));
+  q.set("faid", params.funnel_attempt_id); // funnel_attempt_id (§18.7 scoping)
+  return `/lg/lc/${encodeURIComponent(offerPublicId)}?${q.toString()}`;
 }
 
 // Render the banner set for one auction instance (07 §19 step 14). ONE
@@ -299,6 +339,7 @@ export function renderBanners(
   const mintId = opts?.mintId ?? ulid;
   const bannerRenderId = mintId();
   const auctionInstanceId = auction.auction_instance_id ?? null;
+  const funnelAttemptId = auction.funnel_attempt_id ?? "";
   const canonicalMacros = auction.canonical_macros ?? {};
   const css = bannerChromeCss(design);
 
@@ -353,7 +394,17 @@ export function renderBanners(
       ctaLabel = manualCta; // an automatic auction may still set a CTA label
     }
 
-    const html = renderCard(entry, clickUrl, bannerConfig.mode, slotData, ctaLabel);
+    // Governed href (§19 step 16): the rendered anchor points at /lg/lc, NOT the
+    // raw provider click_url. `clickUrl` (resolved direct) stays server-side in
+    // slots[].click_url for explainability and drove the §10.5 drop decision above.
+    const governedHref = buildLeadgenClickUrl(entry.offer_public_id, {
+      carrier_key: entry.carrier.carrier_key,
+      auction_instance_id: auctionInstanceId,
+      banner_render_id: bannerRenderId,
+      slot: entry.slot,
+      funnel_attempt_id: funnelAttemptId,
+    });
+    const html = renderCard(entry, governedHref, bannerConfig.mode, slotData, ctaLabel);
     slots.push({
       slot: entry.slot,
       carrier_key: entry.carrier.carrier_key,

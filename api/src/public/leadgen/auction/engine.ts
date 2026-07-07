@@ -948,7 +948,15 @@ export async function runAuction(
     field_map_json: input.bundle.banner?.field_map_json,
     banner_config_json: input.bundle.banner_config_json,
   };
-  const bannerCtx = { auction_instance_id: auctionInstanceId, banner_design_id: auction.banner_design_id };
+  // P11 §19 step 16 / §18.7: thread the per-session funnel_attempt_id into the
+  // banner render context so the LIVE governed /lg/lc href carries faid=<attempt>
+  // (buildLeadgenClickUrl). The binding's attempt id is the anti-tamper-validated
+  // one on the live path; a dry-run/simulate passes its placeholder unchanged.
+  const bannerCtx = {
+    auction_instance_id: auctionInstanceId,
+    banner_design_id: auction.banner_design_id,
+    funnel_attempt_id: input.binding.funnel_attempt_id,
+  };
 
   const toRenderCarrier = (s: SurfacedCarrier): BannerRenderCarrier => {
     const meta = carrierMeta.get(metaKey(s.offer_public_id, s.carrier_key));
