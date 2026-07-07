@@ -338,6 +338,10 @@ Built (contract 06 §16 + 09 §28/§29):
   - **Verified clean (per the review):** §16.2 assignment math (golden vectors recomputed; strict-`>` boundary; code-unit sort; pure fn); the config RED LINE (`assignment_bucket` off the cached config); shell keyed by assigned variant (2 variants → 2 distinct cached shells); token binds the assigned variant (A-token can't validate B); one-running-test-per-funnel; G4 distinct through assignment/config/shell/token; SQL/escaping/ES5; P9/P10/P11 seams clean.
 - **Live leg:** no migrations this phase; A/B assignment is admin-configured + runs on the tenant `/lg/*` runtime (public) — full behavior local-proven (vitest through the real app + Playwright); production posture in the P8 deploy addendum below.
 
+**P8 deploy addendum — 2026-07-07, squash-merge `e5bd31d` (PR #79), production dispatch run `28836248847` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — idempotent no-op; live D1 unchanged (40 leadgen / 23 listicle / 89 total).
+- Live posture: tenant `/health` 200; homepage `/` 200 (blast-radius clean); `/lg` 404 (dark until a funnel is activated). A/B assignment is deterministic + admin-configured behind CF Access — local-proven (vitest through the real app + Playwright 13/13). Operator-owned residuals unchanged (Maps keys; `LEADGEN_CONFIG_SIGNING_KEY`).
+
 ### P9 — Auction config + banner builder
 _(pending)_
 
