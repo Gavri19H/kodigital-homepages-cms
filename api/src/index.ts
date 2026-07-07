@@ -50,6 +50,7 @@ import newsletterRouter from "./newsletter";
 import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { analyticsRouter } from "./analytics/router";
+import { leadgenPublicRouter } from "./public/leadgen/runtime-routes";
 import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation";
 import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { runListicleRevenueCron } from "./listicles/revenue-recon";
@@ -174,6 +175,11 @@ app.route("/", newsletterRouter);
 // (incl. the admin host), AND before publicRouter so the /:slug catch-all does
 // not swallow it.
 app.route("/", analyticsRouter);
+
+// LeadGen Phase 7 (§8.3/§4.3): public /lg/* funnel runtime on tenant hosts.
+// Mounted next to analyticsRouter — BEFORE the admin-host safety net + the
+// publicRouter /:slug catch-all — so the reserved /lg head never collides.
+app.route("/", leadgenPublicRouter);
 
 // ADMIN_HOST safety net (Phase 1.5 T3): on ADMIN_HOST, any unmatched
 // path that reaches this point falls straight through to the

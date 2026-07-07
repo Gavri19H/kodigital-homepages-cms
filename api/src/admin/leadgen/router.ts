@@ -49,9 +49,35 @@ import {
   sectionUsageHandler,
   validateSectionPayloadHandler,
 } from "./sections-handlers";
+import {
+  createFunnelExperimentHandler,
+  createFunnelVariantHandler,
+  createQuoteExperimentHandler,
+  createQuoteFunnelHandler,
+  createQuoteHandler,
+  createQuoteVariantHandler,
+  deleteActivationHandler,
+  deleteFunnelHandler,
+  deleteQuoteHandler,
+  forkVariantHandler,
+  getFunnelHandler,
+  getQuoteHandler,
+  listFunnelVariantsHandler,
+  listQuoteFunnelsHandler,
+  listQuotesHandler,
+  listQuoteVariantsHandler,
+  patchFunnelHandler,
+  patchQuoteHandler,
+  previewVariantHandler,
+  putActivationHandler,
+  putVariantHandler,
+  quoteActivationHandler,
+  quoteAnalyticsHandler,
+  quoteStructureHandler,
+  startExperimentHandler,
+  stopExperimentHandler,
+} from "./quotes-handlers";
 import type {
-  LeadgenQuoteRow,
-  LeadgenQuoteApi,
   LeadgenAuctionRow,
   LeadgenAuctionApi,
 } from "./db-types";
@@ -62,13 +88,6 @@ export type { Paging } from "./offers-handlers";
 // --- Row→API mapping (03 §8.5: INTEGER bools → boolean, JSON → parsed) ------
 // Sections own their Row→API mapping in sections-handlers.ts (the full §8.2
 // Sections surface ships there); quotes + auctions keep the Phase-3 skeleton.
-
-function quoteRowToApi(row: LeadgenQuoteRow): LeadgenQuoteApi {
-  return {
-    ...row,
-    verticals_json: parseJsonColumn(row.verticals_json),
-  };
-}
 
 function auctionRowToApi(row: LeadgenAuctionRow): LeadgenAuctionApi {
   return {
@@ -174,9 +193,42 @@ routes.get("/sections/:id/offers", sectionOffersHandler);
 routes.get("/sections/:id/analytics", sectionAnalyticsHandler);
 routes.post("/sections/:id/validate-payload", validateSectionPayloadHandler);
 
-// --- Quotes (03 §8.2) --------------------------------------------------------
-routes.get("/quotes", listHandler<LeadgenQuoteRow, LeadgenQuoteApi>("leadgen_quotes", quoteRowToApi));
-routes.get("/quotes/:id", getHandler<LeadgenQuoteRow, LeadgenQuoteApi>("quote", "leadgen_quotes", quoteRowToApi));
+// --- Quotes / Funnels / Variants (03 §8.2 + 06 §15–§17 — Phase-7 Stage B) -----
+// Static + deeper-param paths BEFORE the bare /quotes/:id (03 §8.1
+// static-before-param discipline), then the sibling /experiments, /variants,
+// /funnels top-level blocks.
+routes.get("/quotes", listQuotesHandler);
+routes.post("/quotes", createQuoteHandler);
+routes.get("/quotes/:id/variants", listQuoteVariantsHandler);
+routes.post("/quotes/:id/variants", createQuoteVariantHandler);
+routes.post("/quotes/:id/experiments", createQuoteExperimentHandler);
+routes.get("/quotes/:id/structure", quoteStructureHandler);
+routes.get("/quotes/:id/analytics", quoteAnalyticsHandler);
+routes.put("/quotes/:id/activation/:site_id", putActivationHandler);
+routes.delete("/quotes/:id/activation/:site_id", deleteActivationHandler);
+routes.get("/quotes/:id/activation", quoteActivationHandler);
+routes.get("/quotes/:id/funnels", listQuoteFunnelsHandler);
+routes.post("/quotes/:id/funnels", createQuoteFunnelHandler);
+routes.get("/quotes/:id", getQuoteHandler);
+routes.patch("/quotes/:id", patchQuoteHandler);
+routes.delete("/quotes/:id", deleteQuoteHandler);
+
+// A/B lifecycle (P8 seam — create + start/stop only, NO §16.2 allocation).
+routes.post("/experiments/:id/start", startExperimentHandler);
+routes.post("/experiments/:id/stop", stopExperimentHandler);
+
+// Variants — static suffixes (/fork, /preview) BEFORE the bare /variants/:id PUT.
+routes.post("/variants/:id/fork", forkVariantHandler);
+routes.post("/variants/:id/preview", previewVariantHandler);
+routes.put("/variants/:id", putVariantHandler);
+
+// Stable Funnels — /funnels/:id/{variants,experiments} BEFORE /funnels/:id.
+routes.get("/funnels/:id/variants", listFunnelVariantsHandler);
+routes.post("/funnels/:id/variants", createFunnelVariantHandler);
+routes.post("/funnels/:id/experiments", createFunnelExperimentHandler);
+routes.get("/funnels/:id", getFunnelHandler);
+routes.patch("/funnels/:id", patchFunnelHandler);
+routes.delete("/funnels/:id", deleteFunnelHandler);
 
 // --- Auctions (03 §8.2 — API entity path is plural; the HTML tab path is
 // singular /admin/leadgen/auction per contract 01 §5.2) -----------------------

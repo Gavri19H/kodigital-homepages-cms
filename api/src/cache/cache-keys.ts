@@ -165,3 +165,51 @@ export function listicleCandidateKey(
 ): string {
   return `${NS_HTML}:${requireSiteId(siteId)}:/lst-cand/${candidatePublicId}:${versionContentVersion}:${TEMPLATE_VERSION}`;
 }
+
+// LeadGen Phase 7 (contract 09 §28) — the funnel-shell + client-config cache
+// keys. LEADGEN_TEMPLATE_VERSION is the shell-shape version axis: bumping it
+// rolls ALL cached funnel shells + configs forward at once (the §28 global
+// axis), exactly as TEMPLATE_VERSION does for CMS/Listicles HTML. It is a CODE
+// DEFAULT CONSTANT (mirroring TEMPLATE_VERSION above) — NOT a wrangler.toml
+// [vars] key — so no Env-interface change and no verify:worker-config impact.
+export const LEADGEN_TEMPLATE_VERSION = 1 as const;
+
+const NS_LG_SHELL = "lg-shell";
+const NS_LG_CONFIG = "lg-config";
+
+// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{content_version}:{template_version}
+// (§28). site_id first so per-site list+invalidate stays cheap
+// (env.CACHE.list({ prefix: "lg-shell:{siteId}:" })), versions as suffix so a
+// content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The
+// single enabled root activation (NULL slug — at most one per site, §17.1) uses
+// the EMPTY slug segment; a named activation uses its slug.
+export function leadgenShellKey(
+  siteId: string,
+  quoteSlug: string | null,
+  funnelId: string,
+  contentVersion: number,
+): string {
+  const slugSeg = quoteSlug ?? "";
+  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
+}
+
+// lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}. The
+// public client config bakes in the SITE-SPECIFIC ga4_measurement_id (resolved
+// from the activation's settings_overrides_json) and is VARIANT-scoped, so the
+// key MUST carry both site_id and funnel_variant_id. A funnel-only key would
+// let one funnel activated on two tenant sites share a single entry (whichever
+// site warms it first poisons the other → cross-tenant GA4 bleed + §29
+// mis-attribution), and would collide across the per-variant configs P8 serves
+// while their ETags already differ per variant. site_id is first so per-site
+// list+invalidate stays cheap (env.CACHE.list({ prefix: "lg-config:{siteId}:" })),
+// then funnel_id + funnel_variant_id, then content_version as the suffix so a
+// bump orphans old entries. The /lg/config ETag hashes the SAME material
+// (site + funnel + variant + content_version) so key and ETag always agree.
+export function leadgenConfigKey(
+  siteId: string,
+  funnelId: string,
+  funnelVariantId: string,
+  contentVersion: number,
+): string {
+  return `${NS_LG_CONFIG}:${requireSiteId(siteId)}:${funnelId}:${funnelVariantId}:${contentVersion}`;
+}
