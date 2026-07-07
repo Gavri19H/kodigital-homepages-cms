@@ -373,6 +373,10 @@ Built (contract 07 §19 + §18 + §20 + 09 §28/§30.3/§30.4):
   - Deferred (documented, DEV-22): §48 runtime request guard (blocklist/rate-limit/bot/ZIP) → P13 (spans `/lg/pb`); XOR backfill HTML obfuscation (§30.4 "cosmetic").
 - **Live leg (CP4 begins):** no migrations this phase; `/lg/auction` is public on tenant hosts (dark until a funnel is activated + an auction attached); the money-path integrity guarantees (anti-tamper 422, secret-never-to-D1, no-revenue-on-tamper) are code-proven + tested. Google Maps + `LEADGEN_CONFIG_SIGNING_KEY` + `LEADGEN_DEBUG_ENCRYPTION_KEY` remain operator-owned (the signing key is now MANDATORY before live traffic — fail-closed without it). Production posture in the P10 deploy addendum below.
 
+**P10 deploy addendum — 2026-07-07, squash-merge `78b03da` (PR #81), production dispatch run `28843798313` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — idempotent no-op; live D1 unchanged (40 leadgen / 23 listicle / 89 total).
+- **Live posture (money path live + dark-safe):** tenant `/health` 200; homepage `/` 200 (blast-radius clean); `/lg` 404 (dark); **`/lg/auction` POST (no body) → 400** — the route is LIVE + mounted + validating (not 404), and correctly rejects an invalid/missing binding (dark-by-construction: no activated funnel + no valid anti-tamper binding). The money-path integrity (anti-tamper 422 fail-closed, secret-never-to-D1, no-revenue-on-tamper) is code+test-proven. CP4 revenue-path smoke completes at P11 (click/track) + P13 (revenue). `LEADGEN_CONFIG_SIGNING_KEY` MANDATORY before an operator drives live auction traffic (fail-closed without it).
+
 ### P11 — Tracking + macros + click resolver
 _(pending)_
 
