@@ -38,11 +38,7 @@ import * as data from "../data";
 import {
   adminLayout,
   escapeHtml,
-  renderListPager,
 } from "../templates/layout";
-import type {
-  LeadgenAuctionApi,
-} from "./db-types";
 import {
   leadgenOffersListPage,
   leadgenOffersNewPage,
@@ -58,6 +54,11 @@ import {
   leadgenQuotesNewPage,
   leadgenQuoteEditorPage,
 } from "./ui-quotes";
+import {
+  leadgenAuctionsListPage,
+  leadgenAuctionsNewPage,
+  leadgenAuctionEditorPage,
+} from "./ui-auctions";
 
 export type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
 export type UiContext = Context<AdminEnv>;
@@ -127,10 +128,6 @@ export function pageParam(c: UiContext): string {
   return Number.isFinite(n) && n > 0 ? String(Math.floor(n)) : "";
 }
 
-function pageQuery(page: string): string {
-  return page !== "" ? `?page=${encodeURIComponent(page)}` : "";
-}
-
 // ---------------------------------------------------------------------------
 // Shared tab-shell building blocks (03 §9.1)
 // ---------------------------------------------------------------------------
@@ -195,145 +192,11 @@ export function statusBadge(status: string): string {
   return `<span class="${cls}">${escapeHtml(status)}</span>`;
 }
 
-// 03 §9.1: Create button top-left, disabled this phase (each editor ships in
-// its entity's own phase), above the toolbar-filters placeholder that the
-// analytics filter row + timeframe control fill in later phases.
-function renderToolbar(createLabel: string, phaseNote: string): string {
-  return `<div class="toolbar">
-  <button type="button" class="btn btn-primary" disabled aria-disabled="true" title="${escapeHtml(phaseNote)}">+ ${escapeHtml(createLabel)}</button>
-  <span class="form-help lg-phase-note">${escapeHtml(phaseNote)}</span>
-  <div class="toolbar-filters"></div>
-</div>`;
-}
-
-interface ListColumn {
-  label: string;
-  numeric?: boolean;
-}
-
-function renderHeaderCells(columns: ReadonlyArray<ListColumn>): string {
-  return columns
-    .map((col) => {
-      const cls = col.numeric === true ? ' class="lg-num"' : "";
-      return `<th scope="col"${cls}>${escapeHtml(col.label)}</th>`;
-    })
-    .join("");
-}
-
+// Phase-3 list scaffolding (renderToolbar / renderListTable / leadgenTabPage +
+// the per-tab column tables) is retired: all four tabs are now LIVE with their
+// own list pages (ui-offers / ui-sections / ui-quotes / ui-auctions). EM_DASH
+// stays — the live list renderers import it.
 export const EM_DASH = "—";
-
-function dashCell(numeric: boolean): string {
-  return numeric ? `<td class="lg-num">${EM_DASH}</td>` : `<td>${EM_DASH}</td>`;
-}
-
-function dashCells(count: number): string {
-  return new Array<string>(count).fill(dashCell(true)).join("");
-}
-
-interface ListTableProps {
-  tableClass: string;
-  ariaLabel: string;
-  columns: ReadonlyArray<ListColumn>;
-  rows: ReadonlyArray<string>;
-  emptyEntity: string;
-  phaseNote: string;
-}
-
-// Shared list-scaffold card: §9 column headers + rows (zero rows until the
-// entity's create surface ships) + the listicles empty-state pattern.
-function renderListTable(props: ListTableProps): string {
-  const empty = `<div class="empty-state"><p>No ${escapeHtml(props.emptyEntity)} yet.</p><p class="form-help">${escapeHtml(props.phaseNote)}.</p></div>`;
-  const rows =
-    props.rows.length === 0
-      ? `<tr><td colspan="${props.columns.length}">${empty}</td></tr>`
-      : props.rows.join("");
-  return `<div class="card">
-  <div class="table-wrapper">
-    <table class="table ${props.tableClass}" aria-label="${escapeHtml(props.ariaLabel)}">
-      <thead><tr>${renderHeaderCells(props.columns)}</tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>
-</div>`;
-}
-
-interface LeadgenBranding {
-  userEmail?: string;
-}
-
-interface TabPageProps {
-  tab: LeadgenTab;
-  createLabel: string;
-  phaseNote: string;
-  table: string;
-  paging: Paging;
-  page: string;
-  loadError: string | null;
-}
-
-function leadgenTabPage(props: TabPageProps, brand: LeadgenBranding): string {
-  const loadErrorHtml = props.loadError
-    ? `<p class="alert alert-error" role="alert">${escapeHtml(props.loadError)}</p>`
-    : "";
-  const pager = renderListPager(
-    {
-      page: props.paging.page,
-      per_page: props.paging.page_size,
-      total: props.paging.total,
-    },
-    { page: props.page },
-  );
-  const content = `${renderLeadgenTabs(props.tab)}
-${loadErrorHtml}
-${renderToolbar(props.createLabel, props.phaseNote)}
-${props.table}
-${pager}`;
-  return adminLayout({
-    title: "LeadGen",
-    activePath: `/admin/leadgen/${props.tab}`,
-    userEmail: brand.userEmail,
-    content,
-    styles: LEADGEN_STYLES,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Sections tab (03 §9.3) — LIVE (Phase-5 Stage B, ui-sections.ts). List + the
-// full-page editor register below; the scaffold row renderer is retired.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Auction tab (03 §9.5 list columns)
-// ---------------------------------------------------------------------------
-
-const AUCTION_COLUMNS: ReadonlyArray<ListColumn> = [
-  { label: "Name" },
-  { label: "Quote" },
-  { label: "Type" },
-  { label: "Winner logic" },
-  { label: "Offers", numeric: true },
-  { label: "Multi-offer / Backfill" },
-  { label: "Auctions", numeric: true },
-  { label: "Fill rate", numeric: true },
-  { label: "Avg imp/auction", numeric: true },
-  { label: "Avg bid", numeric: true },
-  { label: "Avg RPC", numeric: true },
-  { label: "Revenue", numeric: true },
-  { label: "Actions" },
-];
-
-function renderAuctionRow(a: LeadgenAuctionApi): string {
-  return `<tr data-entity-id="${a.id}" data-entity-name="${escapeHtml(a.auction_name)}">
-  <td>${escapeHtml(a.auction_name)}</td>
-  ${dashCell(false)}
-  <td>${escapeHtml(a.auction_type)}</td>
-  <td>${escapeHtml(a.winner_logic)}</td>
-  ${dashCell(true)}
-  <td>${escapeHtml(a.multi_offer)} / ${escapeHtml(a.backfill)}</td>
-  ${dashCells(6)}
-  <td>${EM_DASH}</td>
-</tr>`;
-}
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -370,33 +233,10 @@ leadgenUi.get("/admin/leadgen/quotes", leadgenQuotesListPage);
 leadgenUi.get("/admin/leadgen/quotes/new", leadgenQuotesNewPage);
 leadgenUi.get("/admin/leadgen/quotes/:id/edit", leadgenQuoteEditorPage);
 
-// The Auction tab path is SINGULAR (01 §5.2); it drives the plural
-// /api/admin/leadgen/auctions entity endpoint (03 §8.2).
-leadgenUi.get("/admin/leadgen/auction", async (c) => {
-  const page = pageParam(c);
-  const listed = await apiJson<ListBody<LeadgenAuctionApi>>(
-    c.env,
-    `/api/admin/leadgen/auctions${pageQuery(page)}`,
-  );
-  return c.html(
-    leadgenTabPage(
-      {
-        tab: "auction",
-        createLabel: "Create an Auction",
-        phaseNote: "Auction editor ships in a later phase",
-        table: renderListTable({
-          tableClass: "leadgen-auctions-list",
-          ariaLabel: "Auctions list",
-          columns: AUCTION_COLUMNS,
-          rows: (listed.ok ? listed.body.items : []).map(renderAuctionRow),
-          emptyEntity: "auctions",
-          phaseNote: "Auction editor ships in a later phase",
-        }),
-        paging: listed.ok ? listed.body.paging : EMPTY_PAGING,
-        page,
-        loadError: listed.ok ? null : listed.error,
-      },
-      branding(c),
-    ),
-  );
-});
+// Auction tab — LIVE (Phase-9 Stage B, contract 03 §9.5 / 07 §18–§21). The tab
+// path is SINGULAR /admin/leadgen/auction (01 §5.2) driving the plural
+// /api/admin/leadgen/auctions entity endpoint (03 §8.2). Editor shells register
+// static-before-param (01 §5.2): /auction/new precedes /auction/:id/edit.
+leadgenUi.get("/admin/leadgen/auction", leadgenAuctionsListPage);
+leadgenUi.get("/admin/leadgen/auction/new", leadgenAuctionsNewPage);
+leadgenUi.get("/admin/leadgen/auction/:id/edit", leadgenAuctionEditorPage);
