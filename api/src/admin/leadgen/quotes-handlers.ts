@@ -45,6 +45,10 @@ import { funnelChromeCss } from "../../public/leadgen/designs/default-funnel/sty
 import { renderSectionComponents } from "../../public/leadgen/components/presets";
 import type { LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
 import { buildPublicConfig, type LeadgenPublicConfig } from "../../public/leadgen/config-dto";
+import {
+  invalidateOnQuoteActivation,
+  invalidateOnVariantPublish,
+} from "../../public/leadgen/invalidate";
 import type {
   ResolvedActivatedFunnel,
   ResolvedFunnelSection,
@@ -151,6 +155,60 @@ function redirectAllowlist(env: AdminContext["env"]): string[] {
     .split(",")
     .map((h) => h.trim())
     .filter((h) => h !== "");
+}
+
+// ---------------------------------------------------------------------------
+// §28 funnel-cache invalidation wiring (non-blocking, fail-open)
+// ---------------------------------------------------------------------------
+
+// Hono's c.executionCtx getter THROWS where no ExecutionContext exists (the
+// node:sqlite unit-test harness passes none); mirror the runtime safeExecutionCtx
+// idiom so §28 invalidation rides waitUntil where a context exists and degrades to
+// a no-op where it doesn't. Invalidation is ALWAYS non-blocking and can NEVER
+// break the admin write (also matches the listicles/leadgen runtime pattern).
+function safeExecutionCtx(c: AdminContext): ExecutionContext {
+  try {
+    return c.executionCtx;
+  } catch {
+    return {
+      waitUntil(): void {
+        /* no-op outside workerd (unit-test harness) */
+      },
+      passThroughOnException(): void {
+        /* no-op */
+      },
+    } as unknown as ExecutionContext;
+  }
+}
+
+// §28 activation-change invalidation (enable / disable / slug / settings_overrides
+// including the baked-in GA4 id) — evict this site's stale funnel shells + configs.
+// Rides waitUntil; the .catch contains even the RED-LINE empty-site_id guard so the
+// admin write is never broken (site_id is already non-empty here — defence in depth).
+function scheduleActivationInvalidate(c: AdminContext, siteId: string): void {
+  safeExecutionCtx(c).waitUntil(invalidateOnQuoteActivation(c.env, siteId).catch(() => {}));
+}
+
+// §28 variant-publish invalidation — the content_version bump is the correctness
+// mechanism (a new key); this courtesy pass evicts the orphaned entries across
+// EVERY site the funnel's quote is activated on, narrowed to that funnel. Resolves
+// the funnel + its activated sites in the BACKGROUND (waitUntil) so the admin write
+// returns immediately; fail-open. Used by both the variant SAVE and the fork.
+function scheduleVariantPublishInvalidate(c: AdminContext, variant: LeadgenFunnelVariantRow): void {
+  safeExecutionCtx(c).waitUntil(
+    (async () => {
+      const funnel = await c.env.DB.prepare(
+        "SELECT public_id, quote_id FROM leadgen_funnels WHERE id = ? LIMIT 1",
+      )
+        .bind(variant.funnel_id)
+        .first<{ public_id: string; quote_id: number }>();
+      if (funnel === null) return;
+      const sites = await readSiteQuotesForQuote(c.env.DB, funnel.quote_id);
+      await Promise.all(
+        sites.map((r) => invalidateOnVariantPublish(c.env, r.site_id, funnel.public_id)),
+      );
+    })().catch(() => {}),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1117,6 +1175,10 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     .bind(variant.id)
     .first<LeadgenFunnelVariantRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);
+  // §28: the content_version bump above already mints a fresh lg-shell:/lg-config:
+  // key; evict the orphaned prior entries (courtesy) across the funnel's activated
+  // sites. Non-blocking; never breaks the save.
+  scheduleVariantPublishInvalidate(c, variant);
   return c.json(await variantDetailJson(c.env.DB, updated));
 }
 
@@ -1201,6 +1263,9 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
     .first<LeadgenFunnelVariantRow>();
   if (!forked) return c.json({ error: "Insert failed" }, 500);
 
+  // §28: a fork is a variant-publish-class event — evict the source funnel's
+  // orphaned entries across its activated sites (courtesy). Non-blocking; fail-open.
+  scheduleVariantPublishInvalidate(c, source);
   return c.json({ forked_from: source.public_id, ...(await variantDetailJson(c.env.DB, forked)) }, 201);
 }
 
@@ -1529,6 +1594,17 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
 
   const enabled = asToggle(body["enabled"]) ?? true;
   const slug = body["slug"] === undefined ? null : trimmedString(body["slug"]);
+  // §28 cache-key safety: the slug is a SEGMENT of the lg-shell: cache key
+  // (lg-shell:{site}:{slug}:{funnel}:…), so it MUST be URL-safe and colon-free —
+  // a ':' (or other metachar) would misalign the funnel-narrowed invalidation
+  // split (invalidate.ts) and could over-/under-delete a funnel's shells. Reject
+  // anything but a standard slug: lowercase alphanumerics + hyphens.
+  if (slug !== null && slug !== "" && !/^[a-z0-9-]+$/.test(slug)) {
+    return c.json(
+      { error: "invalid slug", fields: { slug: "must be lowercase letters, digits, and hyphens (/^[a-z0-9-]+$/)" } },
+      400,
+    );
+  }
   const overrides = body["settings_overrides_json"] !== undefined || body["settings_overrides"] !== undefined
     ? jsonStringOrNull(body["settings_overrides_json"] ?? body["settings_overrides"])
     : null;
@@ -1581,6 +1657,10 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
     .bind(siteId)
     .first<{ domain: string | null }>()
     .catch(() => null);
+  // §28: activation upsert flips which funnel serves / whether it serves AND may
+  // change the baked-in GA4 id (settings_overrides_json) — none bump content_version,
+  // so evict this site's stale funnel shells + configs. Non-blocking; fail-open.
+  scheduleActivationInvalidate(c, siteId);
   return c.json({ ...siteQuoteRowToApi(row), preview_url: previewUrl(domainRow?.domain ?? null, row.slug) });
 }
 
@@ -1600,6 +1680,10 @@ export async function deleteActivationHandler(c: AdminContext): Promise<Response
   await c.env.DB.prepare("UPDATE leadgen_site_quotes SET enabled = 0, updated_at = unixepoch() WHERE id = ?")
     .bind(existing.id)
     .run();
+  // §28: deactivation changes whether the slug serves — the cached shell would
+  // otherwise linger until TTL. Evict this site's funnel shells + configs.
+  // Non-blocking; fail-open.
+  scheduleActivationInvalidate(c, siteId);
   return c.json({ ok: true, site_id: siteId, quote_id: quote.public_id, enabled: false });
 }
 

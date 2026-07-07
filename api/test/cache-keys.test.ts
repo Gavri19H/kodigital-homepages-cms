@@ -12,6 +12,8 @@ import {
   settingsKey,
   robotsKey,
   adsKey,
+  leadgenShellKey,
+  leadgenConfigKey,
 } from "../src/cache/cache-keys";
 
 const SITE_ID = "st_abc";
@@ -137,4 +139,32 @@ describe("cache-keys: site_id-first prefix discipline", () => {
       expect(key.startsWith(`${expectedPrefix}${SITE_ID}:`)).toBe(true);
     });
   }
+});
+
+describe("cache-keys: leadgen activation_version axis (§28 GA4 cache-coherence — P14 finding 1)", () => {
+  const S = "st_0123456789abcdef";
+  const F = "lgf_funnel00000000000000000";
+  const V = "lgn_variant0000000000000000";
+
+  it("leadgenShellKey CHANGES when activation_version (a settings/GA4 edit → updated_at bump) changes, same content_version", () => {
+    // BEFORE the fix the GA4 id was baked into the body but NOT the key, so a
+    // settings-only edit (no content_version move) reused the stale-id key/ETag.
+    const k1 = leadgenShellKey(S, "auto", F, V, 3, 1_700_000_000);
+    const k2 = leadgenShellKey(S, "auto", F, V, 3, 1_700_000_500);
+    expect(k1).not.toBe(k2);
+    expect(k1.endsWith(":1700000000")).toBe(true);
+    expect(k2.endsWith(":1700000500")).toBe(true);
+  });
+
+  it("leadgenConfigKey CHANGES when activation_version changes, same content_version + ab_rev", () => {
+    const k1 = leadgenConfigKey(S, F, V, 3, 0, 1_700_000_000);
+    const k2 = leadgenConfigKey(S, F, V, 3, 0, 1_700_000_500);
+    expect(k1).not.toBe(k2);
+  });
+
+  it("the per-site invalidation prefix + the funnel-narrowing segment stay intact (suffix appended, not inserted)", () => {
+    const k = leadgenShellKey(S, "auto", F, V, 3, 1_700_000_000);
+    expect(k.startsWith(`lg-shell:${S}:`)).toBe(true); // invalidateOnQuoteActivation prefix
+    expect(k.split(":")[3]).toBe(F); // invalidateOnVariantPublish funnel segment (index 3)
+  });
 });
