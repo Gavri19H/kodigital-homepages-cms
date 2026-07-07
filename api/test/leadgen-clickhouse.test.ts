@@ -1,0 +1,146 @@
+// LeadGen ClickHouse HTTP client (contract 08 §23/§24): query shaping
+// (FINAL-aware, JSONEachRow, param substitution, settings + X-ClickHouse-*
+// headers), structured no-op on missing creds (NO network), and error
+// isolation (HTTP 5xx / 401 / 403 / network → typed LeadgenChError).
+
+import { describe, expect, it, vi } from "vitest";
+import {
+  createLeadgenChClient,
+  chCredentialsConfigured,
+  LeadgenChError,
+} from "../src/leadgen/clickhouse";
+
+const CREDS = { CH_URL: "https://ch.example.com:8443", CH_USER: "default", CH_PASSWORD: "secret" };
+
+function jsonEachRow(...objs: unknown[]): string {
+  return objs.map((o) => JSON.stringify(o)).join("\n");
+}
+
+describe("chCredentialsConfigured", () => {
+  it("requires all three non-empty secrets", () => {
+    expect(chCredentialsConfigured(CREDS)).toBe(true);
+    expect(chCredentialsConfigured({})).toBe(false);
+    expect(chCredentialsConfigured({ CH_URL: "x", CH_USER: "y" })).toBe(false);
+    expect(chCredentialsConfigured({ ...CREDS, CH_PASSWORD: "  " })).toBe(false);
+    expect(chCredentialsConfigured({ ...CREDS, CH_URL: "" })).toBe(false);
+  });
+});
+
+describe("no-op on missing creds (fail-open)", () => {
+  it("makes NO HTTP request and returns configured:false + empty rows", async () => {
+    const fetchImpl = vi.fn();
+    const client = createLeadgenChClient({}, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(client.configured).toBe(false);
+    const res = await client.query("SELECT 1 FROM lg_offer_daily FINAL");
+    expect(res).toEqual({ rows: [], configured: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("query shaping", () => {
+  it("appends FORMAT JSONEachRow, sets FINAL-aware settings + unquoted 64-bit ints, sends X-ClickHouse-* headers, substitutes params", async () => {
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(jsonEachRow({ offer_id: "off_1", offer_impressions: 5 }), { status: 200 });
+    });
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    const res = await client.query<{ offer_id: string; offer_impressions: number }>(
+      "SELECT offer_id, offer_impressions FROM lg_offer_daily FINAL WHERE dt >= toDate({from}) AND dt <= toDate({to});",
+      { from: "2026-07-02", to: "2026-07-03" },
+    );
+
+    expect(res.configured).toBe(true);
+    expect(res.rows).toEqual([{ offer_id: "off_1", offer_impressions: 5 }]);
+
+    // settings on the query string
+    expect(capturedUrl).toContain("do_not_merge_across_partitions_select_final=1");
+    expect(capturedUrl).toContain("output_format_json_quote_64bit_integers=0");
+
+    const body = String(capturedInit?.body);
+    expect(body.endsWith("FORMAT JSONEachRow")).toBe(true);
+    // trailing ";" stripped before FORMAT is appended
+    expect(body).not.toContain("; FORMAT");
+    // params substituted (quoted strings)
+    expect(body).toContain("toDate('2026-07-02')");
+    expect(body).toContain("toDate('2026-07-03')");
+
+    const headers = capturedInit?.headers as Record<string, string>;
+    expect(headers["X-ClickHouse-User"]).toBe("default");
+    expect(headers["X-ClickHouse-Key"]).toBe("secret");
+    expect(capturedInit?.method).toBe("POST");
+  });
+
+  it("escapes a single-quote in a string param so it cannot break the query", async () => {
+    let body = "";
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = String(init?.body);
+      return new Response("", { status: 200 });
+    });
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await client.query("SELECT 1 FROM lg_offer_daily FINAL WHERE offer_id = {id}", { id: "o'x" });
+    expect(body).toContain("\\'");
+  });
+
+  it("substitutes a numeric param without quotes", async () => {
+    let body = "";
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      body = String(init?.body);
+      return new Response("", { status: 200 });
+    });
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await client.query("SELECT 1 FROM lg_offer_daily FINAL WHERE n = {n}", { n: 42 });
+    expect(body).toContain("n = 42");
+    expect(body).not.toContain("n = '42'");
+  });
+
+  it("parses multi-row JSONEachRow and tolerates blank trailing lines", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(jsonEachRow({ n: 1 }, { n: 2 }, { n: 3 }) + "\n", { status: 200 }),
+    );
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    const res = await client.query<{ n: number }>("SELECT n FROM lg_offer_daily FINAL");
+    expect(res.rows.map((r) => r.n)).toEqual([1, 2, 3]);
+  });
+
+  it("empty body → empty rows (configured:true)", async () => {
+    const fetchImpl = vi.fn(async () => new Response("", { status: 200 }));
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    const res = await client.query("SELECT 1 FROM lg_offer_daily FINAL");
+    expect(res).toEqual({ rows: [], configured: true });
+  });
+});
+
+describe("error isolation", () => {
+  it("HTTP 500 → LeadgenChError with status", async () => {
+    const fetchImpl = vi.fn(async () => new Response("boom", { status: 500 }));
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.query("SELECT 1 FROM lg_offer_daily FINAL")).rejects.toBeInstanceOf(LeadgenChError);
+    await expect(client.query("SELECT 1 FROM lg_offer_daily FINAL")).rejects.toMatchObject({ statusCode: 500 });
+  });
+
+  it("HTTP 403 → auth-flavored LeadgenChError", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 403 }));
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.query("SELECT 1 FROM lg_offer_daily FINAL")).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("HTTP 401 → auth-flavored LeadgenChError", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 401 }));
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.query("SELECT 1 FROM lg_offer_daily FINAL")).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  it("network/timeout throw → LeadgenChError status 0", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("The operation was aborted");
+    });
+    const client = createLeadgenChClient(CREDS, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.query("SELECT 1 FROM lg_offer_daily FINAL")).rejects.toMatchObject({
+      name: "LeadgenChError",
+      statusCode: 0,
+    });
+  });
+});
