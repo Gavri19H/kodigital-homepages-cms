@@ -616,6 +616,35 @@ describeDb("leadgen §19.1 anti-tamper (RED LINE 2)", () => {
     expect(result.explain.carriers_filtered.find((f) => /acme/i.test(f.carrier_key))?.carrier_filtered_reason).toMatch(/exclude|block/);
   });
 
+  // P11 §19 step 16 / §18.7: the engine now threads input.binding.funnel_attempt_id
+  // into the banner render context, so the LIVE governed /lg/lc href carries
+  // faid=<attempt>. Stage A left it empty (faid= with no value).
+  it("P11: the LIVE banner href carries faid=<attempt> (engine funnel_attempt_id thread)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const o1 = seedOffer(sdb);
+    attachOffer(sdb, auction.id, o1, 0);
+    const resolved = resolvedWithSections();
+    const binding = await validBinding(env, resolved); // real minted att_ id
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12, url: "https://acme.example/click" }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved, bundle, environment: "production", binding, session_id: "sess-1", raw_answers: {}, clicked: [] },
+      { dryRun: false },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.banners.length).toBeGreaterThan(0);
+    // The governed banner href now carries the anti-tamper-validated attempt id.
+    expect(binding.funnel_attempt_id.startsWith("att_")).toBe(true);
+    expect(result.banners_html).toContain(`faid=${binding.funnel_attempt_id}`);
+    // Regression guard: it is NOT the Stage-A empty faid= (value present, non-empty).
+    expect(result.banners_html).not.toContain("faid=&");
+    expect(result.banners_html).not.toContain('faid="');
+  });
+
   it("runAuction (non-dry) with a bad binding is 422 + tampered + NO fetch + NO writes", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);
