@@ -25,6 +25,12 @@ export type GuardOutcome = { ok: true } | { ok: false; status: number; reason: s
 export interface GuardOptions {
   now?: number; // ms epoch (tests pin the rate-limit window)
   rateLimitPerMinute?: number;
+  // SERVER-TO-SERVER endpoints (/lg/pb) skip the browser-IVT bot arm: a provider
+  // postback is INHERENTLY a datacenter IP + non-browser UA, so the P11 browser
+  // heuristic would 403 every legitimate provider before the token gate runs
+  // (silent revenue loss). For /lg/pb the per-provider token (§30.2) IS the
+  // legitimate-vs-abuse discriminator; blocklist + rate-limit still apply. DEV-25.
+  skipBotDetection?: boolean;
 }
 
 const RATE_LIMIT_PREFIX = "lg_rl:";
@@ -103,8 +109,13 @@ export async function runtimeRequestGuard(
       logBlock("rate_limit", 429);
       return { ok: false, status: 429, reason: "rate_limit" };
     }
-    // 3. bot (P11 signals: cf.botManagement + declared-bot/datacenter/UA heuristics)
-    if (isBotSignals(readCfSignals(req), userAgent)) {
+    // 3. bot (P11 signals: cf.botManagement + declared-bot/datacenter/UA
+    // heuristics). SKIPPED for server-to-server /lg/pb (skipBotDetection): a
+    // provider postback is a datacenter IP + non-browser UA by nature, so this
+    // browser heuristic would 403 every legitimate tokened provider (revenue
+    // loss). Its purpose (a browser-IVT wall) applies to /lg/auction, not to a
+    // token-gated S2S endpoint whose auth is LEADGEN_PB_TOKEN_<PROVIDER>. DEV-25.
+    if (opts?.skipBotDetection !== true && isBotSignals(readCfSignals(req), userAgent)) {
       logBlock("bot", 403);
       return { ok: false, status: 403, reason: "bot" };
     }

@@ -205,8 +205,10 @@ export async function dispatchMatchedConversionS2S(
         }
       })
       .catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[lg-s2s] ${platform.platform} pixel failed: ${msg.slice(0, 200)}`);
+        // Log the error NAME only — never the message: a fetch rejection can
+        // embed the request URL, which carries the resolved {auth_token} query
+        // param (§30.3 "access tokens redacted in all logs").
+        console.error(`[lg-s2s] ${platform.platform} pixel failed: ${err instanceof Error ? err.name : "error"}`);
       });
     try {
       ctx.waitUntil(fire);

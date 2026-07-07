@@ -136,6 +136,31 @@ describe("runtimeRequestGuard — bot detection (§30.4, P11 signals)", () => {
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.reason).toBe("bot");
   });
+
+  it("skipBotDetection ⇒ a bot-flagged request is NOT bot-blocked (server-to-server /lg/pb revenue-loss regression, finding 1)", async () => {
+    const botHeaders = { "CF-Connecting-IP": "6.6.6.7", "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)" };
+    // Without the flag the browser-IVT arm blocks it (proves the arm WOULD fire):
+    const { kv } = makeKv();
+    const blocked = await runtimeRequestGuard(makeEnv(kv), req(botHeaders));
+    expect(blocked.ok).toBe(false);
+    // With skipBotDetection (exactly what serveLeadgenPostback passes for /lg/pb)
+    // the SAME request passes — a legitimate provider postback (datacenter IP +
+    // non-browser UA) is never 403'd before its per-provider token gate runs.
+    const { kv: kv2 } = makeKv();
+    const allowed = await runtimeRequestGuard(makeEnv(kv2), req(botHeaders), { skipBotDetection: true });
+    expect(allowed.ok).toBe(true);
+  });
+
+  it("skipBotDetection still enforces the blocklist (only the bot arm is skipped)", async () => {
+    const { kv } = makeKv();
+    const out = await runtimeRequestGuard(
+      makeEnv(kv, { LEADGEN_BLOCKLIST: "6.6.6.7" }),
+      req({ "CF-Connecting-IP": "6.6.6.7", "User-Agent": "Go-http-client/2.0" }),
+      { skipBotDetection: true },
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toBe("blocklist");
+  });
 });
 
 // --- fail-open + clean ---------------------------------------------------------

@@ -169,6 +169,18 @@ describeDb("§26 media-platforms admin CRUD", () => {
     expect(badMult.status).toBe(400);
   });
 
+  it("SSRF: rejects a postback_url_template targeting a private/internal host → 400 (finding 6)", async () => {
+    const env = newEnv();
+    // The cloud-metadata address is the canonical SSRF target for the {auth_token} secret.
+    for (const host of ["http://169.254.169.254/latest/meta-data", "http://127.0.0.1/tr", "http://10.0.0.5/x", "http://localhost/x", "http://metadata.google.internal/x"]) {
+      const res = await admin.request(API, jsonInit("POST", { platform: "p", postback_url_template: `${host}?cid={click_id}` }), env);
+      expect(res.status, `internal host ${host} must be rejected`).toBe(400);
+    }
+    // A legitimate public host still passes.
+    const ok = await admin.request(API, jsonInit("POST", { platform: "pubok", postback_url_template: TEMPLATE }), env);
+    expect(ok.status).toBe(201);
+  });
+
   it("patch: enabled toggle + value_multiplier persisted; delete removes it", async () => {
     const env = newEnv();
     const createRes = await admin.request(API, jsonInit("POST", { platform: "outbrain", postback_url_template: TEMPLATE }), env);

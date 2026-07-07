@@ -243,6 +243,29 @@ describeDb("ingestBrowserPixel — booking + dedupe + cap (§27/§29)", () => {
     expect(capRow?.conversion_count).toBe(1);
   });
 
+  it("does NOT book for a non-browser_side_pixel offer — a safe GIF, no revenue (§27 scope, finding 3)", async () => {
+    const { sdb, env } = newHarness();
+    // An s2s_postback offer books via /lg/pb (§25), NEVER the pixel; a /lg/px hit
+    // for it must be a safe GIF with no booking (else a fabricated in-site
+    // conversion could be injected against any offer's public id).
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_offers
+           (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type,
+            calls_provider_api, bid_source, request_execution_mode, banner_url_template,
+            cap_enabled, cap_amount, cap_timezone, cap_count_by, status)
+         VALUES ('lgo_s2s', 'S2S Offer', 'Prov', 'quote_funnel', 'life', 's2s_postback', 'cpl', 0, 'static', 'server', NULL, 0, 100, 'UTC', 'clicks', 'active')`,
+      )
+      .run();
+    const cap = captureCtx();
+    const res = await ingestBrowserPixel(env, cap.ctx, "lgo_s2s", pxReq("click_id=lgl_c1&conversion_id=cv-1&value=999999&currency=USD"));
+    await settle(cap);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/gif");
+    expect(countRows(sdb, "leadgen_revenue_raw")).toBe(0);
+    expect(countRows(sdb, "leadgen_conversion_log")).toBe(0);
+  });
+
   it("a replay (same click_id, conversion_id) is a no-op — no 2nd revenue row, cap NOT bumped again", async () => {
     const { sdb, env } = newHarness();
     const offerId = seedPixelOffer(sdb, "lgo_pixel");

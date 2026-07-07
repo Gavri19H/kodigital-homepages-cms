@@ -312,13 +312,16 @@ describeDb("recordInSitePayout — in-site dedupe + conversion cap once", () => 
     expect(convCount(sdb, offer.id)).toBe(1); // NOT bumped again
   });
 
-  it("does NOT bump the cap on non-clean (preview/simulate/bot) traffic (§29)", async () => {
+  it("does NOT book revenue OR bump the cap on non-clean (preview/simulate/bot) traffic (§29)", async () => {
     const { sdb, db } = harness();
     seedOffer(sdb, { public_id: "lgo_cap2", cap_enabled: 1, cap_amount: 100, cap_count_by: "conversions", cap_timezone: "UTC" });
     const offer = (await getOfferByPublicId(db, "lgo_cap2")) as OfferRevenueRow;
     const out = await recordInSitePayout(db, offer, "clk4", "d4", DT, 3, "USD", false /* not clean */, NOW);
-    expect(out.recorded).toBe(true);
-    expect(out.capIncremented).toBe(false);
+    // §29: preview/simulate/bot (non-clean) traffic NEVER books revenue — the
+    // writer refuses it (defense-in-depth), so no revenue row and no cap bump.
+    expect(out.recorded).toBe(false);
+    expect(out.capIncremented).not.toBe(true);
+    expect(countRevenueRaw(sdb, "clk4")).toBe(0);
     expect(convCount(sdb, offer.id)).toBe(0);
   });
 

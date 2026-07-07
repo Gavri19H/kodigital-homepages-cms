@@ -351,7 +351,11 @@ async function serveLeadgenAuctionGuarded(c: PublicContext): Promise<Response> {
 // POST/GET /lg/pb/:provider — the §25 provider postback. The §30.4 guard runs
 // FIRST (before any money write); a block returns the guard's status no-store.
 async function serveLeadgenPostback(c: PublicContext): Promise<Response> {
-  const guard = await runtimeRequestGuard(c.env, c.req.raw);
+  // §30.4 guard with skipBotDetection: a provider postback is a datacenter IP +
+  // non-browser UA, so the browser-IVT bot arm would 403 every legitimate
+  // tokened provider (silent revenue loss). blocklist + rate-limit still run;
+  // the per-provider token (§30.2) is this endpoint's legitimate-vs-abuse auth.
+  const guard = await runtimeRequestGuard(c.env, c.req.raw, { skipBotDetection: true });
   if (!guard.ok) return guardBlockResponse(guard);
   const provider = c.req.param("provider") ?? "";
   return ingestProviderPostback(c.env, safeExecutionCtx(c), provider, c.req.raw);

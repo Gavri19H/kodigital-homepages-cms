@@ -268,6 +268,13 @@ export async function recordInSitePayout(
   if (dedupeKey === "") {
     return { recorded: false, reason: "no booking key (underivable dedupe identity)" };
   }
+  if (!clean) {
+    // §29: preview / simulate / bot / internal (non-clean) traffic NEVER books
+    // revenue. Enforced at the money-writer itself (defense-in-depth) so no
+    // caller can book dirty revenue by forgetting to gate — the /lg/px route
+    // also gates on clean, but the writer is the authoritative refusal.
+    return { recorded: false, reason: "non-clean traffic never books revenue (§29)" };
+  }
   const value =
     typeof revenue === "number" && Number.isFinite(revenue) && revenue >= 0 ? revenue : 0;
   const cur = (typeof currency === "string" ? currency : "").trim() || "USD";

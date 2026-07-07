@@ -145,6 +145,19 @@ function readPresentedToken(req: Request, url: URL): string {
   return (url.searchParams.get("token") ?? "").trim();
 }
 
+// Constant-time-ish string compare for the shared postback token (§30.2
+// defense-in-depth): the loop runs over the max length and folds a length
+// mismatch into the accumulator, so it never early-outs on the first differing
+// char (no positional timing signal). charCodeAt past the end is NaN → 0.
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
 // The auth fields stripped from the persisted (redacted) payload copy so a
 // shared secret never lands at rest (§30.2), even the ?token= query param.
 const AUTH_FIELDS: readonly string[] = [
@@ -179,7 +192,7 @@ export async function ingestProviderPostback(
   const expected = readEnvSecret(env, `LEADGEN_PB_TOKEN_${prov.toUpperCase()}`);
   if (expected === undefined) return jsonNoStore({ error: "unauthorized" }, 401);
   const presented = readPresentedToken(req, url);
-  if (presented === "" || presented !== expected) return jsonNoStore({ error: "unauthorized" }, 401);
+  if (presented === "" || !timingSafeEqualStr(presented, expected)) return jsonNoStore({ error: "unauthorized" }, 401);
 
   // (b) PARSE the POST JSON body (corrupt ⇒ 400, never a throw) merged over the
   // query params (a GET-style provider carries everything in the query).
@@ -232,8 +245,11 @@ export async function ingestProviderPostback(
   for (const field of AUTH_FIELDS) delete logPayload[field];
 
   // (f) NEVER 500 into the provider: every post-validation step is wrapped so a
-  // storage hiccup returns a controlled 200 (the durable postback_log + §29
-  // daily reconciliation are the backstop), never an unhandled 500.
+  // storage hiccup returns a controlled 200, never an unhandled 500. A booking
+  // failure AFTER the dedup row is written is NOT silently dropped — the catch
+  // removes the dedup row so the provider's retry re-books (see the catch).
+  let logRecorded = false;
+  let handled = false;
   try {
     // (c) DEDUPE via leadgen_postback_log (provider, external_txn_id). A replay
     // (or an undedupable row) is recorded=false ⇒ an idempotent 200 no-op, no
@@ -251,16 +267,27 @@ export async function ingestProviderPostback(
       { now },
     );
     if (!log.recorded) return jsonNoStore({ status: "duplicate" }, 200);
+    logRecorded = true;
 
     // (d) BOOKING RULE (§25). A resolvable Offer drives decideBooking; an
     // unresolved Offer defaults to booking on conversion (a postback IS a
     // conversion signal — every conversion-triggered offer_type books, only an
     // explicitly click-booked CPC would not, which needs the Offer to detect).
     const offer = offerPublicId !== "" ? await getOfferByPublicId(env.DB, offerPublicId) : null;
+    // §27 cross-channel de-dup: a browser_side_pixel Offer books its conversions
+    // via the /lg/px pixel (leadgen_conversion_log). Booking a provider postback
+    // for that SAME offer would double-count revenue + double-notify S2S, so a
+    // resolved browser_side_pixel offer is deduped/logged (the postback_log row
+    // above) but NOT booked here. An UNRESOLVED offer (offer_public_id absent/
+    // unknown) still books on conversion (attribution by click_id, §29) — a
+    // postback IS a conversion signal and only a click-booked CPC (which needs
+    // the Offer row to detect) would not book.
     const decision: BookingDecision =
-      offer !== null
-        ? decideBooking({ offer_type: offer.offer_type, signal: "conversion", source: "s2s_postback" })
-        : { book: true, booking_trigger: "conversion", reason: "postback conversion (offer unresolved) books on conversion" };
+      offer === null
+        ? { book: true, booking_trigger: "conversion", reason: "postback conversion (offer unresolved) books on conversion" }
+        : offer.conversion_tracking_method === "browser_side_pixel"
+          ? { book: false, booking_trigger: "conversion", reason: "browser_side_pixel offer books via /lg/px, not the postback (cross-channel de-dup)" }
+          : decideBooking({ offer_type: offer.offer_type, signal: "conversion", source: "s2s_postback" });
 
     if (decision.book) {
       const revenueUsd = await computeRevenueUsd(env.DB, dt, currency, revenue.value);
@@ -302,10 +329,31 @@ export async function ingestProviderPostback(
         });
       }
     }
+    // Booked, queued, or intentionally not-booked (browser_side_pixel / no-book
+    // decision) — the postback is fully handled; the dedup row is authoritative.
+    handled = true;
   } catch (err) {
-    // §25 posture: a provider is NEVER handed a 500. Log server-side (no PII)
-    // and ack; the postback_log row + §29 reconciliation surface any residual.
-    console.error(`[lg-pb] ${prov} ingest error: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`);
+    // §25 posture: a provider is NEVER handed a 500 (server-side log — err.name
+    // only, never a message that could echo a payload fragment — then ack 200).
+    // A booking failure AFTER the dedup row was written would otherwise SILENTLY
+    // DROP the conversion (the provider's retry hits the (provider,
+    // external_txn_id) dedup ⇒ 200 no-op, never re-booked). Remove the dedup row
+    // so the retry re-processes it — SAFE because any throw here means no revenue
+    // write COMMITTED (D1 statement atomicity; dispatchMatchedConversionS2S never
+    // throws), so a clean re-book cannot double-count. Best-effort; if the delete
+    // also fails the row remains and §29 reconciliation is the coarse backstop.
+    console.error(`[lg-pb] ${prov} ingest error: ${err instanceof Error ? err.name : "error"}`);
+    if (logRecorded && !handled) {
+      try {
+        await env.DB.prepare(
+          "DELETE FROM leadgen_postback_log WHERE provider = ? AND external_txn_id = ?",
+        )
+          .bind(prov, externalTxnId)
+          .run();
+      } catch {
+        /* best-effort; §29 reconciliation is the coarse backstop */
+      }
+    }
     return jsonNoStore({ status: "accepted" }, 200);
   }
 
@@ -330,6 +378,11 @@ export async function ingestBrowserPixel(
     const offerPid = token.trim();
     const offer = offerPid !== "" ? await getOfferByPublicId(env.DB, offerPid) : null;
     if (offer === null) return gifNoStore();
+    // §27: the browser pixel books ONLY offers whose conversion_tracking_method
+    // is 'browser_side_pixel'. A postback/script offer's conversions arrive via
+    // /lg/pb (§25); booking them here too would double-count + double-notify.
+    // A non-pixel (or paused-status) offer ⇒ a safe GIF with NO booking.
+    if (offer.conversion_tracking_method !== "browser_side_pixel") return gifNoStore();
 
     const url = new URL(req.url);
     const clickId = (url.searchParams.get("click_id") ?? "").trim();

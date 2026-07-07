@@ -37,10 +37,36 @@ const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
 const PLATFORM_RE = /^[a-z0-9_]+$/;
 const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f]/;
 
+// SSRF hardening: a private / link-local / loopback / cloud-metadata host is
+// never a legitimate media-platform postback endpoint. Blocked even for a
+// (CF-Access-gated) admin so a mis- or maliciously-configured template cannot
+// send the {auth_token} secret to an internal address. The host is already
+// macro-free (authority check below), so parsed.hostname is the literal host.
+function isInternalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h === "metadata.google.internal" || h.endsWith(".internal")) return true;
+  if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true; // IPv6 loopback
+  if (h.startsWith("fe80")) return true; // IPv6 link-local
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // IPv6 unique-local (fc00::/7)
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/);
+  if (m !== null) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 0 || a === 127 || a === 10) return true; // this-host / loopback / private
+    if (a === 169 && b === 254) return true; // link-local + cloud metadata 169.254.169.254
+    if (a === 192 && b === 168) return true; // private
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  }
+  return false;
+}
+
 // §26 template rules: absolute http(s), no control chars, no macro in the
 // host/authority position (a client-influenced dim can never choose the
-// destination host). The S2S template legitimately uses the {value}/{currency}/
-// {event_name}/{auth_token} macros (distinct from the Offer macro registry).
+// destination host), and no private/internal host (SSRF). The S2S template
+// legitimately uses the {value}/{currency}/{event_name}/{auth_token} macros
+// (distinct from the Offer macro registry).
 function validatePlatformTemplate(raw: string): string | null {
   const t = raw.trim();
   if (t === "") return "postback_url_template is required";
@@ -52,6 +78,9 @@ function validatePlatformTemplate(raw: string): string | null {
     const parsed = new URL(t.replace(MACRO_TOKEN_RE, "x"));
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return "postback_url_template must use the http or https scheme";
+    }
+    if (isInternalHost(parsed.hostname)) {
+      return "postback_url_template must not target a private/internal host";
     }
   } catch {
     return "postback_url_template is not a parseable URL";

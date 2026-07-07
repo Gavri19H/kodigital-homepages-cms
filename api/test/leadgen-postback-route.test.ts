@@ -343,6 +343,34 @@ describeDb("ingestProviderPostback — booking + attribution (§25/§29)", () =>
     // …but the same CPC Offer books on a conversion signal.
     expect(decideBooking({ offer_type: "cpc", signal: "conversion", source: "s2s_postback" }).book).toBe(true);
   });
+
+  it("a browser_side_pixel offer's postback is deduped/logged but NOT booked (cross-channel de-dup, finding 2)", async () => {
+    const { sdb, env } = newHarness();
+    // A browser_side_pixel offer books its conversions via /lg/px; a provider
+    // postback for that SAME offer must NOT also book (else it double-counts +
+    // double-notifies once ClickHouse attribution runs).
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_offers
+           (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type,
+            calls_provider_api, bid_source, request_execution_mode, banner_url_template,
+            cap_enabled, cap_amount, cap_timezone, cap_count_by, status)
+         VALUES ('lgo_pix', 'Pixel Offer', 'Prov', 'quote_funnel', 'life', 'browser_side_pixel', 'cpa', 0, 'static', 'server', NULL, 0, 100, 'UTC', 'clicks', 'active')`,
+      )
+      .run();
+    const cap = captureCtx();
+    const res = await ingestProviderPostback(
+      env,
+      cap.ctx,
+      "testprov",
+      postReq(goodBody({ external_txn_id: "txn-pix", offer_public_id: "lgo_pix" }), { "X-Postback-Token": "pb-secret" }),
+    );
+    await settle(cap);
+    expect(res.status).toBe(200);
+    expect(countRows(sdb, "leadgen_postback_log")).toBe(1); // deduped / logged
+    expect(countRows(sdb, "leadgen_revenue_raw")).toBe(0); // NOT booked
+    expect(countRows(sdb, "leadgen_revenue_unmatched")).toBe(0); // NOT queued either
+  });
 });
 
 describeDb("ingestProviderPostback — §26 S2S dispatch on a CH-matched conversion", () => {
@@ -442,6 +470,27 @@ describeDb("POST/GET /lg/pb/:provider — mounted (§4.3 no-store, guard, mount 
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(countRows(sdb, "leadgen_revenue_unmatched")).toBe(0); // guard blocked before ingest
     expect(countRows(sdb, "leadgen_postback_log")).toBe(0);
+  });
+
+  it("§30.4 guard does NOT bot-block a tokened server postback: a datacenter/bot UA ⇒ 200 + books (finding 1)", async () => {
+    const { sdb, env } = newHarness();
+    seedOffer(sdb, "lgo_x", "cpl");
+    const res = await app.request(
+      `${TENANT_ORIGIN}/lg/pb/testprov`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Postback-Token": "pb-secret",
+          "CF-Connecting-IP": "6.6.6.7",
+          "User-Agent": "Go-http-client/2.0", // a real provider S2S client UA (browser-IVT would flag it)
+        },
+        body: JSON.stringify(goodBody()),
+      },
+      env,
+    );
+    expect(res.status).toBe(200); // NOT 403 — the browser-IVT bot arm is skipped for /lg/pb
+    expect(countRows(sdb, "leadgen_revenue_unmatched")).toBe(1); // the conversion was captured (CH absent ⇒ unmatched queue)
   });
 
   it("the ADMIN host ⇒ 404 (tenant-host only, via the /lg mount middleware)", async () => {
