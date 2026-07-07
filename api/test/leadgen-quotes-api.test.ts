@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { isPublicId, mintPublicId } from "../src/leadgen/ids";
+import { assignVariant } from "../src/public/leadgen/ab-hash";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -656,8 +657,8 @@ describeDb("§15.6 analytics — per-funnel NULLIF ratios at read", () => {
   });
 });
 
-describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only)", () => {
-  it("creates an ab_test (draft) with a P8 allocation note; start → running, stop → stopped", async () => {
+describeDb("A/B — §16.2 allocation + lifecycle (P8)", () => {
+  it("creates an ab_test (draft) with a §16.2 allocation note; a single-variant (Σ=10000) start → running, stop → stopped", async () => {
     const { env } = newHarness();
     const q = await createQuote(env);
     const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", { name: "Test 1" }), env);
@@ -665,8 +666,11 @@ describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only
     const cj = (await create.json()) as { public_id: string; status: string; allocation_note: string };
     expect(isPublicId("funnel_ab_test", cj.public_id)).toBe(true);
     expect(cj.status).toBe("draft");
-    expect(cj.allocation_note).toMatch(/P8/);
+    // the note now describes the LIVE Σ==10000 rule (no longer "ships in P8").
+    expect(cj.allocation_note).toMatch(/10000/);
+    expect(cj.allocation_note).not.toMatch(/ships in P8/i);
 
+    // single control variant defaults to bp 10000 → Σ==10000 → start succeeds.
     const start = await admin.request(`${API}/experiments/${cj.public_id}/start`, { method: "POST" }, env);
     expect(((await start.json()) as { status: string }).status).toBe("running");
 
@@ -678,6 +682,107 @@ describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only
 
     const stop = await admin.request(`${API}/experiments/${cj.public_id}/stop`, { method: "POST" }, env);
     expect(((await stop.json()) as { status: string }).status).toBe("stopped");
+  });
+
+  it("start REJECTS a test whose active variants' bp do NOT sum to 10000 (§16.2 Σ gate)", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    // fork the control → a 2nd active variant that COPIES bp 10000 → Σ = 20000.
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    expect(fork.status).toBe(201);
+    const forked = (await fork.json()) as { public_id: string };
+
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+
+    // Σ = 20000 ≠ 10000 → start 400 with a traffic_allocation_bp field error.
+    const bad = await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env);
+    expect(bad.status, `start should reject Σ≠10000`).toBe(400);
+    const badBody = (await bad.json()) as { error: string; fields: Record<string, string> };
+    expect(badBody.fields.traffic_allocation_bp).toMatch(/10000/);
+    // it did NOT start — the structure (which now surfaces ab_tests) shows draft.
+    const struct1 = (await (await admin.request(`${API}/quotes/${q.public_id}/structure`, {}, env)).json()) as {
+      funnels: Array<{ ab_tests: Array<{ public_id: string; status: string }> }>;
+    };
+    const abRow1 = struct1.funnels[0]!.ab_tests.find((t) => t.public_id === ab.public_id);
+    expect(abRow1?.status).toBe("draft");
+
+    // split 50/50 (bp 5000 each) → Σ = 10000 → start succeeds AND bumps revision.
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+    expect((await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env)).status).toBe(200);
+    const ok = await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env);
+    expect(ok.status, `start should accept Σ==10000: ${await ok.clone().text()}`).toBe(200);
+    const okBody = (await ok.json()) as { status: string; revision: number };
+    expect(okBody.status).toBe("running");
+    // create seeds revision=1; start bumps to 2 (§16.2 re-bucket).
+    expect(okBody.revision).toBe(2);
+  });
+
+  it("a per-variant allocation SAVE that breaks a RUNNING test's Σ==10000 is rejected; the guard lifts after stop", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    const forked = (await fork.json()) as { public_id: string };
+    // draft editing is free (no running test) → split 50/50, then start.
+    await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+    expect((await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env)).status).toBe(200);
+
+    // While RUNNING: bumping one arm to 6000 (→ Σ 11000) breaks the invariant → 400.
+    const bad = await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 6000 }), env);
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { fields: Record<string, string> }).fields.traffic_allocation_bp).toMatch(/10000/);
+
+    // a NON-allocation save (lander only) is unaffected by the guard while running.
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { lander_headline: "Hi" }), env)).status).toBe(200);
+
+    // stop the test → per-variant allocation edits are free again (draft-style).
+    await admin.request(`${API}/experiments/${ab.public_id}/stop`, { method: "POST" }, env);
+    expect((await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 6000 }), env)).status).toBe(200);
+  });
+
+  it("assignment-preview returns the SAME variant + bucket assignVariant computes (zero drift)", async () => {
+    const { env } = newHarness();
+    const q = await createQuote(env);
+    const control = q.funnels[0]!.variants[0]!.public_id;
+    const fork = await admin.request(`${API}/variants/${control}/fork`, { method: "POST" }, env);
+    const forked = (await fork.json()) as { public_id: string };
+    await admin.request(`${API}/variants/${control}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    await admin.request(`${API}/variants/${forked.public_id}`, jsonInit("PUT", { traffic_allocation_bp: 5000 }), env);
+    const create = await admin.request(`${API}/quotes/${q.public_id}/experiments`, jsonInit("POST", {}), env);
+    const ab = (await create.json()) as { public_id: string };
+    const started = (await (await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env)).json()) as {
+      public_id: string;
+      revision: number;
+    };
+
+    // arms exactly as the runtime resolver sees them (funnel-scoped, from structure).
+    const struct = (await (await admin.request(`${API}/quotes/${q.public_id}/structure`, {}, env)).json()) as {
+      funnels: Array<{ variants: Array<{ public_id: string; variant_label: string; traffic_allocation_bp: number; status: string }> }>;
+    };
+    const arms = struct.funnels[0]!.variants
+      .filter((v) => v.status === "active")
+      .map((v) => ({ variant_label: v.variant_label, traffic_allocation_bp: v.traffic_allocation_bp, public_id: v.public_id }));
+
+    for (const sid of ["preview-a", "preview-b", "preview-c"]) {
+      const expected = assignVariant(started.public_id, started.revision, sid, arms);
+      const res = await admin.request(
+        `${API}/experiments/${ab.public_id}/assignment-preview?session_id=${encodeURIComponent(sid)}`,
+        {},
+        env,
+      );
+      expect(res.status, `preview ${sid}`).toBe(200);
+      const body = (await res.json()) as { assignment_bucket: number; variant: { funnel_variant_id: string } };
+      expect(body.variant.funnel_variant_id).toBe(expected.variant.public_id);
+      expect(body.assignment_bucket).toBe(expected.assignment_bucket);
+    }
+
+    // a missing session_id is a clean 400.
+    expect((await admin.request(`${API}/experiments/${ab.public_id}/assignment-preview`, {}, env)).status).toBe(400);
   });
 
   it("POST /variants/:id/fork clones sections+rules into a NEW lgn_ variant", async () => {

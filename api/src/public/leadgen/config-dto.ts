@@ -20,6 +20,7 @@
 
 import type { ResolvedActivatedFunnel } from "./resolver";
 import type { FunnelDesign } from "./designs/registry";
+import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
 import type {
   LeadgenComponentNode,
@@ -86,11 +87,18 @@ export interface LeadgenPublicConfig {
   design_tokens: Record<string, unknown>;
   section_order_hash: string;
   ga4_measurement_id: string | null;
-  // A/B fields (§24b). P8 seam: P8 populates these from the running test +
-  // ab-hash assignment; P7 serves the single control variant.
+  // §16.3 A/B tracking dims (contract 06). VARIANT/TEST-scoped — stable for this
+  // cacheable per-variant config entry — so they belong on /lg/config. The
+  // per-SESSION `assignment_bucket` is deliberately NOT here: /lg/config stays
+  // fully cacheable with no per-session data (§8.3 / §30.4). The shell injects
+  // the bucket per request and the client recomputes it identically from
+  // funnel_ab_test_id + funnel_ab_test_revision + its own ko_sid (§16.2
+  // edge/client parity). funnel_ab_test_id/revision are ""/0 on single_control.
   funnel_ab_test_id: string;
   funnel_ab_test_revision: number;
-  assignment_reason: string;
+  variant_label: string;
+  traffic_allocation_bp: number;
+  assignment_reason: LeadgenAssignmentReason;
   sections: PublicSectionConfig[];
 }
 
@@ -209,10 +217,14 @@ export function buildPublicConfig(
     design_tokens: design as unknown as Record<string, unknown>,
     section_order_hash: computeSectionOrderHash(resolved),
     ga4_measurement_id: resolved.ga4_measurement_id,
-    // P8 seam — single control variant this phase.
-    funnel_ab_test_id: "",
-    funnel_ab_test_revision: 0,
-    assignment_reason: "single_control",
+    // §16.3 A/B dims from the resolver's assignment (ab_hash when a test runs,
+    // single_control otherwise). The session bucket is intentionally omitted
+    // (per-session; see the LeadgenPublicConfig field comment).
+    funnel_ab_test_id: resolved.assignment.funnel_ab_test_id,
+    funnel_ab_test_revision: resolved.assignment.funnel_ab_test_revision,
+    variant_label: resolved.assignment.variant_label,
+    traffic_allocation_bp: resolved.assignment.traffic_allocation_bp,
+    assignment_reason: resolved.assignment.assignment_reason,
     sections,
   };
 }

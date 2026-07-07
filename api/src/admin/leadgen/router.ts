@@ -59,6 +59,7 @@ import {
   deleteActivationHandler,
   deleteFunnelHandler,
   deleteQuoteHandler,
+  experimentAssignmentPreviewHandler,
   forkVariantHandler,
   getFunnelHandler,
   getQuoteHandler,
@@ -213,9 +214,12 @@ routes.get("/quotes/:id", getQuoteHandler);
 routes.patch("/quotes/:id", patchQuoteHandler);
 routes.delete("/quotes/:id", deleteQuoteHandler);
 
-// A/B lifecycle (P8 seam — create + start/stop only, NO §16.2 allocation).
+// A/B lifecycle (§16.2): create + start/stop; start enforces the per-test
+// Σ==10000 allocation gate. assignment-preview shows which variant a sample
+// session buckets to (reuses the runtime assignVariant — zero drift).
 routes.post("/experiments/:id/start", startExperimentHandler);
 routes.post("/experiments/:id/stop", stopExperimentHandler);
+routes.get("/experiments/:id/assignment-preview", experimentAssignmentPreviewHandler);
 
 // Variants — static suffixes (/fork, /preview) BEFORE the bare /variants/:id PUT.
 routes.post("/variants/:id/fork", forkVariantHandler);

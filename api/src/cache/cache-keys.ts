@@ -177,20 +177,27 @@ export const LEADGEN_TEMPLATE_VERSION = 1 as const;
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
 
-// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{content_version}:{template_version}
-// (§28). site_id first so per-site list+invalidate stays cheap
-// (env.CACHE.list({ prefix: "lg-shell:{siteId}:" })), versions as suffix so a
-// content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The
-// single enabled root activation (NULL slug — at most one per site, §17.1) uses
-// the EMPTY slug segment; a named activation uses its slug.
+// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{template_version}
+// (§28). The §16.2 A/B assignment is a cheap deterministic edge hash that picks
+// WHICH variant to serve, and "the shell is cached per variant" (§28) — so
+// funnel_variant_id is IN the key. A running 2-variant test then serves two
+// DISTINCT cached shells (one per assigned variant); WITHOUT the variant segment
+// two variants sharing a content_version (every variant defaults to 1) collide on
+// one entry and serve the wrong variant's shell body (data-funnel-variant-id +
+// per-variant design CSS). site_id first so per-site list+invalidate stays cheap
+// (env.CACHE.list({ prefix: "lg-shell:{siteId}:" })); versions as suffix so a
+// content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The single
+// enabled root activation (NULL slug — at most one per site, §17.1) uses the
+// EMPTY slug segment; a named activation uses its slug.
 export function leadgenShellKey(
   siteId: string,
   quoteSlug: string | null,
   funnelId: string,
+  funnelVariantId: string,
   contentVersion: number,
 ): string {
   const slugSeg = quoteSlug ?? "";
-  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
+  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${funnelVariantId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
 }
 
 // lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}. The

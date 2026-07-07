@@ -7,7 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 import { buildPublicConfig, computeSectionOrderHash } from "../src/public/leadgen/config-dto";
-import type { ResolvedActivatedFunnel, ResolvedFunnelSection } from "../src/public/leadgen/resolver";
+import type {
+  ResolvedActivatedFunnel,
+  ResolvedFunnelSection,
+  FunnelAssignment,
+} from "../src/public/leadgen/resolver";
 import { getFunnelDesign } from "../src/public/leadgen/designs/registry";
 import { mintPublicId } from "../src/leadgen/ids";
 import type {
@@ -67,9 +71,19 @@ const CLIENT_SAFE_SECTION_JSON = JSON.stringify({
   ],
 });
 
+const SINGLE_CONTROL_ASSIGNMENT: FunnelAssignment = {
+  funnel_ab_test_id: "",
+  funnel_ab_test_revision: 0,
+  variant_label: "A",
+  traffic_allocation_bp: 10000,
+  assignment_bucket: null,
+  assignment_reason: "single_control",
+};
+
 function buildResolved(overrides?: {
   sectionVersions?: number[];
   ga4?: string | null;
+  assignment?: FunnelAssignment;
 }): ResolvedActivatedFunnel {
   const versions = overrides?.sectionVersions ?? [1, 1];
   const sections: ResolvedFunnelSection[] = versions.map((cv, i) => ({
@@ -142,6 +156,7 @@ function buildResolved(overrides?: {
     variant,
     sections,
     ga4_measurement_id: overrides?.ga4 === undefined ? "G-TEST123" : overrides.ga4,
+    assignment: overrides?.assignment ?? SINGLE_CONTROL_ASSIGNMENT,
   };
 }
 
@@ -303,5 +318,35 @@ describe("buildPublicConfig — the server-only strip boundary is the node level
     // future change that routes server-only data through props MUST add filtering
     // — this lock will flag the behavior change.
     expect(JSON.stringify(config).includes("PROPS_LEVEL_VALUE_XZ")).toBe(true);
+  });
+});
+
+// §16.3 A/B tracking dims on the ab_hash path — the config surfaces the
+// VARIANT/TEST-scoped dims but MUST NOT carry the per-session assignment_bucket
+// (contract 03 §8.3 + 09 §30.4: /lg/config is fully cacheable, no per-session
+// data; the client recomputes the bucket per §16.2 edge/client parity).
+describe("buildPublicConfig — §16.3 ab_hash dims (running test)", () => {
+  const abAssignment: FunnelAssignment = {
+    funnel_ab_test_id: "lgx_test123",
+    funnel_ab_test_revision: 3,
+    variant_label: "B",
+    traffic_allocation_bp: 4000,
+    assignment_bucket: 6543, // per-session — must never reach the cacheable config
+    assignment_reason: "ab_hash",
+  };
+  const config = buildPublicConfig(buildResolved({ assignment: abAssignment }), getFunnelDesign("default"));
+
+  it("surfaces the variant/test-scoped §16.3 dims", () => {
+    expect(config.assignment_reason).toBe("ab_hash");
+    expect(config.funnel_ab_test_id).toBe("lgx_test123");
+    expect(config.funnel_ab_test_revision).toBe(3);
+    expect(config.variant_label).toBe("B");
+    expect(config.traffic_allocation_bp).toBe(4000);
+  });
+
+  it("does NOT carry the per-session assignment_bucket (config stays session-free)", () => {
+    const serialized = JSON.stringify(config);
+    expect(serialized.includes("assignment_bucket")).toBe(false);
+    expect(serialized.includes("6543")).toBe(false);
   });
 });
