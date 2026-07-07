@@ -369,9 +369,12 @@ describeDb("leadgen shell routes (01 §5.2 / 03 §9)", () => {
         expect(html).not.toMatch(/<button[^>]*disabled[^>]*>\+ Create a Quote/);
         expect(html).not.toContain("ships in a later phase");
       } else {
-        // Phase-3 scaffold anatomy: disabled Create button + phase note
-        expect(html).toMatch(/<button[^>]*disabled[^>]*>\+ Create a/);
-        expect(html).toContain("ships in a later phase");
+        // Phase-9 Stage B: the Auction tab is LIVE — an ENABLED Create link to
+        // the full-page editor (leadgen-auctions-ui.test.ts covers the full live
+        // anatomy). No scaffold Create button / phase note remains.
+        expect(html).toContain("data-create-auction");
+        expect(html).not.toMatch(/<button[^>]*disabled[^>]*>\+ Create an Auction/);
+        expect(html).not.toContain("ships in a later phase");
       }
     }
   });

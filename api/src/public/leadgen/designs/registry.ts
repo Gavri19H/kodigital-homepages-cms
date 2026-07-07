@@ -16,15 +16,17 @@
 
 import { defaultFunnelDesign } from "./default-funnel/tokens";
 import type { DefaultFunnelDesign } from "./default-funnel/tokens";
+import { BANNER_DEFAULT_ID, bannerDefaultDesign } from "./banner-default/tokens";
 
 // A funnel visual design has the shape of the measured default (the token
 // contract every design conforms to). Additional designs added over time
 // (e.g. a green/blue skin, §14.1) provide the same token groups.
 export type FunnelDesign = DefaultFunnelDesign;
 
-// The banner sub-design (§20 parallel banner registry). Its token group
-// already lives in the funnel design's `banner` slot (tokens.ts); this type
-// exposes it as a first-class sub-design.
+// The banner sub-design (§20 parallel banner registry). The banner token group
+// is owned by the dedicated banner-default module (banner-default/tokens.ts),
+// which re-references the funnel design's measured `banner` slot verbatim — so
+// this type is still structurally the funnel design's banner group.
 export type BannerDesign = DefaultFunnelDesign["banner"];
 
 // Registry of available funnel designs keyed by id. `default-funnel` is
@@ -36,10 +38,13 @@ export const FUNNEL_DESIGNS: Record<string, FunnelDesign> = {
   [defaultFunnelDesign.id]: defaultFunnelDesign,
 };
 
-// Parallel registry of banner sub-designs (§20), keyed the same way.
+// Parallel registry of banner sub-designs (§20), keyed the same way: under
+// `default` (the resolver fallback), the canonical banner id `banner-default`,
+// and the funnel design id (a funnel_design_id resolves its banner too).
 export const BANNER_DESIGNS: Record<string, BannerDesign> = {
-  default: defaultFunnelDesign.banner,
-  [defaultFunnelDesign.id]: defaultFunnelDesign.banner,
+  default: bannerDefaultDesign,
+  [BANNER_DEFAULT_ID]: bannerDefaultDesign,
+  [defaultFunnelDesign.id]: bannerDefaultDesign,
 };
 
 // Resolve a funnel visual design by id. Absent OR unknown id → the default
@@ -52,6 +57,6 @@ export function getFunnelDesign(id?: string | null): FunnelDesign {
 // Resolve a banner sub-design by id. Absent OR unknown id → the default
 // banner sub-design (same fallback rule).
 export function getBannerDesign(id?: string | null): BannerDesign {
-  if (id === undefined || id === null || id === "") return defaultFunnelDesign.banner;
-  return BANNER_DESIGNS[id] ?? defaultFunnelDesign.banner;
+  if (id === undefined || id === null || id === "") return bannerDefaultDesign;
+  return BANNER_DESIGNS[id] ?? bannerDefaultDesign;
 }

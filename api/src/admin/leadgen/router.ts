@@ -14,15 +14,12 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../env";
-import type { PublicIdKind } from "../../leadgen/ids";
 import {
-  buildPaging,
   createOfferHandler,
   createPayloadSchemaFromExampleHandler,
   createPayloadSchemaHandler,
   deleteOfferHandler,
   getOfferHandler,
-  idSelector,
   listActivitiesHandler,
   listOffersHandler,
   listPayloadSchemasHandler,
@@ -30,11 +27,8 @@ import {
   offerAnalyticsHandler,
   offerCapHandler,
   offerUsageHandler,
-  parseJsonColumn,
-  parsePaging,
   patchOfferHandler,
   searchOffersHandler,
-  type AdminContext,
 } from "./offers-handlers";
 import { testOfferHandler } from "./payload-builder-handlers";
 import {
@@ -78,78 +72,26 @@ import {
   startExperimentHandler,
   stopExperimentHandler,
 } from "./quotes-handlers";
-import type {
-  LeadgenAuctionRow,
-  LeadgenAuctionApi,
-} from "./db-types";
+import {
+  auctionAnalyticsHandler,
+  auctionSimulateHandler,
+  createAuctionHandler,
+  createAuctionRuleHandler,
+  deleteAuctionHandler,
+  deleteAuctionRuleHandler,
+  getAuctionBannerHandler,
+  getAuctionHandler,
+  getAuctionOffersHandler,
+  listAuctionRulesHandler,
+  listAuctionsHandler,
+  patchAuctionHandler,
+  patchAuctionRuleHandler,
+  putAuctionBannerHandler,
+  putAuctionOffersHandler,
+} from "./auctions-handlers";
 
 // ui.ts + the admin-shell tests consume the 03 §8.4 paging shape from here.
 export type { Paging } from "./offers-handlers";
-
-// --- Row→API mapping (03 §8.5: INTEGER bools → boolean, JSON → parsed) ------
-// Sections own their Row→API mapping in sections-handlers.ts (the full §8.2
-// Sections surface ships there); quotes + auctions keep the Phase-3 skeleton.
-
-function auctionRowToApi(row: LeadgenAuctionRow): LeadgenAuctionApi {
-  return {
-    ...row,
-    mixed_payout_warn: row.mixed_payout_warn !== 0,
-    surface_static_bid_offers: row.surface_static_bid_offers !== 0,
-    remove_clicked_offers: row.remove_clicked_offers !== 0,
-    banner_config_json: parseJsonColumn(row.banner_config_json),
-  };
-}
-
-// --- Phase-3 skeleton handlers (sections / quotes / auctions) ----------------
-//
-// `table` is a fixed literal from the union below (the readEntityMetrics
-// pattern) — user input only ever travels through .bind().
-
-type LeadgenEntityTable = "leadgen_sections" | "leadgen_quotes" | "leadgen_auctions";
-
-// GET list — `{ items, paging }` (03 §8.4; filters/search ship with each
-// entity's own phase, ?page/?page_size are live now).
-function listHandler<Row, Api>(
-  table: LeadgenEntityTable,
-  toApi: (row: Row) => Api,
-): (c: AdminContext) => Promise<Response> {
-  return async (c) => {
-    const { page, pageSize, offset } = parsePaging(c);
-    const rows = await c.env.DB.prepare(
-      `SELECT * FROM ${table} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
-    )
-      .bind(pageSize, offset)
-      .all<Row>();
-    const totalRow = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{
-      n: number;
-    }>();
-    const total = Number(totalRow?.n ?? 0);
-    return c.json({
-      items: (rows.results ?? []).map(toApi),
-      paging: buildPaging(page, pageSize, total),
-    });
-  };
-}
-
-// GET /:id — the mapped API object at the top level (`{ ...entity }`,
-// 03 §8.4); unknown / malformed / foreign-kind ids → 404 `{ error }`.
-function getHandler<Row, Api>(
-  kind: PublicIdKind,
-  table: LeadgenEntityTable,
-  toApi: (row: Row) => Api,
-): (c: AdminContext) => Promise<Response> {
-  return async (c) => {
-    const selector = idSelector(kind, c.req.param("id") ?? "");
-    if (selector === null) return c.json({ error: "Not Found" }, 404);
-    const sql =
-      selector.column === "id"
-        ? `SELECT * FROM ${table} WHERE id = ? LIMIT 1`
-        : `SELECT * FROM ${table} WHERE public_id = ? LIMIT 1`;
-    const row = await c.env.DB.prepare(sql).bind(selector.value).first<Row>();
-    if (!row) return c.json({ error: "Not Found" }, 404);
-    return c.json({ ...toApi(row) });
-  };
-}
 
 const routes = new Hono<{ Bindings: Env }>();
 
@@ -234,10 +176,27 @@ routes.get("/funnels/:id", getFunnelHandler);
 routes.patch("/funnels/:id", patchFunnelHandler);
 routes.delete("/funnels/:id", deleteFunnelHandler);
 
-// --- Auctions (03 §8.2 — API entity path is plural; the HTML tab path is
-// singular /admin/leadgen/auction per contract 01 §5.2) -----------------------
-routes.get("/auctions", listHandler<LeadgenAuctionRow, LeadgenAuctionApi>("leadgen_auctions", auctionRowToApi));
-routes.get("/auctions/:id", getHandler<LeadgenAuctionRow, LeadgenAuctionApi>("auction", "leadgen_auctions", auctionRowToApi));
+// --- Auctions (03 §8.2 + 07 §18–§21 — Phase-9 Stage B full surface) ----------
+// The API entity path is PLURAL; the HTML tab path is singular /admin/leadgen/
+// auction (contract 01 §5.2). Deeper /auctions/:id/<sub> paths + the rule
+// /:rule_id paths register BEFORE the bare /auctions/:id (03 §8.1
+// static/deeper-before-param discipline). /auctions/:id/simulate is the P10
+// runtime seam (501 — the §19 dry-run engine ships in Phase 10).
+routes.get("/auctions", listAuctionsHandler);
+routes.post("/auctions", createAuctionHandler);
+routes.get("/auctions/:id/offers", getAuctionOffersHandler);
+routes.put("/auctions/:id/offers", putAuctionOffersHandler);
+routes.get("/auctions/:id/rules", listAuctionRulesHandler);
+routes.post("/auctions/:id/rules", createAuctionRuleHandler);
+routes.patch("/auctions/:id/rules/:rule_id", patchAuctionRuleHandler);
+routes.delete("/auctions/:id/rules/:rule_id", deleteAuctionRuleHandler);
+routes.get("/auctions/:id/banner", getAuctionBannerHandler);
+routes.put("/auctions/:id/banner", putAuctionBannerHandler);
+routes.get("/auctions/:id/analytics", auctionAnalyticsHandler);
+routes.post("/auctions/:id/simulate", auctionSimulateHandler);
+routes.get("/auctions/:id", getAuctionHandler);
+routes.patch("/auctions/:id", patchAuctionHandler);
+routes.delete("/auctions/:id", deleteAuctionHandler);
 
 const leadgenApi = new Hono<{ Bindings: Env }>();
 leadgenApi.route("/api/admin/leadgen", routes);
