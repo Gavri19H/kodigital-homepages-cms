@@ -354,6 +354,10 @@ Built (contract 07 §18/§20/§21 + 03 §8.2/§9.5):
 - **Contract fidelity — fresh-context adversarial review (12 checks, weighted on winner-math / rule-ordering / banner-field-leak): verdict SHIP (no BLOCKER/MAJOR).** The four highest-weighted areas all verified clean (winner math re-derived independently; floor over the post-exclude set; carrier exclude-pre-floor/include-post-winner; banner canonical-field lock rejecting the 3 parse-only fields + `__proto__`). 3 of 6 MINORs fixed in-phase (canonical hash — analytics no longer splits a logical rule; string-static_order rejected not silently dropped; cross-auction rule-scoping test); 3 documented KNOWN-SAFE (DEV-21d: equal-priority conflict errs safe with a workaround; carrier-conflict exact-set under-detection runtime-safe; quotes archive-not-delete).
 - **Live leg:** no migrations this phase; auction config is admin-only behind CF Access; the engine is pure + unit-proven — the `/lg/auction` runtime that composes it is P10. Production posture in the P9 deploy addendum below.
 
+**P9 deploy addendum — 2026-07-07, squash-merge `af90fb1` (PR #80), production dispatch run `28839728932` (success: CI green, Deploy to production green, staging skipped per DEV-8):**
+- No migrations this phase — idempotent no-op; live D1 unchanged (40 leadgen / 23 listicle / 89 total).
+- Live posture: tenant `/health` 200; homepage `/` 200 (blast-radius clean); `/lg` 404 (dark). Auction config + banner builder are admin-only behind CF Access; the pure engine is unit-proven (the §18.4 winner example recomputed by hand + reviewer). Operator-owned residuals unchanged.
+
 ### P10 — Auction runtime
 _(pending)_
 
