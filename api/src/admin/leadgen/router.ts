@@ -33,6 +33,13 @@ import {
 import { testOfferHandler } from "./payload-builder-handlers";
 import { rebuildLeadgenAnalyticsRangeHandler } from "./analytics-admin-handlers";
 import {
+  createMediaPlatformHandler,
+  deleteMediaPlatformHandler,
+  getMediaPlatformHandler,
+  listMediaPlatformsHandler,
+  patchMediaPlatformHandler,
+} from "./media-platforms-handlers";
+import {
   createSectionHandler,
   deleteSectionHandler,
   getSectionHandler,
@@ -203,6 +210,17 @@ routes.delete("/auctions/:id", deleteAuctionHandler);
 // The every-minute cron (index.ts scheduled → syncLeadgenAnalytics) syncs a
 // bounded rolling window; this endpoint runs an explicit [from,to] window.
 routes.post("/analytics/rebuild-range", rebuildLeadgenAnalyticsRangeHandler);
+
+// --- Media platforms (03 §8.2 + 08 §26 outbound S2S config — Phase-13 Stage B) -
+// Static /media-platforms (list/create) BEFORE /media-platforms/:id (get/patch/
+// delete) per the 03 §8.1 static-before-param discipline. A NEW platform is a
+// config row (postback_url_template + auth_secret_ref NAME + value_multiplier),
+// NO code change (§26); the token VALUE never enters the table or a response.
+routes.get("/media-platforms", listMediaPlatformsHandler);
+routes.post("/media-platforms", createMediaPlatformHandler);
+routes.get("/media-platforms/:id", getMediaPlatformHandler);
+routes.patch("/media-platforms/:id", patchMediaPlatformHandler);
+routes.delete("/media-platforms/:id", deleteMediaPlatformHandler);
 
 const leadgenApi = new Hono<{ Bindings: Env }>();
 leadgenApi.route("/api/admin/leadgen", routes);
