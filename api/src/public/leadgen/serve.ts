@@ -106,13 +106,18 @@ function leadgenShellEtag(
 }
 
 function leadgenConfigEtag(
+  siteId: string,
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
 ): Promise<string> {
+  // Material = site + funnel + variant + content_version, matching
+  // leadgenConfigKey so the ETag changes iff the cache key would. site_id is a
+  // first-class component (the config bakes in the site-specific ga4 id), so two
+  // tenant sites serving the SAME funnel/variant get DISTINCT ETags.
   return computeEtag({
-    site_id: funnelId,
-    path: `/lg/config/${funnelVariantId}`,
+    site_id: siteId,
+    path: `/lg/config/${funnelId}/${funnelVariantId}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
@@ -248,7 +253,10 @@ function injectMapsKey(pristine: string, resolved: ResolvedActivatedFunnel, env:
       script = `<script>window.__LG_MAPS_KEY__=${jsStringLiteral(key)};</script>`;
     }
   }
-  return pristine.replace(MAPS_KEY_SENTINEL, script);
+  // Function replacement (not a string): String.prototype.replace expands `$`
+  // patterns ($&, $1, $`, …) in a STRING replacement, which would corrupt a
+  // `$`-bearing value. A function replacement returns the script verbatim.
+  return pristine.replace(MAPS_KEY_SENTINEL, () => script);
 }
 
 // ---------------------------------------------------------------------------
@@ -371,10 +379,14 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
 
   const design = getFunnelDesign(resolved.variant.funnel_design_id);
   const funnelId = resolved.funnel.public_id;
+  const funnelVariantId = resolved.variant.public_id;
   const contentVersion = resolved.variant.content_version;
 
-  const key = leadgenConfigKey(funnelId, contentVersion);
-  const etag = await leadgenConfigEtag(funnelId, resolved.variant.public_id, contentVersion);
+  // site_id + funnel_variant_id are part of the key + ETag material so one
+  // funnel activated on two tenant sites can never share a cached config entry
+  // (each site bakes in its OWN ga4_measurement_id from settings_overrides_json).
+  const key = leadgenConfigKey(siteContext.siteId, funnelId, funnelVariantId, contentVersion);
+  const etag = await leadgenConfigEtag(siteContext.siteId, funnelId, funnelVariantId, contentVersion);
 
   const ifNoneMatch = c.req.header("If-None-Match") ?? null;
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {

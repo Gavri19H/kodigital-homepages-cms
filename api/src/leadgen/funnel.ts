@@ -353,13 +353,26 @@ export function validateFunnelRule(
         message: "a raw redirect_url is only honored when redirect_url_allowlisted=1",
       });
     } else {
-      let host = "";
+      let parsed: URL | null = null;
       try {
-        host = normalizeHost(new URL(rawUrl).hostname);
+        parsed = new URL(rawUrl);
       } catch {
-        errors.push({ code: "raw_redirect_url_invalid", message: `redirect_url is not a valid absolute URL: ${rawUrl}` });
+        parsed = null;
       }
-      if (host !== "") {
+      const scheme = parsed === null ? "" : parsed.protocol;
+      const host = parsed === null ? "" : normalizeHost(parsed.hostname);
+      // Contract 04 §10.5: a raw redirect_url MUST be an absolute http(s) URL.
+      // A non-http(s) scheme (javascript:, data:, mailto:, …) or an empty host
+      // is rejected BEFORE/independent of the allowlist check — otherwise an
+      // empty-host URL like `javascript:alert(1)` (a VALID URL whose hostname is
+      // "") would skip the host-on-allowlist check and validate regardless of
+      // the allowlist. Such a URL can NEVER validate here.
+      if (parsed === null || (scheme !== "http:" && scheme !== "https:") || host === "") {
+        errors.push({
+          code: "raw_redirect_url_invalid",
+          message: `redirect_url must be an absolute http(s) URL with a host: ${rawUrl}`,
+        });
+      } else {
         const allowed = allowlist.map(normalizeHost);
         if (!allowed.includes(host)) {
           errors.push({

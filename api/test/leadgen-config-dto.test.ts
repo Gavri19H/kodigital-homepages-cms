@@ -254,3 +254,54 @@ describe("computeSectionOrderHash — stable + version-sensitive", () => {
     expect(config.ga4_measurement_id).toBeNull();
   });
 });
+
+// MINOR-3 — locks WHERE the §24b projection strips. The strip boundary is the
+// NODE level: only whitelisted node fields are copied. `props` (and choices /
+// conditional) are passed through VERBATIM because props is admin-authored
+// rendering config (min/max/placeholder/options/…). The resolver NEVER sources
+// server-only / secret data into a section's content_json props, so props is not
+// a leak vector — but it is also NOT a filter, which this test makes explicit.
+describe("buildPublicConfig — the server-only strip boundary is the node level; props is verbatim (MINOR-3)", () => {
+  const PROBE_JSON = JSON.stringify({
+    components: [
+      {
+        type: "TextInput",
+        question_id: "q_probe",
+        // a server-only key at the NODE top level → MUST be stripped:
+        api_token_secret_ref: "NODE_LEVEL_REF_XZ",
+        props: {
+          placeholder: "Your name", // legit rendering config → survives
+          rogue_ref: "PROPS_LEVEL_VALUE_XZ", // inside props → verbatim pass-through
+        },
+      },
+    ],
+  });
+
+  function resolvedWithProbe(): ResolvedActivatedFunnel {
+    const base = buildResolved();
+    return {
+      ...base,
+      sections: [
+        { position: 0, section: sectionRow({ id: 1, public_id: mintPublicId("section"), content_json: PROBE_JSON }) },
+      ],
+    };
+  }
+
+  it("STRIPS a server-only key placed at the node top level (even when props is present)", () => {
+    const serialized = JSON.stringify(buildPublicConfig(resolvedWithProbe(), getFunnelDesign("default")));
+    expect(serialized.includes("NODE_LEVEL_REF_XZ")).toBe(false);
+  });
+
+  it("passes props rendering config through verbatim (props is NOT a security filter)", () => {
+    const config = buildPublicConfig(resolvedWithProbe(), getFunnelDesign("default"));
+    const comp = config.sections[0]?.components[0];
+    // props' legitimate rendering config survives (that is its purpose)…
+    expect(comp?.props["placeholder"]).toBe("Your name");
+    // …and so does ANY other value placed inside props — props is a verbatim
+    // channel. Because the resolver never routes server-only/secret data into
+    // props, this is not a leak; the strip boundary is the node level (above). A
+    // future change that routes server-only data through props MUST add filtering
+    // — this lock will flag the behavior change.
+    expect(JSON.stringify(config).includes("PROPS_LEVEL_VALUE_XZ")).toBe(true);
+  });
+});

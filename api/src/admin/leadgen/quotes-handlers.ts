@@ -1041,49 +1041,56 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   const newLabel = `${source.variant_label}-fork-${existing.length}`;
   const variantPublicId = mintPublicId("funnel_variant");
 
-  await c.env.DB.prepare(
-    `INSERT INTO leadgen_funnel_variants
-       (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
-        auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
-        lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status)
-     VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
-  )
-    .bind(
+  // Read the source's ordered sections + rules BEFORE the write batch (reads).
+  const srcSections = await readVariantSections(c.env.DB, source.id);
+  const srcRules = await readVariantRules(c.env.DB, source.id);
+
+  // ONE atomic batch (mirrors the POST /quotes create idiom): the variant
+  // INSERT runs first, then the section + rule clones link to it via a
+  // `(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)` subquery — so
+  // the whole fork commits or rolls back together and a mid-failure can never
+  // orphan a variant with no sections/rules. Each INSERT is single-row
+  // (≤17 bindings) — 100-binding-safe.
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_funnel_variants
+         (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
+          auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
+          lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status)
+       VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
+    ).bind(
       variantPublicId, source.funnel_id, newLabel, source.traffic_allocation_bp, source.funnel_design_id,
       source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
       source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json,
-    )
-    .run();
-  const forked = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? LIMIT 1")
-    .bind(variantPublicId)
-    .first<LeadgenFunnelVariantRow>();
-  if (!forked) return c.json({ error: "Insert failed" }, 500);
-
-  // Clone the ordered sections + rules of the source (replace-set into the new
-  // variant). Each INSERT is single-row (≤11 bindings) — 100-binding-safe.
-  const srcSections = await readVariantSections(c.env.DB, source.id);
-  const srcRules = await readVariantRules(c.env.DB, source.id);
-  const clone: D1PreparedStatement[] = [];
+    ),
+  ];
   for (const s of srcSections) {
-    clone.push(
-      c.env.DB.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, ?)")
-        .bind(forked.id, s.section_id, s.position),
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position)
+         VALUES ((SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?)`,
+      ).bind(variantPublicId, s.section_id, s.position),
     );
   }
   for (const r of srcRules) {
-    clone.push(
+    statements.push(
       c.env.DB.prepare(
         `INSERT INTO leadgen_funnel_rules
            (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, target_section_id,
             redirect_url, redirect_url_allowlisted, priority, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
-        mintPublicId("funnel_rule"), forked.id, r.rule_type, r.conditions_json, r.conditions_hash, r.target_offer_id,
+        mintPublicId("funnel_rule"), variantPublicId, r.rule_type, r.conditions_json, r.conditions_hash, r.target_offer_id,
         r.target_section_id, r.redirect_url, r.redirect_url_allowlisted, r.priority, r.enabled,
       ),
     );
   }
-  if (clone.length > 0) await c.env.DB.batch(clone);
+  await c.env.DB.batch(statements);
+
+  const forked = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? LIMIT 1")
+    .bind(variantPublicId)
+    .first<LeadgenFunnelVariantRow>();
+  if (!forked) return c.json({ error: "Insert failed" }, 500);
 
   return c.json({ forked_from: source.public_id, ...(await variantDetailJson(c.env.DB, forked)) }, 201);
 }

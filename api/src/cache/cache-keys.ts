@@ -193,12 +193,23 @@ export function leadgenShellKey(
   return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}`;
 }
 
-// lg-config:{funnel_id}:{content_version} (§28). The public client config is
-// funnel-level content (NOT per-session, NOT site-specific in the key), so it
-// carries neither site_id nor template_version — matching the §28 shape. P7
-// serves the single control variant per funnel, so the (funnel_id,
-// content_version) entry is always the control's config; P8 (multiple running
-// variants) extends this key with the variant id.
-export function leadgenConfigKey(funnelId: string, contentVersion: number): string {
-  return `${NS_LG_CONFIG}:${funnelId}:${contentVersion}`;
+// lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}. The
+// public client config bakes in the SITE-SPECIFIC ga4_measurement_id (resolved
+// from the activation's settings_overrides_json) and is VARIANT-scoped, so the
+// key MUST carry both site_id and funnel_variant_id. A funnel-only key would
+// let one funnel activated on two tenant sites share a single entry (whichever
+// site warms it first poisons the other → cross-tenant GA4 bleed + §29
+// mis-attribution), and would collide across the per-variant configs P8 serves
+// while their ETags already differ per variant. site_id is first so per-site
+// list+invalidate stays cheap (env.CACHE.list({ prefix: "lg-config:{siteId}:" })),
+// then funnel_id + funnel_variant_id, then content_version as the suffix so a
+// bump orphans old entries. The /lg/config ETag hashes the SAME material
+// (site + funnel + variant + content_version) so key and ETag always agree.
+export function leadgenConfigKey(
+  siteId: string,
+  funnelId: string,
+  funnelVariantId: string,
+  contentVersion: number,
+): string {
+  return `${NS_LG_CONFIG}:${requireSiteId(siteId)}:${funnelId}:${funnelVariantId}:${contentVersion}`;
 }

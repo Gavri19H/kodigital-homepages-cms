@@ -184,6 +184,67 @@ describe("validateFunnelRule — §15.5 redirect safety", () => {
   });
 });
 
+// A javascript:/data:/mailto: URL is a VALID URL whose hostname is EMPTY. Before
+// the scheme guard, an empty host skipped the host-on-allowlist check entirely,
+// so such a URL validated OK when redirect_url_allowlisted=1 (a redirect
+// allowlist bypass). Contract 04 §10.5: a raw redirect_url MUST be an absolute
+// http(s) URL — a non-http(s) scheme (or an empty host) can NEVER validate,
+// regardless of the allowlist flag or contents.
+describe("validateFunnelRule — §10.5 non-http(s) redirect scheme guard (B2)", () => {
+  const NON_HTTP = [
+    "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "mailto:evil@example.com",
+  ] as const;
+
+  for (const rawUrl of NON_HTTP) {
+    const label = rawUrl.slice(0, rawUrl.indexOf(":"));
+    it(`rejects a ${label}: redirect_url even when redirect_url_allowlisted=1`, () => {
+      const rule: FunnelRuleInput = {
+        rule_type: "eligibility",
+        redirect_url: rawUrl,
+        redirect_url_allowlisted: 1,
+        conditions_json: OK_CONDITIONS,
+      };
+      const verdict = validateFunnelRule(rule, ALLOWLIST);
+      expect(verdict.ok).toBe(false);
+      expect(verdict.errors.map((e) => e.code)).toContain("raw_redirect_url_invalid");
+    });
+
+    it(`rejects a ${label}: redirect_url with an EMPTY allowlist too`, () => {
+      const rule: FunnelRuleInput = {
+        rule_type: "eligibility",
+        redirect_url: rawUrl,
+        redirect_url_allowlisted: 1,
+        conditions_json: OK_CONDITIONS,
+      };
+      expect(validateFunnelRule(rule, []).errors.map((e) => e.code)).toContain("raw_redirect_url_invalid");
+    });
+  }
+
+  it("no regression: an http(s) URL whose host IS on the allowlist still validates", () => {
+    const rule: FunnelRuleInput = {
+      rule_type: "eligibility",
+      redirect_url: "https://partner.example.com/go",
+      redirect_url_allowlisted: 1,
+      conditions_json: OK_CONDITIONS,
+    };
+    expect(validateFunnelRule(rule, ALLOWLIST).ok).toBe(true);
+  });
+
+  it("no regression: an http(s) URL whose host is NOT on the allowlist is still rejected", () => {
+    const rule: FunnelRuleInput = {
+      rule_type: "eligibility",
+      redirect_url: "https://evil.example.net/go",
+      redirect_url_allowlisted: 1,
+      conditions_json: OK_CONDITIONS,
+    };
+    expect(validateFunnelRule(rule, ALLOWLIST).errors.map((e) => e.code)).toContain(
+      "raw_redirect_host_not_on_allowlist",
+    );
+  });
+});
+
 describe("resolveRedirectPct — §15.5 `?? 0` (explicit 0 = no redirect)", () => {
   it("absent → 0", () => {
     expect(resolveRedirectPct({})).toBe(0);

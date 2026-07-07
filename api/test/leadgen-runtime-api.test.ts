@@ -303,6 +303,49 @@ async function get(env: Env, path: string, headers?: Record<string, string>): Pr
   return app.request(`${TENANT_ORIGIN}${path}`, headers ? { headers } : {}, env);
 }
 
+// A GET against an ARBITRARY tenant host (cross-tenant tests need a 2nd host).
+async function getHost(env: Env, host: string, path: string): Promise<Response> {
+  return app.request(`http://${host}${path}`, {}, env);
+}
+
+// Seed a second active tenant site + its active domain (host→site resolution).
+function addSite(sdb: SqliteDb, id: string, hostname: string): void {
+  sdb
+    .prepare(
+      "INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES (?, ?, ?, 'insurance', 'active')",
+    )
+    .run(id, `Site ${id}`, hostname);
+  sdb.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')").run(id, hostname);
+}
+
+// Create a quote (→ active funnel + control variant) + one ordered section, WITHOUT
+// activating it — the caller activates on the site(s) it wants (with per-site GA4).
+async function seedQuoteWithSection(
+  env: Env,
+  sdb: SqliteDb,
+  quoteName: string,
+): Promise<{ quotePublicId: string; variantId: string }> {
+  const createRes = await admin.request(
+    `${API}/quotes`,
+    jsonInit("POST", { quote_name: quoteName, activity: "quote_funnel", verticals: ["life"] }),
+    env,
+  );
+  expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
+  const quote = (await createRes.json()) as {
+    public_id: string;
+    funnels: Array<{ variants: Array<{ public_id: string }> }>;
+  };
+  const variantId = quote.funnels[0]!.variants[0]!.public_id;
+  const section = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
+  const putRes = await admin.request(
+    `${API}/variants/${variantId}`,
+    jsonInit("PUT", { sections: [{ section_id: section.id }] }),
+    env,
+  );
+  expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  return { quotePublicId: quote.public_id, variantId };
+}
+
 // The section content the config-strip re-proof embeds: a normal client
 // component PLUS rogue server-only keys that buildPublicConfig MUST drop.
 const ROGUE_SECTION_JSON = JSON.stringify({
@@ -584,5 +627,69 @@ describeDb("CP3 — an activated funnel renders end-to-end (shell → config →
       funnel_attempt_id: attempt.funnel_attempt_id,
     });
     expect(bound, "CP3: the minted token binds the served config tuple").toBe(true);
+  });
+});
+
+describeDb("B1 + M1 — one funnel on TWO tenant sites: per-site config, no cross-tenant bleed", () => {
+  it("each host's /lg/config carries ITS OWN ga4 id + the two cached KV entries are DISTINCT site-scoped keys", async () => {
+    const { sdb, env, store } = newHarness();
+    addSite(sdb, "site-2", "two.example.com");
+
+    // ONE quote/funnel/variant, activated on BOTH sites with DIFFERENT ga4 ids
+    // (site-specific settings_overrides_json). Same slug is fine — it is unique
+    // PER site.
+    const { quotePublicId, variantId } = await seedQuoteWithSection(env, sdb, "Shared Quote");
+    const actA = await admin.request(
+      `${API}/quotes/${quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "shared", settings_overrides_json: { ga4_measurement_id: "G-AAA" } }),
+      env,
+    );
+    expect(actA.status, `activate site-1: ${await actA.clone().text()}`).toBe(200);
+    const actB = await admin.request(
+      `${API}/quotes/${quotePublicId}/activation/site-2`,
+      jsonInit("PUT", { enabled: true, slug: "shared", settings_overrides_json: { ga4_measurement_id: "G-BBB" } }),
+      env,
+    );
+    expect(actB.status, `activate site-2: ${await actB.clone().text()}`).toBe(200);
+
+    // site-1 fetched FIRST — it warms the cache. Pre-fix (funnel-only key) this
+    // poisons the shared entry, so site-2 would read site-1's ga4 id.
+    const cfgA = (await (await getHost(env, "one.example.com", `/lg/config/${variantId}`)).json()) as {
+      ga4_measurement_id: string | null;
+    };
+    const cfgB = (await (await getHost(env, "two.example.com", `/lg/config/${variantId}`)).json()) as {
+      ga4_measurement_id: string | null;
+    };
+    expect(cfgA.ga4_measurement_id).toBe("G-AAA");
+    expect(cfgB.ga4_measurement_id).toBe("G-BBB");
+
+    // Two DISTINCT site-scoped cache keys — never one shared funnel-only key.
+    const configKeys = [...store.keys()].filter((k) => k.startsWith("lg-config:"));
+    expect(configKeys.length).toBe(2);
+    expect(new Set(configKeys).size).toBe(2);
+    expect(configKeys.some((k) => k.includes("site-1"))).toBe(true);
+    expect(configKeys.some((k) => k.includes("site-2"))).toBe(true);
+  });
+});
+
+describeDb("MINOR-4 — cross-tenant anti-leak: a variant activated on site-2 is 404 from site-1", () => {
+  it("a variant activated ONLY on site-2 → 404 from site-1's host (config + attempt); 200 from site-2", async () => {
+    const { sdb, env } = newHarness();
+    addSite(sdb, "site-2", "two.example.com");
+
+    const { quotePublicId, variantId } = await seedQuoteWithSection(env, sdb, "Site2 Quote");
+    // activate ONLY on site-2.
+    const act = await admin.request(
+      `${API}/quotes/${quotePublicId}/activation/site-2`,
+      jsonInit("PUT", { enabled: true, slug: "s2only" }),
+      env,
+    );
+    expect(act.status, `activate site-2: ${await act.clone().text()}`).toBe(200);
+
+    // TRUE cross-tenant: requested from site-1's host → 404 (not just "nowhere").
+    expect((await getHost(env, "one.example.com", `/lg/config/${variantId}`)).status).toBe(404);
+    expect((await getHost(env, "one.example.com", `/lg/attempt?funnel_variant_id=${variantId}`)).status).toBe(404);
+    // sanity: from its OWN host it resolves.
+    expect((await getHost(env, "two.example.com", `/lg/config/${variantId}`)).status).toBe(200);
   });
 });

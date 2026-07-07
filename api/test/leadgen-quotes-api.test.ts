@@ -698,6 +698,110 @@ describeDb("A/B — the P8 seam (create the test row + start/stop lifecycle only
   });
 });
 
+// MINOR-2 — the fork must be ATOMIC: the variant + its cloned sections/rules
+// commit together, or not at all. A NON-atomic fork inserts the variant first
+// and clones its children in a SEPARATE batch, so a mid-clone failure orphans a
+// variant with no sections/rules.
+describeDb("POST /variants/:id/fork — atomicity (MINOR-2)", () => {
+  it("clones MULTIPLE sections + rules — lands them ALL on the new variant", async () => {
+    const { sdb, env } = newHarness();
+    const q = await createQuote(env);
+    const variantId = q.funnels[0]!.variants[0]!.public_id;
+    const s1 = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
+    const s2 = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
+    const s3 = seedSection(sdb, { activity: "quote_funnel", vertical: "health" });
+    const put = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", {
+        sections: [{ section_id: s1.id }, { section_id: s2.id }, { section_id: s3.id }],
+        rules: [{ rule_type: "eligibility" }, { rule_type: "skip_section" }],
+      }),
+      env,
+    );
+    expect(put.status, `put: ${await put.clone().text()}`).toBe(200);
+
+    const fork = await admin.request(`${API}/variants/${variantId}/fork`, { method: "POST" }, env);
+    expect(fork.status, `fork: ${await fork.clone().text()}`).toBe(201);
+    const fj = (await fork.json()) as { public_id: string; sections: unknown[]; rules: unknown[] };
+    expect(fj.sections).toHaveLength(3);
+    expect(fj.rules).toHaveLength(2);
+    // the DB rows are attached to the NEW variant, all of them.
+    const row = sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(fj.public_id) as { id: number };
+    const secN = (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_variant_sections WHERE variant_id = ?").get(row.id) as { n: number }).n;
+    const ruleN = (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_rules WHERE variant_id = ?").get(row.id) as { n: number }).n;
+    expect(secN).toBe(3);
+    expect(ruleN).toBe(2);
+  });
+
+  it("a mid-clone failure leaves NO orphan variant (the whole fork rolls back)", async () => {
+    const { sdb, env } = newHarness();
+    const q = await createQuote(env);
+    const variantId = q.funnels[0]!.variants[0]!.public_id;
+    const funnelDbId = q.funnels[0]!.id;
+    const s1 = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
+    const put = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: s1.id }], rules: [{ rule_type: "eligibility" }] }),
+      env,
+    );
+    expect(put.status).toBe(200);
+
+    const variantsBefore = (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_variants WHERE funnel_id = ?").get(funnelDbId) as { n: number }).n;
+
+    // Inject a failure on the RULE-clone INSERT (a realistic partial failure).
+    // A non-atomic fork commits the variant BEFORE this throws → orphan; the
+    // atomic single-batch fork rolls the variant back with it.
+    const failEnv = withRuleInsertFailure(env, sdb);
+    let status = 0;
+    try {
+      status = (await admin.request(`${API}/variants/${variantId}/fork`, { method: "POST" }, failEnv)).status;
+    } catch {
+      status = 500; // the injected failure propagated
+    }
+    expect(status, "the injected clone failure must surface, not a 201").not.toBe(201);
+
+    const variantsAfter = (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_variants WHERE funnel_id = ?").get(funnelDbId) as { n: number }).n;
+    expect(variantsAfter, "an atomic fork must not orphan a variant on a mid-clone failure").toBe(variantsBefore);
+  });
+});
+
+// Wrap env.DB so the leadgen_funnel_rules clone INSERT rejects — everything else
+// delegates to a real D1 over the same sqlite db (so the rollback is real).
+function withRuleInsertFailure(env: Env, sdb: SqliteDb): Env {
+  const realDb = d1FromSqlite(sdb) as unknown as {
+    prepare(sql: string): { bind(...a: unknown[]): unknown; run(): Promise<unknown>; first<T>(): Promise<T | null>; all<T>(): Promise<unknown> };
+    batch(statements: Array<{ run(): Promise<unknown> }>): Promise<unknown>;
+  };
+  const proxied = {
+    prepare(sql: string) {
+      const real = realDb.prepare(sql);
+      if (sql.includes("INSERT INTO leadgen_funnel_rules")) {
+        const wrapper = {
+          bind(...a: unknown[]) {
+            real.bind(...a);
+            return wrapper;
+          },
+          run(): Promise<unknown> {
+            return Promise.reject(new Error("injected rule-clone failure"));
+          },
+          first<T>(): Promise<T | null> {
+            return real.first<T>();
+          },
+          all<T>(): Promise<unknown> {
+            return real.all<T>();
+          },
+        };
+        return wrapper;
+      }
+      return real;
+    },
+    batch(statements: Array<{ run(): Promise<unknown> }>): Promise<unknown> {
+      return realDb.batch(statements);
+    },
+  };
+  return { ...env, DB: proxied as unknown as D1Database };
+}
+
 describeDb("dual-id + no-store headers + 404 semantics", () => {
   it("unknown ids 404 across the block; every response carries no-store + nosniff", async () => {
     const { env } = newHarness();
