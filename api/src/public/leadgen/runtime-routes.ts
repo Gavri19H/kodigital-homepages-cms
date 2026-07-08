@@ -33,7 +33,7 @@ import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
 import { mintFunnelAttempt } from "./attempt";
 import { resolveActivatedFunnelByVariant } from "./resolver";
-import { readCookie } from "../listicle/experiment-pick";
+import { genSessionId, readCookie, sessionCookie } from "../listicle/experiment-pick";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { LEADGEN_RUNTIME_JS } from "./runtime/engine-bundle.generated";
@@ -53,16 +53,32 @@ leadgenPublicRouter.use("/lg/*", publicSiteContextMiddleware);
 // GET /lg/attempt — the v2 mint (fix-contract v2.4 04 §4.2 + 05 §5.3).
 // ---------------------------------------------------------------------------
 
+// m6: the landing URL is persisted INSIDE the signed token payload — cap it
+// so an attacker-length `u` param can never bloat every subsequent signed
+// token/auction body. Truncate at the last query-param boundary inside the
+// cap when one exists (a clean param list beats a mid-value slice); hard
+// slice otherwise.
+const LANDING_URL_MAX_CHARS = 4096;
+
+function capLandingUrl(url: string): string {
+  if (url.length <= LANDING_URL_MAX_CHARS) return url;
+  const cut = url.slice(0, LANDING_URL_MAX_CHARS);
+  const queryStart = cut.indexOf("?");
+  const lastAmp = cut.lastIndexOf("&");
+  if (queryStart !== -1 && lastAmp > queryStart) return cut.slice(0, lastAmp);
+  return cut;
+}
+
 // The funnel page's ORIGINAL URL: the `u` query param the client engine sends
 // (GET /lg/attempt?vid=…&u=<encodeURIComponent(location.href)>), with the
 // SAME-ORIGIN Referer header as the fallback when `u` is absent. Anything
 // unparseable / cross-origin degrades to "" (no attempt context — the token
-// still mints; traffic macros then resolve empty).
+// still mints; traffic macros then resolve empty). Capped at 4096 chars (m6).
 function resolveAttemptLandingUrl(c: PublicContext): string {
   const u = c.req.query("u") ?? "";
   if (u !== "") {
     try {
-      return new URL(u).toString();
+      return capLandingUrl(new URL(u).toString());
     } catch {
       /* fall through to the Referer fallback */
     }
@@ -72,7 +88,7 @@ function resolveAttemptLandingUrl(c: PublicContext): string {
     try {
       const parsed = new URL(referer);
       const requestHost = new URL(c.req.url).host;
-      if (parsed.host === requestHost) return parsed.toString();
+      if (parsed.host === requestHost) return capLandingUrl(parsed.toString());
     } catch {
       /* not a usable fallback */
     }
@@ -86,6 +102,13 @@ function resolveAttemptLandingUrl(c: PublicContext): string {
 // as the landing URL inside the SIGNED payload — the token is the carrier, no
 // new tables). Accepts `funnel_variant_id` (existing) and the client engine's
 // short `vid` alias. no-store (§8.3 — session-specific, never cached).
+//
+// m2 (cookie-blocked visitors): the response ECHOES the `session_id` the
+// tuple bound. When no ko_sid cookie rode the request (blocked/first hit),
+// the route MINTS one, binds THAT, echoes it, and best-effort Set-Cookies it
+// — the engine then posts exactly the bound value to /lg/auction, so the v2
+// session binding verifies (200) instead of rejecting a client-minted id the
+// server never bound (422).
 async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   const siteContext = c.get("siteContext");
   const variantId = c.req.query("funnel_variant_id") ?? c.req.query("vid") ?? "";
@@ -96,13 +119,18 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
       headers: leadgenNoStoreHeaders(),
     });
   }
+  let sessionId = readCookie(c.req.header("Cookie") ?? null, "ko_sid");
+  const sessionWasAbsent = sessionId === "";
+  if (sessionWasAbsent) sessionId = genSessionId();
   const attempt = await mintFunnelAttempt(c.env, resolved, Date.now(), {
-    session_id: readCookie(c.req.header("Cookie") ?? null, "ko_sid"),
+    session_id: sessionId,
     landing_url: resolveAttemptLandingUrl(c),
   });
-  return new Response(JSON.stringify(attempt), {
+  const headers = leadgenNoStoreHeaders();
+  if (sessionWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sessionId));
+  return new Response(JSON.stringify({ ...attempt, session_id: sessionId }), {
     status: 200,
-    headers: leadgenNoStoreHeaders(),
+    headers,
   });
 }
 

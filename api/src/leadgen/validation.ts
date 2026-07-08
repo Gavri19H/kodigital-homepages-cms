@@ -670,8 +670,9 @@ export interface LeadgenOfferEligibilityRow {
 // The Offer's Test status = the newest TEST-TOOL provider_request_log row
 // (auction_instance_id IS NULL — runtime auction rows never flip an Offer's
 // Test verdict; §5.1 test_untested/test_failed is the OPERATOR Test status):
-// 2xx → passed; a non-null non-2xx status or a transport error → failed;
-// no rows / never returned → untested.
+// 2xx → passed; a non-null non-2xx status → failed; no rows OR a
+// transport-error row (NULL status_code — the request never returned) →
+// untested (m4: both non-passed codes block eligibility identically).
 export const LEADGEN_TEST_STATUS_SUBSELECT = `(
   SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
               WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END

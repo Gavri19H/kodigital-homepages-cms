@@ -225,10 +225,15 @@ export function renderProgressBar(node: LeadgenComponentNode, design: DefaultFun
     ` role="progressbar" aria-valuemin="0" aria-valuemax="${ariaMax}" aria-valuenow="${ariaNow}"` +
     (label !== undefined ? ` aria-valuetext="${esc(label)}"` : "") +
     `>` +
+    // data-lg-progress-bar / data-lg-progress-label (09 §9.1 "no visual
+    // change"): the engine's updateProgress targets these hooks — width on
+    // the fill, text on the label — so hydration NEVER wipes the
+    // .lg-progress-track/.lg-progress-fill markup (render.ts keeps the
+    // textContent fallback for legacy hook-less markup only).
     `<div class="lg-progress-track">` +
-    `<div class="lg-progress-fill"${style({ width, background: design.progress.fillColor })}></div>` +
+    `<div class="lg-progress-fill" data-lg-progress-bar${style({ width, background: design.progress.fillColor })}></div>` +
     `</div>` +
-    (label !== undefined ? `<div class="lg-progress-text">${esc(label)}</div>` : "") +
+    (label !== undefined ? `<div class="lg-progress-text" data-lg-progress-label>${esc(label)}</div>` : "") +
     `</div>`
   );
 }

@@ -131,7 +131,10 @@ export function evaluateComponents(
     visibility.push({ question_id: component.question_id, visible, required_now: required });
     if (required) {
       const field = component.internal_field;
-      const answer = field !== undefined ? answers[field] : undefined;
+      // m11 parity: an EMPTY internal_field reads NO answer — the server twin
+      // (leadgen/dependencies.ts `field ? answers[field] : undefined`) treats
+      // "" as field-less, so a stray answers[""] key must not unblock here.
+      const answer = field !== undefined && field !== "" ? answers[field] : undefined;
       if (!isAnswered(answer)) blocking.push(component.question_id);
     }
   }

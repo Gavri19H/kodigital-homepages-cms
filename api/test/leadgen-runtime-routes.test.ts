@@ -585,10 +585,13 @@ describeDb("CP4 — funnel → auction → banner href /lg/lc/… (faid) → GET
 
     // The client binding: section_order_hash from /lg/config, funnel_attempt_id +
     // signed_config_token from /lg/attempt (the P7 mint the anti-tamper validates).
+    // m2: no cookie rides this harness request → the route mints + binds +
+    // ECHOES the session id; the auction POST must carry exactly it.
     const config = (await reqTenant(env, `/lg/config/${variantId}`).then((r) => r.json())) as { section_order_hash: string };
     const attempt = (await reqTenant(env, `/lg/attempt?funnel_variant_id=${variantId}`).then((r) => r.json())) as {
       funnel_attempt_id: string;
       signed_config_token: string;
+      session_id: string;
     };
     expect(attempt.funnel_attempt_id.startsWith("att_")).toBe(true);
 
@@ -606,6 +609,7 @@ describeDb("CP4 — funnel → auction → banner href /lg/lc/… (faid) → GET
         funnel_attempt_id: attempt.funnel_attempt_id,
         section_order_hash: config.section_order_hash,
         signed_config_token: attempt.signed_config_token,
+        session_id: attempt.session_id, // m2: the echoed BOUND session id
         answers: {},
       }),
       captured.ctx,

@@ -875,9 +875,15 @@ export async function runAuction(
   const baseContext = buildLeadgenRuntimeContext(contextSource, contextOptsBase);
   // Per-Offer contexts (offer identity + PARTICIPATING placement — 04 §4.5;
   // the provider-facing placement_external_id is the macro/payload value).
-  const contextByOffer = new Map<string, LeadGenRuntimeContext>();
+  // Keyed by (offer, placement_external_id): one Offer may participate once
+  // per placement row (PK (auction_id, offer_placement_id), mig 0036), and
+  // EACH participating row's payload must carry ITS OWN placement in the
+  // `placement` macro and the source:"placement" field — never a sibling
+  // row's (04 §4.5/§4.9 multi-placement).
+  const contextByOfferPlacement = new Map<string, LeadGenRuntimeContext>();
   const contextFor = (b: AuctionBundleOffer): LeadGenRuntimeContext => {
-    const existing = contextByOffer.get(b.offer.public_id);
+    const key = `${b.offer.public_id} ${b.placement_external_id ?? ""}`;
+    const existing = contextByOfferPlacement.get(key);
     if (existing !== undefined) return existing;
     const ctx = buildLeadgenRuntimeContext(contextSource, {
       ...contextOptsBase,
@@ -887,7 +893,7 @@ export async function runAuction(
         placement_id: b.placement_external_id ?? undefined,
       },
     });
-    contextByOffer.set(b.offer.public_id, ctx);
+    contextByOfferPlacement.set(key, ctx);
     return ctx;
   };
 
@@ -1142,10 +1148,27 @@ export async function runAuction(
   const providersRequested: ExplainProviderRequested[] = [];
   const providersResponded: ExplainProviderResponded[] = [];
   const providerLogRows: ProviderLogRowToPersist[] = [];
+  // Result/bundle lookups are keyed by the bundle ROW identity
+  // (offer_public_id, placement_public_id): an Offer participating with TWO
+  // placements fires two requests whose offer_public_id collides (04 §4.5
+  // multi-placement — an offer-keyed map is last-write-wins and would hand a
+  // sibling row's response/placement to the wrong row). fetch.ts threads
+  // ctx.placement_public_id into redacted_log, so each result names its own
+  // row. The offer-keyed maps stay as FALLBACKS for legacy
+  // providerResultsOverride shapes that omit placement_public_id (a
+  // single-row Offer behaves identically on either key).
+  const rowKey = (offerPublicId: string, placementPublicId: string | null): string =>
+    `${offerPublicId} ${placementPublicId ?? ""}`;
+  const resultByRow = new Map<string, FetchProviderResult>();
   const resultByOffer = new Map<string, FetchProviderResult>();
+  const bundleByRowKey = new Map<string, AuctionBundleOffer>();
   const bundleByPublicId = new Map<string, AuctionBundleOffer>();
-  for (const b of input.bundle.offers) bundleByPublicId.set(b.offer.public_id, b);
+  for (const b of input.bundle.offers) {
+    bundleByRowKey.set(rowKey(b.offer.public_id, b.placement_public_id), b);
+    bundleByPublicId.set(b.offer.public_id, b);
+  }
   for (const result of fetchBatch.results) {
+    resultByRow.set(rowKey(result.offer_public_id, result.redacted_log.placement_public_id), result);
     resultByOffer.set(result.offer_public_id, result);
     providersRequested.push({
       offer_id: result.offer_public_id,
@@ -1159,7 +1182,9 @@ export async function runAuction(
       latency_ms: result.latency_ms,
       provider_error_reason: result.error_reason,
     });
-    const bundleOffer = bundleByPublicId.get(result.offer_public_id);
+    const bundleOffer =
+      bundleByRowKey.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
+      bundleByPublicId.get(result.offer_public_id);
     const perOffer = (e: LeadgenEvent): void => {
       if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
       stampAuctionIds(e, {
@@ -1184,7 +1209,11 @@ export async function runAuction(
   }
 
   // Step 8: parse each dynamic response -> canonical carriers; FX-normalize bids
-  // to USD. Static Offers contribute their synthesized static carrier.
+  // to USD. Static Offers contribute their synthesized static carrier. Each
+  // bundle ROW parses ITS OWN request's response (resultByRow — 04 §4.5
+  // multi-placement); parsedByRow mirrors that identity for the provider-log
+  // rows below (parsedByOffer stays as the legacy-override fallback).
+  const parsedByRow = new Map<string, LeadgenParsedCarrier[]>();
   const parsedByOffer = new Map<string, LeadgenParsedCarrier[]>();
   const bidInputs: CarrierBidInput[] = [];
   const carrierMeta = new Map<string, { offer: AuctionBundleOffer; parsed: LeadgenParsedCarrier; response_context: unknown }>();
@@ -1193,11 +1222,14 @@ export async function runAuction(
 
   for (const b of candidates) {
     if (callsProvider(b.offer)) {
-      const result = resultByOffer.get(b.offer.public_id);
+      const result =
+        resultByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ??
+        resultByOffer.get(b.offer.public_id);
       const responseContext = result?.parsed ?? (result?.body ?? null);
       const parseResult = result === undefined
         ? { carriers: [], errors: [] }
         : parseProviderResponse(b.carrier_parse_json, result.parsed ?? result.body ?? "");
+      parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
       parsedByOffer.set(b.offer.public_id, parseResult.carriers);
       for (const carrier of parseResult.carriers) {
         bidInputs.push({
@@ -1210,6 +1242,7 @@ export async function runAuction(
       }
     } else {
       const carrier = staticCarrier(b.offer, b.static_bid_override);
+      parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
       parsedByOffer.set(b.offer.public_id, [carrier]);
       bidInputs.push({
         carrier_key: carrier.carrier_key,
@@ -1225,10 +1258,11 @@ export async function runAuction(
   const usdByKey = new Map<string, number>();
   for (const nb of usdBids) usdByKey.set(metaKey(nb.offer_public_id, nb.carrier_key), nb.usd_bid);
 
-  // Assemble the working carrier set with USD bids.
+  // Assemble the working carrier set with USD bids (per bundle ROW — each
+  // row contributes the carriers ITS response parsed, 04 §4.5).
   const working: WorkingCarrier[] = [];
   for (const b of candidates) {
-    for (const carrier of parsedByOffer.get(b.offer.public_id) ?? []) {
+    for (const carrier of parsedByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ?? []) {
       const usd = usdByKey.get(metaKey(b.offer.public_id, carrier.carrier_key)) ?? 0;
       const meta = carrierMeta.get(metaKey(b.offer.public_id, carrier.carrier_key));
       working.push({ parsed: carrier, offer: b, usd_bid: usd, response_context: meta?.response_context ?? null });
@@ -1422,7 +1456,11 @@ export async function runAuction(
   // offer-level exclusions (eligibility, cap_reached) already emitted theirs.
   for (const cf of carriersFiltered) {
     pushEvent("auction_carrier_filtered", (e) => {
-      const bundleOffer = bundleByPublicId.get(cf.offer_id);
+      // The filtered carrier's OWN participating row via carrierMeta (04 §4.5
+      // multi-placement — bundleByPublicId is last-write across sibling rows).
+      const bundleOffer =
+        carrierMeta.get(metaKey(cf.offer_id, cf.carrier_key))?.offer ??
+        bundleByPublicId.get(cf.offer_id);
       if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
       stampAuctionIds(e, { auction_request_id: auctionRequestId });
       e.carrier_key = cf.carrier_key;
@@ -1436,7 +1474,13 @@ export async function runAuction(
   const impressionRows: AuctionImpressionRow[] = [];
   const seenImpressionOffers = new Set<string>();
   for (const imp of impressions) {
-    const bundleOffer = bundleByPublicId.get(imp.offer_public_id);
+    // 04 §4.5: the impression's placement_id resolves from the WINNING
+    // request's own row — carrierMeta records which bundle row parsed this
+    // carrier — never from a bundleByPublicId last-write sibling
+    // (multi-placement same-Offer auctions).
+    const bundleOffer =
+      carrierMeta.get(metaKey(imp.offer_public_id, imp.carrier_key))?.offer ??
+      bundleByPublicId.get(imp.offer_public_id);
     const placementId = bundleOffer?.placement_external_id ?? "";
     impressionRows.push({
       event_type: "carrier_impression",
@@ -1466,7 +1510,14 @@ export async function runAuction(
     pushEvent("auction_filled", (e) => {
       stampAuctionIds(e, { auction_request_id: auctionRequestId, banner_render_id: bannerRenderIds[0] ?? "" });
       if (winner.winner !== null) {
-        const winnerOffer = bundleByPublicId.get(winner.winner);
+        // The winner's OWN participating row: resolve through its first
+        // rendered slot's carrier meta (04 §4.5 — bundleByPublicId is
+        // last-write across a multi-placement Offer's sibling rows).
+        const winnerSlot = renderedSlots.find((s) => s.offer_public_id === winner.winner);
+        const winnerOffer =
+          (winnerSlot !== undefined
+            ? carrierMeta.get(metaKey(winner.winner, winnerSlot.carrier_key))?.offer
+            : undefined) ?? bundleByPublicId.get(winner.winner);
         if (winnerOffer !== undefined) fillOffer(e, winnerOffer);
       }
     });
@@ -1495,7 +1546,12 @@ export async function runAuction(
   // Provider log rows (redacted + SEPARATE debug record, RED LINE 1). Stamp the
   // grouping ids + parsed carriers onto each redacted shape.
   for (const result of fetchBatch.results) {
-    const parsed = parsedByOffer.get(result.offer_public_id) ?? [];
+    // Each provider-log row carries the carriers parsed from ITS OWN response
+    // (row-keyed; offer-keyed fallback for legacy override shapes — 04 §4.5).
+    const parsed =
+      parsedByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
+      parsedByOffer.get(result.offer_public_id) ??
+      [];
     providerLogRows.push({
       auction_instance_id: auctionInstanceId,
       auction_request_id: auctionRequestId,
@@ -1530,8 +1586,9 @@ export async function runAuction(
     banner_render_ids: bannerRenderIds,
     carrier_impressions: impressions,
     impression_rows: impressionRows,
-    // 04 §4.6: the REDACTED snapshot (session/traffic-scoped macros of the
-    // auction-level context; request-scoped values are re-derived at click).
+    // 04 §4.6: the REDACTED snapshot (session/traffic/offer-scoped macros of
+    // the auction-level context — the SNAPSHOT_MACRO_KEYS whitelist; NO
+    // computed keys; request-scoped values are re-derived at click).
     macro_context_snapshot: redactedMacroSnapshot(baseContext.macros),
     events,
     explain: trace,

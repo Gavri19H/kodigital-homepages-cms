@@ -265,8 +265,11 @@ async function offerEligibilityVerdicts(
     for (const [id, row] of rows) {
       out.set(id, { eligible: row.verdict.eligible, reasons: [...row.verdict.reasons] });
     }
-  } catch {
-    /* additive read — never break the GET/list on an eligibility read error */
+  } catch (err) {
+    /* additive read — never break the GET/list on an eligibility read error,
+       but leave a diagnostic trace (m9): a silently-null verdict is
+       indistinguishable from "not evaluated" in the UI. */
+    console.warn("[lg-eligibility] loader failed", err instanceof Error ? err.name : String(err));
   }
   return out;
 }

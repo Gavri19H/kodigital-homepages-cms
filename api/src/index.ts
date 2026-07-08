@@ -307,7 +307,8 @@ const scheduled = async (
       // 00:07 UTC. Isolated + fail-open (mirrors the Listicles revenue cron
       // block above): absent CH secrets is a structured no-op; any error is
       // contained and NEVER surfaces into the homepage publish/provisioning cron.
-      await runLeadgenRevenueCron(env);
+      // ctx carries the m3 revenue_received Firehose emission (waitUntil).
+      await runLeadgenRevenueCron(env, { ctx });
     } catch {
       // revenue maintenance must never break the publish/provisioning cron.
     }

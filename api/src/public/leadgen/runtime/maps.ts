@@ -1,19 +1,23 @@
 // LeadGen runtime — Google Places Autocomplete wiring (fix-contract v2.4 03
 // §3.2 maps.ts row; field-level config per 08 §8.8, browser Places leg only).
 //
-// The SHELL decides whether to load the Maps SDK (browser key configured AND
-// a maps-enabled address/ZIP component exists — 03 §3.2 serve.ts row). This
-// module wires whatever is present at hydration time:
+// The SHELL injects only the browser key global (`window.__LG_MAPS_KEY__`,
+// spliced per-request — 03 §3.2d serve.ts row); the ENGINE owns loading the
+// SDK itself: when the key is present AND at least one `[data-lg-maps]`
+// field exists, `wireMapsFields` injects the Maps JS script
+// (maps.googleapis.com/maps/api/js?key=…&libraries=places&loading=async +
+// callback/load-event) and (re)runs `initMapsFields` once Places is ready.
+// This module wires whatever is present:
 //   * SDK + key present → attach Places Autocomplete to each field carrying a
 //     `data-lg-maps="{configJSON}"` hook; on a place selection, autofill the
 //     mapped internal fields and emit `address_autofill`; a complete/valid
 //     resolution additionally emits `address_validation_success`, an
 //     incomplete one `address_validation_error` (10 §10.2 producer row).
-//   * key/SDK missing → graceful CONSOLE-ERROR-FREE no-op: nothing is wired,
-//     manual entry keeps working (08 §8.8 "Autocomplete/validation will
-//     no-op; manual entry still works").
+//   * key missing → graceful CONSOLE-ERROR-FREE no-op: no script tag, nothing
+//     wired, manual entry keeps working (08 §8.8 "Autocomplete/validation
+//     will no-op; manual entry still works").
 //
-// BROWSER module: window/google access strictly inside functions.
+// BROWSER module: window/google/document access strictly inside functions.
 
 export interface LgMapsFieldConfig {
   autocomplete: boolean;
@@ -158,7 +162,7 @@ export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
     try {
       const autocomplete = new Autocomplete(input, {
         types: ["address"],
-        fields: ["address_component", "formatted_address"],
+        fields: ["address_components", "formatted_address"],
       });
       autocomplete.addListener("place_changed", () => {
         try {
@@ -216,6 +220,102 @@ export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
     } catch {
       /* wiring failure → this field stays manual-entry */
     }
+  }
+  return wired;
+}
+
+// ---------------------------------------------------------------------------
+// SDK loader (E6 — 03 §3.2d / 08 §8.8): the ENGINE loads the Maps JS itself.
+// ---------------------------------------------------------------------------
+
+// The global callback name the SDK URL's `callback=` names — the SDK invokes
+// it once Places is ready (`loading=async` recommends the callback form; a
+// script `load` listener rides as the belt-and-braces fallback).
+export const LG_MAPS_CALLBACK = "__LG_MAPS_ON_READY__";
+const LG_MAPS_READY_QUEUE = "__LG_MAPS_READY_QUEUE__";
+const LG_MAPS_SDK_ATTR = "data-lg-maps-sdk";
+
+export function mapsSdkSrc(key: string): string {
+  return (
+    "https://maps.googleapis.com/maps/api/js?key=" +
+    encodeURIComponent(key) +
+    "&libraries=places&loading=async&callback=" +
+    LG_MAPS_CALLBACK
+  );
+}
+
+export type LgMapsSdkOutcome = "no_key" | "no_fields" | "already_loaded" | "pending" | "injected";
+
+// Inject the Maps SDK script when (a) the shell spliced a browser key global
+// and (b) at least one `[data-lg-maps]` field exists — then run `onReady`
+// once Places is available. Key-missing (or any failure) is a CONSOLE-ERROR-
+// FREE no-op: no script tag, no throw, manual entry keeps working (08 §8.8).
+// Idempotent: a second call while the script is in flight chains onto the
+// same ready queue — never a second tag.
+export function maybeInjectMapsSdk(root: Element, onReady: () => void): LgMapsSdkOutcome {
+  try {
+    const w = window as unknown as Record<string, unknown>;
+    const key = w["__LG_MAPS_KEY__"];
+    if (typeof key !== "string" || key === "") return "no_key";
+    if (root.querySelector("[data-lg-maps]") === null) return "no_fields";
+    if (placesCtor() !== null) {
+      onReady();
+      return "already_loaded";
+    }
+    // An injection is already in flight → chain (exactly one script tag).
+    const inFlight = w[LG_MAPS_READY_QUEUE];
+    if (Array.isArray(inFlight)) {
+      inFlight.push(onReady);
+      return "pending";
+    }
+    const queue: Array<() => void> = [onReady];
+    w[LG_MAPS_READY_QUEUE] = queue;
+    const fire = (): void => {
+      // `load` can fire before Places finishes async-initializing; the SDK
+      // callback then fires the queue. Guarded + splice ⇒ ready runs ONCE.
+      if (placesCtor() === null) return;
+      for (const fn of queue.splice(0, queue.length)) {
+        try {
+          fn();
+        } catch {
+          /* field wiring is best-effort */
+        }
+      }
+    };
+    w[LG_MAPS_CALLBACK] = fire;
+    const doc = root.ownerDocument ?? document;
+    const script = doc.createElement("script");
+    script.async = true;
+    script.setAttribute(LG_MAPS_SDK_ATTR, "1");
+    script.src = mapsSdkSrc(key);
+    try {
+      script.addEventListener("load", fire);
+      script.addEventListener("error", () => {
+        /* SDK load failure → silent manual-entry fallback (no console) */
+      });
+    } catch {
+      /* listener wiring best-effort — the callback param still fires */
+    }
+    (doc.head ?? doc.documentElement ?? doc.body)?.appendChild(script);
+    return "injected";
+  } catch {
+    return "no_key"; // any unexpected failure degrades to the silent no-op
+  }
+}
+
+// The engine's entry point (03 §3.5.1): wire whatever is present NOW, and —
+// when the SDK is absent but the key + at least one [data-lg-maps] field are
+// present — inject the SDK and re-run the wiring once it is ready.
+export function wireMapsFields(root: Element, hooks: LgMapsHooks): number {
+  const wired = initMapsFields(root, hooks);
+  try {
+    if (placesCtor() === null) {
+      maybeInjectMapsSdk(root, () => {
+        initMapsFields(root, hooks);
+      });
+    }
+  } catch {
+    /* loader is best-effort; manual entry unaffected */
   }
   return wired;
 }

@@ -391,15 +391,19 @@ function seedDynamicAuctionForVariant(
 
 // The live client leg: /lg/config + /lg/attempt (with the funnel page's
 // original URL in `u`), then POST /lg/auction with the fabricated cf/headers.
+// m2: /lg/attempt now MINTS + BINDS a session id when no ko_sid cookie rides
+// the request and ECHOES it — the client (this harness included) must post
+// exactly the echoed value to /lg/auction or the v2 session binding rejects.
 async function mintLiveAttempt(env: Env, variantId: string, landingUrl: string): Promise<{
   section_order_hash: string;
   funnel_attempt_id: string;
   signed_config_token: string;
+  session_id: string;
 }> {
   const config = (await reqTenant(env, `/lg/config/${variantId}`).then((r) => r.json())) as { section_order_hash: string };
   const attemptRes = await reqTenant(env, `/lg/attempt?funnel_variant_id=${variantId}&u=${encodeURIComponent(landingUrl)}`);
   expect(attemptRes.status, `attempt: ${await attemptRes.clone().text()}`).toBe(200);
-  const attempt = (await attemptRes.json()) as { funnel_attempt_id: string; signed_config_token: string };
+  const attempt = (await attemptRes.json()) as { funnel_attempt_id: string; signed_config_token: string; session_id: string };
   return { section_order_hash: config.section_order_hash, ...attempt };
 }
 
@@ -568,6 +572,7 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
           funnel_attempt_id: attempt.funnel_attempt_id,
           section_order_hash: attempt.section_order_hash,
           signed_config_token: attempt.signed_config_token,
+          session_id: attempt.session_id, // m2: the echoed BOUND session id
           page_view_id: "pv-1",
           // 03 §3.6 answer envelope shape {value, answer_source}.
           answers: { f: { value: true, answer_source: "user_selected" } },
@@ -686,6 +691,132 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
     expect(loc.searchParams.get("ip")).toBe("198.51.100.7");
     // …and click_id is always freshly minted.
     expect(loc.searchParams.get("cid")).toMatch(/^lgl_/);
+  });
+});
+
+// ===========================================================================
+// 04 §4.5/§4.9 + 11 §11.3 — the multi-placement matrix (M1): one Offer
+// participating TWICE (placements A+B) in ONE auction. EACH provider POST
+// carries ITS OWN placement (both the `placement` macro and the
+// source:"placement" field); impressions carry the winner's OWN placement;
+// each provider-log row carries the carriers ITS response parsed.
+// ===========================================================================
+
+describeDb("§11.3 multi-placement matrix — one Offer, two placements, one auction (04 §4.5)", () => {
+  const LANDING = "https://one.example.com/lg/mp?utm_source=mp-src";
+
+  // Both placement projections: the source:"placement" field AND the
+  // `placement` macro must carry the SAME participating row's id.
+  const MP_SCHEMA = JSON.stringify({
+    version: 1,
+    root: {
+      type: "object",
+      children: [
+        { path: "plc", name: "plc", type: "string", source: "placement" },
+        { path: "plcm", name: "plcm", type: "string", source: "macro", macro: "placement" },
+      ],
+    },
+  });
+
+  function addSecondPlacement(sdb: SqliteDb, seeded: SeededDynamic, externalId: string): { placementPublicId: string; placementExternalId: string } {
+    const placementPublic = mintPublicId("offer_placement");
+    sdb
+      .prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, ?, 0)")
+      .run(placementPublic, seeded.offerId, externalId);
+    const placement = sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(placementPublic) as { id: number };
+    // PK (auction_id, offer_placement_id) — mig 0036: the SAME Offer joins the
+    // auction a second time under its second placement row.
+    sdb
+      .prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 1, 1)")
+      .run(seeded.auctionId, placement.id, seeded.offerId);
+    return { placementPublicId: placementPublic, placementExternalId: externalId };
+  }
+
+  it("each provider POST carries its own placement (macro + source:placement); impressions + provider logs are row-faithful", async () => {
+    const h = newHarness();
+    const { sdb, env } = h;
+    const { variantId } = await seedActivatedFunnel(env, sdb, "mp");
+    const seeded = seedDynamicAuctionForVariant(sdb, variantId, { schemaJson: MP_SCHEMA });
+    const placementA = {
+      placementExternalId: seeded.placementExternalId,
+      placementPublicId: (sdb
+        .prepare("SELECT public_id FROM leadgen_offer_placements WHERE offer_id = ? AND is_default = 1")
+        .get(seeded.offerId) as { public_id: string }).public_id,
+    };
+    const placementB = addSecondPlacement(sdb, seeded, `plc-b-${seeded.offerPublicId.slice(-4)}`);
+    const attempt = await mintLiveAttempt(env, variantId, LANDING);
+
+    // The mock provider answers PER PLACEMENT: A → Alpha (bid 20, the
+    // winner), B → Beta (bid 5). A collision-shaped engine would POST the
+    // SAME placement twice and could never produce both carriers.
+    const providerBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      providerBodies.push(body);
+      const isA = body["plc"] === placementA.placementExternalId;
+      const carrier = isA
+        ? { name: "Alpha", bid: 20, url: "https://alpha.example/c", logo: "https://alpha.example/l.png" }
+        : { name: "Beta", bid: 5, url: "https://beta.example/c", logo: "https://beta.example/l.png" };
+      return new Response(JSON.stringify({ carriers: [carrier] }), { status: 200 });
+    });
+
+    const captured = captureCtx();
+    const res = await reqTenant(
+      env,
+      "/lg/auction",
+      jsonInit("POST", {
+        funnel_variant_id: variantId,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+        section_order_hash: attempt.section_order_hash,
+        signed_config_token: attempt.signed_config_token,
+        session_id: attempt.session_id,
+        page_view_id: "pv-mp",
+        answers: { f: { value: true, answer_source: "user_selected" } },
+      }),
+      captured.ctx,
+    );
+    expect(res.status, `auction: ${await res.clone().text()}`).toBe(200);
+    const auction = (await res.json()) as Record<string, unknown>;
+
+    // (a) TWO provider POSTs — one per participating row — and EACH carries
+    // ITS OWN placement in BOTH projections (macro `placement` + source
+    // "placement"); the two payloads never share a placement id.
+    expect(providerBodies.length).toBe(2);
+    for (const body of providerBodies) {
+      expect(body["plcm"], "the `placement` macro must equal the row's source:placement field").toBe(body["plc"]);
+    }
+    expect(new Set(providerBodies.map((b) => b["plc"]))).toEqual(
+      new Set([placementA.placementExternalId, placementB.placementExternalId]),
+    );
+
+    // (b) Impressions carry the winning request's OWN placement per carrier:
+    // Alpha (winner, slot 1) → placement A; Beta → placement B; the
+    // offer_impression rides the winner's slot → placement A.
+    const impressions = auction["impressions"] as Array<Record<string, unknown>>;
+    const carrierImps = impressions.filter((i) => i["event_type"] === "carrier_impression");
+    expect(carrierImps.length).toBe(2);
+    const byKey = new Map(carrierImps.map((i) => [i["carrier_key"], i["placement_id"]]));
+    expect(byKey.get("alpha")).toBe(placementA.placementExternalId);
+    expect(byKey.get("beta")).toBe(placementB.placementExternalId);
+    const offerImps = impressions.filter((i) => i["event_type"] === "offer_impression");
+    expect(offerImps.length).toBe(1);
+    expect(offerImps[0]!["placement_id"]).toBe(placementA.placementExternalId);
+
+    // (c) Persisted provider-log rows are row-faithful: each carries ITS OWN
+    // placement_public_id AND the carriers ITS response parsed.
+    await settle(captured);
+    const logRows = h.sdb
+      .prepare("SELECT placement_public_id, parsed_carriers_json FROM leadgen_provider_request_log WHERE auction_instance_id IS NOT NULL ORDER BY id ASC")
+      .all() as Array<{ placement_public_id: string; parsed_carriers_json: string }>;
+    expect(logRows.length).toBe(2);
+    const rowA = logRows.find((r) => r.placement_public_id === placementA.placementPublicId);
+    const rowB = logRows.find((r) => r.placement_public_id === placementB.placementPublicId);
+    expect(rowA, "a log row for placement A").toBeDefined();
+    expect(rowB, "a log row for placement B").toBeDefined();
+    expect(rowA!.parsed_carriers_json).toContain("Alpha");
+    expect(rowA!.parsed_carriers_json).not.toContain("Beta");
+    expect(rowB!.parsed_carriers_json).toContain("Beta");
+    expect(rowB!.parsed_carriers_json).not.toContain("Alpha");
   });
 });
 
@@ -1057,6 +1188,7 @@ describeDb("anti-tamper v2 — per-field tamper matrix → 422 tampered", () => 
       funnel_attempt_id: attempt.funnel_attempt_id,
       section_order_hash: attempt.section_order_hash,
       signed_config_token: attempt.signed_config_token,
+      session_id: attempt.session_id, // m2: the echoed BOUND session id
     };
 
     // Control: the untampered binding is accepted.
@@ -1121,6 +1253,81 @@ describeDb("anti-tamper v2 — per-field tamper matrix → 422 tampered", () => 
     };
     expect((await verifyConfigTokenDetailed(env, v1token, expected, { requireSigned: true })).ok).toBe(false);
     expect((await verifyConfigTokenDetailed(envWithGrace, v1token, expected, { requireSigned: true })).ok).toBe(true);
+  });
+
+  it("m1 downgrade hardening: a v2 payload RE-LABELLED `v1.` is rejected even with the grace flag ON → 422", async () => {
+    // The HMAC covers the payload bytes only (not the scheme prefix), so a
+    // re-labelled v2 token verifies its signature under the v1 branch and
+    // would skip the 3 v2-only equality checks. decodeTupleV1 must REJECT any
+    // payload carrying a v2-only key.
+    const { sdb, env } = newHarness({ extra: { LEADGEN_ACCEPT_V1_TOKENS: "true" } });
+    const { variantId } = await seedActivatedFunnel(env, sdb, "v1d");
+    seedDynamicAuctionForVariant(sdb, variantId);
+    const attempt = await mintLiveAttempt(env, variantId, LANDING);
+    const parts = attempt.signed_config_token.split(".");
+    expect(parts[0]).toBe("v2");
+    const relabelled = `v1.${parts[1]}.${parts[2]}`; // same bytes, same signature
+
+    // Full money path: even the CORRECT session cannot ride a downgraded token.
+    const res = await postAuction(env, variantId, {
+      funnel_attempt_id: attempt.funnel_attempt_id,
+      section_order_hash: attempt.section_order_hash,
+      signed_config_token: relabelled,
+      session_id: attempt.session_id,
+    });
+    expect(res.status).toBe(422);
+    const j = (await res.json()) as { traffic_quality_flag: string };
+    expect(j.traffic_quality_flag).toBe("tampered");
+
+    // And unit-level: the grace-flag verifier itself rejects the v2 payload.
+    const v2payload = JSON.parse(b64urlDecodeToString(parts[1]!)) as Record<string, unknown>;
+    const expected: ConfigTokenTuple = {
+      funnel_variant_id: v2payload["funnel_variant_id"] as string,
+      section_order_hash: v2payload["section_order_hash"] as string,
+      content_version: v2payload["content_version"] as number,
+      funnel_attempt_id: v2payload["funnel_attempt_id"] as string,
+      session_id: v2payload["session_id"] as string,
+      answer_mapping_hash: v2payload["answer_mapping_hash"] as string,
+      auction_config_version: v2payload["auction_config_version"] as string,
+    };
+    expect((await verifyConfigTokenDetailed(env, relabelled, expected, { requireSigned: true })).ok).toBe(false);
+  });
+
+  it("m2 cookie-blocked visitors: /lg/attempt echoes the BOUND (minted-when-absent) session_id; the auction with the echoed sid is 200, a different sid is 422", async () => {
+    const { sdb, env } = newHarness();
+    const { variantId } = await seedActivatedFunnel(env, sdb, "m2sid");
+    seedDynamicAuctionForVariant(sdb, variantId);
+
+    // No ko_sid cookie rides the attempt (reqTenant sends none — the
+    // cookie-blocked shape): the route mints + binds + ECHOES the session id.
+    const attemptRes = await reqTenant(env, `/lg/attempt?funnel_variant_id=${variantId}&u=${encodeURIComponent(LANDING)}`);
+    expect(attemptRes.status).toBe(200);
+    const setCookie = attemptRes.headers.get("Set-Cookie") ?? "";
+    expect(setCookie).toContain("ko_sid=");
+    const attempt = (await attemptRes.json()) as {
+      funnel_attempt_id: string;
+      signed_config_token: string;
+      session_id: string;
+    };
+    expect(typeof attempt.session_id).toBe("string");
+    expect(attempt.session_id).not.toBe("");
+
+    const config = (await reqTenant(env, `/lg/config/${variantId}`).then((r) => r.json())) as { section_order_hash: string };
+    const base = {
+      funnel_attempt_id: attempt.funnel_attempt_id,
+      section_order_hash: config.section_order_hash,
+      signed_config_token: attempt.signed_config_token,
+    };
+
+    // The engine posts EXACTLY the echoed sid (no cookie) → the v2 session
+    // binding verifies → 200, not 422.
+    const okRes = await postAuction(env, variantId, { ...base, session_id: attempt.session_id });
+    expect(okRes.status, `echoed sid: ${await okRes.clone().text()}`).toBe(200);
+
+    // A client-minted sid the server never bound (the pre-fix engine
+    // behavior for cookie-blocked visitors) rejects.
+    const badRes = await postAuction(env, variantId, { ...base, session_id: "client-local-sid" });
+    expect(badRes.status).toBe(422);
   });
 
   it("an `unsigned.` token is rejected on the money path even when NO signing secret is configured (fails closed)", async () => {

@@ -733,6 +733,23 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
     expect(step).toContain('data-mode="step"');
   });
 
+  it("M5: progress bar stamps data-lg-progress-bar on the fill + data-lg-progress-label on the label — hydration updates hooks, never wipes the track", () => {
+    // The fill hook rides EVERY ProgressBar render (updateProgress writes the
+    // width there instead of falling back to textContent, which would wipe
+    // .lg-progress-track/.lg-progress-fill — 03 §3.2 "no visual change").
+    const percent = renderComponent(NODE_SPECS.ProgressBar, DESIGN);
+    expect(percent).toContain('class="lg-progress-fill" data-lg-progress-bar');
+    expect(percent).toContain('class="lg-progress-track"');
+
+    // Step mode auto-derives a label → the label hook rides its text div.
+    const step = renderComponent(
+      { type: "ProgressBar", question_id: "p", props: { mode: "step", step: 1, totalSteps: 4 } },
+      DESIGN,
+    );
+    expect(step).toContain('class="lg-progress-fill" data-lg-progress-bar');
+    expect(step).toContain('class="lg-progress-text" data-lg-progress-label');
+  });
+
   it("data-lg-error-for={internal_field} on a bound error slot; absent on an unbound one", () => {
     const bound = renderComponent(
       { type: "ValidationError", question_id: "e1", internal_field: "email", props: { text: "Required" } },

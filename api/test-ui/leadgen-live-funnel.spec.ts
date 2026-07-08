@@ -373,6 +373,14 @@ test.describe("Group 1 — auction → banners → impressions → click (11 §1
     const events = await installTrackCapture(page);
     const consoleErrors = installConsoleCapture(page);
 
+    // m15: count EVERY /lg/auction request from page-load onward — §3.5.6
+    // ("the final Section triggers the auction — never before") is ASSERTED
+    // below, not narrated.
+    let auctionCalls = 0;
+    page.on("request", (r) => {
+      if (r.url().includes("/lg/auction")) auctionCalls += 1;
+    });
+
     // Navigate WITH acquisition params: utm_source rides the beacons, the
     // /lg/attempt landing-url token slice, the provider payload macro node,
     // and the /lg/lc {utm_source} macro — the traffic-persistence money path.
@@ -399,7 +407,9 @@ test.describe("Group 1 — auction → banners → impressions → click (11 §1
     await page.locator('[data-lg-question="q_prior"] [data-lg-choice="insured"]').click();
 
     // §3.5.6: advancing past the LAST visible section — and never before —
-    // triggers the auction. (No /lg/auction call may exist yet.)
+    // triggers the auction. m15: ZERO /lg/auction calls occurred between
+    // page-load and this final section advance (asserted, not narrated).
+    expect(auctionCalls, "no /lg/auction call may exist before the final section advance").toBe(0);
     const [auctionReq, auctionRes] = await Promise.all([
       page.waitForRequest((r) => r.url().includes("/lg/auction") && r.method() === "POST", {
         timeout: 20_000,

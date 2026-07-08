@@ -62,8 +62,8 @@ DEV_BYPASS_AUTH=true
 # works locally; production value is a Dashboard-managed secret (never
 # committed, never set by the agent). Without it, /lg/attempt mints an
 # explicit `unsigned.` dev token and /lg/auction fails closed (422).
-LEADGEN_CONFIG_SIGNING_KEY
+LEADGEN_CONFIG_SIGNING_KEY=
 
 # Optional: Google Maps browser key for local Places Autocomplete testing.
 # Absent key = graceful manual-entry fallback (contract 08 §8.8).
-GOOGLE_MAPS_BROWSER_KEY
+GOOGLE_MAPS_BROWSER_KEY=

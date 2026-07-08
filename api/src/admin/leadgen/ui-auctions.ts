@@ -1055,6 +1055,19 @@ const AUCTION_EDITOR_SCRIPT = `
     for (i = 0; i < chips.length; i++) { if (chips[i].parentNode) { chips[i].parentNode.removeChild(chips[i]); } }
   }
 
+  // m10: rows are matched by ATTRIBUTE EQUALITY (querySelectorAll + exact
+  // getAttribute compare), never by interpolating the id into a CSS selector
+  // string — a quote/bracket in a public id can neither throw nor mismatch.
+  function findRowByAttr(attr, value) {
+    if (!partList) { return null; }
+    var rows = partList.querySelectorAll('[' + attr + ']');
+    var k;
+    for (k = 0; k < rows.length; k++) {
+      if (rows[k].getAttribute(attr) === String(value)) { return rows[k]; }
+    }
+    return null;
+  }
+
   function renderEligibilityWarnings(warnings, items) {
     clearEligibilityChips();
     if (!partList || !warnings) { return 0; }
@@ -1071,9 +1084,9 @@ const AUCTION_EDITOR_SCRIPT = `
     for (i = 0; i < warnings.length; i++) {
       var w = warnings[i];
       if (!w || !w.offer_id) { continue; }
-      var row = partList.querySelector('[data-offer-public-id="' + w.offer_id + '"]');
+      var row = findRowByAttr('data-offer-public-id', w.offer_id);
       if (!row && publicToNumeric[w.offer_id] !== undefined) {
-        row = partList.querySelector('[data-offer-id="' + publicToNumeric[w.offer_id] + '"]');
+        row = findRowByAttr('data-offer-id', publicToNumeric[w.offer_id]);
       }
       if (!row) { continue; }
       var reasons = w.reasons || [];

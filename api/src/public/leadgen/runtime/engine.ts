@@ -40,10 +40,10 @@ import {
   visibleSectionIndexes,
   type LgDependencyState,
 } from "./dependencies";
-import { validateSection } from "./validation";
+import { formatKindFor, validateSection } from "./validation";
 import { LgBeaconClient, ulidLike, type LgSendFn } from "./events";
 import * as render from "./render";
-import { initMapsFields } from "./maps";
+import { wireMapsFields } from "./maps";
 import {
   observeImpressions,
   postAuction,
@@ -269,6 +269,11 @@ function acquisitionParams(search: string): Partial<Record<LgAcquisitionKey, str
 interface LgAttempt {
   funnel_attempt_id: string;
   signed_config_token: string;
+  // The session id the server BOUND into the signed tuple (echoed by
+  // /lg/attempt — minted server-side when the ko_sid cookie was absent, e.g.
+  // cookie-blocked visitors). The engine must use EXACTLY this value for
+  // /lg/auction or the v2 session binding rejects (422 tampered).
+  session_id?: string;
   expires_at?: number;
 }
 
@@ -294,6 +299,9 @@ async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | nu
       funnel_attempt_id: raw["funnel_attempt_id"],
       signed_config_token:
         typeof raw["signed_config_token"] === "string" ? raw["signed_config_token"] : "",
+      ...(typeof raw["session_id"] === "string" && raw["session_id"] !== ""
+        ? { session_id: raw["session_id"] }
+        : {}),
       ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
     };
   } catch {
@@ -407,15 +415,27 @@ export class LgEngine {
       if (attempt === null) attemptFailed = true;
     }
 
+    // m2 (cookie-blocked visitors): the server ECHOES the session id it bound
+    // into the signed tuple (minted server-side when no ko_sid cookie rode
+    // the attempt request). Adopt it — /lg/auction must post EXACTLY the
+    // bound value or the v2 session binding rejects — and keep the beacon
+    // envelope on the same id for attribution consistency.
+    const boundSessionId =
+      attempt?.session_id !== undefined && attempt.session_id !== ""
+        ? attempt.session_id
+        : sessionId;
     this.store.bindIdentity({
-      session_id: sessionId,
+      session_id: boundSessionId,
       page_view_id: pageViewId,
       funnel_attempt_id: attempt?.funnel_attempt_id ?? "",
       signed_config_token: attempt?.signed_config_token ?? "",
       tuple,
     });
     if (attempt !== null) {
-      this.beacons.setEnvelope({ funnel_attempt_id: attempt.funnel_attempt_id });
+      this.beacons.setEnvelope({
+        funnel_attempt_id: attempt.funnel_attempt_id,
+        ...(boundSessionId !== sessionId ? { session_id: boundSessionId } : {}),
+      });
     }
 
     // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
@@ -432,9 +452,11 @@ export class LgEngine {
       }
     }
 
-    // Bind interaction, wire maps, render the current step.
+    // Bind interaction, wire maps (E6: injects the Places SDK itself when the
+    // shell spliced __LG_MAPS_KEY__ and a [data-lg-maps] field exists — then
+    // re-runs the field wiring on ready), render the current step.
     this.bindListeners();
-    initMapsFields(this.root, {
+    wireMapsFields(this.root, {
       setAnswer: (field, value, meta) => {
         this.writeAnswer(field, value, {
           question_id: meta.question_id,
@@ -455,12 +477,14 @@ export class LgEngine {
     // Hydration complete (§3.5.1): the anti-false-PASS suite keys on this.
     this.root.setAttribute("data-lg-ready", "1");
 
-    // Replay clicks queued by the inline stub BEFORE hydration.
-    this.replayPrehydrateQueue();
-
-    // Funnel-entry beacons.
+    // Funnel-entry beacons FIRST (§3.5.1 ordering): quote_view + the visible
+    // section's section_view precede any replayed pre-hydration click, so a
+    // replayed answer_click always sequences AFTER the view events.
     this.beacons.enqueue("quote_view", this.sectionDims(this.currentSection()));
     this.fireSectionView(this.currentSection(), null);
+
+    // Replay clicks queued by the inline stub BEFORE hydration.
+    this.replayPrehydrateQueue();
 
     if (attemptFailed) {
       // §3.5.8: never a blank page; the server HTML is already interactive,
@@ -612,6 +636,11 @@ export class LgEngine {
         }
       } else if (item instanceof Element) {
         el = item;
+      } else if (item !== null && typeof item === "object") {
+        // The inline stub queues `{el, t}` (serve.ts LEADGEN_PREHYDRATE_JS) —
+        // unwrap the element; string|Element items stay tolerated above.
+        const wrapped = (item as { el?: unknown }).el;
+        if (wrapped instanceof Element) el = wrapped;
       }
       if (el === null) continue;
       const choice = el.closest("[data-lg-choice]");
@@ -721,6 +750,13 @@ export class LgEngine {
       value = input.type === "checkbox" ? input.checked : input.value;
     } else if ("value" in input && typeof (input as { value: unknown }).value === "string") {
       value = (input as { value: string }).value;
+    }
+
+    // m12: ZIP-format inputs STORE the trimmed value at capture (" 90210" →
+    // "90210") so the client-passing answer also passes the server's strict
+    // /^\d{5}$/ — validation semantics on either side stay unchanged.
+    if (component !== null && typeof value === "string" && formatKindFor(component) === "zip") {
+      value = value.trim();
     }
 
     const meta = {

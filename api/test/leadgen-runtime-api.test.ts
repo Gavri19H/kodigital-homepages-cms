@@ -30,7 +30,9 @@ import { assignVariant } from "../src/public/leadgen/ab-hash";
 import { sha256Hex } from "../src/public/leadgen/auction/parse";
 
 // The v2 (R9, 05 §5.3) token tuple for a funnel with NO answer maps and NO
-// auction: session_id "" (the /lg/attempt handler threads no ctx yet),
+// auction: session_id "" by default — the /lg/attempt route now MINTS + binds
+// + ECHOES a session id when no ko_sid cookie rides the request (m2), so
+// route-minted tokens verify with `session_id: attempt.session_id` overlaid.
 // answer_mapping_hash = SHA-256 over the ordered per-section version strings
 // (["0", …] when nothing is mapped — attempt.computeAttemptBindingExtras
 // semantics), auction_config_version "" (no auction bound to the variant).
@@ -545,21 +547,52 @@ describeDb("GET /lg/attempt — session mint (§8.3 / §24c)", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
 
-    const attempt = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string };
+    const attempt = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string; session_id: string };
     expect(attempt.funnel_attempt_id.startsWith("att_")).toBe(true);
     expect(attempt.signed_config_token.startsWith("v2.")).toBe(true); // signed v2 (R9, 05 §5.3)
+    // m2: no cookie rode the request → the route MINTED + bound a session id,
+    // echoes it, and Set-Cookies it (best-effort for cookie-accepting UAs).
+    expect(typeof attempt.session_id).toBe("string");
+    expect(attempt.session_id).not.toBe("");
+    expect(res.headers.get("Set-Cookie") ?? "").toContain("ko_sid=");
 
-    const tuple: ConfigTokenTuple = v2Tuple({
-      funnel_variant_id: seeded.variantId,
-      section_order_hash: config.section_order_hash,
-      content_version: config.content_version,
-      funnel_attempt_id: attempt.funnel_attempt_id,
-    });
+    const tuple: ConfigTokenTuple = {
+      ...v2Tuple({
+        funnel_variant_id: seeded.variantId,
+        section_order_hash: config.section_order_hash,
+        content_version: config.content_version,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+      }),
+      session_id: attempt.session_id, // m2: the tuple binds the ECHOED sid
+    };
     expect(await verifyConfigToken(env, attempt.signed_config_token, tuple)).toBe(true);
     // a tampered variant id breaks the binding.
     expect(
       await verifyConfigToken(env, attempt.signed_config_token, { ...tuple, funnel_variant_id: mintPublicId("funnel_variant") }),
     ).toBe(false);
+    // …and so does a session the mint never bound (the m2 crypto guarantee).
+    expect(
+      await verifyConfigToken(env, attempt.signed_config_token, { ...tuple, session_id: "some-other-sid" }),
+    ).toBe(false);
+  });
+
+  it("m6: an oversized `u` landing URL is capped at 4096 chars INSIDE the signed payload (param-boundary truncation)", async () => {
+    const { sdb, env } = newHarness();
+    const seeded = await seedActivatedFunnel(env, sdb, { quoteName: "Cap Quote", slug: "cap" });
+    const longValue = "x".repeat(6000);
+    const landing = `https://one.example.com/lg/cap?utm_source=capped&big=${longValue}&tail=1`;
+    const res = await get(env, `/lg/attempt?funnel_variant_id=${seeded.variantId}&u=${encodeURIComponent(landing)}`);
+    expect(res.status).toBe(200);
+    const attempt = (await res.json()) as { signed_config_token: string };
+    const payload = decodeTokenPayload(attempt.signed_config_token);
+    const landingUrl = payload["landing_url"] as string;
+    expect(landingUrl.length).toBeLessThanOrEqual(4096);
+    // The cut lands on the last complete query-param boundary inside the cap:
+    // the half-sliced `big` param is dropped whole, params before it survive
+    // verbatim (never a dangling half value).
+    expect(landingUrl).toBe("https://one.example.com/lg/cap?utm_source=capped");
+    // The mint stays functional: the token is still a signed v2 token.
+    expect(attempt.signed_config_token.startsWith("v2.")).toBe(true);
   });
 
   it("404 (no-store) for a variant not activated on this host", async () => {
@@ -641,21 +674,22 @@ describeDb("CP3 — an activated funnel renders end-to-end (shell → config →
     expect(Array.isArray(config.sections)).toBe(true);
     expect(config.sections.length).toBe(1);
 
-    // 3) attempt (the bootstrap's second fetch) — the token binds THIS config.
+    // 3) attempt (the bootstrap's second fetch) — the token binds THIS config
+    // (+ the m2 minted-when-absent session id the route echoes).
     const attempt = (await (await get(env, `/lg/attempt?funnel_variant_id=${variantId}`)).json()) as {
       funnel_attempt_id: string;
       signed_config_token: string;
+      session_id: string;
     };
-    const bound = await verifyConfigToken(
-      env,
-      attempt.signed_config_token,
-      v2Tuple({
+    const bound = await verifyConfigToken(env, attempt.signed_config_token, {
+      ...v2Tuple({
         funnel_variant_id: variantId!,
         section_order_hash: config.section_order_hash,
         content_version: config.content_version,
         funnel_attempt_id: attempt.funnel_attempt_id,
       }),
-    );
+      session_id: attempt.session_id,
+    });
     expect(bound, "CP3: the minted token binds the served config tuple").toBe(true);
   });
 });
@@ -916,21 +950,22 @@ describeDb("P8 — a RUNNING 2-variant test buckets by session (§16.2/§16.3)",
     // §8.3/§30.4 — the cacheable config carries NO per-session bucket.
     expect(JSON.stringify(config)).not.toContain("assignment_bucket");
 
-    // the minted token binds the ASSIGNED variant (never the control by default).
+    // the minted token binds the ASSIGNED variant (never the control by default)
+    // + the m2 minted-when-absent session id the route echoes.
     const attempt = (await (await get(env, `/lg/attempt?funnel_variant_id=${served}`)).json()) as {
       funnel_attempt_id: string;
       signed_config_token: string;
+      session_id: string;
     };
-    const bound = await verifyConfigToken(
-      env,
-      attempt.signed_config_token,
-      v2Tuple({
+    const bound = await verifyConfigToken(env, attempt.signed_config_token, {
+      ...v2Tuple({
         funnel_variant_id: served!,
         section_order_hash: config.section_order_hash,
         content_version: config.content_version,
         funnel_attempt_id: attempt.funnel_attempt_id,
       }),
-    );
+      session_id: attempt.session_id,
+    });
     expect(bound, "token binds the assigned variant's config tuple").toBe(true);
   });
 

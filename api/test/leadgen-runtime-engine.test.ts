@@ -428,6 +428,27 @@ describe("dependencies: server↔client parity (09 §9.3 table)", () => {
     }
   });
 
+  it("m11 parity: an EMPTY internal_field on a required component blocks on BOTH sides even when answers[''] exists", () => {
+    // Server (leadgen/dependencies.ts `field ? answers[field] : undefined`)
+    // treats "" as field-less → blocked. The client must NOT read a stray
+    // answers[""] key and unblock (the pre-fix `field !== undefined` did).
+    const nodes = [
+      { type: "SingleChoiceQuestion", question_id: "q_empty", internal_field: "", required: true, props: {} },
+    ];
+    const answerSets: Record<string, unknown>[] = [
+      { "": "stray-empty-key-answer" }, // the divergence-triggering shape
+      {},
+    ];
+    for (const answers of answerSets) {
+      const server = evaluateDependencies(nodes as unknown as LeadgenComponentNode[], answers);
+      const client = evaluateComponents(nodes as unknown as LgComponentConfig[], answers);
+      expect(client.components).toEqual(server.components);
+      expect(client.continue_blocked).toBe(server.continue_blocked);
+      expect(client.blocking_question_ids).toEqual(server.blocking_question_ids);
+      expect(client.continue_blocked, "an empty-internal_field required component always blocks").toBe(true);
+    }
+  });
+
   it("isAnswered matches the server emptiness semantics", () => {
     // server dependencies.ts:79–88: undefined/null/""/"  "/[]/{} unanswered;
     // 0/false/"x"/[0]/{k:1} answered.

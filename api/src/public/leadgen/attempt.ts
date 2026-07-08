@@ -342,6 +342,13 @@ function decodeTupleV2(payloadSeg: string): DecodedPayloadV2 | null {
 function decodeTupleV1(payloadSeg: string): ConfigTokenTupleV1 | null {
   const p = decodePayloadJson(payloadSeg);
   if (p === null) return null;
+  // Downgrade hardening: the HMAC covers the payload bytes only (not the
+  // scheme prefix), so a valid v2 token re-labelled `v1.` would verify and
+  // then skip the 3 v2-only equality checks under the grace flag. A payload
+  // carrying ANY v2-only key is therefore NOT a v1 token — reject it.
+  for (const v2OnlyKey of ["session_id", "answer_mapping_hash", "auction_config_version", "landing_url"]) {
+    if (p[v2OnlyKey] !== undefined) return null;
+  }
   if (typeof p["funnel_variant_id"] !== "string") return null;
   if (typeof p["section_order_hash"] !== "string") return null;
   if (typeof p["content_version"] !== "number" || !Number.isFinite(p["content_version"])) return null;
