@@ -285,7 +285,7 @@ describeDb("leadgen sections list page (03 §9.3)", () => {
 // ---------------------------------------------------------------------------
 
 describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
-  it("renders the builder canvas, capability palette, inspector tokens + the mapping grid", async () => {
+  it("renders the studio library, canvas, inspector token dropdowns + the mapping drawer summary", async () => {
     const { env } = newHarness();
     const offer = await createMappableOffer(env, { offer_name: "MapMe" });
     const section = await createSection(env, {
@@ -293,29 +293,32 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     });
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
 
-    // LEFT: canvas + palette (add from the capability catalog)
-    expect(html).toContain("data-lg-canvas");
-    expect(html).toContain('id="lg-canvas-list"');
+    // LEFT: the §8.3 component library (drag + click-to-add from the catalog)
+    expect(html).toContain("data-studio-library");
     expect(html).toContain('data-add-component="TwoButtonYesNo"');
     expect(html).toContain('data-add-component="IconCardAnswerGrid"');
-    // the seeded component renders as a canvas card
+    // CENTER: the §8.4 canvas — the seeded component is preset-rendered with
+    // its selection hit-target attribute
+    expect(html).toContain("data-studio-canvas");
     expect(html).toContain('data-question-id="q1"');
 
-    // RIGHT: inspector tokens (§14.8 curated) + the mapping grid (§12.4/§12.11)
-    expect(html).toContain("data-inspector-tokens");
-    expect(html).toContain("data-inspector-mapping");
-    expect(html).toContain('id="lg-mapping-grid"');
-    for (const col of ["Internal field", "Mapped Offer", "Offer field path", "Expected type", "Value transform", "Completeness", "Test payload"]) {
-      expect(html, `mapping column ${col}`).toContain(`>${col}</th>`);
-    }
-    // the curated token controls (never arbitrary CSS)
+    // RIGHT: the §8.6 Design tab — curated token DROPDOWNS only (§14.8; the
+    // free-text token inputs are gone, values come from the design's slots)
     for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap", "mobileBehavior"]) {
       expect(html, `token control ${key}`).toContain(`data-inspector-override="${key}"`);
+      expect(html, `token control ${key} is a select`).toContain(`<select id="lg-inspector-${key}"`);
     }
-    // the mapping row for the seeded Offer
-    expect(html).toContain(`data-mapping-offer="${offer.id}"`);
-    expect(html).toContain('data-mapping-status="complete"');
-    expect(html).toContain("MapMe");
+    // BOTTOM drawer: the mapping tab is the D2 placeholder + the summary
+    // derived from the seeded (complete) mapping — data preserved untouched.
+    expect(html).toContain('data-studio-drawer-tab="mapping"');
+    expect(html).toContain("data-mapping-summary");
+    expect(html).toContain('data-publishable="true"');
+    expect(html).toContain("1 answer→Offer mapping edge");
+    // the mapping edges ride the state blob (pass-through to save)
+    const data = extractJsonBlob(html, "lg-section-data");
+    const maps = data["answer_maps"] as Array<Record<string, unknown>>;
+    expect(maps).toHaveLength(1);
+    expect(maps[0]).toMatchObject({ offer_id: offer.id, offer_payload_field_path: "data.insured", mapping_status: "complete" });
   });
 
   it("renders the Desktop/Mobile preview toggle + the §14.9 states simulator + §12.8 Maps toggle + continue-mode", async () => {
@@ -427,18 +430,27 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(seeds["ProgressBar"]).toEqual({});
   });
 
-  it("the inspector renders the §13.1 authoring controls (not just style tokens)", async () => {
+  it("the inspector renders the §8.6 authoring controls (content/choices/validation/dependencies/advanced)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
-    expect(html).toContain("data-inspector-authoring");
+    // tabs (§8.6 per-selection panels)
+    for (const tab of ["content", "choices", "layout", "design", "validation", "dependencies", "mapping", "advanced"]) {
+      expect(html, `inspector tab ${tab}`).toContain(`data-studio-inspector-tab="${tab}"`);
+      expect(html, `inspector panel ${tab}`).toContain(`data-studio-panel="${tab}"`);
+    }
+    // Advanced owns internal_field/question_key (+ the ONLY raw-JSON surface);
+    // Validation owns the required toggle; Dependencies the typed IF builder.
     expect(html).toContain('data-inspector-field="internal_field"');
+    expect(html).toContain('data-inspector-field="question_key"');
     expect(html).toContain('data-inspector-field="required"');
-    expect(html).toContain('data-inspector-field="valid_values"');
+    expect(html).toContain("data-studio-node-json");
     expect(html).toContain('data-inspector-cond="when"');
     expect(html).toContain('data-inspector-cond="op"');
     expect(html).toContain("data-inspector-choices");
     expect(html).toContain('id="lg-choice-add"');
+    expect(html).toContain("data-choice-bulk"); // §8.6 bulk paste
+    expect(html).toContain('data-choicedisplay="otherGroupEnabled"'); // B9 main/Other grouping
   });
 
   it("the ES5 builder COLLECTS inspector edits back into the selected node (not just markDirty)", async () => {
@@ -462,7 +474,7 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(html).toContain("componentSeeds[type]");
   });
 
-  it("the mapping grid has a working add-row control + collects data-map-field into state.answer_maps", async () => {
+  it("the studio preserves answer_maps through the save body (D2 owns the §8.7 editing panel)", async () => {
     const { env } = newHarness();
     const offer = await createMappableOffer(env);
     const section = await createSection(env, {
@@ -470,21 +482,18 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     });
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
 
-    expect(html).toContain('id="lg-mapping-add"');
-    // "+ Add mapping" appends an edge into state.answer_maps
-    expect(html).toContain("state.answer_maps.push(");
-    // per-row edit/remove/collect wiring reads data-map-field back into state
-    expect(html).toContain("function collectMappings(");
-    expect(html).toContain("function readMapRow(");
-    expect(html).toContain("function removeMapping(");
-    expect(html).toContain("getAttribute('data-map-field')");
-    expect(html).toContain("data-map-field");
-    // per-row Test hits the §12.11 validate-payload endpoint
-    expect(html).toContain("function testMapping(");
-    expect(html).toContain("/validate-payload");
+    // the raw §12.4 grid inputs are GONE from this surface (§8.7: no raw
+    // numeric offer ids / free-text paths outside the Advanced drawer)…
+    expect(html).not.toContain("data-map-field");
+    expect(html).not.toContain('id="lg-mapping-add"');
+    // …but the mapping edges still ride the state blob and the save body
+    // (pass-through until the D2 picker panel).
+    expect(html).toContain('data-studio-tab-mapping');
     // collectSection serializes BOTH the content nodes and the answer_maps
     expect(html).toContain("content_json: JSON.stringify(state.content)");
     expect(html).toContain("answer_maps: state.answer_maps");
+    const data = extractJsonBlob(html, "lg-section-data");
+    expect((data["answer_maps"] as unknown[]).length).toBe(1);
   });
 });
 

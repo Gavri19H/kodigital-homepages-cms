@@ -24,17 +24,16 @@ import {
   type UiContext,
 } from "./ui";
 import type { Paging } from "./router";
+// Phase 4 (fix-contract v2.4 08, Slice D1): the editor page assembles the new
+// Section STUDIO — ui-question-builder.ts is no longer the editor layer (its
+// file stays until the D2 mapping panel removes the last references).
 import {
-  QUESTION_BUILDER_SCRIPT,
-  QUESTION_BUILDER_STYLES,
-  renderBuilderCanvas,
-  renderComponentPalette,
-  renderComponentSeedData,
-  renderInspector,
-  renderPreviewToggle,
-  type AnswerMapView,
-  type MappingSummary,
-} from "./ui-question-builder";
+  SECTION_STUDIO_SCRIPT,
+  SECTION_STUDIO_STYLES,
+  renderSectionStudio,
+  type StudioMappingSummary as MappingSummary,
+  type StudioSectionView,
+} from "./ui-section-studio";
 // §30.2 operator-owned browser Maps key — read ONLY to surface the absent-state
 // note in the editor (the key value is NEVER embedded; the live geocode is P7).
 import { resolveBrowserMapsKey } from "../../leadgen/maps";
@@ -111,24 +110,13 @@ export function mappingSummaryOf(
   return { publishable, status: publishable ? "ok" : "error", required_missing_total: requiredMissing };
 }
 
-interface SectionOffersBody {
-  offers: Array<{ id: number; public_id: string; offer_name: string; status: string; has_active_schema: boolean }>;
-  mappings: AnswerMapApiRow[];
-}
-
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
 const LG_SECTIONS_STYLES = `
-.lg-editor-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
-.lg-editor-title{margin:0;font-size:20px}
 .lg-editor-pubid{color:var(--c-muted);font-size:12px}
-.lg-editor-spacer{flex:1}
-.lg-section-scalars{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-@media (max-width:640px){.lg-section-scalars{grid-template-columns:1fr}}
-.lg-maps-note{color:var(--c-muted);font-size:12px}
-${QUESTION_BUILDER_STYLES}
+${SECTION_STUDIO_STYLES}
 `;
 
 // ---------------------------------------------------------------------------
@@ -331,36 +319,15 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
 }
 
 // ---------------------------------------------------------------------------
-// Editor page (03 §9.3) — full-page builder
+// Editor page (03 §9.3 → fix-contract v2.4 08) — the Section STUDIO
 // ---------------------------------------------------------------------------
 
 interface EditorData {
   section: SectionDetail | null; // null = new
-  offerLabelById: Map<number, string>;
-  maps: AnswerMapView[];
   summary: MappingSummary;
   // §30.2: whether the operator-owned browser Maps key is configured. false ⇒
   // the editor shows "Maps key not configured — autofill disabled".
   mapsKeyConfigured: boolean;
-}
-
-function toAnswerMapViews(rows: AnswerMapApiRow[]): AnswerMapView[] {
-  return rows.map((m) => ({
-    question_id: m.question_id,
-    question_key: m.question_key,
-    internal_field: m.internal_field,
-    answer_type: typeof m.answer_type === "string" ? m.answer_type : "",
-    offer_id: m.offer_id,
-    offer_payload_field_path: m.offer_payload_field_path,
-    provider_expected_type: m.provider_expected_type,
-    output_value_map: m.output_value_map,
-    value_transform: m.value_transform,
-    required_for_offer: m.required_for_offer,
-    default_value: m.default_value,
-    fallback_value: m.fallback_value,
-    mapping_status: m.mapping_status,
-    payload_schema_public_id: m.payload_schema_public_id,
-  }));
 }
 
 // An empty summary for the /new editor (no offers, nothing to publish yet).
@@ -380,80 +347,43 @@ function sectionDataBlob(section: SectionDetail | null): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
 
-function renderSectionScalarForm(section: SectionDetail | null, mapsKeyConfigured: boolean): string {
-  const s = section;
-  const continueMode = s?.continue_mode ?? "button";
-  const addressOn = s?.address_validation_enabled ?? false;
-  // §30.2: surface the operator-owned browser Maps key's ACTUAL state. Absent ⇒
-  // autofill disabled (the validate/geocode leg no-ops); the key VALUE is never
-  // embedded here — only its presence.
-  const mapsKeyNote = mapsKeyConfigured
-    ? `<span class="lg-maps-note" data-maps-key="configured">Maps key configured (operator-owned browser key) — autofill available.</span>`
-    : `<span class="lg-maps-note" data-maps-key="absent">Maps key not configured — autofill disabled (§30.2 no-op).</span>`;
-  return `<form id="lg-section-form" novalidate>
-  <div class="lg-section-scalars">
-    <div class="form-group">
-      <label class="form-label" for="lg-section-name">Section name *</label>
-      <input id="lg-section-name" name="section_name" class="form-input" required aria-required="true" value="${escapeHtml(s?.section_name ?? "")}" />
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="lg-section-headline">Headline (the question) *</label>
-      <input id="lg-section-headline" name="headline_text" class="form-input" required aria-required="true" value="${escapeHtml(s?.headline_text ?? "")}" />
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="lg-section-activity">Activity *</label>
-      <input id="lg-section-activity" name="activity" class="form-input" required aria-required="true" value="${escapeHtml(s?.activity ?? "")}" />
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="lg-section-vertical">Vertical *</label>
-      <input id="lg-section-vertical" name="vertical" class="form-input" required aria-required="true" value="${escapeHtml(s?.vertical ?? "")}" />
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="lg-section-subheadline">Subheadline</label>
-      <input id="lg-section-subheadline" name="subheadline_text" class="form-input" value="${escapeHtml(s?.subheadline_text ?? "")}" />
-    </div>
-    <fieldset class="form-group">
-      <legend class="form-label">Continue mode (§12.5)</legend>
-      <label class="lg-check"><input type="radio" name="continue_mode" value="button"${continueMode === "button" ? " checked" : ""} /> Button (validate, then Continue)</label>
-      <label class="lg-check"><input type="radio" name="continue_mode" value="auto_advance"${continueMode === "auto_advance" ? " checked" : ""} /> Auto-advance (navigate on click)</label>
-    </fieldset>
-  </div>
-  <div class="form-group">
-    <label class="lg-check"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${addressOn ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
-    <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key ⇒ the validation leg no-ops.</span>
-    ${mapsKeyNote}
-  </div>
-</form>`;
+// Project the API SectionDetail into the studio's view model. The parsed
+// content_json (already an object from the API) is coerced defensively — a
+// corrupt/absent body renders the empty studio rather than crashing SSR.
+function toStudioView(section: SectionDetail | null): StudioSectionView {
+  const rawContent = section?.content_json;
+  const components =
+    typeof rawContent === "object" && rawContent !== null && Array.isArray((rawContent as { components?: unknown }).components)
+      ? ((rawContent as { components: unknown[] }).components as StudioSectionView["content"]["components"])
+      : [];
+  return {
+    public_id: section?.public_id ?? null,
+    section_name: section?.section_name ?? "",
+    status: section?.status ?? "active",
+    activity: section?.activity ?? "",
+    vertical: section?.vertical ?? "",
+    headline_text: section?.headline_text ?? "",
+    subheadline_text: section?.subheadline_text ?? null,
+    continue_mode: section?.continue_mode ?? "button",
+    address_validation_enabled: section?.address_validation_enabled ?? false,
+    content: { components },
+  };
 }
 
 function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): string {
   const s = data.section;
   const isNew = s === null;
-  const title = isNew ? "New Section" : (s as SectionDetail).section_name;
-  const head = `<div class="lg-editor-head">
-    <a href="/admin/leadgen/sections" class="btn btn-outline">&#8592; Sections</a>
-    <h2 class="lg-editor-title">${escapeHtml(title)}</h2>
-    ${isNew ? "" : `<code class="lg-editor-pubid">${escapeHtml((s as SectionDetail).public_id)}</code>${statusBadge((s as SectionDetail).status)}`}
-    <span class="lg-editor-spacer"></span>
-    <button type="button" id="lg-section-save" class="btn btn-primary">Save</button>
-    <button type="button" id="lg-section-archive" class="btn btn-danger"${isNew || (s as SectionDetail).status === "archived" ? " disabled" : ""}>Archive</button>
-  </div>`;
+  const view = toStudioView(s);
+  const statusPillHtml = isNew
+    ? ""
+    : `<code class="lg-editor-pubid">${escapeHtml((s as SectionDetail).public_id)}</code>${statusBadge((s as SectionDetail).status)}`;
 
   const content = `${renderLeadgenTabs("sections")}
 <div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>
-  ${head}
+  ${isNew ? `<span class="lg-editor-pubid">New Section</span>` : ""}
   <p id="lg-section-error" class="alert alert-error" hidden role="alert"></p>
-  ${renderSectionScalarForm(s, data.mapsKeyConfigured)}
-  <div class="lg-editor-grid">
-    <div class="card">${renderComponentPalette()}</div>
-    <div class="card">
-      ${renderBuilderCanvas(s !== null ? s.content_json : { components: [] })}
-      ${renderPreviewToggle()}
-    </div>
-    <div class="card">${renderInspector(data.maps, data.offerLabelById, data.summary)}</div>
-  </div>
+  ${renderSectionStudio(view, data.summary, statusPillHtml, data.mapsKeyConfigured, s !== null ? (s.answer_maps ?? []).length : 0)}
   <script type="application/json" id="lg-section-data">${sectionDataBlob(s)}</script>
-  ${renderComponentSeedData()}
 </div>`;
 
   return leadgenPageShell({
@@ -461,7 +391,7 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
     userEmail: brand.userEmail,
     content,
     styles: LG_SECTIONS_STYLES,
-    scripts: QUESTION_BUILDER_SCRIPT,
+    scripts: SECTION_STUDIO_SCRIPT,
   });
 }
 
@@ -480,14 +410,12 @@ function sectionNotFoundPage(brand: { userEmail?: string }): string {
   });
 }
 
-// /admin/leadgen/sections/new — the editor with an empty Section.
+// /admin/leadgen/sections/new — the studio with an empty Section.
 export async function leadgenSectionsNewPage(c: UiContext): Promise<Response> {
   return c.html(
     sectionEditorHtml(
       {
         section: null,
-        offerLabelById: new Map(),
-        maps: [],
         summary: EMPTY_SUMMARY,
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
       },
@@ -496,7 +424,9 @@ export async function leadgenSectionsNewPage(c: UiContext): Promise<Response> {
   );
 }
 
-// /admin/leadgen/sections/:id/edit — the full-page editor.
+// /admin/leadgen/sections/:id/edit — the full-page Section Studio. (The
+// per-Offer labels fetch the old mapping grid needed returns with the D2
+// §8.7 mapping panel; D1 renders the summary + preserves answer_maps.)
 export async function leadgenSectionEditorPage(c: UiContext): Promise<Response> {
   const idParam = c.req.param("id") ?? "";
   const got = await apiJson<SectionDetail>(
@@ -507,26 +437,11 @@ export async function leadgenSectionEditorPage(c: UiContext): Promise<Response> 
     return c.html(sectionNotFoundPage(branding(c)), 404);
   }
   const section = got.body;
-  const encodedId = encodeURIComponent(section.public_id);
-  const offersRes = await apiJson<SectionOffersBody>(
-    c.env,
-    `/api/admin/leadgen/sections/${encodedId}/offers`,
-  );
-  const offerLabelById = new Map<number, string>();
-  if (offersRes.ok) {
-    for (const o of offersRes.body.offers) offerLabelById.set(o.id, o.offer_name);
-  }
-  // Any mapped Offer not in the activity/vertical list still needs a label.
-  for (const m of section.answer_maps) {
-    if (!offerLabelById.has(m.offer_id)) offerLabelById.set(m.offer_id, `#${m.offer_id}`);
-  }
 
   return c.html(
     sectionEditorHtml(
       {
         section,
-        offerLabelById,
-        maps: toAnswerMapViews(section.answer_maps),
         summary: mappingSummaryOf(section.available_offers ?? [], section.answer_maps ?? []),
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
       },

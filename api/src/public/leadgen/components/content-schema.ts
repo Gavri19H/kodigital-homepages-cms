@@ -252,7 +252,11 @@ export interface SectionContentValidation {
 // content contract and the capability catalog in lockstep.
 // ---------------------------------------------------------------------------
 
-interface RequiredSpec {
+// Exported (read-only) so the Section Studio (admin/leadgen/ui-section-studio)
+// can PROJECT the same required-field truth into its island bootstrap for the
+// live in-editor validation chip — one table, no drift. The server-side
+// validateSectionContent below stays the authoritative gate on save.
+export interface RequiredSpec {
   internalField?: boolean; // catalog props include "internal_field"
   choices?: boolean; // catalog props include a "choices…" token
   choiceIcon?: boolean; // §14.4: each choice needs an icon
@@ -261,7 +265,7 @@ interface RequiredSpec {
   numericProps?: readonly string[]; // required numeric props (in node.props)
 }
 
-const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
+export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   // chrome
   ProgressBar: {},
   HeaderLogo: { textProps: ["logoMediaId"] },
