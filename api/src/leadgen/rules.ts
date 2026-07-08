@@ -31,8 +31,10 @@ import type { LeadgenRegionDimension, LeadgenRuleAction } from "../admin/leadgen
 // (contract erratum to v2.3.7 04 §10.4), the storage enum is unchanged, and
 // evaluateRegionRules below is untouched. These constants let the admin Offer
 // editor (the UI sibling) render the four DDL `action` values as TWO plain
-// operator behaviors and label the "Evaluation order" priority field. Consumed
-// by ui-offers.ts; never read by the evaluator.
+// operator behaviors and label the "Evaluation order" priority field.
+// Consumed by the SERVER-RENDERED side of admin/leadgen/ui-offers.ts (the
+// region panel + rule-row templates import them; the ES5 island receives the
+// strings via that server-rendered HTML). Never read by the evaluator.
 // ---------------------------------------------------------------------------
 
 // D1: every DDL `action` value maps onto one of the two visible behaviors — a

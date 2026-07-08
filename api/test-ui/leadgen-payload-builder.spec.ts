@@ -274,11 +274,17 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     );
 
     // §6.10 condition — field + operator + value through dropdowns, live
-    // preview sentence.
+    // preview sentence. in/not_in use the F-1 chips editor: state is an
+    // enum field with Section choices, so the token entry is a choices
+    // select + Add (tokens land in the stored values[] array).
     await page.locator("#lg-pb-editor [data-pb-condition-add]").click();
     await page.locator("#lg-pb-editor [data-pb-cond-field]").selectOption("state");
     await page.locator("#lg-pb-editor [data-pb-cond-op]").selectOption("in");
-    await fillAndCommit(page, "#lg-pb-editor [data-pb-cond-list]", "CA, TX");
+    await page.locator("#lg-pb-editor [data-pb-cond-list-entry]").selectOption("CA");
+    await page.locator("#lg-pb-editor [data-pb-cond-chip-add]").click();
+    await page.locator("#lg-pb-editor [data-pb-cond-list-entry]").selectOption("TX");
+    await page.locator("#lg-pb-editor [data-pb-cond-chip-add]").click();
+    await expect(page.locator("#lg-pb-editor [data-pb-cond-chips] .lg-pb-chip")).toHaveCount(2);
     await expect(page.locator("#lg-pb-editor [data-pb-cond-preview]")).toHaveText(
       "Send this field when state is one of [CA, TX].",
     );

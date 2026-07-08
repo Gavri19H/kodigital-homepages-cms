@@ -38,6 +38,13 @@ import {
   LEADGEN_TRACKING_METHODS,
 } from "../../leadgen/validation";
 import { inferSchemaFromExample } from "../../leadgen/payload";
+import {
+  REGION_RULE_ACTION_LABELS,
+  REGION_RULE_BEHAVIORS,
+  REGION_RULE_PRIORITY_HELP,
+  REGION_RULE_PRIORITY_LABEL,
+  REGION_RULES_SECTION_HELP,
+} from "../../leadgen/rules";
 import type {
   LeadgenOfferApi,
   LeadgenOfferHeaderApi,
@@ -79,11 +86,17 @@ export interface OfferEligibilityVerdict {
 }
 
 // GET /offers list items carry the default placement for the §9.2 column
-// + the additive eligibility verdict for the §5.1 badge column.
+// + the additive eligibility verdict for the §5.1 badge column
+// + the additive §7.1 test-status field. The test-status field is read
+// DEFENSIVELY (either spelling; absent → "Untested") so this UI stays green
+// whichever side of the server slice merges first.
 type OfferListItem = LeadgenOfferApi & {
   default_placement_id: string | null;
   default_placement_public_id: string | null;
   eligibility?: OfferEligibilityVerdict | null;
+  test_status?: string | null;
+  last_test_status?: string | null;
+  last_test_ok?: boolean | null;
 };
 
 // GET /offers/:id detail — the mapped row + its three editor collections
@@ -181,35 +194,14 @@ export function eligibilityReasonLabel(code: string): string {
   return LEADGEN_ELIGIBILITY_REASON_LABELS[code] ?? `Blocked (${code.replace(/_/g, " ")})`;
 }
 
-// §7.4 usage report — the full-inventory reference kinds, in display order,
-// with operator-English labels. The SAME payload drives the §7.2 delete guard
+// §7.4 usage report — the SAME server payload drives the §7.2 delete guard
 // (409 offer_in_use) and the §7.1 Usage panel (one query set, two consumers).
-// warning_only kinds (logs/revenue/analytics) never block a delete — they are
-// shown for context (their absence is not required for eligibility). The panel
-// island renders data-driven over the returned object keys; this list only
-// controls ORDER + LABELS, so a server that adds a kind still renders (unknown
-// keys get a humanized fallback). Emitted verbatim as the lg-offer-usage-kinds
-// bootstrap island so the ES5 island reads labels via JSON.parse(textContent).
-export interface OfferUsageKindMeta {
-  kind: string;
-  label: string;
-  warning_only: boolean;
-}
-
-export const LEADGEN_OFFER_USAGE_KINDS: ReadonlyArray<OfferUsageKindMeta> = [
-  { kind: "sections_available", label: "Sections offering this offer", warning_only: false },
-  { kind: "answer_maps", label: "Section answer maps referencing this offer", warning_only: false },
-  { kind: "quotes_indirect", label: "Quotes / funnels (via their sections)", warning_only: false },
-  { kind: "auctions_participating", label: "Auctions this offer participates in", warning_only: false },
-  { kind: "payload_schemas", label: "Active payload schemas in use", warning_only: false },
-  { kind: "region_rules", label: "Region rules (own — cascade-deleted)", warning_only: false },
-  { kind: "auction_rules_targeting", label: "Auction rules targeting this offer / its carriers", warning_only: false },
-  { kind: "cap_counters_active", label: "Cap counters with activity", warning_only: false },
-  { kind: "cap_fallback_referenced_by", label: "Other offers using this as a cap fallback", warning_only: false },
-  { kind: "provider_request_logs", label: "Provider request logs", warning_only: true },
-  { kind: "revenue_attribution", label: "Click / revenue attribution rows", warning_only: true },
-  { kind: "analytics_mirror_rows", label: "Analytics mirror rows", warning_only: true },
-];
+// The island renders the server's `usage.kinds` ARRAY directly, in server
+// order, using each entry's own count/items/warning_only and a humanized
+// label derived from the kind string. There is deliberately NO client-side
+// kind list: buildOfferUsageReport (offers-handlers.ts) is the single source
+// of truth, so the drift class (phantom kinds, missing kinds, wrong blocking
+// flags) is structurally impossible.
 
 // §7.3 duplicate — the three copy toggles, in the modal + banner order. Labels
 // double as the "Duplicated from …" banner rows (what was / wasn't copied).
@@ -348,8 +340,9 @@ const OFFER_ANALYTICS_COLUMNS: ReadonlyArray<{ metric: string; label: string }> 
   { metric: "rpm", label: "RPM" },
 ];
 
-// 8 descriptive + the §5.1 eligibility badge + 8 analytics + actions.
-const OFFER_COLUMN_COUNT = 9 + OFFER_ANALYTICS_COLUMNS.length + 1;
+// 8 descriptive + the §5.1 eligibility badge + the §7.1 test-status chip
+// + 8 analytics + actions.
+const OFFER_COLUMN_COUNT = 10 + OFFER_ANALYTICS_COLUMNS.length + 1;
 
 // §9.2 toolbar: + Create an Offer FIRST (top-left, opens the modal), then
 // search, then the 6 filters + the timeframe select (all reload via the
@@ -405,6 +398,30 @@ function eligibilityBadge(o: OfferListItem): string {
   return `<span class="badge badge-archived" data-offer-eligibility="blocked" title="${escapeHtml(labels)}">Blocked</span>`;
 }
 
+// §7.1 (F5): the per-row Test-status chip. The list API's additive field is
+// consumed DEFENSIVELY — `test_status` (the canonical spelling), then the
+// `last_test_status` / `last_test_ok` variants; anything absent or unknown
+// renders the "Untested" state — so this column is safe in both merge orders
+// of the parallel server slice. Exported for the defensive-rendering
+// regression (leadgen-offers-ui.test.ts).
+export function testStatusChip(o: OfferListItem): string {
+  const raw =
+    typeof o.test_status === "string"
+      ? o.test_status
+      : typeof o.last_test_status === "string"
+        ? o.last_test_status
+        : o.last_test_ok === true
+          ? "passed"
+          : o.last_test_ok === false
+            ? "failed"
+            : "";
+  const status = raw === "passed" || raw === "failed" ? raw : "untested";
+  const label = status === "passed" ? "Passed" : status === "failed" ? "Failed" : "Untested";
+  const cls =
+    status === "passed" ? "badge-published" : status === "failed" ? "badge-archived" : "badge-draft";
+  return `<span class="badge ${cls}" data-offer-test-status="${status}">${label}</span>`;
+}
+
 function renderAnalyticsSkeletonCells(): string {
   return OFFER_ANALYTICS_COLUMNS.map(
     (col) =>
@@ -423,6 +440,7 @@ function renderOfferRow(o: OfferListItem): string {
   <td>${escapeHtml(OFFER_TYPE_LABELS[o.offer_type] ?? o.offer_type)}</td>
   <td>${dynamicBadge(o)}</td>
   <td data-eligibility-cell>${eligibilityBadge(o)}</td>
+  <td data-test-status-cell>${testStatusChip(o)}</td>
   <td>${capBadge(o)}</td>
   <td>${statusBadge(o.status)}</td>
   ${renderAnalyticsSkeletonCells()}
@@ -476,6 +494,7 @@ function renderOffersTable(props: OffersPageProps): string {
         <th scope="col">Type</th>
         <th scope="col">Dynamic/Static</th>
         <th scope="col">Eligibility</th>
+        <th scope="col">Test status</th>
         <th scope="col">Cap</th>
         <th scope="col">Status</th>
         ${analyticsHeaders}
@@ -665,14 +684,6 @@ function renderDeleteModal(): string {
     </form>
   </div>
 </div>`;
-}
-
-// The lg-offer-usage-kinds bootstrap-data island: the §7.4 ordered kind→label
-// map (+ warning_only flags), read by the list-actions island via
-// JSON.parse(textContent) to render the Usage / in-use panels data-driven.
-function renderUsageKindsIsland(): string {
-  const json = JSON.stringify(LEADGEN_OFFER_USAGE_KINDS).replace(/</g, "\\u003c");
-  return `<script type="application/json" id="lg-offer-usage-kinds">${json}</script>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1216,12 +1227,8 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
   var getJson = window.lgUi.getJson;
   var API = '/api/admin/leadgen/offers/';
 
-  // §7.4 kind order + labels from the bootstrap island (JSON.parse(textContent)).
-  function usageKinds() {
-    var el = document.getElementById('lg-offer-usage-kinds');
-    if (!el) { return []; }
-    try { return JSON.parse(el.textContent || '[]'); } catch (e) { return []; }
-  }
+  // §7.4 labels derive from the kind string itself — the server's kinds array
+  // is the single source of truth (no client-side kind list to drift).
   function humanizeKind(kind) {
     return String(kind || '').replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); });
   }
@@ -1239,10 +1246,11 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
 
   // Render the §7.4 report into a dialog body. mode='blocked' (409 in-use)
   // adds the cannot-delete verdict + an "Archive instead" primary; mode='view'
-  // (Usage action) shows the delete-eligibility verdict read-only. Every kind
-  // is rendered (count 0 → "None."); server-derived text via createTextNode.
+  // (Usage action) shows the delete-eligibility verdict read-only. The server
+  // emits usage.kinds as an ORDERED ARRAY ({kind, count, items[],
+  // warning_only?}) — it is rendered directly, in server order, every kind
+  // (count 0 → "None."); server-derived text via createTextNode.
   function renderUsage(bodyEl, usage, mode, offerId, offerName) {
-    var kinds = usageKinds();
     var elig = usage && usage.delete_eligibility ? usage.delete_eligibility : null;
     var eligible = elig ? !!elig.eligible : false;
 
@@ -1258,38 +1266,26 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
     }
     bodyEl.appendChild(verdict);
 
-    // Prefer the server kind order; append any unknown keys with a humanized label.
-    var order = [];
-    var seen = {};
+    var kinds = usage && usage.kinds ? usage.kinds : [];
     var i;
-    for (i = 0; i < kinds.length; i++) { order.push({ kind: kinds[i].kind, label: kinds[i].label, warning_only: kinds[i].warning_only }); seen[kinds[i].kind] = true; }
-    if (usage) {
-      var k;
-      for (k in usage) {
-        if (Object.prototype.hasOwnProperty.call(usage, k) && k !== 'delete_eligibility' && !seen[k]) {
-          order.push({ kind: k, label: humanizeKind(k), warning_only: false });
-        }
-      }
-    }
-
-    for (i = 0; i < order.length; i++) {
-      var meta = order[i];
-      var entry = usage ? usage[meta.kind] : null;
-      var count = entry && entry.count !== undefined && entry.count !== null ? Number(entry.count) : (entry && entry.items ? entry.items.length : 0);
-      var items = entry && entry.items ? entry.items : [];
+    for (i = 0; i < kinds.length; i++) {
+      var entry = kinds[i] || {};
+      var kind = String(entry.kind || '');
+      var count = entry.count !== undefined && entry.count !== null ? Number(entry.count) : (entry.items ? entry.items.length : 0);
+      var items = entry.items || [];
 
       var block = document.createElement('div');
       block.className = 'lg-usage-kind';
-      block.setAttribute('data-usage-kind', meta.kind);
+      block.setAttribute('data-usage-kind', kind);
 
       var head = document.createElement('div');
       head.className = 'lg-usage-kind-head';
-      head.appendChild(document.createTextNode(meta.label));
+      head.appendChild(document.createTextNode(humanizeKind(kind)));
       var cnt = document.createElement('span');
       cnt.className = 'lg-usage-count';
       cnt.appendChild(document.createTextNode('(' + count + ')'));
       head.appendChild(cnt);
-      if (meta.warning_only) {
+      if (entry.warning_only) {
         var wtag = document.createElement('span');
         wtag.className = 'lg-usage-warn-tag';
         wtag.appendChild(document.createTextNode('does not block delete'));
@@ -1461,6 +1457,39 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
     openModal(dupModal);
     if (dupPlacement) { dupPlacement.focus(); }
   }
+  // §7.3 success path over the REAL 201 body: the new offer rides
+  // res.body.offer (offerRowToApi fields — public_id lives THERE, not at the
+  // top level) and the blank-placement count is res.body.copied
+  // .extra_placements_blanked (a NUMBER). Returns the navigation URL for the
+  // new editor (the query params drive the server-rendered "Duplicated from
+  // <name>" banner: copied/skipped = the operator's copy intent; pending =
+  // the blanked-placement count), or null when the response is not a
+  // duplicate success (the caller falls through to the error paths).
+  function duplicateResultNav(res, fromName, copyRegion, copyEndpoint, copyCap) {
+    if (!(res && res.ok && res.body && res.body.offer && res.body.offer.public_id)) { return null; }
+    var copied = [];
+    var skipped = [];
+    (copyRegion ? copied : skipped).push('copy_region_rules');
+    (copyEndpoint ? copied : skipped).push('copy_endpoint_config');
+    (copyCap ? copied : skipped).push('copy_cap_settings');
+    var summary = res.body.copied;
+    var pending = summary && summary.extra_placements_blanked !== undefined && summary.extra_placements_blanked !== null
+      ? Number(summary.extra_placements_blanked) : null;
+    var qs = '?duplicated_from=' + encodeURIComponent(fromName) +
+      '&copied=' + encodeURIComponent(copied.join(',')) +
+      '&skipped=' + encodeURIComponent(skipped.join(','));
+    if (pending !== null && isFinite(pending)) { qs += '&pending=' + encodeURIComponent(String(pending)); }
+    return '/admin/leadgen/offers/' + encodeURIComponent(res.body.offer.public_id) + '/edit' + qs;
+  }
+  // Applies the success navigation (toast + window.location). Returns false
+  // (and touches nothing) for non-success responses.
+  function applyDuplicateResult(res, fromName, copyRegion, copyEndpoint, copyCap) {
+    var nav = duplicateResultNav(res, fromName, copyRegion, copyEndpoint, copyCap);
+    if (nav === null) { return false; }
+    if (window.showToast) { window.showToast('Draft created \\u2014 opening the editor', 'success'); }
+    window.location.href = nav;
+    return true;
+  }
   if (dupForm) {
     dupForm.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -1487,26 +1516,7 @@ const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
       if (dupStatus) { dupStatus.textContent = 'Creating draft\\u2026'; }
       getJson('POST', API + encodeURIComponent(dupTarget.id) + '/duplicate', body).then(function (res) {
         if (dupSubmit) { dupSubmit.disabled = false; dupSubmit.classList.remove('lg-saving'); }
-        if (res.ok && res.body && res.body.public_id) {
-          // The "Duplicated from <name>" banner is server-rendered on the new
-          // editor from these query params (copied/skipped = the operator's
-          // intent; pending = blank-placement count from the response summary).
-          var copied = [];
-          var skipped = [];
-          (copyRegion ? copied : skipped).push('copy_region_rules');
-          (copyEndpoint ? copied : skipped).push('copy_endpoint_config');
-          (copyCap ? copied : skipped).push('copy_cap_settings');
-          var summary = res.body.summary || res.body;
-          var pending = summary && summary.placements_pending !== undefined ? summary.placements_pending
-            : (summary && summary.blank_placements !== undefined ? summary.blank_placements : null);
-          var qs = '?duplicated_from=' + encodeURIComponent(dupTarget.name) +
-            '&copied=' + encodeURIComponent(copied.join(',')) +
-            '&skipped=' + encodeURIComponent(skipped.join(','));
-          if (pending !== null && pending !== undefined) { qs += '&pending=' + encodeURIComponent(String(pending)); }
-          if (window.showToast) { window.showToast('Draft created \\u2014 opening the editor', 'success'); }
-          window.location.href = '/admin/leadgen/offers/' + encodeURIComponent(res.body.public_id) + '/edit' + qs;
-          return;
-        }
+        if (applyDuplicateResult(res, dupTarget.name, copyRegion, copyEndpoint, copyCap)) { return; }
         if (res.body && res.body.fields) {
           var k;
           for (k in res.body.fields) { if (Object.prototype.hasOwnProperty.call(res.body.fields, k)) { dupFieldError(k, res.body.fields[k]); } }
@@ -1606,7 +1616,6 @@ ${renderCreateOfferModal()}
 ${renderDuplicateModal()}
 ${renderDeleteModal()}
 ${renderLgDialogShell()}
-${renderUsageKindsIsland()}
 </div>`;
   return leadgenPageShell({
     activePath: "/admin/leadgen/offers",
@@ -1731,16 +1740,33 @@ function renderEditorTabBar(offer: LeadgenOfferApi): string {
 // replace-set the editor Save PATCHes). Rows carrying a data-placement-
 // public-id are PRESERVED server-side; template rows mint a new lgpl_.
 // Interaction idiom mirrors the headers editor (template + data-*-field).
+//
+// F13: duplicated offers' extra placements carry the `__needs_value__N`
+// sentinel (duplicateOfferHandler — the NOT NULL column's "blank" stand-in).
+// The sentinel is an internal marker, never operator content: the input
+// renders EMPTY with a "needs value" placeholder + a visible row hint. The
+// row keeps its sentinel in data-placement-sentinel so an UNRELATED Save
+// round-trips the pending row unchanged (collectPlacements) instead of
+// silently dropping it from the replace-set; saves are never hard-blocked.
+const NEEDS_VALUE_SENTINEL_RE = /^__needs_value__/;
+
 function renderPlacementEditorRow(p: LeadgenOfferPlacementApi | null): string {
+  const isSentinel = p !== null && NEEDS_VALUE_SENTINEL_RE.test(p.placement_id);
+  const sentinelAttr = isSentinel && p !== null ? ` data-placement-sentinel="${escapeHtml(p.placement_id)}"` : "";
   const publicId = p !== null ? ` data-placement-public-id="${escapeHtml(p.public_id)}"` : "";
-  const placementId = p !== null ? escapeHtml(p.placement_id) : "";
+  const placementId = p !== null && !isSentinel ? escapeHtml(p.placement_id) : "";
+  const placeholder = isSentinel ? "needs value" : "pl-12345";
   const label = p !== null && p.label !== null ? escapeHtml(p.label) : "";
   const checked = p !== null && p.is_default ? " checked" : "";
-  return `<div class="lg-placement-row"${publicId}>
-    <input type="text" class="form-input" data-placement-field="placement_id" placeholder="pl-12345" aria-label="Placement id" value="${placementId}" />
+  const hint = isSentinel
+    ? `<span class="form-error lg-placement-needs-value" data-placement-needs-value-hint role="alert">Needs a value &mdash; copied blank from the source offer; set a real placement ID.</span>`
+    : "";
+  return `<div class="lg-placement-row"${publicId}${sentinelAttr}>
+    <input type="text" class="form-input" data-placement-field="placement_id" placeholder="${placeholder}" aria-label="Placement id" value="${placementId}" />
     <input type="text" class="form-input" data-placement-field="label" placeholder="Label (optional)" aria-label="Placement label" value="${label}" />
     <label class="form-label lg-radio"><input type="radio" name="placement_default" data-placement-field="is_default"${checked} /> Default</label>
     <button type="button" class="btn btn-sm btn-danger" data-placement-remove>Remove</button>
+    ${hint}
   </div>`;
 }
 
@@ -1850,17 +1876,19 @@ function renderStaticPanel(o: OfferDetail): string {
 // §7.5 D1: the FROZEN rule-action enum surfaces as TWO plain behaviors. New
 // rows write include_only/exclude ONLY; legacy allow_list/block_list rows
 // display identically (the pairs are formally declared identical — v2.4
-// erratum to 04 §10.4). Semantics are frozen; this is a label + normalization
-// layer over the unchanged storage enum (LEADGEN_RULE_ACTIONS).
-const REGION_ACTION_BEHAVIOR_LABELS: Readonly<Record<string, string>> = {
-  include_only: "Allow only these regions",
-  exclude: "Block these regions",
-};
-const REGION_ACTION_BEHAVIOR_VALUES: ReadonlyArray<string> = ["include_only", "exclude"];
+// erratum to 04 §10.4). Labels, canonical behavior values and alias
+// normalization all come from leadgen/rules.ts (REGION_RULE_ACTION_LABELS /
+// REGION_RULE_BEHAVIORS) — the ONE source; nothing is inlined here.
+const REGION_ACTION_BEHAVIOR_VALUES: ReadonlyArray<string> = REGION_RULE_BEHAVIORS.map(
+  (behavior) => behavior.value,
+);
 
 function normalizeRegionAction(action: string): string {
-  if (action === "allow_list" || action === "include_only") return "include_only";
-  if (action === "block_list" || action === "exclude") return "exclude";
+  for (const behavior of REGION_RULE_BEHAVIORS) {
+    if (behavior.value === action || (behavior.aliases as readonly string[]).includes(action)) {
+      return behavior.value;
+    }
+  }
   return "";
 }
 
@@ -1920,9 +1948,15 @@ function renderRegionStateCountryOptions(): string {
 }
 
 // The lg-region-geo bootstrap island: states-by-country for the D3 state
-// dropdown's client-side "filtered by country" rebuild.
+// dropdown's client-side "filtered by country" rebuild + the country alpha-2
+// code list, so pasted country/state tokens validate against the SAME closed
+// sets the dropdowns offer (F10 — the zip path's client validation, extended
+// to every closed-set dimension).
 function renderRegionGeoIsland(): string {
-  const json = JSON.stringify({ states: STATES_BY_COUNTRY }).replace(/</g, "\\u003c");
+  const json = JSON.stringify({
+    countries: ISO_ALPHA2_COUNTRIES.map(([code]) => code),
+    states: STATES_BY_COUNTRY,
+  }).replace(/</g, "\\u003c");
   return `<script type="application/json" id="lg-region-geo">${json}</script>`;
 }
 
@@ -1944,7 +1978,7 @@ function renderRegionRuleRow(rule: LeadgenOfferRegionRuleApi | null): string {
   const usStates = STATES_BY_COUNTRY["US"] ?? [];
   return `<div class="lg-rule-row" data-region-rule${publicId}>
     <select class="form-select" data-rule-field="dimension" aria-label="Rule dimension">${options(LEADGEN_REGION_DIMENSIONS, null, dimension, "Dimension…")}</select>
-    <select class="form-select" data-rule-field="action" aria-label="Region behavior">${options(REGION_ACTION_BEHAVIOR_VALUES, REGION_ACTION_BEHAVIOR_LABELS, action, "Choose a behavior…")}</select>
+    <select class="form-select" data-rule-field="action" aria-label="Region behavior">${options(REGION_ACTION_BEHAVIOR_VALUES, REGION_RULE_ACTION_LABELS, action, "Choose a behavior…")}</select>
     <div class="lg-region-values" data-region-values>
       <input type="hidden" data-rule-field="values" value="${escapeHtml(values)}" />
       <div class="lg-chips" data-region-chips aria-live="polite"></div>
@@ -1962,7 +1996,7 @@ function renderRegionRuleRow(rule: LeadgenOfferRegionRuleApi | null): string {
       </div>
       <p class="lg-region-invalid form-error" data-region-invalid hidden></p>
     </div>
-    <label class="form-help lg-region-order"><span>Evaluation order</span><input type="number" class="form-input" data-rule-field="priority" step="1" min="0" aria-label="Evaluation order" value="${escapeHtml(priority)}" /></label>
+    <label class="form-help lg-region-order"><span>${escapeHtml(REGION_RULE_PRIORITY_LABEL)}</span><input type="number" class="form-input" data-rule-field="priority" step="1" min="0" aria-label="${escapeHtml(REGION_RULE_PRIORITY_LABEL)}" value="${escapeHtml(priority)}" /></label>
     <label class="form-label lg-radio"><input type="checkbox" data-rule-field="enabled"${enabled} /> Enabled</label>
     <button type="button" class="btn btn-sm btn-danger" data-rule-remove>Remove</button>
   </div>`;
@@ -1976,8 +2010,8 @@ function renderRegionPanel(o: OfferDetail): string {
   return `<section class="lg-editor-panel" data-lg-tab-panel="region" hidden>
   <div class="card">
     <div class="card-header"><h3 class="card-title">Region rules (§10.4)</h3></div>
-    <p class="form-help" data-region-scope-help>These are provider region-block rules only. Answer-based Offer participation rules are configured in Auction.</p>
-    <p class="form-help" data-region-order-help>Evaluation order: Rules run lowest number first; the first blocking rule wins. Default 100.</p>
+    <p class="form-help" data-region-scope-help>${escapeHtml(REGION_RULES_SECTION_HELP)}</p>
+    <p class="form-help" data-region-order-help>${escapeHtml(REGION_RULE_PRIORITY_LABEL)}: ${escapeHtml(REGION_RULE_PRIORITY_HELP)}</p>
     <div id="lg-region-rows">${rows}</div>
     <button type="button" id="lg-region-add" class="btn btn-secondary">+ Add region rule</button>
     ${fieldError("region_rules")}
@@ -2443,6 +2477,11 @@ const LG_EDITOR_SCRIPT = `
   }
   // §10.1 placements: rows with a data-placement-public-id are preserved
   // server-side, blank-placement_id rows are skipped (the headers idiom).
+  // F13 exception: a duplicated "needs value" row (data-placement-sentinel)
+  // whose input is STILL empty round-trips its sentinel placement_id, so an
+  // unrelated Save keeps the pending row alive instead of silently deleting
+  // it from the replace-set (typing a real value replaces the sentinel; the
+  // row's Remove button deletes it deliberately). Saves are never blocked.
   // Client mirror of the server invariants — the server stays authoritative.
   function collectPlacements(errors) {
     var out = [];
@@ -2455,6 +2494,9 @@ const LG_EDITOR_SCRIPT = `
       def = row.querySelector('[data-placement-field="is_default"]');
       pub = row.getAttribute('data-placement-public-id');
       pid = pid ? String(pid.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+      if (pid === '' && pub && row.getAttribute('data-placement-sentinel')) {
+        pid = String(row.getAttribute('data-placement-sentinel'));
+      }
       if (pid === '') { continue; }
       var item = {
         placement_id: pid,
@@ -2662,9 +2704,12 @@ const LG_EDITOR_SCRIPT = `
 // LG_EDITOR_SCRIPT.collectRegionRules consumes), so the two islands never
 // couple beyond that field. Country/State come from dropdowns (State filtered
 // by country via the lg-region-geo island); City/ZIP are free-text chips; ZIP
-// is client-validated /^\\d{5}$/; "Paste multiple" splits on comma/newline with
-// per-token validation and lists rejected tokens inline. window.lgRegionErrors
-// surfaces the server's typed region_value_invalid (dimension+token) inline.
+// is client-validated /^\\d{5}$/; Country/State tokens validate against the
+// SAME closed sets the dropdowns use (the lg-region-geo island's alpha-2
+// country list + the union of its state codes); "Paste multiple" splits on
+// comma/newline with per-token validation and lists rejected tokens inline.
+// window.lgRegionErrors surfaces the server's typed region_value_invalid
+// (dimension+token) inline.
 
 const LG_REGION_EDITOR_SCRIPT = `
 (function () {
@@ -2676,6 +2721,27 @@ const LG_REGION_EDITOR_SCRIPT = `
   if (!geo.states) { geo.states = {}; }
 
   var ZIP_RE = /^\\d{5}$/;
+
+  // F10: the CLOSED sets the dropdowns are built from (lg-region-geo island):
+  // country = the ISO alpha-2 list; state = the union of every per-country
+  // state/province code. Pasted or typed country/state tokens must be members
+  // — invalid tokens are rejected + listed exactly like the zip path.
+  function buildGeoSets(g) {
+    var sets = { country: {}, state: {} };
+    var i, k, list;
+    var countries = (g && g.countries) || [];
+    for (i = 0; i < countries.length; i++) { sets.country[String(countries[i]).toUpperCase()] = true; }
+    var states = (g && g.states) || {};
+    for (k in states) {
+      if (!Object.prototype.hasOwnProperty.call(states, k)) { continue; }
+      list = states[k] || [];
+      for (i = 0; i < list.length; i++) {
+        if (list[i] && list[i][0] !== undefined) { sets.state[String(list[i][0]).toUpperCase()] = true; }
+      }
+    }
+    return sets;
+  }
+  var geoSets = buildGeoSets(geo);
 
   function trim(s) { return String(s === null || s === undefined ? '' : s).replace(/^\\s+|\\s+$/g, ''); }
   function fireChange(el) {
@@ -2731,6 +2797,12 @@ const LG_REGION_EDITOR_SCRIPT = `
   function validToken(dim, token) {
     if (token === '') { return false; }
     if (dim === 'zip') { return ZIP_RE.test(token); }
+    // Country/State are closed sets (the same lists the dropdowns render);
+    // tokens are already uppercased by normalizeToken. An empty set (island
+    // blob missing) fails closed for these dims — the dropdowns are the
+    // canonical entry path.
+    if (dim === 'country') { return geoSets.country[token] === true; }
+    if (dim === 'state') { return geoSets.state[token] === true; }
     return true;
   }
   function hasValue(vals, token) { var i; for (i = 0; i < vals.length; i++) { if (vals[i] === token) { return true; } } return false; }
@@ -2740,7 +2812,8 @@ const LG_REGION_EDITOR_SCRIPT = `
     var token = normalizeToken(dim, rawToken);
     if (token === '') { return false; }
     if (!validToken(dim, token)) {
-      showInvalid(row, 'Rejected \\u2014 "' + trim(rawToken) + '" is not a valid ' + (dim || 'value') + (dim === 'zip' ? ' (5 digits)' : ''));
+      showInvalid(row, 'Rejected \\u2014 "' + trim(rawToken) + '" is not a valid ' + (dim || 'value') +
+        (dim === 'zip' ? ' (5 digits)' : (dim === 'country' ? ' (ISO alpha-2 code)' : (dim === 'state' ? ' (state/province code)' : ''))));
       return false;
     }
     var vals = valuesOf(row);

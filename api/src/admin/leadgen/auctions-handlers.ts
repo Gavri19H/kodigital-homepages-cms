@@ -1758,8 +1758,15 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       if (r.carrier_parse_json !== null) {
         try {
           const parsed = JSON.parse(r.carrier_parse_json) as unknown;
+          // F3 (07 §7.6): the expected field names live under the parser's
+          // `fields` map — the canonical carrier_parse shape is
+          // {carriers_path, fields: {...}}, so keys of the WHOLE config would
+          // always read ["carriers_path","fields"], never the field names.
           if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-            expectedResponseFields = Object.keys(parsed as Record<string, unknown>);
+            const fields = (parsed as Record<string, unknown>)["fields"];
+            if (fields !== null && typeof fields === "object" && !Array.isArray(fields)) {
+              expectedResponseFields = Object.keys(fields as Record<string, unknown>);
+            }
           }
         } catch {
           /* leave empty */

@@ -703,13 +703,15 @@ function renderBannerPanel(banner: BannerConfig): string {
 // to /auctions/:id/simulate and renders, per considered offer, the additive
 // fields: redacted payload_preview (pretty), parser id + carrier parse
 // version, expected response fields, placement id used, and the eligibility
-// verdict + exclusion reason (via the reused eligibilityLabel). No provider
-// call is made in dry-run; nothing is written.
+// verdict + exclusion reason (via the reused eligibilityLabel). Nothing is
+// WRITTEN in dry-run (no logs, revenue or cap increments) — but the
+// staging-environment carrier resolve DOES fire (DEV-40 MAJOR-5), so the
+// note must not claim "no provider calls".
 function renderSimulatorPanel(): string {
   return `<div class="lg-apanel" data-panel="simulator">
   <div class="card">
     <h3>Simulator (§19.2 dry-run)</h3>
-    <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No provider call is made and nothing is written (no logs, revenue or cap increments).</p>
+    <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No writes; staging-only carrier resolve.</p>
     <div class="form-group">
       <label class="form-label" for="lg-sim-answers">Sample answers (JSON, optional)</label>
       <textarea id="lg-sim-answers" class="form-textarea" rows="4" data-sim-answers placeholder='{"zip":"90210"}' aria-label="Sample answers JSON"></textarea>
@@ -1400,7 +1402,7 @@ const AUCTION_EDITOR_SCRIPT = `
     host.appendChild(summary);
     var note = makeEl('p', 'form-help');
     note.setAttribute('data-sim-dryrun-note', '');
-    note.appendChild(document.createTextNode('Dry-run \\u2014 no provider calls, nothing written.'));
+    note.appendChild(document.createTextNode('Dry-run \\u2014 no writes; staging-only carrier resolve.'));
     host.appendChild(note);
     // S1 (07 §7.6): the per-offer explainability (redacted payload_preview,
     // parser id/version, expected fields, exclusion reason) rides the additive

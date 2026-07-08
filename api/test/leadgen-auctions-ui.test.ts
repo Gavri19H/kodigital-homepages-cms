@@ -316,8 +316,12 @@ describeDb("leadgen auction editor page (§9.5)", () => {
   // §7.6 (S1): the P10 placeholder is replaced by the real dry-run readout.
   it("Simulator: renders the §7.6 dry-run trace panel (enabled Run + results region)", async () => {
     const { html } = await seedEditorAuction();
-    // dry-run note (no provider calls, nothing written) replaces the P10 note
+    // F9: the dry-run note is factually exact — no writes, but the STAGING
+    // carrier resolve DOES fire (DEV-40 MAJOR-5), so the old "no provider
+    // call ... nothing is written" claim is gone.
     expect(html).toContain("data-simulator-dryrun");
+    expect(html).toContain("No writes; staging-only carrier resolve.");
+    expect(html).not.toContain("No provider call is made");
     expect(html).not.toContain("data-simulator-p10");
     expect(html).not.toContain("Ships in P10");
     // Run button is ENABLED now (not the disabled P10 stub)
@@ -356,8 +360,11 @@ describeDb("leadgen auction editor page (§9.5)", () => {
     expect(html).toContain("eligibilityLabel(reasons[ri])");
     // redacted payload preview rendered into a masked <pre> (createTextNode)
     expect(html).toContain("data-sim-payload");
-    // dry-run readout: explicit "no provider calls, nothing written" note
+    // dry-run readout note — F9 exact wording (the false "no provider calls,
+    // nothing written" claim is gone; staging carrier resolve DOES fire)
     expect(html).toContain("data-sim-dryrun-note");
+    expect(html).toContain("no writes; staging-only carrier resolve.");
+    expect(html).not.toContain("no provider calls, nothing written");
     // verdict hooks for both states
     expect(html).toContain('data-sim-verdict');
   });

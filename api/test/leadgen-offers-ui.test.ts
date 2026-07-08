@@ -30,13 +30,18 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
+import { LEADGEN_ELIGIBILITY_REASON_LABELS, testStatusChip } from "../src/admin/leadgen/ui-offers";
 import {
-  LEADGEN_ELIGIBILITY_REASON_LABELS,
-  LEADGEN_OFFER_USAGE_KINDS,
-} from "../src/admin/leadgen/ui-offers";
+  REGION_RULE_ACTION_LABELS,
+  REGION_RULE_BEHAVIORS,
+  REGION_RULE_PRIORITY_HELP,
+  REGION_RULE_PRIORITY_LABEL,
+  REGION_RULES_SECTION_HELP,
+} from "../src/leadgen/rules";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -273,7 +278,8 @@ async function getHtml(env: Env, path: string, expectedStatus = 200): Promise<st
 }
 
 // The §9.2 columns, in contract order (8 descriptive + the 05 §5.1
-// eligibility badge column + 8 analytics + actions).
+// eligibility badge column + the §7.1 test-status chip column + 8 analytics
+// + actions).
 const EXPECTED_COLUMNS = [
   "Name",
   "Placement ID",
@@ -282,6 +288,7 @@ const EXPECTED_COLUMNS = [
   "Type",
   "Dynamic/Static",
   "Eligibility",
+  "Test status",
   "Cap",
   "Status",
   "Impressions",
@@ -1240,22 +1247,16 @@ describeDb("leadgen offers — §7.2 delete + §7.4 usage panel", () => {
     expect(html).toContain("Archive instead");
   });
 
-  it("the usage-kinds bootstrap island round-trips ALL §7.4 kinds; the panel renders them data-driven", async () => {
+  it("F1: the drifted client-side kind list is GONE — no lg-offer-usage-kinds island, no keyed-map indexing", async () => {
     const { env } = newHarness();
     await createOffer(env, "static_no_request", { offer_name: "Usage Offer" });
     const html = await getHtml(env, "/admin/leadgen/offers");
-    const m = html.match(/<script type="application\/json" id="lg-offer-usage-kinds">([\s\S]*?)<\/script>/);
-    expect(m, "usage-kinds bootstrap island present").not.toBeNull();
-    const parsed = JSON.parse(m![1]!) as Array<{ kind: string; label: string; warning_only: boolean }>;
-    const kinds = parsed.map((k) => k.kind);
-    for (const meta of LEADGEN_OFFER_USAGE_KINDS) {
-      expect(kinds, `kind ${meta.kind} in island`).toContain(meta.kind);
-    }
-    // warning-only kinds (logs/revenue/analytics) are flagged as non-blocking
-    expect(kinds).toContain("provider_request_logs");
-    expect(parsed.find((k) => k.kind === "provider_request_logs")!.warning_only).toBe(true);
-    // island renders each kind + the delete_eligibility verdict; links are XSS-guarded
-    expect(html).toContain("data-usage-kind");
+    // the drift-prone bootstrap island is deleted; the server's usage.kinds
+    // ARRAY is the single source (see the executed F1 suite below)
+    expect(html).not.toContain('id="lg-offer-usage-kinds"');
+    expect(html).not.toContain("payload_schemas"); // the phantom kind is unreproducible
+    // the island reads the kinds array + the delete_eligibility verdict; links XSS-guarded
+    expect(html).toContain("usage.kinds");
     expect(html).toContain("delete_eligibility");
     expect(html).toContain("data-usage-verdict");
     expect(html).toContain("function safeLink");
@@ -1278,6 +1279,24 @@ describeDb("leadgen offers — §7.5 region rules UX (D1/D2/D3)", () => {
     // storage enum unchanged, but the aliases are never OFFERED as options
     expect(html).not.toContain('<option value="allow_list"');
     expect(html).not.toContain('<option value="block_list"');
+  });
+
+  it("F11: the rendered labels come from leadgen/rules.ts — the ONE source (byte-identical)", async () => {
+    const html = await regionEditorHtml();
+    // the behavior <option>s carry the rules.ts labels byte-identically
+    for (const behavior of REGION_RULE_BEHAVIORS) {
+      expect(html, `behavior option ${behavior.value}`).toContain(
+        `<option value="${behavior.value}"`,
+      );
+      expect(html, `behavior label for ${behavior.value}`).toContain(
+        `>${REGION_RULE_ACTION_LABELS[behavior.value]}</option>`,
+      );
+    }
+    // priority label + ordering help + the section-scope help, from rules.ts
+    expect(html).toContain(`<span>${REGION_RULE_PRIORITY_LABEL}</span>`);
+    expect(html).toContain(`aria-label="${REGION_RULE_PRIORITY_LABEL}"`);
+    expect(html).toContain(`${REGION_RULE_PRIORITY_LABEL}: ${REGION_RULE_PRIORITY_HELP}`);
+    expect(html).toContain(REGION_RULES_SECTION_HELP);
   });
 
   it("D1: a legacy allow_list rule displays as 'Allow only these regions' (include_only selected)", async () => {
@@ -1348,5 +1367,703 @@ describeDb("leadgen offers — §7.5 region rules UX (D1/D2/D3)", () => {
     // hidden canonical values field (the replace-set the editor Save collects)
     expect(html).toMatch(/data-rule-field="values"[^>]*value="CA, NY"/);
     expect(html).toMatch(/data-rule-public-id="lgrr_[0-9A-HJKMNP-TV-Z]{26}"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Executable-island harness (the leadgen-payload-builder-ui.test.ts F-1
+// pattern): the REAL island functions are sliced out of the SERVED script and
+// executed in a vm over a minimal element stand-in implementing exactly the
+// DOM surface they touch. These suites prove island BEHAVIOR against the REAL
+// server JSON (produced by the real handlers over the real migrations), not
+// source text.
+// ---------------------------------------------------------------------------
+
+interface FakeEl {
+  tagName: string;
+  nodeType: number;
+  attrs: Map<string, string>;
+  children: FakeEl[];
+  className: string;
+  hidden: boolean;
+  value: string;
+  checked: boolean;
+  type?: string;
+  placeholder?: string;
+  textContent: string;
+  readonly firstChild: FakeEl | null;
+  appendChild(c: FakeEl): FakeEl;
+  removeChild(c: FakeEl): FakeEl;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
+  dispatchEvent(ev: unknown): boolean;
+  querySelector(sel: string): FakeEl | null;
+}
+
+// Selector support: '[attr]' and '[attr="value"]' (the only forms the sliced
+// island functions use).
+function attrSelectorMatch(el: FakeEl, sel: string): boolean {
+  const m = sel.match(/^\[([^\]=]+)(?:="([^"]*)")?\]$/);
+  if (m === null) return false;
+  const name = m[1]!;
+  if (!el.attrs.has(name)) return false;
+  return m[2] === undefined ? true : el.attrs.get(name) === m[2];
+}
+
+function fakeElement(tag: string): FakeEl {
+  const attrs = new Map<string, string>();
+  const children: FakeEl[] = [];
+  const node: FakeEl = {
+    tagName: String(tag).toUpperCase(),
+    nodeType: 1,
+    attrs,
+    children,
+    className: "",
+    hidden: false,
+    value: "",
+    checked: false,
+    textContent: "",
+    get firstChild() {
+      return children.length > 0 ? children[0]! : null;
+    },
+    appendChild(c) {
+      children.push(c);
+      return c;
+    },
+    removeChild(c) {
+      const i = children.indexOf(c);
+      if (i !== -1) children.splice(i, 1);
+      return c;
+    },
+    setAttribute(k, v) {
+      attrs.set(k, String(v));
+    },
+    getAttribute(k) {
+      return attrs.has(k) ? attrs.get(k)! : null;
+    },
+    removeAttribute(k) {
+      attrs.delete(k);
+    },
+    dispatchEvent() {
+      return true;
+    },
+    querySelector(sel) {
+      for (const c of children) {
+        if (c.nodeType !== 1) continue;
+        if (attrSelectorMatch(c, sel)) return c;
+        const nested = c.querySelector(sel);
+        if (nested !== null) return nested;
+      }
+      return null;
+    },
+  };
+  return node;
+}
+
+function fakeTextNode(text: string): FakeEl {
+  const n = fakeElement("#text");
+  n.nodeType = 3;
+  n.textContent = String(text);
+  return n;
+}
+
+// All descendants (element nodes) matching a predicate, in document order.
+function findAll(root: FakeEl, pred: (el: FakeEl) => boolean): FakeEl[] {
+  const out: FakeEl[] = [];
+  for (const c of root.children) {
+    if (c.nodeType === 1 && pred(c)) out.push(c);
+    out.push(...findAll(c, pred));
+  }
+  return out;
+}
+
+// Concatenated text (createTextNode children + direct textContent writes).
+function textOf(node: FakeEl): string {
+  let out = node.nodeType === 3 ? node.textContent : node.textContent || "";
+  for (const c of node.children) out += textOf(c);
+  return out;
+}
+
+function sliceIslandFunction(script: string, name: string): string {
+  const marker = `function ${name}(`;
+  const start = script.indexOf(marker);
+  expect(start, `island function ${name} present`).toBeGreaterThan(-1);
+  const open = script.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return script.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces while slicing island function ${name}`);
+}
+
+// ---------------------------------------------------------------------------
+// F1 (executed) — the §7.4 usage report island renders the SERVER's kinds
+// ARRAY (real handler JSON in, DOM out). The old code indexed usage[kind] as
+// a keyed map off a drifted client-side kind list → "(0) None." everywhere.
+// ---------------------------------------------------------------------------
+
+interface UsageKindEntry {
+  kind: string;
+  count: number;
+  items: Array<{ id: number; public_id: string; name: string; link: string }>;
+  warning_only?: boolean;
+}
+interface UsageReport {
+  kinds: UsageKindEntry[];
+  delete_eligibility: { eligible: boolean; blocking_kinds: string[] };
+}
+
+interface UsageIsland {
+  renderUsage(bodyEl: FakeEl, usage: UsageReport, mode: string, offerId: string, offerName: string): void;
+}
+
+function usageIsland(listHtml: string): UsageIsland {
+  const script = extractScripts(listHtml).find((s) => s.includes("function renderUsage("));
+  expect(script, "list-actions island script present").toBeDefined();
+  const source = ["humanizeKind", "safeLink", "itemLabel", "renderUsage"]
+    .map((n) => sliceIslandFunction(script!, n))
+    .join("\n");
+  const sandbox = { document: { createElement: fakeElement, createTextNode: fakeTextNode } };
+  return runInNewContext(`${source}\n({ renderUsage: renderUsage })`, sandbox) as UsageIsland;
+}
+
+describeDb("F1 (executed) — usage report island over the REAL server body", () => {
+  // A REAL reference inventory: a Section offering the offer
+  // (sections_available — blocking, links to the section editor), a funnel
+  // redirect rule targeting it (funnel_rules_targeting — a kind the deleted
+  // client-side list did NOT know), a region rule (warning-only server-side —
+  // the deleted list had it WRONGLY blocking) and a provider TEST log row
+  // (warning-only synthetic item).
+  async function seedReferencedOffer(): Promise<{
+    env: Env;
+    offer: OfferDetail;
+    sectionPublicId: string;
+    usage: UsageReport;
+  }> {
+    const { env, sdb } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Usage Exec Offer" });
+    await patchOffer(env, offer.public_id, {
+      region_rules: [{ dimension: "state", action: "exclude", values: ["CA"], priority: 10, enabled: true }],
+    });
+    const sectionPublicId = mintPublicId("section");
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, 'Usage Section', 'quote_funnel', 'life', 'H', '{}')",
+      )
+      .run(sectionPublicId);
+    const section = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number };
+    sdb
+      .prepare("INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected) VALUES (?, ?, 1)")
+      .run(section.id, offer.id);
+    // quote → funnel → variant → redirect rule targeting the offer
+    sdb
+      .prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'Usage Quote', 'quote_funnel', '[\"life\"]')")
+      .run(mintPublicId("quote"));
+    const quote = sdb.prepare("SELECT id FROM leadgen_quotes ORDER BY id DESC LIMIT 1").get() as { id: number };
+    sdb
+      .prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, ?, 'Usage Funnel')")
+      .run(mintPublicId("funnel"), quote.id);
+    const funnel = sdb.prepare("SELECT id FROM leadgen_funnels ORDER BY id DESC LIMIT 1").get() as { id: number };
+    sdb
+      .prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id) VALUES (?, ?)")
+      .run(mintPublicId("funnel_variant"), funnel.id);
+    const variant = sdb.prepare("SELECT id FROM leadgen_funnel_variants ORDER BY id DESC LIMIT 1").get() as { id: number };
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id) VALUES (?, ?, 'redirect_direct_offer', '{}', 'h', ?)",
+      )
+      .run(mintPublicId("funnel_rule"), variant.id, offer.id);
+    seedPassedTest(sdb, offer.public_id, 200);
+
+    const res = await admin.request(`${API}/offers/${offer.public_id}/usage`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { usage: UsageReport };
+    return { env, offer, sectionPublicId, usage: body.usage };
+  }
+
+  it("renders EVERY server kind, in server order, with real counts, item links and warning tags", async () => {
+    const { env, usage, sectionPublicId } = await seedReferencedOffer();
+
+    // seam sanity on the REAL body: kinds is an ORDERED ARRAY, not a keyed map
+    expect(Array.isArray(usage.kinds)).toBe(true);
+    const byKind = new Map(usage.kinds.map((k) => [k.kind, k]));
+    expect(byKind.get("sections_available")!.count).toBe(1);
+    expect(byKind.get("funnel_rules_targeting")!.count).toBe(1);
+    expect(byKind.get("region_rules")!.warning_only).toBe(true);
+    expect(usage.delete_eligibility.eligible).toBe(false);
+
+    const island = usageIsland(await getHtml(env, "/admin/leadgen/offers"));
+    const bodyEl = fakeElement("div");
+    island.renderUsage(bodyEl, usage, "view", "lgo_x", "Usage Exec Offer");
+
+    // every kind block, in exactly the server's order
+    const blocks = findAll(bodyEl, (n) => n.attrs.has("data-usage-kind"));
+    expect(blocks.map((b) => b.getAttribute("data-usage-kind"))).toEqual(usage.kinds.map((k) => k.kind));
+
+    // sections_available: humanized label + real count + the item ANCHOR
+    const sections = blocks.find((b) => b.getAttribute("data-usage-kind") === "sections_available")!;
+    expect(textOf(sections)).toContain("Sections available");
+    expect(textOf(sections)).toContain("(1)");
+    const sectionAnchor = findAll(sections, (n) => n.tagName === "A")[0]!;
+    expect(sectionAnchor.getAttribute("href")).toBe(`/admin/leadgen/sections/${sectionPublicId}/edit`);
+    expect(textOf(sectionAnchor)).toBe("Usage Section");
+
+    // funnel_rules_targeting (missing from the deleted client list) renders
+    const funnelRules = blocks.find((b) => b.getAttribute("data-usage-kind") === "funnel_rules_targeting")!;
+    expect(textOf(funnelRules)).toContain("(1)");
+    expect(findAll(funnelRules, (n) => n.tagName === "A")[0]!.getAttribute("href")).toBe("/admin/leadgen/quotes");
+
+    // warning-only flags come from the SERVER entry (the deleted list wrongly
+    // marked region_rules blocking)
+    for (const kind of ["region_rules", "provider_request_logs"]) {
+      const block = blocks.find((b) => b.getAttribute("data-usage-kind") === kind)!;
+      const warn = findAll(block, (n) => n.className === "lg-usage-warn-tag");
+      expect(warn, `${kind} warn tag`).toHaveLength(1);
+      expect(textOf(warn[0]!)).toBe("does not block delete");
+    }
+    // a blocking kind never carries the tag
+    expect(findAll(sections, (n) => n.className === "lg-usage-warn-tag")).toHaveLength(0);
+
+    // zero-count kinds render "None."
+    const answerMaps = blocks.find((b) => b.getAttribute("data-usage-kind") === "answer_maps")!;
+    expect(textOf(answerMaps)).toContain("(0)");
+    expect(textOf(answerMaps)).toContain("None.");
+
+    // eligibility-driven verdict (view mode; blocked offer)
+    const verdicts = findAll(bodyEl, (n) => n.attrs.has("data-usage-verdict"));
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]!.getAttribute("data-usage-verdict")).toBe("blocked");
+    expect(textOf(verdicts[0]!)).toContain("cannot be permanently deleted");
+    // view mode has no Archive CTA
+    expect(findAll(bodyEl, (n) => n.attrs.has("data-usage-archive"))).toHaveLength(0);
+  });
+
+  it("the 409 blocked-delete modal path: REAL 409 body renders the report + the Archive-instead CTA", async () => {
+    const { env, offer } = await seedReferencedOffer();
+    const del = await admin.request(`${API}/offers/${offer.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as { error: string; usage: UsageReport };
+    expect(body.error).toBe("offer_in_use");
+
+    const island = usageIsland(await getHtml(env, "/admin/leadgen/offers"));
+    const bodyEl = fakeElement("div");
+    island.renderUsage(bodyEl, body.usage, "blocked", offer.public_id, offer.offer_name);
+
+    const verdict = findAll(bodyEl, (n) => n.attrs.has("data-usage-verdict"))[0]!;
+    expect(verdict.getAttribute("data-usage-verdict")).toBe("blocked");
+    expect(textOf(verdict)).toContain("in use and cannot be deleted");
+    // per-kind content present (not the old all-zero render)
+    const sections = findAll(bodyEl, (n) => n.getAttribute("data-usage-kind") === "sections_available")[0]!;
+    expect(textOf(sections)).toContain("(1)");
+    // the blocked CTA carries the offer identity
+    const cta = findAll(bodyEl, (n) => n.attrs.has("data-usage-archive"));
+    expect(cta).toHaveLength(1);
+    expect(cta[0]!.getAttribute("data-usage-archive")).toBe(offer.public_id);
+    expect(textOf(cta[0]!)).toBe("Archive instead");
+  });
+
+  it("an unreferenced offer: eligible verdict, every kind renders None., no CTA", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Clean Offer" });
+    const res = await admin.request(`${API}/offers/${offer.public_id}/usage`, {}, env);
+    expect(res.status).toBe(200);
+    const { usage } = (await res.json()) as { usage: UsageReport };
+    expect(usage.delete_eligibility.eligible).toBe(true);
+
+    const island = usageIsland(await getHtml(env, "/admin/leadgen/offers"));
+    const bodyEl = fakeElement("div");
+    island.renderUsage(bodyEl, usage, "view", offer.public_id, offer.offer_name);
+
+    const verdict = findAll(bodyEl, (n) => n.attrs.has("data-usage-verdict"))[0]!;
+    expect(verdict.getAttribute("data-usage-verdict")).toBe("eligible");
+    expect(textOf(verdict)).toContain("can be permanently deleted");
+    const blocks = findAll(bodyEl, (n) => n.attrs.has("data-usage-kind"));
+    expect(blocks).toHaveLength(usage.kinds.length);
+    for (const block of blocks) expect(textOf(block)).toContain("None.");
+    expect(findAll(bodyEl, (n) => n.attrs.has("data-usage-archive"))).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F2 (executed) — the §7.3 duplicate success handler navigates off the REAL
+// 201 body (offer.public_id + copied.extra_placements_blanked). The old code
+// required a top-level public_id that never exists → success rendered as an
+// error and retries minted clones.
+// ---------------------------------------------------------------------------
+
+interface DuplicateBody {
+  offer: { public_id: string; [key: string]: unknown };
+  duplicated_from: { id: number; public_id: string; name: string };
+  copied: {
+    active_schema_as_v1: boolean;
+    region_rules: number;
+    endpoint_config: boolean;
+    cap_settings_copied_disabled: boolean;
+    extra_placements_blanked: number;
+  };
+  not_copied: string[];
+  test_status: string;
+  public_id?: unknown;
+}
+
+interface DupIsland {
+  nav(res: unknown, fromName: string, copyRegion: boolean, copyEndpoint: boolean, copyCap: boolean): string | null;
+  apply(res: unknown, fromName: string, copyRegion: boolean, copyEndpoint: boolean, copyCap: boolean): boolean;
+}
+
+function duplicateIsland(listHtml: string): { island: DupIsland; window: { location: { href: string }; toasts: string[] } } {
+  const script = extractScripts(listHtml).find((s) => s.includes("function duplicateResultNav("));
+  expect(script, "duplicate island functions present").toBeDefined();
+  const source = ["duplicateResultNav", "applyDuplicateResult"]
+    .map((n) => sliceIslandFunction(script!, n))
+    .join("\n");
+  const win = {
+    location: { href: "" },
+    toasts: [] as string[],
+    showToast(msg: string) {
+      win.toasts.push(msg);
+    },
+  };
+  const sandbox = { window: win, encodeURIComponent, isFinite };
+  const island = runInNewContext(
+    `${source}\n({ nav: duplicateResultNav, apply: applyDuplicateResult })`,
+    sandbox,
+  ) as DupIsland;
+  return { island, window: win };
+}
+
+describeDb("F2 (executed) — duplicate success handler over the REAL 201/400 bodies", () => {
+  it("navigates to the new lgo_ editor with the pending count from copied.extra_placements_blanked", async () => {
+    const { env } = newHarness();
+    const source = await createOffer(env, "request_dynamic_bid", {
+      offer_name: "Dup Exec Source",
+      placements: ["pl-src-main", "pl-src-extra"], // 1 extra → 1 blanked on duplicate
+    });
+    const res = await admin.request(
+      `${API}/offers/${source.public_id}/duplicate`,
+      jsonInit("POST", { name: "Dup Exec Copy", default_placement_id: "pl-dup-main" }),
+      env,
+    );
+    expect(res.status, `duplicate: ${await res.clone().text()}`).toBe(201);
+    const body = (await res.json()) as DuplicateBody;
+    // seam sanity: public_id lives on offer.*, NOT at the top level; the
+    // blanked count is a NUMBER on copied.*
+    expect(body.public_id).toBeUndefined();
+    expect(body.offer.public_id).toMatch(/^lgo_/);
+    expect(body.copied.extra_placements_blanked).toBe(1);
+
+    const { island, window: win } = duplicateIsland(await getHtml(env, "/admin/leadgen/offers"));
+    const applied = island.apply({ ok: true, status: 201, body }, "Dup Exec Source", true, true, false);
+    expect(applied).toBe(true);
+    const expected =
+      `/admin/leadgen/offers/${encodeURIComponent(body.offer.public_id)}/edit` +
+      `?duplicated_from=${encodeURIComponent("Dup Exec Source")}` +
+      `&copied=${encodeURIComponent("copy_region_rules,copy_endpoint_config")}` +
+      `&skipped=${encodeURIComponent("copy_cap_settings")}` +
+      `&pending=1`;
+    expect(win.location.href).toBe(expected);
+    expect(win.toasts).toHaveLength(1);
+
+    // full loop: the island-built URL renders the server-side banner
+    const editorHtml = await getHtml(env, win.location.href);
+    expect(editorHtml).toContain("data-dup-banner");
+    expect(editorHtml).toContain("Duplicated from Dup Exec Source");
+    expect(editorHtml).toContain('data-dup-pending="1"');
+    expect(editorHtml).toContain('data-dup-copied="copy_region_rules"');
+    expect(editorHtml).toContain('data-dup-skipped="copy_cap_settings"');
+  });
+
+  it("a REAL 400 body does not navigate (error path preserved); the legacy top-level shape never navigates", async () => {
+    const { env } = newHarness();
+    const source = await createOffer(env, "static_no_request", { offer_name: "Dup Fail Source" });
+    const res = await admin.request(
+      `${API}/offers/${source.public_id}/duplicate`,
+      jsonInit("POST", { name: "x", default_placement_id: "" }),
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; fields: Record<string, string> };
+    expect(body.fields.default_placement_id).toBeDefined();
+
+    const { island, window: win } = duplicateIsland(await getHtml(env, "/admin/leadgen/offers"));
+    expect(island.apply({ ok: false, status: 400, body }, "Dup Fail Source", true, true, false)).toBe(false);
+    expect(win.location.href).toBe("");
+    expect(win.toasts).toHaveLength(0);
+    // the OLD false contract (top-level public_id) is not a success signal
+    expect(island.nav({ ok: true, status: 201, body: { public_id: "lgo_TOPLEVEL" } }, "n", true, true, false)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F5 — §7.1 per-row Test-status chip (real list field → distinct chips;
+// absent field renders the defensive Untested state)
+// ---------------------------------------------------------------------------
+
+describeDb("F5 — offers list test-status chip", () => {
+  function rowFor(html: string, publicId: string): string {
+    const at = html.indexOf(`data-offer-public-id="${publicId}"`);
+    expect(at, `row for ${publicId}`).toBeGreaterThan(-1);
+    const start = html.lastIndexOf("<tr", at);
+    const end = html.indexOf("</tr>", at);
+    return html.slice(start, end);
+  }
+
+  it("rows render distinct Passed / Failed / Untested chips from the REAL list field", async () => {
+    const { env, sdb } = newHarness();
+    const untested = await createOffer(env, "static_no_request", { offer_name: "Chip Untested" });
+    const passed = await createOffer(env, "request_dynamic_bid", { offer_name: "Chip Passed" });
+    const failed = await createOffer(env, "request_dynamic_bid", { offer_name: "Chip Failed" });
+    seedPassedTest(sdb, passed.public_id, 200);
+    seedPassedTest(sdb, failed.public_id, 500);
+
+    // the REAL list API emits the field (parallel server slice)
+    const listRes = await admin.request(`${API}/offers`, {}, env);
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as { items: Array<{ public_id: string; test_status?: string }> };
+    const statusOf = (id: string): string | undefined => list.items.find((i) => i.public_id === id)?.test_status;
+    expect(statusOf(passed.public_id)).toBe("passed");
+    expect(statusOf(failed.public_id)).toBe("failed");
+    expect(statusOf(untested.public_id)).toBe("untested");
+
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    // header sits between Eligibility and Cap
+    const eligIdx = html.indexOf(">Eligibility</th>");
+    const testIdx = html.indexOf(">Test status</th>");
+    const capIdx = html.indexOf(">Cap</th>");
+    expect(eligIdx).toBeGreaterThan(-1);
+    expect(testIdx).toBeGreaterThan(eligIdx);
+    expect(capIdx).toBeGreaterThan(testIdx);
+    // per-row chips
+    expect(rowFor(html, passed.public_id)).toContain('data-offer-test-status="passed">Passed</span>');
+    expect(rowFor(html, failed.public_id)).toContain('data-offer-test-status="failed">Failed</span>');
+    expect(rowFor(html, untested.public_id)).toContain('data-offer-test-status="untested">Untested</span>');
+  });
+
+  it("defensive: an absent/unknown test-status field renders the Untested chip (merge-order safety)", () => {
+    expect(testStatusChip({} as never)).toContain('data-offer-test-status="untested">Untested</span>');
+    expect(testStatusChip({ test_status: "bogus" } as never)).toContain('data-offer-test-status="untested">Untested</span>');
+    expect(testStatusChip({ test_status: null } as never)).toContain(">Untested</span>");
+    // the variant spellings the parallel slice considered are also consumed
+    expect(testStatusChip({ last_test_status: "passed" } as never)).toContain('data-offer-test-status="passed">Passed</span>');
+    expect(testStatusChip({ last_test_ok: false } as never)).toContain('data-offer-test-status="failed">Failed</span>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F10 (executed) — pasted country/state tokens validate against the SAME
+// closed sets the dropdowns use (the REAL lg-region-geo island payload feeds
+// the REAL island functions; invalid tokens are listed + rejected like zip)
+// ---------------------------------------------------------------------------
+
+interface RegionIsland {
+  addValue(row: FakeEl, rawToken: string): boolean;
+  pasteMultiple(row: FakeEl): void;
+}
+
+function regionIsland(editorHtml: string): RegionIsland {
+  const fullScript = extractScripts(editorHtml).find((s) => s.includes("function buildGeoSets("));
+  expect(fullScript, "region editor island script present").toBeDefined();
+  // the page concatenates every island into one <script>; scope the slicing
+  // to the REGION editor island so shared function names (e.g. an analytics
+  // setValues) can never shadow the region ones
+  const regionStart = fullScript!.indexOf("getElementById('lg-region-rows')");
+  expect(regionStart, "region island start marker").toBeGreaterThan(-1);
+  const script = fullScript!.slice(regionStart);
+  const geoMatch = editorHtml.match(/<script type="application\/json" id="lg-region-geo">([\s\S]*?)<\/script>/);
+  expect(geoMatch, "REAL lg-region-geo island payload present").not.toBeNull();
+  const geo = JSON.parse(geoMatch![1]!) as { countries: string[]; states: Record<string, Array<[string, string]>> };
+  // the closed sets ride the island blob (the same lists the dropdowns render)
+  expect(Array.isArray(geo.countries)).toBe(true);
+  for (const code of ["US", "GB", "DE"]) expect(geo.countries).toContain(code);
+  expect(geo.countries).not.toContain("XX");
+
+  const zipLine = script.match(/var ZIP_RE = [^;]+;/);
+  expect(zipLine, "ZIP_RE line present").not.toBeNull();
+  const source = [
+    zipLine![0],
+    ...[
+      "trim", "fireChange", "rowOf", "hiddenOf", "chipsOf", "dimOf", "invalidOf",
+      "clearInvalid", "showInvalid", "valuesOf", "renderChips", "writeValues",
+      "setValues", "normalizeToken", "validToken", "hasValue", "addValue",
+      "pasteMultiple", "buildGeoSets",
+    ].map((n) => sliceIslandFunction(script, n)),
+    `var geoSets = buildGeoSets(${JSON.stringify(geo)});`,
+    "({ addValue: addValue, pasteMultiple: pasteMultiple })",
+  ].join("\n");
+  const sandbox = {
+    document: {
+      createElement: fakeElement,
+      createTextNode: fakeTextNode,
+      createEvent: () => ({ initEvent: () => {} }),
+    },
+  };
+  return runInNewContext(source, sandbox) as RegionIsland;
+}
+
+function regionRow(dim: string): { row: FakeEl; hidden: FakeEl; box: FakeEl; invalid: FakeEl; chips: FakeEl } {
+  const row = fakeElement("div");
+  row.setAttribute("data-region-rule", "");
+  const dimension = fakeElement("select");
+  dimension.setAttribute("data-rule-field", "dimension");
+  dimension.value = dim;
+  const hidden = fakeElement("input");
+  hidden.setAttribute("data-rule-field", "values");
+  const chips = fakeElement("div");
+  chips.setAttribute("data-region-chips", "");
+  const box = fakeElement("textarea");
+  box.setAttribute("data-region-paste-box", "");
+  const invalid = fakeElement("p");
+  invalid.setAttribute("data-region-invalid", "");
+  invalid.hidden = true;
+  row.appendChild(dimension);
+  row.appendChild(hidden);
+  row.appendChild(chips);
+  row.appendChild(box);
+  row.appendChild(invalid);
+  return { row, hidden, box, invalid, chips };
+}
+
+describeDb("F10 (executed) — region paste validation per dimension", () => {
+  async function editorIsland(): Promise<RegionIsland> {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Paste Offer" });
+    return regionIsland(await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`));
+  }
+
+  it("country paste: valid alpha-2 tokens become chips (uppercased); invalid tokens are listed + rejected", async () => {
+    const island = await editorIsland();
+    const { row, hidden, box, invalid, chips } = regionRow("country");
+    box.value = "us, XX, de\nZZ, GB";
+    island.pasteMultiple(row);
+    expect(hidden.value).toBe("US, DE, GB");
+    expect(chips.children.filter((c) => c.className === "lg-chip")).toHaveLength(3);
+    expect(invalid.hidden).toBe(false);
+    expect(invalid.textContent).toContain("2 invalid country token(s)");
+    expect(invalid.textContent).toContain("XX");
+    expect(invalid.textContent).toContain("ZZ");
+    expect(box.value).toBe("");
+  });
+
+  it("state paste: known state/province codes pass; unknown codes are rejected", async () => {
+    const island = await editorIsland();
+    const { row, hidden, invalid, box } = regionRow("state");
+    box.value = "ca, QQ, on";
+    island.pasteMultiple(row);
+    expect(hidden.value).toBe("CA, ON");
+    expect(invalid.textContent).toContain("1 invalid state token(s)");
+    expect(invalid.textContent).toContain("QQ");
+  });
+
+  it("the zip path is unchanged; single-add validates country membership too", async () => {
+    const island = await editorIsland();
+    const zip = regionRow("zip");
+    zip.box.value = "90210, abcde";
+    island.pasteMultiple(zip.row);
+    expect(zip.hidden.value).toBe("90210");
+    expect(zip.invalid.textContent).toContain("abcde");
+
+    const country = regionRow("country");
+    expect(island.addValue(country.row, "xx")).toBe(false);
+    expect(country.invalid.textContent).toContain("ISO alpha-2");
+    expect(island.addValue(country.row, "us")).toBe(true);
+    expect(country.hidden.value).toBe("US");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F13 — the __needs_value__N sentinel never shows raw: empty input +
+// "needs value" placeholder + a row hint; an unrelated Save round-trips the
+// pending row (executed collectPlacements) instead of dropping or blocking.
+// ---------------------------------------------------------------------------
+
+describeDb("F13 — needs-value placement sentinel", () => {
+  async function duplicatedEditorHtml(): Promise<{ env: Env; html: string; dupId: string }> {
+    const { env } = newHarness();
+    const source = await createOffer(env, "static_no_request", {
+      offer_name: "Sentinel Source",
+      placements: ["pl-sent-main", "pl-sent-extra"],
+    });
+    const res = await admin.request(
+      `${API}/offers/${source.public_id}/duplicate`,
+      jsonInit("POST", { name: "Sentinel Copy", default_placement_id: "pl-dup-main" }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as DuplicateBody;
+    const html = await getHtml(env, `/admin/leadgen/offers/${body.offer.public_id}/edit`);
+    return { env, html, dupId: body.offer.public_id };
+  }
+
+  it("the sentinel row renders an EMPTY input with the needs-value placeholder + a visible hint; real rows render normally", async () => {
+    const { html } = await duplicatedEditorHtml();
+    // the REAL duplicate handler minted the sentinel row
+    expect(html).toContain('data-placement-sentinel="__needs_value__1"');
+    // sentinel input: empty value + "needs value" placeholder (template attribute order)
+    expect(html).toMatch(/data-placement-field="placement_id" placeholder="needs value" aria-label="Placement id" value=""/);
+    // the sentinel is NEVER visible as an input value
+    expect(html).not.toMatch(/value="__needs_value__/);
+    // exactly one row hint, with operator wording
+    expect(html.match(/data-placement-needs-value-hint/g)).toHaveLength(1);
+    expect(html).toContain("set a real placement ID");
+    // the real default row renders its value normally, standard placeholder
+    expect(html).toMatch(/data-placement-field="placement_id" placeholder="pl-12345" aria-label="Placement id" value="pl-dup-main"/);
+  });
+
+  it("(executed) collectPlacements round-trips the untouched sentinel row and swaps in a typed value", async () => {
+    const { html } = await duplicatedEditorHtml();
+    const script = extractScripts(html).find((s) => s.includes("function collectPlacements("));
+    expect(script, "editor script present").toBeDefined();
+    const source = `${sliceIslandFunction(script!, "collectPlacements")}\n({ collect: collectPlacements })`;
+
+    function placementRow(opts: { publicId?: string; sentinel?: string; value: string; isDefault: boolean }): FakeEl {
+      const row = fakeElement("div");
+      row.className = "lg-placement-row";
+      if (opts.publicId) row.setAttribute("data-placement-public-id", opts.publicId);
+      if (opts.sentinel) row.setAttribute("data-placement-sentinel", opts.sentinel);
+      const pid = fakeElement("input");
+      pid.setAttribute("data-placement-field", "placement_id");
+      pid.value = opts.value;
+      const label = fakeElement("input");
+      label.setAttribute("data-placement-field", "label");
+      const def = fakeElement("input");
+      def.setAttribute("data-placement-field", "is_default");
+      def.checked = opts.isDefault;
+      row.appendChild(pid);
+      row.appendChild(label);
+      row.appendChild(def);
+      return row;
+    }
+
+    const sentinelRow = placementRow({ publicId: "lgpl_SENT", sentinel: "__needs_value__1", value: "", isDefault: false });
+    const defaultRow = placementRow({ publicId: "lgpl_MAIN", value: "pl-dup-main", isDefault: true });
+    const blankTemplateRow = placementRow({ value: "", isDefault: false }); // a new empty row stays skipped
+    const rows = [defaultRow, sentinelRow, blankTemplateRow];
+    const sandbox = {
+      document: {
+        querySelectorAll: (sel: string) => (sel === "#lg-placements-rows .lg-placement-row" ? rows : []),
+      },
+    };
+    const island = runInNewContext(source, sandbox) as {
+      collect(errors: Record<string, string>): Array<{ placement_id: string; public_id?: string; is_default: boolean }>;
+    };
+
+    // untouched sentinel row survives an unrelated Save (no drop, no block)
+    const errors: Record<string, string> = {};
+    const out = island.collect(errors);
+    expect(errors).toEqual({});
+    expect(out).toHaveLength(2);
+    expect(out.map((p) => p.placement_id)).toEqual(["pl-dup-main", "__needs_value__1"]);
+    expect(out[1]!.public_id).toBe("lgpl_SENT");
+    expect(out[1]!.is_default).toBe(false);
+
+    // typing a real value replaces the sentinel in the PATCH body
+    (sentinelRow.querySelector('[data-placement-field="placement_id"]') as FakeEl).value = "pl-real-2";
+    const out2 = island.collect({});
+    expect(out2.map((p) => p.placement_id)).toEqual(["pl-dup-main", "pl-real-2"]);
   });
 });

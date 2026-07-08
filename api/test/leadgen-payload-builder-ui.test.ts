@@ -1114,9 +1114,11 @@ interface ConditionIsland {
   condUiOp(cond: Record<string, unknown>): string;
   fillConditionPanel(bodyEl: FakeEl, node: Record<string, unknown>): void;
   readConditionFromRow(bodyEl: FakeEl, node: Record<string, unknown>): void;
+  condChipAdd(bodyEl: FakeEl, node: Record<string, unknown>): void;
+  condChipRemove(node: Record<string, unknown>, idx: number): void;
 }
 
-function conditionIsland(html: string, linkedFields: Array<Record<string, string>>): ConditionIsland {
+function conditionIsland(html: string, linkedFields: Array<Record<string, unknown>>): ConditionIsland {
   const script = extractScripts(html).find((s) => s.includes("data-pb-condition-rows"));
   expect(script, "payload-builder island script present").toBeDefined();
   const source = [
@@ -1124,7 +1126,12 @@ function conditionIsland(html: string, linkedFields: Array<Record<string, string
     "clearChildren",
     "el",
     "displayScalar",
+    "linkedByInternal",
     "conditionFieldOptions",
+    "condChoiceTypedValue",
+    "condChoiceMeta",
+    "condChipAdd",
+    "condChipRemove",
     "condUiOp",
     "condSentence",
     "fillConditionPanel",
@@ -1138,14 +1145,37 @@ function conditionIsland(html: string, linkedFields: Array<Record<string, string
     items: [] as unknown[],
   };
   return runInNewContext(
-    `${source}\n({ condUiOp: condUiOp, fillConditionPanel: fillConditionPanel, readConditionFromRow: readConditionFromRow })`,
+    `${source}\n({ condUiOp: condUiOp, fillConditionPanel: fillConditionPanel, readConditionFromRow: readConditionFromRow, condChipAdd: condChipAdd, condChipRemove: condChipRemove })`,
     sandbox,
   ) as ConditionIsland;
 }
 
-const CONDITION_LINKED_FIELDS = [
+const CONDITION_LINKED_FIELDS: Array<Record<string, unknown>> = [
   { internal_field: "homeowner", section_name: "Home Details", answer_type: "boolean" },
-  { internal_field: "carrier", section_name: "Home Details", answer_type: "enum" },
+  {
+    internal_field: "carrier",
+    section_name: "Home Details",
+    answer_type: "enum",
+    // F-1 (§6.10): choices now ride the linked-fields projection
+    choices: [
+      { value: "geico", label: "GEICO" },
+      { value: "progressive", label: "Progressive" },
+    ],
+  },
+  {
+    internal_field: "vehicle_count",
+    section_name: "Home Details",
+    answer_type: "enum",
+    choices: [
+      { value: 1, label: "One" },
+      { value: 2, label: "Two" },
+    ],
+  },
+  { internal_field: "zip_code", section_name: "Home Details", answer_type: "string" },
+  // number/currency-typed fields WITHOUT Section choices — the chips entry is
+  // free text; finite numeric tokens must store as NUMBERS (evaluator ===).
+  { internal_field: "driver_age", section_name: "Home Details", answer_type: "number" },
+  { internal_field: "home_value", section_name: "Home Details", answer_type: "currency" },
 ];
 
 describeDb("payload builder §6.10 — condition builder", () => {
@@ -1234,11 +1264,14 @@ describeDb("payload builder §6.10 — condition builder", () => {
     const { html } = await richEditorPage();
     const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
 
-    // eq + value round-trips unchanged (no sugar collapse).
+    // eq + value round-trips unchanged (no sugar collapse). carrier is an
+    // enum field WITH choices, so post-F-1 the value input is the §6.10
+    // choices dropdown (asserted in depth by the F-1 dropdown test below).
     const bodyEl = conditionPanelDom();
     const node: Record<string, unknown> = { conditional: { when: "carrier", op: "eq", value: "geico" } };
     island10.fillConditionPanel(bodyEl, node);
     expect(bodyEl.querySelector("[data-pb-cond-op]")!.value).toBe("eq");
+    expect(bodyEl.querySelector("[data-pb-cond-value]")!.tagName).toBe("SELECT");
     expect(bodyEl.querySelector("[data-pb-cond-value]")!.value).toBe("geico");
     island10.readConditionFromRow(bodyEl, node);
     island10.fillConditionPanel(bodyEl, node);
@@ -1249,15 +1282,21 @@ describeDb("payload builder §6.10 — condition builder", () => {
     });
     expect(bodyEl.querySelector("[data-pb-cond-op]")!.value).toBe("eq");
 
-    // MINOR-3: carrier is an ENUM/string field (text input, not the boolean
-    // select), so typing the literal "true" keeps the STRING "true" — coercing
-    // it to boolean would make it never === the string answer at runtime and
-    // silently drop the conditional payload field. Only boolean fields (the
-    // SELECT branch) emit a boolean.
-    bodyEl.querySelector("[data-pb-cond-value]")!.value = "true";
-    island10.readConditionFromRow(bodyEl, node);
-    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
-      when: "carrier",
+    // MINOR-3 (relocated to a no-choices field post-F-1): a STRING field
+    // without Section choices keeps the free-text input, and typing the
+    // literal "true" keeps the STRING "true" — coercing it to boolean would
+    // make it never === the string answer at runtime and silently drop the
+    // conditional payload field. Only boolean fields (the SELECT branch)
+    // emit a boolean.
+    const strBody = conditionPanelDom();
+    const strNode: Record<string, unknown> = { conditional: { when: "zip_code", op: "eq", value: "90001" } };
+    island10.fillConditionPanel(strBody, strNode);
+    const strIn = strBody.querySelector("[data-pb-cond-value]")!;
+    expect(strIn.tagName).toBe("INPUT");
+    strIn.value = "true";
+    island10.readConditionFromRow(strBody, strNode);
+    expect(JSON.parse(JSON.stringify(strNode["conditional"]))).toEqual({
+      when: "zip_code",
       op: "eq",
       value: "true",
     });
@@ -1283,6 +1322,419 @@ describeDb("payload builder §6.10 — condition builder", () => {
     const emptyNeq = conditionPanelDom();
     island10.fillConditionPanel(emptyNeq, { conditional: { when: "carrier", op: "neq", value: "" } });
     expect(emptyNeq.querySelector("[data-pb-cond-op]")!.value).toBe("is_not_empty");
+  });
+
+  // F-1 (§6.10 letter, retro audit): "Value input typed by the field —
+  // dropdown for enums". An enum-typed linked field with known Section
+  // choices renders a <select> of those choices (label + value) and stores
+  // the picked choice's TYPED value.
+  it("F-1: an enum field's condition value is a dropdown of its Section choices; the picked value stores TYPED", async () => {
+    const { html } = await richEditorPage();
+    const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
+    const bodyEl = conditionPanelDom();
+    const node: Record<string, unknown> = { conditional: { when: "carrier", op: "eq", value: "geico" } };
+    island10.fillConditionPanel(bodyEl, node);
+    const valueInput = bodyEl.querySelector("[data-pb-cond-value]")!;
+    expect(valueInput.tagName).toBe("SELECT");
+    // exactly the field's choices, label text + string option values
+    expect(valueInput.children.map((c) => [c.value, c.firstChild?.textContent])).toEqual([
+      ["geico", "GEICO"],
+      ["progressive", "Progressive"],
+    ]);
+    expect(valueInput.value).toBe("geico");
+    // picking another choice stores that choice's value
+    valueInput.value = "progressive";
+    island10.readConditionFromRow(bodyEl, node);
+    island10.fillConditionPanel(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "eq",
+      value: "progressive",
+    });
+    expect(bodyEl.querySelector("[data-pb-cond-preview]")!.textContent).toBe(
+      "Send this field when carrier = progressive.",
+    );
+
+    // NUMERIC choice values store TYPED (=== the runtime answer), not the
+    // select's string form.
+    const numBody = conditionPanelDom();
+    const numNode: Record<string, unknown> = { conditional: { when: "vehicle_count", op: "eq", value: 1 } };
+    island10.fillConditionPanel(numBody, numNode);
+    const numSel = numBody.querySelector("[data-pb-cond-value]")!;
+    expect(numSel.tagName).toBe("SELECT");
+    expect(numSel.value).toBe("1");
+    numSel.value = "2";
+    island10.readConditionFromRow(numBody, numNode);
+    expect(JSON.parse(JSON.stringify(numNode["conditional"]))).toEqual({
+      when: "vehicle_count",
+      op: "eq",
+      value: 2,
+    });
+
+    // MINOR-2 pattern carried over: a fresh "=" pick on an enum field shows
+    // the first choice AND writes it into the model immediately — the shown
+    // value is the stored value, never a silent is-empty masquerade.
+    const freshBody = conditionPanelDom();
+    const freshNode: Record<string, unknown> = { conditional: { when: "carrier", op: "eq", value: "" } };
+    island10.fillConditionPanel(freshBody, freshNode);
+    expect(freshBody.querySelector("[data-pb-cond-op]")!.value).toBe("is_empty");
+    freshBody.querySelector("[data-pb-cond-op]")!.value = "eq";
+    island10.readConditionFromRow(freshBody, freshNode);
+    island10.fillConditionPanel(freshBody, freshNode);
+    expect(freshBody.querySelector("[data-pb-cond-value]")!.value).toBe("geico");
+    expect(JSON.parse(JSON.stringify(freshNode["conditional"]))).toEqual({
+      when: "carrier",
+      op: "eq",
+      value: "geico",
+    });
+  });
+
+  // F-1 (§6.10 letter, retro audit): "chips for lists". in/not_in render a
+  // chips editor storing the evaluator's `values` array — tokens add/remove
+  // on the MODEL (never re-parsed from a comma string); the token entry is a
+  // choices select for enum fields, a text input otherwise.
+  it("F-1: in/not_in use a chips editor — add/remove tokens store the values array; enum entry is a select, string entry is text", async () => {
+    const { html } = await richEditorPage();
+    const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
+
+    // enum field: chips render from storage; the entry is a choices select.
+    const bodyEl = conditionPanelDom();
+    const node: Record<string, unknown> = { conditional: { when: "carrier", op: "in", values: ["geico"] } };
+    island10.fillConditionPanel(bodyEl, node);
+    const chips = bodyEl.querySelector("[data-pb-cond-chips]")!;
+    expect(chips.children).toHaveLength(1);
+    expect(chips.children[0]!.firstChild!.textContent).toBe("geico");
+    // every chip carries a remove control
+    expect(chips.children[0]!.querySelector("[data-pb-cond-chip-del]")).not.toBeNull();
+    const entry = bodyEl.querySelector("[data-pb-cond-list-entry]")!;
+    expect(entry.tagName).toBe("SELECT");
+    expect(entry.children.map((c) => c.value)).toEqual(["geico", "progressive"]);
+    // the old comma-separated input is gone
+    expect(bodyEl.querySelector("[data-pb-cond-list]")).toBeNull();
+
+    // add via the entry: the picked choice's TYPED value joins values[]
+    entry.value = "progressive";
+    island10.condChipAdd(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "in",
+      values: ["geico", "progressive"],
+    });
+    // duplicate adds are refused
+    island10.condChipAdd(bodyEl, node);
+    expect((node["conditional"] as { values: unknown[] }).values).toHaveLength(2);
+    // re-render shows both chips
+    island10.fillConditionPanel(bodyEl, node);
+    expect(bodyEl.querySelector("[data-pb-cond-chips]")!.children).toHaveLength(2);
+    expect(bodyEl.querySelector("[data-pb-cond-preview]")!.textContent).toBe(
+      "Send this field when carrier is one of [geico, progressive].",
+    );
+
+    // remove a token
+    island10.condChipRemove(node, 0);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "in",
+      values: ["progressive"],
+    });
+
+    // switching in -> not_in through read/render PRESERVES the stored array
+    island10.fillConditionPanel(bodyEl, node);
+    bodyEl.querySelector("[data-pb-cond-op]")!.value = "not_in";
+    island10.readConditionFromRow(bodyEl, node);
+    island10.fillConditionPanel(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "not_in",
+      values: ["progressive"],
+    });
+
+    // string field without choices: the entry is a TEXT input; typed tokens
+    // store as strings.
+    const strBody = conditionPanelDom();
+    const strNode: Record<string, unknown> = { conditional: { when: "zip_code", op: "in", values: [] } };
+    island10.fillConditionPanel(strBody, strNode);
+    const strEntry = strBody.querySelector("[data-pb-cond-list-entry]")!;
+    expect(strEntry.tagName).toBe("INPUT");
+    strEntry.value = "90210";
+    island10.condChipAdd(strBody, strNode);
+    expect(JSON.parse(JSON.stringify(strNode["conditional"]))).toEqual({
+      when: "zip_code",
+      op: "in",
+      values: ["90210"],
+    });
+  });
+
+  // Residual (SHIP adversarial review): a number/currency-typed condition
+  // field WITHOUT Section choices takes free-text chip tokens — stored as
+  // strings ("25") they can NEVER match a numeric answer in the runtime
+  // evaluator (conditionalMet `in`/`not_in`: values.includes(actual), strict
+  // equality). Finite numeric tokens must store as NUMBERS; non-numeric
+  // tokens and string-typed fields keep strings.
+  it("F-1 residual: number/currency-typed no-choices fields store finite numeric chip tokens as NUMBERS; string fields keep strings", async () => {
+    const { html } = await richEditorPage();
+    const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
+
+    // number-typed field: the entry is free text (no choices dropdown), yet
+    // "25" / "30" land in values[] as typeof number.
+    const numBody = conditionPanelDom();
+    const numNode: Record<string, unknown> = { conditional: { when: "driver_age", op: "in", values: [] } };
+    island10.fillConditionPanel(numBody, numNode);
+    const numEntry = numBody.querySelector("[data-pb-cond-list-entry]")!;
+    expect(numEntry.tagName).toBe("INPUT");
+    numEntry.value = "25";
+    island10.condChipAdd(numBody, numNode);
+    numEntry.value = "30";
+    island10.condChipAdd(numBody, numNode);
+    const numVals = (numNode["conditional"] as { values: unknown[] }).values;
+    expect(numVals).toEqual([25, 30]);
+    expect(numVals.map((v) => typeof v)).toEqual(["number", "number"]);
+    // a NON-numeric token on the same number field stays a string (never NaN)
+    numEntry.value = "unknown";
+    island10.condChipAdd(numBody, numNode);
+    expect(numVals[2]).toBe("unknown");
+    // chips re-render unchanged (displayScalar) — 3 chips, numeric text intact
+    island10.fillConditionPanel(numBody, numNode);
+    const numChips = numBody.querySelector("[data-pb-cond-chips]")!;
+    expect(numChips.children).toHaveLength(3);
+    expect(numChips.children[0]!.firstChild!.textContent).toBe("25");
+
+    // currency-typed field behaves like number
+    const curBody = conditionPanelDom();
+    const curNode: Record<string, unknown> = { conditional: { when: "home_value", op: "not_in", values: [] } };
+    island10.fillConditionPanel(curBody, curNode);
+    curBody.querySelector("[data-pb-cond-list-entry]")!.value = "250000";
+    island10.condChipAdd(curBody, curNode);
+    expect((curNode["conditional"] as { values: unknown[] }).values).toEqual([250000]);
+    expect(typeof (curNode["conditional"] as { values: unknown[] }).values[0]).toBe("number");
+
+    // string-typed field: a numeric-LOOKING token stays a string
+    const strBody = conditionPanelDom();
+    const strNode: Record<string, unknown> = { conditional: { when: "zip_code", op: "in", values: [] } };
+    island10.fillConditionPanel(strBody, strNode);
+    strBody.querySelector("[data-pb-cond-list-entry]")!.value = "25";
+    island10.condChipAdd(strBody, strNode);
+    const strVals = (strNode["conditional"] as { values: unknown[] }).values;
+    expect(strVals).toEqual(["25"]);
+    expect(typeof strVals[0]).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retro-audit executed regressions (F-2 / F-4 / F-5) — REAL island functions
+// sliced from the served script and run in a vm (the F-1 probe pattern).
+// ---------------------------------------------------------------------------
+
+interface FreeTextIsland {
+  validateFreeTextClient(
+    node: Record<string, unknown>,
+    path: string,
+    errors: Array<{ code: string; message: string }>,
+  ): void;
+  isCatastrophicShape(pattern: string): boolean;
+}
+
+function freeTextIsland(html: string): FreeTextIsland {
+  const script = extractScripts(html).find((s) => s.includes("function isCatastrophicShape("));
+  expect(script, "free-text island script present").toBeDefined();
+  const source = ["trimStr", "isUnboundedBraceAt", "isCatastrophicShape", "validateFreeTextClient"]
+    .map((n) => sliceIslandFunction(script!, n))
+    .join("\n");
+  const sandbox = {
+    // island-scoped consts the sliced validator reads (values mirror the
+    // island bootstrap block; the §6.5 KNOWN_NODE_KEYS test pins them).
+    FREE_TEXT_KEYS: ["free_text_max_length", "free_text_pattern", "free_text_pattern_custom"],
+    FREE_TEXT_PATTERNS: ["none", "letters", "digits", "custom"],
+    FREE_TEXT_CUSTOM_MAX: 200,
+  };
+  return runInNewContext(
+    `${source}\n({ validateFreeTextClient: validateFreeTextClient, isCatastrophicShape: isCatastrophicShape })`,
+    sandbox,
+  ) as FreeTextIsland;
+}
+
+interface ValueMapIsland {
+  valueMapEntries(node: Record<string, unknown>): Array<Record<string, unknown>>;
+  vmApplyRowsToNode(node: Record<string, unknown>, rows: Array<Record<string, unknown>>): number;
+  vmRegroupRow(rows: Array<Record<string, unknown>>, idx: number, group: string): void;
+  vmDropOnRow(rows: Array<Record<string, unknown>>, fromIdx: number, toIdx: number): void;
+}
+
+function valueMapIsland(html: string): ValueMapIsland {
+  const script = extractScripts(html).find((s) => s.includes("function vmApplyRowsToNode("));
+  expect(script, "value-map island script present").toBeDefined();
+  const source = ["trimStr", "isRecordVal", "hasOwn", "valueMapEntries", "vmApplyRowsToNode", "vmRegroupRow", "vmDropOnRow"]
+    .map((n) => sliceIslandFunction(script!, n))
+    .join("\n");
+  const sandbox = { FORBIDDEN_SEGMENTS: ["__proto__", "constructor", "prototype"] };
+  return runInNewContext(
+    `${source}\n({ valueMapEntries: valueMapEntries, vmApplyRowsToNode: vmApplyRowsToNode, vmRegroupRow: vmRegroupRow, vmDropOnRow: vmDropOnRow })`,
+    sandbox,
+  ) as ValueMapIsland;
+}
+
+describeDb("payload builder — retro-audit regressions (F-2/F-4/F-5)", () => {
+  // F-5: the island's client-side ReDoS screen was the pre-DEV-38 FLAT
+  // regex — it missed nested `((a)+)+` and alternation `(a|a)+` bombs, so
+  // the client showed "no issues" for a pattern the server 400s. Now an ES5
+  // port of the depth-aware payload.ts isCatastrophicRegexShape.
+  it("F-5: the client free-text validator flags nested + alternation bombs (depth-aware, matching the server); linear patterns stay clean", async () => {
+    const { html } = await richEditorPage();
+    const ft = freeTextIsland(html);
+    const flagged = (pattern: string): string[] => {
+      const errors: Array<{ code: string; message: string }> = [];
+      ft.validateFreeTextClient(
+        { source: "answer", type: "string", free_text_pattern: "custom", free_text_pattern_custom: pattern },
+        "lead.name",
+        errors,
+      );
+      return errors.map((e) => `${e.code}: ${e.message}`);
+    };
+    const BOMB = "free_text_constraint_invalid: custom pattern risks catastrophic backtracking (nested quantifier)";
+    // the two evasion classes the flat mirror admitted (fail-before)
+    expect(flagged("((a)+)+$")).toEqual([BOMB]);
+    expect(flagged("(a|a)+$")).toEqual([BOMB]);
+    // the §6.5 letters preset shape stays clean end-to-end
+    expect(flagged("^[A-Za-z ]+$")).toEqual([]);
+    expect(flagged("^\\d{5}$")).toEqual([]);
+
+    // walker parity spot-checks against the server truth (payload.ts
+    // isCatastrophicRegexShape semantics, DEV-38)
+    expect(ft.isCatastrophicShape("(a+)+")).toBe(true); // flat class still caught
+    expect(ft.isCatastrophicShape("((a+))+$")).toBe(true); // nesting evasion
+    expect(ft.isCatastrophicShape("(([a-z])+)+$")).toBe(true);
+    expect(ft.isCatastrophicShape("(a{2,}){2,}")).toBe(true); // unbounded brace nest
+    expect(ft.isCatastrophicShape("(cat|dog)+")).toBe(true); // documented safe-side over-reject (DEV-38)
+    expect(ft.isCatastrophicShape("(abc){2,}")).toBe(false); // single-level quantified group is fine
+    expect(ft.isCatastrophicShape("\\(a+\\)+")).toBe(false); // escaped parens are literals
+    expect(ft.isCatastrophicShape("[(a+)]+")).toBe(false); // char-class contents are literal
+  });
+
+  // F-4 (§6.13 letter): "object child add/rename path rewrite" executed —
+  // renamePrefix rewrites EVERY descendant path atomically; the renamed
+  // node's name tracks its new last segment; descendants keep their names;
+  // mapped references (internal_field / value_map / choiceDisplay) ride
+  // along untouched; prefix-sharing NON-descendants are untouched.
+  it("F-4: renamePrefix rewrites a populated subtree's descendant paths and returns the moved items", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function renamePrefix("));
+    expect(script, "rename island script present").toBeDefined();
+    const source = ["lastSegment", "renamePrefix"].map((n) => sliceIslandFunction(script!, n)).join("\n");
+    const items = [
+      { uid: 1, node: { path: "driver", name: "driver", type: "object", source: "static", value: {} } as Record<string, unknown> },
+      {
+        uid: 2,
+        node: {
+          path: "driver.first_name",
+          name: "first_name",
+          type: "string",
+          source: "answer",
+          internal_field: "first_name",
+          value_map: { a: "b" },
+          choiceDisplay: { mainValues: ["a"] },
+        } as Record<string, unknown>,
+      },
+      { uid: 3, node: { path: "driver.vehicle", name: "vehicle", type: "object", source: "static", value: {} } as Record<string, unknown> },
+      { uid: 4, node: { path: "driver.vehicle.make", name: "make", type: "string", source: "answer", internal_field: "veh_make" } as Record<string, unknown> },
+      // shares the "driver" character prefix but is NOT a descendant
+      { uid: 5, node: { path: "drivers_count", name: "drivers_count", type: "number", source: "answer", internal_field: "drivers_count" } as Record<string, unknown> },
+    ];
+    const sandbox = { items, expandedOff: { driver: 1 } as Record<string, number> };
+    const { renamePrefix } = runInNewContext(`${source}\n({ renamePrefix: renamePrefix })`, sandbox) as {
+      renamePrefix(oldPath: string, newPath: string): Array<{ uid: number }>;
+    };
+    const moved = renamePrefix("driver", "primary_driver");
+    expect(items.map((i) => i.node["path"])).toEqual([
+      "primary_driver",
+      "primary_driver.first_name",
+      "primary_driver.vehicle",
+      "primary_driver.vehicle.make",
+      "drivers_count",
+    ]);
+    // the renamed node's name tracks the new last segment; descendants keep theirs
+    expect(items[0]!.node["name"]).toBe("primary_driver");
+    expect(items[1]!.node["name"]).toBe("first_name");
+    expect(items[3]!.node["name"]).toBe("make");
+    // exactly the subtree moved (root + 3 descendants), in tree order
+    expect(moved.map((m) => m.uid)).toEqual([1, 2, 3, 4]);
+    // mapped references ride along byte-identical
+    expect(items[1]!.node["internal_field"]).toBe("first_name");
+    expect(items[1]!.node["value_map"]).toEqual({ a: "b" });
+    expect(items[1]!.node["choiceDisplay"]).toEqual({ mainValues: ["a"] });
+    // collapse state migrates to the new path
+    expect(sandbox.expandedOff).toEqual({ primary_driver: 1 });
+  });
+
+  // F-4 (§6.13 letter): "value-map projection round-trip (table ⇄
+  // output_value_map)" executed — rows → apply → node.value_map +
+  // choiceDisplay.mainValues → rows again (previously only proven in
+  // Playwright).
+  it("F-4: value-map rows→apply→storage→rows round-trips executed, typed outputs + main flags intact", async () => {
+    const { html } = await richEditorPage();
+    const vm = valueMapIsland(html);
+    const node: Record<string, unknown> = {};
+    const rows = [
+      { internal: "own", output: "H", main: true },
+      { internal: "rent", output: "R", main: false },
+      { internal: "size", output: 2, main: false },
+      { internal: "flag", output: true, main: true },
+    ];
+    expect(vm.vmApplyRowsToNode(node, rows)).toBe(0);
+    expect(node["value_map"]).toEqual({ own: "H", rent: "R", size: 2, flag: true });
+    expect(node["choiceDisplay"]).toEqual({ mainValues: ["own", "flag"] });
+    // …and back: the table regenerates from storage
+    expect(vm.valueMapEntries(node)).toEqual(rows);
+    // empty internals are dropped; reserved keys are counted, not written (nano-7)
+    expect(vm.vmApplyRowsToNode(node, [
+      { internal: "own", output: "H", main: false },
+      { internal: " ", output: "x", main: false },
+      { internal: "__proto__", output: "boom", main: false },
+    ])).toBe(1);
+    expect(node["value_map"]).toEqual({ own: "H" });
+    // a no-mains apply removes mainValues (and the then-empty choiceDisplay)
+    expect(node["choiceDisplay"]).toBeUndefined();
+    expect(vm.valueMapEntries(node)).toEqual([{ internal: "own", output: "H", main: false }]);
+  });
+
+  // F-2 (§6.4 letter): "drag between groups". The drop handler path funnels
+  // into vmDropOnRow → vmRegroupRow — the SAME mutation the Mark-as-main /
+  // Move-to-Other buttons call — and the regrouped rows flow into
+  // choiceDisplay.mainValues on apply.
+  it("F-2: dropping a row onto the other group regroups it via the shared mutation; mainValues updates on apply", async () => {
+    const { html } = await richEditorPage();
+    const vm = valueMapIsland(html);
+    const rows = [
+      { internal: "own", output: "H", main: true },
+      { internal: "rent", output: "R", main: false },
+      { internal: "other_situation", output: "O", main: false },
+    ];
+    // drop "rent" (Other) onto "own" (Main) → rent joins the Main group
+    vm.vmDropOnRow(rows, 1, 0);
+    expect(rows[1]!.main).toBe(true);
+    // drop "own" (Main) onto "other_situation" (Other) → own moves to Other
+    vm.vmDropOnRow(rows, 0, 2);
+    expect(rows[0]!.main).toBe(false);
+    // dropping a row on itself is a no-op
+    vm.vmDropOnRow(rows, 2, 2);
+    expect(rows[2]!.main).toBe(false);
+    // the regroup lands in storage exactly like the buttons do
+    const node: Record<string, unknown> = {};
+    vm.vmApplyRowsToNode(node, rows);
+    expect(node["choiceDisplay"]).toEqual({ mainValues: ["rent"] });
+    // the button path is the SAME function
+    vm.vmRegroupRow(rows, 2, "main");
+    vm.vmApplyRowsToNode(node, rows);
+    expect(node["choiceDisplay"]).toEqual({ mainValues: ["rent", "other_situation"] });
+
+    // the modal wires the HTML5 drag events to this exact path, and rows
+    // are draggable (buttons stay as the keyboard-accessible path)
+    const script = extractScripts(html).find((s) => s.includes("function vmApplyRowsToNode("));
+    expect(script).toContain("tr.setAttribute('draggable', 'true');");
+    expect(script).toContain("addEventListener('dragstart'");
+    expect(script).toContain("addEventListener('dragover'");
+    expect(script).toContain("addEventListener('drop'");
+    expect(script).toContain("vmDropOnRow(vmState.rows, vmDragIdx, Number(tr.getAttribute('data-vm-row')));");
+    expect(script).toContain("data-vm-row-act");
   });
 });
 
@@ -1503,9 +1955,17 @@ describeDb("payload builder — bootstrap islands", () => {
     expect(Object.keys(homeowner!).sort()).toEqual([
       "answer_type",
       "choice_count",
+      "choices",
       "internal_field",
       "section_name",
       "section_public_id",
+    ]);
+    // F-1 (§6.10): the projection carries the Section choices (label+value)
+    // for the typed condition-value inputs.
+    expect(homeowner!["choices"]).toEqual([
+      { value: "own", label: "I own my home" },
+      { value: "rent", label: "I rent" },
+      { value: "other_situation", label: "Something else" },
     ]);
     expect(data.offer.placements).toHaveLength(2);
   });
