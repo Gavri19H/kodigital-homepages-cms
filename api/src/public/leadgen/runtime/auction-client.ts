@@ -128,10 +128,18 @@ export function impressionFireKey(
 }
 
 // Resolve the DOM target for a slot: prefer an explicit [data-lg-slot="{i}"]
-// inside the banners mount (presets/serve-auction may stamp it); fall back to
-// the mount's i-th element child (banners render in slot order).
+// inside the banners mount (presets/serve-auction may stamp it); then the
+// LIVE wire shape — banner.ts renderCard stamps `data-slot="{slot}"` on each
+// governed `<a class="lg-banner">` card (1-based render slots) inside the
+// `<div class="lg-banners">` wrapper banners_html carries — and finally fall
+// back to the mount's i-th element child (banners rendered in slot order,
+// unwrapped). Without the data-slot leg NO observer could attach on a real
+// funnel (the wrapper is the mount's only child and the slots are 1-based),
+// silently zeroing R7 impressions — caught by the 11 §11.2 live suite.
 export function slotTarget(mount: Element, slotIndex: number): Element | null {
-  const explicit = mount.querySelector(`[data-lg-slot="${String(slotIndex)}"]`);
+  const explicit =
+    mount.querySelector(`[data-lg-slot="${String(slotIndex)}"]`) ??
+    mount.querySelector(`[data-slot="${String(slotIndex)}"]`);
   if (explicit !== null) return explicit;
   const children = mount.children;
   return slotIndex >= 0 && slotIndex < children.length ? (children[slotIndex] ?? null) : null;

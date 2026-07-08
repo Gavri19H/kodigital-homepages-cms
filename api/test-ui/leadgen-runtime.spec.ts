@@ -1,13 +1,20 @@
-// LeadGen Phase 7 Stage C — public `/lg/*` runtime e2e (§17.2 / §28 / §30.4).
+// LeadGen Phase 7 Stage C — public `/lg/*` runtime e2e (§17.2 / §28 / §30.4),
+// re-pointed at the fix-contract v2.4 03 §3.2 server-rendered shell (the old
+// empty-shell `__LG_BOOTSTRAP__` assertions were the 11 §11.6 false-comfort
+// set — deleted and replaced here).
 //
 // Seeds a real ACTIVE tenant + an activated funnel through the REAL admin APIs
 // (reusing seedActiveSite from the listicles seed), then drives the PUBLIC
 // runtime on a tenant host:
 //   * the funnel shell mounts with DISTINCT funnel_id (lgf_) / funnel_variant_id
-//     (lgn_) data attributes + the scoped chrome CSS + the /lg/config + /lg/attempt
-//     bootstrap (screenshot),
-//   * CP3 in the browser: the bootstrap fetches /lg/config + /lg/attempt and
-//     stashes both on window.__LG_BOOTSTRAP__,
+//     (lgn_) data attributes + the scoped chrome CSS, and carries the NEW 03
+//     §3.2 contract: server-rendered [data-lg-section] blocks (first section's
+//     question markup visible without JS), the inline #lg-config JSON, the
+//     pre-hydration click-queue stub, and the deferred /lg/runtime/{v}.js
+//     engine script (screenshot),
+//   * hydration contract (03 §3.5): the SERVED bytes never pre-set
+//     data-lg-ready; the ENGINE sets data-lg-ready="1" after init and exposes
+//     window.__LG_ENGINE__; the mount is non-empty after ready (11 §11.6),
 //   * §28 wire discipline: shell public,max-age=300,swr + ETag + nosniff + a 304
 //     conditional GET; /lg/config public,max-age=300,s-maxage=1800,swr + ETag with
 //     server-only fields ABSENT; /lg/attempt no-store + an att_ id; a foreign
@@ -15,8 +22,8 @@
 //
 // The browser resolves the tenant host via --host-resolver-rules; Node-side wire
 // assertions send an explicit Host header to 127.0.0.1:8787. The local dev
-// server has no LEADGEN_CONFIG_SIGNING_KEY var, so the minted token is the
-// explicit `unsigned.` dev token (never a fake signature) — asserted loosely.
+// server auto-loads .dev.vars (LEADGEN_CONFIG_SIGNING_KEY present), so the
+// minted token is a real signed one — asserted loosely (non-empty string).
 
 import { test, expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -108,8 +115,39 @@ function shellUrl(): string {
   return `http://${seeded.host}:8787/lg/${seeded.slug}`;
 }
 
-test.describe("public funnel shell on a tenant host (§17.2 / §28)", () => {
-  test("mounts with DISTINCT lgf_/lgn_ data attrs + scoped chrome CSS + bootstrap", async ({ page }) => {
+test.describe("public funnel shell on a tenant host (§17.2 / §28 / v2.4 03 §3.2)", () => {
+  test("mounts with DISTINCT lgf_/lgn_ data attrs + chrome CSS + server-rendered sections + #lg-config + runtime script", async ({ page }) => {
+    // The PRISTINE served bytes (Node-side — the live DOM mutates once the
+    // engine hydrates): the 03 §3.2 shell contract.
+    const ctx = await playwrightRequest.newContext();
+    const served = await ctx.get(`${ORIGIN}/lg/${seeded.slug}`, {
+      headers: { Host: `${seeded.host}:8787` },
+    });
+    expect(served.status()).toBe(200);
+    const servedHtml = await served.text();
+    // (b) the inline #lg-config carries the SAME LeadgenPublicConfig JSON.
+    expect(servedHtml).toContain('<script type="application/json" id="lg-config">');
+    // (c) the deferred hydration-engine bundle script (versioned route).
+    expect(servedHtml).toMatch(/<script src="\/lg\/runtime\/[^"]+\.js" defer><\/script>/);
+    // The minimal pre-hydration click-queue stub replaced LEADGEN_BOOTSTRAP_JS.
+    expect(servedHtml).toContain("__LG_PREHYDRATE_QUEUE__");
+    // (a) sections are SERVER-rendered: the first section's question markup is
+    // in the served bytes (renders without JS) and only later sections are hidden.
+    expect(servedHtml).toContain("data-lg-section");
+    expect(servedHtml).toContain("data-lg-question");
+    // The shell MUST NOT pre-set readiness — data-lg-ready="1" is the ENGINE's
+    // post-hydration mark (03 §3.5.1 / 11 §11.6 anti-false-PASS). The inline
+    // pre-hydration stub legitimately READS the attribute name in its JS, so
+    // the assertion targets the attribute-SET form and the root element tag.
+    expect(servedHtml).not.toContain('data-lg-ready="1"');
+    const rootTag = servedHtml.match(/<div id="lg-funnel-root"[^>]*>/)?.[0] ?? "";
+    expect(rootTag).not.toBe("");
+    expect(rootTag).not.toContain("data-lg-ready");
+    // The old bootstrap's config/attempt fetch strings are gone from the shell
+    // (the config is baked inline; /lg/attempt is fetched by the engine bundle).
+    expect(servedHtml).not.toContain("__LG_BOOTSTRAP__");
+    await ctx.dispose();
+
     await page.goto(shellUrl(), { waitUntil: "domcontentloaded" });
     const root = page.locator("#lg-funnel-root");
     await expect(root).toHaveCount(1);
@@ -122,21 +160,40 @@ test.describe("public funnel shell on a tenant host (§17.2 / §28)", () => {
     const html = await page.content();
     expect(html).toContain('data-funnel-design="default-funnel"');
     expect(html).toContain(".lg-content"); // funnelChromeCss inlined
-    expect(html).toContain("/lg/config/");
-    expect(html).toContain("/lg/attempt");
+
+    // #lg-config parses to the public config of THIS variant (03 §3.2b).
+    const inlineConfig = await page.evaluate(() => {
+      const el = document.getElementById("lg-config");
+      if (el === null) return null;
+      try {
+        return JSON.parse(el.textContent ?? "") as { funnel_id?: string; funnel_variant_id?: string };
+      } catch {
+        return null;
+      }
+    });
+    expect(inlineConfig?.funnel_id).toBe(seeded.funnelId);
+    expect(inlineConfig?.funnel_variant_id).toBe(seeded.variantId);
+
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: `${SHOT_DIR}/shell.png`, fullPage: true });
   });
 
-  test("CP3 in-browser: the bootstrap fetches /lg/config + /lg/attempt", async ({ page }) => {
+  test("hydration contract: the ENGINE sets data-lg-ready=1 + exposes __LG_ENGINE__; mount is non-empty", async ({ page }) => {
     await page.goto(shellUrl(), { waitUntil: "load" });
-    // the bootstrap sets data-lg-ready="1" once both fetches resolve.
+    // 03 §3.5.1: data-lg-ready="1" appears ONLY after the engine hydrates.
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 8_000 });
-    const boot = await page.evaluate(
-      () => (window as unknown as { __LG_BOOTSTRAP__?: { config?: { funnel_variant_id?: string }; attempt?: { funnel_attempt_id?: string } } }).__LG_BOOTSTRAP__,
+    const engine = await page.evaluate(
+      () =>
+        (window as unknown as { __LG_ENGINE__?: { version?: string; getState?: unknown } })
+          .__LG_ENGINE__,
     );
-    expect(boot?.config?.funnel_variant_id).toBe(seeded.variantId);
-    expect(String(boot?.attempt?.funnel_attempt_id ?? "").startsWith("att_")).toBe(true);
+    expect(typeof engine?.version).toBe("string");
+    expect(String(engine?.version ?? "")).not.toBe("");
+    // 11 §11.6 anti-false-PASS: an empty mount after ready is a FAIL.
+    const mountChildren = await page
+      .locator("[data-lg-mount]")
+      .evaluate((el) => el.children.length);
+    expect(mountChildren).toBeGreaterThan(0);
   });
 });
 

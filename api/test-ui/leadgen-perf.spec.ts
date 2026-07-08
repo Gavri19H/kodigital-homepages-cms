@@ -3,8 +3,10 @@
 // Seeds an activated single-section funnel (NO GA4, NO address section → no
 // third-party / Maps SDK JS to muddy the runtime-JS budget) and proves the §28
 // budgets on the PUBLIC shell:
-//   * CLS === 0 — a layout-shift PerformanceObserver total of 0 (the cacheable
-//     shell is a static mount point; nothing shifts). Mirrors the listicles
+//   * CLS === 0 WITH CONTENT (fix-contract v2.4 11 §11.2/§11.6): the shell now
+//     SERVER-RENDERS the sections (03 §3.2) and the engine hydrates them —
+//     the budget is measured over the content-bearing first question through
+//     data-lg-ready="1", not over an empty mount. Mirrors the listicles
 //     [cls-evidence] idiom.
 //   * funnel runtime JS < 40 KB gzip — the sum of the served INLINE LeadGen
 //     scripts (the bootstrap + the §16.3 assignment inject), gzipped; the Maps
@@ -47,7 +49,7 @@ function shellUrl(): string {
 }
 
 test.describe("§28 performance budgets", () => {
-  test("CLS === 0 on the funnel shell", async ({ page }) => {
+  test("CLS === 0 on the funnel shell WITH server-rendered content", async ({ page }) => {
     await page.addInitScript(() => {
       (window as unknown as { __clsTotal: number }).__clsTotal = 0;
       new PerformanceObserver((list) => {
@@ -61,8 +63,11 @@ test.describe("§28 performance budgets", () => {
 
     await page.goto(shellUrl(), { waitUntil: "load" });
     await page.evaluate(() => document.fonts.ready);
-    // let the bootstrap fetches (/lg/config + /lg/attempt) resolve — the mount
-    // stays empty (no client engine renders into it in the shell) so still no shift.
+    // fix-contract v2.4 11 §11.2/§11.6 (the old "mount stays empty … no
+    // shift" comfort is deleted): the section content is SERVER-RENDERED and
+    // must be visible, then hydration (the ENGINE sets data-lg-ready="1",
+    // 03 §3.5.1) must complete WITHOUT shifting the rendered content.
+    await expect(page.locator("[data-lg-mount] [data-lg-question]").first()).toBeVisible();
     await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 8_000 });
     await page.waitForTimeout(500);
 
@@ -74,7 +79,11 @@ test.describe("§28 performance budgets", () => {
   test("funnel runtime JS < 40 KB gzip (served inline LeadGen scripts, excl. Maps SDK)", async ({ page }) => {
     await page.goto(shellUrl(), { waitUntil: "load" });
 
-    // Every INLINE <script> (external src'd Maps SDK is excluded by :not([src]));
+    // Every INLINE <script> (external src'd scripts — the Maps SDK and the
+    // versioned /lg/runtime/{v}.js engine bundle — are excluded by
+    // :not([src]); the BUNDLE budget has its own dedicated gate,
+    // verify:leadgen-runtime ≤ 40960 bytes, 11 §11.1). Inline here = the
+    // pre-hydration stub + the §16.3 assignment inject + the #lg-config JSON;
     // drop any GA4 snippet (3rd-party analytics — this funnel has none anyway).
     const scripts = await page.$$eval("script:not([src])", (els) =>
       els.map((e) => e.textContent ?? ""),
