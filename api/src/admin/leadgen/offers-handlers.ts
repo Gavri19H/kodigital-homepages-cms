@@ -1479,6 +1479,19 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       400,
     );
   }
+  if (/^__needs_value__/.test(newDefaultPlacementId)) {
+    // "__needs_value__…" is the reserved sentinel namespace for the blanked
+    // extra placements cloned below — a user-supplied default inside it would
+    // collide with a sentinel row MID-batch on UNIQUE(offer_id, placement_id)
+    // (an atomic rollback, but a 500). Typed 400 instead, before any write.
+    return c.json(
+      {
+        error: "Validation failed",
+        fields: { default_placement_id: "ids starting with __needs_value__ are a reserved value" },
+      },
+      400,
+    );
+  }
   // Copy toggles (§7.3 defaults): region rules ON, endpoint/request config ON
   // (refs only — secrets never move), cap settings OFF (copied disabled).
   const copyRegionRules = body["copy_region_rules"] !== false;
@@ -1546,7 +1559,7 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       // §7.3: banner template + response-macro fallbacks copy; caps disabled unless checked.
       src.banner_url_template, src.static_fallback_banner_url, requestMethod,
       endpointProd, endpointStaging, tokenRef, tokenPlacement, tokenParam,
-      copyCapSettings ? 0 : 0, // caps ALWAYS copied disabled (§7.3) even when settings copied
+      0, // the clone always starts cap-disabled (§7.3) even when cap settings are copied
       copyCapSettings ? src.cap_amount : null,
       copyCapSettings ? src.cap_timezone : null,
       copyCapSettings ? src.cap_count_by : null,

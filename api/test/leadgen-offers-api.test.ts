@@ -1771,15 +1771,54 @@ describeDb("duplicate — F7 one-transaction atomicity + F13 source-placement-id
     expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_placements").get() as { n: number }).n).toBe(1);
   });
 
+  it("F13b: a reserved __needs_value__ default_placement_id is a typed 400 (never the old mid-batch 500), zero clone rows", async () => {
+    const { sdb, env } = newHarness();
+    const src = await createOffer(env, { offer_name: "Src", placements: ["pl-a", "pl-b"] });
+    // Both the colliding sentinel ("__needs_value__1" — the clone WOULD mint
+    // that exact row for the extra placement) and a non-colliding one are
+    // rejected: the whole prefix namespace is reserved, not just live rows.
+    for (const reserved of ["__needs_value__1", "__needs_value__"]) {
+      const res = await admin.request(
+        `${API}/offers/${src.id}/duplicate`,
+        jsonInit("POST", { name: "Clone", default_placement_id: reserved }),
+        env,
+      );
+      expect(res.status, `${reserved} must 400`).toBe(400);
+      const body = (await res.json()) as { error: string; fields: Record<string, string> };
+      expect(body.error).toBe("Validation failed");
+      expect(body.fields["default_placement_id"]).toContain("reserved value");
+    }
+    // F7: the pre-batch rejection leaves ZERO clone rows behind.
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offers").get() as { n: number }).n).toBe(1);
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_placements").get() as { n: number }).n).toBe(2);
+  });
+
   it("F7: a MID-BATCH child failure rolls back the whole clone — parent offer row included (no compensating delete)", async () => {
     const { sdb, env } = newHarness();
-    // The source has ONE extra placement, so the clone's sentinel row is
-    // __needs_value__1; choosing that exact string as the new default makes
-    // the sentinel INSERT collide on UNIQUE(offer_id, placement_id) MID-batch.
+    // The old real-input route to a mid-batch collision (default =
+    // "__needs_value__1") is now rejected pre-batch as a typed 400 (F13b), so
+    // recreate a genuine child failure AT THE DB LAYER instead: rewrite the
+    // extra placement's sentinel bind to equal the new default, colliding on
+    // UNIQUE(offer_id, placement_id) INSIDE the real BEGIN…ROLLBACK batch.
     const src = await createOffer(env, { offer_name: "Src", placements: ["pl-a", "pl-b"] });
+    const db = env.DB as unknown as {
+      prepare: (sql: string) => { bind: (...a: unknown[]) => unknown; [k: string]: unknown };
+    };
+    const origPrepare = db.prepare.bind(db);
+    db.prepare = (sql: string) => {
+      const stmt = origPrepare(sql);
+      if (/INSERT INTO leadgen_offer_placements/.test(sql)) {
+        const origBind = stmt.bind.bind(stmt) as (...a: unknown[]) => unknown;
+        stmt.bind = (...args: unknown[]) =>
+          typeof args[2] === "string" && args[2].startsWith("__needs_value__")
+            ? origBind(args[0], args[1], "pl-new-default", ...args.slice(3))
+            : origBind(...args);
+      }
+      return stmt;
+    };
     const res = await admin.request(
       `${API}/offers/${src.id}/duplicate`,
-      jsonInit("POST", { name: "Clone", default_placement_id: "__needs_value__1" }),
+      jsonInit("POST", { name: "Clone", default_placement_id: "pl-new-default" }),
       env,
     );
     expect(res.status).toBe(500);

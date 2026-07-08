@@ -2791,6 +2791,18 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var raw = trimStr(entry.value);
     if (raw === '') { return; }
     var typed = entry.tagName === 'SELECT' ? condChoiceTypedValue(cond.when, entry.value) : raw;
+    if (entry.tagName !== 'SELECT') {
+      // number/currency-typed field behind the free-text entry: a finite
+      // numeric token stores as a NUMBER — the runtime evaluator
+      // (conditionalMet: values.includes(actual), strict equality) can never
+      // match "25" against the numeric answer 25. Non-numeric tokens keep
+      // the string; chip display is unchanged either way.
+      var lf = linkedByInternal(cond.when);
+      var num = Number(raw);
+      if (lf && (lf.answer_type === 'number' || lf.answer_type === 'currency') && isFinite(num)) {
+        typed = num;
+      }
+    }
     if (Object.prototype.toString.call(cond.values) !== '[object Array]') { cond.values = []; }
     var i;
     for (i = 0; i < cond.values.length; i++) { if (cond.values[i] === typed) { return; } }

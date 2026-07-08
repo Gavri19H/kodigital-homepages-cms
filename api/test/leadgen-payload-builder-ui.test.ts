@@ -1172,6 +1172,10 @@ const CONDITION_LINKED_FIELDS: Array<Record<string, unknown>> = [
     ],
   },
   { internal_field: "zip_code", section_name: "Home Details", answer_type: "string" },
+  // number/currency-typed fields WITHOUT Section choices — the chips entry is
+  // free text; finite numeric tokens must store as NUMBERS (evaluator ===).
+  { internal_field: "driver_age", section_name: "Home Details", answer_type: "number" },
+  { internal_field: "home_value", section_name: "Home Details", answer_type: "currency" },
 ];
 
 describeDb("payload builder §6.10 — condition builder", () => {
@@ -1459,6 +1463,60 @@ describeDb("payload builder §6.10 — condition builder", () => {
       op: "in",
       values: ["90210"],
     });
+  });
+
+  // Residual (SHIP adversarial review): a number/currency-typed condition
+  // field WITHOUT Section choices takes free-text chip tokens — stored as
+  // strings ("25") they can NEVER match a numeric answer in the runtime
+  // evaluator (conditionalMet `in`/`not_in`: values.includes(actual), strict
+  // equality). Finite numeric tokens must store as NUMBERS; non-numeric
+  // tokens and string-typed fields keep strings.
+  it("F-1 residual: number/currency-typed no-choices fields store finite numeric chip tokens as NUMBERS; string fields keep strings", async () => {
+    const { html } = await richEditorPage();
+    const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
+
+    // number-typed field: the entry is free text (no choices dropdown), yet
+    // "25" / "30" land in values[] as typeof number.
+    const numBody = conditionPanelDom();
+    const numNode: Record<string, unknown> = { conditional: { when: "driver_age", op: "in", values: [] } };
+    island10.fillConditionPanel(numBody, numNode);
+    const numEntry = numBody.querySelector("[data-pb-cond-list-entry]")!;
+    expect(numEntry.tagName).toBe("INPUT");
+    numEntry.value = "25";
+    island10.condChipAdd(numBody, numNode);
+    numEntry.value = "30";
+    island10.condChipAdd(numBody, numNode);
+    const numVals = (numNode["conditional"] as { values: unknown[] }).values;
+    expect(numVals).toEqual([25, 30]);
+    expect(numVals.map((v) => typeof v)).toEqual(["number", "number"]);
+    // a NON-numeric token on the same number field stays a string (never NaN)
+    numEntry.value = "unknown";
+    island10.condChipAdd(numBody, numNode);
+    expect(numVals[2]).toBe("unknown");
+    // chips re-render unchanged (displayScalar) — 3 chips, numeric text intact
+    island10.fillConditionPanel(numBody, numNode);
+    const numChips = numBody.querySelector("[data-pb-cond-chips]")!;
+    expect(numChips.children).toHaveLength(3);
+    expect(numChips.children[0]!.firstChild!.textContent).toBe("25");
+
+    // currency-typed field behaves like number
+    const curBody = conditionPanelDom();
+    const curNode: Record<string, unknown> = { conditional: { when: "home_value", op: "not_in", values: [] } };
+    island10.fillConditionPanel(curBody, curNode);
+    curBody.querySelector("[data-pb-cond-list-entry]")!.value = "250000";
+    island10.condChipAdd(curBody, curNode);
+    expect((curNode["conditional"] as { values: unknown[] }).values).toEqual([250000]);
+    expect(typeof (curNode["conditional"] as { values: unknown[] }).values[0]).toBe("number");
+
+    // string-typed field: a numeric-LOOKING token stays a string
+    const strBody = conditionPanelDom();
+    const strNode: Record<string, unknown> = { conditional: { when: "zip_code", op: "in", values: [] } };
+    island10.fillConditionPanel(strBody, strNode);
+    strBody.querySelector("[data-pb-cond-list-entry]")!.value = "25";
+    island10.condChipAdd(strBody, strNode);
+    const strVals = (strNode["conditional"] as { values: unknown[] }).values;
+    expect(strVals).toEqual(["25"]);
+    expect(typeof strVals[0]).toBe("string");
   });
 });
 
