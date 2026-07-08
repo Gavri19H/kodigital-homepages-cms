@@ -64,6 +64,7 @@ import {
   type FunnelAssignment,
 } from "./resolver";
 import { buildPublicConfig, parseSectionComponents, loadAnswerMapVersions } from "./config-dto";
+import { flattenComponents } from "./components/content-schema";
 import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
@@ -210,13 +211,16 @@ function leadgenConfigEtag(
 //   * a ZIPInputQuestion with the legacy per-node validate flag OR a
 //     field-level props.maps config (§8.8 — per-field config wins).
 // content_json parses through the shared parseSectionComponents (dedicated
-// try/catch per the D1 JSON-parse safety rule — a corrupt blob never throws).
+// try/catch per the D1 JSON-parse safety rule — a corrupt blob never throws)
+// and the walk runs over the §8.5 canonical flattenComponents projection so a
+// Maps-enabled address/ZIP component nested inside a layout container is
+// found exactly like a top-level one (flat legacy content is unchanged).
 function funnelNeedsMapsKey(resolved: ResolvedActivatedFunnel): boolean {
   for (const rs of resolved.sections) {
     if (rs.section.address_validation_enabled === 1) return true;
     const raw = rs.section.content_json;
     if (typeof raw !== "string" || raw === "") continue;
-    for (const c of parseSectionComponents(raw)) {
+    for (const c of flattenComponents(parseSectionComponents(raw))) {
       if (c === null || typeof c !== "object") continue;
       if (c.type === "AddressAutocompleteQuestion") return true;
       if (c.type === "ZIPInputQuestion") {

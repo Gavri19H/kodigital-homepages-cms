@@ -33,6 +33,7 @@ import {
   type LeadgenTransformStep,
 } from "./payload";
 import { COMPONENT_CATALOG } from "../public/leadgen/components/registry";
+import { flattenComponents } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenAnswerType,
   LeadgenComponentNode,
@@ -218,7 +219,13 @@ export function normalizeAnswers(
 ): LeadgenNormalizedAnswers {
   const answers: Record<string, unknown> = {};
   const sources: Record<string, LeadgenAnswerSource> = {};
-  const components = Array.isArray(content.components) ? content.components : [];
+  // §8.5 layout containers: walk the canonical flattened projection so a
+  // question nested inside a container contributes its internal field exactly
+  // like a top-level one (containers produce nothing and are skipped). Flat
+  // legacy content flattens to itself.
+  const components = flattenComponents(
+    Array.isArray(content.components) ? content.components : [],
+  );
 
   for (const node of components) {
     if (!isRecord(node)) continue;

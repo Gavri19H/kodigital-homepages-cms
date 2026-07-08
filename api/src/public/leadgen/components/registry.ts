@@ -16,7 +16,10 @@
 //
 // Contract: every entry has
 //   type            unique component id used in Section content_json
-//   category        chrome | question | control | affordance
+//   category        chrome | question | control | affordance | layout
+//                   (layout = §8.5 containers + prop-driven layout leaves —
+//                   server-side rendering concern, produces null, never
+//                   projected into the public /lg/config component list)
 //   produces        the answer it emits (null for chrome/controls)
 //   props           authorable fields (schema summary)
 //   validation      rules enforced client + server
@@ -71,6 +74,21 @@ export const COMPONENT_CATALOG = {
   HelperText:       { category: "affordance", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["validation.helper"] },
   ValidationError:  { category: "affordance", produces: null, props: [], validation: [], events: ["validation_error"], tokenSlots: ["validation"] },
   LegalNote:        { category: "affordance", produces: null, props: ["html"], validation: [], events: [], tokenSlots: ["validation.helper"] },
+
+  // ---- layout (fix-contract v2.4 08 §8.5, issue E4 — tokenized ONLY) ----
+  // Children-bearing containers (5): each may carry `children:
+  // LeadgenComponentNode[]` (max depth 4; validated in content-schema.ts).
+  // Containers are a SERVER-side rendering concern: presets recurse; every
+  // answer/dependency/config consumer sees the flattenComponents projection.
+  Stack:           { category: "layout", produces: null, props: ["direction(vertical|horizontal)","gap(xs|s|m|l|xl)","align(start|center|end|stretch)","children[]"], validation: ["§8.5 token enums","max depth 4"], events: [], tokenSlots: ["stack"], capabilityExample: "08 §8.5: vertical/horizontal token-gap grouping (the §8.11 stacked-buttons pattern)" },
+  GridContainer:   { category: "layout", produces: null, props: ["columnsDesktop(2..5)","columnsTablet(1..4)","columnsMobile(1..2)","gap(xs|s|m|l|xl)","sizing(auto|equal)","children[]"], validation: ["§8.5 token enums","max depth 4"], events: [], tokenSlots: ["gridContainer"], capabilityExample: "08 §8.5: per-breakpoint column grid for card/answer regions" },
+  Columns:         { category: "layout", produces: null, props: ["ratio(50/50|60/40|40/60|70/30)","mobile(stack|keep)","children[]"], validation: ["§8.5 token enums","max depth 4"], events: [], tokenSlots: ["columns"], capabilityExample: "08 §8.5: two-column ratio presets with mobile stacking" },
+  CardPanel:       { category: "layout", produces: null, props: ["width(s|m|l|full)","background(card|wash|ghost|transparent)","shadow(none|sm|md|lg|xl)","radius(sm|md|lg|xl)","padding(s|m|l)","children[]"], validation: ["§8.5 token enums","max depth 4"], events: [], tokenSlots: ["cardPanel"], capabilityExample: "08 §8.11 pattern 1/4: the centered question card" },
+  BackgroundPanel: { category: "layout", produces: null, props: ["background(card|wash|ghost|page|primary)","imageMediaId?","gradient(primary|accent|wash)?","children[]"], validation: ["§8.5 approved design tokens only"], events: [], tokenSlots: ["backgroundPanel"], capabilityExample: "08 §8.11 pattern 4: full-background design with centered card" },
+  // Prop-driven layout leaves (3): NO children — structured props only.
+  Spacer:          { category: "layout", produces: null, props: ["size(xs|s|m|l|xl)"], validation: ["§8.5 token enums"], events: [], tokenSlots: ["spacer"], capabilityExample: "08 §8.5: token-sized vertical gap" },
+  HeaderBar:       { category: "layout", produces: null, props: ["logoMediaId?","logoAlt?","back?","backLabel?","secure?","secureText?","cta{label,href|tel}?"], validation: ["§8.5 cta shape + safe href"], events: [], tokenSlots: ["headerBar"], capabilityExample: "08 §8.11 pattern 3: header with logo + call CTA (+ back / secure slots)" },
+  FooterBar:       { category: "layout", produces: null, props: ["legalHtml?","trustMessages[]?","links[{label,href}]?"], validation: ["§8.5 links shape + safe href"], events: [], tokenSlots: ["footerBar"], capabilityExample: "08 §8.11 pattern 4: legal footer with trust messaging + links" },
 } as const;
 
 export type ComponentType = keyof typeof COMPONENT_CATALOG;

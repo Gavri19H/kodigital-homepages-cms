@@ -18,13 +18,15 @@ import { CURATED_DESIGN_OVERRIDE_KEYS } from "../../public/leadgen/components/co
 // Component capability palette (§13.1) — grouped by catalog category
 // ---------------------------------------------------------------------------
 
-type CatalogCategory = "chrome" | "affordance" | "question" | "control";
+type CatalogCategory = "chrome" | "affordance" | "question" | "control" | "layout";
 
 const CATEGORY_LABELS: Record<CatalogCategory, string> = {
   question: "Questions",
   affordance: "Copy & affordances",
   control: "Controls",
   chrome: "Funnel chrome",
+  // §8.5 layout containers + layout leaves (E4).
+  layout: "Layout",
 };
 
 // A readable label from the PascalCase catalog type (no banned tokens — the
@@ -53,7 +55,7 @@ function paletteEntries(): PaletteEntry[] {
 // The palette: one "add" button per catalog type, grouped by category. The
 // canvas script appends the matching node on click (add-component, §13).
 export function renderComponentPalette(): string {
-  const groups: CatalogCategory[] = ["question", "affordance", "control", "chrome"];
+  const groups: CatalogCategory[] = ["question", "layout", "affordance", "control", "chrome"];
   const sections = groups
     .map((cat) => {
       const items = paletteEntries()

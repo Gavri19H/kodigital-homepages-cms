@@ -27,6 +27,7 @@
 
 import {
   CURATED_DESIGN_OVERRIDE_KEYS,
+  flattenComponents,
   validateSectionContent,
   type LeadgenSectionContent,
 } from "../public/leadgen/components/content-schema";
@@ -438,7 +439,13 @@ export interface RebuildInput {
 // question_ids that actually exist in the body (a stale edge is dropped).
 export function rebuildDerivedIndexes(input: RebuildInput): RebuildResult {
   const knownQuestionIds = new Set<string>();
-  const components = Array.isArray(input.content.components) ? input.content.components : [];
+  // §8.5 layout containers: the mappable question universe is the canonical
+  // flattened projection — an answer map bound to a question nested inside a
+  // container survives the rebuild; container nodes themselves are NOT
+  // mappable question_ids (they produce nothing). Flat content is unchanged.
+  const components = flattenComponents(
+    Array.isArray(input.content.components) ? input.content.components : [],
+  );
   for (const node of components) {
     if (isRecord(node) && typeof node["question_id"] === "string") {
       knownQuestionIds.add(node["question_id"]);

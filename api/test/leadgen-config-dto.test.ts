@@ -466,3 +466,116 @@ describe("buildPublicConfig — §16.3 ab_hash dims (running test)", () => {
     expect(serialized.includes("6543")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers — the config projects the FLATTENED component list:
+// leaves in depth-first render order, containers never serialized (they are a
+// server-side rendering concern; the engine keeps consuming a flat list while
+// the server-rendered shell carries the nested DOM). DENY sweep stays intact
+// even when rogue keys ride container nodes.
+// ---------------------------------------------------------------------------
+
+describe("buildPublicConfig — §8.5 nested content projects the flattened question list", () => {
+  const NESTED_SECTION_JSON = JSON.stringify({
+    components: [
+      {
+        type: "CardPanel",
+        question_id: "panel",
+        container_id: "c_panel",
+        props: { width: "m", background: "card" },
+        // rogue server-only keys on the CONTAINER must vanish with it:
+        api_token_secret_ref: "LEADGEN_PB_TOKEN_X",
+        endpoint_production: "https://provider.example/api",
+        children: [
+          { type: "QuestionHeadline", question_id: "h1", props: { text: "Are you insured?" } },
+          {
+            type: "Stack",
+            question_id: "stk",
+            props: { gap: "m" },
+            children: [
+              {
+                type: "TwoButtonYesNo",
+                question_id: "q_ins",
+                question_key: "insured_q",
+                internal_field: "currently_insured",
+                answer_type: "boolean",
+                required: true,
+              },
+              {
+                type: "DropdownQuestion",
+                question_id: "q_insurer",
+                internal_field: "insurer",
+                answer_type: "enum",
+                choices: [{ label: "Acme", value: "acme", analytics_id: "ins_acme" }],
+                conditional: { when: "currently_insured", op: "eq", value: true },
+              },
+            ],
+          },
+        ],
+      },
+      { type: "ContinueButton", question_id: "cont", props: { label: "Continue" } },
+    ],
+  });
+
+  function buildNestedResolved(): ResolvedActivatedFunnel {
+    const base = buildResolved({ sectionVersions: [1] });
+    return {
+      ...base,
+      sections: base.sections.map((s) => ({
+        ...s,
+        section: { ...s.section, content_json: NESTED_SECTION_JSON },
+      })),
+    };
+  }
+
+  const resolved = buildNestedResolved();
+  const config = buildPublicConfig(resolved, getFunnelDesign(resolved.variant.funnel_design_id));
+  const section = config.sections[0];
+  const serialized = JSON.stringify(config);
+
+  it("lists every LEAF in depth-first render order — containers are NOT projected", () => {
+    expect(section?.components.map((c) => c.type)).toEqual([
+      "QuestionHeadline",
+      "TwoButtonYesNo",
+      "DropdownQuestion",
+      "ContinueButton",
+    ]);
+    expect(section?.components.map((c) => c.question_id)).toEqual(["h1", "q_ins", "q_insurer", "cont"]);
+    expect(serialized.includes("CardPanel")).toBe(false);
+    expect(serialized.includes("Stack")).toBe(false);
+    expect(serialized.includes("container_id")).toBe(false);
+    expect(serialized.includes('"children"')).toBe(false);
+  });
+
+  it("nested leaves keep their client fields (conditional / internal_field / choices)", () => {
+    const dropdown = section?.components.find((c) => c.question_id === "q_insurer");
+    expect(dropdown?.internal_field).toBe("insurer");
+    expect(dropdown?.conditional).toEqual({ when: "currently_insured", op: "eq", value: true });
+    const yesNo = section?.components.find((c) => c.question_id === "q_ins");
+    expect(yesNo?.required).toBe(true);
+    expect(yesNo?.question_key).toBe("insured_q");
+  });
+
+  it("the §24b DENY sweep holds for nested content (rogue container keys vanish with the container)", () => {
+    for (const forbidden of [
+      "signed_config_token",
+      "funnel_attempt_id",
+      "endpoint_production",
+      "api_token_secret_ref",
+      "LEADGEN_PB_TOKEN_X",
+      "bid_source",
+      "schema_json",
+    ]) {
+      expect(serialized.includes(forbidden), forbidden).toBe(false);
+    }
+    expect(serialized.toLowerCase().includes("secret")).toBe(false);
+  });
+
+  it("flat legacy content keeps the EXACT pre-§8.5 projected shape (flatten is the identity)", () => {
+    const flat = buildResolved();
+    const flatConfig = buildPublicConfig(flat, getFunnelDesign(flat.variant.funnel_design_id));
+    // the CLIENT_SAFE_SECTION_JSON fixture is flat: one TwoButtonYesNo per section
+    expect(flatConfig.sections[0]?.components.map((c) => c.type)).toEqual(["TwoButtonYesNo"]);
+    expect(flatConfig.sections[0]?.components[0]?.question_id).toBe("q_homeowner");
+  });
+});

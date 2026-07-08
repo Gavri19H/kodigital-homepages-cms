@@ -243,3 +243,54 @@ describe("buildOfferPayload — transform + coercion branches (§12.11 order)", 
     expect(payload).toEqual({ contact: { first_name: "Ada", zip: "75001" } });
   });
 });
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers — normalizeAnswers walks the canonical flattened
+// projection: a question nested inside containers normalizes EXACTLY like its
+// flat equivalent (same §12.7 pivot, same §12.6 answer_source).
+// ---------------------------------------------------------------------------
+
+describe("normalizeAnswers — §8.5 nested equivalents match flat results", () => {
+  function nestedYesNoContent(withDefault = false): LeadgenSectionContent {
+    return {
+      components: [
+        {
+          type: "CardPanel",
+          question_id: "panel",
+          children: [
+            {
+              type: "Stack",
+              question_id: "stk",
+              children: [
+                {
+                  type: "TwoButtonYesNo",
+                  question_id: "q1",
+                  question_key: "insured_q",
+                  internal_field: "currently_insured",
+                  answer_type: "boolean",
+                  ...(withDefault ? { props: { default: false } } : {}),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as LeadgenSectionContent;
+  }
+
+  it("normalizes a nested boolean answer exactly like the flat Section", () => {
+    const flat = normalizeAnswers(yesNoContent(), { currently_insured: "Yes" });
+    const nested = normalizeAnswers(nestedYesNoContent(), { currently_insured: "Yes" });
+    expect(nested).toEqual(flat);
+    expect(nested.answers["currently_insured"]).toBe(true);
+    expect(nested.sources["currently_insured"]).toBe("user_selected");
+  });
+
+  it("applies a nested untouched default as default_applied exactly like flat", () => {
+    const flat = normalizeAnswers(yesNoContent(true), {});
+    const nested = normalizeAnswers(nestedYesNoContent(true), {});
+    expect(nested).toEqual(flat);
+    expect(nested.answers["currently_insured"]).toBe(false);
+    expect(nested.sources["currently_insured"]).toBe("default_applied");
+  });
+});

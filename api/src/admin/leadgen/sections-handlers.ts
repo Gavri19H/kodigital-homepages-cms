@@ -18,7 +18,13 @@
 // the listicles §5.4 discipline).
 
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
-import { renderSectionComponents } from "../../public/leadgen/components/presets";
+import {
+  renderSectionComponents,
+  renderSectionComponentsVisible,
+} from "../../public/leadgen/components/presets";
+// §8.5 layout containers: question/mapping/ZIP walks consume the canonical
+// flattened projection; ONLY the renderer receives the full tree (it recurses).
+import { flattenComponents } from "../../public/leadgen/components/content-schema";
 import type {
   LeadgenComponentNode,
   LeadgenSectionContent,
@@ -166,8 +172,10 @@ function parseComponents(contentJson: string): LeadgenSectionContent {
 
 function countQuestions(content: LeadgenSectionContent): number {
   // A "question" is any component that carries an internal_field or is a
-  // multi-field question (name/address) — i.e. it collects an answer.
-  return content.components.filter(
+  // multi-field question (name/address) — i.e. it collects an answer. §8.5:
+  // counted over the flattened projection so nested questions count too
+  // (containers carry no internal_field and are excluded by construction).
+  return flattenComponents(content.components).filter(
     (n) =>
       isRecord(n) &&
       (typeof (n as { internal_field?: unknown }).internal_field === "string" ||
@@ -320,7 +328,10 @@ async function parseAnswerMaps(
   const errors: FieldErrors = {};
   const rawMaps = body["answer_maps"];
   const nodesByQuestionId = new Map<string, Record<string, unknown>>();
-  for (const node of content.components) {
+  // §8.5: mappable questions come from the flattened projection — an edge may
+  // bind to a question nested inside a layout container; container nodes
+  // themselves are not mappable (they never appear in the flattened list).
+  for (const node of flattenComponents(content.components)) {
     if (isRecord(node) && typeof node["question_id"] === "string") {
       nodesByQuestionId.set(node["question_id"], node);
     }
@@ -963,22 +974,35 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
   const nodes = content.components as LeadgenComponentNode[];
   const rawSample = body["sample_answers"] ?? body["answers"];
   let dependencies: LeadgenDependencyState | null = null;
-  let renderNodes: LeadgenComponentNode[] = nodes;
+  let rendered: string;
+  let componentCount: number;
   if (isRecord(rawSample)) {
     const normalized = normalizeAnswers(content, rawSample as LeadgenRawAnswers);
+    // evaluateDependencies runs over the §8.5 flattened LEAF projection (its
+    // own canonical flatten) — nested questions participate like top-level.
     dependencies = evaluateDependencies(nodes, normalized.answers);
     const visible = new Set(
       dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
     );
-    // Filter the render to the visible components only — a component whose
-    // inline conditional is unmet (or fail-closed on an unanswered `when`) is
-    // dropped from the previewed HTML, exactly as the P7 runtime will hide it.
-    renderNodes = nodes.filter(
+    // Filter the render to the visible LEAVES only — a component whose inline
+    // conditional is unmet (or fail-closed on an unanswered `when`) is dropped
+    // from the previewed HTML, exactly as the P7 runtime will hide it. §8.5:
+    // container WRAPPERS are kept (layout chrome) while hidden leaf nodes
+    // inside them drop — renderSectionComponentsVisible walks the full tree.
+    // For flat content this equals the classic filter-then-render, byte for
+    // byte.
+    rendered = renderSectionComponentsVisible(nodes, design, visible);
+    // The count mirrors what renders: visible LEAF nodes (flat content: the
+    // exact pre-§8.5 filtered-list length — flatten is the identity there).
+    componentCount = flattenComponents(nodes).filter(
       (n) => isRecord(n) && typeof n.question_id === "string" && visible.has(n.question_id),
-    );
+    ).length;
+  } else {
+    // No sample_answers ⇒ the classic full-render preview (unchanged); the
+    // renderer receives the FULL tree (container presets recurse).
+    rendered = renderSectionComponents(nodes, design);
+    componentCount = nodes.length;
   }
-
-  const rendered = renderSectionComponents(renderNodes, design);
   const wrap = (viewport: "desktop" | "mobile", maxWidth: string): string =>
     `<div data-funnel-design="${design.id}" data-viewport="${viewport}" class="lg-preview lg-preview-${viewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
 
@@ -990,7 +1014,7 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       css: funnelChromeCss(design),
       desktop: wrap("desktop", design.header.contentMaxWidth),
       mobile: wrap("mobile", design.breakpoints.mobileMax),
-      component_count: renderNodes.length,
+      component_count: componentCount,
     },
   };
   if (dependencies !== null) {
@@ -1363,7 +1387,9 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
 // street/city/state/zip). Then keeps only the zip-ish fields.
 function zipFieldsOfContent(content: LeadgenSectionContent): string[] {
   const out: string[] = [];
-  for (const node of content.components) {
+  // §8.5: probe the flattened projection — the SAME leaf universe
+  // normalizeAnswers walks — so a nested ZIP/Address component is found.
+  for (const node of flattenComponents(content.components)) {
     if (!isRecord(node)) continue;
     const type = node["type"];
     const topField = trimmedString(node["internal_field"]);

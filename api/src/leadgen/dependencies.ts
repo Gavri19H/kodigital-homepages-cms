@@ -29,6 +29,7 @@
 // this engine sees the resolved normalized value and treats a default the same
 // as a user value for evaluation (the caller passes normalized answers).
 
+import { flattenComponents } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenComponentNode,
   LeadgenComponentConditional,
@@ -105,6 +106,14 @@ function requiredNow(
 // current normalized answers, and derive the section-level continue gate.
 // `answers` is keyed by internal_field (answers.ts normalized space); a
 // component's own answer is read by its `internal_field`.
+//
+// §8.5 layout containers: the input may be the FULL content tree — evaluation
+// runs over the canonical flattenComponents projection (all non-container
+// leaves in depth-first render order), so nested questions participate in
+// show/hide/require/continue exactly like top-level ones and the output
+// visibility list carries LEAVES ONLY (containers are layout chrome, never
+// dependency subjects). Flat legacy content is the degenerate tree — the
+// projection is the input list unchanged.
 export function evaluateDependencies(
   components: readonly LeadgenComponentNode[],
   answers: Readonly<Record<string, unknown>>,
@@ -112,7 +121,7 @@ export function evaluateDependencies(
   const visibility: LeadgenComponentVisibility[] = [];
   const blocking: string[] = [];
 
-  for (const node of components) {
+  for (const node of flattenComponents(components)) {
     const visible = isConditionMet(node.conditional, answers);
     const required = visible && requiredNow(node, answers);
     visibility.push({ question_id: node.question_id, visible, required_now: required });

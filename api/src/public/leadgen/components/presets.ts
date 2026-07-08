@@ -38,6 +38,7 @@ import { escapeHtml } from "../../../editor/sanitize";
 import { COMPONENT_CATALOG } from "./registry";
 import type { ComponentType } from "./registry";
 import type { DefaultFunnelDesign } from "../designs/default-funnel/tokens";
+import { isLayoutContainerType, LEADGEN_MAX_CONTAINER_DEPTH } from "./content-schema";
 import type {
   LeadgenChoice,
   LeadgenComponentNode,
@@ -987,6 +988,340 @@ export function renderLegalNote(node: LeadgenComponentNode, design: DefaultFunne
 }
 
 // ---------------------------------------------------------------------------
+// §8.5 layout containers (fix-contract v2.4 08, E4) — SERVER-side rendering.
+// The 5 children-bearing containers recurse via renderSectionComponents(
+// node.children ?? [], design, depth + 1) inside their wrapper markup; the 3
+// layout leaves (Spacer / HeaderBar / FooterBar) render structured props only.
+// House rules hold throughout: esc() every author value, style({…}) carries
+// token values ONLY (the §8.5 enum → design-token lookup below), hydration(
+// node) rides the container WRAPPER, and no preset emits <style>/<script>.
+// DEPTH GUARD (defensive): the validator is the gate (max depth 4); render
+// additionally refuses to recurse past LEADGEN_MAX_CONTAINER_DEPTH so corrupt
+// / cyclic data can never stack-overflow the renderer.
+// ---------------------------------------------------------------------------
+
+function containerChildren(node: LeadgenComponentNode): LeadgenComponentNode[] {
+  return Array.isArray(node.children) ? node.children : [];
+}
+
+// §8.5 enum → design-token lookups. Explicit switches (not computed keys) so
+// the `as const` token records stay statically typed; unknown/absent enum
+// values fall to the documented default (validator rejects unknowns at save —
+// these fallbacks are render-defensive only).
+function stackGapValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const s = design.stack;
+  switch (token) {
+    case "xs": return s.gapXs;
+    case "s": return s.gapS;
+    case "l": return s.gapL;
+    case "xl": return s.gapXl;
+    default: return s.gapM;
+  }
+}
+function gridGapValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const g = design.gridContainer;
+  switch (token) {
+    case "xs": return g.gapXs;
+    case "s": return g.gapS;
+    case "l": return g.gapL;
+    case "xl": return g.gapXl;
+    default: return g.gapM;
+  }
+}
+function spacerSizeValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const s = design.spacer;
+  switch (token) {
+    case "xs": return s.sizeXs;
+    case "s": return s.sizeS;
+    case "l": return s.sizeL;
+    case "xl": return s.sizeXl;
+    default: return s.sizeM;
+  }
+}
+function cardPanelWidthValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const p = design.cardPanel;
+  switch (token) {
+    case "s": return p.widthS;
+    case "m": return p.widthM;
+    case "l": return p.widthL;
+    default: return p.widthFull;
+  }
+}
+function cardPanelBackgroundValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const p = design.cardPanel;
+  switch (token) {
+    case "wash": return p.backgroundWash;
+    case "ghost": return p.backgroundGhost;
+    case "transparent": return p.backgroundTransparent;
+    default: return p.backgroundCard;
+  }
+}
+function cardPanelShadowValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const p = design.cardPanel;
+  switch (token) {
+    case "none": return p.shadowNone;
+    case "sm": return p.shadowSm;
+    case "lg": return p.shadowLg;
+    case "xl": return p.shadowXl;
+    default: return p.shadowMd;
+  }
+}
+function cardPanelRadiusValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const p = design.cardPanel;
+  switch (token) {
+    case "sm": return p.radiusSm;
+    case "md": return p.radiusMd;
+    case "xl": return p.radiusXl;
+    default: return p.radiusLg;
+  }
+}
+function cardPanelPaddingValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const p = design.cardPanel;
+  switch (token) {
+    case "s": return p.paddingS;
+    case "l": return p.paddingL;
+    default: return p.paddingM;
+  }
+}
+function bgPanelBackgroundValue(design: DefaultFunnelDesign, token: string | undefined): string {
+  const b = design.backgroundPanel;
+  switch (token) {
+    case "card": return b.backgroundCard;
+    case "wash": return b.backgroundWash;
+    case "ghost": return b.backgroundGhost;
+    case "primary": return b.backgroundPrimary;
+    default: return b.backgroundPage;
+  }
+}
+function bgPanelGradientValue(design: DefaultFunnelDesign, token: string | undefined): string | undefined {
+  const b = design.backgroundPanel;
+  switch (token) {
+    case "primary": return b.gradientPrimary;
+    case "accent": return b.gradientAccent;
+    case "wash": return b.gradientWash;
+    default: return undefined;
+  }
+}
+
+// Stack (§8.5): vertical|horizontal token-gap grouping. Direction/align ride
+// data attributes (class-driven layout in the scoped chrome CSS); the
+// per-instance gap token value is inline (the --lg-cols idiom).
+export function renderStack(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  const direction = propStr(node, "direction") === "horizontal" ? "horizontal" : "vertical";
+  const alignProp = propStr(node, "align");
+  const align =
+    alignProp === "start" || alignProp === "center" || alignProp === "end" ? alignProp : "stretch";
+  return (
+    `<div class="lg-stack"${hydration(node)} data-direction="${direction}" data-align="${align}"` +
+    style({ gap: stackGapValue(design, propStr(node, "gap")) }) +
+    `>` +
+    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    `</div>`
+  );
+}
+
+// GridContainer (§8.5): per-breakpoint column counts ride --lg-gc-cols-* custom
+// properties (the iconCardGrid --lg-cols idiom); the scoped chrome CSS consumes
+// desktop at base and mobile inside the mobile media query. Sizing auto|equal
+// is a data attribute (two class-driven grid-template variants).
+export function renderGridContainer(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  const cols = (key: string, fallback: number, lo: number, hi: number): number =>
+    clampInt(propNum(node, key) ?? fallback, lo, hi);
+  const sizing = propStr(node, "sizing") === "auto" ? "auto" : "equal";
+  return (
+    `<div class="lg-grid-container"${hydration(node)} data-sizing="${sizing}"` +
+    style({
+      "--lg-gc-cols-d": String(cols("columnsDesktop", 3, 2, 5)),
+      "--lg-gc-cols-t": String(cols("columnsTablet", 2, 1, 4)),
+      "--lg-gc-cols-m": String(cols("columnsMobile", 1, 1, 2)),
+      gap: gridGapValue(design, propStr(node, "gap")),
+    }) +
+    `>` +
+    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    `</div>`
+  );
+}
+
+// Columns (§8.5): ratio preset + mobile stacking — both data attributes; the
+// grid-template per ratio and the mobile stack collapse live entirely in the
+// scoped chrome CSS (no inline style at all).
+export function renderColumns(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  const ratioProp = propStr(node, "ratio");
+  const ratio =
+    ratioProp === "60/40" || ratioProp === "40/60" || ratioProp === "70/30" ? ratioProp : "50/50";
+  const mobile = propStr(node, "mobile") === "keep" ? "keep" : "stack";
+  return (
+    `<div class="lg-columns"${hydration(node)} data-ratio="${ratio}" data-mobile="${mobile}">` +
+    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    `</div>`
+  );
+}
+
+// CardPanel (§8.5): the centered question card. Width/background/shadow/
+// radius/padding are §8.5 token enums resolved to design.cardPanel values —
+// per-instance inline token values (the ReassuranceBadge idiom; no state
+// rules on panels). data-width names the preset for the Studio canvas.
+export function renderCardPanel(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  const width = propStr(node, "width") ?? "full";
+  return (
+    `<div class="lg-card-panel"${hydration(node)} data-width="${esc(width)}"` +
+    style({
+      "max-width": cardPanelWidthValue(design, propStr(node, "width")),
+      background: cardPanelBackgroundValue(design, propStr(node, "background")),
+      "box-shadow": cardPanelShadowValue(design, propStr(node, "shadow")),
+      "border-radius": cardPanelRadiusValue(design, propStr(node, "radius")),
+      padding: cardPanelPaddingValue(design, propStr(node, "padding")),
+    }) +
+    `>` +
+    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    `</div>`
+  );
+}
+
+// BackgroundPanel (§8.5): background token | image mediaId | gradient token —
+// approved design tokens ONLY. A gradient token outranks the flat background
+// token; an image renders as a decorative cover <img> behind the content (the
+// ImageCardAnswerGrid mediaId→src idiom — author content NEVER enters a style
+// attribute).
+export function renderBackgroundPanel(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
+  const gradient = bgPanelGradientValue(design, propStr(node, "gradient"));
+  const background = gradient ?? bgPanelBackgroundValue(design, propStr(node, "background"));
+  const imageMediaId = propStr(node, "imageMediaId");
+  const image =
+    imageMediaId !== undefined && imageMediaId !== ""
+      ? `<img class="lg-bg-panel-img" src="${esc(imageMediaId)}" alt="" aria-hidden="true" loading="lazy">`
+      : "";
+  return (
+    `<div class="lg-bg-panel"${hydration(node)}${style({ background })}>` +
+    image +
+    `<div class="lg-bg-panel-inner">` +
+    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    `</div>` +
+    `</div>`
+  );
+}
+
+// Spacer (§8.5 layout leaf): a token-sized vertical gap. Purely decorative —
+// aria-hidden; the size token value is the one inline style.
+export function renderSpacer(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  return (
+    `<div class="lg-spacer"${hydration(node)}` +
+    style({ height: spacerSizeValue(design, propStr(node, "size")) }) +
+    ` aria-hidden="true"></div>`
+  );
+}
+
+// HeaderBar (§8.5 layout leaf): logo slot (mediaId) · back toggle · secure
+// slot · optional CTA {label, href|tel}. Fully class-driven (headerBar token
+// group in the scoped chrome CSS); the back toggle carries the engine's
+// data-lg-back hook (03 §3.3) exactly like the BackButton chrome component.
+export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const logoMediaId = propStr(node, "logoMediaId");
+  const logo =
+    logoMediaId !== undefined && logoMediaId !== ""
+      ? `<img class="lg-headerbar-logo" src="${esc(logoMediaId)}" alt="${esc(propStr(node, "logoAlt") ?? "")}" decoding="async">`
+      : "";
+  const backLabel = propStr(node, "backLabel") ?? "Back";
+  const back = propBool(node, "back")
+    ? `<button type="button" class="lg-back lg-headerbar-back" data-lg-back aria-label="${esc(backLabel)}">` +
+      `<span aria-hidden="true">&#8592;</span> ${esc(backLabel)}</button>`
+    : "";
+  const secure = propBool(node, "secure")
+    ? `<span class="lg-headerbar-secure">` +
+      `<span class="lg-headerbar-secure-icon" aria-hidden="true">🔒</span>` +
+      `<span>${esc(propStr(node, "secureText") ?? design.headerBar.exampleSecureCopy)}</span>` +
+      `</span>`
+    : "";
+  const rawCta = node.props?.["cta"];
+  let cta = "";
+  if (typeof rawCta === "object" && rawCta !== null && !Array.isArray(rawCta)) {
+    const c = rawCta as Record<string, unknown>;
+    const label = typeof c["label"] === "string" ? c["label"] : "";
+    const tel = typeof c["tel"] === "string" && c["tel"].trim() !== "" ? c["tel"].trim() : undefined;
+    const href =
+      typeof c["href"] === "string" && c["href"].trim() !== ""
+        ? c["href"].trim()
+        : tel !== undefined
+          ? tel.toLowerCase().startsWith("tel:")
+            ? tel
+            : `tel:${tel}`
+          : undefined;
+    if (label !== "" && href !== undefined) {
+      cta = `<a class="lg-headerbar-cta" href="${esc(href)}">${esc(label)}</a>`;
+    }
+  }
+  return (
+    `<div class="lg-headerbar"${hydration(node)}>` +
+    `<div class="lg-headerbar-left">${back}${logo}</div>` +
+    `<div class="lg-headerbar-right">${secure}${cta}</div>` +
+    `</div>`
+  );
+}
+
+// FooterBar (§8.5 layout leaf): legal slot (escaped author rich text, the
+// LegalNote idiom) · trust messages · links. Fully class-driven (footerBar
+// token group in the scoped chrome CSS).
+export function renderFooterBar(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const rawTrust = node.props?.["trustMessages"];
+  const trust = Array.isArray(rawTrust)
+    ? rawTrust
+        .filter((m): m is string => typeof m === "string" && m.trim() !== "")
+        .map((m) => `<span class="lg-footerbar-trust-item">${esc(m)}</span>`)
+        .join("")
+    : "";
+  const rawLinks = node.props?.["links"];
+  const links = Array.isArray(rawLinks)
+    ? rawLinks
+        .map((link) => {
+          if (typeof link !== "object" || link === null || Array.isArray(link)) return "";
+          const r = link as Record<string, unknown>;
+          const label = typeof r["label"] === "string" ? r["label"] : "";
+          const href = typeof r["href"] === "string" ? r["href"] : "";
+          if (label === "" || href === "") return "";
+          return `<a class="lg-footerbar-link" href="${esc(href)}">${esc(label)}</a>`;
+        })
+        .join("")
+    : "";
+  const legalHtml = propStr(node, "legalHtml");
+  const legal =
+    legalHtml !== undefined && legalHtml !== ""
+      ? `<div class="lg-footerbar-legal">${esc(legalHtml)}</div>`
+      : "";
+  return (
+    `<footer class="lg-footerbar"${hydration(node)}>` +
+    (trust !== "" ? `<div class="lg-footerbar-trust">${trust}</div>` : "") +
+    (links !== "" ? `<nav class="lg-footerbar-links">${links}</nav>` : "") +
+    legal +
+    `</footer>`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // dispatcher
 // ---------------------------------------------------------------------------
 
@@ -994,7 +1329,13 @@ export function renderLegalNote(node: LeadgenComponentNode, design: DefaultFunne
 // is exhaustive over ComponentType (a new catalog type without a preset fails
 // typecheck at the `never` guard); unknown types are unreachable given
 // validateSectionContent, but are handled defensively with an empty render.
-export function renderComponent(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+// `depth` is the §8.5 container-nesting level (root = 1) — only the container
+// cases consume it (their recursion + the defensive depth guard).
+export function renderComponent(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth = 1,
+): string {
   switch (node.type) {
     case "ProgressBar":
       return renderProgressBar(node, design);
@@ -1072,6 +1413,23 @@ export function renderComponent(node: LeadgenComponentNode, design: DefaultFunne
       return renderValidationError(node, design);
     case "LegalNote":
       return renderLegalNote(node, design);
+    // §8.5 layout containers (recursive) + layout leaves
+    case "Stack":
+      return renderStack(node, design, depth);
+    case "GridContainer":
+      return renderGridContainer(node, design, depth);
+    case "Columns":
+      return renderColumns(node, design, depth);
+    case "CardPanel":
+      return renderCardPanel(node, design, depth);
+    case "BackgroundPanel":
+      return renderBackgroundPanel(node, design, depth);
+    case "Spacer":
+      return renderSpacer(node, design);
+    case "HeaderBar":
+      return renderHeaderBar(node, design);
+    case "FooterBar":
+      return renderFooterBar(node, design);
     default: {
       // Exhaustiveness guard + defensive empty render for a corrupt node.
       const _exhaustive: never = node.type;
@@ -1082,11 +1440,80 @@ export function renderComponent(node: LeadgenComponentNode, design: DefaultFunne
 }
 
 // Ordered render of a full Section: each component's preset markup, in order.
+// §8.5: pass the FULL tree — container presets recurse into their children via
+// this same function at depth + 1 (renderComponent threads the depth; the
+// container renderers stop past LEADGEN_MAX_CONTAINER_DEPTH). A flat legacy
+// array (zero containers) renders byte-identically to the pre-§8.5 output.
 export function renderSectionComponents(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
+  depth = 1,
 ): string {
-  return nodes.map((n) => renderComponent(n, design)).join("");
+  return nodes.map((n) => renderComponent(n, design, depth)).join("");
+}
+
+// Dependency-filtered render (the admin preview's §12.3/§14.9 simulator): keep
+// every container WRAPPER, render only the LEAF nodes whose question_id is in
+// `visibleIds`. Leaf semantics mirror the pre-§8.5 preview filter exactly — a
+// leaf renders iff it is an object carrying a string question_id that is in
+// the visible set (so for flat content the output equals filtering the list
+// first, byte for byte). Containers are layout chrome: they are not part of
+// the dependency state and always keep their wrapper (an emptied container
+// renders as an empty wrapper, exactly how the live runtime keeps the nested
+// DOM and toggles [data-question-id] leaves in place).
+export function renderSectionComponentsVisible(
+  nodes: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+  visibleIds: ReadonlySet<string>,
+  depth = 1,
+): string {
+  if (depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return "";
+  let out = "";
+  for (const node of nodes) {
+    if (typeof node !== "object" || node === null) continue;
+    if (isLayoutContainerType(node.type)) {
+      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) continue; // defensive (validator is the gate)
+      const inner = renderSectionComponentsVisible(
+        containerChildren(node),
+        design,
+        visibleIds,
+        depth + 1,
+      );
+      // Re-render the container wrapper with the FILTERED children: emit the
+      // container via its own preset around the filtered inner markup by
+      // rendering a children-less clone and splicing the inner HTML into the
+      // wrapper. The wrapper close tag is always the last `</…>` emitted by
+      // the container preset, and every container preset nests children as
+      // the LAST element before its closing tag(s), so the splice point is
+      // the recursion output of the empty clone.
+      out += renderContainerWrapper(node, design, depth, inner);
+    } else {
+      if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
+        out += renderComponent(node, design, depth);
+      }
+    }
+  }
+  return out;
+}
+
+// Render a container node's WRAPPER with pre-rendered inner HTML. Implemented
+// by rendering the container with an empty children list (yields exactly the
+// wrapper markup) and inserting `inner` at the recursion point — which for
+// every container preset is immediately before the final closing tag(s):
+// Stack/GridContainer/Columns/CardPanel close with `</div>`;
+// BackgroundPanel nests children inside `<div class="lg-bg-panel-inner">…`
+// closing with `</div></div>`.
+function renderContainerWrapper(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  depth: number,
+  inner: string,
+): string {
+  const empty = renderComponent({ ...node, children: [] }, design, depth);
+  if (empty === "") return "";
+  const closer = node.type === "BackgroundPanel" ? "</div></div>" : "</div>";
+  if (!empty.endsWith(closer)) return empty; // defensive: unexpected shape
+  return empty.slice(0, empty.length - closer.length) + inner + closer;
 }
 
 export type { ComponentType };

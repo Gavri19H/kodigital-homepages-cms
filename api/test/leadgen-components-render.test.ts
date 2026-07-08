@@ -13,11 +13,14 @@ import type { ComponentType } from "../src/public/leadgen/components/registry";
 import {
   validateSectionContent,
   CURATED_DESIGN_OVERRIDE_KEYS,
+  flattenComponents,
+  LEADGEN_CONTAINER_TYPES,
 } from "../src/public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import {
   renderComponent,
   renderSectionComponents,
+  renderSectionComponentsVisible,
 } from "../src/public/leadgen/components/presets";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
@@ -306,6 +309,31 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   HelperText: { type: "HelperText", question_id: "q", props: { text: "We never share this." } },
   ValidationError: { type: "ValidationError", question_id: "q", props: { text: "Required" } },
   LegalNote: { type: "LegalNote", question_id: "q", props: { html: "Terms apply" } },
+  // §8.5 layout containers (children-bearing: each spec nests a real question
+  // so the lockstep render proves recursion) + prop-driven layout leaves.
+  Stack: {
+    type: "Stack", question_id: "q", props: { direction: "vertical", gap: "m", align: "stretch" },
+    children: [{ type: "FreeTextQuestion", question_id: "q_in_stack", internal_field: "stack_note", props: { placeholder: "Type…" } }],
+  },
+  GridContainer: {
+    type: "GridContainer", question_id: "q", props: { columnsDesktop: 3, columnsTablet: 2, columnsMobile: 1, gap: "s", sizing: "equal" },
+    children: [{ type: "FreeTextQuestion", question_id: "q_in_grid", internal_field: "grid_note" }],
+  },
+  Columns: {
+    type: "Columns", question_id: "q", props: { ratio: "60/40", mobile: "stack" },
+    children: [{ type: "FreeTextQuestion", question_id: "q_in_columns", internal_field: "columns_note" }],
+  },
+  CardPanel: {
+    type: "CardPanel", question_id: "q", props: { width: "m", background: "card", shadow: "md", radius: "lg", padding: "m" },
+    children: [{ type: "FreeTextQuestion", question_id: "q_in_panel", internal_field: "panel_note" }],
+  },
+  BackgroundPanel: {
+    type: "BackgroundPanel", question_id: "q", props: { gradient: "primary" },
+    children: [{ type: "FreeTextQuestion", question_id: "q_in_bg", internal_field: "bg_note" }],
+  },
+  Spacer: { type: "Spacer", question_id: "q", props: { size: "l" } },
+  HeaderBar: { type: "HeaderBar", question_id: "q", props: { logoMediaId: "media_logo", logoAlt: "Acme", back: true, secure: true, cta: { label: "Call now", tel: "+1 800 555 1212" } } },
+  FooterBar: { type: "FooterBar", question_id: "q", props: { legalHtml: "Terms apply", trustMessages: ["SSL secured"], links: [{ label: "Privacy", href: "/privacy" }] } },
 };
 
 const ALL_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];
@@ -341,6 +369,13 @@ const NO_INLINE_STYLE_TYPES = new Set<ComponentType>([
   "TrustBar",
   "LogoStrip",
   "StepIndicator",
+  // §8.5 layout: Columns rides data-ratio/data-mobile variants; HeaderBar /
+  // FooterBar are fully token-class-driven. (Stack/Grid/CardPanel/Background
+  // Panel/Spacer DO emit per-instance token values inline — gap scale,
+  // --lg-gc-cols-*, panel tokens, spacer height.)
+  "Columns",
+  "HeaderBar",
+  "FooterBar",
 ]);
 
 describe("renderComponent — every catalog type", () => {
@@ -687,11 +722,22 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
     }
   });
 
-  it("NO chrome/affordance/control type carries data-lg-question (11 §11.6 probe counts questions only)", () => {
+  it("NO chrome/affordance/control/layout type carries data-lg-question (11 §11.6 probe counts questions only)", () => {
     for (const type of NON_QUESTION_TYPES) {
-      const html = renderComponent(NODE_SPECS[type], DESIGN);
+      // §8.5 containers: assert on the container's OWN markup (children-less
+      // clone) — a QUESTION nested inside it legitimately carries the hook
+      // and MUST keep it (the probe counts nested questions too; proven in
+      // the layout-container render suite).
+      const spec = NODE_SPECS[type];
+      const node = spec.children !== undefined ? { ...spec, children: [] } : spec;
+      const html = renderComponent(node, DESIGN);
       expect(html, type).not.toContain("data-lg-question");
     }
+  });
+
+  it("a question nested inside a container KEEPS its data-lg-question hook (§8.5 + §3.3)", () => {
+    const html = renderComponent(NODE_SPECS.Stack, DESIGN);
+    expect(html).toContain('data-lg-question="q_in_stack"');
   });
 
   it("data-lg-field mirrors internal_field on question components that carry one", () => {
@@ -1101,5 +1147,474 @@ describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
     // the active-dot state lives in the scoped chrome CSS.
     const chrome = funnelChromeCss(DESIGN);
     expect(chrome).toContain('.lg-step[data-active="true"]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers (E4) — validation: depth cap, children placement,
+// answer-field ban, tree-wide uniqueness, token-enum props, legacy compat.
+// ---------------------------------------------------------------------------
+
+const q = (id: string, field: string): LeadgenComponentNode => ({
+  type: "FreeTextQuestion",
+  question_id: id,
+  internal_field: field,
+});
+
+const stack = (id: string, children: LeadgenComponentNode[]): LeadgenComponentNode => ({
+  type: "Stack",
+  question_id: id,
+  children,
+});
+
+describe("validateSectionContent — §8.5 layout containers", () => {
+  it("accepts a nested tree (CardPanel › Stack › questions) with container props", () => {
+    const content = {
+      components: [
+        {
+          type: "CardPanel",
+          question_id: "panel",
+          container_id: "c_panel",
+          props: { width: "m", background: "card", shadow: "md", radius: "lg", padding: "m" },
+          children: [
+            { type: "QuestionHeadline", question_id: "h1", props: { text: "Are you insured?" } },
+            stack("stk", [
+              {
+                type: "TwoButtonYesNo",
+                question_id: "q_ins",
+                internal_field: "currently_insured",
+                answer_type: "boolean",
+              },
+            ]),
+          ],
+        },
+        { type: "ContinueButton", question_id: "cont", props: { label: "Continue" } },
+      ],
+    };
+    const result = validateSectionContent(content);
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects container nesting deeper than 4 (depth-5 → container_depth_exceeded)", () => {
+    const five = stack("s1", [stack("s2", [stack("s3", [stack("s4", [stack("s5", [q("qq", "f")])])])])]);
+    const result = validateSectionContent({ components: [five] });
+    expect(result.errors.map((e) => e.code)).toContain("container_depth_exceeded");
+    // the offending path names the depth-5 container
+    const err = result.errors.find((e) => e.code === "container_depth_exceeded");
+    expect(err?.path).toBe("components[0].children[0].children[0].children[0].children[0]");
+  });
+
+  it("accepts 4 nested containers with a leaf question inside the deepest", () => {
+    const four = stack("s1", [stack("s2", [stack("s3", [stack("s4", [q("qq", "f")])])])]);
+    expect(validateSectionContent({ components: [four] }).errors).toEqual([]);
+  });
+
+  it("rejects children on a non-container type (children_not_allowed)", () => {
+    const content = {
+      components: [
+        { ...q("q1", "f1"), children: [q("q2", "f2")] },
+      ],
+    };
+    const codes2 = validateSectionContent(content).errors.map((e) => e.code);
+    expect(codes2).toContain("children_not_allowed");
+  });
+
+  it("rejects answer fields on a container (internal_field / choices / answer_type)", () => {
+    const content = {
+      components: [
+        {
+          type: "Stack",
+          question_id: "s",
+          internal_field: "nope",
+          answer_type: "string",
+          choices: [{ label: "A", value: "a", analytics_id: "a" }],
+          children: [q("q1", "f1")],
+        },
+      ],
+    };
+    const errs = validateSectionContent(content).errors;
+    const paths = errs.filter((e) => e.code === "container_answer_field_forbidden").map((e) => e.path);
+    expect(paths).toContain("components[0].internal_field");
+    expect(paths).toContain("components[0].choices");
+    expect(paths).toContain("components[0].answer_type");
+  });
+
+  it("enforces question_id / internal_field uniqueness ACROSS the tree (cross-level duplicates)", () => {
+    const dupField = {
+      components: [q("top", "shared_field"), stack("s", [q("nested", "shared_field")])],
+    };
+    const fieldErrs = validateSectionContent(dupField).errors;
+    const dup = fieldErrs.find((e) => e.code === "duplicate_internal_field");
+    expect(dup?.path).toBe("components[1].children[0].internal_field");
+
+    const dupId = {
+      components: [q("same_id", "f1"), stack("s", [q("same_id", "f2")])],
+    };
+    expect(validateSectionContent(dupId).errors.map((e) => e.code)).toContain("duplicate_question_id");
+
+    // containers' OWN question_ids join the uniqueness universe too
+    const dupContainerId = {
+      components: [q("clash", "f1"), stack("clash", [q("nested", "f2")])],
+    };
+    expect(validateSectionContent(dupContainerId).errors.map((e) => e.code)).toContain(
+      "duplicate_question_id",
+    );
+  });
+
+  it("a nested conditional resolves a field defined in a SIBLING container", () => {
+    const content = {
+      components: [
+        stack("s1", [
+          {
+            type: "TwoButtonYesNo",
+            question_id: "q_ins",
+            internal_field: "currently_insured",
+            answer_type: "boolean",
+          },
+        ]),
+        stack("s2", [
+          {
+            type: "DropdownQuestion",
+            question_id: "q_insurer",
+            internal_field: "insurer",
+            choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+            conditional: { when: "currently_insured", op: "eq", value: true },
+          },
+        ]),
+      ],
+    };
+    expect(validateSectionContent(content).errors).toEqual([]);
+  });
+
+  it("rejects container prop token-enum violations (container_prop_invalid, per prop path)", () => {
+    const content = {
+      components: [
+        { type: "Stack", question_id: "s", props: { direction: "diagonal", gap: "xxl", align: "middle" }, children: [q("q1", "f1")] },
+        { type: "GridContainer", question_id: "g", props: { columnsDesktop: 7, columnsMobile: 0, sizing: "masonry" }, children: [q("q2", "f2")] },
+        { type: "Columns", question_id: "c", props: { ratio: "80/20", mobile: "float" }, children: [q("q3", "f3")] },
+        { type: "CardPanel", question_id: "p", props: { width: "xxl", background: "#ff00ff", shadow: "mega", radius: "pill", padding: "tight" }, children: [q("q4", "f4")] },
+        { type: "BackgroundPanel", question_id: "b", props: { background: "hotpink", gradient: "rainbow" }, children: [q("q5", "f5")] },
+        { type: "Spacer", question_id: "sp", props: { size: "huge" } },
+        { type: "HeaderBar", question_id: "hb", props: { cta: { label: "Call", href: "javascript:alert(1)" } } },
+        { type: "FooterBar", question_id: "fb", props: { trustMessages: [42], links: [{ label: "Privacy" }] } },
+      ],
+    };
+    const errs = validateSectionContent(content).errors.filter((e) => e.code === "container_prop_invalid");
+    const paths = errs.map((e) => e.path);
+    expect(paths).toContain("components[0].props.direction");
+    expect(paths).toContain("components[0].props.gap");
+    expect(paths).toContain("components[0].props.align");
+    expect(paths).toContain("components[1].props.columnsDesktop");
+    expect(paths).toContain("components[1].props.columnsMobile");
+    expect(paths).toContain("components[1].props.sizing");
+    expect(paths).toContain("components[2].props.ratio");
+    expect(paths).toContain("components[2].props.mobile");
+    expect(paths).toContain("components[3].props.width");
+    expect(paths).toContain("components[3].props.background");
+    expect(paths).toContain("components[3].props.shadow");
+    expect(paths).toContain("components[3].props.radius");
+    expect(paths).toContain("components[3].props.padding");
+    expect(paths).toContain("components[4].props.background");
+    expect(paths).toContain("components[4].props.gradient");
+    expect(paths).toContain("components[5].props.size");
+    expect(paths).toContain("components[7].props.trustMessages");
+    expect(paths).toContain("components[7].props.links[0].href");
+    // unsafe cta scheme is rejected
+    expect(paths).toContain("components[6].props.cta.href");
+  });
+
+  it("validates nested nodes with the SAME per-node rules (paths follow children[j])", () => {
+    const content = {
+      components: [
+        stack("s", [
+          { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", choices: [{ label: "LLC", value: "llc" }] } as unknown as LeadgenComponentNode,
+        ]),
+      ],
+    };
+    const errs = validateSectionContent(content).errors;
+    const paths = errs.map((e) => e.path);
+    expect(paths).toContain("components[0].children[0].choices[0].analytics_id");
+    expect(paths).toContain("components[0].children[0].choices[0].icon");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.13 legacy compat — a flat array IS the degenerate tree: zero containers,
+// zero validation errors, and a render byte-identical to the flat per-node
+// concatenation (the pre-§8.5 renderSectionComponents definition).
+// ---------------------------------------------------------------------------
+
+describe("§8.13 legacy compat — flat arrays validate + render byte-identically", () => {
+  // A pre-P4 fixture: the §13.2 dependent-flow Section exactly as stored today.
+  const LEGACY_FLAT: LeadgenComponentNode[] = [
+    { type: "ProgressBar", question_id: "p1", props: { mode: "percent", percent: 40 } },
+    { type: "QuestionHeadline", question_id: "h1", props: { text: "Are you insured?" } },
+    {
+      type: "TwoButtonYesNo",
+      question_id: "q_ins",
+      question_key: "insured_q",
+      internal_field: "currently_insured",
+      answer_type: "boolean",
+      required: true,
+      props: { auto_advance: true },
+    },
+    {
+      type: "DropdownQuestion",
+      question_id: "q_insurer",
+      internal_field: "insurer",
+      answer_type: "enum",
+      choices: [
+        { label: "Acme", value: "acme", analytics_id: "ins_acme" },
+        { label: "Globex", value: "globex", analytics_id: "ins_globex" },
+      ],
+      conditional: { when: "currently_insured", op: "eq", value: true },
+    },
+    { type: "ContinueButton", question_id: "cont1", props: { label: "Continue" } },
+  ];
+
+  it("validates with zero errors", () => {
+    expect(validateSectionContent({ components: LEGACY_FLAT }).errors).toEqual([]);
+  });
+
+  it("flattenComponents is the identity on flat content (same nodes, same order)", () => {
+    const flat = flattenComponents(LEGACY_FLAT);
+    expect(flat.length).toBe(LEGACY_FLAT.length);
+    for (let i = 0; i < flat.length; i++) expect(flat[i]).toBe(LEGACY_FLAT[i]);
+  });
+
+  it("renderSectionComponents output is byte-identical to the flat per-node render", () => {
+    const treeRender = renderSectionComponents(LEGACY_FLAT, DESIGN);
+    const flatRender = LEGACY_FLAT.map((n) => renderComponent(n, DESIGN)).join("");
+    expect(treeRender).toBe(flatRender);
+    expect(treeRender.length).toBeGreaterThan(0);
+  });
+
+  it("serialization round-trip preserves a container tree (parse → validate → stringify → parse)", () => {
+    const content = {
+      components: [
+        {
+          type: "CardPanel",
+          question_id: "panel",
+          container_id: "c1",
+          props: { width: "m" },
+          children: [
+            stack("stk", [
+              { type: "TwoButtonYesNo", question_id: "q_ins", internal_field: "ins", answer_type: "boolean" },
+            ]),
+          ],
+        },
+      ],
+    };
+    expect(validateSectionContent(content).ok).toBe(true);
+    const rt = JSON.parse(JSON.stringify(content)) as typeof content;
+    expect(rt).toEqual(content);
+    expect(validateSectionContent(rt).ok).toBe(true);
+    // children + container_id survive the round trip verbatim
+    expect(rt.components[0]?.children?.[0]?.children?.[0]?.question_id).toBe("q_ins");
+    expect(rt.components[0]?.container_id).toBe("c1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers — render: recursion, depth guard, token mapping,
+// leaves, and the dependency-filtered tree render.
+// ---------------------------------------------------------------------------
+
+describe("layout containers — render recursion + §8.5 token mapping", () => {
+  it("a container renders its nested question markup INSIDE the wrapper", () => {
+    const html = renderComponent(NODE_SPECS.Stack, DESIGN);
+    const open = html.indexOf('<div class="lg-stack"');
+    const child = html.indexOf('data-component-type="FreeTextQuestion"');
+    const close = html.lastIndexOf("</div>");
+    expect(open).toBe(0);
+    expect(child).toBeGreaterThan(open);
+    expect(child).toBeLessThan(close);
+    expect(html).toContain('data-internal-field="stack_note"');
+  });
+
+  it("Stack: data-direction/data-align + gap token value inline", () => {
+    const html = renderComponent(NODE_SPECS.Stack, DESIGN);
+    expect(html).toContain('data-direction="vertical"');
+    expect(html).toContain('data-align="stretch"');
+    expect(html).toContain("gap:1rem"); // gap token m → spacing.md
+    const horizontal = renderComponent(
+      { type: "Stack", question_id: "s", props: { direction: "horizontal", gap: "xl", align: "center" }, children: [] },
+      DESIGN,
+    );
+    expect(horizontal).toContain('data-direction="horizontal"');
+    expect(horizontal).toContain('data-align="center"');
+    expect(horizontal).toContain("gap:2rem");
+  });
+
+  it("GridContainer: per-breakpoint --lg-gc-cols-* custom props (clamped) + sizing", () => {
+    const html = renderComponent(NODE_SPECS.GridContainer, DESIGN);
+    expect(html).toContain("--lg-gc-cols-d:3");
+    expect(html).toContain("--lg-gc-cols-t:2");
+    expect(html).toContain("--lg-gc-cols-m:1");
+    expect(html).toContain('data-sizing="equal"');
+    const clamped = renderComponent(
+      { type: "GridContainer", question_id: "g", props: { columnsDesktop: 9, columnsTablet: 9, columnsMobile: 9, sizing: "auto" }, children: [] },
+      DESIGN,
+    );
+    expect(clamped).toContain("--lg-gc-cols-d:5");
+    expect(clamped).toContain("--lg-gc-cols-t:4");
+    expect(clamped).toContain("--lg-gc-cols-m:2");
+    expect(clamped).toContain('data-sizing="auto"');
+  });
+
+  it("Columns: data-ratio + data-mobile, no inline style (fully class-driven)", () => {
+    const html = renderComponent(NODE_SPECS.Columns, DESIGN);
+    expect(html).toContain('data-ratio="60/40"');
+    expect(html).toContain('data-mobile="stack"');
+    expect(html).not.toContain('style="');
+    // unknown ratio falls to 50/50; mobile keep is honored
+    const fallback = renderComponent(
+      { type: "Columns", question_id: "c", props: { ratio: "99/1", mobile: "keep" }, children: [] } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(fallback).toContain('data-ratio="50/50"');
+    expect(fallback).toContain('data-mobile="keep"');
+  });
+
+  it("CardPanel: §8.5 token enums resolve to measured design values", () => {
+    const html = renderComponent(NODE_SPECS.CardPanel, DESIGN);
+    expect(html).toContain('data-width="m"');
+    expect(html).toContain("max-width:420px"); // width m
+    expect(html).toContain("background:#FFFFFF"); // background card
+    expect(html).toContain("box-shadow:0 4px 8px rgba(27,58,92,.06)"); // shadow md
+    expect(html).toContain("border-radius:14px"); // radius lg
+    expect(html).toContain("padding:24px 20px"); // padding m
+    const washed = renderComponent(
+      { type: "CardPanel", question_id: "p", props: { width: "s", background: "wash", shadow: "none", radius: "xl", padding: "l" }, children: [] },
+      DESIGN,
+    );
+    expect(washed).toContain("max-width:320px");
+    expect(washed).toContain("background:#E8EEF4");
+    expect(washed).toContain("box-shadow:none");
+    expect(washed).toContain("border-radius:20px");
+    expect(washed).toContain("padding:32px 28px");
+  });
+
+  it("BackgroundPanel: gradient token wins; image mediaId renders a decorative cover img", () => {
+    const gradient = renderComponent(NODE_SPECS.BackgroundPanel, DESIGN);
+    expect(gradient).toContain("background:linear-gradient(135deg,#1B3A5C,#2A5080)");
+    expect(gradient).toContain('<div class="lg-bg-panel-inner">');
+    const image = renderComponent(
+      { type: "BackgroundPanel", question_id: "b", props: { background: "wash", imageMediaId: "media_bg" }, children: [q("qi", "fi")] },
+      DESIGN,
+    );
+    expect(image).toContain('class="lg-bg-panel-img"');
+    expect(image).toContain('src="media_bg"');
+    expect(image).toContain('alt=""');
+    expect(image).toContain("background:#E8EEF4");
+    // approved tokens only — the media reference never enters a style attribute
+    expect(image).not.toContain("url(");
+  });
+
+  it("Spacer: token height inline + aria-hidden (decorative)", () => {
+    const html = renderComponent(NODE_SPECS.Spacer, DESIGN);
+    expect(html).toContain('class="lg-spacer"');
+    expect(html).toContain("height:1.5rem"); // size l
+    expect(html).toContain('aria-hidden="true"');
+  });
+
+  it("HeaderBar: logo mediaId → src, back toggle carries data-lg-back, secure slot, tel CTA", () => {
+    const html = renderComponent(NODE_SPECS.HeaderBar, DESIGN);
+    expect(html).toContain('class="lg-headerbar"');
+    expect(html).toContain('src="media_logo"');
+    expect(html).toContain('alt="Acme"');
+    expect(html).toContain("data-lg-back"); // engine back hook (03 §3.3)
+    expect(html).toContain("lg-headerbar-secure");
+    expect(html).toContain("Your information is secure"); // token exampleSecureCopy fallback
+    expect(html).toContain('href="tel:+1 800 555 1212"');
+    expect(html).toContain("Call now");
+  });
+
+  it("HeaderBar escapes hostile CTA label + omits slots not toggled on", () => {
+    const html = renderComponent(
+      { type: "HeaderBar", question_id: "h", props: { cta: { label: "<script>x</script>", href: "https://example.com" } } },
+      DESIGN,
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("data-lg-back");
+    expect(html).not.toContain("lg-headerbar-secure");
+  });
+
+  it("FooterBar: trust messages + links + escaped legal html", () => {
+    const html = renderComponent(NODE_SPECS.FooterBar, DESIGN);
+    expect(html).toContain('class="lg-footerbar"');
+    expect(html).toContain("SSL secured");
+    expect(html).toContain('href="/privacy"');
+    expect(html).toContain("Privacy");
+    expect(html).toContain("Terms apply");
+    const hostile = renderComponent(
+      { type: "FooterBar", question_id: "f", props: { legalHtml: "<img src=x onerror=alert(1)>", links: [{ label: "<b>x</b>", href: "/ok" }] } },
+      DESIGN,
+    );
+    expect(hostile).not.toContain("<img src=x");
+    expect(hostile).not.toContain("<b>");
+    expect(hostile).toContain("&lt;img src=x");
+  });
+
+  it("depth guard: containers stop recursing past depth 4 (corrupt data never stack-overflows)", () => {
+    const five = stack("s1", [stack("s2", [stack("s3", [stack("s4", [stack("s5", [q("q_deep", "deep")])])])])]);
+    const html = renderComponent(five, DESIGN);
+    // the four allowed wrappers render; the depth-5 container renders nothing
+    expect(html.split('class="lg-stack"').length - 1).toBe(4);
+    expect(html).not.toContain("q_deep");
+    // depth 4 with a LEAF inside renders the leaf
+    const four = stack("s1", [stack("s2", [stack("s3", [stack("s4", [q("q_leaf", "leaf")])])])]);
+    expect(renderComponent(four, DESIGN)).toContain('data-question-id="q_leaf"');
+  });
+
+  it("flattenComponents yields all non-container leaves in depth-first render order", () => {
+    const tree: LeadgenComponentNode[] = [
+      q("a", "fa"),
+      {
+        type: "CardPanel",
+        question_id: "panel",
+        children: [q("b", "fb"), stack("inner", [q("c", "fc")]), q("d", "fd")],
+      },
+      { type: "Spacer", question_id: "sp", props: { size: "m" } },
+      q("e", "fe"),
+    ];
+    const ids = flattenComponents(tree).map((n) => n.question_id);
+    expect(ids).toEqual(["a", "b", "c", "d", "sp", "e"]);
+    // container types never appear in the flattened list
+    const types = new Set(flattenComponents(tree).map((n) => n.type));
+    for (const containerType of LEADGEN_CONTAINER_TYPES) {
+      expect(types.has(containerType)).toBe(false);
+    }
+  });
+
+  it("renderSectionComponentsVisible keeps container wrappers while dropping hidden leaves", () => {
+    const tree: LeadgenComponentNode[] = [
+      stack("wrap", [q("shown", "f_shown"), q("hidden", "f_hidden")]),
+    ];
+    const html = renderSectionComponentsVisible(tree, DESIGN, new Set(["shown"]));
+    expect(html).toContain('class="lg-stack"'); // wrapper kept
+    expect(html).toContain('data-question-id="shown"');
+    expect(html).not.toContain('data-question-id="hidden"');
+    // an emptied container keeps its wrapper (the runtime nested-DOM shape)
+    const emptied = renderSectionComponentsVisible(tree, DESIGN, new Set<string>());
+    expect(emptied).toContain('class="lg-stack"');
+    expect(emptied).not.toContain("data-question-id=\"shown\"");
+  });
+
+  it("renderSectionComponentsVisible on FLAT content equals filter-then-render byte-for-byte", () => {
+    const flat: LeadgenComponentNode[] = [
+      q("q1", "f1"),
+      q("q2", "f2"),
+      { type: "QuestionHeadline", question_id: "h1", props: { text: "Hi" } },
+    ];
+    const visible = new Set(["q1", "h1"]);
+    const viaTree = renderSectionComponentsVisible(flat, DESIGN, visible);
+    const viaFilter = flat
+      .filter((n) => typeof n.question_id === "string" && visible.has(n.question_id))
+      .map((n) => renderComponent(n, DESIGN))
+      .join("");
+    expect(viaTree).toBe(viaFilter);
   });
 });
