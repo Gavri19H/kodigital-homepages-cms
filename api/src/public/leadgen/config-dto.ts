@@ -173,7 +173,11 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
 // Project a capability node to its client-safe config. Only whitelisted,
 // public authoring fields are copied; there is no server-only field on the node
 // to strip, but the projection is explicit so a future node field is opt-in.
-function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
+// EXPORTED (fix-contract v2.4 09 §9.1, Phase 4 Slice D2): the Studio preview's
+// runtime-hydrated events document builds its #lg-config section through THIS
+// projection — one component-config producer, preview and live can never
+// disagree on the client component shape.
+export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
     question_id: node.question_id,

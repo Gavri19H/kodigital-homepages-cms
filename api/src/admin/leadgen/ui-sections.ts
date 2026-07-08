@@ -24,9 +24,10 @@ import {
   type UiContext,
 } from "./ui";
 import type { Paging } from "./router";
-// Phase 4 (fix-contract v2.4 08, Slice D1): the editor page assembles the new
-// Section STUDIO — ui-question-builder.ts is no longer the editor layer (its
-// file stays until the D2 mapping panel removes the last references).
+// Phase 4 (fix-contract v2.4 08, Slices D1+D2): the editor page assembles the
+// Section STUDIO — ui-question-builder.ts is DELETED (the D2 §8.7 mapping
+// panel removed its last consumer; the §12.11 grid assertions are ported to
+// the studio suite).
 import {
   SECTION_STUDIO_SCRIPT,
   SECTION_STUDIO_STYLES,
@@ -335,12 +336,16 @@ const EMPTY_SUMMARY: MappingSummary = { publishable: true, status: "ok", require
 
 // The #lg-section-data JSON state blob. Serialized + `<`-escaped so a hostile
 // author value can never break out of the <script type="application/json">.
+// D2 (§8.7): `selected_offers` rides along — the island's save body persists
+// the SELECTED set explicitly (a selected-but-unmapped Offer survives a
+// studio save; the save path's parseAnswerMaps already consumed it).
 function sectionDataBlob(section: SectionDetail | null): string {
   const contentJson = section !== null && section.content_json !== null ? section.content_json : { components: [] };
   const data = {
     public_id: section?.public_id ?? null,
     content: contentJson,
     answer_maps: section !== null ? section.answer_maps : [],
+    selected_offers: (section?.available_offers ?? []).filter((o) => o.selected).map((o) => o.offer_id),
     continue_mode: section?.continue_mode ?? "button",
     address_validation_enabled: section?.address_validation_enabled ?? false,
   };

@@ -23,8 +23,15 @@ import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { COMPONENT_CATALOG, type ComponentType } from "../src/public/leadgen/components/registry";
-import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
+import { validateSectionContent, flattenComponents } from "../src/public/leadgen/components/content-schema";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { STUDIO_LIBRARY_GROUPS } from "../src/admin/leadgen/ui-section-studio";
+// D2 seam imports: the island's live mapping decode must agree with the REAL
+// server rebuild; the events document's config must be the REAL projection and
+// its inline script must be the BYTE-IDENTICAL generated runtime bundle.
+import { rebuildDerivedIndexes, type OfferSchemaInfo } from "../src/leadgen/sections";
+import { toPublicComponent } from "../src/public/leadgen/config-dto";
+import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.generated";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -324,6 +331,19 @@ describeDb("section studio SSR — §8.3 component library", () => {
     expect(html).toContain("data-studio-library-search");
   });
 
+  it("library items are role=button DIVS — preset thumbnails contain real <button>/<input> markup and nested interactive content inside a <button> is invalid HTML that shatters the page tree (D2 browser-exposure regression)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the wrapper is a div[role=button][tabindex] — click + drag + keyboard
+    expect(html).toMatch(/<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component=/);
+    // NEVER a <button> wrapper (the exact markup class that broke the layout)
+    expect(html).not.toMatch(/<button[^>]*data-add-component=/);
+    // the island keeps the keyboard-activation contract for the divs
+    const island = studioIsland(html);
+    expect(island).toContain("ev.key !== 'Enter' && ev.key !== ' '");
+  });
+
   it("every item shows a thumbnail rendered FROM THE COMPONENT'S OWN PRESET (3+ representative proofs), name, description, answer type + maps badge", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
@@ -579,7 +599,7 @@ const MODEL_FUNCS = [
 ] as const;
 
 interface StudioSandbox {
-  state: { content: { components: unknown[] }; answer_maps?: unknown[]; public_id?: string | null; continue_mode?: string; address_validation_enabled?: boolean };
+  state: { content: { components: unknown[] }; answer_maps?: unknown[]; selected_offers?: number[]; public_id?: string | null; continue_mode?: string; address_validation_enabled?: boolean };
   studioMeta: Record<string, unknown>;
   componentSeeds: Record<string, unknown>;
   MAX_DEPTH: number;
@@ -1027,12 +1047,15 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     runInNewContext(source, sandbox);
     const body = sandbox["body"] as Record<string, unknown>;
 
-    // the OLD island's exact body shape (save-path contract preserved)
+    // the OLD island's exact body shape + the ONE D2 additive key
+    // (selected_offers — §8.7 explicit selection set; parseAnswerMaps already
+    // consumed it server-side, so the save-path contract is preserved).
     expect(Object.keys(body).sort()).toEqual(
-      ["section_name", "activity", "vertical", "headline_text", "subheadline_text", "continue_mode", "address_validation_enabled", "content_json", "answer_maps"].sort(),
+      ["section_name", "activity", "vertical", "headline_text", "subheadline_text", "continue_mode", "address_validation_enabled", "content_json", "answer_maps", "selected_offers"].sort(),
     );
     expect(body["section_name"]).toBe("Studio renamed");
     expect(body["continue_mode"]).toBe("button");
+    expect(body["selected_offers"]).toEqual([]);
 
     // EXECUTED against the live router: the body the island built SAVES
     const patch = await admin.request(
@@ -1049,5 +1072,787 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     const kids = savedContent.components[0]!["children"] as Array<Record<string, unknown>>;
     expect(kids.map((k) => k["type"])).toEqual(["TwoButtonYesNo", "HelperText"]);
     expect(kids[0]!["question_id"]).toBe("q1");
+
+    // D2 browser-flow catch: an EMPTY subheadline input must serialize as
+    // null (the validator rejects '' with "non-empty string or null") — the
+    // PATCH below fails-before/passes-after the collectSection fix.
+    fields["lg-section-subheadline"] = { value: "" };
+    runInNewContext("var body2 = collectSection();", sandbox);
+    const body2 = sandbox["body2"] as Record<string, unknown>;
+    expect(body2["subheadline_text"]).toBeNull();
+    const patch2 = await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", body2), env);
+    expect(patch2.status, await patch2.clone().text()).toBe(200);
+  });
+});
+
+// ===========================================================================
+// Slice D2 — §8.2 Activity/Vertical (E1+E9) · §8.7 mapping panel (E2) ·
+// §8.9/§9.1 events panel
+// ===========================================================================
+
+// A real Offer (admin API) with an ACTIVE payload schema whose answer-source
+// nodes drive the §8.7 mapping grid. Static offer — the schema endpoints do
+// not require provider endpoints.
+interface SchemaFieldSeed {
+  path: string;
+  type: string;
+  required?: boolean;
+  internal_field?: string;
+  valid_values?: Array<string | number | boolean>;
+}
+
+async function createOfferWithSchema(
+  env: Env,
+  name: string,
+  fields: SchemaFieldSeed[],
+  overrides: Record<string, unknown> = {},
+): Promise<{ id: number; public_id: string }> {
+  const created = await admin.request(
+    `${API}/offers`,
+    jsonInit("POST", {
+      offer_name: name,
+      provider: "studioprov",
+      activity: "quote_funnel",
+      vertical: "life",
+      conversion_tracking_method: "s2s_postback",
+      offer_type: "cpc",
+      placements: [`pl-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`],
+      calls_provider_api: false,
+      bid_source: "static",
+      cap_enabled: false,
+      ...overrides,
+    }),
+    env,
+  );
+  expect(created.status, `offer create: ${await created.clone().text()}`).toBe(201);
+  const offer = (await created.json()) as { id: number; public_id: string };
+  if (fields.length > 0) {
+    const children = fields.map((f) => ({
+      path: f.path,
+      name: f.path.split(".").pop(),
+      type: f.type,
+      ...(f.required === true ? { required: true } : {}),
+      source: "answer",
+      internal_field: f.internal_field ?? f.path.split(".").pop(),
+      ...(f.valid_values !== undefined ? { valid_values: f.valid_values } : {}),
+    }));
+    // one macro node rides along — it must NEVER appear in answer_fields
+    children.push({ path: "meta.click_id", name: "click_id", type: "string", source: "macro", macro: "click_id" } as never);
+    const schema = await admin.request(
+      `${API}/offers/${offer.public_id}/payload-schemas`,
+      jsonInit("POST", { schema_json: { version: 1, root: { type: "object", children } } }),
+      env,
+    );
+    expect(schema.status, `schema create: ${await schema.clone().text()}`).toBe(201);
+  }
+  return offer;
+}
+
+// The island's §8.7/§8.2 model functions (DOM-free) — sliced from the served
+// page like MODEL_FUNCS so every probe runs the REAL shipped code.
+const MAPPING_FUNCS = [
+  "offersList",
+  "offerById",
+  "answerFieldOf",
+  "edgesForOffer",
+  "findEdgeIndex",
+  "questionByField",
+  "answerNodeType",
+  "coercibleTo",
+  "edgeMapState",
+  "offerLiveState",
+  "upsertEdge",
+  "removeEdge",
+  "moveEdgePath",
+  "toggleOfferSelected",
+  "componentTypeForField",
+  "internalFieldFromPath",
+  "createQuestionForField",
+  "bulkProposals",
+  "mapStateNote",
+] as const;
+
+interface OffersResponse {
+  activity: string;
+  vertical: string;
+  offers: Array<Record<string, unknown> & { id: number; public_id: string; answer_fields: Array<Record<string, unknown>> }>;
+  mappings: Array<Record<string, unknown>>;
+}
+
+// Boot a vm with BOTH the D1 model core and the D2 mapping core + the live
+// offers response as `offersData`.
+function mappingProbe(html: string, content: unknown, offersData: unknown, answerMaps: unknown[] = [], selected: number[] = []): StudioProbe {
+  const island = studioIsland(html);
+  const seeds = extractJsonBlob(html, "lg-component-seeds");
+  const meta = extractJsonBlob(html, "lg-studio-meta");
+  const refusals: string[] = [];
+  const sandbox: StudioSandbox = {
+    state: {
+      content: JSON.parse(JSON.stringify(content)) as { components: unknown[] },
+      answer_maps: JSON.parse(JSON.stringify(answerMaps)) as unknown[],
+      selected_offers: [...selected],
+    } as StudioSandbox["state"],
+    offersData: JSON.parse(JSON.stringify(offersData)) as unknown,
+    studioMeta: meta,
+    componentSeeds: seeds,
+    MAX_DEPTH: (meta["max_depth"] as number) ?? 4,
+    selectedQuestionId: null,
+    pendingInsert: null,
+    refusals,
+    document: {
+      getElementById() {
+        return null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  const source = [
+    "function afterModelChange() {}",
+    "function showRefusal(m) { refusals.push(m); }",
+    "function clearRefusal() {}",
+    "function markDirty() {}",
+    ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
+    ...MAPPING_FUNCS.map((n) => sliceIslandFunction(island, n)),
+  ].join("\n");
+  runInNewContext(source, sandbox);
+  return {
+    sandbox,
+    run(expr: string): unknown {
+      return runInNewContext(expr, sandbox);
+    },
+  };
+}
+
+// Two-question content the §8.7 flows map from (boolean + string answers).
+const MAPPABLE_CONTENT = {
+  components: [
+    { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+    { type: "ZIPInputQuestion", question_id: "q2", question_key: "zip_q", internal_field: "zip", answer_type: "string", props: { placeholder: "ZIP" } },
+  ],
+};
+
+describeDb("section studio SSR — §8.2 Activity/Vertical dropdowns + E9 skeleton (D2)", () => {
+  it("Activity/Vertical are SELECTS with the saved value + the allow-create affordances (no free text)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(/<select id="lg-section-activity"[^>]*data-studio-activity/);
+    expect(html).toMatch(/<select id="lg-section-vertical"[^>]*data-studio-vertical/);
+    // no free-text inputs for the pair
+    expect(html).not.toMatch(/<input[^>]*data-studio-activity/);
+    expect(html).not.toMatch(/<input[^>]*data-studio-vertical/);
+    // the saved values ride as the selected options
+    expect(html).toContain('<option value="quote_funnel" selected>quote_funnel</option>');
+    expect(html).toContain('<option value="life" selected>life</option>');
+    expect(html).toContain("data-studio-new-activity");
+    expect(html).toContain("data-studio-new-vertical");
+    // the island wires the §8.2 derivation: /activities + /verticals?activity=
+    const island = studioIsland(html);
+    expect(island).toContain("'/api/admin/leadgen/activities'");
+    expect(island).toContain("'/api/admin/leadgen/verticals'");
+    expect(island).toContain("'?activity=' + encodeURIComponent(activity)");
+    // changing Activity RESETS Vertical
+    expect(island).toContain("verticalSel.value = ''");
+    // the allow-create affordance requires the explicit §8.2 confirm
+    expect(island).toContain("No Offers exist for '");
+  });
+
+  it("the drawer carries the E9 empty-state skeleton with [Open Offers] + [Change Activity/Vertical] and the island's exact copy template", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain("data-studio-offers-empty");
+    expect(html).toContain("data-studio-offers-empty-copy");
+    expect(html).toMatch(/<a href="\/admin\/leadgen\/offers"[^>]*data-studio-open-offers[^>]*>Open Offers<\/a>/);
+    expect(html).toMatch(/data-studio-change-pair[^>]*>Change Activity\/Vertical</);
+    const island = studioIsland(html);
+    // E9 verbatim pattern (island fills the SAVED pair from the offers response)
+    expect(island).toContain('"No active Offers match Activity \'" + offersData.activity + "\' + Vertical \'" + offersData.vertical + "\'."');
+    // §8.2 save-time zero-match warning
+    expect(island).toContain("Warning: no active Offers match Activity");
+    expect(html).toContain("data-studio-zero-offers-warning");
+  });
+
+  it("the §8.7 mapping table SSRs the normative columns; raw ids/paths/JSON are absent from the surface", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const head = html.slice(html.indexOf("data-studio-mapping-table"), html.indexOf("data-studio-offers-body"));
+    for (const col of ["Offer", "Provider", "Placement", "Payload schema version", "Required fields", "Mapped fields", "Mapping status", "Action"]) {
+      expect(head, `column ${col}`).toContain(`<th scope="col">${col}</th>`);
+    }
+    // §8.7: no free-text path inputs, no raw answer-map JSON textarea on this
+    // surface (the ONLY raw-JSON control is the Advanced NODE editor).
+    expect(html).not.toContain("data-map-field"); // the old builder's raw grid hooks
+    expect(html).not.toContain('id="lg-mapping-json"');
+    const rawJsonSurfaces = html.match(/<textarea[^>]*data-studio-node-json/g) ?? [];
+    expect(rawJsonSurfaces).toHaveLength(1);
+  });
+});
+
+describeDb("section studio — §8.7 GET /sections/:id/offers answer_fields (server extension)", () => {
+  it("each matched offer carries provider, default placement, ACTIVE schema version and its ANSWER-source fields (macro nodes excluded)", async () => {
+    const { env } = newHarness();
+    const offer = await createOfferWithSchema(env, "Studio Offer A", [
+      { path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured" },
+      { path: "data.zip", type: "string", required: true, internal_field: "zip" },
+      { path: "data.coverage", type: "enum", valid_values: ["basic", "full"], internal_field: "coverage" },
+    ]);
+    const bare = await createOfferWithSchema(env, "Studio Offer NoSchema", []);
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+
+    const res = await admin.request(`${API}/sections/${section.public_id}/offers`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as OffersResponse;
+    // §8.2: the SAVED pair the derivation used rides the response (E9 copy)
+    expect(body.activity).toBe("quote_funnel");
+    expect(body.vertical).toBe("life");
+    const withSchema = body.offers.find((o) => o.id === offer.id)!;
+    expect(withSchema).toBeDefined();
+    expect(withSchema["provider"]).toBe("studioprov");
+    expect(withSchema["default_placement_id"]).toBe("pl-studio-offer-a");
+    expect(withSchema["payload_schema_version"]).toBe(1);
+    expect(String(withSchema["payload_schema_public_id"])).toMatch(/^lgp_/);
+    // ANSWER-source fields only — the macro node never appears
+    expect(withSchema.answer_fields.map((f) => f["path"])).toEqual(["data.insured", "data.zip", "data.coverage"]);
+    expect(withSchema.answer_fields[0]).toMatchObject({ path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured" });
+    expect(withSchema.answer_fields[2]).toMatchObject({ path: "data.coverage", type: "enum", required: false, valid_values: ["basic", "full"] });
+    // schema-less offer: honest empties, never a fake schema
+    const noSchema = body.offers.find((o) => o.id === bare.id)!;
+    expect(noSchema["has_active_schema"]).toBe(false);
+    expect(noSchema["payload_schema_version"]).toBeNull();
+    expect(noSchema.answer_fields).toEqual([]);
+  });
+});
+
+describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL server round trip", () => {
+  async function seamHarness(): Promise<{
+    env: Env;
+    section: SectionDetail;
+    html: string;
+    offers: OffersResponse;
+    offerA: { id: number; public_id: string };
+    offerB: { id: number; public_id: string };
+  }> {
+    const { env } = newHarness();
+    const offerA = await createOfferWithSchema(env, "Seam Offer A", [
+      { path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured" },
+      { path: "data.zip", type: "string", required: true, internal_field: "zip" },
+    ]);
+    const offerB = await createOfferWithSchema(env, "Seam Offer B", [
+      { path: "lead.zip_code", type: "string", required: true, internal_field: "zip" },
+    ]);
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const res = await admin.request(`${API}/sections/${section.public_id}/offers`, {}, env);
+    const offers = (await res.json()) as OffersResponse;
+    return { env, section, html, offers, offerA, offerB };
+  }
+
+  it("picker-built edges (upsertEdge) round-trip through the REAL PATCH: server rebuild agrees with the island's live decode", async () => {
+    const { env, section, html, offers, offerA, offerB } = await seamHarness();
+    const probe = mappingProbe(html, MAPPABLE_CONTENT, offers);
+
+    // map offer A's two required fields via the picker-equivalent calls
+    probe.run(`upsertEdge(offerById(${offerA.id}), answerFieldOf(offerById(${offerA.id}), 'data.insured'), 'currently_insured')`);
+    // live decode after ONE of two required fields: incomplete
+    expect((probe.run(`offerLiveState(offerById(${offerA.id}))`) as { state: string }).state).toBe("incomplete");
+    probe.run(`upsertEdge(offerById(${offerA.id}), answerFieldOf(offerById(${offerA.id}), 'data.zip'), 'zip')`);
+    const liveA = probe.run(`offerLiveState(offerById(${offerA.id}))`) as { state: string; required_total: number; required_mapped: number };
+    expect(liveA).toMatchObject({ state: "complete", required_total: 2, required_mapped: 2 });
+    // offer B: one required field
+    probe.run(`upsertEdge(offerById(${offerB.id}), answerFieldOf(offerById(${offerB.id}), 'lead.zip_code'), 'zip')`);
+    expect((probe.run(`offerLiveState(offerById(${offerB.id}))`) as { state: string }).state).toBe("complete");
+    // mapped offers were implicitly selected by upsertEdge
+    expect(probe.sandbox.state["selected_offers"]).toEqual([offerA.id, offerB.id]);
+
+    // the island's save body persists through the REAL router
+    const body = {
+      section_name: "Seam section",
+      activity: "quote_funnel",
+      vertical: "life",
+      headline_text: "Are you insured?",
+      subheadline_text: null,
+      continue_mode: "button",
+      address_validation_enabled: false,
+      content_json: JSON.stringify(probe.sandbox.state.content),
+      answer_maps: probe.sandbox.state["answer_maps"],
+      selected_offers: probe.sandbox.state["selected_offers"],
+    };
+    const patch = await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", body), env);
+    expect(patch.status, await patch.clone().text()).toBe(200);
+
+    // SERVER truth: the §12.1 rebuild derived the SAME states the island showed
+    const detail = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const available = detail["available_offers"] as Array<Record<string, unknown>>;
+    const rowA = available.find((o) => o["offer_id"] === offerA.id)!;
+    const rowB = available.find((o) => o["offer_id"] === offerB.id)!;
+    expect(rowA).toMatchObject({ selected: true, mapping_state: "complete", required_fields_total: 2, required_fields_mapped: 2 });
+    expect(rowB).toMatchObject({ selected: true, mapping_state: "complete", required_fields_total: 1, required_fields_mapped: 1 });
+    const maps = detail["answer_maps"] as Array<Record<string, unknown>>;
+    expect(maps).toHaveLength(3);
+    for (const m of maps) expect(m["mapping_status"]).toBe("complete");
+    expect(detail["validation_status"] ?? "ok").toBeDefined();
+
+    // and validate-payload (the §8.7 per-offer preview endpoint) agrees
+    const vp = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { currently_insured: true, zip: "90210" }, offers: [offerA.public_id] }),
+      env,
+    );
+    expect(vp.status).toBe(200);
+    const vpBody = (await vp.json()) as { offers: Array<{ completeness: { required_total: number; required_mapped: number } }>; section_validation: { publishable: boolean } };
+    expect(vpBody.offers[0]!.completeness).toMatchObject({ required_total: 2, required_mapped: 2 });
+    expect(vpBody.section_validation.publishable).toBe(true);
+  });
+
+  it("SEAM matrix: the island's edgeMapState/offerLiveState equals the REAL rebuildDerivedIndexes per state (complete/missing_required/type_mismatch/orphaned/selected)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+
+    // ONE fixture drives BOTH sides: the island-shaped offer and the server's
+    // injected OfferSchemaInfo.
+    const fieldTypes = new Map<string, "boolean" | "number">([
+      ["data.insured", "boolean"],
+      ["data.count", "number"],
+    ]);
+    const offerFixture = {
+      id: 7,
+      public_id: "lgo_seamfixture",
+      offer_name: "Seam",
+      has_active_schema: true,
+      payload_schema_public_id: "lgp_seamfixture",
+      payload_schema_version: 3,
+      answer_fields: [
+        { path: "data.insured", type: "boolean", required: true, internal_field: null, label: null, valid_values: null },
+        { path: "data.count", type: "number", required: false, internal_field: null, label: null, valid_values: null },
+      ],
+    };
+    const schemaInfo: OfferSchemaInfo = {
+      status: "active",
+      activity: "quote_funnel",
+      vertical: "life",
+      active_schema_id: 33,
+      active_schema_public_id: "lgp_seamfixture",
+      fieldTypes,
+      requiredFieldPaths: ["data.insured"],
+    };
+    const edge = (over: Record<string, unknown>): Record<string, unknown> => ({
+      question_id: "q1",
+      question_key: "insured_q",
+      internal_field: "currently_insured",
+      answer_type: "boolean",
+      offer_id: 7,
+      offer_payload_field_path: "data.insured",
+      provider_expected_type: "boolean",
+      output_value_map: null,
+      value_transform: null,
+      required_for_offer: true,
+      default_value: null,
+      fallback_value: null,
+      ...over,
+    });
+
+    const cases: Array<{ label: string; edges: Array<Record<string, unknown>>; expectEdge: string[]; expectOffer: string }> = [
+      { label: "complete", edges: [edge({})], expectEdge: ["complete"], expectOffer: "incomplete" }, // 1 of 1 required mapped BUT wait: complete edge on the only required → complete
+      {
+        label: "type_mismatch (string answer → number node, no map/transform)",
+        edges: [edge({ offer_payload_field_path: "data.count", provider_expected_type: "number", answer_type: "string", required_for_offer: false, internal_field: "zip", question_id: "q2" })],
+        expectEdge: ["type_mismatch"],
+        expectOffer: "invalid",
+      },
+      {
+        label: "orphaned (path not in the active schema)",
+        edges: [edge({ offer_payload_field_path: "data.gone" })],
+        expectEdge: ["orphaned"],
+        expectOffer: "invalid",
+      },
+      {
+        label: "missing_required (required edge, empty internal_field)",
+        edges: [edge({ internal_field: "" })],
+        expectEdge: ["missing_required"],
+        expectOffer: "incomplete",
+      },
+      { label: "selected / not started (no edges)", edges: [], expectEdge: [], expectOffer: "selected" },
+    ];
+    // fix the first case's expected offer state: its one required field IS
+    // complete → the offer is complete.
+    cases[0]!.expectOffer = "complete";
+
+    for (const c of cases) {
+      // ISLAND side (the served code)
+      const probe = mappingProbe(html, MAPPABLE_CONTENT, { activity: "quote_funnel", vertical: "life", offers: [offerFixture] }, c.edges, [7]);
+      const islandEdgeStates = (c.edges.length > 0
+        ? (probe.run(`edgesForOffer(7).map(function (e) { return edgeMapState(e, offerById(7)); })`) as string[])
+        : []);
+      const islandOffer = probe.run(`offerLiveState(offerById(7))`) as { state: string; required_total: number; required_mapped: number };
+
+      // SERVER side (the REAL rebuild)
+      const rebuilt = rebuildDerivedIndexes({
+        content: MAPPABLE_CONTENT as never,
+        answerMaps: c.edges as never,
+        offerSchemas: new Map([[7, schemaInfo]]),
+        selectedOfferIds: new Set([7]),
+      });
+      const serverEdgeStates = rebuilt.answerMaps.map((r) => r.mapping_completeness);
+      const serverOffer = rebuilt.availableOffers.find((o) => o.offer_id === 7)!;
+
+      expect(islandEdgeStates, `edge states (${c.label})`).toEqual(serverEdgeStates);
+      expect(islandEdgeStates, `expected edge decode (${c.label})`).toEqual(c.expectEdge);
+      expect(islandOffer.state, `offer state (${c.label})`).toBe(serverOffer.mapping_state);
+      expect(islandOffer.state, `expected offer decode (${c.label})`).toBe(c.expectOffer);
+      expect(islandOffer.required_total, `required total (${c.label})`).toBe(serverOffer.required_fields_total);
+      expect(islandOffer.required_mapped, `required mapped (${c.label})`).toBe(serverOffer.required_fields_mapped);
+    }
+  });
+
+  it("PORTED §12.11 cell copy: mapStateNote emits the grid's exact per-state operator vocabulary", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const offer = {
+      id: 7,
+      public_id: "lgo_x",
+      offer_name: "OfferX",
+      has_active_schema: true,
+      payload_schema_public_id: "lgp_00000000000000000000000001",
+      answer_fields: [{ path: "data.insured", type: "boolean", required: true, internal_field: null, label: null, valid_values: null }],
+    };
+    const probe = mappingProbe(html, MAPPABLE_CONTENT, { activity: "a", vertical: "v", offers: [offer] });
+    const field = `answerFieldOf(offerById(7), 'data.insured')`;
+    expect(probe.run(`mapStateNote('complete', ${field}, offerById(7), null)`)).toBe("complete");
+    expect(probe.run(`mapStateNote('missing_required', ${field}, offerById(7), null)`)).toBe("map required field");
+    expect(
+      probe.run(`mapStateNote('type_mismatch', ${field}, offerById(7), { answer_type: 'string' })`),
+    ).toBe("answer type string not coercible to boolean");
+    expect(probe.run(`mapStateNote('orphaned', null, offerById(7), null)`)).toBe(
+      "Offer field no longer exists in schema lgp_00000000000000000000000001",
+    );
+    expect(probe.run(`mapStateNote('unmapped', ${field}, offerById(7), null)`)).toBe("required — not mapped");
+  });
+
+  it("createQuestionForField spawns the RIGHT pre-bound component per schema type/name, choices from valid_values, internal_field from the path", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const offer = {
+      id: 9,
+      public_id: "lgo_create",
+      offer_name: "Creator",
+      has_active_schema: true,
+      payload_schema_public_id: "lgp_create",
+      answer_fields: [
+        { path: "data.homeowner", type: "boolean", required: true, internal_field: null, label: null, valid_values: null },
+        { path: "data.coverage", type: "enum", required: false, internal_field: null, label: null, valid_values: ["basic", "full"] },
+        { path: "data.loan_amount", type: "number", required: false, internal_field: null, label: null, valid_values: null },
+        { path: "data.age", type: "number", required: false, internal_field: null, label: null, valid_values: null },
+        { path: "data.dob_date", type: "string", required: false, internal_field: null, label: null, valid_values: null },
+        { path: "data.note", type: "string", required: false, internal_field: null, label: null, valid_values: null },
+        { path: "data.zip", type: "string", required: true, internal_field: null, label: null, valid_values: null },
+      ],
+    };
+    const probe = mappingProbe(html, MAPPABLE_CONTENT, { activity: "a", vertical: "v", offers: [offer] });
+
+    // the §8.7 type→component mapping table
+    const expectType = (path: string, type: string): void => {
+      expect(probe.run(`componentTypeForField(answerFieldOf(offerById(9), ${JSON.stringify(path)}))`), path).toBe(type);
+    };
+    expectType("data.homeowner", "TwoButtonYesNo");
+    expectType("data.coverage", "DropdownQuestion");
+    expectType("data.loan_amount", "CurrencyInputQuestion");
+    expectType("data.age", "NumberInputQuestion");
+    expectType("data.dob_date", "DateQuestion");
+    expectType("data.note", "FreeTextQuestion");
+
+    // spawn: pre-bound node + edge, appended through the D1 add machinery
+    const node = probe.run(`createQuestionForField(offerById(9), answerFieldOf(offerById(9), 'data.homeowner'))`) as Record<string, unknown>;
+    expect(node["type"]).toBe("TwoButtonYesNo");
+    expect(node["internal_field"]).toBe("homeowner");
+    expect(node["required"]).toBe(true);
+    const edges = probe.run(`edgesForOffer(9)`) as Array<Record<string, unknown>>;
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ offer_payload_field_path: "data.homeowner", internal_field: "homeowner", provider_expected_type: "boolean", required_for_offer: true });
+    expect(probe.run(`edgeMapState(edgesForOffer(9)[0], offerById(9))`)).toBe("complete");
+
+    // enum spawn: choices come from valid_values
+    const dropdown = probe.run(`createQuestionForField(offerById(9), answerFieldOf(offerById(9), 'data.coverage'))`) as Record<string, unknown>;
+    expect(dropdown["type"]).toBe("DropdownQuestion");
+    expect(dropdown["choices"]).toEqual([
+      { label: "basic", value: "basic", analytics_id: "basic" },
+      { label: "full", value: "full", analytics_id: "full" },
+    ]);
+
+    // path→internal_field naming de-collides against the existing 'zip'
+    expect(probe.run(`internalFieldFromPath('data.zip')`)).toBe("zip_copy");
+
+    // everything the creator authored stays schema-valid
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+  });
+
+  it("bulkProposals proposes name+type-compatible pairs only (exact slug match first) and upsert applies them", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const offer = {
+      id: 4,
+      public_id: "lgo_bulk",
+      offer_name: "Bulk",
+      has_active_schema: true,
+      payload_schema_public_id: "lgp_bulk",
+      answer_fields: [
+        { path: "lead.zip", type: "string", required: true, internal_field: null, label: null, valid_values: null },
+        { path: "lead.insured", type: "boolean", required: false, internal_field: null, label: null, valid_values: null }, // substring of currently_insured
+        { path: "lead.zip_count", type: "number", required: false, internal_field: null, label: null, valid_values: null }, // name-near but number ⇒ excluded
+      ],
+    };
+    const probe = mappingProbe(html, MAPPABLE_CONTENT, { activity: "a", vertical: "v", offers: [offer] });
+    const proposals = probe.run(`bulkProposals(offerById(4))`) as Array<Record<string, unknown>>;
+    expect(proposals).toEqual([
+      { path: "lead.zip", type: "string", internal_field: "zip" },
+      { path: "lead.insured", type: "boolean", internal_field: "currently_insured" },
+    ]);
+    // applying a proposal creates a COMPLETE edge
+    probe.run(`upsertEdge(offerById(4), answerFieldOf(offerById(4), 'lead.zip'), 'zip')`);
+    expect(probe.run(`edgeMapState(edgesForOffer(4)[0], offerById(4))`)).toBe("complete");
+    // an applied field stops being proposed
+    expect((probe.run(`bulkProposals(offerById(4))`) as unknown[]).length).toBe(1);
+  });
+
+  it("toggleOfferSelected(off) drops the offer's edges (a mapped offer is implicitly selected); selected_offers persists a selected-but-unmapped offer through PATCH", async () => {
+    const { env } = newHarness();
+    const offer = await createOfferWithSchema(env, "Sel Only", [
+      { path: "data.zip", type: "string", required: true, internal_field: "zip" },
+    ]);
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const res = await admin.request(`${API}/sections/${section.public_id}/offers`, {}, env);
+    const offers = (await res.json()) as OffersResponse;
+    const probe = mappingProbe(html, MAPPABLE_CONTENT, offers);
+
+    // island model: select without mapping, then verify the deselect drop
+    probe.run(`toggleOfferSelected(${offer.id}, true)`);
+    expect((probe.run(`offerLiveState(offerById(${offer.id}))`) as { state: string }).state).toBe("selected");
+    probe.run(`upsertEdge(offerById(${offer.id}), answerFieldOf(offerById(${offer.id}), 'data.zip'), 'zip')`);
+    expect((probe.run(`edgesForOffer(${offer.id})`) as unknown[]).length).toBe(1);
+    probe.run(`toggleOfferSelected(${offer.id}, false)`);
+    expect((probe.run(`edgesForOffer(${offer.id})`) as unknown[]).length).toBe(0);
+    expect((probe.run(`offerLiveState(offerById(${offer.id}))`) as { state: string }).state).toBe("not_selected");
+
+    // server: a selected-but-unmapped offer SURVIVES the studio save
+    const body = {
+      section_name: "Selected only",
+      activity: "quote_funnel",
+      vertical: "life",
+      headline_text: "Are you insured?",
+      subheadline_text: null,
+      continue_mode: "button",
+      address_validation_enabled: false,
+      content_json: JSON.stringify(MAPPABLE_CONTENT),
+      answer_maps: [],
+      selected_offers: [offer.id],
+    };
+    const patch = await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", body), env);
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const detail = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const available = detail["available_offers"] as Array<Record<string, unknown>>;
+    expect(available.find((o) => o["offer_id"] === offer.id)).toMatchObject({ selected: true, mapping_state: "selected" });
+    // and the editor page now feeds it back through the state blob
+    const html2 = await studioPage(env, section.public_id);
+    const blob = extractJsonBlob(html2, "lg-section-data");
+    expect(blob["selected_offers"]).toEqual([offer.id]);
+  });
+});
+
+// ===========================================================================
+// §8.9 + §9.1 — the events panel (path (a): the REAL runtime bundle in
+// preview mode; would-fire events postMessage'd to the Studio panel)
+// ===========================================================================
+
+describeDb("section studio — §8.9/§9.1 runtime events document + events panel", () => {
+  it("POST /sections/preview {runtime:true} returns events_html: the shell-shaped preview document (data-lg-preview root, #lg-config through the REAL projection, the SAME versioned bundle URL)", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(MAPPABLE_CONTENT),
+        viewport: "desktop",
+        runtime: true,
+        section_public_id: "lgs_previewsection",
+        headline: "Are you insured?",
+        continue_mode: "auto_advance",
+        address_validation_enabled: true,
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { preview: Record<string, unknown> };
+    const doc = String(body.preview["events_html"]);
+
+    // the 03 §3.2 shell structural contract in PREVIEW mode
+    expect(doc.startsWith("<!doctype html>")).toBe(true);
+    expect(doc).toContain('id="lg-funnel-root"');
+    expect(doc).toContain('data-lg-preview="1"');
+    expect(doc).toContain("data-lg-mount");
+    expect(doc).toContain('data-lg-section data-lg-section-id="lgs_previewsection" data-lg-index="0"');
+    expect(doc).toContain('data-screen-label="01 · Are you insured?"');
+    expect(doc).toContain('data-lg-banners hidden');
+    // §9.1 "one hydration": the BYTE-IDENTICAL generated bundle the live
+    // shell's /lg/runtime/{version}.js serves, inlined (the admin host has no
+    // tenant site context, so /lg/* — including the bundle URL — 404s there;
+    // LEADGEN_RUNTIME_JS is exactly that route's response body).
+    expect(doc).toContain(`<script data-lg-runtime-version="1">`);
+    expect(doc).toContain(LEADGEN_RUNTIME_JS);
+    // honest preview identity — never faked live ids
+    expect(doc).toContain('data-funnel-variant-id="lgn_preview"');
+
+    // #lg-config parses and its components ARE the real toPublicComponent
+    // projection of the same nodes (parity by construction)
+    const marker = 'id="lg-config">';
+    const from = doc.indexOf(marker) + marker.length;
+    const configRaw = doc.slice(from, doc.indexOf("</script>", from)).split("\\u003c").join("<");
+    const config = JSON.parse(configRaw) as Record<string, unknown>;
+    const sections = config["sections"] as Array<Record<string, unknown>>;
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toMatchObject({
+      section_public_id: "lgs_previewsection",
+      section_index: 0,
+      headline: "Are you insured?",
+      continue_mode: "auto_advance",
+      address_validation_enabled: true,
+    });
+    const expectedComponents = flattenComponents(MAPPABLE_CONTENT.components as LeadgenComponentNode[]).map(toPublicComponent);
+    expect(sections[0]!["components"]).toEqual(JSON.parse(JSON.stringify(expectedComponents)));
+
+    // the rendered section markup rides INSIDE the section block
+    expect(doc).toContain('data-question-id="q1"');
+    expect(doc).toContain('data-lg-question="q1"');
+
+    // a legacy body (no runtime flag) returns NO events_html — byte-compatible
+    const legacy = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", { content_json: JSON.stringify(MAPPABLE_CONTENT), viewport: "desktop" }),
+      env,
+    );
+    const legacyBody = (await legacy.json()) as { preview: Record<string, unknown> };
+    expect("events_html" in legacyBody.preview).toBe(false);
+  });
+
+  it("the mobile events document carries the mobile viewport marker (round-trip with desktop)", async () => {
+    const { env } = newHarness();
+    for (const viewport of ["mobile", "desktop"] as const) {
+      const res = await admin.request(
+        `${API}/sections/preview`,
+        jsonInit("POST", { content_json: JSON.stringify(MAPPABLE_CONTENT), viewport, runtime: true }),
+        env,
+      );
+      const body = (await res.json()) as { preview: Record<string, unknown> };
+      const doc = String(body.preview["events_html"]);
+      expect(doc, viewport).toContain(`lg-preview-${viewport}`);
+      expect(doc, viewport).not.toContain(`lg-preview-${viewport === "mobile" ? "desktop" : "mobile"}`);
+    }
+  });
+
+  it("EXECUTED island: onPreviewMessage appends ONLY lg-preview-event batches to the panel list; clearEventsList resets it", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+
+    // a minimal fake-DOM list + document for the three sliced functions
+    interface FakeNode {
+      children: unknown[];
+      attrs: Map<string, string>;
+      className: string;
+      appendChild(c: unknown): unknown;
+      removeChild(c: unknown): void;
+      setAttribute(k: string, v: string): void;
+      readonly firstChild: unknown;
+      textContent?: string;
+    }
+    const el = (): FakeNode => ({
+      children: [],
+      attrs: new Map(),
+      className: "",
+      appendChild(c) {
+        this.children.push(c);
+        return c;
+      },
+      removeChild(c) {
+        const i = this.children.indexOf(c);
+        if (i !== -1) this.children.splice(i, 1);
+      },
+      setAttribute(k, v) {
+        this.attrs.set(k, v);
+      },
+      get firstChild() {
+        return this.children[0] ?? null;
+      },
+    });
+    const list = el();
+    const sandbox = {
+      document: {
+        querySelector(sel: string) {
+          return sel === "[data-studio-events-list]" ? list : null;
+        },
+        createElement() {
+          return el();
+        },
+        createTextNode(t: string) {
+          return { nodeType: 3, textContent: String(t) };
+        },
+      },
+    };
+    const source = [
+      sliceIslandFunction(island, "cloneJson"),
+      sliceIslandFunction(island, "clearChildren"),
+      sliceIslandFunction(island, "clearEventsList"),
+      sliceIslandFunction(island, "appendPreviewEvents"),
+      sliceIslandFunction(island, "onPreviewMessage"),
+      // the REAL engine message shape ({type:'lg-preview-event', events:[...]},
+      // engine.ts previewSender) + two decoys that must be IGNORED
+      "onPreviewMessage({ data: { type: 'lg-preview-event', events: [" +
+        "{ event_type: 'section_view', section_public_id: 'lgs_x', section_index: 0 }," +
+        "{ event_type: 'answer_click', question_key: 'insured_q' } ] } });",
+      "onPreviewMessage({ data: { type: 'other-message' } });",
+      "onPreviewMessage({ data: 'not-an-object' });",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    expect(list.children).toHaveLength(2);
+    const first = list.children[0] as FakeNode;
+    expect(first.attrs.get("data-event-type")).toBe("section_view");
+    // flatten one nesting level: li > [span.studio-event-type > text, text]
+    const textOf = (n: unknown): string => {
+      const node = n as { textContent?: string; children?: unknown[] };
+      if (typeof node.textContent === "string" && node.textContent !== "") return node.textContent;
+      return (node.children ?? []).map(textOf).join("");
+    };
+    const firstText = first.children.map(textOf).join("");
+    expect(firstText).toContain("section_view");
+    expect(firstText).toContain("lgs_x");
+    const second = list.children[1] as FakeNode;
+    expect(second.attrs.get("data-event-type")).toBe("answer_click");
+    // clear resets the panel (runPreview calls this on every refresh)
+    runInNewContext("clearEventsList();", sandbox);
+    expect(list.children).toHaveLength(0);
+  });
+
+  it("the island wires the panel: message listener + runtime request keys + the events-panel SSR hooks", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain("data-studio-events-panel");
+    expect(html).toContain("data-studio-events-list");
+    expect(html).toContain("data-studio-events-clear");
+    expect(html).toContain('sandbox="allow-scripts"');
+    const island = studioIsland(html);
+    expect(island).toContain("window.addEventListener('message', onPreviewMessage)");
+    expect(island).toContain("runtime: true");
+    expect(island).toContain("events_html");
   });
 });

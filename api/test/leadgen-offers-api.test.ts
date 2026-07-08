@@ -1534,6 +1534,44 @@ describeDb("GET /verticals + /activities — 03 §8.2 Shared filter options", ()
       expect(res.headers.get("Cache-Control"), `${path} no-store`).toBe("private, no-store");
     }
   });
+
+  // §8.2 (fix-contract v2.4 08, E1): the OPTIONAL ?activity= filter — each
+  // UNION leg (offers / sections / quotes-json_each) filters by ITS OWN
+  // activity column. Regression pins filtered-vs-global.
+  it("GET /verticals?activity= filters every union leg; the bare path stays the global union", async () => {
+    const { sdb, env } = newHarness();
+    await createOffer(env, { offer_name: "VA1", vertical: "life", activity: "quote_funnel", placements: ["sva-1"] });
+    await createOffer(env, { offer_name: "VA2", vertical: "boat", activity: "quiz", placements: ["sva-2"] });
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, 'S', 'quote_funnel', 'home', 'H', '{}')",
+      )
+      .run(mintPublicId("section"));
+    // two quotes on DIFFERENT activities — the json_each leg must only read
+    // the matching quote's verticals array.
+    sdb
+      .prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'Q1', 'quote_funnel', ?)")
+      .run(mintPublicId("quote"), JSON.stringify(["pet"]));
+    sdb
+      .prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'Q2', 'quiz', ?)")
+      .run(mintPublicId("quote"), JSON.stringify(["psychic"]));
+
+    // global (no filter) — the full union, unchanged shape
+    const global = await admin.request(`${API}/verticals`, {}, env);
+    expect(await global.json()).toEqual({ items: ["boat", "home", "life", "pet", "psychic"] });
+
+    // filtered: quote_funnel sees its offers+sections+quotes legs only
+    const funnel = await admin.request(`${API}/verticals?activity=quote_funnel`, {}, env);
+    expect(await funnel.json()).toEqual({ items: ["home", "life", "pet"] });
+
+    // filtered: quiz sees the quiz offer + the quiz quote's array only
+    const quiz = await admin.request(`${API}/verticals?activity=quiz`, {}, env);
+    expect(await quiz.json()).toEqual({ items: ["boat", "psychic"] });
+
+    // an unknown activity filters to empty (never errors)
+    const none = await admin.request(`${API}/verticals?activity=nope`, {}, env);
+    expect(await none.json()).toEqual({ items: [] });
+  });
 });
 
 // ===========================================================================

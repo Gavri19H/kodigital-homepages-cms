@@ -43,6 +43,17 @@ import { evaluateDependencies, type LeadgenDependencyState } from "../../leadgen
 // §9.2 (E5) preview sims: typed `sim` parse + the pure post-render markup
 // transform (preview-only — the shared preset renderer stays untouched, §9.1).
 import { applyPreviewSimMarkup, parsePreviewSim } from "./preview-sim";
+// §9.1 (Slice D2) events document: the Studio preview iframe runs the SAME
+// generated runtime bundle the live shell's /lg/runtime/{version}.js serves
+// (LEADGEN_RUNTIME_JS is exactly that route's body) with the SAME
+// toPublicComponent config projection — parity by construction. The bundle is
+// INLINED because the admin host has no tenant site context: every /lg/*
+// path (including the bundle URL) rides publicSiteContextMiddleware and 404s
+// on ADMIN_HOST, so a script-src from the studio srcdoc cannot load there.
+import { toPublicComponent } from "../../public/leadgen/config-dto";
+import { LEADGEN_RUNTIME_JS } from "../../public/leadgen/runtime/engine-bundle.generated";
+import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
+import { escapeHtml } from "../templates/layout";
 import { validateZip } from "../../leadgen/maps";
 import {
   mappingCompleteness,
@@ -1108,6 +1119,86 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
   // When the caller names a viewport, ALSO return that viewport's markup as
   // preview.html (the Studio srcdoc consumes it directly).
   if (viewport !== undefined) preview["html"] = viewport === "mobile" ? mobileHtml : desktopHtml;
+
+  // --- §9.1 / §8.9 (Slice D2) runtime-hydrated events document -------------
+  // ADDITIVE `runtime: true` body flag: the response gains
+  // preview.events_html — a COMPLETE srcdoc document that mirrors the live
+  // funnel shell's structural contract (03 §3.2): #lg-funnel-root +
+  // data-lg-mount + ONE [data-lg-section] block wrapping the SAME rendered
+  // markup, the #lg-config LeadgenPublicConfig-shaped blob (components through
+  // the REAL toPublicComponent projection), and the SAME versioned runtime
+  // script URL the shell embeds. The root carries data-lg-preview="1", so the
+  // engine (engine.ts §9.1 contract) suppresses real beacons and postMessages
+  // would-fire events to the parent — the Studio's "events that would fire"
+  // panel. The auction call is disabled by the same flag. Identity fields are
+  // HONEST preview placeholders (lg?_preview) — never faked live ids.
+  if (body["runtime"] === true) {
+    const sectionPublicId =
+      typeof body["section_public_id"] === "string" && body["section_public_id"] !== ""
+        ? (body["section_public_id"] as string)
+        : "lgs_preview";
+    const headline = typeof body["headline"] === "string" ? (body["headline"] as string) : "";
+    const continueMode = body["continue_mode"] === "auto_advance" ? "auto_advance" : "button";
+    const addressValidation = body["address_validation_enabled"] === true;
+    const previewConfig = {
+      quote_id: "lgq_preview",
+      funnel_id: "lgf_preview",
+      funnel_variant_id: "lgn_preview",
+      funnel_name: "Studio preview",
+      content_version: 0,
+      funnel_design_id: design.id,
+      design_tokens: design as unknown as Record<string, unknown>,
+      section_order_hash: "preview",
+      ga4_measurement_id: null,
+      funnel_ab_test_id: "",
+      funnel_ab_test_revision: 0,
+      variant_label: "preview",
+      traffic_allocation_bp: 10000,
+      assignment_reason: "single_control",
+      sections: [
+        {
+          section_public_id: sectionPublicId,
+          section_index: 0,
+          headline,
+          continue_mode: continueMode,
+          address_validation_enabled: addressValidation,
+          section_mapping_version: 0,
+          answer_mapping_version: "",
+          // The FULL flattened component list (the engine applies dependency
+          // visibility itself, exactly as on the live shell).
+          components: flattenComponents(nodes).map(toPublicComponent),
+        },
+      ],
+    };
+    const configJson = JSON.stringify(previewConfig).replace(/</g, "\\u003c");
+    const screenLabel = `01 · ${headline}`;
+    preview["events_html"] =
+      "<!doctype html>" +
+      '<html lang="en"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      `<style>${preview["css"] as string}</style></head><body>` +
+      `<div id="lg-funnel-root" data-lg-preview="1" ${FUNNEL_DESIGN_SCOPE_ATTR}="${escapeHtml(design.id)}"` +
+      ` data-funnel-id="lgf_preview" data-funnel-variant-id="lgn_preview" data-quote-id="lgq_preview"` +
+      ` data-content-version="0" data-viewport="${viewport === "mobile" ? "mobile" : "desktop"}"` +
+      ` class="lg-preview lg-preview-${viewport === "mobile" ? "mobile" : "desktop"}"` +
+      ` style="max-width:${viewport === "mobile" ? design.breakpoints.mobileMax : design.header.contentMaxWidth};margin:0 auto">` +
+      '<main class="lg-content" data-lg-mount>' +
+      `<section data-lg-section data-lg-section-id="${escapeHtml(sectionPublicId)}" data-lg-index="0" data-screen-label="${escapeHtml(screenLabel)}">` +
+      rendered +
+      "</section>" +
+      '<div class="lg-banners" data-lg-banners hidden></div>' +
+      "</main></div>" +
+      `<script type="application/json" id="lg-config">${configJson}</script>` +
+      // The BYTE-IDENTICAL bundle /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js
+      // serves, inlined (see the import note: /lg/* is site-scoped and 404s on
+      // the admin host, so the srcdoc cannot script-src it there). The version
+      // rides as a data attribute for observability; the `</script` escape is
+      // a defensive no-op today (the generated bundle contains none — any
+      // future occurrence must sit inside a JS string/regex where `<\/` is
+      // byte-equivalent).
+      `<script data-lg-runtime-version="${LEADGEN_TEMPLATE_VERSION}">${LEADGEN_RUNTIME_JS.replace(/<\/script/gi, "<\\/script")}</script>` +
+      "</body></html>";
+  }
   const responseBody: Record<string, unknown> = { preview };
   if (dependencies !== null) {
     responseBody["dependencies"] = {
@@ -1153,16 +1244,71 @@ export async function sectionUsageHandler(c: AdminContext): Promise<Response> {
 // GET /sections/:id/offers — available Offers for activity+vertical + mappings
 // ---------------------------------------------------------------------------
 
+// §8.7 (E2): one ANSWER-source field of an Offer's ACTIVE payload schema —
+// the mapping panel's grid rows. Projected from the §11.5 flat-node shape;
+// only `source:"answer"` nodes are mappable (macro/token/computed nodes are
+// server-side concerns and never appear here).
+export interface SectionOfferAnswerField {
+  path: string;
+  type: string;
+  required: boolean;
+  internal_field: string | null;
+  label: string | null;
+  valid_values: Array<string | number | boolean> | null;
+}
+
+// Parse a schema_json blob into its answer-source field list. Defensive
+// against corrupt stored JSON (D1 rule) — a bad blob yields [].
+function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswerField[] {
+  const out: SectionOfferAnswerField[] = [];
+  const parsed = parseJsonColumn(schemaJson);
+  if (!isRecord(parsed) || !isRecord(parsed["root"]) || !Array.isArray(parsed["root"]["children"])) {
+    return out;
+  }
+  for (const node of parsed["root"]["children"]) {
+    if (!isRecord(node)) continue;
+    if (node["source"] !== "answer") continue;
+    const path = node["path"];
+    const type = node["type"];
+    if (typeof path !== "string" || path === "" || typeof type !== "string" || !PAYLOAD_NODE_TYPES.has(type)) {
+      continue;
+    }
+    const validValues = Array.isArray(node["valid_values"])
+      ? (node["valid_values"] as unknown[]).filter(
+          (v): v is string | number | boolean =>
+            typeof v === "string" || typeof v === "number" || typeof v === "boolean",
+        )
+      : null;
+    out.push({
+      path,
+      type,
+      required: node["required"] === true,
+      internal_field: trimmedString(node["internal_field"]),
+      label: trimmedString(node["label"]),
+      valid_values: validValues !== null && validValues.length > 0 ? validValues : null,
+    });
+  }
+  return out;
+}
+
 export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
 
   // §12.4: only Offers matching the Section's activity AND vertical are shown.
+  // §8.7 additive columns: the ACTIVE schema's version/public_id/schema_json
+  // (for the answer_fields projection) + the Offer's DEFAULT placement id —
+  // the mapping table's Placement/Payload-schema-version cells.
   const offers = await c.env.DB.prepare(
     `SELECT o.id, o.public_id, o.offer_name, o.provider, o.activity, o.vertical, o.offer_type,
             o.status, o.active_payload_schema_id,
+            ps.version AS payload_schema_version, ps.public_id AS payload_schema_public_id,
+            ps.schema_json AS active_schema_json,
+            pl.placement_id AS default_placement_id,
             sao.selected, sao.mapping_state, sao.required_fields_total, sao.required_fields_mapped
      FROM leadgen_offers o
+     LEFT JOIN leadgen_offer_payload_schemas ps ON ps.id = o.active_payload_schema_id
+     LEFT JOIN leadgen_offer_placements pl ON pl.offer_id = o.id AND pl.is_default = 1
      LEFT JOIN leadgen_section_available_offers sao ON sao.offer_id = o.id AND sao.section_id = ?
      WHERE o.activity = ? AND o.vertical = ? AND o.status = 'active'
      ORDER BY o.offer_name ASC, o.id ASC`,
@@ -1178,6 +1324,10 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
       offer_type: string;
       status: string;
       active_payload_schema_id: number | null;
+      payload_schema_version: number | null;
+      payload_schema_public_id: string | null;
+      active_schema_json: string | null;
+      default_placement_id: string | null;
       selected: number | null;
       mapping_state: string | null;
       required_fields_total: number | null;
@@ -1186,6 +1336,10 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
 
   const maps = await readAnswerMaps(c.env.DB, row.id);
   return c.json({
+    // §8.2: echo the SAVED pair the derivation used — the E9 empty state names
+    // exactly these values.
+    activity: row.activity,
+    vertical: row.vertical,
     offers: (offers.results ?? []).map((o) => ({
       id: o.id,
       public_id: o.public_id,
@@ -1196,6 +1350,11 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
       offer_type: o.offer_type,
       status: o.status,
       has_active_schema: o.active_payload_schema_id !== null,
+      // §8.7 additive fields (the E2 mapping panel):
+      payload_schema_version: o.payload_schema_version,
+      payload_schema_public_id: o.payload_schema_public_id,
+      default_placement_id: o.default_placement_id,
+      answer_fields: schemaAnswerSourceFields(o.active_schema_json),
       selected: o.selected !== null && o.selected !== 0,
       mapping_state: o.mapping_state,
       required_fields_total: o.required_fields_total ?? 0,

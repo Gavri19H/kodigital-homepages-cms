@@ -22,7 +22,9 @@ import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
-import { renderMappingGrid, type AnswerMapView, type MappingSummary } from "../src/admin/leadgen/ui-question-builder";
+// D2: ui-question-builder.ts is DELETED — its §12.11 mapping-grid cell-state
+// assertions are ported to test/leadgen-section-studio-ui.test.ts (the studio
+// island's edgeMapState/mapStateNote decode, executed from the served page).
 import {
   mappingSummaryOf,
   type AnswerMapApiRow,
@@ -308,12 +310,15 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
       expect(html, `token control ${key}`).toContain(`data-inspector-override="${key}"`);
       expect(html, `token control ${key} is a select`).toContain(`<select id="lg-inspector-${key}"`);
     }
-    // BOTTOM drawer: the mapping tab is the D2 placeholder + the summary
-    // derived from the seeded (complete) mapping — data preserved untouched.
+    // BOTTOM drawer: the D2 §8.7 mapping panel skeleton + the summary derived
+    // from the seeded (complete) mapping — data preserved untouched.
     expect(html).toContain('data-studio-drawer-tab="mapping"');
     expect(html).toContain("data-mapping-summary");
     expect(html).toContain('data-publishable="true"');
-    expect(html).toContain("1 answer→Offer mapping edge");
+    expect(html).toContain("1 mapping edge on this Section");
+    expect(html).toContain("data-studio-mapping-table");
+    expect(html).toContain("data-studio-offers-empty"); // the E9 slot
+    expect(html).toContain("data-studio-map-grid");
     // the mapping edges ride the state blob (pass-through to save)
     const data = extractJsonBlob(html, "lg-section-data");
     const maps = data["answer_maps"] as Array<Record<string, unknown>>;
@@ -330,7 +335,9 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain('data-preview-viewport="desktop"');
     expect(html).toContain('data-preview-viewport="mobile"');
     expect(html).toContain('id="lg-preview-frame"');
-    expect(html).toContain('sandbox=""'); // sandboxed preview iframe (no innerHTML)
+    // §9.1 (D2): the srcdoc runs the REAL runtime bundle in preview mode —
+    // scripts allowed, same-origin still withheld (opaque origin).
+    expect(html).toContain('sandbox="allow-scripts"');
     // §8.9 design picker (preview under any registered design; "" = server default)
     expect(html).toContain('id="lg-preview-design"');
     expect(html).toContain('<option value="default-funnel">');
@@ -368,9 +375,12 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain("New Section");
     expect(html).toContain('id="lg-section-save"');
     expect(html).toMatch(/id="lg-section-archive"[^>]*disabled/);
-    // empty canvas + empty mapping grid
+    // empty canvas + the D2 §8.7 panel skeleton (the island notes that a NEW
+    // Section must save before the Available Offers derivation exists)
     expect(html).toContain("No components yet.");
-    expect(html).toContain("No answer→Offer mappings yet.");
+    expect(html).toContain("data-studio-offers-note");
+    expect(html).toContain("data-studio-offers-empty");
+    expect(html).toContain("data-studio-mapping-table");
   });
 
   it("unknown / foreign-kind / malformed section ids → the in-shell 404", async () => {
@@ -606,92 +616,15 @@ describeDb("leadgen sections pages — ES5-only inline scripts", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §12.11 field-level mapping-completeness cell states (pure render — no DB)
+// §12.11 field-level mapping-completeness cell states — PORTED (D2): the old
+// builder's renderMappingGrid is deleted with ui-question-builder.ts; the
+// studio's live decode (edgeMapState/mapStateNote/offerLiveState, executed
+// from the SERVED island) carries these assertions in
+// test/leadgen-section-studio-ui.test.ts ("§8.7 mapping panel — ported §12.11
+// cell states"). The SSR summary attrs (data-mapping-summary /
+// data-publishable / data-required-missing) stay asserted in the editor
+// describe above.
 // ---------------------------------------------------------------------------
-
-function mapView(mappingStatus: string, over: Partial<AnswerMapView> = {}): AnswerMapView {
-  return {
-    question_id: "q1",
-    question_key: "insured_q",
-    internal_field: "insured",
-    answer_type: "boolean",
-    offer_id: 7,
-    offer_payload_field_path: "data.insured",
-    provider_expected_type: "boolean",
-    output_value_map: null,
-    value_transform: null,
-    required_for_offer: true,
-    default_value: null,
-    fallback_value: null,
-    mapping_status: mappingStatus,
-    ...over,
-  };
-}
-
-describe("§12.11 mapping grid — the four field-level cell states + publish summary", () => {
-  const summary: MappingSummary = { publishable: false, status: "error", required_missing_total: 2 };
-  // one row per §12.11 state: complete→ok, incomplete→missing_required,
-  // type_mismatch, orphaned. The type_mismatch row names a coercion (string→boolean).
-  const html = renderMappingGrid(
-    [
-      mapView("complete"),
-      mapView("incomplete"),
-      mapView("type_mismatch", { answer_type: "string" }),
-      mapView("orphaned"),
-    ],
-    new Map<number, string>([[7, "OfferX"]]),
-    summary,
-  );
-
-  it("renders each of the four §12.11 semantic cell states with the exact copy", () => {
-    // the semantic state attribute for each cell
-    expect(html).toContain('data-mapping-cell="ok"');
-    expect(html).toContain('data-mapping-cell="missing_required"');
-    expect(html).toContain('data-mapping-cell="type_mismatch"');
-    expect(html).toContain('data-mapping-cell="orphaned"');
-    // the §12.11 exact per-state copy
-    expect(html).toContain("map required field"); // missing_required (red)
-    expect(html).toContain("answer type string not coercible to boolean"); // type_mismatch (amber)
-    expect(html).toContain("Offer field no longer exists in schema"); // orphaned (gray)
-    // the DB mapping_status attribute is preserved (back-compat)
-    expect(html).toContain('data-mapping-status="complete"');
-  });
-
-  it("colours each cell (green ok / red missing / amber mismatch / gray orphaned)", () => {
-    expect(html).toContain("lg-cell-ok");
-    expect(html).toContain("lg-cell-missing");
-    expect(html).toContain("lg-cell-mismatch");
-    expect(html).toContain("lg-cell-orphaned");
-  });
-
-  it("renders the section-level publish verdict + 'N required mappings missing' summary (§12.11 gate)", () => {
-    expect(html).toContain("data-mapping-summary");
-    expect(html).toContain('data-publishable="false"'); // §12.11 publish gate blocked
-    expect(html).toContain("Blocked from publish");
-    expect(html).toContain('data-required-missing="2"');
-    expect(html).toContain("2 required mappings missing");
-  });
-
-  it("a fully-mapped, publishable section shows the publishable verdict", () => {
-    const ok = renderMappingGrid(
-      [mapView("complete")],
-      new Map<number, string>([[7, "OfferX"]]),
-      { publishable: true, status: "ok", required_missing_total: 0 },
-    );
-    expect(ok).toContain('data-publishable="true"');
-    expect(ok).toContain("Publishable");
-    expect(ok).toContain('data-required-missing="0"');
-  });
-
-  it("the orphaned cell names the pinned schema by its public_id (§12.11 'vN')", () => {
-    const withSchema = renderMappingGrid(
-      [mapView("orphaned", { payload_schema_public_id: "lgp_00000000000000000000000001" })],
-      new Map<number, string>([[7, "OfferX"]]),
-      { publishable: false, status: "error", required_missing_total: 0 },
-    );
-    expect(withSchema).toContain("no longer exists in schema lgp_00000000000000000000000001");
-  });
-});
 
 // MAJOR-#1 regression: mappingSummaryOf (the REAL editor derivation, not a
 // hand-built MappingSummary) must agree with sectionValidationStatus — a
@@ -954,6 +887,7 @@ async function runPreviewProbe(opts: {
     sliceIslandFunction(opts.island, "trimStr"),
     sliceIslandFunction(opts.island, "sampleAnswers"),
     sliceIslandFunction(opts.island, "renderDependencyStatus"),
+    sliceIslandFunction(opts.island, "clearEventsList"), // D2: runPreview resets the events panel
     sliceIslandFunction(opts.island, "runPreview"),
     "runPreview();",
   ].join("\n");
@@ -1003,10 +937,20 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     // --- the island CONSUMED the live server JSON ---------------------------
     expect(out.errEl.hidden).toBe(true);
     const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
-    expect(srcdoc.startsWith("<style>")).toBe(true);
-    // preview.html is the MOBILE wrapper (the requested viewport), not desktop
-    expect(srcdoc).toContain("lg-preview-mobile");
-    expect(srcdoc).not.toContain("lg-preview-desktop");
+    // D2 (§9.1): the srcdoc is the runtime-hydrated events DOCUMENT — the
+    // shell-shaped root in preview mode embedding the generated bundle INLINE
+    // (the admin host has no tenant site context, so /lg/* can't be
+    // script-src'd there; the studio suite asserts byte-identity).
+    expect(srcdoc.startsWith("<!doctype html>")).toBe(true);
+    expect(srcdoc).toContain("<style>");
+    expect(srcdoc).toContain('data-lg-preview="1"');
+    expect(srcdoc).toContain('id="lg-config"');
+    expect(srcdoc).toContain('<script data-lg-runtime-version="');
+    // the MOBILE wrapper (the requested viewport), not desktop — scoped to
+    // the MARKUP portion (the inlined bundle JS carries class-name literals)
+    const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
+    expect(markup).toContain("lg-preview-mobile");
+    expect(markup).not.toContain("lg-preview-desktop");
     // both dependency-visible questions rendered by the live handler
     expect(srcdoc).toContain('data-lg-question="q1"');
     expect(srcdoc).toContain('data-lg-question="q2"');
@@ -1037,13 +981,15 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     expect((out.requestBody["sim"] as Record<string, unknown>)["state"]).toBe("selected");
 
     const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
-    expect(srcdoc).toContain("lg-preview-desktop");
-    expect(srcdoc).toContain('data-funnel-design="default-funnel"');
+    // markup-scoped (the inlined runtime bundle carries class-name literals)
+    const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
+    expect(markup).toContain("lg-preview-desktop");
+    expect(markup).toContain('data-funnel-design="default-funnel"');
     // the SERVER rendered the selection into the markup — the client painted
     // nothing (E5: never attributes for the client to interpret)
-    expect(srcdoc).toContain('aria-checked="true"');
-    expect(srcdoc).toContain("lg-selected");
-    expect(srcdoc).toContain('aria-pressed="true"');
+    expect(markup).toContain('aria-checked="true"');
+    expect(markup).toContain("lg-selected");
+    expect(markup).toContain('aria-pressed="true"');
     expect(out.frame.className).toBe("lg-preview-frame");
   });
 
@@ -1060,7 +1006,9 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     });
     expect(out.requestBody["sim"]).toEqual({ state: "default" });
     const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
-    expect(srcdoc).toContain("lg-preview-desktop");
-    expect(srcdoc).not.toContain("lg-selected");
+    // markup-scoped (the inlined runtime bundle carries the class literal)
+    const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
+    expect(markup).toContain("lg-preview-desktop");
+    expect(markup).not.toContain("lg-selected");
   });
 });

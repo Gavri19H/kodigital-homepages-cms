@@ -9,11 +9,17 @@
 // inspector (Content / Choices / Design tokens / Validation / Dependencies /
 // Mapping placeholder / Advanced + the §8.5 container prop controls).
 //
-// Slice D2 owns: §8.2 Activity/Vertical combobox behavior, the §8.7 mapping
-// panel, §8.9 preview-drawer events panel, §8.8 Maps UI, Playwright flows.
-// The D1 seams for those are the data-studio-activity / data-studio-vertical /
-// data-studio-mapping-badge / data-studio-tab-mapping / data-studio-events-
-// panel hooks below.
+// Slice D2 (this file, second pass) ships: §8.2 Activity/Vertical dropdowns
+// (E1: /activities + /verticals?activity=, "+ New …" behind the explicit
+// confirm; E9 exact empty state + save-time zero-match warning), the §8.7
+// Offer mapping panel (E2: Offer·Provider·Placement·schema-version·required/
+// mapped·status table over GET /sections/:id/offers answer_fields; map-fields
+// grid with path/question PICKERS, create-question-for-field, bulk-map with a
+// review list, per-offer validate-payload preview, §6.3 deep links), the
+// §8.6 inspector Mapping tab quick-map, and the §8.9/§9.1 events panel (the
+// preview iframe loads the REAL runtime bundle with data-lg-preview="1"; the
+// would-fire events arrive by postMessage). §8.8 Maps field-level UI stays a
+// later slice.
 //
 // House rules carried over from ui-question-builder: ONE strict-ES5 inline
 // island (no arrow/const/let/async/await/backtick — the layout.ts constraint,
@@ -502,11 +508,15 @@ function issueChip(count: number): string {
   return `<button type="button" class="studio-chip studio-chip-validation" data-studio-validation-chip data-issue-count="${count}" aria-live="polite">${escapeHtml(count === 0 ? "No issues" : label)}</button>`;
 }
 
-// The §8.1 top bar. Activity/Vertical render SERVER-side from the current
-// values as plain controls carrying the D2 seam hooks (the §8.2 dropdown
-// derivation + "+ New activity…" affordance is Slice D2); the mapping badge is
-// the D2 placeholder. The archive/save controls keep the old element ids so
-// the save-path island wiring (and its tests) carry over unchanged.
+// The §8.1 top bar. §8.2 (Slice D2): Activity/Vertical are DROPDOWNS — the
+// island feeds Activity from GET /activities and Vertical from
+// GET /verticals?activity=<sel> (changing Activity resets Vertical); no free
+// text by default — the "+ New activity…"/"+ New vertical…" affordances
+// require the explicit "No Offers exist for '<x>' yet" confirm. The SSR
+// select carries only the saved value so a legacy value never breaks; element
+// ids stay lg-section-activity / lg-section-vertical so collectSection + the
+// dirty watcher carry over unchanged. The mapping badge is island-rewritten to
+// the §8.1 "Mapping k/n Offers complete" text once the offers panel loads.
 export function renderStudioTopBar(
   view: StudioSectionView,
   summary: StudioMappingSummary,
@@ -517,6 +527,8 @@ export function renderStudioTopBar(
   const mappingBadge = summary.publishable
     ? `<span class="studio-chip studio-chip-mapping badge badge-published" data-studio-mapping-badge data-publishable="true">Mapping ready</span>`
     : `<span class="studio-chip studio-chip-mapping badge badge-archived" data-studio-mapping-badge data-publishable="false">${summary.required_missing_total} required mapping${summary.required_missing_total === 1 ? "" : "s"} missing</span>`;
+  const currentOption = (value: string): string =>
+    value === "" ? `<option value="" selected>— pick —</option>` : `<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}</option>`;
   return `<div class="studio-topbar" data-studio-topbar>
   <a href="/admin/leadgen/sections" class="btn btn-outline studio-back">&#8592; Sections</a>
   <div class="form-group studio-name">
@@ -526,11 +538,17 @@ export function renderStudioTopBar(
   ${isNew ? "" : statusPillHtml}
   <div class="form-group studio-activity">
     <label class="form-label" for="lg-section-activity">Activity *</label>
-    <input id="lg-section-activity" name="activity" class="form-input" data-studio-activity required aria-required="true" value="${escapeHtml(view.activity)}" />
+    <div class="studio-pair">
+      <select id="lg-section-activity" name="activity" class="form-input" data-studio-activity required aria-required="true">${currentOption(view.activity)}</select>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-new-activity title="Create a new activity">+ New activity&#8230;</button>
+    </div>
   </div>
   <div class="form-group studio-vertical">
     <label class="form-label" for="lg-section-vertical">Vertical *</label>
-    <input id="lg-section-vertical" name="vertical" class="form-input" data-studio-vertical required aria-required="true" value="${escapeHtml(view.vertical)}" />
+    <div class="studio-pair">
+      <select id="lg-section-vertical" name="vertical" class="form-input" data-studio-vertical required aria-required="true">${currentOption(view.vertical)}</select>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-new-vertical title="Create a new vertical">+ New vertical&#8230;</button>
+    </div>
   </div>
   <span class="lg-editor-spacer"></span>
   ${mappingBadge}
@@ -579,17 +597,25 @@ function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
   // The thumbnail IS the component's own preset render with sample props,
   // scaled down by CSS transform (equivalent-fidelity choice documented in
   // the slice report; inline-SVG wrapping is not required for parity).
+  //
+  // The item wrapper MUST NOT be a <button>: preset thumbnails legitimately
+  // contain interactive markup (answer <button>s, <input>s), and nested
+  // interactive content inside a button is INVALID HTML — the browser parser
+  // closes the outer button early and shatters the whole studio layout out of
+  // the admin shell (found by the first D2 Playwright exposure). A
+  // role="button" div keeps click-to-add + drag + a11y; the thumb itself is
+  // pointer-events:none so the inner preset controls are inert.
   const thumbHtml = renderComponent(STUDIO_SAMPLE_NODES[type], design);
   const answerType = produces === null ? "" : `<span class="studio-item-type">${escapeHtml(String(produces))}</span>`;
   const mapsBadge = produces === null ? "" : `<span class="studio-item-maps" data-maps-badge>maps to Offer fields</span>`;
-  return `<button type="button" class="studio-library-item" draggable="true" data-add-component="${escapeHtml(type)}" data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}">
+  return `<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(type)}" data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}" aria-label="Add ${escapeHtml(meta.label)}">
   <span class="studio-thumb" aria-hidden="true"><span class="studio-thumb-scale" data-funnel-design="${escapeHtml(design.id)}">${thumbHtml}</span></span>
   <span class="studio-item-body">
     <span class="studio-item-name">${escapeHtml(meta.label)}</span>
     <span class="studio-item-desc">${escapeHtml(meta.description)}</span>
     <span class="studio-item-meta">${answerType}${mapsBadge}</span>
   </span>
-</button>`;
+</div>`;
 }
 
 export function renderStudioLibrary(design: FunnelDesign): string {
@@ -970,7 +996,8 @@ export function renderStudioInspector(design: FunnelDesign): string {
   </div>
 
   <div class="studio-panel" data-studio-panel="mapping" role="tabpanel" hidden>
-    <p class="form-help" data-studio-tab-mapping>Field-level Offer mapping lands with the §8.7 panel (Slice D2). This component&#39;s <code>internal_field</code> keeps its existing mappings — see the Offer mapping drawer tab.</p>
+    <p class="form-help">This component&#39;s <code>internal_field</code> mapping status per selected Offer (§8.6). Quick-map picks the Offer&#39;s schema field — never a typed path.</p>
+    <div class="studio-inspector-mapping" data-studio-inspector-mapping></div>
     <button type="button" class="btn btn-sm btn-outline" data-studio-open-mapping-drawer>Open Offer mapping drawer</button>
   </div>
 
@@ -1039,11 +1066,30 @@ function renderPreviewPanel(): string {
     <button type="button" class="btn btn-sm btn-secondary" id="lg-dependency-apply">Apply sample answers</button>
     <p class="lg-dependency-status" data-dependency-status role="status" aria-live="polite"></p>
   </div>
-  <p class="form-help" data-studio-events-panel>&quot;Events that would fire&quot; panel lands in Slice D2 (§8.9).</p>
+  <div class="studio-events" data-studio-events-panel>
+    <div class="studio-events-head">
+      <span class="form-label">Events that would fire (§8.9 / §9.1)</span>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-events-clear>Clear</button>
+    </div>
+    <p class="form-help" data-studio-events-note>The preview loads the REAL runtime bundle in preview mode (data-lg-preview="1"): beacons are suppressed and every would-fire event is listed here instead. Interact with the preview to see answer/continue events.</p>
+    <ol class="studio-events-list" data-studio-events-list aria-live="polite"></ol>
+  </div>
   <p id="lg-preview-error" class="alert alert-error" hidden role="alert"></p>
-  <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview" sandbox=""></iframe>
+  <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview" sandbox="allow-scripts"></iframe>
 </div>`;
 }
+
+// §8.7 (E2) mapping-panel table columns — the normative order.
+const MAPPING_TABLE_COLUMNS = [
+  "Offer",
+  "Provider",
+  "Placement",
+  "Payload schema version",
+  "Required fields",
+  "Mapped fields",
+  "Mapping status",
+  "Action",
+] as const;
 
 export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount: number): string {
   const mappingSummary = summary.publishable
@@ -1053,10 +1099,12 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     summary.required_missing_total > 0
       ? `<span class="lg-mapping-missing" data-required-missing="${summary.required_missing_total}">${summary.required_missing_total} required mapping${summary.required_missing_total === 1 ? "" : "s"} missing</span>`
       : `<span class="lg-mapping-missing" data-required-missing="0">All required fields mapped</span>`;
-  const mappingBody =
-    answerMapCount === 0
-      ? `<div class="empty-state"><p>No answer→Offer mappings yet.</p><p class="form-help">The picker-driven §8.7 mapping panel lands in Slice D2; existing mappings are preserved through save untouched.</p></div>`
-      : `<p class="form-help">${answerMapCount} answer→Offer mapping edge${answerMapCount === 1 ? "" : "s"} on this Section — preserved through save untouched. The picker-driven §8.7 panel lands in Slice D2.</p>`;
+  const header = MAPPING_TABLE_COLUMNS.map((c) => `<th scope="col">${escapeHtml(c)}</th>`).join("");
+  // The §8.7 panel: SSR renders the SKELETON (summary, E9 empty-state slot,
+  // table head, expansion regions); the island fills it from
+  // GET /sections/:id/offers + the live answer_maps model. Raw numeric offer
+  // ids, free-text paths and raw JSON maps do NOT exist on this surface —
+  // pickers only (Advanced drawer = the per-NODE raw JSON, §6.14).
   return `<div class="studio-drawer" data-studio-drawer>
   <div class="studio-tabs" role="tablist" aria-label="Studio drawer tabs">
     <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Offer mapping</button>
@@ -1064,8 +1112,29 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <button type="button" class="studio-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview &amp; debug</button>
   </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="mapping" hidden>
-    <div class="lg-mapping-summary" data-mapping-summary>${mappingSummary}${missing}</div>
-    ${mappingBody}
+    <div class="lg-mapping-summary" data-mapping-summary data-studio-tab-mapping>${mappingSummary}${missing}<span class="form-help" data-studio-mapping-count>${answerMapCount} mapping edge${answerMapCount === 1 ? "" : "s"} on this Section</span></div>
+    <p class="alert alert-error" data-studio-zero-offers-warning hidden role="status" aria-live="polite"></p>
+    <p class="form-help" data-studio-offers-note>Loading matching Offers&#8230;</p>
+    <div class="empty-state studio-offers-empty" data-studio-offers-empty hidden>
+      <p data-studio-offers-empty-copy></p>
+      <p>
+        <a href="/admin/leadgen/offers" class="btn btn-sm btn-secondary" data-studio-open-offers>Open Offers</a>
+        <button type="button" class="btn btn-sm btn-outline" data-studio-change-pair>Change Activity/Vertical</button>
+      </p>
+    </div>
+    <div class="table-wrapper" data-studio-offers-table-wrap hidden>
+      <table class="table studio-mapping-table" data-studio-mapping-table aria-label="Available Offers and mapping status">
+        <thead><tr>${header}</tr></thead>
+        <tbody data-studio-offers-body></tbody>
+      </table>
+    </div>
+    <div class="studio-map-grid" data-studio-map-grid hidden></div>
+    <div class="studio-bulk-review" data-studio-bulk-review hidden></div>
+    <div class="studio-payload-preview" data-studio-payload-preview-wrap hidden>
+      <div class="studio-events-head"><span class="form-label" data-studio-payload-preview-title>Generated payload preview</span><button type="button" class="btn btn-sm btn-outline" data-studio-payload-close>Close</button></div>
+      <p class="form-help" data-studio-payload-note hidden>Unsaved mapping edits are NOT reflected — the payload preview validates the last SAVED mapping.</p>
+      <pre data-studio-payload-preview></pre>
+    </div>
   </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="validation" hidden>
     <p class="form-help">Structural issues, live from the studio model — the server re-validates on save. Click an issue to focus its component.</p>
@@ -1131,8 +1200,9 @@ export const SECTION_STUDIO_STYLES = `
 .studio-library-group{margin-bottom:16px}
 .studio-library-heading{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--c-muted);margin:0 0 6px}
 .studio-library-items{display:flex;flex-direction:column;gap:6px}
-.studio-library-item{display:flex;gap:10px;width:100%;padding:8px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-surface);cursor:grab;text-align:left;align-items:flex-start}
+.studio-library-item{display:flex;gap:10px;width:100%;padding:8px;border:1px solid var(--c-border);border-radius:8px;background:var(--c-surface);cursor:grab;text-align:left;align-items:flex-start;box-sizing:border-box;user-select:none}
 .studio-library-item:hover{border-color:var(--c-primary)}
+.studio-library-item:focus-visible{outline:2px solid var(--c-primary);outline-offset:2px}
 .studio-library-item[data-search-hidden="true"]{display:none}
 .studio-thumb{display:block;flex:0 0 84px;height:56px;overflow:hidden;border:1px solid var(--c-border);border-radius:6px;background:#fff;pointer-events:none;position:relative}
 .studio-thumb-scale{display:block;transform:scale(.38);transform-origin:top left;width:264%;pointer-events:none}
@@ -1184,6 +1254,39 @@ export const SECTION_STUDIO_STYLES = `
 .lg-dependency-panel textarea{width:100%;font-family:var(--font-mono,monospace);font-size:12px;margin-bottom:6px}
 .lg-dependency-status{font-size:12px;margin:6px 0 0}
 .lg-dependency-status[data-continue-blocked="true"]{color:#842029}
+/* §8.2 activity/vertical pair controls */
+.studio-pair{display:flex;gap:4px;align-items:center}
+.studio-pair select{min-width:120px}
+/* §8.7 mapping panel */
+.studio-mapping-table td,.studio-mapping-table th{font-size:12px;vertical-align:middle}
+.studio-offers-empty p{margin:4px 0}
+.studio-map-grid{border:1px dashed var(--c-border);border-radius:8px;padding:10px;margin-top:10px}
+.studio-map-grid-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.studio-map-row{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(180px,1.2fr) auto minmax(140px,1fr);gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--c-border)}
+.studio-map-row:last-child{border-bottom:0}
+.studio-map-row .form-input{font-size:12px;padding:4px 6px}
+.studio-map-status{font-size:11px;border-radius:4px;padding:2px 6px;display:inline-block}
+.studio-map-status[data-map-state="complete"]{color:#0f5132;background:#d1e7dd}
+.studio-map-status[data-map-state="missing_required"]{color:#842029;background:#f8d7da}
+.studio-map-status[data-map-state="type_mismatch"]{color:#664d03;background:#fff3cd}
+.studio-map-status[data-map-state="orphaned"]{color:#41464b;background:#e2e3e5}
+.studio-map-status[data-map-state="unmapped"]{color:var(--c-muted);background:var(--c-surface);border:1px solid var(--c-border)}
+.studio-offer-state{font-size:11px;border-radius:999px;padding:2px 8px}
+.studio-offer-state[data-offer-mapping-state="complete"]{color:#0f5132;background:#d1e7dd}
+.studio-offer-state[data-offer-mapping-state="incomplete"]{color:#664d03;background:#fff3cd}
+.studio-offer-state[data-offer-mapping-state="invalid"]{color:#842029;background:#f8d7da}
+.studio-offer-state[data-offer-mapping-state="selected"]{color:#055160;background:#cff4fc}
+.studio-offer-state[data-offer-mapping-state="not_selected"]{color:var(--c-muted);background:var(--c-surface);border:1px solid var(--c-border)}
+.studio-bulk-review{border:1px dashed var(--c-border);border-radius:8px;padding:10px;margin-top:10px}
+.studio-bulk-review ul{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.studio-payload-preview pre{max-height:260px;overflow:auto;background:#0b1021;color:#d8e0f0;border-radius:8px;padding:10px;font-size:11px}
+.studio-inspector-mapping .studio-map-row{grid-template-columns:minmax(120px,1fr) minmax(140px,1.2fr) auto}
+/* §8.9 events panel */
+.studio-events{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
+.studio-events-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.studio-events-list{margin:6px 0 0;padding-left:18px;max-height:160px;overflow:auto;font-size:11px;font-family:var(--font-mono,monospace)}
+.studio-events-list li{padding:1px 0}
+.studio-events-list .studio-event-type{font-weight:600}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1203,6 +1306,7 @@ export const SECTION_STUDIO_SCRIPT = `
   try { state = JSON.parse(dataEl.textContent || '{}'); } catch (e) { state = {}; }
   if (!state.content || !state.content.components) { state.content = { components: [] }; }
   if (!state.answer_maps) { state.answer_maps = []; }
+  if (!state.selected_offers) { state.selected_offers = []; }
 
   var componentSeeds = {};
   var seedEl = document.getElementById('lg-component-seeds');
@@ -1651,6 +1755,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (toolbar) { toolbar.hidden = !selectedQuestionId; }
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
     populateInspector();
+    renderInspectorMapping();
   }
 
   // --- inspector tabs ----------------------------------------------------------
@@ -2261,6 +2366,15 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       addFromLibrary(btn.getAttribute('data-add-component'));
     });
+    // the items are role="button" divs (nested-button validity) — keep the
+    // native keyboard activation contract.
+    libraryEl.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') { return; }
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
+      if (!btn) { return; }
+      ev.preventDefault();
+      addFromLibrary(btn.getAttribute('data-add-component'));
+    });
     libraryEl.addEventListener('dragstart', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn || !ev.dataTransfer) { return; }
@@ -2489,7 +2603,21 @@ export const SECTION_STUDIO_SCRIPT = `
     var frame = document.getElementById('lg-preview-frame');
     var errEl = document.getElementById('lg-preview-error');
     if (errEl) { errEl.hidden = true; }
-    var requestBody = { content_json: JSON.stringify(state.content), viewport: previewViewport, sim: { state: simState } };
+    clearEventsList();
+    // §9.1: request the runtime-hydrated events document alongside the plain
+    // markup — the iframe loads the REAL bundle in preview mode and the
+    // "events that would fire" panel receives its postMessage stream.
+    var headlineEl = document.getElementById('lg-section-headline');
+    var requestBody = {
+      content_json: JSON.stringify(state.content),
+      viewport: previewViewport,
+      sim: { state: simState },
+      runtime: true,
+      headline: headlineEl ? headlineEl.value : '',
+      continue_mode: state.continue_mode || 'button',
+      address_validation_enabled: !!state.address_validation_enabled
+    };
+    if (state.public_id) { requestBody.section_public_id = state.public_id; }
     if (simState !== 'default') { requestBody.sim.answers = sampleAnswers(); }
     var designSel = document.getElementById('lg-preview-design');
     if (designSel && trimStr(designSel.value) !== '') { requestBody.design_id = trimStr(designSel.value); }
@@ -2508,7 +2636,10 @@ export const SECTION_STUDIO_SCRIPT = `
       if (frame) {
         frame.className = previewViewport === 'mobile' ? 'lg-preview-frame lg-preview-frame-mobile' : 'lg-preview-frame';
         var html = res.body.preview.html || (previewViewport === 'mobile' ? res.body.preview.mobile : res.body.preview.desktop);
-        frame.setAttribute('srcdoc', '<style>' + res.body.preview.css + '</style>' + html);
+        // The runtime events document when the server returned one (§9.1);
+        // the plain css+markup srcdoc stays the fallback (byte-compatible).
+        var doc = res.body.preview.events_html || ('<style>' + res.body.preview.css + '</style>' + html);
+        frame.setAttribute('srcdoc', doc);
       }
       renderDependencyStatus(res.body.dependencies || null);
     }).catch(function () {
@@ -2557,6 +2688,843 @@ export const SECTION_STUDIO_SCRIPT = `
   var depAnswers = document.getElementById('lg-dependency-answers');
   if (depAnswers) { depAnswers.addEventListener('change', runPreview); }
 
+  // --- §8.9/§9.1 events panel: the preview iframe runs the REAL bundle in
+  // preview mode; would-fire events arrive as postMessage batches ------------
+  function clearEventsList() {
+    var list = document.querySelector('[data-studio-events-list]');
+    if (list) { clearChildren(list); }
+  }
+  function appendPreviewEvents(events) {
+    var list = document.querySelector('[data-studio-events-list]');
+    if (!list || !events || !events.length) { return; }
+    var i, ev, li, typeEl, rest;
+    for (i = 0; i < events.length; i++) {
+      ev = events[i] && typeof events[i] === 'object' ? events[i] : {};
+      li = document.createElement('li');
+      typeEl = document.createElement('span');
+      typeEl.className = 'studio-event-type';
+      typeEl.appendChild(document.createTextNode(String(ev.event_type || 'event')));
+      li.appendChild(typeEl);
+      rest = cloneJson(ev);
+      delete rest.event_type;
+      li.appendChild(document.createTextNode(' ' + JSON.stringify(rest)));
+      li.setAttribute('data-event-type', String(ev.event_type || 'event'));
+      list.appendChild(li);
+    }
+  }
+  function onPreviewMessage(ev) {
+    var data = ev ? ev.data : null;
+    if (!data || typeof data !== 'object' || data.type !== 'lg-preview-event') { return; }
+    appendPreviewEvents(data.events || []);
+  }
+  window.addEventListener('message', onPreviewMessage);
+  var eventsClearBtn = document.querySelector('[data-studio-events-clear]');
+  if (eventsClearBtn) { eventsClearBtn.addEventListener('click', clearEventsList); }
+
+  // --- §8.2 Activity/Vertical dropdowns (E1) ---------------------------------
+  function fetchItems(url, cb) {
+    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { cb((j && j.items) || []); })
+      .catch(function () { cb([]); });
+  }
+  function populateOptionSelect(sel, items, current) {
+    if (!sel) { return; }
+    clearChildren(sel);
+    var values = items.slice();
+    if (current !== '' && values.indexOf(current) === -1) { values.unshift(current); }
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = '\\u2014 pick \\u2014';
+    sel.appendChild(blank);
+    var i, o;
+    for (i = 0; i < values.length; i++) {
+      o = document.createElement('option');
+      o.value = values[i];
+      o.textContent = values[i];
+      sel.appendChild(o);
+    }
+    sel.value = current;
+  }
+  var activitySel = document.getElementById('lg-section-activity');
+  var verticalSel = document.getElementById('lg-section-vertical');
+  function loadActivities() {
+    if (!activitySel) { return; }
+    fetchItems('/api/admin/leadgen/activities', function (items) {
+      populateOptionSelect(activitySel, items, activitySel.value);
+    });
+  }
+  function loadVerticals() {
+    if (!verticalSel) { return; }
+    var activity = activitySel ? trimStr(activitySel.value) : '';
+    var url = '/api/admin/leadgen/verticals' + (activity === '' ? '' : '?activity=' + encodeURIComponent(activity));
+    fetchItems(url, function (items) {
+      populateOptionSelect(verticalSel, items, verticalSel.value);
+    });
+  }
+  // "+ New activity…" / "+ New vertical…" — allow-create ONLY behind the §8.2
+  // explicit confirm; never silent free text.
+  function promptNewSharedValue(kind, sel, after) {
+    if (!sel) { return; }
+    var v = trimStr(window.prompt('New ' + kind + ' name'));
+    if (v === '') { return; }
+    if (!window.confirm("No Offers exist for '" + v + "' yet. Create the " + kind + ' anyway?')) { return; }
+    var o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    sel.appendChild(o);
+    sel.value = v;
+    markDirty();
+    if (after) { after(v); }
+  }
+  var newActivityBtn = document.querySelector('[data-studio-new-activity]');
+  if (newActivityBtn) {
+    newActivityBtn.addEventListener('click', function () {
+      promptNewSharedValue('activity', activitySel, function () {
+        if (verticalSel) { verticalSel.value = ''; }
+        loadVerticals();
+      });
+    });
+  }
+  var newVerticalBtn = document.querySelector('[data-studio-new-vertical]');
+  if (newVerticalBtn) {
+    newVerticalBtn.addEventListener('click', function () {
+      promptNewSharedValue('vertical', verticalSel);
+    });
+  }
+  if (activitySel) {
+    // §8.2: changing Activity RESETS Vertical (the vertical list is derived
+    // from the selected activity).
+    activitySel.addEventListener('change', function () {
+      if (verticalSel) { verticalSel.value = ''; }
+      loadVerticals();
+      renderOffersStaleNote();
+    });
+  }
+  if (verticalSel) { verticalSel.addEventListener('change', renderOffersStaleNote); }
+
+  // --- §8.7 Offer mapping panel (E2) — model core ------------------------------
+  var offersData = null;
+  var openMapOfferId = null;
+  function offersList() { return (offersData && offersData.offers) || []; }
+  function offerById(offerId) {
+    var list = offersList(), i;
+    for (i = 0; i < list.length; i++) { if (list[i].id === offerId) { return list[i]; } }
+    return null;
+  }
+  function answerFieldOf(offer, path) {
+    var fields = (offer && offer.answer_fields) || [];
+    var i;
+    for (i = 0; i < fields.length; i++) { if (fields[i].path === path) { return fields[i]; } }
+    return null;
+  }
+  function edgesForOffer(offerId) {
+    var out = [], i;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      if (state.answer_maps[i] && state.answer_maps[i].offer_id === offerId) { out.push(state.answer_maps[i]); }
+    }
+    return out;
+  }
+  function findEdgeIndex(offerId, path) {
+    var i;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      if (state.answer_maps[i] && state.answer_maps[i].offer_id === offerId && state.answer_maps[i].offer_payload_field_path === path) { return i; }
+    }
+    return -1;
+  }
+  function questionByField(internalField) {
+    var node = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (node === null && n.internal_field === internalField) { node = n; }
+    });
+    return node;
+  }
+  // Mirror of sections.ts answerTypeNodeType/answerCoercible — the live cell
+  // decode agrees with the server rebuild (seam-tested).
+  function answerNodeType(answerType) {
+    if (answerType === 'currency') { return 'number'; }
+    if (answerType === 'number' || answerType === 'boolean' || answerType === 'enum' || answerType === 'array' || answerType === 'object' || answerType === 'string') { return answerType; }
+    return 'string';
+  }
+  function coercibleTo(answerType, nodeType) {
+    if (nodeType === 'string' || nodeType === 'enum') { return true; }
+    return answerNodeType(answerType) === nodeType;
+  }
+  // Per-edge §12.11 completeness (complete / missing_required / type_mismatch /
+  // orphaned) against the offer's ACTIVE-schema answer fields.
+  function edgeMapState(edge, offer) {
+    if (!offer || offer.has_active_schema !== true) { return 'orphaned'; }
+    var field = answerFieldOf(offer, edge.offer_payload_field_path);
+    if (!field) { return 'orphaned'; }
+    if (edge.provider_expected_type !== field.type) { return 'type_mismatch'; }
+    var hasMap = edge.output_value_map && typeof edge.output_value_map === 'object' && Object.keys(edge.output_value_map).length > 0;
+    var hasTransform = edge.value_transform && edge.value_transform.length > 0;
+    if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type)) { return 'type_mismatch'; }
+    if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
+    return 'complete';
+  }
+  // The §8.7 status-column decode over the LIVE model — mirrors
+  // rebuildDerivedIndexes' per-offer derivation (not selected → selected/not
+  // started → incomplete → complete → invalid).
+  function offerLiveState(offer) {
+    var selected = state.selected_offers.indexOf(offer.id) !== -1;
+    var edges = edgesForOffer(offer.id);
+    var fields = offer.answer_fields || [];
+    var requiredTotal = 0, i;
+    var requiredByPath = {};
+    for (i = 0; i < fields.length; i++) {
+      if (fields[i].required === true) { requiredByPath[fields[i].path] = true; requiredTotal += 1; }
+    }
+    var mappedByPath = {};
+    var requiredMapped = 0;
+    var hardError = false;
+    var st;
+    for (i = 0; i < edges.length; i++) {
+      st = edgeMapState(edges[i], offer);
+      if (st === 'type_mismatch' || st === 'orphaned') { hardError = true; }
+      if (st === 'complete' && requiredByPath[edges[i].offer_payload_field_path] === true && mappedByPath[edges[i].offer_payload_field_path] !== true) {
+        mappedByPath[edges[i].offer_payload_field_path] = true;
+        requiredMapped += 1;
+      }
+    }
+    var name;
+    if (!selected && edges.length === 0) { name = 'not_selected'; }
+    else if (edges.length === 0) { name = 'selected'; }
+    else if (hardError) { name = 'invalid'; }
+    else if (requiredMapped < requiredTotal) { name = 'incomplete'; }
+    else { name = 'complete'; }
+    return { state: name, selected: selected || edges.length > 0, required_total: requiredTotal, required_mapped: requiredMapped, mapped_edges: edges.length };
+  }
+  function upsertEdge(offer, field, internalField) {
+    var node = questionByField(internalField);
+    if (!node || !offer || !field) { return null; }
+    var idx = findEdgeIndex(offer.id, field.path);
+    var existing = idx === -1 ? null : state.answer_maps[idx];
+    var meta = typeMeta(node.type);
+    var edge = {
+      question_id: node.question_id,
+      question_key: node.question_key || node.question_id,
+      internal_field: internalField,
+      answer_type: node.answer_type || meta.produces || 'string',
+      offer_id: offer.id,
+      offer_payload_field_path: field.path,
+      provider_expected_type: field.type,
+      output_value_map: existing ? (existing.output_value_map || null) : null,
+      value_transform: existing ? (existing.value_transform || null) : null,
+      required_for_offer: field.required === true,
+      default_value: existing ? (existing.default_value || null) : null,
+      fallback_value: existing ? (existing.fallback_value || null) : null
+    };
+    if (idx === -1) { state.answer_maps.push(edge); } else { state.answer_maps[idx] = edge; }
+    if (state.selected_offers.indexOf(offer.id) === -1) { state.selected_offers.push(offer.id); }
+    markDirty();
+    return edge;
+  }
+  function removeEdge(offerId, path) {
+    var idx = findEdgeIndex(offerId, path);
+    if (idx !== -1) { state.answer_maps.splice(idx, 1); markDirty(); }
+  }
+  function moveEdgePath(offer, fromPath, toField) {
+    var idx = findEdgeIndex(offer.id, fromPath);
+    if (idx === -1 || !toField) { return; }
+    var internalField = state.answer_maps[idx].internal_field;
+    removeEdge(offer.id, fromPath);
+    upsertEdge(offer, toField, internalField);
+  }
+  function toggleOfferSelected(offerId, on) {
+    var at = state.selected_offers.indexOf(offerId);
+    if (on && at === -1) { state.selected_offers.push(offerId); markDirty(); }
+    if (!on && at !== -1) {
+      state.selected_offers.splice(at, 1);
+      // Deselecting drops the offer's mapping edges (a mapped offer is
+      // implicitly selected server-side — keeping edges would re-select it).
+      var i;
+      for (i = state.answer_maps.length - 1; i >= 0; i--) {
+        if (state.answer_maps[i] && state.answer_maps[i].offer_id === offerId) { state.answer_maps.splice(i, 1); }
+      }
+      markDirty();
+    }
+  }
+  // §8.7 "Create question for field": schema field type → the right component,
+  // pre-bound to a new internal_field named from the schema path.
+  function componentTypeForField(field) {
+    var seg = String(field.path || '').split('.').pop() || '';
+    if (field.type === 'boolean') { return 'TwoButtonYesNo'; }
+    if (field.type === 'enum' || (field.valid_values && field.valid_values.length > 0)) { return 'DropdownQuestion'; }
+    if (/dob|birth|date/i.test(seg)) { return 'DateQuestion'; }
+    if (field.type === 'number') {
+      return /currency|income|amount|price|premium|salary|loan/i.test(seg) ? 'CurrencyInputQuestion' : 'NumberInputQuestion';
+    }
+    return 'FreeTextQuestion';
+  }
+  function internalFieldFromPath(path) {
+    var seg = String(path || '').split('.').pop() || '';
+    var base = slugify(seg);
+    if (base === '') { base = 'field'; }
+    if (!fieldExists(base)) { return base; }
+    return uniqueFieldName(base);
+  }
+  function createQuestionForField(offer, field) {
+    var type = componentTypeForField(field);
+    var node = addComponentAt(type, null, null);
+    if (!node) { return null; }
+    node.internal_field = internalFieldFromPath(field.path);
+    if (field.valid_values && field.valid_values.length > 0) {
+      var choices = [], i, v;
+      for (i = 0; i < field.valid_values.length; i++) {
+        v = String(field.valid_values[i]);
+        choices.push({ label: v, value: v, analytics_id: v });
+      }
+      node.choices = choices;
+    }
+    if (field.required === true) { node.required = true; }
+    upsertEdge(offer, field, node.internal_field);
+    afterModelChange();
+    return node;
+  }
+  // §8.7 bulk-map: name+type heuristic proposals (exact slug match preferred,
+  // substring accepted, type-compatibility REQUIRED) — review before apply.
+  function bulkProposals(offer) {
+    var proposals = [];
+    var fields = (offer && offer.answer_fields) || [];
+    var sectionFields = internalFieldsOf();
+    var i, j, f, seg, best, bestExact, cand, candSlug, compatible;
+    for (i = 0; i < fields.length; i++) {
+      f = fields[i];
+      if (findEdgeIndex(offer.id, f.path) !== -1) { continue; }
+      seg = slugify(String(f.path).split('.').pop() || '');
+      if (seg === '') { continue; }
+      best = null;
+      bestExact = false;
+      for (j = 0; j < sectionFields.length; j++) {
+        cand = sectionFields[j];
+        candSlug = slugify(cand);
+        if (candSlug !== seg && candSlug.indexOf(seg) === -1 && seg.indexOf(candSlug) === -1) { continue; }
+        compatible = coercibleTo(refFieldInfo(cand).type, f.type);
+        if (!compatible) { continue; }
+        if (candSlug === seg) { best = cand; bestExact = true; }
+        else if (best === null) { best = cand; }
+        if (bestExact) { break; }
+      }
+      if (best !== null) { proposals.push({ path: f.path, type: f.type, internal_field: best }); }
+    }
+    return proposals;
+  }
+
+  // --- §8.7/§8.2 panel DOM ------------------------------------------------------
+  function offersNote(text) {
+    var el = document.querySelector('[data-studio-offers-note]');
+    if (el) { el.hidden = text === ''; el.textContent = text; }
+  }
+  function renderOffersStaleNote() {
+    if (!offersData) { return; }
+    var a = activitySel ? trimStr(activitySel.value) : '';
+    var v = verticalSel ? trimStr(verticalSel.value) : '';
+    if (a !== offersData.activity || v !== offersData.vertical) {
+      offersNote("Activity/Vertical changed since the last save \\u2014 Save the Section to refresh the matching Offers (currently showing '" + offersData.activity + "' / '" + offersData.vertical + "').");
+    } else { offersNote(''); }
+  }
+  function updateMappingBadge() {
+    var badge = document.querySelector('[data-studio-mapping-badge]');
+    if (!badge || !offersData) { return; }
+    var list = offersList();
+    var total = 0, complete = 0, i, live;
+    for (i = 0; i < list.length; i++) {
+      live = offerLiveState(list[i]);
+      if (live.state === 'not_selected') { continue; }
+      total += 1;
+      if (live.state === 'complete') { complete += 1; }
+    }
+    badge.textContent = 'Mapping ' + complete + '/' + total + ' Offers complete';
+    badge.setAttribute('data-mapping-complete', String(complete));
+    badge.setAttribute('data-mapping-total', String(total));
+    badge.setAttribute('data-publishable', complete === total ? 'true' : 'false');
+    badge.className = 'studio-chip studio-chip-mapping badge ' + (complete === total ? 'badge-published' : 'badge-archived');
+  }
+  function offerStateLabel(name) {
+    if (name === 'not_selected') { return 'not selected'; }
+    if (name === 'selected') { return 'selected / not started'; }
+    return name;
+  }
+  // The §12.11 per-state operator copy (ported from the old builder's mapping
+  // grid — the exact vocabulary the sections-ui tests pinned).
+  function mapStateNote(stateName, field, offer, edge) {
+    if (stateName === 'complete') { return 'complete'; }
+    if (stateName === 'missing_required') { return 'map required field'; }
+    if (stateName === 'type_mismatch') {
+      return 'answer type ' + (edge && edge.answer_type ? edge.answer_type + ' ' : '') + 'not coercible to ' + (field ? field.type : edge && edge.provider_expected_type);
+    }
+    if (stateName === 'orphaned') {
+      return 'Offer field no longer exists in schema' + (offer && offer.payload_schema_public_id ? ' ' + offer.payload_schema_public_id : '');
+    }
+    return field && field.required === true ? 'required \\u2014 not mapped' : 'not mapped';
+  }
+  function offerDeepLink(offer) { return '/admin/leadgen/offers/' + encodeURIComponent(offer.public_id) + '/edit#payload'; }
+  function btn(label, attr, offerId, cls) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls || 'btn btn-sm btn-outline';
+    b.setAttribute(attr, String(offerId));
+    b.textContent = label;
+    return b;
+  }
+  function renderOffersTable() {
+    var body = document.querySelector('[data-studio-offers-body]');
+    var wrap = document.querySelector('[data-studio-offers-table-wrap]');
+    var empty = document.querySelector('[data-studio-offers-empty]');
+    var emptyCopy = document.querySelector('[data-studio-offers-empty-copy]');
+    if (!body || !offersData) { return; }
+    var list = offersList();
+    if (wrap) { wrap.hidden = list.length === 0; }
+    if (empty) { empty.hidden = list.length > 0; }
+    if (list.length === 0 && emptyCopy) {
+      // E9 exact pattern — NEVER a silent empty list.
+      emptyCopy.textContent = "No active Offers match Activity '" + offersData.activity + "' + Vertical '" + offersData.vertical + "'.";
+      return;
+    }
+    clearChildren(body);
+    var i, offer, live, tr, td, stateEl, sel, selLabel, actions;
+    for (i = 0; i < list.length; i++) {
+      offer = list[i];
+      live = offerLiveState(offer);
+      tr = document.createElement('tr');
+      tr.setAttribute('data-studio-offer-row', offer.public_id);
+      td = document.createElement('td');
+      td.appendChild(document.createTextNode(offer.offer_name));
+      td.title = offer.public_id;
+      tr.appendChild(td);
+      td = document.createElement('td');
+      td.appendChild(document.createTextNode(offer.provider || '\\u2014'));
+      tr.appendChild(td);
+      td = document.createElement('td');
+      td.appendChild(document.createTextNode(offer.default_placement_id || '\\u2014'));
+      tr.appendChild(td);
+      td = document.createElement('td');
+      td.setAttribute('data-offer-schema-version', offer.payload_schema_version === null || offer.payload_schema_version === undefined ? '' : String(offer.payload_schema_version));
+      td.appendChild(document.createTextNode(offer.has_active_schema ? 'v' + offer.payload_schema_version : 'no schema'));
+      tr.appendChild(td);
+      td = document.createElement('td');
+      td.appendChild(document.createTextNode(String(live.required_total)));
+      tr.appendChild(td);
+      td = document.createElement('td');
+      td.setAttribute('data-offer-required-mapped', String(live.required_mapped));
+      td.appendChild(document.createTextNode(live.required_mapped + '/' + live.required_total));
+      tr.appendChild(td);
+      td = document.createElement('td');
+      stateEl = document.createElement('span');
+      stateEl.className = 'studio-offer-state';
+      stateEl.setAttribute('data-offer-mapping-state', live.state);
+      stateEl.appendChild(document.createTextNode(offerStateLabel(live.state)));
+      td.appendChild(stateEl);
+      tr.appendChild(td);
+      td = document.createElement('td');
+      actions = document.createElement('div');
+      actions.className = 'studio-pair';
+      selLabel = document.createElement('label');
+      selLabel.className = 'lg-check';
+      sel = document.createElement('input');
+      sel.type = 'checkbox';
+      sel.setAttribute('data-studio-offer-select', String(offer.id));
+      sel.checked = live.selected;
+      selLabel.appendChild(sel);
+      selLabel.appendChild(document.createTextNode('selected'));
+      actions.appendChild(selLabel);
+      actions.appendChild(btn('Map fields', 'data-studio-offer-map', offer.id, 'btn btn-sm btn-secondary'));
+      actions.appendChild(btn('Bulk-map', 'data-studio-offer-bulkmap', offer.id));
+      actions.appendChild(btn('Payload', 'data-studio-offer-payload', offer.id));
+      var schemaLink = document.createElement('a');
+      schemaLink.className = 'btn btn-sm btn-outline';
+      schemaLink.href = offerDeepLink(offer);
+      schemaLink.target = '_blank';
+      schemaLink.rel = 'noopener';
+      schemaLink.setAttribute('data-studio-offer-schema-link', offer.public_id);
+      schemaLink.textContent = 'Schema';
+      actions.appendChild(schemaLink);
+      td.appendChild(actions);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+  }
+  function questionOptions(select, field, current) {
+    clearChildren(select);
+    var none = document.createElement('option');
+    none.value = '';
+    none.textContent = '\\u2014 not mapped \\u2014';
+    select.appendChild(none);
+    var create = document.createElement('option');
+    create.value = '__create__';
+    create.textContent = '+ Create question for this field';
+    select.appendChild(create);
+    var fields = internalFieldsOf();
+    var compatible = [], incompatible = [], i, o;
+    for (i = 0; i < fields.length; i++) {
+      if (coercibleTo(refFieldInfo(fields[i]).type, field.type)) { compatible.push(fields[i]); }
+      else { incompatible.push(fields[i]); }
+    }
+    for (i = 0; i < compatible.length; i++) {
+      o = document.createElement('option');
+      o.value = compatible[i];
+      o.textContent = compatible[i];
+      select.appendChild(o);
+    }
+    for (i = 0; i < incompatible.length; i++) {
+      o = document.createElement('option');
+      o.value = incompatible[i];
+      o.textContent = incompatible[i] + ' (type mismatch)';
+      select.appendChild(o);
+    }
+    select.value = current;
+  }
+  function pathOptionLabel(f) {
+    return f.path + ' \\u2014 ' + f.type + (f.required === true ? ' (required)' : '') + (f.valid_values && f.valid_values.length > 0 ? ' [' + f.valid_values.join('|') + ']' : '');
+  }
+  function renderMapGrid() {
+    var grid = document.querySelector('[data-studio-map-grid]');
+    if (!grid) { return; }
+    var offer = openMapOfferId === null ? null : offerById(openMapOfferId);
+    grid.hidden = offer === null;
+    clearChildren(grid);
+    if (!offer) { return; }
+    var head = document.createElement('div');
+    head.className = 'studio-map-grid-head';
+    var title = document.createElement('span');
+    title.className = 'form-label';
+    title.appendChild(document.createTextNode('Map fields \\u2014 ' + offer.offer_name + (offer.has_active_schema ? ' (schema v' + offer.payload_schema_version + ')' : '')));
+    head.appendChild(title);
+    var close = btn('Close', 'data-studio-map-close', offer.id);
+    head.appendChild(close);
+    grid.appendChild(head);
+    var fields = offer.answer_fields || [];
+    if (fields.length === 0) {
+      var note = document.createElement('p');
+      note.className = 'form-help';
+      note.appendChild(document.createTextNode(offer.has_active_schema ? 'The active payload schema has no answer-source fields to map.' : 'This Offer has no ACTIVE payload schema \\u2014 create one in the payload builder first.'));
+      grid.appendChild(note);
+      return;
+    }
+    var i, f, row, pathSel, qSel, link, status, edge, edgeState, o, j;
+    for (i = 0; i < fields.length; i++) {
+      f = fields[i];
+      edge = null;
+      j = findEdgeIndex(offer.id, f.path);
+      if (j !== -1) { edge = state.answer_maps[j]; }
+      row = document.createElement('div');
+      row.className = 'studio-map-row';
+      row.setAttribute('data-map-row', f.path);
+      pathSel = document.createElement('select');
+      pathSel.className = 'form-input';
+      pathSel.setAttribute('data-map-path', f.path);
+      pathSel.setAttribute('aria-label', 'Offer schema field');
+      for (j = 0; j < fields.length; j++) {
+        o = document.createElement('option');
+        o.value = fields[j].path;
+        o.textContent = pathOptionLabel(fields[j]);
+        pathSel.appendChild(o);
+      }
+      pathSel.value = f.path;
+      row.appendChild(pathSel);
+      qSel = document.createElement('select');
+      qSel.className = 'form-input';
+      qSel.setAttribute('data-map-question', f.path);
+      qSel.setAttribute('aria-label', 'Mapped question');
+      questionOptions(qSel, f, edge ? edge.internal_field : '');
+      row.appendChild(qSel);
+      link = document.createElement('a');
+      link.className = 'btn btn-sm btn-outline';
+      link.href = offerDeepLink(offer);
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.setAttribute('data-map-valuemap', f.path);
+      link.textContent = 'Value map';
+      row.appendChild(link);
+      status = document.createElement('span');
+      status.className = 'studio-map-status';
+      edgeState = edge ? edgeMapState(edge, offer) : 'unmapped';
+      status.setAttribute('data-map-state', edgeState);
+      status.appendChild(document.createTextNode(mapStateNote(edgeState, f, offer, edge)));
+      row.appendChild(status);
+      grid.appendChild(row);
+    }
+  }
+  function renderBulkReview(offer) {
+    var wrap = document.querySelector('[data-studio-bulk-review]');
+    if (!wrap) { return; }
+    clearChildren(wrap);
+    if (!offer) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    var proposals = bulkProposals(offer);
+    var head = document.createElement('div');
+    head.className = 'studio-map-grid-head';
+    var title = document.createElement('span');
+    title.className = 'form-label';
+    title.appendChild(document.createTextNode('Bulk-map review \\u2014 ' + offer.offer_name));
+    head.appendChild(title);
+    head.appendChild(btn('Close', 'data-studio-bulk-close', offer.id));
+    wrap.appendChild(head);
+    if (proposals.length === 0) {
+      var none = document.createElement('p');
+      none.className = 'form-help';
+      none.appendChild(document.createTextNode('No compatible unmapped fields found (name+type heuristic).'));
+      wrap.appendChild(none);
+      return;
+    }
+    var ul = document.createElement('ul');
+    var i, li, cb, label;
+    for (i = 0; i < proposals.length; i++) {
+      li = document.createElement('li');
+      label = document.createElement('label');
+      label.className = 'lg-check';
+      cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.setAttribute('data-bulk-path', proposals[i].path);
+      cb.setAttribute('data-bulk-field', proposals[i].internal_field);
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(proposals[i].path + ' (' + proposals[i].type + ') \\u2190 ' + proposals[i].internal_field));
+      li.appendChild(label);
+      ul.appendChild(li);
+    }
+    wrap.appendChild(ul);
+    var apply = btn('Apply selected mappings', 'data-studio-bulk-apply', offer.id, 'btn btn-sm btn-primary');
+    wrap.appendChild(apply);
+  }
+  // §8.6 Mapping tab: THIS component's internal_field per selected Offer.
+  function renderInspectorMapping() {
+    var wrap = document.querySelector('[data-studio-inspector-mapping]');
+    if (!wrap) { return; }
+    clearChildren(wrap);
+    var node = selectedNode();
+    var note = document.createElement('p');
+    note.className = 'form-help';
+    if (!node || trimStr(node.internal_field) === '') {
+      note.appendChild(document.createTextNode('Give this component an internal field to map it to Offers.'));
+      wrap.appendChild(note);
+      return;
+    }
+    if (!offersData) {
+      note.appendChild(document.createTextNode(state.public_id ? 'Loading Offers\\u2026' : 'Save the Section first to load matching Offers.'));
+      wrap.appendChild(note);
+      return;
+    }
+    var list = offersList();
+    var shown = 0;
+    var i, offer, live, row, name, sel, o, j, fields, current, edge, status, edgeState;
+    for (i = 0; i < list.length; i++) {
+      offer = list[i];
+      live = offerLiveState(offer);
+      if (live.state === 'not_selected') { continue; }
+      shown += 1;
+      row = document.createElement('div');
+      row.className = 'studio-map-row';
+      row.setAttribute('data-inspector-map-offer', offer.public_id);
+      name = document.createElement('span');
+      name.appendChild(document.createTextNode(offer.offer_name));
+      row.appendChild(name);
+      sel = document.createElement('select');
+      sel.className = 'form-input';
+      sel.setAttribute('data-inspector-quickmap', String(offer.id));
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = '\\u2014 not mapped \\u2014';
+      sel.appendChild(o);
+      fields = offer.answer_fields || [];
+      current = '';
+      edge = null;
+      for (j = 0; j < fields.length; j++) {
+        o = document.createElement('option');
+        o.value = fields[j].path;
+        o.textContent = pathOptionLabel(fields[j]);
+        sel.appendChild(o);
+      }
+      for (j = 0; j < state.answer_maps.length; j++) {
+        if (state.answer_maps[j] && state.answer_maps[j].offer_id === offer.id && state.answer_maps[j].internal_field === node.internal_field) {
+          current = state.answer_maps[j].offer_payload_field_path;
+          edge = state.answer_maps[j];
+          break;
+        }
+      }
+      sel.value = current;
+      row.appendChild(sel);
+      status = document.createElement('span');
+      status.className = 'studio-map-status';
+      edgeState = edge ? edgeMapState(edge, offer) : 'unmapped';
+      status.setAttribute('data-map-state', edgeState);
+      status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
+      row.appendChild(status);
+      wrap.appendChild(row);
+    }
+    if (shown === 0) {
+      note.appendChild(document.createTextNode('No Offers selected yet \\u2014 select Offers in the mapping drawer first.'));
+      wrap.appendChild(note);
+    }
+  }
+  function renderMappingCount() {
+    var el = document.querySelector('[data-studio-mapping-count]');
+    if (el) { el.textContent = state.answer_maps.length + ' mapping edge' + (state.answer_maps.length === 1 ? '' : 's') + ' on this Section'; }
+  }
+  function renderOffersPanel() {
+    if (!offersData) { return; }
+    renderOffersTable();
+    renderMapGrid();
+    renderInspectorMapping();
+    renderMappingCount();
+    updateMappingBadge();
+    renderOffersStaleNote();
+  }
+  function loadOffers() {
+    if (!state.public_id) {
+      offersNote('Save the Section first \\u2014 the Available Offers panel derives from the SAVED Activity/Vertical pair (\\u00A78.2).');
+      return;
+    }
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/offers', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body) {
+        offersNote((res.body && res.body.error) || 'Failed to load the matching Offers');
+        return;
+      }
+      offersData = res.body;
+      offersNote('');
+      renderOffersPanel();
+    }).catch(function () { offersNote('Failed to load the matching Offers'); });
+  }
+  function showPayloadPreview(offer) {
+    var wrap = document.querySelector('[data-studio-payload-preview-wrap]');
+    var pre = document.querySelector('[data-studio-payload-preview]');
+    var title = document.querySelector('[data-studio-payload-preview-title]');
+    var noteEl = document.querySelector('[data-studio-payload-note]');
+    if (!wrap || !pre || !state.public_id) { return; }
+    wrap.hidden = false;
+    if (title) { title.textContent = 'Generated payload preview \\u2014 ' + offer.offer_name; }
+    if (noteEl) { noteEl.hidden = !dirty; }
+    pre.textContent = 'Validating\\u2026';
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/validate-payload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ answers: sampleAnswers(), offers: [offer.public_id] })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body) {
+        pre.textContent = 'validate-payload failed: ' + ((res.body && res.body.error) || 'error');
+        return;
+      }
+      var rows = res.body.offers || [];
+      var mine = null, i;
+      for (i = 0; i < rows.length; i++) { if (rows[i].offer_id === offer.id) { mine = rows[i]; } }
+      pre.textContent = JSON.stringify({
+        offer: offer.offer_name,
+        completeness: mine ? mine.completeness : null,
+        missing: mine ? mine.missing : null,
+        invalid: mine ? mine.invalid : null,
+        payload: mine ? mine.payload : null,
+        section_validation: res.body.section_validation || null
+      }, null, 2);
+    }).catch(function () { pre.textContent = 'validate-payload request failed'; });
+  }
+
+  // Delegated wiring for the whole mapping drawer panel.
+  var mappingPanel = document.querySelector('[data-studio-drawer-panel="mapping"]');
+  if (mappingPanel) {
+    mappingPanel.addEventListener('click', function (ev) {
+      var t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) { return; }
+      var el = t.closest('[data-studio-offer-map]');
+      if (el) { openMapOfferId = Number(el.getAttribute('data-studio-offer-map')); renderBulkReview(null); renderMapGrid(); return; }
+      el = t.closest('[data-studio-map-close]');
+      if (el) { openMapOfferId = null; renderMapGrid(); return; }
+      el = t.closest('[data-studio-offer-bulkmap]');
+      if (el) { renderBulkReview(offerById(Number(el.getAttribute('data-studio-offer-bulkmap')))); return; }
+      el = t.closest('[data-studio-bulk-close]');
+      if (el) { renderBulkReview(null); return; }
+      el = t.closest('[data-studio-bulk-apply]');
+      if (el) {
+        var offer = offerById(Number(el.getAttribute('data-studio-bulk-apply')));
+        if (!offer) { return; }
+        var boxes = mappingPanel.querySelectorAll('[data-bulk-path]');
+        var i, f;
+        for (i = 0; i < boxes.length; i++) {
+          if (!boxes[i].checked) { continue; }
+          f = answerFieldOf(offer, boxes[i].getAttribute('data-bulk-path'));
+          if (f) { upsertEdge(offer, f, boxes[i].getAttribute('data-bulk-field')); }
+        }
+        renderBulkReview(null);
+        renderOffersPanel();
+        return;
+      }
+      el = t.closest('[data-studio-offer-payload]');
+      if (el) {
+        var payOffer = offerById(Number(el.getAttribute('data-studio-offer-payload')));
+        if (payOffer) { showPayloadPreview(payOffer); }
+        return;
+      }
+      el = t.closest('[data-studio-payload-close]');
+      if (el) {
+        var pw = document.querySelector('[data-studio-payload-preview-wrap]');
+        if (pw) { pw.hidden = true; }
+        return;
+      }
+      el = t.closest('[data-studio-change-pair]');
+      if (el && activitySel) { activitySel.focus(); return; }
+    });
+    mappingPanel.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (!t || !t.getAttribute) { return; }
+      var offerIdAttr = t.getAttribute('data-studio-offer-select');
+      if (offerIdAttr !== null) {
+        toggleOfferSelected(Number(offerIdAttr), t.checked === true);
+        renderOffersPanel();
+        return;
+      }
+      var qPath = t.getAttribute('data-map-question');
+      if (qPath !== null && openMapOfferId !== null) {
+        var offer = offerById(openMapOfferId);
+        var field = offer ? answerFieldOf(offer, qPath) : null;
+        if (!offer || !field) { return; }
+        if (t.value === '') { removeEdge(offer.id, field.path); }
+        else if (t.value === '__create__') { createQuestionForField(offer, field); }
+        else { upsertEdge(offer, field, t.value); }
+        renderOffersPanel();
+        return;
+      }
+      var fromPath = t.getAttribute('data-map-path');
+      if (fromPath !== null && openMapOfferId !== null && t.value !== fromPath) {
+        var moveOffer = offerById(openMapOfferId);
+        if (moveOffer) { moveEdgePath(moveOffer, fromPath, answerFieldOf(moveOffer, t.value)); renderOffersPanel(); }
+        return;
+      }
+    });
+  }
+  var inspectorMappingWrap = document.querySelector('[data-studio-inspector-mapping]');
+  if (inspectorMappingWrap) {
+    inspectorMappingWrap.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (!t || !t.getAttribute) { return; }
+      var offerIdAttr = t.getAttribute('data-inspector-quickmap');
+      if (offerIdAttr === null) { return; }
+      var node = selectedNode();
+      var offer = offerById(Number(offerIdAttr));
+      if (!node || !offer || trimStr(node.internal_field) === '') { return; }
+      var i;
+      // drop THIS field's existing edge on the offer (one quick-map slot)
+      for (i = state.answer_maps.length - 1; i >= 0; i--) {
+        if (state.answer_maps[i] && state.answer_maps[i].offer_id === offer.id && state.answer_maps[i].internal_field === node.internal_field) {
+          state.answer_maps.splice(i, 1);
+          markDirty();
+        }
+      }
+      if (t.value !== '') {
+        var field = answerFieldOf(offer, t.value);
+        if (field) { upsertEdge(offer, field, node.internal_field); }
+      }
+      renderOffersPanel();
+    });
+  }
+
   // --- scalar controls (continue mode + Maps toggle) --------------------------------------
   var mapsToggle = document.getElementById('lg-address-validation');
   if (mapsToggle) {
@@ -2585,18 +3553,35 @@ export const SECTION_STUDIO_SCRIPT = `
       activity: actEl ? actEl.value : '',
       vertical: verEl ? verEl.value : '',
       headline_text: headEl ? headEl.value : '',
-      subheadline_text: subEl ? subEl.value : null,
+      // an EMPTY subheadline is null (the validator's optional semantics) —
+      // sending '' 400s the save (D2 browser-flow catch).
+      subheadline_text: subEl && trimStr(subEl.value) !== '' ? subEl.value : null,
       continue_mode: state.continue_mode || 'button',
       address_validation_enabled: !!state.address_validation_enabled,
       content_json: JSON.stringify(state.content),
-      answer_maps: state.answer_maps
+      answer_maps: state.answer_maps,
+      selected_offers: state.selected_offers
     };
+  }
+  // §8.2 save-time warning: the (saved) pair matches zero active Offers —
+  // non-blocking, but never silent.
+  function renderZeroOffersWarning() {
+    var warn = document.querySelector('[data-studio-zero-offers-warning]');
+    if (!warn) { return; }
+    if (offersData && offersList().length === 0) {
+      warn.hidden = false;
+      warn.textContent = "Warning: no active Offers match Activity '" + offersData.activity + "' + Vertical '" + offersData.vertical + "' \\u2014 the Section saves, but no Offer payload can be generated for it.";
+    } else {
+      warn.hidden = true;
+      warn.textContent = '';
+    }
   }
   var saveBtn = document.getElementById('lg-section-save');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       var errEl = document.getElementById('lg-section-error');
       if (errEl) { errEl.hidden = true; }
+      renderZeroOffersWarning();
       saveBtn.disabled = true;
       var isNew = !state.public_id;
       var url = isNew ? '/api/admin/leadgen/sections' : '/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id);
@@ -2655,6 +3640,13 @@ export const SECTION_STUDIO_SCRIPT = `
   updateCanvasEmpty();
   applyCanvasDecoration();
   populateInspector();
+  loadActivities();
+  loadVerticals();
+  loadOffers();
+  // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
+  // quote activation preflight's "Open Section Mapping" link) opens the
+  // mapping drawer tab directly.
+  if (window.location.hash === '#mapping') { setDrawerTab('mapping'); }
   runPreview();
 }());
 `;
