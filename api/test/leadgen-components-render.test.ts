@@ -272,6 +272,7 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   HeaderLogo: { type: "HeaderLogo", question_id: "q", props: { logoMediaId: "m1", siteName: "Acme", accent: "Quotes" } },
   BackButton: { type: "BackButton", question_id: "q", props: { label: "Back" } },
   DisclosureLink: { type: "DisclosureLink", question_id: "q", props: { panelHtml: "Legal blurb" } },
+  StepIndicator: { type: "StepIndicator", question_id: "q", props: { steps: 4, current: 2 } },
   CategoryLabel: { type: "CategoryLabel", question_id: "q", props: { text: "BUSINESS LOAN" } },
   QuestionHeadline: { type: "QuestionHeadline", question_id: "q", props: { text: "How much?" } },
   Subheadline: { type: "Subheadline", question_id: "q", props: { text: "Why we ask" } },
@@ -284,7 +285,11 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   ImageCardAnswerGrid: { type: "ImageCardAnswerGrid", question_id: "q", internal_field: "carrier", choices: IMAGE_CHOICES, props: { columns: 4 } },
   MultiChoiceCardGroup: { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "features", choices: CHOICES, props: { min: 1, max: 2 } },
   DropdownQuestion: { type: "DropdownQuestion", question_id: "q", internal_field: "insurer", choices: CHOICES, props: { placeholder: "Pick one" } },
+  SearchableDropdownQuestion: { type: "SearchableDropdownQuestion", question_id: "q", internal_field: "make", choices: CHOICES, props: { placeholder: "Pick one" } },
+  OtherGroupSelector: { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES, choiceDisplay: { mainValues: ["sole_prop"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false } },
   FreeTextQuestion: { type: "FreeTextQuestion", question_id: "q", internal_field: "note", props: { placeholder: "Type…", maxLen: 100 } },
+  NumberInputQuestion: { type: "NumberInputQuestion", question_id: "q", internal_field: "age", props: { min: 18, max: 99, step: 1, placeholder: "Your age" } },
+  CurrencyInputQuestion: { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "$", min: 0, max: 1000000, placeholder: "Annual income" } },
   EmailInputQuestion: { type: "EmailInputQuestion", question_id: "q", internal_field: "email", required: true },
   PhoneInputQuestion: { type: "PhoneInputQuestion", question_id: "q", internal_field: "phone" },
   NameFieldsGroup: { type: "NameFieldsGroup", question_id: "q", required: true },
@@ -294,6 +299,10 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   ContinueButton: { type: "ContinueButton", question_id: "q", props: { label: "Continue", loadingLabel: "Loading…" } },
   AutoAdvanceButton: { type: "AutoAdvanceButton", question_id: "q", props: { label: "Next" } },
   ReassuranceBadge: { type: "ReassuranceBadge", question_id: "q", props: { text: "Get your offers in 2 minutes or less." } },
+  SuccessState: { type: "SuccessState", question_id: "q", props: { heading: "All set", message: "We found offers for you.", icon: "✓" } },
+  SecureFormBadge: { type: "SecureFormBadge", question_id: "q", props: { text: "256-bit SSL encrypted" } },
+  TrustBar: { type: "TrustBar", question_id: "q", props: { items: [{ icon: "🔒", text: "SSL secured" }, { icon: "★", text: "4.8 rating" }], layout: "horizontal" } },
+  LogoStrip: { type: "LogoStrip", question_id: "q", props: { logos: [{ mediaId: "media_1", alt: "Acme" }, { mediaId: "media_2", alt: "Globex" }] } },
   HelperText: { type: "HelperText", question_id: "q", props: { text: "We never share this." } },
   ValidationError: { type: "ValidationError", question_id: "q", props: { text: "Required" } },
   LegalNote: { type: "LegalNote", question_id: "q", props: { html: "Terms apply" } },
@@ -320,6 +329,18 @@ const NO_INLINE_STYLE_TYPES = new Set<ComponentType>([
   "AddressAutocompleteQuestion",
   "ButtonAnswerGroup",
   "TwoButtonYesNo",
+  // 08 §8.3/§8.10 Slice A: the new input/choice presets follow the same
+  // class-driven discipline (.lg-input / .lg-btn.lg-btn-answer base so
+  // :focus/[aria-invalid]/selected states cascade)…
+  "NumberInputQuestion",
+  "CurrencyInputQuestion",
+  "SearchableDropdownQuestion",
+  "OtherGroupSelector",
+  // …and the structural affordances/chrome are fully class-driven too
+  // (layout via modifier class / [data-active] state — no per-instance value).
+  "TrustBar",
+  "LogoStrip",
+  "StepIndicator",
 ]);
 
 describe("renderComponent — every catalog type", () => {
@@ -926,5 +947,159 @@ describe("v2.4 §6.4 (B9) — Other-group render (choiceDisplay)", () => {
     expect(html).not.toContain("data-lg-other-trigger");
     for (const c of CARRIERS) expect(html).toContain(`data-lg-choice="${c.value}"`);
     expect(html).not.toContain('value="Other"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.4 08 §8.3/§8.10 — Phase 4 Slice A leaf components: plain Number/Currency
+// inputs (NOT Range variants), searchable dropdown, the dedicated B9
+// OtherGroupSelector, success/trust affordances, and the step indicator.
+// ---------------------------------------------------------------------------
+
+describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
+  it("NumberInputQuestion is a plain numeric text input (NOT a slider) with min/max/step data attrs", () => {
+    const html = renderComponent(NODE_SPECS.NumberInputQuestion, DESIGN);
+    expect(html).toContain('type="text"');
+    expect(html).toContain('inputmode="numeric"');
+    expect(html).not.toContain('type="range"');
+    expect(html).not.toContain('role="slider"');
+    expect(html).toContain('data-min="18"');
+    expect(html).toContain('data-max="99"');
+    expect(html).toContain('data-step="1"');
+    expect(html).toContain("data-lg-input");
+    expect(html).toContain('aria-label="age"'); // label falls back to internal_field
+    expect(html).toContain('data-answer-type="number"');
+  });
+
+  it("CurrencyInputQuestion renders the currency prefix + numeric input (default $, author currency honored)", () => {
+    const html = renderComponent(NODE_SPECS.CurrencyInputQuestion, DESIGN);
+    expect(html).toContain('class="lg-currency-prefix" aria-hidden="true">$</span>');
+    expect(html).toContain('inputmode="numeric"');
+    expect(html).toContain("data-lg-input");
+    expect(html).toContain('data-min="0"');
+    expect(html).toContain('data-max="1000000"');
+    expect(html).not.toContain('role="slider"'); // plain input, NOT the Range variant
+    expect(html).toContain('data-answer-type="currency"');
+    const eur = renderComponent(
+      { type: "CurrencyInputQuestion", question_id: "q", internal_field: "income", props: { currency: "€" } },
+      DESIGN,
+    );
+    expect(eur).toContain(">€</span>");
+    // prefix alignment lives in the scoped chrome CSS (no inline style).
+    const chrome = funnelChromeCss(DESIGN);
+    expect(chrome).toContain(".lg-currency{position:relative}");
+    expect(chrome).toContain(".lg-currency-prefix{");
+    expect(chrome).toContain(".lg-currency-input{padding-left:");
+  });
+
+  it("SearchableDropdownQuestion = search input above a REAL select with the DropdownQuestion option shape", () => {
+    const html = renderComponent(NODE_SPECS.SearchableDropdownQuestion, DESIGN);
+    expect(html).toContain("data-lg-searchable");
+    expect(html).toContain("data-lg-dropdown-search");
+    expect(html).toContain('aria-label="Search options"');
+    expect(html).toContain('<select class="lg-input lg-dropdown">');
+    expect(html).toContain('data-lg-choice="sole_prop"');
+    expect(html).toContain('data-lg-choice="partnership"');
+    expect(html).toContain('data-analytics-id="biz_sole"');
+    expect(html).toContain(">Pick one</option>"); // placeholder option
+    // hydration attrs only — the runtime filters client-side; no script here.
+    expect(html).not.toContain("<script");
+  });
+
+  it("OtherGroupSelector renders main choices as answer buttons + the Other trigger + hidden panel of REAL secondary values", () => {
+    const html = renderComponent(NODE_SPECS.OtherGroupSelector, DESIGN);
+    expect(html).toContain('class="lg-btn lg-btn-answer"'); // the answer-button affordance
+    expect(html).toContain('data-lg-choice="sole_prop"'); // main value stays a normal choice
+    expect(html).toContain("data-lg-other-trigger");
+    expect(html).toMatch(/data-lg-other-panel hidden/);
+    expect(html).toContain('data-lg-choice="partnership"'); // secondary REAL value in the panel
+    const triggerTag = html.match(/<button[^>]*data-lg-other-trigger[^>]*>/)?.[0] ?? "";
+    expect(triggerTag).not.toBe("");
+    expect(triggerTag).not.toContain("data-value"); // the trigger itself is never a choice
+    expect(html).not.toContain('data-lg-choice="Other');
+    // defensive flat fallback without grouping metadata.
+    const flat = renderComponent(
+      { type: "OtherGroupSelector", question_id: "q", internal_field: "carrier", choices: CHOICES },
+      DESIGN,
+    );
+    expect(flat).not.toContain("data-lg-other-trigger");
+    expect(flat).toContain('data-lg-choice="partnership"');
+  });
+
+  it("SuccessState renders icon + heading + message in the success-green family; role=status", () => {
+    const html = renderComponent(NODE_SPECS.SuccessState, DESIGN);
+    expect(html).toContain('role="status"');
+    expect(html).toContain("All set");
+    expect(html).toContain("We found offers for you.");
+    expect(html).toContain("#0E7C3A"); // success-green outline/icon tokens
+    // heading/message are optional — absent props emit no empty nodes.
+    const bare = renderComponent({ type: "SuccessState", question_id: "q" }, DESIGN);
+    expect(bare).not.toContain("lg-success-heading");
+    expect(bare).not.toContain("lg-success-message");
+    expect(bare).toContain("lg-success-icon"); // default check icon still renders
+  });
+
+  it("SecureFormBadge renders icon + text (token exampleCopy fallback)", () => {
+    const html = renderComponent(NODE_SPECS.SecureFormBadge, DESIGN);
+    expect(html).toContain("lg-secure-badge");
+    expect(html).toContain("256-bit SSL encrypted");
+    const fallback = renderComponent({ type: "SecureFormBadge", question_id: "q" }, DESIGN);
+    expect(fallback).toContain(DESIGN.secureFormBadge.exampleCopy);
+  });
+
+  it("TrustBar renders structured icon/text items; layout=stacked adds the modifier class; junk rows are skipped", () => {
+    const html = renderComponent(NODE_SPECS.TrustBar, DESIGN);
+    expect(html).toContain('class="lg-trustbar"');
+    expect(html).toContain("SSL secured");
+    expect(html).toContain("4.8 rating");
+    expect(html.split("lg-trustbar-item").length - 1).toBe(2);
+    expect(html).not.toContain("lg-trustbar-stacked");
+    const stacked = renderComponent(
+      { type: "TrustBar", question_id: "q", props: { items: [{ icon: "✓", text: "A" }], layout: "stacked" } },
+      DESIGN,
+    );
+    expect(stacked).toContain('class="lg-trustbar lg-trustbar-stacked"');
+    const junk = renderComponent(
+      { type: "TrustBar", question_id: "q", props: { items: [null, "x", { icon: 5 }, { text: "ok" }] } } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(junk.split("lg-trustbar-item").length - 1).toBe(1);
+    expect(junk).toContain("ok");
+  });
+
+  it("LogoStrip renders an img per logo with alt text (mediaId → src, the ImageCard idiom); rows without mediaId are skipped", () => {
+    const html = renderComponent(NODE_SPECS.LogoStrip, DESIGN);
+    expect(html).toContain('class="lg-logo-strip"');
+    expect(html.split("<img").length - 1).toBe(2);
+    expect(html).toContain('src="media_1"');
+    expect(html).toContain('alt="Acme"');
+    expect(html).toContain('loading="lazy"');
+    const junk = renderComponent(
+      { type: "LogoStrip", question_id: "q", props: { logos: [{ alt: "no-src" }, { mediaId: "m9" }] } } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(junk.split("<img").length - 1).toBe(1);
+    expect(junk).toContain('src="m9"');
+    expect(junk).toContain('alt=""');
+  });
+
+  it("StepIndicator renders a dot per step, marks the current one, and exposes progressbar a11y", () => {
+    const html = renderComponent(NODE_SPECS.StepIndicator, DESIGN);
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuemin="1"');
+    expect(html).toContain('aria-valuemax="4"');
+    expect(html).toContain('aria-valuenow="2"');
+    expect(html).toContain('aria-valuetext="Step 2 of 4"');
+    expect(html.split('class="lg-step"').length - 1).toBe(4);
+    expect(html.split('data-active="true"').length - 1).toBe(1);
+    // current clamps into 1..steps (defensive).
+    const clamped = renderComponent(
+      { type: "StepIndicator", question_id: "q", props: { steps: 3, current: 9 } },
+      DESIGN,
+    );
+    expect(clamped).toContain('aria-valuenow="3"');
+    // the active-dot state lives in the scoped chrome CSS.
+    const chrome = funnelChromeCss(DESIGN);
+    expect(chrome).toContain('.lg-step[data-active="true"]');
   });
 });

@@ -184,6 +184,8 @@ const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   HeaderLogo: { textProps: ["logoMediaId"] },
   BackButton: {},
   DisclosureLink: { textProps: ["panelHtml"] },
+  StepIndicator: {}, // props (steps/current) read defensively by the preset
+
   // affordances (copy)
   CategoryLabel: { textProps: ["text"] },
   QuestionHeadline: { textProps: ["text"] },
@@ -199,8 +201,12 @@ const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   ImageCardAnswerGrid: { internalField: true, choices: true, choiceImage: true },
   MultiChoiceCardGroup: { internalField: true, choices: true },
   DropdownQuestion: { internalField: true, choices: true },
+  SearchableDropdownQuestion: { internalField: true, choices: true },
+  OtherGroupSelector: { internalField: true, choices: true },
   // free-form + PII inputs
   FreeTextQuestion: { internalField: true },
+  NumberInputQuestion: { internalField: true },
+  CurrencyInputQuestion: { internalField: true },
   EmailInputQuestion: { internalField: true },
   PhoneInputQuestion: { internalField: true },
   NameFieldsGroup: {}, // uses `fields(first,last)` — no single internal_field
@@ -211,6 +217,10 @@ const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   ContinueButton: {},
   AutoAdvanceButton: {},
   ReassuranceBadge: { textProps: ["text"] },
+  SuccessState: {}, // heading/message/icon all optional; preset reads defensively
+  SecureFormBadge: {}, // text/icon optional (token exampleCopy fallback)
+  TrustBar: {}, // props.items read defensively by the preset
+  LogoStrip: {}, // props.logos read defensively by the preset
   HelperText: { textProps: ["text"] },
   ValidationError: {},
   LegalNote: { textProps: ["html"] },

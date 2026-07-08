@@ -281,6 +281,27 @@ export function renderDisclosureLink(node: LeadgenComponentNode, design: Default
   );
 }
 
+// 08 §8.3 StepIndicator: dots/steps chrome. Defensive props (steps>=1;
+// current clamped into 1..steps). a11y (accessibility.md): role="progressbar"
+// + aria-valuemin/max/now (+ the derived "Step X of Y" as aria-valuetext, the
+// renderProgressBar step-mode idiom). Dots are fully class-driven (.lg-step /
+// [data-active] state in the scoped chrome CSS) — no inline style.
+export function renderStepIndicator(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const steps = Math.max(1, Math.round(propNum(node, "steps") ?? 1));
+  const current = clampInt(propNum(node, "current") ?? 1, 1, steps);
+  let dots = "";
+  for (let i = 1; i <= steps; i++) {
+    dots += `<span class="lg-step"${i === current ? ` data-active="true"` : ""} aria-hidden="true"></span>`;
+  }
+  return (
+    `<div class="lg-steps"${hydration(node)} role="progressbar"` +
+    ` aria-valuemin="1" aria-valuemax="${steps}" aria-valuenow="${current}"` +
+    ` aria-valuetext="${esc(`Step ${current} of ${steps}`)}">` +
+    dots +
+    `</div>`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // affordances (copy)
 // ---------------------------------------------------------------------------
@@ -553,6 +574,71 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   );
 }
 
+// 08 §8.3/§8.10 SearchableDropdownQuestion: DropdownQuestion + a search input
+// above the option list. HYDRATION ATTRS ONLY — the runtime filters the
+// options client-side (data-lg-searchable / data-lg-dropdown-search hooks); no
+// client render here. The options are a REAL <select> in the exact
+// DropdownQuestion option shape (data-lg-choice + data-analytics-id per
+// option) so answer semantics are identical. Base chrome is fully class-driven
+// (.lg-input / .lg-dropdown) — no inline style.
+export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const placeholder = propStr(node, "placeholder") ?? "Select…";
+  const options = choiceList(node)
+    .map(
+      (c) =>
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+    )
+    .join("");
+  return (
+    `<div class="lg-searchable-dropdown"${hydration(node)} data-lg-searchable>` +
+    `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search` +
+    ` placeholder="Search…" aria-label="Search options">` +
+    `<select class="lg-input lg-dropdown">` +
+    `<option value="" disabled selected>${esc(placeholder)}</option>` +
+    options +
+    `</select>` +
+    `</div>`
+  );
+}
+
+// 08 §8.3 OtherGroupSelector — the DEDICATED B9 (06 §6.4) renderer: main
+// choices as answer buttons + the shared Other tail (trigger + hidden panel of
+// secondary REAL-value choices), driven by the node's choiceDisplay through
+// the SAME readChoiceDisplay/splitChoicesForOtherGroup/renderOtherGroupTail
+// helpers ButtonAnswerGroup uses. Without grouping metadata (or with
+// otherGroupEnabled:false) it renders all choices flat — defensive, and the
+// §6.4 "literal 'Other' is never a stored value" invariant holds throughout.
+// Base + state chrome is fully class-driven (.lg-btn.lg-btn-answer) — no
+// inline style (the renderButtonAnswerGroup discipline).
+export function renderOtherGroupSelector(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const btn = (c: LeadgenChoice): string =>
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
+    attr("data-value", c.value) +
+    attr("data-lg-choice", c.value) +
+    attr("data-analytics-id", c.analytics_id) +
+    `>${esc(c.label)}</button>`;
+  const display = readChoiceDisplay(node);
+  let body: string;
+  if (display !== undefined && display.otherGroupEnabled) {
+    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
+    body =
+      main.map(btn).join("") +
+      renderOtherGroupTail(
+        display,
+        "lg-btn lg-btn-answer lg-other-trigger",
+        esc(display.otherGroupLabel),
+        secondary.map(btn).join(""),
+      );
+  } else {
+    body = choiceList(node).map(btn).join("");
+  }
+  return (
+    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}>` +
+    body +
+    `</div>`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // free-form + PII inputs
 // ---------------------------------------------------------------------------
@@ -595,6 +681,44 @@ function renderTextInput(
 
 export function renderFreeTextQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   return renderTextInput(node, design, "text", "");
+}
+// 08 §8.3/§8.10 NumberInputQuestion: a PLAIN numeric text input (NOT a
+// slider/range) — the renderTextInput discipline (class-driven .lg-input base
+// so :focus/[aria-invalid] cascade) + inputmode numeric; min/max/step ride as
+// data attributes for the runtime's client-side validation leg.
+export function renderNumberInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  return renderTextInput(
+    node,
+    design,
+    "text",
+    ` inputmode="numeric"` +
+      attr("data-min", propNum(node, "min")) +
+      attr("data-max", propNum(node, "max")) +
+      attr("data-step", propNum(node, "step")) +
+      attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field),
+  );
+}
+// 08 §8.10 CurrencyInputQuestion: currency-prefixed plain numeric input (NOT a
+// Range variant). The prefix symbol (props.currency ?? "$") is a decorative
+// aria-hidden span aligned by the scoped chrome CSS (.lg-currency-prefix /
+// .lg-currency-input padding); the input itself follows the renderTextInput
+// discipline (class-driven base, data-lg-input, inputmode numeric) — no
+// inline style anywhere.
+export function renderCurrencyInputQuestion(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const currency = propStr(node, "currency") ?? "$";
+  return (
+    `<div class="lg-currency"${hydration(node)}>` +
+    `<span class="lg-currency-prefix" aria-hidden="true">${esc(currency)}</span>` +
+    `<input class="lg-input lg-currency-input" type="text" inputmode="numeric" data-lg-input` +
+    attr("placeholder", propStr(node, "placeholder")) +
+    attr("data-min", propNum(node, "min")) +
+    attr("data-max", propNum(node, "max")) +
+    attr("data-currency", currency) +
+    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    (node.required === true ? " required" : "") +
+    `>` +
+    `</div>`
+  );
 }
 export function renderEmailInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   return renderTextInput(node, design, "email", ` inputmode="email" autocomplete="email"`);
@@ -731,6 +855,111 @@ export function renderReassuranceBadge(node: LeadgenComponentNode, design: Defau
   );
 }
 
+// 08 §8.10 SuccessState: completion/success affordance (role="status" so AT
+// announces it when the runtime reveals it). Token-styled like the
+// reassurance badge (success-green outline family); heading/message/icon all
+// optional and read defensively.
+export function renderSuccessState(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const ss = design.successState;
+  const icon = propStr(node, "icon") ?? "✓";
+  const heading = propStr(node, "heading");
+  const message = propStr(node, "message");
+  return (
+    `<div class="lg-success"${hydration(node)} role="status"` +
+    style({ border: ss.border, background: ss.background, "border-radius": ss.borderRadius }) +
+    `>` +
+    `<span class="lg-success-icon"${style({ color: ss.iconColor })} aria-hidden="true">${esc(icon)}</span>` +
+    (heading !== undefined && heading !== ""
+      ? `<div class="lg-success-heading"${style({ "font-family": ss.headingFontFamily, color: ss.headingColor })}>${esc(heading)}</div>`
+      : "") +
+    (message !== undefined && message !== ""
+      ? `<p class="lg-success-message"${style({ color: ss.messageColor })}>${esc(message)}</p>`
+      : "") +
+    `</div>`
+  );
+}
+
+// 08 §8.3 SecureFormBadge: secure-form trust messaging — the ReassuranceBadge
+// pattern (inline token colours with no state) in the muted navy family.
+export function renderSecureFormBadge(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const sb = design.secureFormBadge;
+  const icon = propStr(node, "icon") ?? "🔒";
+  const text = propStr(node, "text") ?? sb.exampleCopy;
+  return (
+    `<div class="lg-secure-badge"${hydration(node)}` +
+    style({ border: sb.border, background: sb.background, color: sb.textColor }) +
+    `>` +
+    `<span class="lg-secure-badge-icon"${style({ color: sb.iconColor })} aria-hidden="true">${esc(icon)}</span>` +
+    `<span class="lg-secure-badge-text">${esc(text)}</span>` +
+    `</div>`
+  );
+}
+
+// 08 §8.3/§8.10 TrustBar: icon/text trust pairs from STRUCTURED props
+// (props.items — never child nodes), laid out horizontal (default) or stacked
+// via a modifier class. Fully class-driven (no inline style); items read
+// defensively (non-object rows and empty rows are skipped).
+function trustBarItems(node: LeadgenComponentNode): Array<{ icon: string; text: string }> {
+  const raw = node.props?.["items"];
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ icon: string; text: string }> = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const r = item as Record<string, unknown>;
+    const icon = typeof r["icon"] === "string" ? r["icon"] : "";
+    const text = typeof r["text"] === "string" ? r["text"] : "";
+    if (icon === "" && text === "") continue;
+    out.push({ icon, text });
+  }
+  return out;
+}
+
+export function renderTrustBar(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const stacked = propStr(node, "layout") === "stacked";
+  const items = trustBarItems(node)
+    .map(
+      (item) =>
+        `<span class="lg-trustbar-item">` +
+        (item.icon !== "" ? `<span class="lg-trustbar-icon" aria-hidden="true">${esc(item.icon)}</span>` : "") +
+        `<span class="lg-trustbar-text">${esc(item.text)}</span>` +
+        `</span>`,
+    )
+    .join("");
+  return (
+    `<div class="lg-trustbar${stacked ? " lg-trustbar-stacked" : ""}"${hydration(node)}>` +
+    items +
+    `</div>`
+  );
+}
+
+// 08 §8.3/§8.10 LogoStrip: carrier/partner logo row from STRUCTURED props
+// (props.logos — never child nodes). Media reference flows to src exactly like
+// ImageCardAnswerGrid's imageMediaId; rows without a mediaId are skipped.
+// Fully class-driven (no inline style).
+function logoStripLogos(node: LeadgenComponentNode): Array<{ mediaId: string; alt: string }> {
+  const raw = node.props?.["logos"];
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ mediaId: string; alt: string }> = [];
+  for (const logo of raw) {
+    if (typeof logo !== "object" || logo === null || Array.isArray(logo)) continue;
+    const r = logo as Record<string, unknown>;
+    const mediaId = typeof r["mediaId"] === "string" ? r["mediaId"] : "";
+    if (mediaId === "") continue;
+    out.push({ mediaId, alt: typeof r["alt"] === "string" ? r["alt"] : "" });
+  }
+  return out;
+}
+
+export function renderLogoStrip(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const logos = logoStripLogos(node)
+    .map(
+      (logo) =>
+        `<img class="lg-logo-strip-img" src="${esc(logo.mediaId)}" alt="${esc(logo.alt)}" loading="lazy">`,
+    )
+    .join("");
+  return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;
+}
+
 export function renderHelperText(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   return (
     `<p class="lg-helper"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
@@ -775,6 +1004,8 @@ export function renderComponent(node: LeadgenComponentNode, design: DefaultFunne
       return renderBackButton(node, design);
     case "DisclosureLink":
       return renderDisclosureLink(node, design);
+    case "StepIndicator":
+      return renderStepIndicator(node, design);
     case "CategoryLabel":
       return renderCategoryLabel(node, design);
     case "QuestionHeadline":
@@ -799,8 +1030,16 @@ export function renderComponent(node: LeadgenComponentNode, design: DefaultFunne
       return renderMultiChoiceCardGroup(node, design);
     case "DropdownQuestion":
       return renderDropdownQuestion(node, design);
+    case "SearchableDropdownQuestion":
+      return renderSearchableDropdownQuestion(node, design);
+    case "OtherGroupSelector":
+      return renderOtherGroupSelector(node, design);
     case "FreeTextQuestion":
       return renderFreeTextQuestion(node, design);
+    case "NumberInputQuestion":
+      return renderNumberInputQuestion(node, design);
+    case "CurrencyInputQuestion":
+      return renderCurrencyInputQuestion(node, design);
     case "EmailInputQuestion":
       return renderEmailInputQuestion(node, design);
     case "PhoneInputQuestion":
@@ -819,6 +1058,14 @@ export function renderComponent(node: LeadgenComponentNode, design: DefaultFunne
       return renderAutoAdvanceButton(node, design);
     case "ReassuranceBadge":
       return renderReassuranceBadge(node, design);
+    case "SuccessState":
+      return renderSuccessState(node, design);
+    case "SecureFormBadge":
+      return renderSecureFormBadge(node, design);
+    case "TrustBar":
+      return renderTrustBar(node, design);
+    case "LogoStrip":
+      return renderLogoStrip(node, design);
     case "HelperText":
       return renderHelperText(node, design);
     case "ValidationError":

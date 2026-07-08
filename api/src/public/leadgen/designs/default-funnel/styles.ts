@@ -58,6 +58,11 @@ export function funnelChromeCss(
     rangeQuestion,
     primaryButton,
     reassuranceBadge,
+    secureFormBadge,
+    successState,
+    trustBar,
+    logoStrip,
+    stepIndicator,
     iconCardGrid,
     iconCard,
     input,
@@ -428,6 +433,113 @@ export function funnelChromeCss(
     rule(`${scope} .lg-badge-icon`, { color: reassuranceBadge.iconColor, "line-height": "1" }),
   );
 
+  // ---- secure form badge (08 §8.3 SecureFormBadge) -------------------------
+  out.push(
+    rule(`${scope} .lg-secure-badge`, {
+      display: "inline-flex",
+      "align-items": "center",
+      gap: secureFormBadge.gap,
+      border: secureFormBadge.border,
+      background: secureFormBadge.background,
+      "border-radius": secureFormBadge.borderRadius,
+      padding: `${secureFormBadge.paddingY} ${secureFormBadge.paddingX}`,
+      color: secureFormBadge.textColor,
+      "font-size": secureFormBadge.fontSize,
+    }),
+    rule(`${scope} .lg-secure-badge-icon`, { color: secureFormBadge.iconColor, "line-height": "1" }),
+  );
+
+  // ---- success state (08 §8.10 SuccessState) -------------------------------
+  out.push(
+    rule(`${scope} .lg-success`, {
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      gap: spacing.sm,
+      border: successState.border,
+      background: successState.background,
+      "border-radius": successState.borderRadius,
+      padding: successState.padding,
+      "text-align": "center",
+    }),
+    rule(`${scope} .lg-success-icon`, {
+      color: successState.iconColor,
+      "font-size": successState.iconSize,
+      "line-height": "1",
+    }),
+    rule(`${scope} .lg-success-heading`, {
+      "font-family": successState.headingFontFamily,
+      "font-size": successState.headingFontSize,
+      "font-weight": "700",
+      color: successState.headingColor,
+    }),
+    rule(`${scope} .lg-success-message`, {
+      color: successState.messageColor,
+      "font-size": successState.messageFontSize,
+      margin: "0",
+    }),
+  );
+
+  // ---- trust bar (08 §8.3 TrustBar; stacked via modifier class) ------------
+  out.push(
+    rule(`${scope} .lg-trustbar`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: trustBar.gap,
+      margin: `${trustBar.marginY} 0`,
+    }),
+    rule(`${scope} .lg-trustbar-stacked`, {
+      "flex-direction": "column",
+      "align-items": "flex-start",
+    }),
+    rule(`${scope} .lg-trustbar-item`, {
+      display: "inline-flex",
+      "align-items": "center",
+      gap: trustBar.itemGap,
+      color: trustBar.textColor,
+      "font-size": trustBar.fontSize,
+    }),
+    rule(`${scope} .lg-trustbar-icon`, { color: trustBar.iconColor, "line-height": "1" }),
+  );
+
+  // ---- logo strip (08 §8.3 LogoStrip) --------------------------------------
+  out.push(
+    rule(`${scope} .lg-logo-strip`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: logoStrip.gap,
+      margin: `${logoStrip.marginY} 0`,
+    }),
+    rule(`${scope} .lg-logo-strip-img`, {
+      "max-height": logoStrip.logoMaxHeight,
+      width: "auto",
+      "object-fit": "contain",
+      opacity: logoStrip.logoOpacity,
+    }),
+  );
+
+  // ---- step indicator (08 §8.3 StepIndicator) ------------------------------
+  out.push(
+    rule(`${scope} .lg-steps`, {
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: stepIndicator.gap,
+      "margin-bottom": stepIndicator.marginBottom,
+    }),
+    rule(`${scope} .lg-step`, {
+      width: stepIndicator.dotSize,
+      height: stepIndicator.dotSize,
+      "border-radius": radius.full,
+      background: stepIndicator.dotColor,
+    }),
+    rule(`${scope} .lg-step[data-active="true"]`, { background: stepIndicator.activeColor }),
+  );
+
   // ---- icon/answer card grid + card + states (§14.2 iconCardGrid/iconCard) -
   out.push(
     rule(`${scope} .lg-card-grid`, {
@@ -539,6 +651,21 @@ export function funnelChromeCss(
       "background-position": "right 16px center",
       "padding-right": "40px",
     }),
+    // searchable dropdown (08 §8.3): the search input sits above the <select>.
+    rule(`${scope} .lg-dropdown-search`, { "margin-bottom": spacing.sm }),
+    // currency input (08 §8.10): prefix symbol aligned inside the input box;
+    // the input clears it with token-derived left padding.
+    rule(`${scope} .lg-currency`, { position: "relative" }),
+    rule(`${scope} .lg-currency-prefix`, {
+      position: "absolute",
+      left: input.padding,
+      top: "50%",
+      transform: "translateY(-50%)",
+      color: page.textSecondaryColor,
+      "font-size": input.fontSize,
+      "pointer-events": "none",
+    }),
+    rule(`${scope} .lg-currency-input`, { "padding-left": spacing.xl }),
   );
 
   // ---- validation: error / helper / legal (§14.2 validation) --------------

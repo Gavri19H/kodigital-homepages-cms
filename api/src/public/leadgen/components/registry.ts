@@ -30,6 +30,7 @@ export const COMPONENT_CATALOG = {
   HeaderLogo:    { category: "chrome", produces: null, props: ["logoMediaId"], validation: [], events: [], tokenSlots: ["header"] },
   BackButton:    { category: "chrome", produces: null, props: [], validation: [], events: ["section_view(back)"], tokenSlots: ["backButton"] },
   DisclosureLink:{ category: "chrome", produces: null, props: ["panelHtml"], validation: [], events: [], tokenSlots: ["disclosure"] },
+  StepIndicator: { category: "chrome", produces: null, props: ["steps","current"], validation: [], events: [], tokenSlots: ["stepIndicator"], capabilityExample: "08 §8.3 Navigation: multi-step dot indicator (role=progressbar + aria-value*)" },
 
   // ---- questions (emit a normalized answer) ----
   CategoryLabel: { category: "affordance", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["categoryLabel"] },
@@ -46,8 +47,12 @@ export const COMPONENT_CATALOG = {
   ImageCardAnswerGrid:{ category: "question", produces: "enum", props: ["internal_field","columns","choices[{imageMediaId,label,value}]","searchable?","required"], validation: ["one selected if required"], events: ["answer_click"], tokenSlots: ["iconCardGrid","iconCard"], capabilityExample: "reference-funnel: brand-logo make/carrier grid + card-search" },
   MultiChoiceCardGroup:{ category: "question", produces: "array", props: ["internal_field","choices[]","min","max"], validation: ["min<=count<=max"], events: ["answer_click"], tokenSlots: ["iconCard","multiChoice"] },
   DropdownQuestion:   { category: "question", produces: "enum", props: ["internal_field","choices[]","placeholder","required","conditional?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown"], capabilityExample: "spec: insurer dropdown shown when 'insured=yes'" },
+  SearchableDropdownQuestion: { category: "question", produces: "enum", props: ["internal_field","choices[]","placeholder?","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["dropdown","input"], capabilityExample: "08 §8.3/§8.10: DropdownQuestion plus a search input above the options (runtime filters client-side)" },
+  OtherGroupSelector: { category: "question", produces: "enum", props: ["internal_field","choices[]","required?"], validation: ["value in choices"], events: ["answer_click"], tokenSlots: ["primaryButton","input"], capabilityExample: "08 §8.3 (B9 §6.4): main choices as answer buttons + the Other tail; auto-applied when a mapped field has choiceDisplay.otherGroupEnabled" },
 
   FreeTextQuestion:   { category: "question", produces: "string", props: ["internal_field","placeholder","maxLen","required","pii?"], validation: ["required","maxLen"], events: ["answer_change"], tokenSlots: ["input"] },
+  NumberInputQuestion:   { category: "question", produces: "number",   props: ["internal_field","min?","max?","step?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.3/§8.10: plain number input (inputmode=numeric) — NOT a Range variant" },
+  CurrencyInputQuestion: { category: "question", produces: "currency", props: ["internal_field","currency?","min?","max?","placeholder?","required?"], validation: ["numeric","min<=value<=max when set"], events: ["answer_change","validation_error"], tokenSlots: ["input"], capabilityExample: "08 §8.10: currency-prefixed plain input (prefix from props.currency ?? \"$\") — NOT a Range variant" },
   EmailInputQuestion: { category: "question", produces: "string", props: ["internal_field","required"], validation: ["email format"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
   PhoneInputQuestion: { category: "question", produces: "string", props: ["internal_field","required","format"], validation: ["phone format"], events: ["answer_change","validation_error"], tokenSlots: ["input"] },
   NameFieldsGroup:    { category: "question", produces: "object", props: ["fields(first,last)","required"], validation: ["required per field"], events: ["answer_change"], tokenSlots: ["input"] },
@@ -59,6 +64,10 @@ export const COMPONENT_CATALOG = {
   ContinueButton:   { category: "control", produces: null, props: ["label","loadingLabel"], validation: ["all required answered"], events: ["continue_click","section_continue"], tokenSlots: ["primaryButton"] },
   AutoAdvanceButton:{ category: "control", produces: null, props: [], validation: [], events: ["answer_click"], tokenSlots: ["primaryButton"] },
   ReassuranceBadge: { category: "affordance", produces: null, props: ["icon","text"], validation: [], events: [], tokenSlots: ["reassuranceBadge"], capabilityExample: "screenshot: 'Get your offers in 2 minutes or less.'" },
+  SuccessState:     { category: "affordance", produces: null, props: ["heading?","message?","icon?"], validation: [], events: [], tokenSlots: ["successState"], capabilityExample: "08 §8.10: completion/success state (+ success styling)" },
+  SecureFormBadge:  { category: "affordance", produces: null, props: ["text?","icon?"], validation: [], events: [], tokenSlots: ["secureFormBadge"], capabilityExample: "08 §8.3 Trust: secure-form messaging (lock badge)" },
+  TrustBar:         { category: "affordance", produces: null, props: ["items[{icon,text}]","layout(horizontal|stacked)"], validation: [], events: [], tokenSlots: ["trustBar"], capabilityExample: "08 §8.3/§8.10: icon/text trust pairs, horizontal or stacked (structured props, no children)" },
+  LogoStrip:        { category: "affordance", produces: null, props: ["logos[{mediaId,alt}]"], validation: [], events: [], tokenSlots: ["logoStrip"], capabilityExample: "08 §8.3/§8.10: carrier/partner logo strip" },
   HelperText:       { category: "affordance", produces: null, props: ["text"], validation: [], events: [], tokenSlots: ["validation.helper"] },
   ValidationError:  { category: "affordance", produces: null, props: [], validation: [], events: ["validation_error"], tokenSlots: ["validation"] },
   LegalNote:        { category: "affordance", produces: null, props: ["html"], validation: [], events: [], tokenSlots: ["validation.helper"] },
