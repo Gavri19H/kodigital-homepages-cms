@@ -36,6 +36,7 @@ import {
   LG_MAPS_CALLBACK,
   mapsSdkSrc,
   maybeInjectMapsSdk,
+  parseMapsConfig,
   wireMapsFields,
   type LgMapsHooks,
 } from "../src/public/leadgen/runtime/maps";
@@ -377,6 +378,68 @@ describe("M2/M3 — runtime/maps.ts loads the Places SDK itself (03 §3.2d / 08 
     ).toBe("already_loaded");
     expect(ran).toBe(1);
     expect(h.doc.head.children.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.8 studio emissions — the runtime-reader cross-check over the EXACT
+// config literals the Section-Studio inspector writes into props.maps.
+// The emission side (island collectors → these literals, byte-faithful into
+// data-lg-maps) is pinned in test/leadgen-section-studio-ui.test.ts
+// (MAPS_EMITTED_* — the worker typecheck program; runtime/maps.ts cannot be
+// imported there). Keep BOTH literal sets in lockstep.
+// ---------------------------------------------------------------------------
+
+describe("§8.8 studio emissions — parseMapsConfig decodes the inspector's exact keys to the wired config", () => {
+  it("address emission → full wired config (autocomplete + validate + normalize + all three fills)", () => {
+    const MAPS_EMITTED_ADDRESS = {
+      enable_autocomplete: true,
+      validate_full_address: true,
+      normalize_address_line: true,
+      autofill_state: "state_field",
+      autofill_city: "city",
+      autofill_zip: "zip",
+    };
+    expect(parseMapsConfig(JSON.stringify(MAPS_EMITTED_ADDRESS))).toEqual({
+      autocomplete: true,
+      validate: true,
+      normalize: true,
+      fills: { city: "city", state: "state_field", zip: "zip" },
+    });
+  });
+
+  it("zip emission → wired config: the studio-added enable_autocomplete gate makes initMapsFields attach Places", () => {
+    const MAPS_EMITTED_ZIP = {
+      validate_zip: true,
+      autofill_city: "city",
+      autofill_state: "state_field",
+      enable_autocomplete: true,
+    };
+    expect(parseMapsConfig(JSON.stringify(MAPS_EMITTED_ZIP))).toEqual({
+      autocomplete: true,
+      validate: true,
+      normalize: false,
+      fills: { city: "city", state: "state_field" },
+    });
+    // WITHOUT the gate the runtime would skip the field entirely
+    // (initMapsFields: `!config.autocomplete → continue`) — the reason the
+    // studio's zip collector always rides enable_autocomplete along.
+    const gateless = parseMapsConfig(JSON.stringify({ validate_zip: true, autofill_city: "city" }));
+    expect(gateless).not.toBeNull();
+    expect(gateless!.autocomplete).toBe(false);
+  });
+
+  it("zip validate-only emission + the studio's cleared state (props.maps deleted → attribute '{}' compat fallback)", () => {
+    const MAPS_EMITTED_ZIP_VALIDATE_ONLY = { validate_zip: true, enable_autocomplete: true };
+    expect(parseMapsConfig(JSON.stringify(MAPS_EMITTED_ZIP_VALIDATE_ONLY))).toEqual({
+      autocomplete: true,
+      validate: true,
+      normalize: false,
+      fills: {},
+    });
+    // a cleared node renders data-lg-maps="{}" (address compat fallback):
+    // everything off — the graceful manual-entry no-op
+    expect(parseMapsConfig("{}")).toEqual({ autocomplete: false, validate: false, normalize: false, fills: {} });
   });
 });
 

@@ -32,6 +32,15 @@ import { STUDIO_LIBRARY_GROUPS } from "../src/admin/leadgen/ui-section-studio";
 import { rebuildDerivedIndexes, type OfferSchemaInfo } from "../src/leadgen/sections";
 import { toPublicComponent } from "../src/public/leadgen/config-dto";
 import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.generated";
+// §8.8 seam imports: the preset renderer must serialize props.maps VERBATIM
+// into data-lg-maps. The runtime-reader cross-check (parseMapsConfig over the
+// SAME emission literals — MAPS_EMITTED_*) lives in
+// test/leadgen-runtime-hydration.test.ts ("§8.8 studio emissions"): that file
+// belongs to the DOM-lib runtime typecheck program (tsconfig.runtime.json);
+// importing runtime/maps.ts HERE would drag DOM types into the worker
+// program. Same suite-pairing the M5 progress-bar regressions use.
+import { renderComponent } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -553,6 +562,25 @@ function sliceIslandFunction(script: string, name: string): string {
   throw new Error(`unbalanced braces while slicing island function ${name}`);
 }
 
+// Slice a `var NAME = {…};` object-literal statement from the island (the
+// §8.8 per-mode key tables ride NEXT TO the functions that consume them —
+// probes must run the SERVED tables, never a test copy).
+function sliceIslandVar(script: string, name: string): string {
+  const marker = `var ${name} = {`;
+  const start = script.indexOf(marker);
+  expect(start, `island var ${name} present`).toBeGreaterThan(-1);
+  const open = script.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return `${script.slice(start, i + 1)};`;
+    }
+  }
+  throw new Error(`unbalanced braces while slicing island var ${name}`);
+}
+
 // The island's pure/model functions (no DOM) — sliced together so every
 // probe runs the REAL served code, never a test re-implementation.
 const MODEL_FUNCS = [
@@ -596,6 +624,14 @@ const MODEL_FUNCS = [
   "setLinesProp",
   "collectContainerProp",
   "collectSection",
+  // §8.8 Maps config model + collectors + banner
+  "mapsConfigOf",
+  "mapsFillLabels",
+  "nodeMapsEnabled",
+  "mapsControl",
+  "buildMapsConfig",
+  "collectMapsConfig",
+  "renderMapsBanner",
 ] as const;
 
 interface StudioSandbox {
@@ -646,6 +682,10 @@ function studioProbe(html: string, content: unknown, docStub?: Record<string, un
     "function afterModelChange() {}",
     "function showRefusal(m) { refusals.push(m); }",
     "function clearRefusal() {}",
+    "function applyCanvasDecoration() {}",
+    // the §8.8 per-mode key tables the Maps collectors consume (served code)
+    sliceIslandVar(island, "MAPS_FLAG_KEYS"),
+    sliceIslandVar(island, "MAPS_FILL_KEYS"),
     ...MODEL_FUNCS.map((n) => sliceIslandFunction(island, n)),
   ].join("\n");
   runInNewContext(source, sandbox);
@@ -1854,5 +1894,284 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
     expect(island).toContain("window.addEventListener('message', onPreviewMessage)");
     expect(island).toContain("runtime: true");
     expect(island).toContain("events_html");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.8 field-level Google-Maps config (E6; Q5 browser Places leg only):
+// SSR panel + EXECUTED collectors (exact runtime keys) + chips + banner + the
+// preset seam. The runtime-reader cross-check over the SAME emission literals
+// (MAPS_EMITTED_*) lives in test/leadgen-runtime-hydration.test.ts ("§8.8
+// studio emissions") — the DOM-lib typecheck program (see import note above).
+// ---------------------------------------------------------------------------
+
+const MAPS_CONTENT = {
+  components: [
+    // AddressAutocompleteQuestion produces `object` — answer_type left
+    // implicit (the catalog fallback) like the studio's own makeNode.
+    { type: "AddressAutocompleteQuestion", question_id: "q_addr", internal_field: "address_line" },
+    { type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip", answer_type: "string" },
+    { type: "FreeTextQuestion", question_id: "q_city", internal_field: "city", answer_type: "string" },
+    { type: "FreeTextQuestion", question_id: "q_state", internal_field: "state_field", answer_type: "string" },
+  ],
+};
+
+// The EXACT §8.8 emissions the inspector writes (runtime/maps.ts
+// parseMapsConfig flat authoring keys). MIRRORED VERBATIM by the hydration
+// suite's "§8.8 studio emissions" cross-check — keep both in lockstep.
+const MAPS_EMITTED_ADDRESS = {
+  enable_autocomplete: true,
+  validate_full_address: true,
+  normalize_address_line: true,
+  autofill_state: "state_field",
+  autofill_city: "city",
+  autofill_zip: "zip",
+};
+const MAPS_EMITTED_ZIP = {
+  validate_zip: true,
+  autofill_city: "city",
+  autofill_state: "state_field",
+  enable_autocomplete: true,
+};
+const MAPS_EMITTED_ZIP_VALIDATE_ONLY = { validate_zip: true, enable_autocomplete: true };
+
+interface MapsControlStub {
+  checked?: boolean;
+  value?: string;
+  getAttribute?: (k: string) => string | null;
+}
+
+interface MapsBannerStub {
+  hidden: boolean;
+  attrs: Record<string, string>;
+  getAttribute(k: string): string | null;
+}
+
+function mapsBannerStub(keyConfigured: boolean): MapsBannerStub {
+  return {
+    hidden: true,
+    attrs: { "data-maps-key-configured": keyConfigured ? "true" : "false" },
+    getAttribute(k: string) {
+      return this.attrs[k] ?? null;
+    },
+  };
+}
+
+// A document stub that serves ONLY the §8.8 selectors the Maps collectors +
+// banner renderer touch — every control value rides the mutable `controls`
+// record so a test can flip toggles between collectMapsConfig runs.
+function mapsDocStub(
+  controls: Record<string, MapsControlStub>,
+  banner?: MapsBannerStub,
+): Record<string, unknown> {
+  return {
+    getElementById() {
+      return null;
+    },
+    querySelector(sel: string) {
+      if (sel === "[data-studio-maps-banner]") return banner ?? null;
+      const m = /^\[data-maps-(flag|fill)="([^"]+)"\]$/.exec(sel);
+      return m ? (controls[`${m[1]}:${m[2]}`] ?? null) : null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+}
+
+describeDb("section studio — §8.8 field-level Maps config (E6, browser Places leg)", () => {
+  it("SSR: Maps inspector tab + controls carry the EXACT runtime keys; the meta blob marks address/zip modes; the legacy toggle notes per-field wins", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain('data-studio-inspector-tab="maps"');
+    expect(html).toContain('data-studio-panel="maps"');
+    // control hooks = the runtime parseMapsConfig flat authoring keys, exactly
+    for (const flag of ["enable_autocomplete", "validate_full_address", "validate_zip", "normalize_address_line"]) {
+      expect(html, `flag ${flag}`).toContain(`data-maps-flag="${flag}"`);
+    }
+    for (const fill of ["autofill_state", "autofill_city", "autofill_zip"]) {
+      expect(html, `fill ${fill}`).toContain(`data-maps-fill="${fill}"`);
+    }
+    // mode gating wrappers for the island (address-only / zip-only / shared)
+    for (const mode of ["address", "zip", "both"]) {
+      expect(html, `mode ${mode}`).toContain(`data-maps-mode="${mode}"`);
+    }
+    // the studio meta blob drives the tab + panel gating island-side
+    const meta = extractJsonBlob(html, "lg-studio-meta");
+    const types = meta["types"] as Record<string, Record<string, unknown>>;
+    expect(types["AddressAutocompleteQuestion"]!["maps"]).toBe("address");
+    expect(types["ZIPInputQuestion"]!["maps"]).toBe("zip");
+    expect(types["TwoButtonYesNo"]!["maps"]).toBeNull();
+    // §8.8: the legacy global checkbox STAYS, with per-field-wins copy
+    expect(html).toContain('id="lg-address-validation"');
+    expect(html).toContain("data-maps-legacy-note");
+    const legacyNote = /<span class="lg-maps-note" data-maps-legacy-note>([^<]+)<\/span>/.exec(html);
+    expect(legacyNote, "legacy note present").not.toBeNull();
+    expect(legacyNote![1]).toContain("WINS");
+  });
+
+  it("SSR: the key-missing banner ships HIDDEN with the exact no-op contract copy + the key state attribute (no key in the test env)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const banner = /<p class="studio-maps-banner"[^>]*>([^<]*)<\/p>/.exec(html);
+    expect(banner, "banner present").not.toBeNull();
+    expect(banner![0]).toContain("data-studio-maps-banner");
+    expect(banner![0]).toContain('data-maps-key-configured="false"');
+    expect(banner![0]).toContain(" hidden");
+    expect(banner![0]).toContain('role="status"');
+    // the §8.8 contract copy, verbatim
+    expect(banner![1]).toContain("Autocomplete/validation will no-op; manual entry still works");
+  });
+
+  it("EXECUTED: address collectors write EXACTLY the runtime keys (deep-equal + parseMapsConfig cross-check); clearing deletes props.maps", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const controls: Record<string, MapsControlStub> = {
+      "flag:enable_autocomplete": { checked: true },
+      "flag:validate_full_address": { checked: true },
+      "flag:normalize_address_line": { checked: true },
+      "fill:autofill_state": { value: "state_field" },
+      "fill:autofill_city": { value: "city" },
+      "fill:autofill_zip": { value: "zip" },
+    };
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub(controls));
+    probe.sandbox.selectedQuestionId = "q_addr";
+    probe.run("collectMapsConfig()");
+    const node = probe.run("findRef('q_addr').node") as { props?: Record<string, unknown> };
+    // the EXACT §8.8 authoring keys — nothing more, nothing less. The
+    // runtime-reader decode of THIS literal (parseMapsConfig → wired config)
+    // is pinned in leadgen-runtime-hydration.test.ts "§8.8 studio emissions".
+    expect(node.props?.["maps"]).toEqual(MAPS_EMITTED_ADDRESS);
+    // the mutated tree stays valid for the REAL server validator
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // unchecking everything + clearing the pickers deletes props.maps — and
+    // the (otherwise-empty) props object itself: the node is CLEAN again
+    for (const key of Object.keys(controls)) {
+      if (controls[key]!.checked !== undefined) controls[key]!.checked = false;
+      if (controls[key]!.value !== undefined) controls[key]!.value = "";
+    }
+    probe.run("collectMapsConfig()");
+    const cleared = probe.run("findRef('q_addr').node") as Record<string, unknown>;
+    expect(cleared["props"]).toBeUndefined();
+  });
+
+  it("EXECUTED: ZIP collectors emit the zip keys + the enable_autocomplete wiring gate; address-only keys never leak into a zip config", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const controls: Record<string, MapsControlStub> = {
+      "flag:validate_zip": { checked: true },
+      "fill:autofill_city": { value: "city" },
+      "fill:autofill_state": { value: "state_field" },
+      // address-only controls LEFT CHECKED on purpose: the zip mode must
+      // never read them (per-mode key tables, not whatever the DOM holds)
+      "flag:enable_autocomplete": { checked: true },
+      "flag:validate_full_address": { checked: true },
+      "flag:normalize_address_line": { checked: true },
+      "fill:autofill_zip": { value: "zip" },
+    };
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub(controls));
+    probe.sandbox.selectedQuestionId = "q_zip";
+    probe.run("collectMapsConfig()");
+    const node = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
+    // §8.8 zip keys + the wiring gate: the runtime's initMapsFields attaches
+    // Places ONLY when autocomplete is enabled, and zip fields have no
+    // separate autocomplete toggle — the collector rides it automatically.
+    // (runtime decode of THIS literal: hydration suite "§8.8 studio emissions")
+    expect(node.props?.["maps"]).toEqual(MAPS_EMITTED_ZIP);
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // a validate-only zip config still carries the gate; no fills
+    controls["fill:autofill_city"]!.value = "";
+    controls["fill:autofill_state"]!.value = "";
+    probe.run("collectMapsConfig()");
+    const validateOnly = probe.run("findRef('q_zip').node") as { props?: Record<string, unknown> };
+    expect(validateOnly.props?.["maps"]).toEqual(MAPS_EMITTED_ZIP_VALIDATE_ONLY);
+  });
+
+  it("EXECUTED: chip labels derive from the config's autofill keys in the runtime link order (flat AND nested-fills legacy shape)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, MAPS_CONTENT);
+    // flat §8.8 keys (as the collectors write them) — order street,city,state,zip
+    probe.run("findRef('q_zip').node.props = { maps: { validate_zip: true, autofill_city: 'city', autofill_state: 'state_field', enable_autocomplete: true } }");
+    expect(probe.run("mapsFillLabels(findRef('q_zip').node)")).toEqual(["city", "state"]);
+    probe.run("findRef('q_addr').node.props = { maps: { autofill_zip: 'zip', autofill_city: 'city' } }");
+    expect(probe.run("mapsFillLabels(findRef('q_addr').node)")).toEqual(["city", "zip"]);
+    // the nested `fills` spelling parseMapsConfig also accepts
+    probe.run("findRef('q_addr').node.props = { maps: { fills: { state: 'state_field' } } }");
+    expect(probe.run("mapsFillLabels(findRef('q_addr').node)")).toEqual(["state"]);
+    // nodeMapsEnabled: {} config → nothing on; legacy compat spellings count
+    probe.run("findRef('q_addr').node.props = { maps: {} }");
+    expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(false);
+    probe.run("findRef('q_addr').node.props = { maps: { validate: true } }");
+    expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(true);
+    probe.run("findRef('q_addr').node.props = {}");
+    expect(probe.run("nodeMapsEnabled(findRef('q_addr').node)")).toBe(false);
+  });
+
+  it("EXECUTED: the key-missing banner shows ONLY for enabled-config + missing key (key present → hidden; nothing enabled → hidden)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const banner = mapsBannerStub(false);
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub({}, banner));
+    // no Maps-enabled component → hidden even without a key
+    probe.run("renderMapsBanner()");
+    expect(banner.hidden).toBe(true);
+    // a Maps-enabled component + missing key → SHOWN
+    probe.run("findRef('q_zip').node.props = { maps: { validate_zip: true, enable_autocomplete: true } }");
+    probe.run("renderMapsBanner()");
+    expect(banner.hidden).toBe(false);
+    // key configured → hidden regardless of config
+    banner.attrs["data-maps-key-configured"] = "true";
+    probe.run("renderMapsBanner()");
+    expect(banner.hidden).toBe(true);
+  });
+
+  it("round-trip: props.maps → content JSON → REAL validator clean → renderComponent emits data-lg-maps with the exact config (the preset seam)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const controls: Record<string, MapsControlStub> = {
+      "flag:validate_zip": { checked: true },
+      "fill:autofill_city": { value: "city" },
+      "fill:autofill_state": { value: "state_field" },
+    };
+    const probe = studioProbe(html, MAPS_CONTENT, mapsDocStub(controls));
+    probe.sandbox.selectedQuestionId = "q_zip";
+    probe.run("collectMapsConfig()");
+    // serialize exactly like the save path (collectSection JSON.stringifys
+    // state.content), re-parse, and run the REAL server validator
+    const roundTripped = JSON.parse(JSON.stringify(probe.sandbox.state.content)) as {
+      components: LeadgenComponentNode[];
+    };
+    expect(validateSectionContent(roundTripped).errors).toEqual([]);
+    const zipNode = flattenComponents(roundTripped.components).find((n) => n.question_id === "q_zip");
+    expect(zipNode, "zip node survives the round trip").toBeDefined();
+    expect(zipNode!.props?.["maps"]).toEqual(MAPS_EMITTED_ZIP);
+    // …and the REAL preset renderer serializes it VERBATIM into data-lg-maps
+    const rendered = renderComponent(zipNode!, defaultFunnelDesign);
+    const attr = /data-lg-maps="([^"]*)"/.exec(rendered);
+    expect(attr, "data-lg-maps attribute present").not.toBeNull();
+    const decoded = attr![1]!
+      .replace(/&quot;/g, '"')
+      .replace(/&#0?39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+    // the attribute value IS the config, byte-faithful after entity decode —
+    // exactly what the runtime reader receives (its decode of THIS literal is
+    // pinned in the hydration suite's "§8.8 studio emissions" cross-check)
+    expect(JSON.parse(decoded)).toEqual(MAPS_EMITTED_ZIP);
+    expect(decoded).toBe(JSON.stringify(zipNode!.props?.["maps"]));
+    // the address twin: an UNCONFIGURED address node keeps the "{}" compat
+    // fallback (runtime defaults; graceful no-op)
+    const addrNode = flattenComponents(roundTripped.components).find((n) => n.question_id === "q_addr");
+    expect(renderComponent(addrNode!, defaultFunnelDesign)).toContain('data-lg-maps="{}"');
   });
 });

@@ -422,12 +422,16 @@ export function componentSeedTemplates(): Record<string, Record<string, unknown>
 // The island-side per-type metadata: container flag, produces, choice-bearing,
 // the REQUIRED_FIELDS projection (drives the live validation chip + makeNode
 // validity defaults), the Content-tab keys and Validation-tab rule inputs.
+// `maps` is the §8.8 field-level Google-Maps config mode: only the two
+// Maps-capable question types get the inspector Maps tab (browser Places leg
+// only — Q5: the server geocode leg stays out of authoring scope).
 export interface StudioTypeMetaBlob {
   label: string;
   container: boolean;
   layout: boolean;
   produces: string | null;
   choice: boolean;
+  maps: "address" | "zip" | null;
   required: {
     internal_field: boolean;
     choices: boolean;
@@ -450,6 +454,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       layout: COMPONENT_CATALOG[type].category === "layout",
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
+      maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
       required: {
         internal_field: spec.internalField === true,
         choices: spec.choices === true,
@@ -581,6 +586,7 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
   </fieldset>
   <div class="form-group">
     <label class="lg-check"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${view.address_validation_enabled ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
+    <span class="lg-maps-note" data-maps-legacy-note>Legacy GLOBAL toggle (column kept for compat) — per-field Maps config on an Address/ZIP component (Inspector &#8594; Maps tab) WINS over it when present (§8.8).</span>
     <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key &#8658; the validation leg no-ops.</span>
     ${mapsKeyNote}
   </div>
@@ -908,6 +914,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
     { key: "layout", label: "Layout" },
     { key: "design", label: "Design" },
     { key: "validation", label: "Validation" },
+    { key: "maps", label: "Maps" },
     { key: "dependencies", label: "Dependencies" },
     { key: "mapping", label: "Mapping" },
     { key: "advanced", label: "Advanced" },
@@ -979,6 +986,27 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <label class="form-label" for="lg-vprop-error">Error text override</label>
       <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
     </div>
+  </div>
+
+  <div class="studio-panel" data-studio-panel="maps" role="tabpanel" hidden>
+    <p class="form-help">§8.8 field-level Google-Maps config (browser Places leg). Per-field config WINS over the legacy global toggle. Absent browser key &#8658; graceful no-op — manual entry keeps working.</p>
+    <div class="form-group lg-inspector-field" data-maps-mode="address"><label class="lg-check"><input type="checkbox" data-maps-flag="enable_autocomplete" /> Enable address autocomplete</label></div>
+    <div class="form-group lg-inspector-field" data-maps-mode="address"><label class="lg-check"><input type="checkbox" data-maps-flag="validate_full_address" /> Validate full address</label></div>
+    <div class="form-group lg-inspector-field" data-maps-mode="zip"><label class="lg-check"><input type="checkbox" data-maps-flag="validate_zip" /> Validate ZIP</label></div>
+    <div class="form-group lg-inspector-field" data-maps-mode="both">
+      <label class="form-label" for="lg-maps-autofill-state">Autofill state &#8594; field</label>
+      <select id="lg-maps-autofill-state" class="form-input" data-maps-fill="autofill_state"><option value="">&#8212; none &#8212;</option></select>
+    </div>
+    <div class="form-group lg-inspector-field" data-maps-mode="both">
+      <label class="form-label" for="lg-maps-autofill-city">Autofill city &#8594; field</label>
+      <select id="lg-maps-autofill-city" class="form-input" data-maps-fill="autofill_city"><option value="">&#8212; none &#8212;</option></select>
+    </div>
+    <div class="form-group lg-inspector-field" data-maps-mode="address">
+      <label class="form-label" for="lg-maps-autofill-zip">Autofill ZIP &#8594; field</label>
+      <select id="lg-maps-autofill-zip" class="form-input" data-maps-fill="autofill_zip"><option value="">&#8212; none &#8212;</option></select>
+    </div>
+    <div class="form-group lg-inspector-field" data-maps-mode="address"><label class="lg-check"><input type="checkbox" data-maps-flag="normalize_address_line" /> Normalize address line</label></div>
+    <p class="form-help" data-maps-zip-note hidden>ZIP features ride Places autocomplete on the ZIP input — the saved config carries <code>enable_autocomplete</code> automatically (the runtime wiring gate).</p>
   </div>
 
   <div class="studio-panel" data-studio-panel="dependencies" role="tabpanel" hidden>
@@ -1165,8 +1193,14 @@ export function renderSectionStudio(
   answerMapCount: number,
 ): string {
   const design = getFunnelDesign(null);
+  // §8.8 key-missing warning banner: SSR'd hidden; the island shows it ONLY
+  // when the tree carries a Maps-enabled component AND no browser key is
+  // configured (the exact no-op contract copy). Key state rides as a data
+  // attribute so the island never needs a second bootstrap blob.
+  const mapsBanner = `<p class="studio-maps-banner" data-studio-maps-banner data-maps-key-configured="${mapsKeyConfigured ? "true" : "false"}" hidden role="status" aria-live="polite">No Google-Maps browser key is configured &#8212; Autocomplete/validation will no-op; manual entry still works. The per-field Maps config stays saved and activates once the key is added.</p>`;
   return `${renderStudioTopBar(view, summary, statusPillHtml, initialIssueCount(view.content))}
 ${renderStudioSettings(view, mapsKeyConfigured)}
+${mapsBanner}
 <div class="lg-editor-grid studio-grid">
   <div class="card studio-cell-library">${renderStudioLibrary(design)}</div>
   <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design)}</div>
@@ -1226,6 +1260,9 @@ export const SECTION_STUDIO_STYLES = `
 .studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
 .studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
+/* §8.8 linked-field chips + key-missing banner */
+.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+.studio-maps-banner{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:6px 10px;margin:0 0 12px}
 /* inspector + drawer */
 .studio-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--c-border);margin-bottom:10px}
 .studio-tab{border:0;background:none;padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;color:var(--c-muted)}
@@ -1430,6 +1467,48 @@ export const SECTION_STUDIO_SCRIPT = `
       if (n.conditional && n.conditional.when === fieldName) { refs.push(n.question_id); }
     });
     return refs;
+  }
+
+  // --- §8.8 field-level Maps config model helpers -----------------------------
+  // The EXACT runtime keys (runtime/maps.ts parseMapsConfig flat spellings):
+  // flags per mode + autofill field-picker keys per mode. The UI emits ONLY
+  // these keys; parseMapsConfig treats an absent key as off.
+  var MAPS_FLAG_KEYS = {
+    address: ['enable_autocomplete', 'validate_full_address', 'normalize_address_line'],
+    zip: ['validate_zip']
+  };
+  var MAPS_FILL_KEYS = {
+    address: ['autofill_state', 'autofill_city', 'autofill_zip'],
+    zip: ['autofill_city', 'autofill_state']
+  };
+  function mapsConfigOf(node) {
+    var m = node && node.props ? node.props.maps : null;
+    return (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
+  }
+  // The autofilled part names, in the runtime's link order (street, city,
+  // state, zip) — reading BOTH the flat autofill_* spelling and the nested
+  // fills object exactly like parseMapsConfig's pick().
+  function mapsFillLabels(node) {
+    var cfg = mapsConfigOf(node);
+    if (!cfg) { return []; }
+    var nested = (cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
+    var parts = ['street', 'city', 'state', 'zip'];
+    var out = [], i, v;
+    for (i = 0; i < parts.length; i++) {
+      v = cfg['autofill_' + parts[i]] !== undefined ? cfg['autofill_' + parts[i]] : nested[parts[i]];
+      if (typeof v === 'string' && trimStr(v) !== '') { out.push(parts[i]); }
+    }
+    return out;
+  }
+  // Maps-enabled = the per-field config switches SOMETHING on (any §8.8 flag
+  // — either spelling parseMapsConfig accepts — or an autofill target).
+  function nodeMapsEnabled(node) {
+    var cfg = mapsConfigOf(node);
+    if (!cfg) { return false; }
+    if (cfg.enable_autocomplete === true || cfg.autocomplete === true) { return true; }
+    if (cfg.validate_full_address === true || cfg.validate_zip === true || cfg.validate === true) { return true; }
+    if (cfg.normalize_address_line === true || cfg.normalize === true) { return true; }
+    return mapsFillLabels(node).length > 0;
   }
 
   // --- validity-ready node factory (seed + REQUIRED_FIELDS projection) -------
@@ -1658,10 +1737,25 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
 
+  // §8.8 key-missing warning banner: visible ONLY when the tree carries a
+  // Maps-enabled component AND no browser key is configured (data attribute
+  // from the server). Key present or nothing Maps-enabled → hidden.
+  function renderMapsBanner() {
+    var el = document.querySelector('[data-studio-maps-banner]');
+    if (!el) { return; }
+    if (el.getAttribute('data-maps-key-configured') === 'true') { el.hidden = true; return; }
+    var enabled = false;
+    walkTree(state.content.components, 1, function (n) {
+      if (nodeMapsEnabled(n)) { enabled = true; }
+    });
+    el.hidden = !enabled;
+  }
+
   function afterModelChange() {
     markDirty();
     clearRefusal();
     renderIssues();
+    renderMapsBanner();
     scheduleCanvasRender();
   }
 
@@ -1728,13 +1822,34 @@ export const SECTION_STUDIO_SCRIPT = `
   function applyCanvasDecoration() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
+    // §8.8 linked-field chips REBUILD per pass (the region is server HTML —
+    // every re-render wipes them, so decoration re-derives from the model).
+    var stale = region.querySelectorAll('.studio-maps-chip');
+    var i;
+    for (i = 0; i < stale.length; i++) {
+      if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
+    }
     var nodes = region.querySelectorAll('[data-question-id]');
-    var i, qid, base;
+    var qid, base, ref, labels, chip;
     for (i = 0; i < nodes.length; i++) {
       nodes[i].setAttribute('draggable', 'true');
       qid = nodes[i].getAttribute('data-question-id');
       base = withoutClasses(nodes[i].className, [SELECT_CLASS]);
       nodes[i].className = qid === selectedQuestionId ? base + ' ' + SELECT_CLASS : base;
+      // chip: "fills: city, state" from the config's autofill keys. Inserted
+      // as a SIBLING (the ZIP node element is the <input> itself — it cannot
+      // contain children).
+      ref = findRef(qid);
+      labels = ref ? mapsFillLabels(ref.node) : [];
+      if (labels.length > 0 && nodes[i].parentNode) {
+        chip = document.createElement('span');
+        chip.className = 'studio-maps-chip';
+        chip.setAttribute('data-studio-maps-chip', '');
+        chip.setAttribute('data-chip-for', qid);
+        chip.setAttribute('data-fills', labels.join(','));
+        chip.appendChild(document.createTextNode('fills: ' + labels.join(', ')));
+        nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
+      }
     }
   }
   function clearDropClasses() {
@@ -1774,6 +1889,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (meta.choice) { tabs.push('choices'); }
     tabs.push('design');
     if (meta.produces) { tabs.push('validation'); }
+    if (meta.maps) { tabs.push('maps'); }
     tabs.push('dependencies');
     if (meta.produces) { tabs.push('mapping'); }
     tabs.push('advanced');
@@ -1849,6 +1965,7 @@ export const SECTION_STUDIO_SCRIPT = `
       ovEls[i].value = (oval === undefined || oval === null) ? '' : String(oval);
     }
     populateValidation(node, meta);
+    populateMapsPanel(node);
     populateConditional(node);
     var groups = document.querySelectorAll('[data-container-group]');
     for (i = 0; i < groups.length; i++) {
@@ -1977,6 +2094,102 @@ export const SECTION_STUDIO_SCRIPT = `
       patternIn.value = (node && node.props && node.props.pattern) ? String(node.props.pattern) : '';
     }
     if (errIn) { errIn.value = (node && node.props && node.props.error_text) ? String(node.props.error_text) : ''; }
+  }
+
+  // --- §8.8 Maps panel: populate + collect (address/zip modes) -----------------
+  function mapsControl(kind, key) {
+    return document.querySelector('[data-maps-' + kind + '="' + key + '"]');
+  }
+  function populateMapsPanel(node) {
+    var meta = node ? typeMeta(node.type) : {};
+    var mode = meta.maps || null;
+    var wraps = document.querySelectorAll('[data-maps-mode]');
+    var i, m;
+    for (i = 0; i < wraps.length; i++) {
+      m = wraps[i].getAttribute('data-maps-mode');
+      wraps[i].hidden = !mode || (m !== 'both' && m !== mode);
+    }
+    var zipNote = document.querySelector('[data-maps-zip-note]');
+    if (zipNote) { zipNote.hidden = mode !== 'zip'; }
+    if (!mode) { return; }
+    var cfg = mapsConfigOf(node) || {};
+    var flags = document.querySelectorAll('[data-maps-flag]');
+    var k;
+    for (i = 0; i < flags.length; i++) {
+      k = flags[i].getAttribute('data-maps-flag');
+      flags[i].checked = cfg[k] === true;
+    }
+    // Field pickers: THIS section's internal fields, excluding the component
+    // itself (§8.8 — an autofill target is always ANOTHER question's field).
+    var fields = internalFieldsOf();
+    var fills = document.querySelectorAll('[data-maps-fill]');
+    var sel, cur, opt, j;
+    for (i = 0; i < fills.length; i++) {
+      sel = fills[i];
+      k = sel.getAttribute('data-maps-fill');
+      cur = typeof cfg[k] === 'string' ? cfg[k] : '';
+      clearChildren(sel);
+      opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '\\u2014 none \\u2014';
+      sel.appendChild(opt);
+      for (j = 0; j < fields.length; j++) {
+        if (node.internal_field && fields[j] === node.internal_field) { continue; }
+        opt = document.createElement('option');
+        opt.value = fields[j];
+        opt.textContent = fields[j];
+        sel.appendChild(opt);
+      }
+      // a saved target that left the tree still displays (never silently drop)
+      var exists = false;
+      for (j = 0; j < sel.options.length; j++) {
+        if (sel.options[j].value === cur) { exists = true; break; }
+      }
+      if (cur !== '' && !exists) {
+        opt = document.createElement('option');
+        opt.value = cur;
+        opt.textContent = cur + ' (missing from this Section)';
+        sel.appendChild(opt);
+      }
+      sel.value = cur;
+    }
+  }
+  // Build the §8.8 config object with the EXACT runtime keys for the mode.
+  // Only switched-on keys are emitted (parseMapsConfig: absent = off). A ZIP
+  // config with ANY feature on also carries enable_autocomplete — the
+  // runtime's initMapsFields wires Places ONLY when autocomplete is enabled,
+  // and §8.8 gives ZIP fields no separate autocomplete toggle.
+  function buildMapsConfig(mode) {
+    var cfg = {};
+    var flagKeys = MAPS_FLAG_KEYS[mode] || [];
+    var fillKeys = MAPS_FILL_KEYS[mode] || [];
+    var i, el, v, any = false;
+    for (i = 0; i < flagKeys.length; i++) {
+      el = mapsControl('flag', flagKeys[i]);
+      if (el && el.checked) { cfg[flagKeys[i]] = true; any = true; }
+    }
+    for (i = 0; i < fillKeys.length; i++) {
+      el = mapsControl('fill', fillKeys[i]);
+      v = el ? trimStr(el.value) : '';
+      if (v !== '') { cfg[fillKeys[i]] = v; any = true; }
+    }
+    if (mode === 'zip' && any) { cfg.enable_autocomplete = true; }
+    return cfg;
+  }
+  function collectMapsConfig() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var meta = typeMeta(node.type);
+    if (!meta.maps) { return; }
+    var cfg = buildMapsConfig(meta.maps);
+    var empty = true, k;
+    for (k in cfg) { if (Object.prototype.hasOwnProperty.call(cfg, k)) { empty = false; break; } }
+    var props = ensureObj(node, 'props');
+    // removing ALL config deletes props.maps — the node stays clean
+    if (empty) { delete props.maps; } else { props.maps = cfg; }
+    cleanupEmpty(node, 'props');
+    applyCanvasDecoration();
+    afterModelChange();
   }
 
   // --- §8.5 container prop collectors -------------------------------------------
@@ -2545,6 +2758,13 @@ export const SECTION_STUDIO_SCRIPT = `
   for (ve = 0; ve < vpropEls.length; ve++) {
     vpropEls[ve].addEventListener('input', function () { collectValidationProp(this); });
     vpropEls[ve].addEventListener('change', function () { collectValidationProp(this); });
+  }
+  // §8.8 Maps controls: every toggle/picker change re-collects the whole
+  // config for the selected node's mode (exact-keys emission).
+  var mapsEls = document.querySelectorAll('[data-maps-flag], [data-maps-fill]');
+  var me;
+  for (me = 0; me < mapsEls.length; me++) {
+    mapsEls[me].addEventListener('change', collectMapsConfig);
   }
   var condEls = document.querySelectorAll('[data-inspector-cond]');
   var ce;
@@ -3637,6 +3857,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // --- first paint ---------------------------------------------------------------------------
   updatePendingUi();
   renderIssues();
+  renderMapsBanner();
   updateCanvasEmpty();
   applyCanvasDecoration();
   populateInspector();

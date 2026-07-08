@@ -382,4 +382,102 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await page.locator('[data-studio-events-clear]').click();
     await expect(list.locator('li')).toHaveCount(0);
   });
+
+  test('⑦ §8.8 ZIP Maps config via the inspector: exact runtime keys persist through save/reload; linked-field chip + key banner', async ({ page }) => {
+    test.setTimeout(90_000);
+    const vert = `maps-${uniq}`;
+    const section = await createStudioSection(page.request, `Maps Section ${uniq}`, ACT_A, vert, {
+      content_json: {
+        components: [
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+          { type: 'FreeTextQuestion', question_id: 'q_city', internal_field: 'city', answer_type: 'string' },
+          { type: 'FreeTextQuestion', question_id: 'q_state', internal_field: 'state', answer_type: 'string' },
+        ],
+      },
+    });
+
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    // a NON-Maps component shows no Maps tab (visible ONLY for address/ZIP)
+    await page.locator('#lg-studio-canvas-render [data-component-type="FreeTextQuestion"]').first().click();
+    const mapsTab = page.locator('[data-studio-inspector-tab="maps"]');
+    await expect(mapsTab).toBeHidden();
+
+    // select the ZIP component on the canvas → Maps tab appears; open it
+    await page.locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await expect(mapsTab).toBeVisible();
+    await mapsTab.click();
+
+    // zip mode: validate toggle + city/state pickers; address-only controls hidden
+    const validateZip = page.locator('[data-maps-flag="validate_zip"]');
+    await expect(validateZip).toBeVisible();
+    await expect(page.locator('[data-maps-flag="enable_autocomplete"]')).toBeHidden();
+    await expect(page.locator('[data-maps-flag="validate_full_address"]')).toBeHidden();
+    await expect(page.locator('[data-maps-fill="autofill_zip"]')).toBeHidden();
+
+    // the pickers list THIS Section's internal fields, excluding the ZIP itself
+    const cityPick = page.locator('[data-maps-fill="autofill_city"]');
+    const statePick = page.locator('[data-maps-fill="autofill_state"]');
+    await expect(cityPick.locator('option[value="city"]')).toHaveCount(1);
+    await expect(cityPick.locator('option[value="zip"]')).toHaveCount(0);
+
+    // configure: validate ZIP + autofill city/state via pickers only
+    await validateZip.check();
+    await cityPick.selectOption('city');
+    await statePick.selectOption('state');
+
+    // the §8.8 linked-field chip appears on the canvas from the config's
+    // autofill keys — "fills: city, state"
+    const chip = page.locator('#lg-studio-canvas-render [data-studio-maps-chip]');
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveAttribute('data-fills', 'city,state');
+    await expect(chip).toHaveText('fills: city, state');
+
+    // key-missing banner: shown ONLY when a Maps-enabled component exists AND
+    // no browser key is configured (local dev ships no GOOGLE_MAPS_BROWSER_KEY)
+    const banner = page.locator('[data-studio-maps-banner]');
+    if ((await banner.getAttribute('data-maps-key-configured')) === 'false') {
+      await expect(banner).toBeVisible();
+      await expect(banner).toContainText('Autocomplete/validation will no-op; manual entry still works');
+    } else {
+      await expect(banner).toBeHidden();
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/09-maps-config-chip-banner.png` });
+
+    // save → reload (same URL): the config persisted with the EXACT runtime keys
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'maps section detail',
+    );
+    const zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
+    expect(zipNode?.props?.['maps'], 'the §8.8 emission — exactly the runtime parseMapsConfig keys').toEqual({
+      validate_zip: true,
+      autofill_city: 'city',
+      autofill_state: 'state',
+      enable_autocomplete: true,
+    });
+
+    // the fresh page re-derives the chip from the saved model, and the
+    // inspector re-populates the saved config
+    await expect(page.locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveAttribute('data-fills', 'city,state');
+    await page.locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.locator('[data-studio-inspector-tab="maps"]').click();
+    await expect(page.locator('[data-maps-flag="validate_zip"]')).toBeChecked();
+    await expect(page.locator('[data-maps-fill="autofill_city"]')).toHaveValue('city');
+    await expect(page.locator('[data-maps-fill="autofill_state"]')).toHaveValue('state');
+    await page.screenshot({ path: `${SHOT_DIR}/10-maps-config-persisted.png` });
+
+    // clearing everything deletes props.maps (clean node) on the next save
+    await page.locator('[data-maps-flag="validate_zip"]').uncheck();
+    await page.locator('[data-maps-fill="autofill_city"]').selectOption('');
+    await page.locator('[data-maps-fill="autofill_state"]').selectOption('');
+    await expect(page.locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveCount(0);
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const cleared = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'maps section cleared',
+    );
+    expect(cleared.content_json.components.find((c) => c.question_id === 'q_zip')?.props?.['maps']).toBeUndefined();
+  });
 });
