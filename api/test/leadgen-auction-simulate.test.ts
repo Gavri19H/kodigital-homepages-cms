@@ -325,7 +325,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(JSON.stringify(pv)).not.toContain("super-secret-never-shown");
   });
 
-  it("S1 token gate: a payload+server offer whose secret does NOT resolve shows NO token field (matches the engine, never a spurious mask)", async () => {
+  it("S1 token gate: a payload+server offer whose secret does NOT resolve (null ref OR env-drift) shows NO token field (matches the engine, never a spurious mask)", async () => {
     const { sdb, env } = harness(); // env has NO PROVIDER_TOKEN → secret unresolvable
     const auction = seedAuction(sdb);
     const offerPublic = mintPublicId("offer");
@@ -354,6 +354,27 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const placementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(plPublic) as { id: number }).id;
     sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(offerPublic);
     sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placementRowId, offerId);
+
+    // Second offer — ENV-DRIFT: api_token_secret_ref IS set ('PROVIDER_TOKEN') but
+    // the env lacks that key (harness env has no PROVIDER_TOKEN) → readEnvSecret
+    // returns undefined → unresolvable, distinct from the null-ref case above.
+    const driftPublic = mintPublicId("offer");
+    sdb.prepare(
+      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, api_token_secret_ref, endpoint_production, endpoint_staging, status)
+       VALUES (?, 'EnvDriftOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'PROVIDER_TOKEN', 'https://p.example/q', 'https://s.example/q', 'active')`,
+    ).run(driftPublic);
+    const driftId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(driftPublic) as { id: number }).id;
+    const driftSchemaPublic = mintPublicId("payload_schema_version");
+    sdb.prepare(
+      "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source) VALUES (?, ?, 1, ?, ?, 1, 'manual')",
+    ).run(driftSchemaPublic, driftId, schemaJson, CARRIER_PARSE);
+    const driftSchemaId = (sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?").get(driftSchemaPublic) as { id: number }).id;
+    sdb.prepare("UPDATE leadgen_offers SET active_payload_schema_id = ? WHERE id = ?").run(driftSchemaId, driftId);
+    const driftPlPublic = mintPublicId("offer_placement");
+    sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-drift-1', 1)").run(driftPlPublic, driftId);
+    const driftPlacementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(driftPlPublic) as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(driftPublic);
+    sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 1, 1)").run(auction.id, driftPlacementRowId, driftId);
     stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
 
     const res = await admin.request(
@@ -365,7 +386,11 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: Record<string, unknown> | null }> };
     const pv = j.offers_payload_explain.find((e) => e.offer_id === offerPublic)!.payload_preview as Record<string, unknown>;
     expect(pv["keep"]).toBe(offerPublic); // the offer still previews normally…
-    expect("tok" in pv).toBe(false); // …but the unresolvable token node is ABSENT, not a spurious [REDACTED].
+    expect("tok" in pv).toBe(false); // …but the null-ref token node is ABSENT, not a spurious [REDACTED].
+    // env-drift: ref set but key absent from env → equally unresolvable → token absent.
+    const driftPv = j.offers_payload_explain.find((e) => e.offer_id === driftPublic)!.payload_preview as Record<string, unknown>;
+    expect(driftPv["keep"]).toBe(driftPublic);
+    expect("tok" in driftPv).toBe(false);
   });
 
   it("an offer-level exclude rule surfaces in offers_excluded with a typed reason", async () => {
