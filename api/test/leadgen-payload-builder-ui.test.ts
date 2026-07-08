@@ -29,6 +29,7 @@
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -939,6 +940,184 @@ describeDb("payload builder §6.9 — default/fallback", () => {
 // §6.10 — condition builder
 // ---------------------------------------------------------------------------
 
+// Executable-island harness (F-1): the REAL condition-builder functions are
+// sliced out of the served script and executed in a vm over a minimal element
+// stand-in that implements exactly the DOM surface they touch (attribute-
+// presence selectors, children, value/hidden/tagName/type, cloneNode). This
+// proves the render→read→render BEHAVIOR, not just source text.
+interface FakeEl {
+  tagName: string;
+  nodeType: number;
+  attrs: Map<string, string>;
+  children: FakeEl[];
+  className: string;
+  hidden: boolean;
+  value: string;
+  type?: string;
+  selected?: boolean;
+  placeholder?: string;
+  textContent: string;
+  readonly firstChild: FakeEl | null;
+  appendChild(c: FakeEl): FakeEl;
+  removeChild(c: FakeEl): FakeEl;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
+  cloneNode(deep?: boolean): FakeEl;
+  querySelector(sel: string): FakeEl | null;
+}
+
+function fakeElement(tag: string): FakeEl {
+  const attrs = new Map<string, string>();
+  const children: FakeEl[] = [];
+  const node: FakeEl = {
+    tagName: String(tag).toUpperCase(),
+    nodeType: 1,
+    attrs,
+    children,
+    className: "",
+    hidden: false,
+    value: "",
+    textContent: "",
+    get firstChild() {
+      return children.length > 0 ? children[0]! : null;
+    },
+    appendChild(c) {
+      children.push(c);
+      // real <select> semantics: appending a selected <option> sets the value
+      if (node.tagName === "SELECT" && c.tagName === "OPTION" && c.selected === true) {
+        node.value = c.value;
+      }
+      return c;
+    },
+    removeChild(c) {
+      const i = children.indexOf(c);
+      if (i !== -1) children.splice(i, 1);
+      return c;
+    },
+    setAttribute(k, v) {
+      attrs.set(k, String(v));
+    },
+    getAttribute(k) {
+      return attrs.has(k) ? attrs.get(k)! : null;
+    },
+    removeAttribute(k) {
+      attrs.delete(k);
+    },
+    cloneNode(deep) {
+      const copy = fakeElement(tag);
+      for (const [k, v] of attrs) copy.setAttribute(k, v);
+      copy.className = node.className;
+      copy.hidden = node.hidden;
+      copy.value = node.value;
+      copy.textContent = node.textContent;
+      if (node.type !== undefined) copy.type = node.type;
+      if (deep === true) for (const c of children) copy.appendChild(c.cloneNode(true));
+      return copy;
+    },
+    querySelector(sel) {
+      const attr = sel.replace(/^\[|\]$/g, "");
+      for (const c of children) {
+        if (c.nodeType !== 1) continue;
+        if (c.attrs.has(attr)) return c;
+        const nested = c.querySelector(sel);
+        if (nested !== null) return nested;
+      }
+      return null;
+    },
+  };
+  return node;
+}
+
+function fakeTextNode(text: string): FakeEl {
+  const n = fakeElement("#text");
+  n.nodeType = 3;
+  n.textContent = String(text);
+  return n;
+}
+
+// The §6.10 panel skeleton fillConditionPanel expects: rows box, add button,
+// preview line, and the SSR'd op-template <select> carrying the real op set.
+function conditionPanelDom(): FakeEl {
+  const bodyEl = fakeElement("div");
+  const rowsBox = fakeElement("div");
+  rowsBox.setAttribute("data-pb-condition-rows", "");
+  const addBtn = fakeElement("button");
+  addBtn.setAttribute("data-pb-condition-add", "");
+  const preview = fakeElement("div");
+  preview.setAttribute("data-pb-cond-preview", "");
+  preview.hidden = true;
+  const opTemplate = fakeElement("select");
+  opTemplate.setAttribute("data-pb-cond-op-template", "");
+  opTemplate.setAttribute("aria-hidden", "true");
+  opTemplate.hidden = true;
+  for (const op of PAYLOAD_CONDITION_OPS) {
+    const o = fakeElement("option");
+    o.value = op.value;
+    o.textContent = op.label;
+    opTemplate.appendChild(o);
+  }
+  bodyEl.appendChild(rowsBox);
+  bodyEl.appendChild(addBtn);
+  bodyEl.appendChild(preview);
+  bodyEl.appendChild(opTemplate);
+  return bodyEl;
+}
+
+function sliceIslandFunction(script: string, name: string): string {
+  const marker = `function ${name}(`;
+  const start = script.indexOf(marker);
+  expect(start, `island function ${name} present`).toBeGreaterThan(-1);
+  const open = script.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return script.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces while slicing island function ${name}`);
+}
+
+interface ConditionIsland {
+  condUiOp(cond: Record<string, unknown>): string;
+  fillConditionPanel(bodyEl: FakeEl, node: Record<string, unknown>): void;
+  readConditionFromRow(bodyEl: FakeEl, node: Record<string, unknown>): void;
+}
+
+function conditionIsland(html: string, linkedFields: Array<Record<string, string>>): ConditionIsland {
+  const script = extractScripts(html).find((s) => s.includes("data-pb-condition-rows"));
+  expect(script, "payload-builder island script present").toBeDefined();
+  const source = [
+    "trimStr",
+    "clearChildren",
+    "el",
+    "displayScalar",
+    "conditionFieldOptions",
+    "condUiOp",
+    "condSentence",
+    "fillConditionPanel",
+    "readConditionFromRow",
+  ]
+    .map((n) => sliceIslandFunction(script!, n))
+    .join("\n");
+  const sandbox = {
+    document: { createElement: fakeElement, createTextNode: fakeTextNode },
+    linkedFields,
+    items: [] as unknown[],
+  };
+  return runInNewContext(
+    `${source}\n({ condUiOp: condUiOp, fillConditionPanel: fillConditionPanel, readConditionFromRow: readConditionFromRow })`,
+    sandbox,
+  ) as ConditionIsland;
+}
+
+const CONDITION_LINKED_FIELDS = [
+  { internal_field: "homeowner", section_name: "Home Details", answer_type: "boolean" },
+  { internal_field: "carrier", section_name: "Home Details", answer_type: "enum" },
+];
+
 describeDb("payload builder §6.10 — condition builder", () => {
   it("operator list = the supported evaluator ops + empty-sugar ONLY; contains/OR omitted entirely", async () => {
     const { html } = await richEditorPage();
@@ -967,6 +1146,108 @@ describeDb("payload builder §6.10 — condition builder", () => {
     expect(html).toContain("cond.op = 'neq'; cond.value = '';");
     // preview sentence shape
     expect(html).toContain("'Send this field when '");
+  });
+
+  // F-1 (live-probed defect): "+ Add condition" stores {op:'eq', value:''} —
+  // the is_empty sugar shape. Picking "=" used to snap straight back to
+  // "is empty" on the read→render cycle (the renderer re-inferred sugar from
+  // value === ''), so §6.10's own example — "when homeowner = true" — could
+  // not be authored. The op <select> must be the source of truth while the
+  // row is live.
+  it("F-1: an explicit '=' pick sticks through the read→render cycle and reaches eq+true (no is_empty snap-back)", async () => {
+    const { html } = await richEditorPage();
+    const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
+    const bodyEl = conditionPanelDom();
+    const node: Record<string, unknown> = { conditional: { when: "homeowner", op: "eq", value: "" } };
+    const opSel = () => bodyEl.querySelector("[data-pb-cond-op]")!;
+
+    // Fresh from storage the empty-eq shape renders as the is_empty sugar.
+    island10.fillConditionPanel(bodyEl, node);
+    expect(opSel().value).toBe("is_empty");
+    expect(bodyEl.querySelector("[data-pb-cond-value]")).toBeNull();
+
+    // The user picks "=" — the delegated change handler runs read → render.
+    opSel().value = "eq";
+    island10.readConditionFromRow(bodyEl, node);
+    island10.fillConditionPanel(bodyEl, node);
+    expect(opSel().value, "the op select keeps the explicit = pick").toBe("eq");
+    const valueInput = bodyEl.querySelector("[data-pb-cond-value]");
+    expect(valueInput, "the typed value input appears on picking =").not.toBeNull();
+    // homeowner is a boolean linked field → the true/false dropdown renders.
+    expect(valueInput!.tagName).toBe("SELECT");
+    // While the value is still empty the STORED shape stays the sugar shape.
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "homeowner",
+      op: "eq",
+      value: "",
+    });
+
+    // Picking true emits the evaluator-exact boolean + the §6.10 sentence.
+    valueInput!.value = "true";
+    island10.readConditionFromRow(bodyEl, node);
+    island10.fillConditionPanel(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "homeowner",
+      op: "eq",
+      value: true,
+    });
+    expect(opSel().value).toBe("eq");
+    expect(bodyEl.querySelector("[data-pb-cond-value]")!.value).toBe("true");
+    const preview = bodyEl.querySelector("[data-pb-cond-preview]")!;
+    expect(preview.hidden).toBe(false);
+    expect(preview.textContent).toBe("Send this field when homeowner = true.");
+  });
+
+  it("eq WITH a value survives render→read round-trips without collapsing to sugar; stored empty eq/neq still render the sugar ops", async () => {
+    const { html } = await richEditorPage();
+    const island10 = conditionIsland(html, CONDITION_LINKED_FIELDS);
+
+    // eq + value round-trips unchanged (no sugar collapse).
+    const bodyEl = conditionPanelDom();
+    const node: Record<string, unknown> = { conditional: { when: "carrier", op: "eq", value: "geico" } };
+    island10.fillConditionPanel(bodyEl, node);
+    expect(bodyEl.querySelector("[data-pb-cond-op]")!.value).toBe("eq");
+    expect(bodyEl.querySelector("[data-pb-cond-value]")!.value).toBe("geico");
+    island10.readConditionFromRow(bodyEl, node);
+    island10.fillConditionPanel(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "eq",
+      value: "geico",
+    });
+    expect(bodyEl.querySelector("[data-pb-cond-op]")!.value).toBe("eq");
+
+    // Typing the literal string true into the TEXT input emits a boolean too
+    // (the non-boolean-field path of the same emission).
+    bodyEl.querySelector("[data-pb-cond-value]")!.value = "true";
+    island10.readConditionFromRow(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "eq",
+      value: true,
+    });
+
+    // Explicitly re-picking the sugar still emits evaluator-exact eq + "".
+    island10.fillConditionPanel(bodyEl, node);
+    bodyEl.querySelector("[data-pb-cond-op]")!.value = "is_empty";
+    island10.readConditionFromRow(bodyEl, node);
+    island10.fillConditionPanel(bodyEl, node);
+    expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
+      when: "carrier",
+      op: "eq",
+      value: "",
+    });
+    expect(bodyEl.querySelector("[data-pb-cond-op]")!.value).toBe("is_empty");
+    expect(bodyEl.querySelector("[data-pb-cond-value]")).toBeNull();
+
+    // Stored empty shapes rendered fresh from storage keep the sugar ops.
+    const emptyEq = conditionPanelDom();
+    island10.fillConditionPanel(emptyEq, { conditional: { when: "carrier", op: "eq", value: "" } });
+    expect(emptyEq.querySelector("[data-pb-cond-op]")!.value).toBe("is_empty");
+    expect(emptyEq.querySelector("[data-pb-cond-value]")).toBeNull();
+    const emptyNeq = conditionPanelDom();
+    island10.fillConditionPanel(emptyNeq, { conditional: { when: "carrier", op: "neq", value: "" } });
+    expect(emptyNeq.querySelector("[data-pb-cond-op]")!.value).toBe("is_not_empty");
   });
 });
 

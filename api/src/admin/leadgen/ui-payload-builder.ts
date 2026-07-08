@@ -2716,6 +2716,14 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var addBtn = bodyEl.querySelector('[data-pb-condition-add]');
     var preview = bodyEl.querySelector('[data-pb-cond-preview]');
     if (!rowsBox) { return; }
+    // F-1: while a row is live its op select is the source of truth for the
+    // rendered UI op — an explicit "=" or "not equal" pick must not snap back
+    // to the is_empty sugar just because the value is still empty. Sugar is
+    // inferred only when no live row exists (a stored {op:'eq', value:''}
+    // rendered fresh from storage). An empty value at save time still means
+    // is-empty: the stored shape is unchanged.
+    var liveOpSel = rowsBox.querySelector('[data-pb-cond-op]');
+    var chosenUiOp = liveOpSel ? liveOpSel.value : '';
     clearChildren(rowsBox);
     var cond = node.conditional;
     if (addBtn) { addBtn.hidden = cond !== undefined; }
@@ -2759,11 +2767,11 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     opSel.className = 'form-select';
     opSel.setAttribute('data-pb-cond-op', '');
     opSel.setAttribute('aria-label', 'Condition operator');
-    opSel.value = condUiOp(cond);
+    var ui = cond.op === chosenUiOp ? chosenUiOp : condUiOp(cond);
+    opSel.value = ui;
     row.appendChild(opSel);
     var valueBox = el('span', null, null);
     valueBox.setAttribute('data-pb-cond-values', '');
-    var ui = condUiOp(cond);
     var lfMeta = null;
     for (i = 0; i < opts.length; i++) { if (opts[i].value === cond.when) { lfMeta = opts[i]; } }
     if (ui === 'is_empty' || ui === 'is_not_empty') {

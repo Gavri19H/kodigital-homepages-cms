@@ -150,7 +150,7 @@ interface StoredNode {
   value?: unknown;
   value_map?: Record<string, unknown>;
   transform?: Array<{ kind: string; format?: string }>;
-  conditional?: { when?: string; op?: string; values?: unknown[] };
+  conditional?: { when?: string; op?: string; value?: unknown; values?: unknown[] };
   choiceDisplay?: { mainValues?: string[]; otherGroupEnabled?: boolean; searchableOther?: boolean };
   default?: unknown;
   fallback?: unknown;
@@ -199,6 +199,25 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     await page.locator('#lg-pb-editor [data-pb-field="bool_preset"]').selectOption("yn");
     await expect(page.locator("#lg-pb-editor [data-pb-bool-chip-true]")).toHaveText("Y");
     await expect(page.locator("#lg-pb-editor [data-pb-bool-chip-false]")).toHaveText("N");
+
+    // §6.10 F-1 — author the contract's own example DIRECTLY: "Show this
+    // field when homeowner = true". A fresh condition stores {op:'eq',
+    // value:''} and renders as the is-empty sugar with no value input;
+    // picking "=" must STICK (no snap-back to "is empty") and render the
+    // typed value control.
+    await page.locator("#lg-pb-editor [data-pb-condition-add]").click();
+    await page.locator("#lg-pb-editor [data-pb-cond-field]").selectOption("homeowner");
+    await expect(page.locator("#lg-pb-editor [data-pb-cond-op]")).toHaveValue("is_empty");
+    await expect(page.locator("#lg-pb-editor [data-pb-cond-value]")).toHaveCount(0);
+    await page.locator("#lg-pb-editor [data-pb-cond-op]").selectOption("eq");
+    await expect(page.locator("#lg-pb-editor [data-pb-cond-op]")).toHaveValue("eq");
+    // The value input APPEARS on picking "=" — homeowner is a boolean linked
+    // field, so it is the true/false dropdown.
+    await expect(page.locator("#lg-pb-editor [data-pb-cond-value]")).toBeVisible();
+    await page.locator("#lg-pb-editor [data-pb-cond-value]").selectOption("true");
+    await expect(page.locator("#lg-pb-editor [data-pb-cond-preview]")).toHaveText(
+      "Send this field when homeowner = true.",
+    );
 
     // --- lead.carrier — §6.3 value map (Add many + CSV) + §6.4 Other -------
     await page.locator("#lg-pb-add-field").click();
@@ -374,6 +393,9 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     expect(homeowner.source).toBe("answer");
     expect(homeowner.internal_field).toBe("homeowner");
     expect(homeowner.value_map).toEqual({ true: "Y", false: "N" });
+    // §6.10 F-1 — the directly-authored "= true" condition stores the
+    // evaluator-exact typed boolean (the builder emits `true`, not "true").
+    expect(homeowner.conditional).toEqual({ when: "homeowner", op: "eq", value: true });
 
     // Value map + choiceDisplay + conditional.
     const carrier = byPath.get("lead.carrier")!;
