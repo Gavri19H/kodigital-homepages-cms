@@ -10,6 +10,10 @@ import {
   buildPayload,
   cleanObject,
   inferSchemaFromExample,
+  isBlockingPayloadSchemaError,
+  LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES,
+  LEADGEN_PAYLOAD_WARNING_ERROR_CODES,
+  splitPayloadSchemaErrors,
   validatePayloadSchema,
   type LeadgenPayloadBuildContext,
   type LeadgenPayloadNode,
@@ -248,6 +252,248 @@ describe("validatePayloadSchema — §11.5 shape", () => {
     ]);
     const codes = validatePayloadSchema(badToken).errors.map((e) => e.code);
     expect(codes).toContain("token_node_invalid");
+  });
+
+  // --- B9 choiceDisplay acceptance/rejection matrix (fix-contract v2.4 06 §6.4)
+
+  describe("choiceDisplay (B9 §6.4) — acceptance", () => {
+    const answerNode = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+      path: "carrier",
+      name: "carrier",
+      type: "string",
+      source: "answer",
+      internal_field: "carrier",
+      ...extra,
+    });
+
+    it("accepts a full choiceDisplay whose mainValues ⊆ value_map internal keys", () => {
+      const schema = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM", globex: "GLX", initech: "INI" },
+          choiceDisplay: {
+            mainValues: ["acme", "globex"],
+            otherGroupEnabled: true,
+            otherGroupLabel: "More carriers",
+            searchableOther: true,
+          },
+        }),
+      ]);
+      expect(validatePayloadSchema(schema).errors).toEqual([]);
+    });
+
+    it("accepts mainValues drawn from valid_values and from the value_map ∪ valid_values union", () => {
+      const fromValidValues = schemaWith([
+        answerNode({
+          type: "enum",
+          valid_values: ["gold", "silver", "bronze"],
+          choiceDisplay: { mainValues: ["gold"], otherGroupEnabled: true },
+        }),
+      ]);
+      expect(validatePayloadSchema(fromValidValues).errors).toEqual([]);
+
+      const fromUnion = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM" },
+          valid_values: ["ACM", "OTHER"],
+          choiceDisplay: { mainValues: ["acme", "OTHER"] },
+        }),
+      ]);
+      expect(validatePayloadSchema(fromUnion).errors).toEqual([]);
+    });
+
+    it("accepts a minimal/empty choiceDisplay — defaults (otherGroupLabel 'Other') apply at render", () => {
+      const schema = schemaWith([answerNode({ value_map: { a: 1 }, choiceDisplay: {} })]);
+      expect(validatePayloadSchema(schema).errors).toEqual([]);
+      const labelOmitted = schemaWith([
+        answerNode({
+          value_map: { a: 1 },
+          choiceDisplay: { mainValues: ["a"], otherGroupEnabled: true, searchableOther: false },
+        }),
+      ]);
+      expect(validatePayloadSchema(labelOmitted).errors).toEqual([]);
+    });
+
+    it("buildPayload is UNAFFECTED by choiceDisplay (display-only metadata)", () => {
+      const withDisplay = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM", globex: "GLX" },
+          choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true },
+        }),
+      ]);
+      const withoutDisplay = schemaWith([answerNode({ value_map: { acme: "ACM", globex: "GLX" } })]);
+      const answers = { carrier: "globex" }; // a SECONDARY (Other-panel) value
+      expect(buildPayload(withDisplay, ctx({ answers }))).toEqual(
+        buildPayload(withoutDisplay, ctx({ answers })),
+      );
+      // §6.4: the secondary selection emits its REAL provider output value.
+      expect(buildPayload(withDisplay, ctx({ answers }))).toEqual({ carrier: "GLX" });
+    });
+
+    it("§6.4 never-literal-'Other': the string 'Other' is sent ONLY when a mapping row outputs it", () => {
+      const schema = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM", other_carrier: "Other" },
+          choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "Other" },
+        }),
+      ]);
+      // Selecting a secondary REAL value → its REAL output, never the label.
+      expect(buildPayload(schema, ctx({ answers: { carrier: "acme" } }))).toEqual({ carrier: "ACM" });
+      // Only an explicit mapping row whose provider output IS "Other" emits it.
+      expect(buildPayload(schema, ctx({ answers: { carrier: "other_carrier" } }))).toEqual({
+        carrier: "Other",
+      });
+      // The Other-group LABEL is not an answer value: a map miss → fallback path (absent here → dropped).
+      expect(buildPayload(schema, ctx({ answers: { carrier: "Other" } }))).toEqual({});
+    });
+  });
+
+  describe("choiceDisplay (B9 §6.4) — rejection (typed choice_display_invalid, warning-class)", () => {
+    const withDisplay = (choiceDisplay: unknown, extra: Partial<LeadgenPayloadNode> = {}): LeadgenPayloadSchema =>
+      schemaWith([
+        {
+          path: "carrier",
+          name: "carrier",
+          type: "string",
+          source: "answer",
+          internal_field: "carrier",
+          value_map: { acme: "ACM", globex: "GLX" },
+          choiceDisplay: choiceDisplay as LeadgenPayloadNode["choiceDisplay"],
+          ...extra,
+        },
+      ]);
+
+    const codesOf = (schema: LeadgenPayloadSchema): string[] =>
+      validatePayloadSchema(schema).errors.map((e) => e.code);
+
+    it("rejects a non-object choiceDisplay", () => {
+      for (const bad of ["yes", 5, ["a"], null]) {
+        expect(codesOf(withDisplay(bad))).toContain("choice_display_invalid");
+      }
+    });
+
+    it("rejects non-string mainValues members, naming the offenders", () => {
+      const result = validatePayloadSchema(withDisplay({ mainValues: ["acme", 7, true] }));
+      const error = result.errors.find((e) => e.code === "choice_display_invalid");
+      expect(error?.message).toContain("7");
+      expect(error?.message).toContain("true");
+      expect(error?.path).toBe("carrier");
+    });
+
+    it("rejects mainValues outside value_map keys ∪ valid_values, naming the offenders", () => {
+      const result = validatePayloadSchema(
+        withDisplay({ mainValues: ["acme", "ghost", "phantom"], otherGroupEnabled: true }),
+      );
+      const error = result.errors.find((e) => e.code === "choice_display_invalid");
+      expect(error?.message).toContain("ghost");
+      expect(error?.message).toContain("phantom");
+      expect(error?.message).not.toContain("acme,"); // in-domain member is not an offender
+    });
+
+    it("a node declaring NO value domain cannot mark main values", () => {
+      const schema = schemaWith([
+        {
+          path: "notes",
+          name: "notes",
+          type: "string",
+          source: "answer",
+          internal_field: "notes",
+          choiceDisplay: { mainValues: ["anything"] },
+        },
+      ]);
+      expect(codesOf(schema)).toContain("choice_display_invalid");
+    });
+
+    it("rejects unknown keys and mistyped otherGroupEnabled/otherGroupLabel/searchableOther", () => {
+      expect(codesOf(withDisplay({ rogue: 1 }))).toContain("choice_display_invalid");
+      expect(codesOf(withDisplay({ otherGroupEnabled: "yes" }))).toContain("choice_display_invalid");
+      expect(codesOf(withDisplay({ searchableOther: 1 }))).toContain("choice_display_invalid");
+      expect(codesOf(withDisplay({ otherGroupLabel: 42 }))).toContain("choice_display_invalid");
+    });
+
+    it("rejects choiceDisplay on non-answer nodes (static / macro / token)", () => {
+      const cases: LeadgenPayloadNode[] = [
+        { path: "a", name: "a", type: "string", source: "static", value: "x", choiceDisplay: {} },
+        { path: "b", name: "b", type: "string", source: "macro", macro: "ip", choiceDisplay: {} },
+        { path: "auth.t", name: "t", type: "string", source: "token", choiceDisplay: {} },
+      ];
+      for (const node of cases) {
+        const codes = validatePayloadSchema(schemaWith([node])).errors.map((e) => e.code);
+        expect(codes, `${node.source} node must reject choiceDisplay`).toContain("choice_display_invalid");
+      }
+    });
+  });
+
+  // --- B7 blocking vs warning classification (fix-contract v2.4 05 §5.5) ----
+
+  describe("blocking vs warning classification (B7 05 §5.5)", () => {
+    it("the two exported lists are disjoint; the warning class is exactly the two advisory codes", () => {
+      expect([...LEADGEN_PAYLOAD_WARNING_ERROR_CODES]).toEqual([
+        "enum_value_violation",
+        "choice_display_invalid",
+      ]);
+      for (const code of LEADGEN_PAYLOAD_WARNING_ERROR_CODES) {
+        expect(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES).not.toContain(code);
+        expect(isBlockingPayloadSchemaError(code)).toBe(false);
+      }
+      for (const code of LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES) {
+        expect(isBlockingPayloadSchemaError(code)).toBe(true);
+      }
+      // (compile-time exhaustiveness in payload.ts guarantees no code is
+      // missing from BOTH lists — a new code that isn't classified fails tsc)
+    });
+
+    it("splitPayloadSchemaErrors routes every error to its bucket", () => {
+      const errors = [
+        { code: "path_duplicate" as const, message: "dup" },
+        { code: "enum_value_violation" as const, path: "e", message: "warn" },
+        { code: "choice_display_invalid" as const, path: "c", message: "warn2" },
+        { code: "computed_unknown_key" as const, path: "k", message: "block" },
+      ];
+      const { blocking, warnings } = splitPayloadSchemaErrors(errors);
+      expect(blocking.map((e) => e.code)).toEqual(["path_duplicate", "computed_unknown_key"]);
+      expect(warnings.map((e) => e.code)).toEqual(["enum_value_violation", "choice_display_invalid"]);
+    });
+
+    it("ok means NO BLOCKING ERROR: warning-only schemas validate ok:true with errors[] carried", () => {
+      const warningOnly = schemaWith([
+        {
+          path: "tier",
+          name: "tier",
+          type: "enum",
+          source: "answer",
+          internal_field: "tier",
+          valid_values: ["gold", "silver"],
+          default: "zzz", // enum_value_violation — warning class
+          choiceDisplay: { mainValues: ["ghost"] }, // choice_display_invalid — warning class
+        },
+      ]);
+      const result = validatePayloadSchema(warningOnly);
+      expect(result.ok).toBe(true);
+      expect(result.errors.map((e) => e.code).sort()).toEqual([
+        "choice_display_invalid",
+        "enum_value_violation",
+      ]);
+    });
+
+    it("any blocking error keeps ok:false (warnings alongside change nothing)", () => {
+      const mixed = schemaWith([
+        {
+          path: "tier",
+          name: "tier",
+          type: "enum",
+          source: "answer",
+          internal_field: "tier",
+          valid_values: ["gold"],
+          default: "zzz",
+        },
+        { path: "tier", name: "tier", type: "string", source: "static", value: "x" }, // path_duplicate
+      ]);
+      const result = validatePayloadSchema(mixed);
+      expect(result.ok).toBe(false);
+      const { blocking, warnings } = splitPayloadSchemaErrors(result.errors);
+      expect(blocking.map((e) => e.code)).toContain("path_duplicate");
+      expect(warnings.map((e) => e.code)).toContain("enum_value_violation");
+    });
   });
 
   it("validates conditionals (op set, range bounds, in values)", () => {

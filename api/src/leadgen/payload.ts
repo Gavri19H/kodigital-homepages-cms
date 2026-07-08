@@ -57,6 +57,23 @@ export const LEADGEN_PAYLOAD_SOURCES = [
 ] as const;
 export type LeadgenPayloadSource = (typeof LEADGEN_PAYLOAD_SOURCES)[number];
 
+// B9 Other-group display metadata (fix-contract v2.4 06 §6.4) — ADDITIVE,
+// stored on `source:"answer"` nodes only. buildPayload NEVER consumes it
+// (payload bytes are unaffected); the render leg is Phase 1's
+// `readChoiceDisplay` (public/leadgen/components/presets.ts), which also
+// applies the contract defaults (otherGroupLabel → "Other",
+// booleans → false) — so every field here is OPTIONAL in storage and an
+// existing schema without choiceDisplay re-saves byte-equivalent (§6.14).
+export interface LeadgenPayloadChoiceDisplay {
+  // Values shown as normal choices; everything else folds into "Other".
+  // Members must live inside the node's declared value domain:
+  // value_map internal keys ∪ valid_values (validated, §6.4).
+  mainValues?: string[];
+  otherGroupEnabled?: boolean;
+  otherGroupLabel?: string; // default "Other" (applied at render, not stored)
+  searchableOther?: boolean;
+}
+
 // Conditional show/hide (04 §11.1 / §11.5 "drop unmet conditional"). Same
 // `{when, op, value}` family the question builder stores inline (05 §12.3),
 // with ops from the 07 §21.4 typed-conditions set (db-types union). `when`
@@ -103,6 +120,8 @@ export interface LeadgenPayloadNode {
   internal_field?: string;
   value_map?: Record<string, unknown>;
   transform?: LeadgenTransformStep[];
+  // source:"answer" — B9 §6.4 Other-group display metadata (see interface).
+  choiceDisplay?: LeadgenPayloadChoiceDisplay;
   // source:"static" — the authored literal value.
   value?: unknown;
   // source:"computed" — a COMPUTED_REGISTRY key (computed.ts) resolved into
@@ -149,7 +168,8 @@ export type LeadgenPayloadSchemaErrorCode =
   | "macro_unknown"
   | "token_node_invalid"
   | "token_node_duplicate"
-  | "conditional_invalid";
+  | "conditional_invalid"
+  | "choice_display_invalid";
 
 export interface LeadgenPayloadSchemaError {
   code: LeadgenPayloadSchemaErrorCode;
@@ -158,7 +178,117 @@ export interface LeadgenPayloadSchemaError {
   message: string;
 }
 
+// ---------------------------------------------------------------------------
+// B7 blocking vs warning classification (fix-contract v2.4 05 §5.5 + 06 §6.11)
+// ---------------------------------------------------------------------------
+//
+// P0/P1-class (BLOCKING) codes reject a schema SAVE and stop a Test run;
+// warning-class codes are advisory: the save proceeds (response carries
+// `warnings[]`) and Test runs. The exported list is the single source of
+// truth the §6.11 validation-panel footer documents.
+//
+// One-line classification per code:
+//   schema_not_object            BLOCKING structural — not a JSON object; nothing can read it
+//   version_invalid              BLOCKING structural — version counter must be a positive integer
+//   root_invalid                 BLOCKING structural — no root.children node list to build from
+//   node_not_object              BLOCKING structural — a child that is not an object cannot be a node
+//   path_invalid                 BLOCKING structural — unaddressable/prototype-chain path
+//   path_duplicate               BLOCKING path-conflict — two nodes claim one payload path
+//   path_prefix_conflict         BLOCKING path-conflict — scalar path shadows a nested path
+//   name_invalid                 BLOCKING structural — the leaf JSON key is missing
+//   name_path_mismatch           BLOCKING structural — builder UI and payload would disagree on identity
+//   type_invalid                 BLOCKING type — unknown output type; coercion undefined
+//   source_invalid               BLOCKING unknown-source — no resolver exists for the source
+//   enum_valid_values_required   BLOCKING type — an enum without a domain can never validate
+//   valid_values_invalid         BLOCKING type — the declared domain is not a list
+//   enum_value_violation         WARNING advisory — authored default/fallback/value escapes the declared
+//                                domain; the schema still builds (runtime domain check governs)
+//   answer_missing_internal_field BLOCKING structural — an answer node without its pivot cannot resolve
+//   value_map_invalid            BLOCKING type — value_map must be an object to look up
+//   transform_invalid            BLOCKING unknown-key — unknown/malformed transform step in the pipeline
+//   static_missing_value         BLOCKING structural — a static node without a value resolves to nothing
+//   computed_missing_key         BLOCKING structural — a computed node without its registry key
+//   computed_unknown_key         BLOCKING unknown-key — key outside COMPUTED_REGISTRY (04 §4.4)
+//   macro_missing_name           BLOCKING structural — a macro node without its macro name
+//   macro_unknown                BLOCKING unknown-source — not one of the 32 canonical macros
+//   token_node_invalid           BLOCKING type — token node must be a bare string leaf
+//   token_node_duplicate         BLOCKING path-conflict — an Offer has exactly one token placement
+//   conditional_invalid          BLOCKING type — malformed conditional would mis-drop the node
+//   choice_display_invalid       WARNING advisory — §6.4 display-only metadata; payload bytes and the
+//                                defensive render leg (readChoiceDisplay) are unaffected
+
+export const LEADGEN_PAYLOAD_WARNING_ERROR_CODES = [
+  "enum_value_violation",
+  "choice_display_invalid",
+] as const satisfies readonly LeadgenPayloadSchemaErrorCode[];
+
+export const LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES = [
+  "schema_not_object",
+  "version_invalid",
+  "root_invalid",
+  "node_not_object",
+  "path_invalid",
+  "path_duplicate",
+  "path_prefix_conflict",
+  "name_invalid",
+  "name_path_mismatch",
+  "type_invalid",
+  "source_invalid",
+  "enum_valid_values_required",
+  "valid_values_invalid",
+  "answer_missing_internal_field",
+  "value_map_invalid",
+  "transform_invalid",
+  "static_missing_value",
+  "computed_missing_key",
+  "computed_unknown_key",
+  "macro_missing_name",
+  "macro_unknown",
+  "token_node_invalid",
+  "token_node_duplicate",
+  "conditional_invalid",
+] as const satisfies readonly LeadgenPayloadSchemaErrorCode[];
+
+// Compile-time exhaustiveness: adding a LeadgenPayloadSchemaErrorCode without
+// classifying it blocking-or-warning breaks this line (never both/neither).
+type UnclassifiedPayloadSchemaErrorCode = Exclude<
+  LeadgenPayloadSchemaErrorCode,
+  | (typeof LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES)[number]
+  | (typeof LEADGEN_PAYLOAD_WARNING_ERROR_CODES)[number]
+>;
+const _everyPayloadSchemaErrorCodeClassified: UnclassifiedPayloadSchemaErrorCode extends never
+  ? true
+  : never = true;
+void _everyPayloadSchemaErrorCodeClassified;
+
+const BLOCKING_ERROR_CODE_SET: ReadonlySet<string> = new Set(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES);
+
+export function isBlockingPayloadSchemaError(code: LeadgenPayloadSchemaErrorCode): boolean {
+  return BLOCKING_ERROR_CODE_SET.has(code);
+}
+
+// The B7 split gate consumers use: SAVE rejects on `blocking.length > 0`
+// (same 400 shape as before) and persists with `warnings` otherwise; the
+// Test tool blocks on blocking only (05 §5.5 "warning-class errors don't
+// block").
+export function splitPayloadSchemaErrors(errors: readonly LeadgenPayloadSchemaError[]): {
+  blocking: LeadgenPayloadSchemaError[];
+  warnings: LeadgenPayloadSchemaError[];
+} {
+  const blocking: LeadgenPayloadSchemaError[] = [];
+  const warnings: LeadgenPayloadSchemaError[] = [];
+  for (const error of errors) {
+    (isBlockingPayloadSchemaError(error.code) ? blocking : warnings).push(error);
+  }
+  return { blocking, warnings };
+}
+
 export interface LeadgenPayloadSchemaValidation {
+  // B7 (05 §5.5): `ok` means "no BLOCKING-class error" — a schema whose only
+  // findings are warning-class is VALID (saveable, testable, and — via
+  // validation.ts dynamicAuctionEligibility, which keys on this flag —
+  // auction-eligible). Warning-class findings still ride `errors[]`; split
+  // them with splitPayloadSchemaErrors.
   ok: boolean;
   errors: LeadgenPayloadSchemaError[];
 }
@@ -239,6 +369,83 @@ function validateTransformSteps(
     ) {
       errors.push({ code: "transform_invalid", path, message: "formatDate requires a format string" });
     }
+  }
+}
+
+// B9 (06 §6.4): typed choiceDisplay validation. Every finding is the
+// warning-class `choice_display_invalid` (display-only metadata — see the
+// classification table). The value domain mainValues must live inside is
+// value_map internal keys ∪ valid_values (stringified — the render leg
+// matches String(choice.value)); a node declaring NO domain cannot mark
+// main values (the Section's choice list is the answer-map layer's concern,
+// not the pure schema's).
+const CHOICE_DISPLAY_KEYS = [
+  "mainValues",
+  "otherGroupEnabled",
+  "otherGroupLabel",
+  "searchableOther",
+] as const;
+const CHOICE_DISPLAY_KEY_SET: ReadonlySet<string> = new Set(CHOICE_DISPLAY_KEYS);
+
+function validateChoiceDisplay(
+  raw: unknown,
+  node: Record<string, unknown>,
+  nodeSource: LeadgenPayloadSource | null,
+  path: string,
+  errors: LeadgenPayloadSchemaError[],
+): void {
+  const push = (message: string): void => {
+    errors.push({ code: "choice_display_invalid", path, message });
+  };
+  if (nodeSource !== "answer") {
+    push("choiceDisplay is only valid on source 'answer' nodes");
+    return;
+  }
+  if (!isRecord(raw)) {
+    push("choiceDisplay must be an object");
+    return;
+  }
+  for (const key of Object.keys(raw)) {
+    if (!CHOICE_DISPLAY_KEY_SET.has(key)) {
+      push(`unknown choiceDisplay key '${key}' (allowed: ${CHOICE_DISPLAY_KEYS.join(", ")})`);
+    }
+  }
+  const mainValues = raw["mainValues"];
+  if (mainValues !== undefined) {
+    if (!Array.isArray(mainValues)) {
+      push("choiceDisplay.mainValues must be an array of strings");
+    } else {
+      const nonStrings = mainValues.filter((v) => typeof v !== "string");
+      if (nonStrings.length > 0) {
+        push(
+          `choiceDisplay.mainValues must be strings (offenders: ${nonStrings
+            .map((v) => JSON.stringify(v))
+            .join(", ")})`,
+        );
+      }
+      // Allowed domain = value_map internal keys ∪ valid_values (§6.4).
+      const domain = new Set<string>();
+      const valueMap = node["value_map"];
+      if (isRecord(valueMap)) for (const key of Object.keys(valueMap)) domain.add(key);
+      const validValues = node["valid_values"];
+      if (Array.isArray(validValues)) for (const v of validValues) domain.add(String(v));
+      const offenders = mainValues.filter(
+        (v): v is string => typeof v === "string" && !domain.has(v),
+      );
+      if (offenders.length > 0) {
+        push(
+          `choiceDisplay.mainValues outside the node's value domain (value_map keys ∪ valid_values): ${offenders.join(", ")}`,
+        );
+      }
+    }
+  }
+  for (const key of ["otherGroupEnabled", "searchableOther"] as const) {
+    if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
+      push(`choiceDisplay.${key} must be a boolean`);
+    }
+  }
+  if (raw["otherGroupLabel"] !== undefined && typeof raw["otherGroupLabel"] !== "string") {
+    push("choiceDisplay.otherGroupLabel must be a string");
   }
 }
 
@@ -460,6 +667,11 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
     if (node["conditional"] !== undefined) {
       validateConditional(node["conditional"], path, errors);
     }
+
+    // B9 (06 §6.4): optional Other-group display metadata, answer nodes only.
+    if (node["choiceDisplay"] !== undefined) {
+      validateChoiceDisplay(node["choiceDisplay"], node, nodeSource, path, errors);
+    }
   }
 
   // Placement conflicts: a SCALAR node's path may not be the prefix of
@@ -480,7 +692,9 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  // B7 (05 §5.5): `ok` = no BLOCKING-class error. Warning-class findings
+  // (see the classification table) ride errors[] without failing the schema.
+  return { ok: errors.every((e) => !isBlockingPayloadSchemaError(e.code)), errors };
 }
 
 // ---------------------------------------------------------------------------

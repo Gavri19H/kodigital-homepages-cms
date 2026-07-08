@@ -30,7 +30,11 @@ import {
   patchOfferHandler,
   searchOffersHandler,
 } from "./offers-handlers";
-import { testOfferHandler } from "./payload-builder-handlers";
+import {
+  generateSampleAnswersHandler,
+  putSampleAnswersDraftHandler,
+  testOfferHandler,
+} from "./payload-builder-handlers";
 import { rebuildLeadgenAnalyticsRangeHandler } from "./analytics-admin-handlers";
 import {
   createMediaPlatformHandler,
@@ -130,6 +134,11 @@ routes.get("/offers/:id/payload-schemas", listPayloadSchemasHandler);
 routes.post("/offers/:id/payload-schemas", createPayloadSchemaHandler);
 routes.post("/offers/:id/payload-schemas/from-example", createPayloadSchemaFromExampleHandler);
 routes.post("/offers/:id/test", testOfferHandler);
+// B4 (fix-contract v2.4 06 §6.12.1): ONE route path, two verbs — POST
+// generates the sample-answer form (per-Offer KV draft merged over), PUT
+// persists the operator's edited answers as that draft.
+routes.post("/offers/:id/payload/sample-answers", generateSampleAnswersHandler);
+routes.put("/offers/:id/payload/sample-answers", putSampleAnswersDraftHandler);
 
 // --- Sections (03 §8.2 + 05 §12–§14 — Phase-5 Stage B full surface) ----------
 // Static paths BEFORE /sections/:id (03 §8.1 static-before-param discipline).
