@@ -24,6 +24,7 @@ import {
   type UiContext,
 } from "./ui";
 import { listFunnelDesignOptions } from "./quotes-handlers";
+import { LEADGEN_ELIGIBILITY_REASON_LABELS, eligibilityReasonLabel } from "./ui-offers";
 import type { Paging } from "./router";
 
 // ---------------------------------------------------------------------------
@@ -143,10 +144,70 @@ interface ActivationSite {
   preview_url: string;
 }
 
+// The 05 §5.2 (R5) activation-preflight verdict — additive on the activation
+// GET, the variant PUT and the activation PUT; the EXACT normative report
+// shape rides the activation 409 (quotes-handlers.computeQuoteActivationPreflight).
+interface ActivationPreflightBlock {
+  section_id: string;
+  section_name: string;
+  offer_id: string;
+  offer_name: string;
+  code: string;
+  fields: string[];
+  fix_links: { section_mapping?: string; offer_schema?: string };
+}
+
+interface ActivationPreflight {
+  ok: boolean;
+  quote_id: string;
+  funnel_id: string;
+  funnel_variant_id: string;
+  blocks: ActivationPreflightBlock[];
+  computed_at: number;
+}
+
 interface ActivationBody {
   quote_id: string;
   sites: ActivationSite[];
+  activation_preflight?: ActivationPreflight | null;
 }
+
+// ---------------------------------------------------------------------------
+// 05 §5.2 preflight rendering (SSR + the ES5 re-renderer share these maps)
+// ---------------------------------------------------------------------------
+
+// Operator-English labels for every block code computeVariantPreflightBlocks /
+// computeQuoteActivationPreflight emits. The normative copy pattern is
+// "<label>: <fields…>" — e.g. "Missing required provider fields:
+// current_insurance.carrier". offer_ineligible fields are §5.1 reason CODES
+// and map through LEADGEN_ELIGIBILITY_REASON_LABELS instead of rendering raw.
+export const PREFLIGHT_BLOCK_CODE_LABELS: Readonly<Record<string, string>> = {
+  missing_required_provider_fields: "Missing required provider fields",
+  orphaned_provider_fields: "Mapped provider fields no longer exist in the active payload schema",
+  type_conversion_invalid: "Answer type conversion is invalid for provider fields",
+  payload_schema_version_missing: "The selected offer has no active payload schema version",
+  dependency_missing_field: "A visibility condition references a missing field",
+  mapping_incomplete: "Offer mapping is incomplete",
+  auction_config_invalid: "Auction configuration is invalid",
+  offer_ineligible: "Participating offer is not eligible for live auction",
+};
+
+function preflightCodeLabel(code: string): string {
+  return PREFLIGHT_BLOCK_CODE_LABELS[code] ?? code.replace(/_/g, " ");
+}
+
+// The PASS state renders green itemized checks — the §5.2 block conditions,
+// inverted (each one verified clean by the server verdict).
+export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: "section_mappings_complete", label: "Selected-offer mappings complete for every active section" },
+  { id: "required_provider_fields_mapped", label: "All required provider fields mapped" },
+  { id: "no_orphaned_provider_fields", label: "No mapped provider fields missing from active schemas" },
+  { id: "type_conversions_valid", label: "All answer-to-provider type conversions valid" },
+  { id: "payload_schema_versions_present", label: "Every selected dynamic offer has an active payload schema version" },
+  { id: "dependencies_resolve", label: "All visibility conditions reference existing fields" },
+  { id: "auction_config_valid", label: "Auction configuration valid" },
+  { id: "participating_offers_eligible", label: "All participating dynamic offers eligible for live auction" },
+];
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -172,6 +233,11 @@ const LG_QUOTES_STYLES = `
 .lg-rule-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media (max-width:640px){.lg-rule-grid{grid-template-columns:1fr}}
 .lg-activation-row{display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid var(--c-border);flex-wrap:wrap}
+.lg-preflight-blocked-title{font-weight:600;color:var(--c-danger,#8a1f11);margin:0 0 8px}
+.lg-preflight-ok-title{font-weight:600;color:var(--c-success,#186a3b);margin:0 0 8px}
+.lg-preflight-block{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border:1px solid var(--c-danger,#e5a49a);border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:13px}
+.lg-preflight-pass{list-style:none;margin:0;padding:0}
+.lg-preflight-pass li{color:var(--c-success,#186a3b);font-size:13px;padding:3px 0}
 .lg-ab-note{color:var(--c-muted);font-size:13px;margin:8px 0}
 .lg-preview-frame{width:100%;height:520px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -680,8 +746,66 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
 </div>`;
 }
 
-// Activation panel (§17 per-site).
+// One 05 §5.2 blocking card — EXACTLY the operator copy pattern:
+// "Section: ZIP · Offer: NextInsure · Missing required provider fields:
+// current_insurance.carrier, current_insurance.carrier_months ·
+// [Open Section Mapping] [Open Offer Payload Schema]".
+function renderPreflightBlockCard(b: ActivationPreflightBlock): string {
+  const parts: string[] = [];
+  if (b.section_name !== "") parts.push(`Section: ${b.section_name}`);
+  if (b.offer_name !== "") parts.push(`Offer: ${b.offer_name}`);
+  const fields = (b.fields ?? []).map((f) => (b.code === "offer_ineligible" ? eligibilityReasonLabel(f) : f));
+  parts.push(preflightCodeLabel(b.code) + (fields.length > 0 ? `: ${fields.join(", ")}` : ""));
+  const links: string[] = [];
+  if (b.fix_links?.section_mapping !== undefined && b.fix_links.section_mapping !== "") {
+    links.push(
+      `<a class="btn btn-sm btn-secondary" href="${escapeHtml(b.fix_links.section_mapping)}">Open Section Mapping</a>`,
+    );
+  }
+  if (b.fix_links?.offer_schema !== undefined && b.fix_links.offer_schema !== "") {
+    links.push(
+      `<a class="btn btn-sm btn-secondary" href="${escapeHtml(b.fix_links.offer_schema)}">Open Offer Payload Schema</a>`,
+    );
+  }
+  return `<div class="lg-preflight-block" data-preflight-code="${escapeHtml(b.code)}"><span>${escapeHtml(parts.join(" · "))}</span>${links.join("")}</div>`;
+}
+
+// The 05 §5.2 UI preflight panel body: blocking cards when the server verdict
+// fails; green itemized checks when clean. Server-verdict-driven only — the
+// same markup the ES5 re-renderer rebuilds after variant save / activation
+// PUT (including the 409 report body).
+function renderPreflightPanelBody(preflight: ActivationPreflight | null): string {
+  if (preflight === null) {
+    return `<p class="form-help">Activation preflight is unavailable.</p>`;
+  }
+  if (preflight.ok) {
+    const items = PREFLIGHT_PASS_CHECKS.map(
+      (check) => `<li data-preflight-check="${escapeHtml(check.id)}">&#10003; ${escapeHtml(check.label)}</li>`,
+    ).join("");
+    return `<p class="lg-preflight-ok-title">Ready to activate — all preflight checks pass.</p>
+<ul class="lg-preflight-pass">${items}</ul>`;
+  }
+  const cards = preflight.blocks.map(renderPreflightBlockCard).join("");
+  return `<p class="lg-preflight-blocked-title">Cannot activate this Quote.</p>${cards}`;
+}
+
+function preflightStateAttr(preflight: ActivationPreflight | null): string {
+  if (preflight === null) return "unknown";
+  return preflight.ok ? "pass" : "blocked";
+}
+
+// The head badge (§5.2: advisory → authoritative — the SAME server verdict
+// the activation gate enforces, not a client heuristic).
+function renderPublishBadge(preflight: ActivationPreflight | null): string {
+  if (preflight === null) return "";
+  return preflight.ok
+    ? `<span id="lg-publish-badge" class="badge badge-published" data-publish-verdict="ok">Publishable</span>`
+    : `<span id="lg-publish-badge" class="badge badge-archived" data-publish-verdict="blocked">Blocked from publish</span>`;
+}
+
+// Activation panel (§17 per-site + the 05 §5.2 preflight panel).
 function renderActivationPanel(activation: ActivationBody | null): string {
+  const preflight = activation?.activation_preflight ?? null;
   const sites = activation?.sites ?? [];
   const rows = sites
     .map(
@@ -695,6 +819,10 @@ function renderActivationPanel(activation: ActivationBody | null): string {
     )
     .join("");
   return `<div class="lg-qpanel" data-panel="activation">
+  <div class="card">
+    <h3>Activation preflight (§5.2)</h3>
+    <div id="lg-preflight-panel" data-preflight-state="${preflightStateAttr(preflight)}">${renderPreflightPanelBody(preflight)}</div>
+  </div>
   <div class="card">
     <h3>Site activation (§17)</h3>
     <p class="form-help">At most one enabled root (blank slug) per site (§17.1). Activating a second root while one is enabled is rejected — disable it or set a slug.</p>
@@ -748,7 +876,7 @@ function quoteEditorHtml(
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title">${escapeHtml(q.quote_name)}</h2>
-    <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code>${statusBadge(q.status)}
+    <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code>${statusBadge(q.status)}${renderPublishBadge(activation?.activation_preflight ?? null)}
     <span class="lg-editor-spacer"></span>
     <button type="button" id="lg-variant-preview" class="btn btn-outline">Preview</button>
     <button type="button" id="lg-variant-save" class="btn btn-primary">Save variant</button>
@@ -860,6 +988,89 @@ const QUOTE_EDITOR_SCRIPT = `
   function byId(id) { return document.getElementById(id); }
   function showMsg(id, text) { var el = byId(id); if (el) { el.textContent = text; el.hidden = false; } }
   function hideMsg(id) { var el = byId(id); if (el) { el.hidden = true; } }
+
+  // --- 05 5.2 activation-preflight panel (server-verdict-driven re-render) --
+  // The SAME operator copy the SSR panel renders; rebuilt after variant save,
+  // after an activation PUT, and from the activation 409 report body. DOM is
+  // built with createTextNode only (no HTML injection).
+  var PREFLIGHT_CODE_LABELS = ${JSON.stringify(PREFLIGHT_BLOCK_CODE_LABELS)};
+  var ELIGIBILITY_REASON_LABELS = ${JSON.stringify(LEADGEN_ELIGIBILITY_REASON_LABELS)};
+  var PREFLIGHT_PASS_CHECKS = ${JSON.stringify(PREFLIGHT_PASS_CHECKS)};
+
+  function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
+  function preflightCodeLabel(code) { return PREFLIGHT_CODE_LABELS[code] || String(code || '').replace(/_/g, ' '); }
+  function eligibilityLabel(code) { return ELIGIBILITY_REASON_LABELS[code] || String(code || '').replace(/_/g, ' '); }
+
+  function updatePublishBadge(ok) {
+    var badge = byId('lg-publish-badge');
+    if (!badge) { return; }
+    badge.className = ok ? 'badge badge-published' : 'badge badge-archived';
+    badge.setAttribute('data-publish-verdict', ok ? 'ok' : 'blocked');
+    clearChildren(badge);
+    badge.appendChild(document.createTextNode(ok ? 'Publishable' : 'Blocked from publish'));
+  }
+
+  function preflightFixLink(href, label) {
+    var a = document.createElement('a');
+    a.className = 'btn btn-sm btn-secondary';
+    a.setAttribute('href', href);
+    a.appendChild(document.createTextNode(label));
+    return a;
+  }
+
+  function preflightBlockCard(b) {
+    var card = document.createElement('div');
+    card.className = 'lg-preflight-block';
+    card.setAttribute('data-preflight-code', b.code || '');
+    var parts = [];
+    if (b.section_name) { parts.push('Section: ' + b.section_name); }
+    if (b.offer_name) { parts.push('Offer: ' + b.offer_name); }
+    var fields = b.fields || [];
+    var mapped = [];
+    var j;
+    for (j = 0; j < fields.length; j++) {
+      mapped.push(b.code === 'offer_ineligible' ? eligibilityLabel(fields[j]) : fields[j]);
+    }
+    parts.push(preflightCodeLabel(b.code) + (mapped.length > 0 ? ': ' + mapped.join(', ') : ''));
+    var text = document.createElement('span');
+    text.appendChild(document.createTextNode(parts.join(' \\u00b7 ')));
+    card.appendChild(text);
+    var links = b.fix_links || {};
+    if (links.section_mapping) { card.appendChild(preflightFixLink(links.section_mapping, 'Open Section Mapping')); }
+    if (links.offer_schema) { card.appendChild(preflightFixLink(links.offer_schema, 'Open Offer Payload Schema')); }
+    return card;
+  }
+
+  function renderPreflight(preflight) {
+    var panel = byId('lg-preflight-panel');
+    if (!panel || !preflight) { return; }
+    clearChildren(panel);
+    panel.setAttribute('data-preflight-state', preflight.ok ? 'pass' : 'blocked');
+    updatePublishBadge(!!preflight.ok);
+    var i;
+    if (preflight.ok) {
+      var okTitle = document.createElement('p');
+      okTitle.className = 'lg-preflight-ok-title';
+      okTitle.appendChild(document.createTextNode('Ready to activate \\u2014 all preflight checks pass.'));
+      panel.appendChild(okTitle);
+      var ul = document.createElement('ul');
+      ul.className = 'lg-preflight-pass';
+      for (i = 0; i < PREFLIGHT_PASS_CHECKS.length; i++) {
+        var li = document.createElement('li');
+        li.setAttribute('data-preflight-check', PREFLIGHT_PASS_CHECKS[i].id);
+        li.appendChild(document.createTextNode('\\u2713 ' + PREFLIGHT_PASS_CHECKS[i].label));
+        ul.appendChild(li);
+      }
+      panel.appendChild(ul);
+      return;
+    }
+    var title = document.createElement('p');
+    title.className = 'lg-preflight-blocked-title';
+    title.appendChild(document.createTextNode('Cannot activate this Quote.'));
+    panel.appendChild(title);
+    var blocks = preflight.blocks || [];
+    for (i = 0; i < blocks.length; i++) { panel.appendChild(preflightBlockCard(blocks[i])); }
+  }
 
   // --- variant switch: reload the editor scoped to the chosen variant -------
   var variantSelect = byId('lg-variant-select');
@@ -1052,7 +1263,13 @@ const QUOTE_EDITOR_SCRIPT = `
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
       }).then(function (res) {
         saveBtn.disabled = false;
-        if (res.ok) { dirty = false; showMsg('lg-quote-ok', 'Saved.'); }
+        if (res.ok) {
+          dirty = false;
+          showMsg('lg-quote-ok', 'Saved.');
+          // 05 5.2: the variant PUT recomputes + returns the preflight
+          // verdict — refresh the Activation-tab panel + the head badge.
+          if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
+        }
         else {
           var msg = (res.body && res.body.error) ? res.body.error : 'Save failed';
           if (res.body && res.body.fields) { msg = msg + ': ' + JSON.stringify(res.body.fields); }
@@ -1222,10 +1439,23 @@ const QUOTE_EDITOR_SCRIPT = `
           headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ enabled: enabled, slug: slug })
         }).then(function (r) {
-          return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+          return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
         }).then(function (res) {
-          if (res.ok) { showMsg('lg-quote-ok', 'Activation saved for ' + siteId); }
-          else { showMsg('lg-quote-error', (res.body && res.body.error ? res.body.error : 'Activation failed') + (res.body && res.body.fields ? ': ' + JSON.stringify(res.body.fields) : '')); }
+          if (res.ok) {
+            showMsg('lg-quote-ok', 'Activation saved for ' + siteId);
+            // 05 5.2: the activation PUT recomputes the verdict — keep the
+            // preflight panel + badge in sync with the authoritative state.
+            if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
+            return;
+          }
+          // 05 5.2: the activation gate 409s with the normative report —
+          // render it in the preflight panel (operator copy), never raw JSON.
+          if (res.status === 409 && res.body && res.body.error === 'quote_activation_blocked') {
+            renderPreflight({ ok: false, blocks: res.body.blocks || [] });
+            showMsg('lg-quote-error', 'Cannot activate this Quote \\u2014 fix the blocking issues listed in the Activation preflight panel.');
+            return;
+          }
+          showMsg('lg-quote-error', (res.body && res.body.error ? res.body.error : 'Activation failed') + (res.body && res.body.fields ? ': ' + JSON.stringify(res.body.fields) : ''));
         });
         return;
       }

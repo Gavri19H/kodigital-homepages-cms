@@ -27,6 +27,26 @@ import type { Env } from "../src/env";
 import { mintPublicId, isPublicId } from "../src/leadgen/ids";
 import { verifyConfigToken, type ConfigTokenTuple } from "../src/public/leadgen/attempt";
 import { assignVariant } from "../src/public/leadgen/ab-hash";
+import { sha256Hex } from "../src/public/leadgen/auction/parse";
+
+// The v2 (R9, 05 §5.3) token tuple for a funnel with NO answer maps and NO
+// auction: session_id "" by default — the /lg/attempt route now MINTS + binds
+// + ECHOES a session id when no ko_sid cookie rides the request (m2), so
+// route-minted tokens verify with `session_id: attempt.session_id` overlaid.
+// answer_mapping_hash = SHA-256 over the ordered per-section version strings
+// (["0", …] when nothing is mapped — attempt.computeAttemptBindingExtras
+// semantics), auction_config_version "" (no auction bound to the variant).
+function v2Tuple(
+  base: Pick<ConfigTokenTuple, "funnel_variant_id" | "section_order_hash" | "content_version" | "funnel_attempt_id">,
+  opts?: { sectionVersions?: string[]; auction_config_version?: string },
+): ConfigTokenTuple {
+  return {
+    ...base,
+    session_id: "",
+    answer_mapping_hash: sha256Hex(JSON.stringify(opts?.sectionVersions ?? ["0"])),
+    auction_config_version: opts?.auction_config_version ?? "",
+  };
+}
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -409,9 +429,16 @@ describeDb("GET /lg/:quote_slug — funnel shell (§17.2 / §28)", () => {
     expect(html).toContain('data-funnel-design="default-funnel"');
     expect(html).toContain(".lg-content");
     expect(html).toContain(".lg-btn");
-    // the bootstrap fetches /lg/config + /lg/attempt.
-    expect(html).toContain("/lg/config/");
-    expect(html).toContain("/lg/attempt");
+    // v2.4 03 §3.2 (the 11 §11.6 anti-false-PASS flip of the old bootstrap
+    // assertions): the shell no longer fetch-bootstraps /lg/config — it BAKES
+    // the #lg-config JSON, ships the pre-hydration click-queue stub, and loads
+    // the versioned hydration engine; the ENGINE (not the shell) fetches
+    // /lg/attempt and sets data-lg-ready="1".
+    expect(html).toContain('<script type="application/json" id="lg-config">');
+    expect(html).toContain('src="/lg/runtime/1.js" defer');
+    expect(html).toContain("__LG_PREHYDRATE_QUEUE__");
+    expect(html).not.toContain("__LG_BOOTSTRAP__");
+    expect(html).not.toContain('data-lg-ready="1"');
   });
 
   it("304 on a matching If-None-Match (no body)", async () => {
@@ -520,21 +547,52 @@ describeDb("GET /lg/attempt — session mint (§8.3 / §24c)", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
 
-    const attempt = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string };
+    const attempt = (await res.json()) as { funnel_attempt_id: string; signed_config_token: string; session_id: string };
     expect(attempt.funnel_attempt_id.startsWith("att_")).toBe(true);
-    expect(attempt.signed_config_token.startsWith("v1.")).toBe(true); // signed (secret present)
+    expect(attempt.signed_config_token.startsWith("v2.")).toBe(true); // signed v2 (R9, 05 §5.3)
+    // m2: no cookie rode the request → the route MINTED + bound a session id,
+    // echoes it, and Set-Cookies it (best-effort for cookie-accepting UAs).
+    expect(typeof attempt.session_id).toBe("string");
+    expect(attempt.session_id).not.toBe("");
+    expect(res.headers.get("Set-Cookie") ?? "").toContain("ko_sid=");
 
     const tuple: ConfigTokenTuple = {
-      funnel_variant_id: seeded.variantId,
-      section_order_hash: config.section_order_hash,
-      content_version: config.content_version,
-      funnel_attempt_id: attempt.funnel_attempt_id,
+      ...v2Tuple({
+        funnel_variant_id: seeded.variantId,
+        section_order_hash: config.section_order_hash,
+        content_version: config.content_version,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+      }),
+      session_id: attempt.session_id, // m2: the tuple binds the ECHOED sid
     };
     expect(await verifyConfigToken(env, attempt.signed_config_token, tuple)).toBe(true);
     // a tampered variant id breaks the binding.
     expect(
       await verifyConfigToken(env, attempt.signed_config_token, { ...tuple, funnel_variant_id: mintPublicId("funnel_variant") }),
     ).toBe(false);
+    // …and so does a session the mint never bound (the m2 crypto guarantee).
+    expect(
+      await verifyConfigToken(env, attempt.signed_config_token, { ...tuple, session_id: "some-other-sid" }),
+    ).toBe(false);
+  });
+
+  it("m6: an oversized `u` landing URL is capped at 4096 chars INSIDE the signed payload (param-boundary truncation)", async () => {
+    const { sdb, env } = newHarness();
+    const seeded = await seedActivatedFunnel(env, sdb, { quoteName: "Cap Quote", slug: "cap" });
+    const longValue = "x".repeat(6000);
+    const landing = `https://one.example.com/lg/cap?utm_source=capped&big=${longValue}&tail=1`;
+    const res = await get(env, `/lg/attempt?funnel_variant_id=${seeded.variantId}&u=${encodeURIComponent(landing)}`);
+    expect(res.status).toBe(200);
+    const attempt = (await res.json()) as { signed_config_token: string };
+    const payload = decodeTokenPayload(attempt.signed_config_token);
+    const landingUrl = payload["landing_url"] as string;
+    expect(landingUrl.length).toBeLessThanOrEqual(4096);
+    // The cut lands on the last complete query-param boundary inside the cap:
+    // the half-sliced `big` param is dropped whole, params before it survive
+    // verbatim (never a dangling half value).
+    expect(landingUrl).toBe("https://one.example.com/lg/cap?utm_source=capped");
+    // The mint stays functional: the token is still a signed v2 token.
+    expect(attempt.signed_config_token.startsWith("v2.")).toBe(true);
   });
 
   it("404 (no-store) for a variant not activated on this host", async () => {
@@ -616,16 +674,21 @@ describeDb("CP3 — an activated funnel renders end-to-end (shell → config →
     expect(Array.isArray(config.sections)).toBe(true);
     expect(config.sections.length).toBe(1);
 
-    // 3) attempt (the bootstrap's second fetch) — the token binds THIS config.
+    // 3) attempt (the bootstrap's second fetch) — the token binds THIS config
+    // (+ the m2 minted-when-absent session id the route echoes).
     const attempt = (await (await get(env, `/lg/attempt?funnel_variant_id=${variantId}`)).json()) as {
       funnel_attempt_id: string;
       signed_config_token: string;
+      session_id: string;
     };
     const bound = await verifyConfigToken(env, attempt.signed_config_token, {
-      funnel_variant_id: variantId!,
-      section_order_hash: config.section_order_hash,
-      content_version: config.content_version,
-      funnel_attempt_id: attempt.funnel_attempt_id,
+      ...v2Tuple({
+        funnel_variant_id: variantId!,
+        section_order_hash: config.section_order_hash,
+        content_version: config.content_version,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+      }),
+      session_id: attempt.session_id,
     });
     expect(bound, "CP3: the minted token binds the served config tuple").toBe(true);
   });
@@ -887,16 +950,21 @@ describeDb("P8 — a RUNNING 2-variant test buckets by session (§16.2/§16.3)",
     // §8.3/§30.4 — the cacheable config carries NO per-session bucket.
     expect(JSON.stringify(config)).not.toContain("assignment_bucket");
 
-    // the minted token binds the ASSIGNED variant (never the control by default).
+    // the minted token binds the ASSIGNED variant (never the control by default)
+    // + the m2 minted-when-absent session id the route echoes.
     const attempt = (await (await get(env, `/lg/attempt?funnel_variant_id=${served}`)).json()) as {
       funnel_attempt_id: string;
       signed_config_token: string;
+      session_id: string;
     };
     const bound = await verifyConfigToken(env, attempt.signed_config_token, {
-      funnel_variant_id: served!,
-      section_order_hash: config.section_order_hash,
-      content_version: config.content_version,
-      funnel_attempt_id: attempt.funnel_attempt_id,
+      ...v2Tuple({
+        funnel_variant_id: served!,
+        section_order_hash: config.section_order_hash,
+        content_version: config.content_version,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+      }),
+      session_id: attempt.session_id,
     });
     expect(bound, "token binds the assigned variant's config tuple").toBe(true);
   });
@@ -958,6 +1026,337 @@ describeDb("P8 — a RUNNING 2-variant test buckets by session (§16.2/§16.3)",
     expect(config["variant_label"]).toBe(servedArm.variant_label);
     expect(config["assignment_reason"]).toBe("ab_hash");
     expect(Object.prototype.hasOwnProperty.call(config, "assignment_bucket")).toBe(false);
+  });
+});
+
+// ===========================================================================
+// Fix-contract v2.4 03 §3.2 / §3.11 — the SERVER-RENDERED shell (11 §11.6:
+// these flip the old "empty mount" false-comfort boundary; may never be waived)
+// ===========================================================================
+
+// Extract + parse the baked #lg-config JSON blob from the shell HTML.
+function parseInlineConfig(html: string): Record<string, unknown> | null {
+  const m = html.match(/<script type="application\/json" id="lg-config">(.*?)<\/script>/s);
+  if (m === null) return null;
+  return JSON.parse(m[1] ?? "null") as Record<string, unknown>;
+}
+
+// Decode the v2 token's signed payload (base64url JSON — segment 1).
+function decodeTokenPayload(token: string): Record<string, unknown> {
+  const seg = token.split(".")[1] ?? "";
+  return JSON.parse(Buffer.from(seg, "base64url").toString("utf8")) as Record<string, unknown>;
+}
+
+// A second-section body distinct from the default (a dropdown question).
+const SECOND_SECTION_JSON = JSON.stringify({
+  components: [
+    {
+      type: "DropdownQuestion",
+      question_id: "q2",
+      question_key: "k2",
+      internal_field: "insurer",
+      answer_type: "enum",
+      choices: [
+        { label: "Acme", value: "acme", analytics_id: "ins_acme" },
+        { label: "Globex", value: "globex", analytics_id: "ins_globex" },
+      ],
+    },
+    { type: "ContinueButton", question_id: "c2", props: { label: "Continue" } },
+  ],
+});
+
+// Seed a quote whose control variant carries TWO ordered sections, activated
+// on site-1 (the §3.2a in-order render + first-visible proof needs >1).
+async function seedActivatedFunnelTwoSections(
+  env: Env,
+  sdb: SqliteDb,
+  opts: { quoteName: string; slug: string },
+): Promise<SeededFunnel & { sectionIds: string[] }> {
+  const createRes = await admin.request(
+    `${API}/quotes`,
+    jsonInit("POST", { quote_name: opts.quoteName, activity: "quote_funnel", verticals: ["life"] }),
+    env,
+  );
+  expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
+  const quote = (await createRes.json()) as {
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  };
+  const funnelId = quote.funnels[0]!.public_id;
+  const variantId = quote.funnels[0]!.variants[0]!.public_id;
+  const s1 = seedSection(sdb, { activity: "quote_funnel", vertical: "life" });
+  const s2 = seedSection(sdb, { activity: "quote_funnel", vertical: "life", contentJson: SECOND_SECTION_JSON });
+  const putRes = await admin.request(
+    `${API}/variants/${variantId}`,
+    jsonInit("PUT", { sections: [{ section_id: s1.id }, { section_id: s2.id }] }),
+    env,
+  );
+  expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+  const actRes = await admin.request(
+    `${API}/quotes/${quote.public_id}/activation/site-1`,
+    jsonInit("PUT", { enabled: true, slug: opts.slug }),
+    env,
+  );
+  expect(actRes.status, `activate: ${await actRes.clone().text()}`).toBe(200);
+  return {
+    quotePublicId: quote.public_id,
+    funnelId,
+    variantId,
+    slug: opts.slug,
+    sectionIds: [s1.public_id, s2.public_id],
+  };
+}
+
+describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + runtime tag (11 §11.6)", () => {
+  it("renders EVERY section in order (§3.2a): first VISIBLE with real question markup (no-JS correct), rest hidden", async () => {
+    const { sdb, env } = newHarness();
+    const seeded = await seedActivatedFunnelTwoSections(env, sdb, { quoteName: "Shell Quote", slug: "shell" });
+
+    const html = await (await get(env, "/lg/shell")).text();
+
+    // the EXACT §3.2 wrapper vocabulary, in section order.
+    const sec0 = html.match(
+      /<section data-lg-section data-lg-section-id="([^"]+)" data-lg-index="0" data-screen-label="([^"]+)"([^>]*)>/,
+    );
+    const sec1 = html.match(
+      /<section data-lg-section data-lg-section-id="([^"]+)" data-lg-index="1" data-screen-label="([^"]+)"([^>]*)>/,
+    );
+    expect(sec0, "first section wrapper").not.toBeNull();
+    expect(sec1, "second section wrapper").not.toBeNull();
+    expect(sec0![1]).toBe(seeded.sectionIds[0]);
+    expect(sec1![1]).toBe(seeded.sectionIds[1]);
+    // {i+1:02d} · {headline} labels.
+    expect(sec0![2]!.startsWith("01 · ")).toBe(true);
+    expect(sec1![2]!.startsWith("02 · ")).toBe(true);
+    // FIRST section not hidden (03 §3.11 — visible without JS); the rest hidden.
+    expect(sec0![3]).not.toContain("hidden");
+    expect(sec1![3]).toContain("hidden");
+    // the sections live INSIDE the data-lg-mount main.
+    expect(html.indexOf("data-lg-mount")).toBeLessThan(html.indexOf("data-lg-section"));
+    // 11 §11.6: real question markup exists (never an empty mount) — the first
+    // section's TwoButtonYesNo renders as an answer group with lg choices.
+    expect(html).toContain("data-lg-question");
+    expect(html).toContain('data-lg-choice="true"');
+    // the second section's dropdown rendered too (ALL sections server-render).
+    expect(html).toContain('data-lg-choice="acme"');
+    // the [data-lg-banners] auction mount rides after the sections, hidden.
+    const bannersAt = html.indexOf("data-lg-banners");
+    expect(bannersAt).toBeGreaterThan(html.indexOf('data-lg-index="1"'));
+    expect(html.slice(bannersAt - 60, bannersAt + 60)).toContain("hidden");
+  });
+
+  it("bakes #lg-config = the SAME LeadgenPublicConfig JSON /lg/config serves (§3.2b), runtime tag (§3.2c), no pre-set ready", async () => {
+    const { sdb, env } = newHarness();
+    await seedActivatedFunnelTwoSections(env, sdb, { quoteName: "Cfg Shell Quote", slug: "cfgshell" });
+
+    const html = await (await get(env, "/lg/cfgshell")).text();
+    const inline = parseInlineConfig(html);
+    expect(inline, "#lg-config parses").not.toBeNull();
+
+    const variantId = inline!["funnel_variant_id"] as string;
+    const overHttp = (await (await get(env, `/lg/config/${variantId}`)).json()) as Record<string, unknown>;
+    // §3.2b: the SAME DTO — deep equality, not just same identity fields.
+    expect(inline).toEqual(overHttp);
+
+    // §3.2c: the versioned hydration-engine tag (route lands in its own slice).
+    expect(html).toContain('<script src="/lg/runtime/1.js" defer></script>');
+    // the shell must NOT pre-set readiness — the ENGINE sets data-lg-ready="1".
+    expect(html).not.toContain('data-lg-ready="1"');
+    // the pre-hydration stub only QUEUES clicks (no fetch, no bootstrap).
+    expect(html).toContain("__LG_PREHYDRATE_QUEUE__");
+    expect(html).toContain("[data-lg-choice],[data-lg-continue]");
+    expect(html).not.toContain("__LG_BOOTSTRAP__");
+    expect(html).not.toContain("lg:bootstrap");
+  });
+
+  it("the KV-cached shell body is BYTE-IDENTICAL across two different visitors (sentinel discipline preserved)", async () => {
+    const { sdb, env, store } = newHarness();
+    await seedActivatedFunnel(env, sdb, { quoteName: "Invariant Quote", slug: "inv" });
+
+    const res1 = await get(env, "/lg/inv", { Cookie: "ko_sid=visitor-one" });
+    expect(res1.status).toBe(200);
+    const cachedAfterFirst = [...store.entries()].filter(([k]) => k.startsWith("lg-shell:"));
+    expect(cachedAfterFirst.length).toBe(1);
+    const bodyAfterFirst = cachedAfterFirst[0]![1].value;
+
+    const res2 = await get(env, "/lg/inv", { Cookie: "ko_sid=visitor-two" });
+    expect(res2.status).toBe(200);
+    const cachedAfterSecond = [...store.entries()].filter(([k]) => k.startsWith("lg-shell:"));
+    expect(cachedAfterSecond.length).toBe(1);
+    // byte-identical pristine body across visitors.
+    expect(cachedAfterSecond[0]![1].value).toBe(bodyAfterFirst);
+
+    // the pristine body carries the SENTINELS, never the per-visitor splices…
+    expect(bodyAfterFirst).toContain("<!--LG_MAPS_KEY-->");
+    expect(bodyAfterFirst).toContain("<!--LG_ASSIGN-->");
+    expect(bodyAfterFirst).not.toContain("window.__LG_ASSIGNMENT__");
+    // …while each RESPONSE carries the spliced assignment (and no sentinel).
+    for (const res of [res1, res2]) {
+      const html = await res.text();
+      expect(html).toContain("window.__LG_ASSIGNMENT__");
+      expect(html).not.toContain("<!--LG_ASSIGN-->");
+    }
+    // …and the baked #lg-config IS in the pristine cached body (visitor-invariant).
+    expect(bodyAfterFirst).toContain('id="lg-config"');
+
+    // the shell key carries the ab_rev axis: …:{content_version}:{ab_rev}:{template}:{activation}.
+    const key = cachedAfterSecond[0]![0];
+    const segs = key.split(":");
+    const servedContentVersion = bodyAfterFirst.match(/data-content-version="(\d+)"/)?.[1];
+    expect(segs[5]).toBe(servedContentVersion); // content_version segment matches the served variant
+    expect(segs[6]).toBe("0"); // ab_rev — single_control
+    expect(segs[7]).toBe("1"); // LEADGEN_TEMPLATE_VERSION
+  });
+});
+
+describeDb("v2.4 03 §3.2 — the SHELL never goes stale across an A/B start (ab_rev key+etag axis)", () => {
+  it("a start (rev bump) mints a NEW shell key + ETag and serves the ab_hash dims in #lg-config (not the stale single_control body)", async () => {
+    const { sdb, env, store } = newHarness();
+    const seeded = await seedActivatedFunnel(env, sdb, { quoteName: "ShellM1 Quote", slug: "m1shell" });
+
+    // 1) BEFORE any test: the shell caches at the ab_rev=0 key with the
+    // single_control dims BAKED into #lg-config.
+    const before = await get(env, "/lg/m1shell", { Cookie: "ko_sid=m1-shell-sid" });
+    const etagBefore = before.headers.get("ETag") ?? "";
+    const cfgBefore = parseInlineConfig(await before.text());
+    expect(cfgBefore!["assignment_reason"]).toBe("single_control");
+    expect(cfgBefore!["funnel_ab_test_revision"]).toBe(0);
+    expect([...store.keys()].filter((k) => k.startsWith("lg-shell:")).length).toBe(1);
+
+    // 2) create + start a test on THAT funnel (lone control at bp 10000 →
+    // Σ==10000 → running). Start bumps the test revision but NOT the variant's
+    // content_version — ONLY ab_rev distinguishes the shell cache identity.
+    const create = await admin.request(`${API}/quotes/${seeded.quotePublicId}/experiments`, jsonInit("POST", {}), env);
+    expect(create.status, `create ab: ${await create.clone().text()}`).toBe(201);
+    const ab = (await create.json()) as { public_id: string };
+    const startRes = await admin.request(`${API}/experiments/${ab.public_id}/start`, { method: "POST" }, env);
+    expect(startRes.status, `start: ${await startRes.clone().text()}`).toBe(200);
+    const started = (await startRes.json()) as { public_id: string; revision: number; status: string };
+    expect(started.status).toBe("running");
+
+    // 3) the SAME visitor re-fetches: fresh ETag, fresh key, ab_hash dims baked.
+    const after = await get(env, "/lg/m1shell", { Cookie: "ko_sid=m1-shell-sid" });
+    const etagAfter = after.headers.get("ETag") ?? "";
+    expect(etagAfter, "a start MUST mint a fresh shell ETag (no 304-loop on stale dims)").not.toBe(etagBefore);
+    const cfgAfter = parseInlineConfig(await after.text());
+    expect(cfgAfter!["assignment_reason"], "the baked dims must flip — never the stale single_control body").toBe("ab_hash");
+    expect(cfgAfter!["funnel_ab_test_id"]).toBe(started.public_id);
+    expect(cfgAfter!["funnel_ab_test_revision"]).toBe(started.revision);
+    // two DISTINCT cached shells now exist (rev-0 orphaned, rev-N live).
+    expect([...store.keys()].filter((k) => k.startsWith("lg-shell:")).length).toBe(2);
+
+    // 4) conditional-GET with the STALE etag must NOT 304 (the etag mirrors the key).
+    const conditional = await get(env, "/lg/m1shell", { Cookie: "ko_sid=m1-shell-sid", "If-None-Match": etagBefore });
+    expect(conditional.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// v2.4 03 §3.8 / 05 §5.4 (R6) — answer_mapping_version populated end-to-end +
+// the config↔token coherence invariant
+// ===========================================================================
+
+describeDb("R6 — answer_mapping_version populated from leadgen_section_answer_maps (v2.4 03 §3.8)", () => {
+  // Minimal FK-satisfying offer + active schema + answer-map rows, seeded via
+  // direct SQL (the admin mapping flow is exercised in leadgen-sections tests;
+  // here we prove the RESOLVE-TIME read).
+  function seedAnswerMapRows(sdb: SqliteDb, sectionPublicId: string, rowCount: number): number {
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_offers (public_id, offer_name, activity, vertical, conversion_tracking_method, offer_type) VALUES (?, 'Offer X', 'quote_funnel', 'life', 's2s_postback', 'cpl')",
+      )
+      .run(mintPublicId("offer"));
+    const offerId = (sdb.prepare("SELECT id FROM leadgen_offers ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    const schemaPublicId = mintPublicId("payload_schema_version");
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json) VALUES (?, ?, 1, '{}')",
+      )
+      .run(schemaPublicId, offerId);
+    const schemaId = (sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    for (let i = 0; i < rowCount; i++) {
+      sdb
+        .prepare(
+          `INSERT INTO leadgen_section_answer_maps
+             (public_id, section_id, question_id, question_key, internal_field, answer_type,
+              offer_id, payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type)
+           VALUES (?, (SELECT id FROM leadgen_sections WHERE public_id = ?), 'q1', 'k', 'f', 'boolean', ?, ?, ?, ?, 'string')`,
+        )
+        .run(mintPublicId("answer_field_map"), sectionPublicId, offerId, schemaId, schemaPublicId, `field_${i}`);
+    }
+    const max = sdb
+      .prepare(
+        "SELECT COALESCE(MAX(id), 0) AS v FROM leadgen_section_answer_maps WHERE section_id = (SELECT id FROM leadgen_sections WHERE public_id = ?)",
+      )
+      .get(sectionPublicId) as { v: number };
+    return max.v;
+  }
+
+  it("/lg/config carries String(MAX(id)) per mapped section; '0' for an unmapped section; and the SAME values ride the shell's #lg-config", async () => {
+    const { sdb, env } = newHarness();
+    const seeded = await seedActivatedFunnelTwoSections(env, sdb, { quoteName: "R6 Quote", slug: "r6" });
+    // map ONLY the first section (3 rows) — the second stays unmapped.
+    const maxId = seedAnswerMapRows(sdb, seeded.sectionIds[0]!, 3);
+    expect(maxId).toBeGreaterThan(0);
+
+    const config = (await (await get(env, `/lg/config/${seeded.variantId}`)).json()) as {
+      sections: Array<{ section_public_id: string; answer_mapping_version: string }>;
+    };
+    expect(config.sections[0]?.answer_mapping_version).toBe(String(maxId));
+    expect(config.sections[1]?.answer_mapping_version).toBe("0");
+
+    // the shell bakes the SAME populated values (one buildPublicConfig source).
+    const html = await (await get(env, "/lg/r6")).text();
+    const inline = parseInlineConfig(html) as {
+      sections: Array<{ answer_mapping_version: string }>;
+    } | null;
+    expect(inline?.sections[0]?.answer_mapping_version).toBe(String(maxId));
+    expect(inline?.sections[1]?.answer_mapping_version).toBe("0");
+  });
+
+  it("COHERENCE: sha256 over the config's ordered answer_mapping_versions == the v2 token's answer_mapping_hash (05 §5.3)", async () => {
+    const { sdb, env } = newHarness();
+    const seeded = await seedActivatedFunnelTwoSections(env, sdb, { quoteName: "Coherence Quote", slug: "coh" });
+    seedAnswerMapRows(sdb, seeded.sectionIds[0]!, 2);
+
+    const config = (await (await get(env, `/lg/config/${seeded.variantId}`)).json()) as {
+      sections: Array<{ answer_mapping_version: string }>;
+    };
+    const attempt = (await (await get(env, `/lg/attempt?funnel_variant_id=${seeded.variantId}`)).json()) as {
+      signed_config_token: string;
+    };
+    const payload = decodeTokenPayload(attempt.signed_config_token);
+    const recomputed = sha256Hex(JSON.stringify(config.sections.map((s) => s.answer_mapping_version)));
+    expect(payload["answer_mapping_hash"], "config and token must agree on the mapping generation").toBe(recomputed);
+  });
+});
+
+describeDb("v2.4 03 §3.2d — the Maps key also injects for a ZIP-validate funnel (no address section)", () => {
+  it("a funnel whose ONLY Maps signal is ZIPInputQuestion validate:true gets the key splice; the cached body stays key-free", async () => {
+    const { sdb, env, store } = newHarness();
+    const zipJson = JSON.stringify({
+      components: [
+        { type: "ZIPInputQuestion", question_id: "q_zip", question_key: "zip", internal_field: "zip", props: { validate: true } },
+      ],
+    });
+    await seedActivatedFunnel(env, sdb, {
+      quoteName: "Zip Quote",
+      slug: "zip",
+      sectionContentJson: zipJson,
+      addressValidation: false,
+    });
+
+    const html = await (await get(env, "/lg/zip")).text();
+    expect(html).toContain("window.__LG_MAPS_KEY__");
+    expect(html).toContain(MAPS_BROWSER_KEY);
+    // the rendered ZIP input carries its §3.3 Maps hook in the same body.
+    expect(html).toContain("data-lg-maps=");
+    // cached body: sentinel only, never the key.
+    for (const [k, entry] of store.entries()) {
+      if (!k.startsWith("lg-shell:")) continue;
+      expect(entry.value).not.toContain(MAPS_BROWSER_KEY);
+      expect(entry.value).toContain("<!--LG_MAPS_KEY-->");
+    }
   });
 });
 

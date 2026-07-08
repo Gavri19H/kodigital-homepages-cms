@@ -228,6 +228,91 @@ describeDb("reMatchUnmatchedSweep — §29 72h re-match / age-out", () => {
     const status = sdb.prepare("SELECT status FROM leadgen_revenue_unmatched WHERE click_id='p1'").get() as { status: string };
     expect(status.status).toBe("pending"); // still pending, not aged (in window), not matched
   });
+
+  it("m3: a re-match BOOKING emits `revenue_received` (postback.ts fail-open mirror) with the row's dims", async () => {
+    const { sdb, env } = freshDb();
+    seedUnmatched(sdb, "emit1", nowSec - 3600);
+    // Firehose creds + stream configured → emitLeadgenRecords dispatches.
+    (env as unknown as Record<string, unknown>)["AWS_ACCESS_KEY_ID"] = "k";
+    (env as unknown as Record<string, unknown>)["AWS_SECRET_ACCESS_KEY"] = "s";
+    (env as unknown as Record<string, unknown>)["LEADGEN_EVENTS_FIREHOSE_STREAM"] = "leadgen-events";
+
+    const firehoseBodies: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("firehose")) {
+        const body = input instanceof Request ? await input.clone().text() : String(init?.body ?? "");
+        firehoseBodies.push(body);
+        return new Response(JSON.stringify({ FailedPutCount: 0, RequestResponses: [] }), { status: 200 });
+      }
+      return realFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      const waited: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(p: Promise<unknown>) { waited.push(p.catch(() => undefined)); },
+        passThroughOnException() {},
+      } as unknown as ExecutionContext;
+
+      const res = await reMatchUnmatchedSweep(env, { client: writeClient({ matched: ["emit1"] }), now: NOW, ctx });
+      expect(res).toMatchObject({ configured: true, matched: 1 });
+      await Promise.all(waited);
+
+      // Decode the PutRecordBatch records (base64 JSON+\n per firehose.ts).
+      expect(firehoseBodies.length).toBe(1);
+      const batch = JSON.parse(firehoseBodies[0]!) as { Records: Array<{ Data: string }> };
+      const records = batch.Records.map((r) => JSON.parse(Buffer.from(r.Data, "base64").toString("utf8")) as Record<string, unknown>);
+      const revenueReceived = records.filter((r) => r["event_type"] === "revenue_received");
+      expect(revenueReceived.length).toBe(1);
+      expect(revenueReceived[0]).toMatchObject({
+        click_id: "emit1",
+        conversion_id: "t-emit1", // external_txn_id
+        provider: "acme",
+        revenue: 1,
+        bid_currency: "USD",
+        booking_trigger: "rematch_sweep",
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("m3 failure path: a broken emission transport never blocks the booking (status still 'matched')", async () => {
+    const { sdb, env } = freshDb();
+    seedUnmatched(sdb, "emit2", nowSec - 3600);
+    (env as unknown as Record<string, unknown>)["AWS_ACCESS_KEY_ID"] = "k";
+    (env as unknown as Record<string, unknown>)["AWS_SECRET_ACCESS_KEY"] = "s";
+    (env as unknown as Record<string, unknown>)["LEADGEN_EVENTS_FIREHOSE_STREAM"] = "leadgen-events";
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("firehose")) throw new Error("firehose down");
+      return realFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      // A throwing waitUntil ALSO must not unwind the booking.
+      const ctx = {
+        waitUntil() { throw new Error("no waitUntil here"); },
+        passThroughOnException() {},
+      } as unknown as ExecutionContext;
+      const res = await reMatchUnmatchedSweep(env, { client: writeClient({ matched: ["emit2"] }), now: NOW, ctx });
+      expect(res).toMatchObject({ configured: true, matched: 1 });
+      const status = sdb.prepare("SELECT status FROM leadgen_revenue_unmatched WHERE click_id='emit2'").get() as { status: string };
+      expect(status.status).toBe("matched"); // the booking landed regardless
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("m3: no ctx / no creds ⇒ structured no-op emission, booking unaffected (legacy caller shape)", async () => {
+    const { sdb, env } = freshDb(); // no AWS creds on this env
+    seedUnmatched(sdb, "emit3", nowSec - 3600);
+    const res = await reMatchUnmatchedSweep(env, { client: writeClient({ matched: ["emit3"] }), now: NOW });
+    expect(res).toMatchObject({ configured: true, matched: 1 });
+    const status = sdb.prepare("SELECT status FROM leadgen_revenue_unmatched WHERE click_id='emit3'").get() as { status: string };
+    expect(status.status).toBe("matched");
+  });
 });
 
 // ---------------------------------------------------------------------------

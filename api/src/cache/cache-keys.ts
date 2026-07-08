@@ -177,7 +177,7 @@ export const LEADGEN_TEMPLATE_VERSION = 1 as const;
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
 
-// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{template_version}
+// lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}:{template_version}:{activation_version}
 // (§28). The §16.2 A/B assignment is a cheap deterministic edge hash that picks
 // WHICH variant to serve, and "the shell is cached per variant" (§28) — so
 // funnel_variant_id is IN the key. A running 2-variant test then serves two
@@ -189,6 +189,15 @@ const NS_LG_CONFIG = "lg-config";
 // content_version / LEADGEN_TEMPLATE_VERSION bump orphans old entries. The single
 // enabled root activation (NULL slug — at most one per site, §17.1) uses the
 // EMPTY slug segment; a named activation uses its slug.
+// `abRev` (fix-contract v2.4 03 §3.2) is the SAME running-test axis
+// leadgenConfigKey carries (the funnel's RUNNING A/B test revision, else 0).
+// The shell now BAKES the LeadgenPublicConfig JSON (#lg-config — incl. the
+// §16.3 test dims funnel_ab_test_id/funnel_ab_test_revision/variant_label/
+// traffic_allocation_bp/assignment_reason) into the cached body, and an A/B
+// start/stop/re-bump flips those dims WITHOUT moving content_version — exactly
+// the staleness class the leadgenConfigKey comment below documents. Folding
+// ab_rev in makes a start (0→N) / stop (N→0) / re-bump mint a FRESH shell key
+// (+ the mirrored ETag) so the baked test dims are never served stale until TTL.
 // `activationVersion` = leadgen_site_quotes.updated_at (bumps on EVERY activation
 // write — enable/disable/slug/settings_overrides). §28 correctness: the shell body
 // bakes in the activation's ga4_measurement_id (from settings_overrides_json), and
@@ -198,16 +207,20 @@ const NS_LG_CONFIG = "lg-config";
 // until an unrelated content/template bump. Folding updated_at in makes any
 // activation edit mint a FRESH key + ETag → self-correcting, mirror-safe, no
 // invalidation cron dependency (the invalidate.ts pass is then pure courtesy).
+// Segment DISCIPLINE: site_id stays index 1 and funnel_id index 3 (the
+// invalidate.ts prefix + funnel-narrowing contract); new axes append as suffix
+// segments only.
 export function leadgenShellKey(
   siteId: string,
   quoteSlug: string | null,
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  abRev: number,
   activationVersion: number,
 ): string {
   const slugSeg = quoteSlug ?? "";
-  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${funnelVariantId}:${contentVersion}:${LEADGEN_TEMPLATE_VERSION}:${activationVersion}`;
+  return `${NS_LG_SHELL}:${requireSiteId(siteId)}:${slugSeg}:${funnelId}:${funnelVariantId}:${contentVersion}:${abRev}:${LEADGEN_TEMPLATE_VERSION}:${activationVersion}`;
 }
 
 // lg-config:{site_id}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}.

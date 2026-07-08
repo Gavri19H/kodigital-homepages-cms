@@ -26,6 +26,7 @@ import {
 import type { Paging } from "./router";
 import { CANONICAL_CARRIER_FIELDS } from "../../public/leadgen/designs/banner-default/styles";
 import { BANNER_DESIGNS } from "../../public/leadgen/designs/registry";
+import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "./ui-offers";
 import type { LeadgenAuctionApi, LeadgenAuctionRuleApi } from "./db-types";
 
 // ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ const LG_AUCTIONS_STYLES = `
 .lg-warn{background:var(--c-warn-bg,#fff4e5);color:var(--c-warn,#8a5300);border:1px solid var(--c-warn,#e0a04a);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:13px}
 .lg-part-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px;flex-wrap:wrap}
 .lg-part-row .lg-grow{flex:1;min-width:140px}
+.lg-elig-warn{display:inline-block;background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border:1px solid var(--c-danger,#e5a49a);border-radius:9999px;padding:2px 10px;font-size:12px}
 .lg-static-only{display:none}
 .lg-auction-static .lg-static-only{display:inline-flex}
 .lg-rule-row{border:1px solid var(--c-border);border-radius:6px;padding:10px;margin-bottom:8px}
@@ -539,7 +541,7 @@ function renderSettingsPanel(a: LeadgenAuctionApi, participating: ParticipatingO
 function renderParticipatingRow(p: ParticipatingOffer): string {
   const schemaV = p.schema_version === null || p.schema_version === undefined ? EM_DASH : `v${p.schema_version}`;
   const lastTest = p.last_test_status ?? "untested";
-  return `<div class="lg-part-row" data-placement-id="${p.offer_placement_id}" data-offer-id="${p.offer_id}">
+  return `<div class="lg-part-row" data-placement-id="${p.offer_placement_id}" data-offer-id="${p.offer_id}" data-offer-public-id="${escapeHtml(p.offer_public_id ?? "")}">
   <span class="lg-grow" data-offer-name>${escapeHtml(p.offer_name ?? String(p.offer_id))}</span>
   <span class="form-help">${escapeHtml(p.provider ?? "")}</span>
   <span class="form-help" data-offer-type>${escapeHtml(p.offer_type ?? "")}</span>
@@ -572,6 +574,7 @@ function renderParticipatingPanel(a: LeadgenAuctionApi, participating: Participa
     </div>
     <button type="button" class="btn btn-primary" id="lg-a-participating-save">Save participating offers</button>
     <p id="lg-a-participating-msg" class="form-help" hidden></p>
+    <p class="form-help" data-eligibility-note>Ineligible dynamic offers do not block saving this auction (drafts may reference not-yet-ready offers), but they block activating any Quote this auction serves (05 §5.1/§5.2).</p>
   </div>
 </div>`;
 }
@@ -1038,6 +1041,67 @@ const AUCTION_EDITOR_SCRIPT = `
     }
   });
 
+  // --- 05 5.1 site 2: per-offer eligibility warnings off the PUT response ---
+  // Operator labels for the 8 reason codes; chips are rebuilt on every save
+  // (createTextNode only — no HTML injection). Ineligible offers block QUOTE
+  // activation, never this auction save.
+  var ELIGIBILITY_REASON_LABELS = ${JSON.stringify(LEADGEN_ELIGIBILITY_REASON_LABELS)};
+  function eligibilityLabel(code) { return ELIGIBILITY_REASON_LABELS[code] || String(code || '').replace(/_/g, ' '); }
+
+  function clearEligibilityChips() {
+    if (!partList) { return; }
+    var chips = partList.querySelectorAll('[data-offer-warning]');
+    var i;
+    for (i = 0; i < chips.length; i++) { if (chips[i].parentNode) { chips[i].parentNode.removeChild(chips[i]); } }
+  }
+
+  // m10: rows are matched by ATTRIBUTE EQUALITY (querySelectorAll + exact
+  // getAttribute compare), never by interpolating the id into a CSS selector
+  // string — a quote/bracket in a public id can neither throw nor mismatch.
+  function findRowByAttr(attr, value) {
+    if (!partList) { return null; }
+    var rows = partList.querySelectorAll('[' + attr + ']');
+    var k;
+    for (k = 0; k < rows.length; k++) {
+      if (rows[k].getAttribute(attr) === String(value)) { return rows[k]; }
+    }
+    return null;
+  }
+
+  function renderEligibilityWarnings(warnings, items) {
+    clearEligibilityChips();
+    if (!partList || !warnings) { return 0; }
+    // warnings carry the offer PUBLIC id; rows are matched on it directly
+    // (data-offer-public-id) with a numeric-id fallback via the items map.
+    var publicToNumeric = {};
+    var i;
+    if (items) {
+      for (i = 0; i < items.length; i++) {
+        if (items[i] && items[i].offer_public_id) { publicToNumeric[items[i].offer_public_id] = items[i].offer_id; }
+      }
+    }
+    var shown = 0;
+    for (i = 0; i < warnings.length; i++) {
+      var w = warnings[i];
+      if (!w || !w.offer_id) { continue; }
+      var row = findRowByAttr('data-offer-public-id', w.offer_id);
+      if (!row && publicToNumeric[w.offer_id] !== undefined) {
+        row = findRowByAttr('data-offer-id', publicToNumeric[w.offer_id]);
+      }
+      if (!row) { continue; }
+      var reasons = w.reasons || [];
+      var labels = [];
+      var j;
+      for (j = 0; j < reasons.length; j++) { labels.push(eligibilityLabel(reasons[j])); }
+      var chip = makeEl('span', 'lg-elig-warn');
+      chip.setAttribute('data-offer-warning', w.offer_id);
+      chip.appendChild(document.createTextNode('Ineligible: ' + labels.join(' \\u00b7 ')));
+      row.appendChild(chip);
+      shown++;
+    }
+    return shown;
+  }
+
   function saveParticipating() {
     if (!partList) { return; }
     var rows = partList.querySelectorAll('.lg-part-row');
@@ -1060,7 +1124,18 @@ const AUCTION_EDITOR_SCRIPT = `
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (res) {
         var el2 = byId('lg-a-participating-msg');
-        if (el2) { el2.hidden = false; el2.textContent = res.ok ? 'Participating offers saved.' : ((res.body && res.body.error) ? res.body.error : 'Save failed.'); }
+        var warned = 0;
+        if (res.ok) {
+          warned = renderEligibilityWarnings(res.body && res.body.warnings, res.body && res.body.items);
+        }
+        if (el2) {
+          el2.hidden = false;
+          el2.textContent = res.ok
+            ? (warned > 0
+              ? 'Saved. ' + warned + ' offer(s) are ineligible for live auction \\u2014 they block QUOTE activation, not this save.'
+              : 'Participating offers saved.')
+            : ((res.body && res.body.error) ? res.body.error : 'Save failed.');
+        }
         if (res.ok) { dirty = false; }
       });
   }

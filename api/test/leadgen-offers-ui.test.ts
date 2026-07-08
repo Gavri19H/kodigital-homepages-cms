@@ -33,6 +33,7 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
+import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "../src/admin/leadgen/ui-offers";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -268,7 +269,8 @@ async function getHtml(env: Env, path: string, expectedStatus = 200): Promise<st
   return res.text();
 }
 
-// The §9.2 columns, in contract order (8 descriptive + 8 analytics + actions).
+// The §9.2 columns, in contract order (8 descriptive + the 05 §5.1
+// eligibility badge column + 8 analytics + actions).
 const EXPECTED_COLUMNS = [
   "Name",
   "Placement ID",
@@ -276,6 +278,7 @@ const EXPECTED_COLUMNS = [
   "Vertical / Activity",
   "Type",
   "Dynamic/Static",
+  "Eligibility",
   "Cap",
   "Status",
   "Impressions",
@@ -894,5 +897,229 @@ describeDb("leadgen offers pages — ES5-only inline scripts", () => {
       });
       expect(errors, errors.join("\n\n")).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 05 §5.1 (fix-contract v2.4, R4) — offer eligibility surfaces:
+// additive GET/list `eligibility` verdict, the editor banner, the list badge.
+// ---------------------------------------------------------------------------
+
+// The 8 §5.1 reason codes, exactly (leadgen/validation.ts).
+const ALL_ELIGIBILITY_CODES = [
+  "no_active_schema",
+  "schema_validation_errors",
+  "test_untested",
+  "test_failed",
+  "endpoint_missing",
+  "invalid_headers",
+  "carrier_parse_missing",
+  "carrier_parse_invalid",
+] as const;
+
+interface EligibilityBody {
+  eligibility: { eligible: boolean; reasons: string[] } | null;
+  [key: string]: unknown;
+}
+
+async function getOfferJson(env: Env, id: string): Promise<EligibilityBody> {
+  const res = await admin.request(`${API}/offers/${id}`, {}, env);
+  expect(res.status).toBe(200);
+  return (await res.json()) as EligibilityBody;
+}
+
+function seedPassedTest(sdb: SqliteDb, offerPublicId: string, statusCode: number): void {
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', ?)",
+    )
+    .run(offerPublicId, statusCode);
+}
+
+// A FULLY-configured dynamic offer: active schema + usable carrier parse +
+// production endpoint + a passed operator Test → eligible.
+async function seedEligibleDynamicOffer(env: Env, sdb: SqliteDb): Promise<OfferDetail> {
+  const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Ready Dyn Offer" });
+  await postSchema(env, offer.public_id, {
+    carriers_path: "carriers",
+    fields: { carrier_name: "name", bid: "bid", click_url: "url" },
+  });
+  await patchOffer(env, offer.public_id, { endpoint_production: "https://provider.example/quote" });
+  seedPassedTest(sdb, offer.public_id, 200);
+  return offer;
+}
+
+describeDb("leadgen offer eligibility — additive API fields (05 §5.1)", () => {
+  it("the label map covers ALL 8 reason codes with operator English (no raw codes)", () => {
+    expect(Object.keys(LEADGEN_ELIGIBILITY_REASON_LABELS).sort()).toEqual(
+      [...ALL_ELIGIBILITY_CODES].sort(),
+    );
+    for (const code of ALL_ELIGIBILITY_CODES) {
+      const label = LEADGEN_ELIGIBILITY_REASON_LABELS[code]!;
+      expect(label, `label for ${code}`).toBeTruthy();
+      expect(label, `label for ${code} must be prose, not the code`).not.toBe(code);
+      expect(label, `label for ${code} must not leak snake_case`).not.toMatch(/_/);
+    }
+  });
+
+  it("offer GET carries the additive eligibility verdict; nothing existing is dropped", async () => {
+    const { env } = newHarness();
+    const dynamic = await createOffer(env, "request_dynamic_bid", { offer_name: "Fresh Dyn" });
+    const body = await getOfferJson(env, dynamic.public_id);
+    // additive verdict: a fresh dynamic offer is blocked for these reasons
+    expect(body.eligibility).not.toBeNull();
+    expect(body.eligibility!.eligible).toBe(false);
+    for (const code of ["no_active_schema", "test_untested", "endpoint_missing", "carrier_parse_missing"]) {
+      expect(body.eligibility!.reasons, `reason ${code}`).toContain(code);
+    }
+    // DENY nothing existing: the detail collections all still ride the GET
+    expect(Array.isArray(body["placements"])).toBe(true);
+    expect(Array.isArray(body["headers"])).toBe(true);
+    expect(Array.isArray(body["region_rules"])).toBe(true);
+    expect(body["offer_name"]).toBe("Fresh Dyn");
+  });
+
+  it("a static offer is outside the gate: eligibility rides eligible:true", async () => {
+    const { env } = newHarness();
+    const staticOffer = await createOffer(env, "static_no_request", { offer_name: "Pure Static" });
+    const body = await getOfferJson(env, staticOffer.public_id);
+    expect(body.eligibility).toEqual({ eligible: true, reasons: [] });
+  });
+
+  it("a fully-configured dynamic offer becomes eligible (schema + parse + endpoint + passed test)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    const body = await getOfferJson(env, offer.public_id);
+    expect(body.eligibility).toEqual({ eligible: true, reasons: [] });
+  });
+
+  it("the offers LIST carries the additive per-item eligibility verdict", async () => {
+    const { env } = newHarness();
+    await createOffer(env, "request_dynamic_bid", { offer_name: "List Dyn" });
+    await createOffer(env, "static_no_request", { offer_name: "List Static" });
+    const res = await admin.request(`${API}/offers`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Array<{ offer_name: string; eligibility: { eligible: boolean; reasons: string[] } | null }> };
+    const dyn = body.items.find((i) => i.offer_name === "List Dyn");
+    const stat = body.items.find((i) => i.offer_name === "List Static");
+    expect(dyn?.eligibility?.eligible).toBe(false);
+    expect(dyn?.eligibility?.reasons).toContain("no_active_schema");
+    expect(stat?.eligibility).toEqual({ eligible: true, reasons: [] });
+  });
+});
+
+describeDb("leadgen offer editor eligibility banner (05 §5.1 site 1)", () => {
+  it("blocked dynamic offer: persistent banner with operator labels + fix links (Payload/Test tabs)", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Blocked Dyn" });
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(html).toContain('data-eligibility-banner="blocked"');
+    expect(html).toContain("Blocked from live auction:");
+    for (const code of ["no_active_schema", "test_untested", "endpoint_missing", "carrier_parse_missing"]) {
+      expect(html, `reason item ${code}`).toContain(`data-eligibility-reason="${code}"`);
+      expect(html, `label for ${code}`).toContain(LEADGEN_ELIGIBILITY_REASON_LABELS[code]!);
+    }
+    // fix links jump to the schema editor (Payload) tab + the Test tab
+    expect(html).toContain('data-eligibility-fix="payload"');
+    expect(html).toContain("Open Payload Schema");
+    expect(html).toContain('data-eligibility-fix="test"');
+    expect(html).toContain("Open Test tab");
+    // the editor script wires the fix links onto the tab switcher
+    expect(html).toContain("closest('[data-eligibility-fix]')");
+  });
+
+  it("eligible dynamic offer: the green banner", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(html).toContain('data-eligibility-banner="eligible"');
+    expect(html).toContain("Eligible for live auction");
+    expect(html).not.toContain('data-eligibility-banner="blocked"');
+  });
+
+  it("static offer: NO banner (outside the gate)", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "No Banner" });
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(html).not.toContain("data-eligibility-banner");
+  });
+
+  it("ALL 8 reason codes render as operator labels across two crafted offers", async () => {
+    const { sdb, env } = newHarness();
+
+    // Offer A: no schema, untested, no endpoint, unresolvable header →
+    // no_active_schema + test_untested + endpoint_missing + invalid_headers +
+    // carrier_parse_missing (5 of 8).
+    const offerA = await createOffer(env, "request_dynamic_bid", { offer_name: "Matrix A" });
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, 'X-Auth', 'macro', '')",
+      )
+      .run(offerA.id);
+
+    // Offer B: schema present but INVALID, carrier parse INVALID, last test
+    // FAILED, endpoint present → schema_validation_errors + test_failed +
+    // carrier_parse_invalid (the remaining 3 of 8).
+    const offerB = await createOffer(env, "request_dynamic_bid", { offer_name: "Matrix B" });
+    await postSchema(env, offerB.public_id, {
+      carriers_path: "carriers",
+      fields: { carrier_name: "name", bid: "bid", click_url: "url" },
+    });
+    await patchOffer(env, offerB.public_id, { endpoint_production: "https://provider.example/q" });
+    sdb
+      .prepare("UPDATE leadgen_offer_payload_schemas SET schema_json = ?, carrier_parse_json = ? WHERE offer_id = ?")
+      .run('{"nope":true}', '{"fields":[]}', offerB.id);
+    seedPassedTest(sdb, offerB.public_id, 500);
+
+    const bodyA = await getOfferJson(env, offerA.public_id);
+    const bodyB = await getOfferJson(env, offerB.public_id);
+    expect(bodyA.eligibility!.reasons.sort()).toEqual(
+      ["carrier_parse_missing", "endpoint_missing", "invalid_headers", "no_active_schema", "test_untested"].sort(),
+    );
+    expect(bodyB.eligibility!.reasons.sort()).toEqual(
+      ["carrier_parse_invalid", "schema_validation_errors", "test_failed"].sort(),
+    );
+    // together the two verdicts exercise ALL 8 codes
+    expect([...bodyA.eligibility!.reasons, ...bodyB.eligibility!.reasons].sort()).toEqual(
+      [...ALL_ELIGIBILITY_CODES].sort(),
+    );
+
+    const htmlA = await getHtml(env, `/admin/leadgen/offers/${offerA.public_id}/edit`);
+    for (const code of bodyA.eligibility!.reasons) {
+      expect(htmlA, `A label for ${code}`).toContain(LEADGEN_ELIGIBILITY_REASON_LABELS[code]!);
+    }
+    const htmlB = await getHtml(env, `/admin/leadgen/offers/${offerB.public_id}/edit`);
+    for (const code of bodyB.eligibility!.reasons) {
+      expect(htmlB, `B label for ${code}`).toContain(LEADGEN_ELIGIBILITY_REASON_LABELS[code]!);
+    }
+  });
+});
+
+describeDb("leadgen offers list eligibility badge column (05 §5.1)", () => {
+  it("dynamic rows badge Eligible/Blocked (labels in the title); static rows show a neutral dash", async () => {
+    const { sdb, env } = newHarness();
+    await seedEligibleDynamicOffer(env, sdb);
+    await createOffer(env, "request_dynamic_bid", { offer_name: "Blocked List Dyn" });
+    await createOffer(env, "static_no_request", { offer_name: "Static List" });
+
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    // the new column header sits between Dynamic/Static and Cap
+    const dynIdx = html.indexOf(">Dynamic/Static</th>");
+    const eligIdx = html.indexOf(">Eligibility</th>");
+    const capIdx = html.indexOf(">Cap</th>");
+    expect(dynIdx).toBeGreaterThan(-1);
+    expect(eligIdx).toBeGreaterThan(dynIdx);
+    expect(capIdx).toBeGreaterThan(eligIdx);
+    // badges per row state
+    expect(html).toContain('data-offer-eligibility="eligible"');
+    expect(html).toContain('data-offer-eligibility="blocked"');
+    expect(html).toContain('data-offer-eligibility="na"');
+    expect(html).toContain(">Eligible</span>");
+    expect(html).toContain(">Blocked</span>");
+    // blocked badge title carries operator labels, not raw codes
+    expect(html).toContain(LEADGEN_ELIGIBILITY_REASON_LABELS["no_active_schema"]!);
+    // every existing column/action stays (the §9.2 walker above also holds)
+    expect(html).toContain("data-offer-archive=");
+    expect(html).toContain("data-offer-usage=");
   });
 });

@@ -9,6 +9,27 @@
 // (designs/default-funnel/styles.ts); no preset emits a `<style>` block that
 // reads instance data (§14.3 / §14.10).
 //
+// Fix-contract v2.4 03 §3.3 HYDRATION HOOKS (contract-normative — preview and
+// runtime emit them identically by construction, 09 §9.1/§9.3): every
+// interactive element additionally carries its `data-lg-*` attribute —
+//   data-lg-question="{question_id}"   on answer-producing (question) nodes
+//   data-lg-field="{internal_field}"   alongside data-lg-question
+//   data-lg-choice="{value}"           on each selectable choice
+//   data-lg-input                      on text/date/email/phone/zip inputs
+//   data-lg-continue / data-lg-back    on nav controls
+//   data-lg-progress (+ data-mode)     on the progress bar
+//   data-lg-error-for="{internal_field}" on error slots
+//   data-lg-maps="{configJSON}"        on Maps-enabled address/ZIP components
+//   data-lg-other-trigger / data-lg-other-panel  B9 Other-group markup
+// The B9 Other grouping (06 §6.4) renders when a choice node carries
+// `choiceDisplay.otherGroupEnabled`: main values as normal choices + ONE
+// "Other" trigger (NOT a choice — it never stores a value) + a hidden panel of
+// the secondary REAL-value choices (searchable per `searchableOther`). A
+// secondary selection stores the REAL internal value — the literal string
+// "Other" is never a stored value. Without choiceDisplay metadata the markup
+// is byte-identical to the pre-v2.4 render (attributes only, no visual change
+// under the default design).
+//
 // Every interpolated author value is escaped (editor/sanitize.escapeHtml).
 // Author content NEVER flows into a `style` attribute — only token values do.
 // Hit targets are ≥44px on mobile (§13.1) via the min-height tokens.
@@ -77,6 +98,10 @@ function clampInt(n: number, lo: number, hi: number): number {
 
 // The hydration data-attributes shared by every interactive node. The answer
 // type falls back to the catalog `produces` when the author left it implicit.
+// 03 §3.3: answer-PRODUCING nodes (catalog produces !== null) additionally get
+// `data-lg-question` (+ `data-lg-field` when they carry an internal_field) so
+// the engine — and the 11 §11.6 anti-false-PASS probe counting
+// [data-lg-question] — see QUESTION components only, never chrome/affordances.
 function hydration(node: LeadgenComponentNode): string {
   const catalog = COMPONENT_CATALOG[node.type];
   const produces = catalog.produces;
@@ -87,7 +112,88 @@ function hydration(node: LeadgenComponentNode): string {
     attr("data-question-key", node.question_key) +
     attr("data-internal-field", node.internal_field) +
     attr("data-answer-type", answerType) +
+    (produces === null
+      ? ""
+      : attr("data-lg-question", node.question_id) + attr("data-lg-field", node.internal_field)) +
     (node.required === true ? ` data-required="true"` : "")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// B9 choiceDisplay (06 §6.4) — Other-group metadata on choice nodes
+// ---------------------------------------------------------------------------
+
+// The §6.4 choiceDisplay metadata shape. content-schema.ts gains the typed
+// node field in the Phase-2 authoring leg; until then the runtime render leg
+// reads it DEFENSIVELY off the raw node (content_json accepts the extra key
+// today — validateSectionContent does not reject unknown node-level keys).
+export interface LeadgenChoiceDisplay {
+  mainValues: string[];
+  otherGroupEnabled: boolean;
+  otherGroupLabel: string;
+  searchableOther: boolean;
+}
+
+// Defensive, normalizing extractor — the SINGLE reader both the renderer and
+// the public config DTO (config-dto.ts) share, so runtime markup and
+// /lg/config metadata can never disagree on what the node's choiceDisplay
+// means. Returns undefined unless the node carries an object-shaped
+// choiceDisplay; unknown keys are dropped (explicit projection).
+export function readChoiceDisplay(node: LeadgenComponentNode): LeadgenChoiceDisplay | undefined {
+  const raw = (node as { choiceDisplay?: unknown }).choiceDisplay;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const mainValues = Array.isArray(r["mainValues"])
+    ? (r["mainValues"] as unknown[]).filter((v): v is string => typeof v === "string")
+    : [];
+  const label = r["otherGroupLabel"];
+  return {
+    mainValues,
+    otherGroupEnabled: r["otherGroupEnabled"] === true,
+    otherGroupLabel: typeof label === "string" && label.trim() !== "" ? label : "Other",
+    searchableOther: r["searchableOther"] === true,
+  };
+}
+
+// Split a node's choices into main + secondary (Other-panel) per §6.4:
+// membership by String(choice.value) ∈ mainValues. Only meaningful when
+// otherGroupEnabled — callers gate on that.
+function splitChoicesForOtherGroup(
+  choices: LeadgenChoice[],
+  display: LeadgenChoiceDisplay,
+): { main: LeadgenChoice[]; secondary: LeadgenChoice[] } {
+  const mainSet = new Set(display.mainValues);
+  const main: LeadgenChoice[] = [];
+  const secondary: LeadgenChoice[] = [];
+  for (const c of choices) {
+    (mainSet.has(String(c.value)) ? main : secondary).push(c);
+  }
+  return { main, secondary };
+}
+
+// The shared §6.4 Other-group tail: ONE trigger (deliberately NO data-lg-choice
+// / data-value — selecting "Other" itself never stores a value) + the hidden
+// panel of secondary REAL-value choices (each rendered by the caller's own
+// choice affordance so the family look is preserved), searchable when
+// `searchableOther`. The runtime (runtime/render.ts, another slice) expands
+// the panel; the literal "Other" is never a stored value (§6.4 RED LINE).
+function renderOtherGroupTail(
+  display: LeadgenChoiceDisplay,
+  triggerClass: string,
+  triggerInner: string,
+  secondaryHtml: string,
+): string {
+  const search = display.searchableOther
+    ? `<input class="lg-input lg-other-search" type="text" data-lg-other-search` +
+      ` placeholder="Search…" aria-label="${esc(display.otherGroupLabel)} — search options">`
+    : "";
+  return (
+    `<button type="button" class="${triggerClass}" data-lg-other-trigger` +
+    ` aria-expanded="false" aria-haspopup="true">${triggerInner}</button>` +
+    `<div class="lg-other-panel" data-lg-other-panel hidden>` +
+    search +
+    `<div class="lg-other-list">${secondaryHtml}</div>` +
+    `</div>`
   );
 }
 
@@ -113,14 +219,21 @@ export function renderProgressBar(node: LeadgenComponentNode, design: DefaultFun
   }
   const width = `${clampInt(pct, 0, 100)}%`;
   return (
-    `<div class="lg-progress"${hydration(node)} data-mode="${mode}"` +
+    // 03 §3.3: data-lg-progress marks the engine's progress mount; data-mode
+    // tells it step vs percent semantics.
+    `<div class="lg-progress"${hydration(node)} data-lg-progress data-mode="${mode}"` +
     ` role="progressbar" aria-valuemin="0" aria-valuemax="${ariaMax}" aria-valuenow="${ariaNow}"` +
     (label !== undefined ? ` aria-valuetext="${esc(label)}"` : "") +
     `>` +
+    // data-lg-progress-bar / data-lg-progress-label (09 §9.1 "no visual
+    // change"): the engine's updateProgress targets these hooks — width on
+    // the fill, text on the label — so hydration NEVER wipes the
+    // .lg-progress-track/.lg-progress-fill markup (render.ts keeps the
+    // textContent fallback for legacy hook-less markup only).
     `<div class="lg-progress-track">` +
-    `<div class="lg-progress-fill"${style({ width, background: design.progress.fillColor })}></div>` +
+    `<div class="lg-progress-fill" data-lg-progress-bar${style({ width, background: design.progress.fillColor })}></div>` +
     `</div>` +
-    (label !== undefined ? `<div class="lg-progress-text">${esc(label)}</div>` : "") +
+    (label !== undefined ? `<div class="lg-progress-text" data-lg-progress-label>${esc(label)}</div>` : "") +
     `</div>`
   );
 }
@@ -148,7 +261,8 @@ export function renderHeaderLogo(node: LeadgenComponentNode, design: DefaultFunn
 export function renderBackButton(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const label = propStr(node, "label") ?? "Back";
   return (
-    `<button type="button" class="lg-back"${hydration(node)}${style({ color: design.backButton.color })} aria-label="${esc(label)}">` +
+    // 03 §3.3: data-lg-back is the engine's back-navigation hook.
+    `<button type="button" class="lg-back"${hydration(node)} data-lg-back${style({ color: design.backButton.color })} aria-label="${esc(label)}">` +
     `<span aria-hidden="true">&#8592;</span> ${esc(label)}` +
     `</button>`
   );
@@ -264,18 +378,33 @@ function choiceList(node: LeadgenComponentNode): LeadgenChoice[] {
 // style at all), so `design` is unused (kept for the uniform dispatcher shape).
 export function renderButtonAnswerGroup(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
   const autoAdvance = propBool(node, "auto_advance");
-  const buttons = choiceList(node)
-    .map(
-      (c) =>
-        `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
-        attr("data-value", c.value) +
-        attr("data-analytics-id", c.analytics_id) +
-        `>${esc(c.label)}</button>`,
-    )
-    .join("");
+  const btn = (c: LeadgenChoice): string =>
+    `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
+    attr("data-value", c.value) +
+    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+    attr("data-lg-choice", c.value) +
+    attr("data-analytics-id", c.analytics_id) +
+    `>${esc(c.label)}</button>`;
+  const display = readChoiceDisplay(node);
+  let body: string;
+  if (display !== undefined && display.otherGroupEnabled) {
+    // B9 (06 §6.4): main values as normal answer buttons + one Other trigger +
+    // the hidden panel of secondary REAL-value buttons.
+    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
+    body =
+      main.map(btn).join("") +
+      renderOtherGroupTail(
+        display,
+        "lg-btn lg-btn-answer lg-other-trigger",
+        esc(display.otherGroupLabel),
+        secondary.map(btn).join(""),
+      );
+  } else {
+    body = choiceList(node).map(btn).join("");
+  }
   return (
     `<div class="lg-answer-group" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
-    buttons +
+    body +
     `</div>`
   );
 }
@@ -289,7 +418,8 @@ export function renderTwoButtonYesNo(node: LeadgenComponentNode, _design: Defaul
   // no inline background/color/border to defeat them.
   const btn = (label: string, value: boolean): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
-    ` data-value="${value ? "true" : "false"}">${esc(label)}</button>`;
+    // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
+    ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
     `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true) +
@@ -310,27 +440,44 @@ function renderCardGrid(
   );
   const gap = ov(node, "gridGap") ?? design.iconCardGrid.gap;
   const iconColor = ov(node, "iconColor") ?? design.iconCard.iconColor;
-  const cards = choiceList(node)
-    .map((c) => {
-      const media =
-        kind === "image"
-          ? `<img class="lg-card-img" src="${esc(c.imageMediaId)}" alt="${esc(c.label)}" loading="lazy">`
-          : `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(c.icon)}</span>`;
-      const desc =
-        c.description !== undefined && c.description !== ""
-          ? `<span class="lg-card-desc">${esc(c.description)}</span>`
-          : "";
-      // Base border/background live in the scoped chrome CSS (.lg-card) — NOT
-      // inline — so the §14.4 selected/hover/focus/error state rules win by
-      // cascade (no !important). Only class + hydration attrs are emitted here.
-      return (
-        `<button type="button" class="lg-card" role="radio" aria-checked="false"` +
-        attr("data-value", c.value) +
-        attr("data-analytics-id", c.analytics_id) +
-        `>${media}<span class="lg-card-title">${esc(c.label)}</span>${desc}</button>`
+  const card = (c: LeadgenChoice): string => {
+    const media =
+      kind === "image"
+        ? `<img class="lg-card-img" src="${esc(c.imageMediaId)}" alt="${esc(c.label)}" loading="lazy">`
+        : `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(c.icon)}</span>`;
+    const desc =
+      c.description !== undefined && c.description !== ""
+        ? `<span class="lg-card-desc">${esc(c.description)}</span>`
+        : "";
+    // Base border/background live in the scoped chrome CSS (.lg-card) — NOT
+    // inline — so the §14.4 selected/hover/focus/error state rules win by
+    // cascade (no !important). Only class + hydration attrs are emitted here.
+    return (
+      `<button type="button" class="lg-card" role="radio" aria-checked="false"` +
+      attr("data-value", c.value) +
+      // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+      attr("data-lg-choice", c.value) +
+      attr("data-analytics-id", c.analytics_id) +
+      `>${media}<span class="lg-card-title">${esc(c.label)}</span>${desc}</button>`
+    );
+  };
+  const display = readChoiceDisplay(node);
+  let cards: string;
+  if (display !== undefined && display.otherGroupEnabled) {
+    // B9 (06 §6.4): main cards + one Other trigger card + the hidden panel of
+    // secondary REAL-value cards.
+    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
+    cards =
+      main.map(card).join("") +
+      renderOtherGroupTail(
+        display,
+        "lg-card lg-other-trigger",
+        `<span class="lg-card-title">${esc(display.otherGroupLabel)}</span>`,
+        secondary.map(card).join(""),
       );
-    })
-    .join("");
+  } else {
+    cards = choiceList(node).map(card).join("");
+  }
   return (
     `<div class="lg-card-grid" role="radiogroup"${hydration(node)}` +
     style({ "--lg-cols": String(cols), gap }) +
@@ -348,17 +495,31 @@ export function renderImageCardAnswerGrid(node: LeadgenComponentNode, design: De
 export function renderMultiChoiceCardGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const min = propNum(node, "min");
   const max = propNum(node, "max");
-  const cards = choiceList(node)
-    .map(
-      (c) =>
-        // Base border/background live in the scoped chrome CSS (.lg-card) — not
-        // inline — so the §14.4 selected/hover/focus state rules apply.
-        `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
-        attr("data-value", c.value) +
-        attr("data-analytics-id", c.analytics_id) +
-        `><span class="lg-card-title">${esc(c.label)}</span></button>`,
-    )
-    .join("");
+  const card = (c: LeadgenChoice): string =>
+    // Base border/background live in the scoped chrome CSS (.lg-card) — not
+    // inline — so the §14.4 selected/hover/focus state rules apply.
+    `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
+    attr("data-value", c.value) +
+    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+    attr("data-lg-choice", c.value) +
+    attr("data-analytics-id", c.analytics_id) +
+    `><span class="lg-card-title">${esc(c.label)}</span></button>`;
+  const display = readChoiceDisplay(node);
+  let cards: string;
+  if (display !== undefined && display.otherGroupEnabled) {
+    // B9 (06 §6.4): main cards + one Other trigger + hidden secondary panel.
+    const { main, secondary } = splitChoicesForOtherGroup(choiceList(node), display);
+    cards =
+      main.map(card).join("") +
+      renderOtherGroupTail(
+        display,
+        "lg-card lg-card-multi lg-other-trigger",
+        `<span class="lg-card-title">${esc(display.otherGroupLabel)}</span>`,
+        secondary.map(card).join(""),
+      );
+  } else {
+    cards = choiceList(node).map(card).join("");
+  }
   return (
     `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}` +
     style({ "--lg-cols": "2", gap: design.iconCardGrid.gap }) +
@@ -370,8 +531,16 @@ export function renderMultiChoiceCardGroup(node: LeadgenComponentNode, design: D
 
 export function renderDropdownQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
+  // 03 §3.3: each <option> is a selectable choice → data-lg-choice. A dropdown
+  // with B9 choiceDisplay renders ALL values flat (main + secondary as plain
+  // options — real values only, so the §6.4 "never literal Other" invariant
+  // holds trivially); the panel-style Other UX for dropdowns arrives with the
+  // Phase-2 SearchableDropdownQuestion/OtherGroupSelector presets (08 §8.4).
   const options = choiceList(node)
-    .map((c) => `<option value="${esc(c.value)}"${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`)
+    .map(
+      (c) =>
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+    )
     .join("");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
@@ -388,6 +557,21 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
 // free-form + PII inputs
 // ---------------------------------------------------------------------------
 
+// The §8.8 field-level Maps config → the 03 §3.3 `data-lg-maps` attribute
+// value. `props.maps` (an object) serializes VERBATIM when present (field-level
+// config wins); the compat fallback for pre-§8.8 content — where Maps-enablement
+// rode the component itself (any AddressAutocompleteQuestion; a ZIP with
+// props.validate=true, i.e. the global address_validation_enabled era) — is the
+// empty config "{}" (runtime defaults). Callers gate on WHETHER the component
+// is Maps-enabled; this only shapes the value.
+function mapsConfigJson(node: LeadgenComponentNode): string {
+  const raw = node.props?.["maps"];
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    return JSON.stringify(raw);
+  }
+  return "{}";
+}
+
 function renderTextInput(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -398,8 +582,9 @@ function renderTextInput(
   const maxLen = propNum(node, "maxLen");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
+  // 03 §3.3: data-lg-input marks every text/date/email/phone/zip input.
   return (
-    `<input class="lg-input" type="${type}"${hydration(node)}` +
+    `<input class="lg-input" type="${type}"${hydration(node)} data-lg-input` +
     attr("placeholder", placeholder) +
     attr("maxlength", maxLen) +
     (node.required === true ? " required" : "") +
@@ -424,12 +609,20 @@ export function renderDateQuestion(node: LeadgenComponentNode, design: DefaultFu
 }
 export function renderZIPInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const googleValidate = propBool(node, "validate");
+  // 03 §3.3 / 08 §8.8: a ZIP component is Maps-enabled when it carries a
+  // field-level props.maps config OR the legacy per-node validate flag (the
+  // global address_validation_enabled era) — then it emits data-lg-maps.
+  const mapsEnabled =
+    typeof node.props?.["maps"] === "object" && node.props?.["maps"] !== null
+      ? true
+      : googleValidate;
   return renderTextInput(
     node,
     design,
     "text",
     ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` +
-      (googleValidate ? ` data-validate="google"` : ""),
+      (googleValidate ? ` data-validate="google"` : "") +
+      (mapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""),
   );
 }
 
@@ -440,7 +633,8 @@ export function renderNameFieldsGroup(node: LeadgenComponentNode, design: Defaul
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
   const field = (label: string, name: string, autocomplete: string): string =>
     `<label class="lg-field"><span class="lg-label">${esc(label)}</span>` +
-    `<input class="lg-input" type="text"` +
+    // 03 §3.3: both name text inputs carry data-lg-input.
+    `<input class="lg-input" type="text" data-lg-input` +
     ` data-name-field="${name}" autocomplete="${autocomplete}"` +
     (node.required === true ? " required" : "") +
     `></label>`;
@@ -456,10 +650,15 @@ export function renderAddressAutocompleteQuestion(node: LeadgenComponentNode, de
   const provider = propStr(node, "provider") ?? "google";
   const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
   return (
-    `<div class="lg-address"${hydration(node)} data-provider="${esc(provider)}">` +
+    // 03 §3.3 / 08 §8.8: an address component is ALWAYS Maps-capable →
+    // data-lg-maps carries the field-level props.maps config (or the "{}"
+    // compat fallback for global-checkbox-era content). The KEY itself never
+    // rides here — runtime/maps.ts no-ops gracefully when the shell injected
+    // no window.__LG_MAPS_KEY__.
+    `<div class="lg-address"${hydration(node)} data-provider="${esc(provider)}"${attr("data-lg-maps", mapsConfigJson(node))}>` +
     // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
     // the :focus / [aria-invalid] state rules win by cascade (no !important).
-    `<input class="lg-input lg-address-input" type="text"` +
+    `<input class="lg-input lg-address-input" type="text" data-lg-input` +
     ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
     (node.required === true ? " required" : "") +
     ` data-address-autocomplete="true">` +
@@ -486,7 +685,8 @@ export function renderContinueButton(node: LeadgenComponentNode, design: Default
   const bgOverride = ov(node, "buttonBackground");
   const fg = ov(node, "buttonText") ?? design.primaryButton.color;
   return (
-    `<button type="submit" class="lg-btn lg-continue"${hydration(node)}` +
+    // 03 §3.3: data-lg-continue is the engine's advance hook.
+    `<button type="submit" class="lg-btn lg-continue"${hydration(node)} data-lg-continue` +
     style({ "--lg-btn-bg": bgOverride, color: fg }) +
     attr("data-loading-label", loadingLabel) +
     ` data-loading="false">` +
@@ -504,7 +704,10 @@ export function renderAutoAdvanceButton(node: LeadgenComponentNode, design: Defa
   const bgOverride = ov(node, "buttonBackground");
   const fg = ov(node, "buttonText") ?? design.primaryButton.color;
   return (
-    `<button type="button" class="lg-btn lg-auto-advance"${hydration(node)}` +
+    // 03 §3.3: an AutoAdvanceButton is a manual advance control too → it
+    // carries the same data-lg-continue hook (auto-advance sections advance on
+    // answer_click; this button is the explicit fallback, §3.5 step 4).
+    `<button type="button" class="lg-btn lg-auto-advance"${hydration(node)} data-lg-continue` +
     style({ "--lg-btn-bg": bgOverride, color: fg }) +
     ` data-auto-advance="true">${esc(label)}</button>`
   );
@@ -538,7 +741,9 @@ export function renderHelperText(node: LeadgenComponentNode, design: DefaultFunn
 export function renderValidationError(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const text = propStr(node, "text");
   return (
-    `<p class="lg-error" role="alert" aria-live="polite"${hydration(node)}` +
+    // 03 §3.3: data-lg-error-for names the internal_field this slot reports on
+    // (when the author bound one — attr() omits the hook for a generic slot).
+    `<p class="lg-error" role="alert" aria-live="polite"${hydration(node)}${attr("data-lg-error-for", node.internal_field)}` +
     style({ color: design.validation.errorTextColor }) +
     `>${esc(text)}</p>`
   );

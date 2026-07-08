@@ -6,7 +6,11 @@
 // Validators are PURE (no DB access). Referential checks that need the
 // database — "fallback offer exists & active", placement uniqueness against
 // stored rows, schema-version existence — live in the Stage-B handlers,
-// which merge their findings into the same field-keyed map.
+// which merge their findings into the same field-keyed map. ONE deliberate
+// exception (fix-contract v2.4 05 §5.1): evaluateDynamicOffersEligibility is
+// the shared DB loader for the R4 gate so every admin surface (auction-offers
+// PUT warnings, the R5 activation preflight) reads the identical inputs; the
+// verdict itself stays the pure dynamicAuctionEligibility.
 
 import type {
   LeadgenApiTokenPlacement,
@@ -21,7 +25,7 @@ import type {
   LeadgenTrackingMethod,
 } from "../admin/leadgen/db-types";
 import { validateBannerUrlTemplate } from "./macros";
-import type { LeadgenPayloadSchemaValidation } from "./payload";
+import { validatePayloadSchema, type LeadgenPayloadSchemaValidation } from "./payload";
 
 export type FieldErrors = Record<string, string>;
 
@@ -554,23 +558,64 @@ export type LeadgenDynamicIneligibilityReason =
   | "no_active_schema"
   | "schema_validation_errors"
   | "test_untested"
-  | "test_failed";
+  | "test_failed"
+  // fix-contract v2.4 05 §5.1 additive block conditions (R4):
+  | "endpoint_missing" // no endpoint configured for the SELECTED environment
+  | "invalid_headers" // a headers row that cannot resolve (empty name / empty macro or secret ref)
+  | "carrier_parse_missing" // dynamic Offer's active schema has no carrier_parse_json
+  | "carrier_parse_invalid"; // carrier_parse_json present but not a usable parse config
 
 export interface LeadgenDynamicEligibilityVerdict {
   eligible: boolean;
   reasons: LeadgenDynamicIneligibilityReason[];
 }
 
-// §11.8: an Offer with calls_provider_api=1 cannot go live in a DYNAMIC
-// auction while its active payload schema has validation errors or an
-// untested/failed Test status. Pure verdict — P9/P10 (auction config save +
-// runtime candidate selection) consume it. Offers that do not call a
-// provider are outside this gate (they carry no payload schema; their
-// surfacing is the §18.2 static path).
+// The 05 §5.1 additive inputs. Every field is OPTIONAL and its check runs only
+// when the caller supplies it (undefined = not evaluated), so the original
+// 4-code call sites keep their exact behavior — the extension is additive.
+export interface LeadgenDynamicEligibilityExtras {
+  // The endpoint for the SELECTED environment ("" / null = missing).
+  endpoint?: string | null;
+  // The Offer's header rows (leadgen_offer_headers projection).
+  headers?: readonly { header_name: string; value_kind: string; value_text: string | null }[];
+  // The PARSED carrier_parse_json of the active schema. `null` = the column is
+  // NULL / unparseable (missing); a non-record or a config without a usable
+  // `fields` object = invalid. Pass `undefined` to skip the check.
+  carrier_parse?: unknown;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// A header row that can never resolve at request time: an empty header name,
+// or a macro/secret_ref row with no ref text (static rows may legitimately
+// carry an empty value).
+function headersInvalid(
+  headers: readonly { header_name: string; value_kind: string; value_text: string | null }[],
+): boolean {
+  for (const row of headers) {
+    if (row.header_name.trim() === "") return true;
+    const valueText = (row.value_text ?? "").trim();
+    if ((row.value_kind === "secret_ref" || row.value_kind === "macro") && valueText === "") return true;
+  }
+  return false;
+}
+
+// §11.8 + 05 §5.1: an Offer with calls_provider_api=1 cannot go live in a
+// DYNAMIC auction while its active payload schema has validation errors, an
+// untested/failed Test status, no endpoint for the selected environment,
+// unresolvable headers, or a missing/invalid response parser. Pure verdict —
+// P9/P10 (auction config save + runtime candidate selection) + the R5
+// activation preflight consume it. Offers that do not call a provider are
+// outside this gate (they carry no payload schema; their surfacing is the
+// §18.2 static path). `cap_reached` is deliberately NOT here — caps are a
+// runtime-only exclusion the engine surfaces in explainability (05 §5.1).
 export function dynamicAuctionEligibility(
   offer: { calls_provider_api: number | boolean },
   schemaValidation: LeadgenPayloadSchemaValidation | null,
   lastTestStatus: LeadgenOfferTestStatus | null,
+  extras?: LeadgenDynamicEligibilityExtras,
 ): LeadgenDynamicEligibilityVerdict {
   if (asToggle(offer.calls_provider_api) !== true) {
     return { eligible: true, reasons: [] };
@@ -586,5 +631,154 @@ export function dynamicAuctionEligibility(
   } else if (lastTestStatus === "failed") {
     reasons.push("test_failed");
   }
+  if (extras !== undefined) {
+    if (extras.endpoint !== undefined) {
+      const endpoint = typeof extras.endpoint === "string" ? extras.endpoint.trim() : "";
+      if (endpoint === "") reasons.push("endpoint_missing");
+    }
+    if (extras.headers !== undefined && headersInvalid(extras.headers)) {
+      reasons.push("invalid_headers");
+    }
+    if (extras.carrier_parse !== undefined) {
+      if (extras.carrier_parse === null) {
+        reasons.push("carrier_parse_missing");
+      } else if (
+        !isPlainRecord(extras.carrier_parse) ||
+        !isPlainRecord((extras.carrier_parse as Record<string, unknown>)["fields"])
+      ) {
+        reasons.push("carrier_parse_invalid");
+      }
+    }
+  }
   return { eligible: reasons.length === 0, reasons };
+}
+
+// ---------------------------------------------------------------------------
+// §5.1 shared admin-side eligibility loader (auctions PUT warnings + the R5
+// activation preflight). The ENGINE evaluates the same pure verdict over its
+// already-loaded auction bundle; this loader exists so every ADMIN surface
+// reads the identical inputs (schema row, headers, Test status) one way.
+// ---------------------------------------------------------------------------
+
+export interface LeadgenOfferEligibilityRow {
+  offer_id: number;
+  offer_public_id: string;
+  offer_name: string;
+  verdict: LeadgenDynamicEligibilityVerdict;
+}
+
+// The Offer's Test status = the newest TEST-TOOL provider_request_log row
+// (auction_instance_id IS NULL — runtime auction rows never flip an Offer's
+// Test verdict; §5.1 test_untested/test_failed is the OPERATOR Test status):
+// 2xx → passed; a non-null non-2xx status → failed; no rows OR a
+// transport-error row (NULL status_code — the request never returned) →
+// untested (m4: both non-passed codes block eligibility identically).
+export const LEADGEN_TEST_STATUS_SUBSELECT = `(
+  SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
+              WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END
+    FROM leadgen_provider_request_log prl
+    WHERE prl.offer_public_id = o.public_id AND prl.auction_instance_id IS NULL
+    ORDER BY prl.created_at DESC, prl.id DESC LIMIT 1)`;
+
+// Evaluate §5.1 eligibility for a set of Offers by numeric id (chunked ≤80;
+// every query .bind()-parameterized). Environment selects which endpoint must
+// exist (the live runtime is production). Static Offers come back eligible.
+export async function evaluateDynamicOffersEligibility(
+  db: D1Database,
+  offerIds: readonly number[],
+  environment: "production" | "staging",
+): Promise<Map<number, LeadgenOfferEligibilityRow>> {
+  const out = new Map<number, LeadgenOfferEligibilityRow>();
+  const unique = [...new Set(offerIds)];
+  if (unique.length === 0) return out;
+
+  interface OfferEligibilityQueryRow {
+    id: number;
+    public_id: string;
+    offer_name: string;
+    calls_provider_api: number;
+    active_payload_schema_id: number | null;
+    endpoint_production: string | null;
+    endpoint_staging: string | null;
+    schema_json: string | null;
+    carrier_parse_json: string | null;
+    last_test_status: LeadgenOfferTestStatus | null;
+  }
+  const rows: OfferEligibilityQueryRow[] = [];
+  for (let i = 0; i < unique.length; i += 80) {
+    const ids = unique.slice(i, i + 80);
+    const marks = ids.map(() => "?").join(",");
+    const res = await db
+      .prepare(
+        `SELECT o.id, o.public_id, o.offer_name, o.calls_provider_api, o.active_payload_schema_id,
+                o.endpoint_production, o.endpoint_staging,
+                s.schema_json AS schema_json, s.carrier_parse_json AS carrier_parse_json,
+                ${LEADGEN_TEST_STATUS_SUBSELECT} AS last_test_status
+           FROM leadgen_offers o
+           LEFT JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
+          WHERE o.id IN (${marks})`,
+      )
+      .bind(...ids)
+      .all<OfferEligibilityQueryRow>();
+    for (const r of res.results ?? []) rows.push(r);
+  }
+
+  // Headers per offer (chunked).
+  const headersByOffer = new Map<number, { header_name: string; value_kind: string; value_text: string | null }[]>();
+  const dynamicIds = rows.filter((r) => r.calls_provider_api === 1).map((r) => r.id);
+  for (let i = 0; i < dynamicIds.length; i += 80) {
+    const ids = dynamicIds.slice(i, i + 80);
+    if (ids.length === 0) continue;
+    const marks = ids.map(() => "?").join(",");
+    const res = await db
+      .prepare(
+        `SELECT offer_id, header_name, value_kind, value_text FROM leadgen_offer_headers WHERE offer_id IN (${marks})`,
+      )
+      .bind(...ids)
+      .all<{ offer_id: number; header_name: string; value_kind: string; value_text: string | null }>();
+    for (const h of res.results ?? []) {
+      const list = headersByOffer.get(h.offer_id) ?? [];
+      list.push({ header_name: h.header_name, value_kind: h.value_kind, value_text: h.value_text });
+      headersByOffer.set(h.offer_id, list);
+    }
+  }
+
+  for (const r of rows) {
+    let schemaValidation: LeadgenPayloadSchemaValidation | null = null;
+    let carrierParse: unknown = null;
+    if (r.active_payload_schema_id !== null && r.schema_json !== null) {
+      let parsedSchema: unknown = null;
+      try {
+        parsedSchema = JSON.parse(r.schema_json) as unknown;
+      } catch {
+        parsedSchema = null;
+      }
+      schemaValidation = parsedSchema === null ? null : validatePayloadSchema(parsedSchema);
+    }
+    if (r.carrier_parse_json !== null) {
+      try {
+        carrierParse = JSON.parse(r.carrier_parse_json) as unknown;
+      } catch {
+        carrierParse = null;
+      }
+    }
+    const endpoint = environment === "staging" ? r.endpoint_staging : r.endpoint_production;
+    const verdict = dynamicAuctionEligibility(
+      { calls_provider_api: r.calls_provider_api },
+      schemaValidation,
+      r.last_test_status,
+      {
+        endpoint,
+        headers: headersByOffer.get(r.id) ?? [],
+        carrier_parse: carrierParse,
+      },
+    );
+    out.set(r.id, {
+      offer_id: r.id,
+      offer_public_id: r.public_id,
+      offer_name: r.offer_name,
+      verdict,
+    });
+  }
+  return out;
 }

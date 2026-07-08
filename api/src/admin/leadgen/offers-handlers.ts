@@ -43,6 +43,7 @@ import {
   LEADGEN_REQUEST_METHODS,
   LEADGEN_TOKEN_PLACEMENTS,
   LEADGEN_TRACKING_METHODS,
+  evaluateDynamicOffersEligibility,
   isAbsoluteHttpUrl,
   isValidTimezone,
   validateClientModeConstraints,
@@ -50,6 +51,7 @@ import {
   validateOfferCreate,
   validateRegionRule,
   type FieldErrors,
+  type LeadgenDynamicEligibilityVerdict,
   type LeadgenRegionRuleCreateInput,
 } from "../../leadgen/validation";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
@@ -245,10 +247,37 @@ export async function readOfferPlacements(
   return result.results ?? [];
 }
 
+// fix-contract v2.4 05 §5.1 (R4): the ADDITIVE per-offer eligibility verdict
+// riding the Offer GET/list responses — the SAME shared loader the auctions
+// PUT warnings + the R5 activation preflight consume (never recomputed
+// client-side). Live auctions run against production endpoints, so the admin
+// surfaces evaluate "production". Static offers come back trivially eligible;
+// the UI keys its rendering on calls_provider_api. A loader failure yields
+// null (the UI renders nothing) — the read surfaces stay fail-open.
+async function offerEligibilityVerdicts(
+  db: D1Database,
+  offerIds: readonly number[],
+): Promise<Map<number, LeadgenDynamicEligibilityVerdict>> {
+  const out = new Map<number, LeadgenDynamicEligibilityVerdict>();
+  if (offerIds.length === 0) return out;
+  try {
+    const rows = await evaluateDynamicOffersEligibility(db, offerIds, "production");
+    for (const [id, row] of rows) {
+      out.set(id, { eligible: row.verdict.eligible, reasons: [...row.verdict.reasons] });
+    }
+  } catch (err) {
+    /* additive read — never break the GET/list on an eligibility read error,
+       but leave a diagnostic trace (m9): a silently-null verdict is
+       indistinguishable from "not evaluated" in the UI. */
+    console.warn("[lg-eligibility] loader failed", err instanceof Error ? err.name : String(err));
+  }
+  return out;
+}
+
 // The Offer detail shape: the mapped API row + its three editor collections
 // (placements seed with the offer, §10.1, and ride the PATCH replace-set;
 // headers + region rules ride the editor tabs, §10.4/§11.3 — no dedicated
-// routes in 03 §8.2).
+// routes in 03 §8.2) + the additive 05 §5.1 `eligibility` verdict.
 async function offerDetailJson(
   db: D1Database,
   row: LeadgenOfferRow,
@@ -261,11 +290,13 @@ async function offerDetailJson(
     )
     .bind(row.id)
     .all<LeadgenOfferRegionRuleRow>();
+  const eligibility = await offerEligibilityVerdicts(db, [row.id]);
   return {
     ...offerRowToApi(row),
     placements: placements.map(placementRowToApi),
     headers,
     region_rules: (rules.results ?? []).map(regionRuleRowToApi),
+    eligibility: eligibility.get(row.id) ?? null,
   };
 }
 
@@ -355,11 +386,20 @@ export async function listOffersHandler(c: AdminContext): Promise<Response> {
     .first<{ n: number }>();
   const total = Number(totalRow?.n ?? 0);
 
+  // 05 §5.1: one chunked eligibility read for the whole page (additive field
+  // on every item — the §9.2 list badge column is server-verdict-driven).
+  const pageRows = rows.results ?? [];
+  const eligibility = await offerEligibilityVerdicts(
+    c.env.DB,
+    pageRows.map((row) => row.id),
+  );
+
   return c.json({
-    items: (rows.results ?? []).map((row) => ({
+    items: pageRows.map((row) => ({
       ...offerRowToApi(row),
       default_placement_id: row.default_placement_id ?? null,
       default_placement_public_id: row.default_placement_public_id ?? null,
+      eligibility: eligibility.get(row.id) ?? null,
     })),
     paging: buildPaging(page, pageSize, total),
   });

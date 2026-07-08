@@ -63,7 +63,7 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
 }
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const LEADGEN_MIGRATIONS = ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql"] as const;
+const LEADGEN_MIGRATIONS = ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0040_leadgen_runtime_context.sql"] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
   const sdb = new DatabaseSync(":memory:");
@@ -137,6 +137,12 @@ function seedDynamicOffer(sdb: SqliteDb): { offer_id: number; offer_public_id: s
   const placementPublic = mintPublicId("offer_placement");
   sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, ?, 1)").run(placementPublic, offer.id, `plc-${offerPublic.slice(-4)}`);
   const placement = sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(placementPublic) as { id: number };
+  // R4 (fix-contract v2.4 05 §5.1): a dynamic Offer participates only with a
+  // PASSED Test verdict — one TEST-TOOL provider_request_log row
+  // (auction_instance_id NULL) marks it tested.
+  sdb
+    .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)")
+    .run(offerPublic);
   return { offer_id: offer.id, offer_public_id: offerPublic, placement_id: placement.id };
 }
 
@@ -206,9 +212,11 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(calls.length).toBe(1); // provider fetched (staging)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 
-    // OQ-10: a dry-run WRITES NOTHING — both auction-write tables are empty.
+    // OQ-10: a dry-run WRITES NOTHING — both auction-write tables stay free of
+    // RUNTIME rows (the seeded §5.1 Test-tool verdict row has a NULL
+    // auction_instance_id and predates the simulate).
     const logCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auction_result_log").get() as { n: number };
-    const provCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log").get() as { n: number };
+    const provCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log WHERE auction_instance_id IS NOT NULL").get() as { n: number };
     expect(logCount.n).toBe(0);
     expect(provCount.n).toBe(0);
   });

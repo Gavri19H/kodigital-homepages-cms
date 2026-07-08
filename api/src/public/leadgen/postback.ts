@@ -27,6 +27,12 @@
 
 import type { Env } from "../../env";
 import { readEnvSecret } from "../../env";
+import { ulid } from "../../leadgen/ids";
+import {
+  blankLeadgenEvent,
+  emitLeadgenRecords,
+  type LeadgenEvent,
+} from "../../analytics/leadgen-events";
 import {
   decideBooking,
   getOfferByPublicId,
@@ -173,6 +179,54 @@ const AUTH_FIELDS: readonly string[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// 10 §10.2 monetization stream events (fix-contract v2.4): `conversion` +
+// `revenue_received` ride the leadgen Firehose ALONGSIDE the existing D1 rows
+// (they were the two producer-less types on the revenue path). FAIL-OPEN like
+// the whole beacon path — emitLeadgenRecords no-ops without creds/stream and
+// never throws, so revenue booking is never blocked by telemetry.
+// ---------------------------------------------------------------------------
+
+interface RevenueEventDims {
+  click_id: string;
+  conversion_id: string;
+  offer_id: string;
+  provider: string;
+  revenue: number;
+  bid_currency: string;
+  booking_trigger: string;
+}
+
+function buildRevenueEvent(eventType: "conversion" | "revenue_received", now: number, dims: RevenueEventDims): LeadgenEvent {
+  const e = blankLeadgenEvent(eventType, now);
+  e.event_id = ulid(now);
+  e.click_id = dims.click_id;
+  e.conversion_id = dims.conversion_id;
+  e.offer_id = dims.offer_id;
+  e.provider = dims.provider;
+  e.revenue = dims.revenue;
+  e.bid_currency = dims.bid_currency;
+  e.booking_trigger = dims.booking_trigger;
+  return e;
+}
+
+function emitRevenueEvents(
+  env: Env,
+  ctx: ExecutionContext,
+  now: number,
+  dims: RevenueEventDims,
+  opts: { conversion: boolean; revenueReceived: boolean },
+): void {
+  try {
+    const records: LeadgenEvent[] = [];
+    if (opts.conversion) records.push(buildRevenueEvent("conversion", now, dims));
+    if (opts.revenueReceived) records.push(buildRevenueEvent("revenue_received", now, dims));
+    emitLeadgenRecords(env, ctx, records);
+  } catch {
+    /* fail-open: telemetry never blocks revenue booking */
+  }
+}
+
+// ---------------------------------------------------------------------------
 // §25 provider postback — POST/GET /lg/pb/:provider
 // ---------------------------------------------------------------------------
 
@@ -299,6 +353,15 @@ export async function ingestProviderPostback(
         clickId,
         opts?.chClient !== undefined ? { client: opts.chClient } : undefined,
       );
+      const eventDims: RevenueEventDims = {
+        click_id: clickId,
+        conversion_id: externalTxnId,
+        offer_id: offerPublicId,
+        provider: prov,
+        revenue: revenue.value,
+        bid_currency: currency,
+        booking_trigger: decision.booking_trigger,
+      };
       if (clickCtx !== null) {
         await insertRevenueRaw(env.DB, {
           dt,
@@ -310,6 +373,9 @@ export async function ingestProviderPostback(
           revenue: revenue.value,
           currency,
         });
+        // 10 §10.2: the booked conversion + booked revenue ride the stream
+        // alongside the D1 rows (fail-open; never blocks the booking).
+        emitRevenueEvents(env, ctx, now.getTime(), eventDims, { conversion: true, revenueReceived: true });
         await dispatchMatchedConversionS2S(
           env,
           ctx,
@@ -327,6 +393,10 @@ export async function ingestProviderPostback(
           currency,
           revenue_usd: revenueUsd,
         });
+        // The conversion SIGNAL arrived (dedupe-recorded) even though revenue
+        // attribution is deferred to the §29 re-match — emit `conversion`
+        // only; `revenue_received` fires when a revenue row actually books.
+        emitRevenueEvents(env, ctx, now.getTime(), eventDims, { conversion: true, revenueReceived: false });
       }
     }
     // Booked, queued, or intentionally not-booked (browser_side_pixel / no-book
@@ -408,6 +478,23 @@ export async function ingestBrowserPixel(
       // once on a newly-created booking, on clean traffic.
       const outcome = await recordInSitePayout(env.DB, offer, clickId, conversionId, dtUtc, value, currency, clean, now);
       if (outcome.recorded && outcome.deduped !== true) {
+        // 10 §10.2: the newly-booked pixel conversion + its revenue ride the
+        // stream alongside the D1 conversion-log row (fail-open).
+        emitRevenueEvents(
+          env,
+          ctx,
+          now.getTime(),
+          {
+            click_id: clickId,
+            conversion_id: conversionId,
+            offer_id: offerPid,
+            provider: "browser_side_pixel",
+            revenue: value,
+            bid_currency: currency,
+            booking_trigger: "conversion",
+          },
+          { conversion: true, revenueReceived: true },
+        );
         // §26 fire the outbound S2S pixel ONCE on the newly-booked conversion.
         // conversion_id = the dedupe_key: the shared KV key
         // (platform,click_id,event_name,conversion_id) makes the pixel + a server

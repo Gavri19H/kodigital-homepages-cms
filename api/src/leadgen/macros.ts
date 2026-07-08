@@ -56,10 +56,12 @@ export const CANONICAL_MACROS: readonly string[] = [
   "fbclid",
 ] as const;
 
-// Alias map — the only entry is the `{clickid}` → `{click_id}` normalization
-// (identical to listicles; normalized on save, also accepted at runtime).
+// Alias map — `{clickid}` → `{click_id}` (identical to listicles; normalized
+// on save, also accepted at runtime) plus `{referrer}` → `{referer}` (M1,
+// fix-contract v2.4 04 §4.3 — the common alternate spelling).
 export const MACRO_ALIASES: Readonly<Record<string, string>> = {
   clickid: "click_id",
+  referrer: "referer",
 };
 
 const CANONICAL_SET: ReadonlySet<string> = new Set(CANONICAL_MACROS);

@@ -20,5 +20,18 @@
     "rootDir": "."
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"],
-  "exclude": ["node_modules", "dist", ".wrangler"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".wrangler",
+    // LeadGen hydration runtime = BROWSER code (lib DOM); it type-checks under
+    // tsconfig.runtime.json (verify:leadgen-runtime). Its DOM-free cores +
+    // the generated bundle module still enter THIS program via test/route
+    // imports and must stay clean under the worker lib.
+    "src/public/leadgen/runtime",
+    // The hydration regression suite imports the DOM-touching runtime modules
+    // (engine/maps/render), so it type-checks in the SAME runtime program
+    // (tsconfig.runtime.json include) — never under the worker lib.
+    "test/leadgen-runtime-hydration.test.ts"
+  ]
 }

@@ -82,6 +82,7 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql", // macro_context_json snapshot (04 §4.6)
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -189,6 +190,21 @@ interface SeedOfferOpts {
   tokenInPayload?: boolean;
   capEnabled?: boolean;
   capAmount?: number | null;
+  // R4 (fix-contract v2.4 05 §5.1): a dynamic Offer participates only with a
+  // PASSED Test status (newest test-tool provider_request_log row). The seed
+  // defaults to "passed" so pipeline-branch tests exercise participation; the
+  // eligibility tests set "untested"/"failed" explicitly.
+  testStatus?: "passed" | "failed" | "untested";
+}
+
+// Seed the Offer's Test verdict: one TEST-TOOL provider_request_log row
+// (auction_instance_id NULL — the §5.1 scoping). "untested" seeds nothing.
+function seedOfferTestStatus(sdb: SqliteDb, offerPublicId: string, status: "passed" | "failed"): void {
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', ?)",
+    )
+    .run(offerPublicId, status === "passed" ? 200 : 500);
 }
 
 function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
@@ -247,6 +263,11 @@ function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
     .prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, ?, 1)")
     .run(placementPublic, offer.id, `plc-${offerPublic.slice(-4)}`);
   const placement = sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(placementPublic) as { id: number };
+
+  // R4 (05 §5.1): dynamic Offers default to a PASSED Test verdict so they are
+  // auction-eligible; static Offers are outside the gate.
+  const testStatus = opts.testStatus ?? "passed";
+  if (dynamic && testStatus !== "untested") seedOfferTestStatus(sdb, offerPublic, testStatus);
 
   return { offer_id: offer.id, offer_public_id: offerPublic, placement_id: placement.id, placement_public_id: placementPublic };
 }
@@ -307,7 +328,9 @@ function attachOffer(sdb: SqliteDb, auctionId: number, o: SeededOffer, staticOrd
 function makeResolved(sections: Array<{ public_id: string; content_version: number }> = []): ResolvedActivatedFunnel {
   const sectionRows = sections.map((s, i) => ({
     position: i,
-    section: { public_id: s.public_id, content_version: s.content_version, content_json: '{"components":[]}' } as unknown as LeadgenSectionRow,
+    // Stable numeric ids (i+1) so the v2 answer_mapping_hash recomputation
+    // (computeAttemptBindingExtras — keyed on section.id) has a real key.
+    section: { id: i + 1, public_id: s.public_id, content_version: s.content_version, content_json: '{"components":[]}' } as unknown as LeadgenSectionRow,
   }));
   return {
     site_quote: { id: 1, site_id: "site-1", quote_id: 1, enabled: 1, slug: null, settings_overrides_json: null, created_at: 0, updated_at: 0 },
@@ -512,7 +535,9 @@ describeDb("leadgen §19.1 anti-tamper (RED LINE 2)", () => {
   }
 
   async function validBinding(env: Env, resolved: ResolvedActivatedFunnel): Promise<AntiTamperInput> {
-    const attempt = await mintFunnelAttempt(env, resolved);
+    // v2 (05 §5.3): session_id is CRYPTO-bound — the mint must see the same
+    // session the auction binding declares.
+    const attempt = await mintFunnelAttempt(env, resolved, Date.now(), { session_id: "sess-1" });
     return {
       funnel_variant_id: resolved.variant.public_id,
       funnel_attempt_id: attempt.funnel_attempt_id,
@@ -529,6 +554,37 @@ describeDb("leadgen §19.1 anti-tamper (RED LINE 2)", () => {
     const binding = await validBinding(env, resolved);
     const verdict = await validateAntiTamper(env, resolved, auction, binding);
     expect(verdict.ok).toBe(true);
+  });
+
+  it("v2: a FORGED session_id breaks the crypto binding (05 §5.3)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const resolved = resolvedWithSections();
+    const binding = await validBinding(env, resolved);
+    const verdict = await validateAntiTamper(env, resolved, auction, { ...binding, session_id: "sess-FORGED" });
+    expect(verdict).toEqual({ ok: false, reason: "signed_token_invalid" });
+  });
+
+  it("v2: a mid-session answer-map change breaks the answer_mapping_hash binding (05 §5.3)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const resolved = resolvedWithSections();
+    // Seed REAL section rows matching the resolved public_ids so the hash has
+    // a live DB source, then mint.
+    sdb.prepare(
+      "INSERT INTO leadgen_sections (id, public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, address_validation_enabled, status) VALUES (1, 'lgs_a', 'A', 'quote_funnel', 'life', 'H', '{\"components\":[]}', 'button', 0, 'active')",
+    ).run();
+    const offer = seedOffer(sdb);
+    attachOffer(sdb, auction.id, offer, 0);
+    const binding = await validBinding(env, resolved);
+    // Remap AFTER mint: a new answer-map row bumps the section's mapping
+    // version → the server-side recomputation no longer matches the token.
+    const schema = sdb.prepare("SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ?").get(offer.offer_id) as { id: number; public_id: string };
+    sdb.prepare(
+      "INSERT INTO leadgen_section_answer_maps (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type) VALUES (?, 1, 'q1', 'k', 'f', 'string', ?, ?, ?, 'zip', 'string')",
+    ).run(mintPublicId("answer_field_map"), offer.offer_id, schema.id, schema.public_id);
+    const verdict = await validateAntiTamper(env, resolved, auction, binding);
+    expect(verdict).toEqual({ ok: false, reason: "signed_token_invalid" });
   });
 
   it("forged variant → mismatch (no token even consulted)", async () => {
@@ -668,9 +724,11 @@ describeDb("leadgen §19.1 anti-tamper (RED LINE 2)", () => {
     expect(result.result_log_row).toBeNull(); // NOTHING to persist
 
     // Belt + braces: persist is a no-op on a tampered result (result_log_row null).
+    // RUNTIME rows only (auction_instance_id set) — the seeded §5.1 Test-tool
+    // verdict row legitimately lives in the same table with a NULL instance.
     await persistAuctionResult(env, result);
     const logCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auction_result_log").get() as { n: number };
-    const provCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log").get() as { n: number };
+    const provCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log WHERE auction_instance_id IS NOT NULL").get() as { n: number };
     expect(logCount.n).toBe(0);
     expect(provCount.n).toBe(0);
   });
@@ -704,9 +762,11 @@ describeDb("leadgen §19 writes — secret never to D1 + dry-run writes nothing"
     expect(row!.request_headers_redacted_json).toContain("[REDACTED]");
 
     // Persist and re-read from D1: no column carries the secret; debug_ref null.
+    // Runtime row only — the seeded Test-tool verdict row (NULL instance) is
+    // not the row under test.
     await persistAuctionResult(env, { ...result, result_log_row: result.result_log_row });
     const persisted = sdb
-      .prepare("SELECT request_headers_redacted_json, request_payload_redacted_json, response_redacted_json, debug_ref FROM leadgen_provider_request_log WHERE offer_public_id = ?")
+      .prepare("SELECT request_headers_redacted_json, request_payload_redacted_json, response_redacted_json, debug_ref FROM leadgen_provider_request_log WHERE offer_public_id = ? AND auction_instance_id IS NOT NULL")
       .get(o1.offer_public_id) as { request_headers_redacted_json: string; request_payload_redacted_json: string; response_redacted_json: string | null; debug_ref: string | null };
     expect(persisted.request_headers_redacted_json).not.toContain(SECRET_VALUE);
     expect(persisted.request_payload_redacted_json).not.toContain(SECRET_VALUE);
@@ -726,7 +786,7 @@ describeDb("leadgen §19 writes — secret never to D1 + dry-run writes nothing"
     await persistAuctionResult(env, result);
 
     const persisted = sdb
-      .prepare("SELECT request_payload_redacted_json, debug_ref FROM leadgen_provider_request_log WHERE offer_public_id = ?")
+      .prepare("SELECT request_payload_redacted_json, debug_ref FROM leadgen_provider_request_log WHERE offer_public_id = ? AND auction_instance_id IS NOT NULL")
       .get(o1.offer_public_id) as { request_payload_redacted_json: string; debug_ref: string | null };
     // The token node value is masked in the redacted payload.
     expect(persisted.request_payload_redacted_json).not.toContain(SECRET_VALUE);
@@ -749,9 +809,10 @@ describeDb("leadgen §19 writes — secret never to D1 + dry-run writes nothing"
     const bundle = await loadAuctionBundle(env.DB, auction, 1);
     const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "staging", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
     expect(result.status).toBe("ok");
-    // OQ-10: the caller does NOT persist a dry-run; the tables remain empty.
+    // OQ-10: the caller does NOT persist a dry-run; the RUNTIME tables remain
+    // empty (the seeded §5.1 Test-tool row has a NULL auction_instance_id).
     const logCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auction_result_log").get() as { n: number };
-    const provCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log").get() as { n: number };
+    const provCount = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log WHERE auction_instance_id IS NOT NULL").get() as { n: number };
     expect(logCount.n).toBe(0);
     expect(provCount.n).toBe(0);
   });

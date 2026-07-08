@@ -44,10 +44,24 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    command: 'npx wrangler dev --port 8787 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1',
-    url: 'http://127.0.0.1:8787/health',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'npx wrangler dev --port 8787 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1',
+      url: 'http://127.0.0.1:8787/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    // fix-contract v2.4 11 §11.2 / 12 Phase 1 "mock provider fixtures": the
+    // REAL local provider the live-funnel suite's seeded Offer points its
+    // endpoint_staging + endpoint_production at (the Worker's server-side
+    // provider fetch is not interceptable from the browser context). See
+    // scripts/leadgen-mock-provider.ts (POST /mock, GET /__requests,
+    // POST /__reset).
+    {
+      command: 'npx tsx scripts/leadgen-mock-provider.ts',
+      url: 'http://127.0.0.1:8788/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+  ],
 });

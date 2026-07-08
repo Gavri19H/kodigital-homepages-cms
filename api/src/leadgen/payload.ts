@@ -12,7 +12,8 @@
 //
 // Runtime build order per 04 §11.5 + 05 §12.7 ("Normalization pipeline
 // order"): resolve each node by `source` (answer via internal_field +
-// value_map + transform pipeline; static; computed; macro; token), coerce to
+// value_map + transform pipeline; static; computed; macro; placement —
+// fix-contract v2.4 04 §4.5 offer/auction placement id; token), coerce to
 // the node's declared type, apply default (absent) / fallback (invalid),
 // drop nodes whose `conditional` is unmet, then `cleanObject` — the "no
 // fabrication" rule: the payload never invents empty values.
@@ -26,6 +27,7 @@ import type {
   LeadgenConditionOp,
   LeadgenRequestExecutionMode,
 } from "../admin/leadgen/db-types";
+import { isLeadgenComputedKey, LEADGEN_COMPUTED_KEYS } from "./computed";
 import { isCanonicalMacro } from "./macros";
 
 // ---------------------------------------------------------------------------
@@ -42,11 +44,15 @@ export const LEADGEN_PAYLOAD_NODE_TYPES = [
 ] as const;
 export type LeadgenPayloadNodeType = (typeof LEADGEN_PAYLOAD_NODE_TYPES)[number];
 
+// The v2.4 canonical source enum (fix-contract 04 §4.5): `placement` is the
+// discoverable "Offer / Auction → Placement ID" source — a backward-
+// compatible storage extension over the original five.
 export const LEADGEN_PAYLOAD_SOURCES = [
   "answer",
   "static",
   "computed",
   "macro",
+  "placement",
   "token",
 ] as const;
 export type LeadgenPayloadSource = (typeof LEADGEN_PAYLOAD_SOURCES)[number];
@@ -99,10 +105,13 @@ export interface LeadgenPayloadNode {
   transform?: LeadgenTransformStep[];
   // source:"static" — the authored literal value.
   value?: unknown;
-  // source:"computed" — key into ctx.computed (server-derived values).
+  // source:"computed" — a COMPUTED_REGISTRY key (computed.ts) resolved into
+  // ctx.computed (server-derived values).
   computed?: string;
   // source:"macro" — one of the 32 canonical macro names (macros.ts).
   macro?: string;
+  // source:"placement" carries no extra field — it resolves from
+  // ctx.offer.placement_id (fix-contract v2.4 04 §4.5).
   conditional?: LeadgenPayloadConditional;
 }
 
@@ -135,6 +144,7 @@ export type LeadgenPayloadSchemaErrorCode =
   | "transform_invalid"
   | "static_missing_value"
   | "computed_missing_key"
+  | "computed_unknown_key"
   | "macro_missing_name"
   | "macro_unknown"
   | "token_node_invalid"
@@ -399,8 +409,19 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
     if (nodeSource === "static" && node["value"] === undefined) {
       errors.push({ code: "static_missing_value", path, message: "source 'static' requires value" });
     }
-    if (nodeSource === "computed" && (typeof node["computed"] !== "string" || node["computed"].trim() === "")) {
-      errors.push({ code: "computed_missing_key", path, message: "source 'computed' requires computed key" });
+    if (nodeSource === "computed") {
+      const computedKey = node["computed"];
+      if (typeof computedKey !== "string" || computedKey.trim() === "") {
+        errors.push({ code: "computed_missing_key", path, message: "source 'computed' requires computed key" });
+      } else if (!isLeadgenComputedKey(computedKey)) {
+        // The COMPUTED_REGISTRY is the ONLY source of computed keys
+        // (fix-contract v2.4 04 §4.4) — free-text keys are rejected at save.
+        errors.push({
+          code: "computed_unknown_key",
+          path,
+          message: `'${computedKey}' is not a computed variable (valid keys: ${LEADGEN_COMPUTED_KEYS.join(", ")})`,
+        });
+      }
     }
     if (nodeSource === "macro") {
       const macro = node["macro"];
@@ -609,6 +630,10 @@ export interface LeadgenPayloadBuildContext {
   macros?: Readonly<Record<string, string>>;
   // Server-derived computed values, keyed by the node's `computed` key.
   computed?: Readonly<Record<string, unknown>>;
+  // The Offer in scope (fix-contract v2.4 04 §4.5) — source:"placement"
+  // resolves from offer.placement_id. Bridged from the canonical
+  // LeadGenRuntimeContext.offer slice (runtime-context.ts).
+  offer?: Readonly<{ offer_id?: string; offer_name?: string; placement_id?: string }>;
   token?: LeadgenPayloadTokenContext;
 }
 
@@ -763,6 +788,14 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
     case "macro":
       raw = node.macro === undefined ? undefined : ctx.macros?.[node.macro];
       break;
+    case "placement": {
+      // §4.5 Offer/Auction placement id. A missing OR empty id routes
+      // through the absent→default machinery below (an empty string is "no
+      // placement in scope", never a real id) — never a crash.
+      const placementId = ctx.offer?.placement_id;
+      raw = typeof placementId === "string" && placementId !== "" ? placementId : undefined;
+      break;
+    }
   }
 
   // ABSENT source value → default (a FINAL value, not re-piped).

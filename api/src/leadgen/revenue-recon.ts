@@ -34,6 +34,12 @@ import {
   type LeadgenChClient,
 } from "./clickhouse";
 import { refreshFxRates, type FxRefreshSummary } from "./fx";
+import {
+  blankLeadgenEvent,
+  emitLeadgenRecords,
+  type LeadgenEvent,
+} from "../analytics/leadgen-events";
+import { ulid } from "./ids";
 
 const UNMATCHED_WINDOW_MS = 72 * 3600 * 1000; // §29 72h re-match window
 const SHIP_BATCH = 200; // revenue_raw rows shipped per run
@@ -59,6 +65,24 @@ export interface RevenueCronOptions extends CreateChClientOptions {
   now?: Date;
   force?: boolean; // run the daily-gated tasks regardless of the clock (tests)
   seededRates?: Readonly<Record<string, number>>;
+  // The scheduled handler's ExecutionContext — carries the m3 revenue_received
+  // Firehose emission (emitLeadgenRecords rides ctx.waitUntil). Absent (legacy
+  // callers/harnesses) ⇒ a no-op-waitUntil context; emission stays fail-open.
+  ctx?: ExecutionContext;
+}
+
+// The runtime-routes safeExecutionCtx idiom: a no-op ExecutionContext for
+// callers without one (unit harnesses / legacy invocations) — the emission's
+// promise floats with its own .catch, never blocking or throwing.
+function noopExecutionCtx(): ExecutionContext {
+  return {
+    waitUntil(): void {
+      /* no-op outside workerd */
+    },
+    passThroughOnException(): void {
+      /* no-op */
+    },
+  } as unknown as ExecutionContext;
 }
 
 // --- §29 D1 → CH revenue shipper --------------------------------------------
@@ -194,12 +218,19 @@ export async function reMatchUnmatchedSweep(env: Env, opts?: RevenueCronOptions)
 
   // Re-match the in-window pending rows against CH clean offer_clicks.
   const res = await env.DB.prepare(
-    `SELECT id, click_id FROM leadgen_revenue_unmatched
+    `SELECT id, click_id, provider, external_txn_id, revenue, currency FROM leadgen_revenue_unmatched
      WHERE status = 'pending' AND received_at >= ?
      ORDER BY received_at ASC LIMIT ?`,
   )
     .bind(windowStart, REMATCH_BATCH)
-    .all<{ id: number; click_id: string }>();
+    .all<{
+      id: number;
+      click_id: string;
+      provider: string;
+      external_txn_id: string | null;
+      revenue: number;
+      currency: string;
+    }>();
   const pending = res.results ?? [];
   if (pending.length === 0) return { configured: true, matched: 0, aged_out: agedOut, scanned: 0 };
 
@@ -209,7 +240,8 @@ export async function reMatchUnmatchedSweep(env: Env, opts?: RevenueCronOptions)
   // Promote matched rows to 'matched'. NO double-count: the revenue_raw row was
   // already staged at ingest; the CH attribution MV performs the actual
   // (re)attribution once the click lands — this sweep only advances STATUS.
-  const matchedIds = pending.filter((p) => matchedSet.has(p.click_id)).map((p) => p.id);
+  const matchedRows = pending.filter((p) => matchedSet.has(p.click_id));
+  const matchedIds = matchedRows.map((p) => p.id);
   let matched = 0;
   for (let i = 0; i < matchedIds.length; i += D1_BIND_CHUNK) {
     const chunk = matchedIds.slice(i, i + D1_BIND_CHUNK);
@@ -220,6 +252,31 @@ export async function reMatchUnmatchedSweep(env: Env, opts?: RevenueCronOptions)
       .bind(...chunk)
       .run();
     matched += (r.meta as { changes?: number } | undefined)?.changes ?? chunk.length;
+  }
+
+  // m3: `revenue_received` fires when a re-match BOOKS (status → matched) —
+  // the sweep was the one revenue-booking path without the 10 §10.2 monetized
+  // event. Mirrors postback.ts's emitRevenueEvents posture exactly: emission
+  // runs AFTER the booking landed, inside its own try/catch, and
+  // emitLeadgenRecords itself is a structured no-op without creds/stream —
+  // the failure path can never block or unwind the booking.
+  if (matchedRows.length > 0) {
+    try {
+      const events: LeadgenEvent[] = matchedRows.map((row) => {
+        const e = blankLeadgenEvent("revenue_received", now.getTime());
+        e.event_id = ulid(now.getTime());
+        e.click_id = row.click_id;
+        e.conversion_id = row.external_txn_id ?? "";
+        e.provider = row.provider;
+        e.revenue = row.revenue;
+        e.bid_currency = row.currency;
+        e.booking_trigger = "rematch_sweep";
+        return e;
+      });
+      emitLeadgenRecords(env, opts?.ctx ?? noopExecutionCtx(), events);
+    } catch {
+      /* fail-open: telemetry never blocks the re-match booking */
+    }
   }
   return { configured: true, matched, aged_out: agedOut, scanned: pending.length };
 }

@@ -78,6 +78,11 @@ export interface BannerRenderCarrier {
   // The raw provider data `{response:<path>}` resolves against (the caller
   // supplies it — keeps renderBanners pure/I/O-free).
   response_context?: unknown;
+  // fix-contract v2.4 04 §4.7 site 4: the PER-OFFER auction-time canonical
+  // macro projection (offer_id/offer_name/placement differ per slot's Offer).
+  // Wins over the render-level `auction.canonical_macros` for this entry;
+  // {response:*} stays click-time either way.
+  canonical_macros?: Readonly<Record<string, string>>;
 }
 
 // Runtime render context (07 §19). `canonical_macros` are the request-derived
@@ -359,7 +364,9 @@ export function renderBanners(
   const dropped: DroppedCarrier[] = [];
 
   for (const entry of carriers) {
-    const resolution = resolveClickUrl(entry, canonicalMacros);
+    // 04 §4.7 site 4: the entry's per-Offer auction-time macros win over the
+    // render-level set (offer identity/placement macros differ per slot).
+    const resolution = resolveClickUrl(entry, entry.canonical_macros ?? canonicalMacros);
     if ("drop" in resolution) {
       dropped.push({
         carrier_key: entry.carrier.carrier_key,
