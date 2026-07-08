@@ -47,6 +47,7 @@ import {
   LEADGEN_HEADER_VALUE_KINDS,
   LEADGEN_OFFER_TYPES,
   LEADGEN_REQUEST_METHODS,
+  LEADGEN_TEST_STATUS_SUBSELECT,
   LEADGEN_TOKEN_PLACEMENTS,
   LEADGEN_TRACKING_METHODS,
   evaluateDynamicOffersEligibility,
@@ -58,6 +59,7 @@ import {
   validateRegionRule,
   type FieldErrors,
   type LeadgenDynamicEligibilityVerdict,
+  type LeadgenOfferTestStatus,
   type LeadgenRegionRuleCreateInput,
 } from "../../leadgen/validation";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
@@ -476,10 +478,13 @@ async function offerDetailJson(
 // ---------------------------------------------------------------------------
 
 // The list row carries the DEFAULT placement (LEFT JOIN on the §7.1 partial
-// unique index) so the §9.2 "placement id" column renders without an N+1.
+// unique index) so the §9.2 "placement id" column renders without an N+1,
+// plus the F5 (07 §7.1) per-row Test-status chip value (correlated subselect
+// — still ONE query for the whole page).
 type LeadgenOfferListRow = LeadgenOfferRow & {
   default_placement_id: string | null;
   default_placement_public_id: string | null;
+  test_status: LeadgenOfferTestStatus | null;
 };
 
 export async function listOffersHandler(c: AdminContext): Promise<Response> {
@@ -545,7 +550,8 @@ export async function listOffersHandler(c: AdminContext): Promise<Response> {
   const { page, pageSize, offset } = parsePaging(c);
 
   const rows = await c.env.DB.prepare(
-    `SELECT o.*, dp.placement_id AS default_placement_id, dp.public_id AS default_placement_public_id
+    `SELECT o.*, dp.placement_id AS default_placement_id, dp.public_id AS default_placement_public_id,
+            ${LEADGEN_TEST_STATUS_SUBSELECT} AS test_status
      FROM leadgen_offers o
      LEFT JOIN leadgen_offer_placements dp ON dp.offer_id = o.id AND dp.is_default = 1
      WHERE ${clause} ORDER BY o.updated_at DESC, o.id DESC LIMIT ? OFFSET ?`,
@@ -571,6 +577,10 @@ export async function listOffersHandler(c: AdminContext): Promise<Response> {
       default_placement_id: row.default_placement_id ?? null,
       default_placement_public_id: row.default_placement_public_id ?? null,
       eligibility: eligibility.get(row.id) ?? null,
+      // F5 (07 §7.1): the additive Test-status chip value — the canonical
+      // LEADGEN_TEST_STATUS_SUBSELECT derivation (newest TEST-TOOL run:
+      // 2xx → passed, non-2xx → failed); no rows → untested.
+      test_status: (row.test_status ?? "untested") as LeadgenOfferTestStatus,
     })),
     paging: buildPaging(page, pageSize, total),
   });
@@ -1394,9 +1404,28 @@ export async function deleteOfferHandler(c: AdminContext): Promise<Response> {
     return c.json({ error: "offer_in_use", usage }, 409);
   }
 
+  // F6 (07 §7.2): the repo has NO admin-audit-row pattern, so the contract's
+  // else-branch applies — a structured log records the hard delete with the
+  // per-child-table cascaded row counts (cheap scalar COUNTs BEFORE the
+  // delete batch; ?? not || so a real 0 survives, D1 rule).
+  const cascadeCounts = await c.env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM leadgen_offer_region_rules WHERE offer_id = ?) AS region_rules,
+       (SELECT COUNT(*) FROM leadgen_offer_headers WHERE offer_id = ?) AS headers,
+       (SELECT COUNT(*) FROM leadgen_offer_cap_counters WHERE offer_id = ?) AS cap_counters,
+       (SELECT COUNT(*) FROM leadgen_offer_payload_schemas WHERE offer_id = ?) AS payload_schemas,
+       (SELECT COUNT(*) FROM leadgen_offer_placements WHERE offer_id = ?) AS placements`,
+  )
+    .bind(row.id, row.id, row.id, row.id, row.id)
+    .first<{ region_rules: number; headers: number; cap_counters: number; payload_schemas: number; placements: number }>();
+
   // Clean → cascade the offer's OWN children only, in one batch. Logs/analytics
-  // are never deleted (their ABSENCE is what made the offer deletable).
+  // are never deleted (their ABSENCE is what made the offer deletable). The
+  // active-schema pointer clears FIRST: leadgen_offers.active_payload_schema_id
+  // references leadgen_offer_payload_schemas(id), so deleting schema rows while
+  // the pointer still holds one violates the FK where enforced.
   await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE leadgen_offers SET active_payload_schema_id = NULL WHERE id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM leadgen_offer_region_rules WHERE offer_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM leadgen_offer_headers WHERE offer_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM leadgen_offer_cap_counters WHERE offer_id = ?").bind(row.id),
@@ -1404,6 +1433,20 @@ export async function deleteOfferHandler(c: AdminContext): Promise<Response> {
     c.env.DB.prepare("DELETE FROM leadgen_offer_placements WHERE offer_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM leadgen_offers WHERE id = ?").bind(row.id),
   ]);
+  console.log(
+    JSON.stringify({
+      event: "leadgen_offer_hard_delete",
+      offer_public_id: row.public_id,
+      offer_name: row.offer_name,
+      cascaded: {
+        leadgen_offer_region_rules: cascadeCounts?.region_rules ?? 0,
+        leadgen_offer_headers: cascadeCounts?.headers ?? 0,
+        leadgen_offer_cap_counters: cascadeCounts?.cap_counters ?? 0,
+        leadgen_offer_payload_schemas: cascadeCounts?.payload_schemas ?? 0,
+        leadgen_offer_placements: cascadeCounts?.placements ?? 0,
+      },
+    }),
+  );
   return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: "hard" });
 }
 
@@ -1448,19 +1491,50 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
   const tokenParam = copyEndpointConfig ? src.api_token_param_name : null;
   const requestMethod = copyEndpointConfig ? src.request_method : null;
 
-  await c.env.DB.prepare(
-    `INSERT INTO leadgen_offers
-       (public_id, offer_name, provider, activity, vertical, tag,
-        conversion_tracking_method, offer_type, calls_provider_api, bid_source,
-        request_execution_mode, static_bid_value, static_bid_currency, static_order,
-        banner_url_template, static_fallback_banner_url, request_method,
-        endpoint_production, endpoint_staging, api_token_secret_ref,
-        api_token_placement, api_token_param_name,
-        cap_enabled, cap_amount, cap_timezone, cap_count_by, cap_fallback_url,
-        status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')`,
+  // Source placements read BEFORE any write: the F13 guard below + the
+  // blank-sentinel cloning both consume them, and §7.3 "one transaction"
+  // means every read happens first, then ONE batch writes everything.
+  const srcPlacements = await c.env.DB.prepare(
+    "SELECT placement_id, label, is_default FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY is_default DESC, id ASC",
   )
-    .bind(
+    .bind(src.id)
+    .all<{ placement_id: string; label: string | null; is_default: number }>();
+  const srcPlacementRows = srcPlacements.results ?? [];
+  // F13 (07 §7.3): a new default placement id equal to ANY source placement
+  // id recreates the exact hazard the required input exists to prevent (two
+  // offers serving the same provider feed id) — typed 400, never a clone.
+  if (srcPlacementRows.some((p) => p.placement_id === newDefaultPlacementId)) {
+    return c.json(
+      {
+        error: "Validation failed",
+        fields: {
+          default_placement_id:
+            "default_placement_id must differ from every placement id of the source offer",
+        },
+      },
+      400,
+    );
+  }
+
+  // §7.3 "one transaction": the offer INSERT rides the SAME batch as every
+  // child row — children resolve offer_id via (SELECT id FROM leadgen_offers
+  // WHERE public_id = ?) subqueries (the active-schema-pointer pattern), so
+  // a mid-batch failure rolls the WHOLE clone back: no compensating delete,
+  // no crash window leaving an inert parent.
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_offers
+         (public_id, offer_name, provider, activity, vertical, tag,
+          conversion_tracking_method, offer_type, calls_provider_api, bid_source,
+          request_execution_mode, static_bid_value, static_bid_currency, static_order,
+          banner_url_template, static_fallback_banner_url, request_method,
+          endpoint_production, endpoint_staging, api_token_secret_ref,
+          api_token_placement, api_token_param_name,
+          cap_enabled, cap_amount, cap_timezone, cap_count_by,
+          cap_fallback_offer_id, cap_fallback_url,
+          status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')`,
+    ).bind(
       newPublic, name, src.provider, src.activity, src.vertical, src.tag,
       src.conversion_tracking_method, src.offer_type, src.calls_provider_api, src.bid_source,
       src.request_execution_mode, src.static_bid_value, src.static_bid_currency, src.static_order,
@@ -1471,16 +1545,13 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       copyCapSettings ? src.cap_amount : null,
       copyCapSettings ? src.cap_timezone : null,
       copyCapSettings ? src.cap_count_by : null,
+      // F13 (07 §7.3): cap_fallback_offer_id is part of "cap settings" — it
+      // copies under the same checkbox (the clone still lands cap_enabled=0;
+      // it was silently never copied before).
+      copyCapSettings ? src.cap_fallback_offer_id : null,
       copyCapSettings ? src.cap_fallback_url : null,
-    )
-    .run();
-
-  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_offers WHERE public_id = ?")
-    .bind(newPublic)
-    .first<LeadgenOfferRow>();
-  if (dup === null) return c.json({ error: "duplicate failed" }, 500);
-
-  const stmts: D1PreparedStatement[] = [];
+    ),
+  ];
 
   // Placements: the required new default; additional source placements cloned
   // with BLANK placement ids flagged "needs value" (never the source id).
@@ -1488,24 +1559,19 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
   stmts.push(
     c.env.DB.prepare(
       `INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, label, is_default)
-       VALUES (?, ?, ?, ?, 1)`,
-    ).bind(defaultPlPublic, dup.id, newDefaultPlacementId, null),
+       VALUES (?, (SELECT id FROM leadgen_offers WHERE public_id = ?), ?, ?, 1)`,
+    ).bind(defaultPlPublic, newPublic, newDefaultPlacementId, null),
   );
-  const srcPlacements = await c.env.DB.prepare(
-    "SELECT placement_id, label, is_default FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY is_default DESC, id ASC",
-  )
-    .bind(src.id)
-    .all<{ placement_id: string; label: string | null; is_default: number }>();
   let extraPlacements = 0;
-  for (const p of srcPlacements.results ?? []) {
+  for (const p of srcPlacementRows) {
     if (p.is_default === 1) continue; // its slot is the new required default
     extraPlacements += 1;
     // blank placement id (NOT NULL column → a unique needs-value sentinel per row)
     stmts.push(
       c.env.DB.prepare(
         `INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, label, is_default)
-         VALUES (?, ?, ?, ?, 0)`,
-      ).bind(mintPublicId("offer_placement"), dup.id, `__needs_value__${extraPlacements}`, p.label),
+         VALUES (?, (SELECT id FROM leadgen_offers WHERE public_id = ?), ?, ?, 0)`,
+      ).bind(mintPublicId("offer_placement"), newPublic, `__needs_value__${extraPlacements}`, p.label),
     );
   }
 
@@ -1523,13 +1589,13 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
         c.env.DB.prepare(
           `INSERT INTO leadgen_offer_payload_schemas
              (public_id, offer_id, version, schema_json, sample_response_json, carrier_parse_json, carrier_parse_version)
-           VALUES (?, ?, 1, ?, NULL, ?, ?)`,
-        ).bind(schemaPublic, dup.id, active.schema_json, active.carrier_parse_json, active.carrier_parse_version),
+           VALUES (?, (SELECT id FROM leadgen_offers WHERE public_id = ?), 1, ?, NULL, ?, ?)`,
+        ).bind(schemaPublic, newPublic, active.schema_json, active.carrier_parse_json, active.carrier_parse_version),
         // point the clone's active pointer at its new v1 (Test status stays
         // untested — sample_response_json is NULL → R4 blocks live auction).
         c.env.DB.prepare(
-          "UPDATE leadgen_offers SET active_payload_schema_id = (SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?) WHERE id = ?",
-        ).bind(schemaPublic, dup.id),
+          "UPDATE leadgen_offers SET active_payload_schema_id = (SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?) WHERE public_id = ?",
+        ).bind(schemaPublic, newPublic),
       );
       schemaCopied = true;
     }
@@ -1545,8 +1611,8 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
     for (const h of headers.results ?? []) {
       stmts.push(
         c.env.DB.prepare(
-          "INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, ?, ?, ?)",
-        ).bind(dup.id, h.header_name, h.value_kind, h.value_text),
+          "INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES ((SELECT id FROM leadgen_offers WHERE public_id = ?), ?, ?, ?)",
+        ).bind(newPublic, h.header_name, h.value_kind, h.value_text),
       );
     }
   }
@@ -1564,23 +1630,24 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO leadgen_offer_region_rules (public_id, offer_id, dimension, action, values_json, priority, enabled)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(mintPublicId("offer_region_rule"), dup.id, r.dimension, r.action, r.values_json, r.priority, r.enabled),
+           VALUES (?, (SELECT id FROM leadgen_offers WHERE public_id = ?), ?, ?, ?, ?, ?)`,
+        ).bind(mintPublicId("offer_region_rule"), newPublic, r.dimension, r.action, r.values_json, r.priority, r.enabled),
       );
     }
   }
 
-  // Atomicity (§7.3 "one transaction"): the children (incl. the REQUIRED
-  // default placement) go in one batch. If it fails, compensate by removing the
-  // just-inserted offer so a placement-less paused clone never persists.
-  if (stmts.length > 0) {
-    try {
-      await c.env.DB.batch(stmts);
-    } catch (err) {
-      await c.env.DB.prepare("DELETE FROM leadgen_offers WHERE public_id = ?").bind(newPublic).run();
-      throw err;
-    }
-  }
+  // Atomicity (§7.3 "one transaction"): the offer AND all its children land
+  // in ONE batch — a D1 batch is a single implicit transaction, so any
+  // failing statement rolls the parent back too. A placement-less paused
+  // clone can never persist, even across a crash mid-request.
+  await c.env.DB.batch(stmts);
+
+  // Post-batch re-read: the response reflects the COMMITTED clone (including
+  // the active_payload_schema_id pointer the batch just set).
+  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_offers WHERE public_id = ?")
+    .bind(newPublic)
+    .first<LeadgenOfferRow>();
+  if (dup === null) return c.json({ error: "duplicate failed" }, 500);
 
   // NEVER copied: analytics, cap counters, provider logs, Test results, revenue.
   return c.json(
@@ -1606,11 +1673,15 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
 // both GET /offers/:id/usage and the A1 delete guard.
 // ---------------------------------------------------------------------------
 
+// F8 (07 §7.4): every emitted entry carries kind/count/items/warning_only
+// EXPLICITLY — `count` is the TRUE row count for the kind (warning kinds keep
+// ONE synthetic display item, so count may exceed items.length; it is never
+// smuggled inside public_id/name strings).
 interface OfferUsageKind {
   kind: string;
   count: number;
   items: Array<{ id: number; public_id: string; name: string; link: string }>;
-  warning_only?: boolean;
+  warning_only: boolean;
 }
 export interface OfferUsageReport {
   kinds: OfferUsageKind[];
@@ -1629,20 +1700,22 @@ async function countRefs(
   return res.results ?? [];
 }
 
-async function countScalar(db: D1Database, sql: string, offerId: number): Promise<number> {
-  const row = await db.prepare(sql).bind(offerId).first<{ n: number }>();
-  return row?.n ?? 0;
-}
-
 export async function buildOfferUsageReport(db: D1Database, offerId: number): Promise<OfferUsageReport> {
   // Blocking reference kinds (any → hard-delete refused). Provider logs,
   // revenue, and analytics mirrors are WARNING-ONLY (historical rows; their
   // presence does not block a delete — 07 §7.4).
   const kinds: OfferUsageKind[] = [];
   const blocking: string[] = [];
-  const add = (kind: string, items: OfferUsageKind["items"], warningOnly = false): void => {
-    kinds.push({ kind, count: items.length, items, ...(warningOnly ? { warning_only: true } : {}) });
-    if (!warningOnly && items.length > 0) blocking.push(kind);
+  const add = (
+    kind: string,
+    items: OfferUsageKind["items"],
+    opts: { warning_only?: boolean; count?: number } = {},
+  ): void => {
+    const warningOnly = opts.warning_only === true;
+    // ?? not ||: an explicit true count of 0 must not fall back (D1 rule).
+    const count = opts.count ?? items.length;
+    kinds.push({ kind, count, items, warning_only: warningOnly });
+    if (!warningOnly && count > 0) blocking.push(kind);
   };
 
   add(
@@ -1749,7 +1822,7 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
        FROM leadgen_offer_region_rules WHERE offer_id = ? ORDER BY id`,
       offerId,
     ),
-    true, // own children — cascade-deleted; informational, never blocks
+    { warning_only: true }, // own children — cascade-deleted; informational, never blocks
   );
   add(
     "cap_counters_active",
@@ -1760,46 +1833,75 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
       offerId,
     ),
   );
-  // Warning-only historical rows — keyed on offer_public_id. A single synthetic
-  // item carrying the row count when > 0 (never blocks a delete).
+  // Warning-only historical rows — keyed on offer_public_id. Each kind keeps
+  // ONE synthetic display item; `count` is the TRUE summed row count (F8 —
+  // never smuggled inside public_id/name). Never blocks a delete.
+  const offerPublicRow = await db
+    .prepare("SELECT public_id FROM leadgen_offers WHERE id = ?")
+    .bind(offerId)
+    .first<{ public_id: string }>();
+  const offerPublicId = offerPublicRow?.public_id ?? "";
   const providerLog = await db
     .prepare(
       `SELECT COUNT(*) AS n, MAX(created_at) AS latest FROM leadgen_provider_request_log
-       WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
+       WHERE offer_public_id = ?`,
     )
-    .bind(offerId)
+    .bind(offerPublicId)
     .first<{ n: number; latest: number | null }>();
   const providerLogCount = providerLog?.n ?? 0;
   add(
     "provider_request_logs",
     providerLogCount > 0
-      ? [{ id: providerLog?.latest ?? 1, public_id: String(providerLogCount), name: `${providerLogCount} provider requests (latest ts ${providerLog?.latest ?? "?"})`, link: "" }]
+      ? [{ id: 1, public_id: "", name: `${providerLogCount} provider requests (latest ts ${providerLog?.latest ?? "?"})`, link: "" }]
       : [],
-    true,
+    { warning_only: true, count: providerLogCount },
   );
-  const analyticsCount = await countScalar(
-    db,
-    `SELECT COUNT(*) AS n FROM leadgen_analytics_offer
-     WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
-    offerId,
-  );
+  // F8 (07 §7.2 "leadgen_analytics_offer etc."): ALL 0037 analytics mirror
+  // tables keyed by offer_public_id — offer, auction_drilldown, carrier,
+  // provider_diagnostics. The section/answer-distribution/quote(+drilldown)/
+  // auction mirrors carry no offer key and are skipped.
+  const analyticsRow = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM leadgen_analytics_offer WHERE offer_public_id = ?) AS offer_rows,
+         (SELECT COUNT(*) FROM leadgen_analytics_auction_drilldown WHERE offer_public_id = ?) AS drilldown_rows,
+         (SELECT COUNT(*) FROM leadgen_analytics_carrier WHERE offer_public_id = ?) AS carrier_rows,
+         (SELECT COUNT(*) FROM leadgen_analytics_provider_diagnostics WHERE offer_public_id = ?) AS diagnostics_rows`,
+    )
+    .bind(offerPublicId, offerPublicId, offerPublicId, offerPublicId)
+    .first<{ offer_rows: number; drilldown_rows: number; carrier_rows: number; diagnostics_rows: number }>();
+  const analyticsCount =
+    (analyticsRow?.offer_rows ?? 0) +
+    (analyticsRow?.drilldown_rows ?? 0) +
+    (analyticsRow?.carrier_rows ?? 0) +
+    (analyticsRow?.diagnostics_rows ?? 0);
   add(
     "analytics_mirror_rows",
-    analyticsCount > 0 ? [{ id: 1, public_id: String(analyticsCount), name: `${analyticsCount} analytics rows`, link: "" }] : [],
-    true,
+    analyticsCount > 0
+      ? [{ id: 1, public_id: "", name: `${analyticsCount} analytics rows across the offer-keyed mirrors`, link: "" }]
+      : [],
+    { warning_only: true, count: analyticsCount },
   );
-  // revenue_attribution — warning-only (§7.4); revenue_raw rows keyed by
-  // offer_public_id (historical attribution, never blocks a delete).
-  const revenueCount = await countScalar(
-    db,
-    `SELECT COUNT(*) AS n FROM leadgen_revenue_raw
-     WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
-    offerId,
-  );
+  // revenue_attribution — warning-only (§7.4): revenue_raw + postback_log +
+  // conversion_log rows keyed by offer_public_id (historical attribution).
+  // leadgen_revenue_unmatched carries no offer key (click_id/provider only) — skipped.
+  const revenueRow = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM leadgen_revenue_raw WHERE offer_public_id = ?) AS revenue_rows,
+         (SELECT COUNT(*) FROM leadgen_postback_log WHERE offer_public_id = ?) AS postback_rows,
+         (SELECT COUNT(*) FROM leadgen_conversion_log WHERE offer_public_id = ?) AS conversion_rows`,
+    )
+    .bind(offerPublicId, offerPublicId, offerPublicId)
+    .first<{ revenue_rows: number; postback_rows: number; conversion_rows: number }>();
+  const revenueCount =
+    (revenueRow?.revenue_rows ?? 0) + (revenueRow?.postback_rows ?? 0) + (revenueRow?.conversion_rows ?? 0);
   add(
     "revenue_attribution",
-    revenueCount > 0 ? [{ id: 1, public_id: String(revenueCount), name: `${revenueCount} revenue rows`, link: "" }] : [],
-    true,
+    revenueCount > 0
+      ? [{ id: 1, public_id: "", name: `${revenueCount} revenue/postback/conversion rows`, link: "" }]
+      : [],
+    { warning_only: true, count: revenueCount },
   );
 
   return { kinds, delete_eligibility: { eligible: blocking.length === 0, blocking_kinds: blocking } };

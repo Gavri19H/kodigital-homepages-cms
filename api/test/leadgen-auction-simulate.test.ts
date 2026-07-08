@@ -253,7 +253,10 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     // the preview is an object (the generated provider payload), redacted — a
     // PII-shaped key would be masked. buildPayload output is a plain object.
     expect(typeof entry!.payload_preview).toBe("object");
-    expect(Array.isArray(entry!.expected_response_fields)).toBe(true);
+    // F3 (07 §7.6): expected_response_fields = the PARSER's field names —
+    // Object.keys of CARRIER_PARSE.fields, NOT the top-level config keys
+    // (["carriers_path","fields"], the pre-fix output). Exact-value assertion.
+    expect(entry!.expected_response_fields).toEqual(["carrier_name", "bid", "click_url", "carrier_logo"]);
   });
 
   it("S1 MAJOR fix: the preview is the EXACT payload — request macro, OFFER-scoped macros, placement + masked token all resolve (not answers-only)", async () => {

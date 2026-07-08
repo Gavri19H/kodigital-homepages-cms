@@ -11,7 +11,7 @@
 // NULLIF ratios, §10.6 cap status, §11.8 immutable schema versioning +
 // active-pointer moves, and §11.2 from-example inference.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -1707,5 +1707,571 @@ describeDb("A3 usage inventory — populated fixture (07 §7.4)", () => {
     );
     expect(body.usage.delete_eligibility.blocking_kinds).not.toContain("provider_request_logs");
     expect(body.usage.delete_eligibility.blocking_kinds).not.toContain("revenue_attribution");
+  });
+});
+
+// ===========================================================================
+// Fix-contract v2.4 P2/P3 audit remediation (F5, F6, F7, F8, F12, F13)
+// ===========================================================================
+
+// --- F5 (07 §7.1): the additive per-row list test_status chip field ----------
+
+describeDb("GET /offers — F5 §7.1 per-row test_status chip field", () => {
+  it("derives passed/failed/untested from the LATEST TEST-TOOL run; runtime auction rows never count", async () => {
+    const { sdb, env } = newHarness();
+    const passed = await createOffer(env, { offer_name: "PassedOffer", placements: ["ts-1"] });
+    const failed = await createOffer(env, { offer_name: "FailedOffer", placements: ["ts-2"] });
+    const untested = await createOffer(env, { offer_name: "UntestedOffer", placements: ["ts-3"] });
+    const seed = sdb.prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, auction_instance_id, created_at) VALUES (?, 'production', ?, ?, ?)",
+    );
+    seed.run(passed.public_id, 500, null, 1_000); // older FAIL…
+    seed.run(passed.public_id, 200, null, 2_000); // …the NEWEST test run passes
+    seed.run(failed.public_id, 200, null, 1_000); // older pass…
+    seed.run(failed.public_id, 503, null, 2_000); // …the newest fails
+    seed.run(untested.public_id, 200, "lgai_runtime_row", 3_000); // AUCTION row — invisible to the chip
+
+    const res = await admin.request(`${API}/offers`, {}, env);
+    expect(res.status).toBe(200);
+    const items = ((await res.json()) as { items: Array<{ offer_name: string; test_status: string }> }).items;
+    const byName = new Map(items.map((i) => [i.offer_name, i.test_status]));
+    expect(byName.get("PassedOffer")).toBe("passed");
+    expect(byName.get("FailedOffer")).toBe("failed");
+    expect(byName.get("UntestedOffer"), "no TEST-TOOL rows → untested").toBe("untested");
+  });
+});
+
+// --- F7 + F13 (07 §7.3): duplicate is ONE transaction + the source-id guard --
+
+describeDb("duplicate — F7 one-transaction atomicity + F13 source-placement-id guard (07 §7.3)", () => {
+  it("F13: 400s when default_placement_id equals ANY source placement id (default or extra)", async () => {
+    const { sdb, env } = newHarness();
+    const src = await createOffer(env, { offer_name: "Src", placements: ["pl-src-A", "pl-src-B"] });
+    for (const collide of ["pl-src-A", "pl-src-B"]) {
+      const res = await admin.request(
+        `${API}/offers/${src.id}/duplicate`,
+        jsonInit("POST", { name: "Clone", default_placement_id: collide }),
+        env,
+      );
+      expect(res.status, `${collide} must 400`).toBe(400);
+      const body = (await res.json()) as { error: string; fields: Record<string, string> };
+      expect(body.error).toBe("Validation failed");
+      expect(body.fields["default_placement_id"]).toContain("differ from every placement id");
+    }
+    // F7: every pre-batch validation failure leaves ZERO clone rows behind.
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offers").get() as { n: number }).n).toBe(1);
+  });
+
+  it("F7: a validation failure BEFORE the batch leaves zero offer rows (missing default_placement_id)", async () => {
+    const { sdb, env } = newHarness();
+    const src = await createOffer(env, { offer_name: "Src", placements: ["pl-a"] });
+    const missing = await admin.request(`${API}/offers/${src.id}/duplicate`, jsonInit("POST", { name: "Clone" }), env);
+    expect(missing.status).toBe(400);
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offers").get() as { n: number }).n).toBe(1);
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_placements").get() as { n: number }).n).toBe(1);
+  });
+
+  it("F7: a MID-BATCH child failure rolls back the whole clone — parent offer row included (no compensating delete)", async () => {
+    const { sdb, env } = newHarness();
+    // The source has ONE extra placement, so the clone's sentinel row is
+    // __needs_value__1; choosing that exact string as the new default makes
+    // the sentinel INSERT collide on UNIQUE(offer_id, placement_id) MID-batch.
+    const src = await createOffer(env, { offer_name: "Src", placements: ["pl-a", "pl-b"] });
+    const res = await admin.request(
+      `${API}/offers/${src.id}/duplicate`,
+      jsonInit("POST", { name: "Clone", default_placement_id: "__needs_value__1" }),
+      env,
+    );
+    expect(res.status).toBe(500);
+    // §7.3 "one transaction": the rollback left NO trace — no clone offer row
+    // (the parent INSERT was INSIDE the batch), no clone placement rows.
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offers").get() as { n: number }).n).toBe(1);
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_placements").get() as { n: number }).n).toBe(2);
+  });
+
+  it("F7 structural: duplicate NEVER writes leadgen_offers via a standalone run() — the parent INSERT rides the batch (crash-window proof)", async () => {
+    // The compensating-delete design converged to the same end-state in the
+    // happy/rollback paths — its defect was the CRASH WINDOW between the
+    // standalone parent INSERT and the children batch. That window exists iff
+    // some leadgen_offers write executes OUTSIDE db.batch(), so this probe
+    // records exactly that (fail-before: the old parent INSERT ran standalone).
+    const { env } = newHarness();
+    const src = await createOffer(env, { offer_name: "Src", placements: ["pl-a", "pl-b"] });
+
+    const db = env.DB as unknown as {
+      prepare: (sql: string) => { run: () => Promise<unknown>; [k: string]: unknown };
+      batch: (stmts: unknown[]) => Promise<unknown>;
+    };
+    const standaloneOfferWrites: string[] = [];
+    let inBatch = false;
+    const origPrepare = db.prepare.bind(db);
+    db.prepare = (sql: string) => {
+      const stmt = origPrepare(sql);
+      const origRun = stmt.run.bind(stmt) as () => Promise<unknown>;
+      stmt.run = async () => {
+        if (!inBatch && /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql) && sql.includes("leadgen_offers")) {
+          standaloneOfferWrites.push(sql);
+        }
+        return origRun();
+      };
+      return stmt;
+    };
+    const origBatch = db.batch.bind(db);
+    db.batch = async (stmts: unknown[]) => {
+      inBatch = true;
+      try {
+        return await origBatch(stmts);
+      } finally {
+        inBatch = false;
+      }
+    };
+
+    const res = await admin.request(
+      `${API}/offers/${src.id}/duplicate`,
+      jsonInit("POST", { name: "Atomic Clone", default_placement_id: "pl-new" }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    expect(standaloneOfferWrites, "every leadgen_offers write must ride the ONE batch").toEqual([]);
+  });
+});
+
+// --- F12b/F12c/F12d + F13a (07 §7.3/§7.7): the duplicate copy-set proofs -----
+
+describeDb("duplicate — F12 copy-set matrix / blanked sentinels / non-copy proofs (07 §7.3, §7.7)", () => {
+  it("F12b: each copy checkbox independently copies vs skips, DB-proven (incl. F13a cap_fallback_offer_id under the cap flag)", async () => {
+    const { sdb, env } = newHarness();
+    const fallback = await createOffer(env, { offer_name: "FallbackTarget", placements: ["fb-1"] });
+    const src = await createOffer(env, { offer_name: "MatrixSrc", placements: ["mx-1"] });
+    const patch = await admin.request(
+      `${API}/offers/${src.id}`,
+      jsonInit("PATCH", {
+        endpoint_production: "https://prov.example.com/q",
+        endpoint_staging: "https://stg.example.com/q",
+        request_method: "POST",
+        api_token_secret_ref: "PROV_KEY",
+        api_token_placement: "header",
+        api_token_param_name: "Authorization",
+        headers: [{ header_name: "X-Static", value_kind: "static", value_text: "v1" }],
+        region_rules: [
+          { dimension: "state", action: "exclude", values: ["CA"], priority: 10 },
+          { dimension: "zip", action: "include_only", values: ["90210"] },
+        ],
+        cap_enabled: true,
+        cap_amount: 50,
+        cap_timezone: "UTC",
+        cap_count_by: "clicks",
+        cap_fallback_offer_id: fallback.id,
+        cap_fallback_url: "https://fallback.example.com/x",
+      }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+
+    interface CloneRow {
+      cap_enabled: number;
+      cap_amount: number | null;
+      cap_timezone: string | null;
+      cap_count_by: string | null;
+      cap_fallback_offer_id: number | null;
+      cap_fallback_url: string | null;
+      endpoint_production: string | null;
+      endpoint_staging: string | null;
+      request_method: string | null;
+      api_token_secret_ref: string | null;
+      api_token_placement: string | null;
+      api_token_param_name: string | null;
+    }
+    let n = 0;
+    const dup = async (
+      flags: Record<string, boolean>,
+    ): Promise<{ row: CloneRow; headers: number; rules: number }> => {
+      n += 1;
+      const res = await admin.request(
+        `${API}/offers/${src.id}/duplicate`,
+        jsonInit("POST", { name: `Clone ${n}`, default_placement_id: `mx-clone-${n}`, ...flags }),
+        env,
+      );
+      expect(res.status, await res.clone().text()).toBe(201);
+      const body = (await res.json()) as { offer: { id: number } };
+      const row = sdb
+        .prepare(
+          "SELECT cap_enabled, cap_amount, cap_timezone, cap_count_by, cap_fallback_offer_id, cap_fallback_url, endpoint_production, endpoint_staging, request_method, api_token_secret_ref, api_token_placement, api_token_param_name FROM leadgen_offers WHERE id = ?",
+        )
+        .get(body.offer.id) as CloneRow;
+      const headers = (
+        sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_headers WHERE offer_id = ?").get(body.offer.id) as { n: number }
+      ).n;
+      const rules = (
+        sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offer_region_rules WHERE offer_id = ?").get(body.offer.id) as {
+          n: number;
+        }
+      ).n;
+      return { row, headers, rules };
+    };
+
+    // Defaults: region rules ON, endpoint config ON, cap settings OFF.
+    const defaults = await dup({});
+    expect(defaults.rules, "copy_region_rules default ON").toBe(2);
+    expect(defaults.row.endpoint_production).toBe("https://prov.example.com/q");
+    expect(defaults.row.endpoint_staging).toBe("https://stg.example.com/q");
+    expect(defaults.row.request_method).toBe("POST");
+    expect(defaults.row.api_token_secret_ref).toBe("PROV_KEY");
+    expect(defaults.row.api_token_placement).toBe("header");
+    expect(defaults.row.api_token_param_name).toBe("Authorization");
+    expect(defaults.headers, "headers ride the endpoint-config box").toBe(1);
+    expect(defaults.row.cap_enabled).toBe(0);
+    expect(defaults.row.cap_amount, "cap settings default OFF").toBeNull();
+    expect(defaults.row.cap_timezone).toBeNull();
+    expect(defaults.row.cap_count_by).toBeNull();
+    expect(defaults.row.cap_fallback_offer_id).toBeNull();
+    expect(defaults.row.cap_fallback_url).toBeNull();
+
+    // copy_region_rules OFF — rules skipped, everything else per defaults.
+    const rulesOff = await dup({ copy_region_rules: false });
+    expect(rulesOff.rules).toBe(0);
+    expect(rulesOff.headers).toBe(1);
+
+    // copy_endpoint_config OFF — refs AND headers skipped.
+    const epOff = await dup({ copy_endpoint_config: false });
+    expect(epOff.row.endpoint_production).toBeNull();
+    expect(epOff.row.endpoint_staging).toBeNull();
+    expect(epOff.row.request_method).toBeNull();
+    expect(epOff.row.api_token_secret_ref).toBeNull();
+    expect(epOff.row.api_token_placement).toBeNull();
+    expect(epOff.row.api_token_param_name).toBeNull();
+    expect(epOff.headers).toBe(0);
+    expect(epOff.rules, "region rules unaffected by the endpoint box").toBe(2);
+
+    // copy_cap_settings ON — settings copy, the cap still lands DISABLED.
+    const capOn = await dup({ copy_cap_settings: true });
+    expect(capOn.row.cap_enabled, "caps ALWAYS copied disabled (§7.3)").toBe(0);
+    expect(capOn.row.cap_amount).toBe(50);
+    expect(capOn.row.cap_timezone).toBe("UTC");
+    expect(capOn.row.cap_count_by).toBe("clicks");
+    // F13a: cap_fallback_offer_id rides the cap-settings checkbox (it was
+    // silently never copied before this fix).
+    expect(capOn.row.cap_fallback_offer_id).toBe(fallback.id);
+    expect(capOn.row.cap_fallback_url).toBe("https://fallback.example.com/x");
+  });
+
+  it("F12c: extra source placements clone as __needs_value__ sentinel DB rows + copied.extra_placements_blanked", async () => {
+    const { sdb, env } = newHarness();
+    const src = await createOffer(env, { offer_name: "BlankSrc", placements: ["pl-d", "pl-x1", "pl-x2"] });
+    const res = await admin.request(
+      `${API}/offers/${src.id}/duplicate`,
+      jsonInit("POST", { name: "BlankClone", default_placement_id: "pl-new-default" }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { offer: { id: number }; copied: { extra_placements_blanked: number } };
+    expect(body.copied.extra_placements_blanked).toBe(2);
+    const rows = sdb
+      .prepare("SELECT placement_id, is_default FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY id")
+      .all(body.offer.id) as Array<{ placement_id: string; is_default: number }>;
+    expect(rows).toEqual([
+      { placement_id: "pl-new-default", is_default: 1 },
+      { placement_id: "__needs_value__1", is_default: 0 },
+      { placement_id: "__needs_value__2", is_default: 0 },
+    ]);
+  });
+
+  it("F12d: operational data is NEVER copied — zero analytics/cap-counter/provider-log/test/revenue rows keyed to the clone", async () => {
+    const { sdb, env } = newHarness();
+    const src = await createOffer(env, { offer_name: "OpSrc", placements: ["op-1"] });
+    // active schema WITH a sample response (a passed-Test artifact on the source)
+    const schemaRes = await admin.request(
+      `${API}/offers/${src.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(schemaRes.status).toBe(201);
+    const schemaId = ((await schemaRes.json()) as { id: number }).id;
+    sdb
+      .prepare("UPDATE leadgen_offer_payload_schemas SET sample_response_json = '{\"carriers\":[]}' WHERE id = ?")
+      .run(schemaId);
+    // operational rows on the SOURCE (analytics, active cap counter, a
+    // test-tool provider-log row, revenue attribution)
+    sdb
+      .prepare("INSERT INTO leadgen_analytics_offer (offer_public_id, date, offer_impressions) VALUES (?, '2026-07-01', 10)")
+      .run(src.public_id);
+    sdb
+      .prepare("INSERT INTO leadgen_offer_cap_counters (offer_id, cap_date, timezone, click_count) VALUES (?, '2026-07-01', 'UTC', 3)")
+      .run(src.id);
+    sdb
+      .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)")
+      .run(src.public_id);
+    sdb
+      .prepare("INSERT INTO leadgen_revenue_raw (dt, click_id, offer_public_id, source, revenue) VALUES ('2026-07-01', 'ck-op', ?, 'api', 5)")
+      .run(src.public_id);
+
+    const res = await admin.request(
+      `${API}/offers/${src.id}/duplicate`,
+      jsonInit("POST", { name: "OpClone", default_placement_id: "op-new" }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      offer: { id: number; public_id: string };
+      copied: { active_schema_as_v1: boolean };
+      not_copied: string[];
+    };
+    expect(body.copied.active_schema_as_v1).toBe(true);
+    expect(body.not_copied).toEqual(
+      expect.arrayContaining(["analytics", "cap_counters", "provider_logs", "test_results", "revenue"]),
+    );
+
+    const clonePid = body.offer.public_id;
+    const count = (sql: string, key: string | number): number =>
+      (sdb.prepare(sql).get(key) as { n: number }).n;
+    expect(count("SELECT COUNT(*) AS n FROM leadgen_analytics_offer WHERE offer_public_id = ?", clonePid)).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM leadgen_offer_cap_counters WHERE offer_id = ?", body.offer.id)).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM leadgen_provider_request_log WHERE offer_public_id = ?", clonePid)).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM leadgen_revenue_raw WHERE offer_public_id = ?", clonePid)).toBe(0);
+    // the cloned v1 schema carries NO sample response → untested by design
+    const cloneSchema = sdb
+      .prepare("SELECT sample_response_json, version FROM leadgen_offer_payload_schemas WHERE offer_id = ?")
+      .get(body.offer.id) as { sample_response_json: string | null; version: number };
+    expect(cloneSchema.version).toBe(1);
+    expect(cloneSchema.sample_response_json).toBeNull();
+  });
+});
+
+// --- F12a + F6 (07 §7.2/§7.7): hard-delete cascade proofs + the audit log ----
+
+describeDb("hard delete — F12a cascade row-count proofs + F6 structured audit log (07 §7.2)", () => {
+  async function seedRichOffer(env: Env, sdb: SqliteDb): Promise<OfferDetail> {
+    const offer = await createOffer(env, { offer_name: "RichOffer", placements: ["rich-1"] });
+    const patch = await admin.request(
+      `${API}/offers/${offer.id}`,
+      jsonInit("PATCH", {
+        headers: [{ header_name: "X-Static", value_kind: "static", value_text: "v" }],
+        region_rules: [
+          { dimension: "state", action: "exclude", values: ["CA"] },
+          { dimension: "zip", action: "include_only", values: ["90210"] },
+        ],
+      }),
+      env,
+    );
+    expect(patch.status).toBe(200);
+    // two schema versions — the ACTIVE pointer is set, so the delete batch
+    // must clear it before cascading the schema rows (FK-safe order)
+    for (let i = 0; i < 2; i++) {
+      const res = await admin.request(
+        `${API}/offers/${offer.id}/payload-schemas`,
+        jsonInit("POST", { schema_json: VALID_SCHEMA }),
+        env,
+      );
+      expect(res.status).toBe(201);
+    }
+    // an INACTIVE (zero-activity) counter row: cascades, never blocks
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_offer_cap_counters (offer_id, cap_date, timezone, click_count, conversion_count) VALUES (?, '2026-07-01', 'UTC', 0, 0)",
+      )
+      .run(offer.id);
+    return offer;
+  }
+
+  const CHILD_TABLES = [
+    "leadgen_offer_region_rules",
+    "leadgen_offer_headers",
+    "leadgen_offer_cap_counters",
+    "leadgen_offer_payload_schemas",
+    "leadgen_offer_placements",
+  ] as const;
+  const EXPECTED_BEFORE = {
+    leadgen_offer_region_rules: 2,
+    leadgen_offer_headers: 1,
+    leadgen_offer_cap_counters: 1,
+    leadgen_offer_payload_schemas: 2,
+    leadgen_offer_placements: 1,
+  };
+
+  function childCounts(sdb: SqliteDb, offerId: number): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const table of CHILD_TABLES) {
+      // fixed-literal table names from the const list above (test-only helper)
+      out[table] = (sdb.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE offer_id = ?`).get(offerId) as { n: number }).n;
+    }
+    return out;
+  }
+
+  it("F12a: ?mode=hard cascades ALL 5 own-child tables — BEFORE/AFTER row counts", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedRichOffer(env, sdb);
+    expect(childCounts(sdb, offer.id), "BEFORE: every child table populated").toEqual(EXPECTED_BEFORE);
+
+    const res = await admin.request(`${API}/offers/${offer.id}?mode=hard`, { method: "DELETE" }, env);
+    expect(res.status, await res.clone().text()).toBe(200);
+
+    expect(childCounts(sdb, offer.id), "AFTER: every child table empty").toEqual({
+      leadgen_offer_region_rules: 0,
+      leadgen_offer_headers: 0,
+      leadgen_offer_cap_counters: 0,
+      leadgen_offer_payload_schemas: 0,
+      leadgen_offer_placements: 0,
+    });
+    expect(
+      (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offers WHERE id = ?").get(offer.id) as { n: number }).n,
+    ).toBe(0);
+  });
+
+  it("F6: hard delete emits the structured audit event with per-child-table cascaded counts", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedRichOffer(env, sdb);
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const res = await admin.request(`${API}/offers/${offer.id}?mode=hard`, { method: "DELETE" }, env);
+      expect(res.status).toBe(200);
+      const line = spy.mock.calls.map((args) => String(args[0])).find((s) => s.includes("leadgen_offer_hard_delete"));
+      expect(line, "structured audit log emitted on hard-delete success").toBeTruthy();
+      expect(JSON.parse(line as string)).toEqual({
+        event: "leadgen_offer_hard_delete",
+        offer_public_id: offer.public_id,
+        offer_name: "RichOffer",
+        cascaded: EXPECTED_BEFORE,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// --- F12e + F8 (07 §7.4/§7.7): EVERY usage kind populated in ONE fixture -----
+
+describeDb("usage — F12e every-kind fixture + F8 true multi-table counts (07 §7.4)", () => {
+  it("populates all 13 kinds ≥1 and every count is the TRUE summed row count in one response", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { offer_name: "UsedEverywhere", placements: ["ue-1"] });
+    const placementRowId = (
+      sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE offer_id = ? AND is_default = 1").get(offer.id) as {
+        id: number;
+      }
+    ).id;
+    // a real schema version (answer_maps carries a NOT NULL schema FK)
+    const schemaRes = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: VALID_SCHEMA }),
+      env,
+    );
+    expect(schemaRes.status).toBe(201);
+    const schema = (await schemaRes.json()) as { id: number; public_id: string };
+
+    // 1. sections_available + 2. answer_maps
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, 'Sec', 'quote_funnel', 'life', 'H', '{}')",
+      )
+      .run(mintPublicId("section"));
+    const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections LIMIT 1").get() as { id: number }).id;
+    sdb
+      .prepare("INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state) VALUES (?, ?, 1, 'complete')")
+      .run(sectionId, offer.id);
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type)
+         VALUES (?, ?, 'q1', 'homeowner', 'homeowner', 'boolean', ?, ?, ?, 'data.home_own', 'boolean')`,
+      )
+      .run(mintPublicId("answer_field_map"), sectionId, offer.id, schema.id, schema.public_id);
+
+    // 3. auctions_participating + 4. auction_rules_targeting + 7. auction_backfill_source
+    sdb
+      .prepare("INSERT INTO leadgen_auctions (public_id, auction_name, auction_type, backfill_source_offer_id) VALUES (?, 'A', 'dynamic', ?)")
+      .run(mintPublicId("auction"), offer.id);
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions LIMIT 1").get() as { id: number }).id;
+    sdb
+      .prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id) VALUES (?, ?, ?)")
+      .run(auctionId, placementRowId, offer.id);
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash) VALUES (?, ?, 'offer', ?, 'exclude', '{}', 'h')",
+      )
+      .run(mintPublicId("auction_rule"), auctionId, offer.id);
+
+    // 5. cap_fallback_referenced_by — ANOTHER offer points its fallback here
+    const other = await createOffer(env, { offer_name: "PointsAtMe", placements: ["ue-2"] });
+    sdb.prepare("UPDATE leadgen_offers SET cap_fallback_offer_id = ? WHERE id = ?").run(offer.id, other.id);
+
+    // 6. funnel_rules_targeting + 8. quotes_indirect (quote→funnel→variant chain)
+    sdb
+      .prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'Q', 'quote_funnel', '[]')")
+      .run(mintPublicId("quote"));
+    const quoteId = (sdb.prepare("SELECT id FROM leadgen_quotes ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, ?, 'F')").run(mintPublicId("funnel"), quoteId);
+    const funnelId = (sdb.prepare("SELECT id FROM leadgen_funnels ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id) VALUES (?, ?)").run(mintPublicId("funnel_variant"), funnelId);
+    const variantId = (sdb.prepare("SELECT id FROM leadgen_funnel_variants ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id) VALUES (?, ?, 'redirect_direct_offer', '{}', 'h', ?)",
+      )
+      .run(mintPublicId("funnel_rule"), variantId, offer.id);
+    sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 1)").run(variantId, sectionId);
+
+    // 9. region_rules (own; warning-only) + 10. cap_counters_active (blocking)
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_offer_region_rules (public_id, offer_id, dimension, action, values_json) VALUES (?, ?, 'state', 'exclude', '[\"CA\"]')",
+      )
+      .run(mintPublicId("offer_region_rule"), offer.id);
+    sdb
+      .prepare("INSERT INTO leadgen_offer_cap_counters (offer_id, cap_date, timezone, click_count) VALUES (?, '2026-07-01', 'UTC', 5)")
+      .run(offer.id);
+
+    // 11. provider_request_logs (warning-only)
+    sdb
+      .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'staging', 200)")
+      .run(offer.public_id);
+
+    // 12. analytics_mirror_rows — F8: rows spread across ALL FOUR offer-keyed
+    // 0037 mirrors (1+1+2+1 = 5); a single-table count would read 1.
+    sdb.prepare("INSERT INTO leadgen_analytics_offer (offer_public_id, date, offer_impressions) VALUES (?, '2026-07-01', 10)").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_analytics_auction_drilldown (auction_public_id, offer_public_id, date) VALUES ('lga_mirror', ?, '2026-07-01')").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_analytics_carrier (auction_public_id, offer_public_id, carrier_key, date) VALUES ('lga_mirror', ?, 'acme', '2026-07-01')").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_analytics_carrier (auction_public_id, offer_public_id, carrier_key, date) VALUES ('lga_mirror', ?, 'acme', '2026-07-02')").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_analytics_provider_diagnostics (offer_public_id, date) VALUES (?, '2026-07-01')").run(offer.public_id);
+
+    // 13. revenue_attribution — F8: raw + postback + conversion (1+2+1 = 4).
+    sdb.prepare("INSERT INTO leadgen_revenue_raw (dt, click_id, offer_public_id, source, revenue) VALUES ('2026-07-08', 'ck1', ?, 's2s_postback', 5.0)").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_postback_log (provider, external_txn_id, offer_public_id) VALUES ('prov', 't1', ?)").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_postback_log (provider, external_txn_id, offer_public_id) VALUES ('prov', 't2', ?)").run(offer.public_id);
+    sdb.prepare("INSERT INTO leadgen_conversion_log (click_id, dedupe_key, offer_public_id) VALUES ('ck1', 'd1', ?)").run(offer.public_id);
+
+    const res = await admin.request(`${API}/offers/${offer.id}/usage`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      usage: {
+        kinds: Array<{ kind: string; count: number; items: unknown[]; warning_only: boolean }>;
+        delete_eligibility: { eligible: boolean; blocking_kinds: string[] };
+      };
+    };
+    const byKind = new Map(body.usage.kinds.map((k) => [k.kind, k]));
+    const BLOCKING = [
+      "sections_available", "answer_maps", "auctions_participating", "auction_rules_targeting",
+      "cap_fallback_referenced_by", "funnel_rules_targeting", "auction_backfill_source",
+      "quotes_indirect", "cap_counters_active",
+    ];
+    const WARNING = ["region_rules", "provider_request_logs", "analytics_mirror_rows", "revenue_attribution"];
+    // every kind present, count > 0, warning_only EXPLICIT on every entry
+    for (const kind of [...BLOCKING, ...WARNING]) {
+      const entry = byKind.get(kind);
+      expect(entry, kind).toBeDefined();
+      expect(entry!.count, `${kind} count > 0`).toBeGreaterThan(0);
+      expect(typeof entry!.warning_only, `${kind} carries warning_only explicitly`).toBe("boolean");
+      expect(entry!.warning_only, `${kind} warning_only`).toBe(WARNING.includes(kind));
+    }
+    // F8 exact sums: the TRUE row counts across every offer-keyed table
+    expect(byKind.get("analytics_mirror_rows")?.count, "4 mirror tables summed").toBe(5);
+    expect(byKind.get("revenue_attribution")?.count, "raw+postback+conversion summed").toBe(4);
+    expect(byKind.get("provider_request_logs")?.count).toBe(1);
+    // warning kinds keep a single synthetic display item; count stays the truth
+    expect(byKind.get("analytics_mirror_rows")?.items).toHaveLength(1);
+    expect(byKind.get("revenue_attribution")?.items).toHaveLength(1);
+    // blocking verdict: all 9 blocking kinds, NONE of the warning kinds
+    expect(body.usage.delete_eligibility.eligible).toBe(false);
+    expect([...body.usage.delete_eligibility.blocking_kinds].sort()).toEqual([...BLOCKING].sort());
   });
 });
