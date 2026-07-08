@@ -439,6 +439,11 @@ async function offerBuilderContext(
       section_name: f.section_name,
       answer_type: f.answer_type,
       choice_count: f.choice_count,
+      // §6.10 (F-1): the field's Section choices ({label, value}) ride the
+      // projection so the condition-value input can render a typed dropdown /
+      // chips entry for enum fields. Additive — readLinkedSectionFields
+      // already collected them; the projection just stopped dropping them.
+      choices: f.choices,
     })),
   };
 }

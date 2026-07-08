@@ -803,12 +803,14 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
     const carrierNode = ctx.active_schema?.nodes.find((n) => n["path"] === "applicant.carrier");
     expect(carrierNode).toEqual(children.find((n) => n["path"] === "applicant.carrier"));
 
-    // linked-field inventory: EXACTLY the pinned 5 keys per row
+    // linked-field inventory: EXACTLY the pinned 6 keys per row (F-1 added
+    // choices — the Section choices feeding the §6.10 typed condition inputs)
     expect(ctx.linked_fields.length).toBeGreaterThan(0);
     for (const row of ctx.linked_fields) {
       expect(Object.keys(row).sort()).toEqual([
         "answer_type",
         "choice_count",
+        "choices",
         "internal_field",
         "section_name",
         "section_public_id",
@@ -819,6 +821,11 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
     const byField = new Map(ctx.linked_fields.map((r) => [r["internal_field"], r]));
     expect(byField.get("carrier")?.["answer_type"]).toBe("enum");
     expect(byField.get("carrier")?.["choice_count"]).toBe(2);
+    expect(byField.get("carrier")?.["choices"]).toEqual([
+      { label: "Acme", value: "acme" },
+      { label: "Globex", value: "globex" },
+    ]);
+    expect(byField.get("homeowner")?.["choices"]).toEqual([]);
     expect(byField.get("homeowner")?.["answer_type"]).toBe("boolean"); // catalog produces fallback
     expect(byField.get("homeowner")?.["choice_count"]).toBe(0);
     expect(byField.get("age")?.["answer_type"]).toBe("number");

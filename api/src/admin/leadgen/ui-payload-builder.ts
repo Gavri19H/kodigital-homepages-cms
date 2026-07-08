@@ -435,6 +435,10 @@ export interface PayloadBuilderLinkedField {
   section_name: string;
   answer_type: string;
   choice_count: number;
+  // §6.10 (F-1): the Section field's choices — feed the typed condition-value
+  // dropdown + the in/not_in chips entry select for enum fields. Optional so
+  // pre-F-1 island payloads stay assignable.
+  choices?: Array<{ value: string | number | boolean; label: string }>;
 }
 
 export interface PayloadBuilderContext {
@@ -1326,6 +1330,8 @@ export const PAYLOAD_BUILDER_STYLES = `
 .lg-pb-vm-table{width:100%;border-collapse:collapse;font-size:12px}
 .lg-pb-vm-table th,.lg-pb-vm-table td{padding:4px 6px;border-bottom:1px solid var(--c-border);text-align:left;vertical-align:middle}
 .lg-pb-vm-table th[data-vm-sort]{cursor:pointer}
+.lg-pb-vm-table tbody tr[draggable="true"]{cursor:grab}
+.lg-pb-vm-table tbody tr.lg-pb-vm-dragover{outline:2px dashed var(--c-accent, #2563eb);outline-offset:-2px}
 .lg-pb-vm-table input.form-input,.lg-pb-vm-table select.form-select{font-size:12px;padding:2px 6px}
 .lg-pb-vm-compact tbody tr td{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .lg-pb-vm-compact-wrap{max-height:180px;overflow:auto;border:1px solid var(--c-border);border-radius:6px}
@@ -1463,8 +1469,66 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   var FREE_TEXT_KEYS = ['free_text_max_length', 'free_text_pattern', 'free_text_pattern_custom'];
   var FREE_TEXT_PATTERNS = ['none', 'letters', 'digits', 'custom'];
   var FREE_TEXT_CUSTOM_MAX = 200;
-  // §6.5 nested-quantifier screen — mirrors payload.ts NESTED_QUANTIFIER_BOMB_RE.
-  var FREE_TEXT_BOMB_RE = /\\([^()]*[+*{][^()]*\\)\\s*[+*{]/;
+  // §6.5 catastrophic-backtracking screen — ES5 mirror of the DEPTH-AWARE
+  // server truth (payload.ts isCatastrophicRegexShape, DEV-38): per-group
+  // frames track quantifier/alternation presence, flags propagate UP on group
+  // close, and any unbounded quantifier (+ * or an open-ended brace repeat)
+  // governing a group whose body at ANY depth carries another quantifier or
+  // an alternation is rejected. Same semantics as the server so the client
+  // never shows "no issues" for a pattern the save endpoint will 400.
+  // Character tests use charCodeAt so no unbalanced brace/paren literals ride
+  // in strings (the vitest island slicer counts braces): 40 "(" 41 ")"
+  // 42 "*" 43 "+" 44 "," 91 "[" 92 backslash 93 "]" 123 open-brace
+  // 124 "|" 125 close-brace, digits 48-57.
+  function isUnboundedBraceAt(pattern, openIdx) {
+    var i = openIdx + 1;
+    var code;
+    while (i < pattern.length) {
+      code = pattern.charCodeAt(i);
+      if (code < 48 || code > 57) { break; }
+      i += 1;
+    }
+    if (i >= pattern.length || pattern.charCodeAt(i) !== 44) { return false; }
+    i += 1;
+    return i < pattern.length && pattern.charCodeAt(i) === 125;
+  }
+  function isCatastrophicShape(pattern) {
+    var stack = [{ q: false, a: false }];
+    var closed = null;
+    var i, code, parent;
+    for (i = 0; i < pattern.length; i++) {
+      code = pattern.charCodeAt(i);
+      if (code === 92) { i += 1; closed = null; continue; }
+      if (code === 91) {
+        i += 1;
+        while (i < pattern.length && pattern.charCodeAt(i) !== 93) {
+          if (pattern.charCodeAt(i) === 92) { i += 1; }
+          i += 1;
+        }
+        closed = null;
+        continue;
+      }
+      if (code === 40) { stack.push({ q: false, a: false }); closed = null; continue; }
+      if (code === 124) { stack[stack.length - 1].a = true; closed = null; continue; }
+      if (code === 41) {
+        closed = stack.length > 1 ? stack.pop() : null;
+        if (closed !== null) {
+          parent = stack[stack.length - 1];
+          if (closed.q) { parent.q = true; }
+          if (closed.a) { parent.a = true; }
+        }
+        continue;
+      }
+      if (code === 43 || code === 42 || (code === 123 && isUnboundedBraceAt(pattern, i))) {
+        if (closed !== null && (closed.q || closed.a)) { return true; }
+        stack[stack.length - 1].q = true;
+        closed = null;
+        continue;
+      }
+      closed = null;
+    }
+    return false;
+  }
   // §6.9 typed computed default/fallback reference (payload.ts
   // isComputedValueRef): {source:'computed', key:'<registry key>'}.
   function isComputedRef(v) {
@@ -1661,7 +1725,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         pushFt('the Custom preset needs a pattern');
       } else if (ftCustom.length > FREE_TEXT_CUSTOM_MAX) {
         pushFt('custom pattern is too long (max ' + FREE_TEXT_CUSTOM_MAX + ' characters)');
-      } else if (FREE_TEXT_BOMB_RE.test(ftCustom)) {
+      } else if (isCatastrophicShape(ftCustom)) {
         pushFt('custom pattern risks catastrophic backtracking (nested quantifier)');
       } else {
         var reOk = true;
@@ -2683,17 +2747,59 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     for (i = 0; i < linkedFields.length; i++) {
       if (!seenF[linkedFields[i].internal_field]) {
         seenF[linkedFields[i].internal_field] = 1;
-        out.push({ value: linkedFields[i].internal_field, label: linkedFields[i].internal_field + ' (' + linkedFields[i].section_name + ')', answer_type: linkedFields[i].answer_type });
+        out.push({ value: linkedFields[i].internal_field, label: linkedFields[i].internal_field + ' (' + linkedFields[i].section_name + ')', answer_type: linkedFields[i].answer_type, choices: linkedFields[i].choices || [] });
       }
     }
     for (i = 0; i < items.length; i++) {
       var f = trimStr(items[i].node.internal_field);
       if (items[i].node.source === 'answer' && f !== '' && !seenF[f]) {
         seenF[f] = 1;
-        out.push({ value: f, label: f + ' (payload field)', answer_type: '' });
+        out.push({ value: f, label: f + ' (payload field)', answer_type: '', choices: [] });
       }
     }
     return out;
+  }
+  // §6.10 (F-1): map a picked choice's STRING form back to the Section
+  // choice's TYPED value (string/number/boolean) so the stored condition
+  // value === the runtime answer value (conditionalMet compares with ===).
+  function condChoiceTypedValue(when, raw) {
+    var lf = linkedByInternal(when);
+    var i;
+    if (lf && lf.choices) {
+      for (i = 0; i < lf.choices.length; i++) {
+        if (String(lf.choices[i].value) === raw) { return lf.choices[i].value; }
+      }
+    }
+    return raw;
+  }
+  // §6.10 (F-1): whether the condition field renders the enum-choices
+  // dropdown (contract: "dropdown for enums") — enum-typed AND choices known.
+  function condChoiceMeta(opts, when) {
+    var i;
+    for (i = 0; i < opts.length; i++) {
+      if (opts[i].value === when) { return opts[i]; }
+    }
+    return null;
+  }
+  // §6.10 (F-1) chips editor mutations for in/not_in — the STORED shape stays
+  // the evaluator's values array; chips only add/remove its tokens.
+  function condChipAdd(bodyEl, node) {
+    var cond = node.conditional;
+    if (!cond || (cond.op !== 'in' && cond.op !== 'not_in')) { return; }
+    var entry = bodyEl.querySelector('[data-pb-cond-list-entry]');
+    if (!entry) { return; }
+    var raw = trimStr(entry.value);
+    if (raw === '') { return; }
+    var typed = entry.tagName === 'SELECT' ? condChoiceTypedValue(cond.when, entry.value) : raw;
+    if (Object.prototype.toString.call(cond.values) !== '[object Array]') { cond.values = []; }
+    var i;
+    for (i = 0; i < cond.values.length; i++) { if (cond.values[i] === typed) { return; } }
+    cond.values.push(typed);
+  }
+  function condChipRemove(node, idx) {
+    var cond = node.conditional;
+    if (!cond || Object.prototype.toString.call(cond.values) !== '[object Array]') { return; }
+    cond.values.splice(idx, 1);
   }
   function condUiOp(cond) {
     if (cond.op === 'eq' && cond.value === '') { return 'is_empty'; }
@@ -2772,8 +2878,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     row.appendChild(opSel);
     var valueBox = el('span', null, null);
     valueBox.setAttribute('data-pb-cond-values', '');
-    var lfMeta = null;
-    for (i = 0; i < opts.length; i++) { if (opts[i].value === cond.when) { lfMeta = opts[i]; } }
+    var lfMeta = condChoiceMeta(opts, cond.when);
+    var isEnumChoices = !!(lfMeta && lfMeta.answer_type === 'enum' && lfMeta.choices && lfMeta.choices.length > 0);
     if (ui === 'is_empty' || ui === 'is_not_empty') {
       valueBox.appendChild(el('span', 'form-help', 'no value needed'));
     } else if (cond.op === 'range') {
@@ -2785,12 +2891,47 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       toIn.setAttribute('aria-label', 'To'); toIn.value = cond.to !== undefined ? String(cond.to) : '';
       valueBox.appendChild(fromIn); valueBox.appendChild(toIn);
     } else if (cond.op === 'in' || cond.op === 'not_in') {
-      var listIn = document.createElement('input');
-      listIn.type = 'text'; listIn.className = 'form-input'; listIn.setAttribute('data-pb-cond-list', '');
-      listIn.setAttribute('aria-label', 'Values (comma-separated)');
-      listIn.placeholder = 'CA, TX, NY';
-      listIn.value = (cond.values || []).join(', ');
-      valueBox.appendChild(listIn);
+      // §6.10 (F-1): chips editor over the evaluator's values array — one
+      // chip per stored token (each removable) + a typed entry control
+      // (choices dropdown for enum fields, text otherwise) + Add. The stored
+      // shape stays the plain scalar array; chips never re-parse text.
+      var chipsBox = el('span', 'lg-pb-chips lg-pb-cond-chips', null);
+      chipsBox.setAttribute('data-pb-cond-chips', '');
+      var vals = Object.prototype.toString.call(cond.values) === '[object Array]' ? cond.values : [];
+      var ci, chip, x;
+      for (ci = 0; ci < vals.length; ci++) {
+        chip = el('span', 'lg-pb-chip', displayScalar(vals[ci]));
+        x = el('button', null, '\\u2715');
+        x.type = 'button';
+        x.setAttribute('data-pb-cond-chip-del', String(ci));
+        x.setAttribute('aria-label', 'Remove value');
+        chip.appendChild(x);
+        chipsBox.appendChild(chip);
+      }
+      valueBox.appendChild(chipsBox);
+      var entry;
+      if (isEnumChoices) {
+        entry = document.createElement('select');
+        entry.className = 'form-select';
+        var eo;
+        for (ci = 0; ci < lfMeta.choices.length; ci++) {
+          eo = el('option', null, lfMeta.choices[ci].label);
+          eo.value = String(lfMeta.choices[ci].value);
+          entry.appendChild(eo);
+        }
+      } else {
+        entry = document.createElement('input');
+        entry.type = 'text';
+        entry.className = 'form-input';
+        entry.placeholder = 'CA';
+      }
+      entry.setAttribute('data-pb-cond-list-entry', '');
+      entry.setAttribute('aria-label', 'Value to add');
+      valueBox.appendChild(entry);
+      var addValBtn = el('button', 'btn btn-sm btn-outline', 'Add');
+      addValBtn.type = 'button';
+      addValBtn.setAttribute('data-pb-cond-chip-add', '');
+      valueBox.appendChild(addValBtn);
     } else if (lfMeta && lfMeta.answer_type === 'boolean') {
       var boolSel = document.createElement('select');
       boolSel.className = 'form-select'; boolSel.setAttribute('data-pb-cond-value', '');
@@ -2805,6 +2946,33 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       // is-empty when they meant "= false". A genuine stored boolean is kept.
       if (typeof cond.value !== 'boolean') { cond.value = boolSel.value === 'true'; }
       valueBox.appendChild(boolSel);
+    } else if (isEnumChoices) {
+      // §6.10 (F-1): enum-typed field with known Section choices — the value
+      // input is a dropdown of those choices (contract: "dropdown for
+      // enums"), storing the picked choice's TYPED value.
+      var choiceSel = document.createElement('select');
+      choiceSel.className = 'form-select';
+      choiceSel.setAttribute('data-pb-cond-value', '');
+      choiceSel.setAttribute('data-pb-cond-choice', '');
+      choiceSel.setAttribute('aria-label', 'Condition value');
+      var cj, cOpt;
+      for (cj = 0; cj < lfMeta.choices.length; cj++) {
+        cOpt = el('option', null, lfMeta.choices[cj].label);
+        cOpt.value = String(lfMeta.choices[cj].value);
+        choiceSel.appendChild(cOpt);
+      }
+      var want = cond.value === undefined ? '' : String(cond.value);
+      var haveMatch = false;
+      for (cj = 0; cj < lfMeta.choices.length; cj++) { if (String(lfMeta.choices[cj].value) === want) { haveMatch = true; } }
+      if (!haveMatch) { want = String(lfMeta.choices[0].value); }
+      choiceSel.value = want;
+      // MINOR-2 pattern: the dropdown always SHOWS a real choice — when the
+      // stored value is not one (fresh eq pick / stale free-text value),
+      // write the SHOWN choice into the model now so what the operator sees
+      // is exactly what saves.
+      var wantTyped = condChoiceTypedValue(cond.when, want);
+      if (cond.value !== wantTyped) { cond.value = wantTyped; }
+      valueBox.appendChild(choiceSel);
     } else {
       var valIn = document.createElement('input');
       valIn.type = ['gt', 'lt', 'gte', 'lte'].indexOf(cond.op) !== -1 ? 'number' : 'text';
@@ -2837,19 +3005,19 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (fromIn && trimStr(fromIn.value) !== '') { cond.from = Number(fromIn.value); }
       if (toIn && trimStr(toIn.value) !== '') { cond.to = Number(toIn.value); }
     } else if (uiOp === 'in' || uiOp === 'not_in') {
-      var listIn = rowsBox.querySelector('[data-pb-cond-list]');
-      var values = [];
-      var parts = String(listIn ? listIn.value : '').split(',');
-      var i, piece;
-      for (i = 0; i < parts.length; i++) {
-        piece = trimStr(parts[i]);
-        if (piece !== '') { values.push(piece); }
-      }
-      cond.values = values;
+      // §6.10 (F-1): chips own the list — tokens are added/removed on the
+      // MODEL by condChipAdd/condChipRemove; reading the row carries the
+      // stored values array forward (never re-parsed from text).
+      var prevCond = node.conditional;
+      cond.values = prevCond && Object.prototype.toString.call(prevCond.values) === '[object Array]' ? prevCond.values : [];
     } else {
       var valIn = rowsBox.querySelector('[data-pb-cond-value]');
       var raw = valIn ? valIn.value : '';
-      if (valIn && valIn.tagName === 'SELECT') { cond.value = raw === 'true'; }
+      if (valIn && valIn.tagName === 'SELECT' && valIn.getAttribute('data-pb-cond-choice') !== null) {
+        // enum-choices dropdown (F-1): store the choice's TYPED value.
+        cond.value = condChoiceTypedValue(when, raw);
+      }
+      else if (valIn && valIn.tagName === 'SELECT') { cond.value = raw === 'true'; }
       else if (valIn && valIn.type === 'number') { cond.value = trimStr(raw) === '' ? undefined : Number(raw); }
       // MINOR-3: do NOT coerce a string field's literal "true"/"false" to a
       // boolean. A boolean field uses the SELECT branch above; here the field
@@ -3336,7 +3504,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       }
       if (t.getAttribute('data-pb-cond-field') !== null || t.getAttribute('data-pb-cond-op') !== null ||
           t.getAttribute('data-pb-cond-value') !== null || t.getAttribute('data-pb-cond-from') !== null ||
-          t.getAttribute('data-pb-cond-to') !== null || t.getAttribute('data-pb-cond-list') !== null) {
+          t.getAttribute('data-pb-cond-to') !== null) {
         readConditionFromRow(editorEl, node);
         fillConditionPanel(editorEl, node);
         afterModelChange();
@@ -3397,6 +3565,15 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         fillChips(editorEl.querySelector('[data-pb-validvalues-chips]'), item.node.valid_values, true);
         afterModelChange();
       }
+      if (t.getAttribute('data-pb-cond-list-entry') !== null) {
+        // §6.10 (F-1): Enter in the chips text entry adds the token (the
+        // same affordance the valid-values / array chips entries have).
+        e.preventDefault();
+        condChipAdd(editorEl, item.node);
+        renderEditor();
+        afterModelChange();
+        return;
+      }
       if (t.getAttribute('data-pb-array-static-input') !== null) {
         e.preventDefault();
         var raw = trimStr(t.value);
@@ -3448,6 +3625,21 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       }
       if (t.closest('[data-pb-cond-remove]') && item) {
         delete item.node.conditional;
+        renderEditor();
+        afterModelChange();
+        return;
+      }
+      btn = t.closest('[data-pb-cond-chip-del]');
+      if (btn && item) {
+        // §6.10 (F-1): remove one in/not_in token from the stored array.
+        condChipRemove(item.node, Number(btn.getAttribute('data-pb-cond-chip-del')));
+        renderEditor();
+        afterModelChange();
+        return;
+      }
+      if (t.closest('[data-pb-cond-chip-add]') && item) {
+        // §6.10 (F-1): add the entry control's token to the stored array.
+        condChipAdd(editorEl, item.node);
         renderEditor();
         afterModelChange();
         return;
@@ -3612,6 +3804,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (filter !== '' && (r.internal + ' ' + displayScalar(r.output)).toLowerCase().indexOf(filter) === -1) { continue; }
       tr = document.createElement('tr');
       tr.setAttribute('data-vm-row', String(i));
+      // §6.4 (F-2): rows drag between the Main / Other groups (drop adopts
+      // the target row's group); the row buttons stay as the keyboard path.
+      tr.setAttribute('draggable', 'true');
+      tr.setAttribute('data-vm-group', r.main ? 'main' : 'other');
       // Display label (from the Section choice) — read-only projection
       var dl = choiceLabelFor(internal, r.internal);
       tr.appendChild(el('td', null, dl !== null ? dl : '\\u2014'));
@@ -3752,6 +3948,48 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (internalIn) { r.internal = internalIn.value; }
     if (outputIn && typeSel) { r.output = vmTypedOutput(outputIn.value, typeSel.value); }
     if (mainCb) { r.main = mainCb.checked; }
+  }
+  // §6.4 (F-2): ONE regroup mutation for BOTH paths — the Mark-as-main /
+  // Move-to-Other buttons (keyboard-accessible path, kept) and the HTML5
+  // drag-between-groups drop below both call this.
+  function vmRegroupRow(rows, idx, group) {
+    if (!rows || !rows[idx]) { return; }
+    rows[idx].main = group === 'main';
+  }
+  // §6.4 (F-2): dropping a dragged row onto a row of the other group adopts
+  // the TARGET row's group (main <-> Other) via the same regroup mutation.
+  function vmDropOnRow(rows, fromIdx, toIdx) {
+    if (!rows || !rows[fromIdx] || !rows[toIdx] || fromIdx === toIdx) { return; }
+    vmRegroupRow(rows, fromIdx, rows[toIdx].main ? 'main' : 'other');
+  }
+  // §6.3 apply core (rows -> node.value_map + choiceDisplay.mainValues),
+  // extracted so the §6.13 vitest letter can EXECUTE the table->map
+  // projection round-trip (valueMapEntries is the map->table half). Returns
+  // the reserved-name skip count (nano-7) for the caller's operator notice.
+  function vmApplyRowsToNode(node, rows) {
+    var map = {};
+    var mains2 = [];
+    var skippedForbidden = 0;
+    var i, r2, internalKey;
+    for (i = 0; i < rows.length; i++) {
+      r2 = rows[i];
+      internalKey = trimStr(r2.internal);
+      if (internalKey === '') { continue; }
+      // nano-7: a reserved-name internal key (proto/constructor/prototype)
+      // would be a silent no-op on a plain-object map (the row would just
+      // vanish); skip it EXPLICITLY and tell the operator, not swallow it.
+      if (FORBIDDEN_SEGMENTS.indexOf(internalKey) !== -1) { skippedForbidden += 1; continue; }
+      map[internalKey] = r2.output;
+      if (r2.main) { mains2.push(internalKey); }
+    }
+    node.value_map = map;
+    var cd = isRecordVal(node.choiceDisplay) ? node.choiceDisplay : {};
+    if (mains2.length > 0) { cd.mainValues = mains2; } else { delete cd.mainValues; }
+    var anyCd = false;
+    var ck2;
+    for (ck2 in cd) { if (hasOwn(cd, ck2)) { anyCd = true; } }
+    if (anyCd) { node.choiceDisplay = cd; } else { delete node.choiceDisplay; }
+    return skippedForbidden;
   }
 
   // Minimal CSV parser (quotes + escaped quotes + commas + newlines).
@@ -3897,8 +4135,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         var tr = rowAct.closest('tr');
         var idx = Number(tr.getAttribute('data-vm-row'));
         var kind2 = rowAct.getAttribute('data-vm-row-act');
-        if (kind2 === 'main') { vmState.rows[idx].main = true; }
-        else if (kind2 === 'other') { vmState.rows[idx].main = false; }
+        if (kind2 === 'main') { vmRegroupRow(vmState.rows, idx, 'main'); }
+        else if (kind2 === 'other') { vmRegroupRow(vmState.rows, idx, 'other'); }
         else if (kind2 === 'dup') { vmState.rows.splice(idx + 1, 0, deepClone(vmState.rows[idx])); }
         else if (kind2 === 'del') { vmState.rows.splice(idx, 1); }
         vmRenderRows();
@@ -3906,30 +4144,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       }
       if (t.closest('[data-vm-apply]')) {
         var node = vmState.item.node;
-        var map = {};
-        var mains2 = [];
-        var skippedForbidden = 0;
-        for (i = 0; i < vmState.rows.length; i++) {
-          r2 = vmState.rows[i];
-          var internalKey = trimStr(r2.internal);
-          if (internalKey === '') { continue; }
-          // nano-7: a reserved-name internal key (proto/constructor/prototype)
-          // would be a silent no-op on a plain-object map (the row would just
-          // vanish); skip it EXPLICITLY and tell the operator, not swallow it.
-          if (FORBIDDEN_SEGMENTS.indexOf(internalKey) !== -1) { skippedForbidden += 1; continue; }
-          map[internalKey] = r2.output;
-          if (r2.main) { mains2.push(internalKey); }
-        }
+        var skippedForbidden = vmApplyRowsToNode(node, vmState.rows);
         if (skippedForbidden > 0 && window.showToast) {
           window.showToast(skippedForbidden + ' reserved-name row(s) skipped (__proto__/constructor/prototype are not valid values)', 'warning');
         }
-        node.value_map = map;
-        var cd = isRecordVal(node.choiceDisplay) ? node.choiceDisplay : {};
-        if (mains2.length > 0) { cd.mainValues = mains2; } else { delete cd.mainValues; }
-        var anyCd = false;
-        var ck2;
-        for (ck2 in cd) { if (hasOwn(cd, ck2)) { anyCd = true; } }
-        if (anyCd) { node.choiceDisplay = cd; } else { delete node.choiceDisplay; }
         refreshAdvReasons(vmState.item);
         closeValueMapModal();
         renderEditor();
@@ -3958,6 +4176,43 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         vmRenderRows();
       }
     });
+    // §6.4 (F-2): drag rows between the Main / Other groups. The drop path
+    // funnels into vmDropOnRow -> vmRegroupRow — the SAME state mutation the
+    // Mark-as-main / Move-to-Other buttons use (buttons stay: keyboard path).
+    var vmDragIdx = null;
+    vmModal.addEventListener('dragstart', function (e) {
+      var t = e.target;
+      var tr = t && t.closest ? t.closest('tr[data-vm-row]') : null;
+      if (!tr || !vmState) { return; }
+      vmDragIdx = Number(tr.getAttribute('data-vm-row'));
+      if (e.dataTransfer) {
+        try { e.dataTransfer.setData('text/plain', String(vmDragIdx)); e.dataTransfer.effectAllowed = 'move'; } catch (dragErr) { /* engines without drag data */ }
+      }
+    });
+    vmModal.addEventListener('dragover', function (e) {
+      var t = e.target;
+      var tr = t && t.closest ? t.closest('tr[data-vm-row]') : null;
+      if (!tr || vmDragIdx === null) { return; }
+      e.preventDefault();
+      if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; }
+      if (tr.classList) { tr.classList.add('lg-pb-vm-dragover'); }
+    });
+    vmModal.addEventListener('dragleave', function (e) {
+      var t = e.target;
+      var tr = t && t.closest ? t.closest('tr[data-vm-row]') : null;
+      if (tr && tr.classList) { tr.classList.remove('lg-pb-vm-dragover'); }
+    });
+    vmModal.addEventListener('drop', function (e) {
+      var t = e.target;
+      var tr = t && t.closest ? t.closest('tr[data-vm-row]') : null;
+      if (!tr || vmDragIdx === null || !vmState) { return; }
+      e.preventDefault();
+      if (tr.classList) { tr.classList.remove('lg-pb-vm-dragover'); }
+      vmDropOnRow(vmState.rows, vmDragIdx, Number(tr.getAttribute('data-vm-row')));
+      vmDragIdx = null;
+      vmRenderRows();
+    });
+    vmModal.addEventListener('dragend', function () { vmDragIdx = null; });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && vmState !== null) { closeValueMapModal(); }
     });
