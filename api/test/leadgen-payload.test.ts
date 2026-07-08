@@ -619,20 +619,30 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           ]),
         ),
       ).toContain("free_text_constraint_invalid");
-      // nested-quantifier bombs AND the exponential alternation class
-      // (a|a)+ / (a|ab)* — both rejected save-time (defense-in-depth; the
-      // load-bearing guard is the runtime input cap, tested in the formats suite).
-      for (const bomb of ["(a+)+$", "^(\\d*)*$", "(ab|a+){3,}", "(a|a)+$", "^(a|ab)*$", "(x|x|x)+$"]) {
+      // Exponential ReDoS shapes are refused at SAVE (no input cap bounds
+      // exponential blowup). The paren-depth-aware screen closes the ENTIRE
+      // family — incl. the NESTED-group evasions ((a)+)+ / (([a-z])+)+ that the
+      // old flat regex missed (adversarial re-review of c18bf8e) — and the
+      // quantified-alternation class (a|a)+ / (a|ab)*.
+      for (const bomb of [
+        "(a+)+$", "^(\\d*)*$", "(ab|a+){3,}", // nested quantifier / alternation-with-inner-quant
+        "(a|a)+$", "^(a|ab)*$", "(x|x|x)+$",   // quantified alternation
+        "((a)+)+$", "(([a-z])+)+$", "((a+))+$", "^((ab)*)*$", // NESTED-group evasions
+      ]) {
         expect(
           codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: bomb })])),
           bomb,
         ).toContain("free_text_constraint_invalid");
       }
-      // a quantified group with NEITHER an inner quantifier NOR an alternation
-      // is linear/deterministic → safe and accepted
-      expect(
-        codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: "^(abc)+$" })])),
-      ).toEqual([]);
+      // Linear/deterministic shapes stay accepted: a quantified group with
+      // NEITHER an inner quantifier NOR an alternation; a bounded {n,m} nest;
+      // and plain anchored classes.
+      for (const safe of ["^(abc)+$", "^[A-Za-z ]+$", "^\\d{5}$", "^(ab){1,3}$", "^[A-Z]{2}[0-9]{4}$"]) {
+        expect(
+          codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: safe })])),
+          safe,
+        ).toEqual([]);
+      }
     });
 
     it("sanitizeFreeText strips C0 control chars + DEL, then trims", () => {

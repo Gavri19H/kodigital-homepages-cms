@@ -500,25 +500,74 @@ function validateChoiceDisplay(
 // a bad config must never reach the runtime enforcement leg.
 const FREE_TEXT_PATTERN_SET: ReadonlySet<string> = new Set(LEADGEN_FREE_TEXT_PATTERNS);
 export const FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH = 200;
-// Hard ceiling on the free-text input a custom/preset RegExp may `.test()` at
-// runtime when the operator set no explicit free_text_max_length. Bounds the
-// ReDoS blast radius unconditionally (a linear regex over ≤4096 chars is cheap;
-// an exponential one over ≤4096 still can't reach the CF CPU limit).
+// Runtime input ceiling. This bounds POLYNOMIAL cost only (a linear/quadratic
+// regex over ≤4096 chars stays cheap). It does NOT and CANNOT bound EXPONENTIAL
+// backtracking — that blows up at ~30 chars, far under any useful cap — so the
+// exponential class is closed at SAVE time by isCatastrophicRegexShape below,
+// not here. Applied unconditionally (even when free_text_max_length is unset)
+// so a linear custom pattern can never `.test()` an unbounded visitor answer.
 export const FREE_TEXT_RUNTIME_INPUT_HARD_CAP = 4096;
 
-// Catastrophic-backtracking screens (save-time defense-in-depth; the
-// load-bearing guard is the unconditional runtime input cap in
-// applyFreeTextConstraints — an operator can always edit a pattern into danger
-// after any heuristic, so the input bound, not the screen, closes the hole).
-// (1) a quantifier applied directly to a group whose body itself carries a
-// quantifier — "(a+)+" / "(a*)*" / "(a|b+){2,}". (2) a quantifier applied to a
-// group that contains an alternation — the exponential "(a|a)+" / "(a|ab)*"
-// class the nested screen alone misses. Length is additionally capped at
-// FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH.
-const NESTED_QUANTIFIER_BOMB_RE = /\([^()]*[+*{][^()]*\)\s*[+*{]/;
-const ALTERNATION_BOMB_RE = /\([^()]*\|[^()]*\)\s*[+*{]/;
+// Save-time catastrophic-backtracking screen. Exponential ReDoS comes from a
+// quantifier governing a subexpression that itself can match ambiguously —
+// classically a nested quantifier ("(a+)+", "((a)+)+", "(([a-z])+)+") or a
+// quantified alternation ("(a|a)+", "(cat|dog)+"). A flat regex screen misses
+// nesting (its char class can't cross parens — the c18bf8e evasion), so this
+// walks the pattern paren-depth-aware: it rejects any unbounded quantifier
+// (+ * {n,}) applied to a GROUP whose body — at ANY depth — contains another
+// quantifier or a top-level-of-that-group alternation. SOUND (never admits an
+// exponential shape); conservatively over-rejects some safe quantified
+// alternations like "(cat|dog)+" (author those as valid_values or via the
+// Advanced drawer) — a safe-side usability trade-off, DEV-38.
 function isCatastrophicRegexShape(pattern: string): boolean {
-  return NESTED_QUANTIFIER_BOMB_RE.test(pattern) || ALTERNATION_BOMB_RE.test(pattern);
+  interface Frame { hasQuantifier: boolean; hasAlternation: boolean; }
+  const stack: Frame[] = [{ hasQuantifier: false, hasAlternation: false }];
+  let justClosed: Frame | null = null; // the group closed by the most recent ')'
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === "\\") { i++; justClosed = null; continue; } // skip escaped char
+    if (ch === "[") { // skip a char class wholesale (its contents are literal)
+      i++;
+      while (i < pattern.length && pattern[i] !== "]") { if (pattern[i] === "\\") i++; i++; }
+      justClosed = null;
+      continue;
+    }
+    if (ch === "(") { stack.push({ hasQuantifier: false, hasAlternation: false }); justClosed = null; continue; }
+    if (ch === "|") { stack[stack.length - 1]!.hasAlternation = true; justClosed = null; continue; }
+    if (ch === ")") {
+      justClosed = stack.length > 1 ? stack.pop()! : null;
+      // Propagate the closed group's flags UP: its body's quantifier/alternation
+      // is now "contained at some depth" by the parent — so a quantifier that
+      // later governs the parent is caught (closes the "((a+))+" nested evasion).
+      if (justClosed !== null) {
+        const parent = stack[stack.length - 1]!;
+        if (justClosed.hasQuantifier) parent.hasQuantifier = true;
+        if (justClosed.hasAlternation) parent.hasAlternation = true;
+      }
+      continue;
+    }
+    if (ch === "+" || ch === "*" || (ch === "{" && isUnboundedBrace(pattern, i))) {
+      if (justClosed !== null) {
+        // this quantifier governs the just-closed group
+        if (justClosed.hasQuantifier || justClosed.hasAlternation) return true; // exponential shape
+        stack[stack.length - 1]!.hasQuantifier = true; // the group (now quantified) is a quantifier in its parent
+      } else {
+        stack[stack.length - 1]!.hasQuantifier = true; // quantifier on a bare atom
+      }
+      justClosed = null;
+      continue;
+    }
+    justClosed = null;
+  }
+  return false;
+}
+// A "{...}" quantifier is unbounded-ish (exponential-capable) when it has no
+// upper bound: {n,} . Bounded {n} / {n,m} can't drive exponential blowup.
+function isUnboundedBrace(pattern: string, openIdx: number): boolean {
+  const close = pattern.indexOf("}", openIdx);
+  if (close === -1) return false; // a literal "{"
+  const body = pattern.slice(openIdx + 1, close);
+  return /^\d*,$/.test(body); // {n,} or {,}
 }
 
 const FREE_TEXT_CONSTRAINT_KEYS = [
@@ -1139,12 +1188,12 @@ function applyFreeTextConstraints(value: unknown, node: LeadgenPayloadNode): unk
   const str = coerceToType(value, "string");
   if (typeof str !== "string") return undefined;
   const sanitized = sanitizeFreeText(str);
-  // ReDoS defense (money path): answers are unbounded visitor input and are
-  // NOT in the signed tuple, so the regex INPUT must be bounded BEFORE any
-  // `.test()`. The effective ceiling is the operator's max_length when set,
-  // else a hard cap — this fires even when free_text_max_length is undefined,
-  // so a custom pattern with no explicit max can never `.test()` a huge input.
-  // Over-ceiling → invalid → the caller's fallback (never `.test()`, never throw).
+  // ReDoS defense, money path (answers are unbounded visitor input, NOT in the
+  // signed tuple). TWO layers: (1) this input bound caps POLYNOMIAL cost — a
+  // linear/quadratic pattern over ≤ceiling chars is cheap; it fires even when
+  // free_text_max_length is unset. (2) EXPONENTIAL patterns are refused at SAVE
+  // (isCatastrophicRegexShape) because no input cap bounds exponential blowup.
+  // Over-ceiling → invalid → the caller's fallback (regex never runs, never throws).
   const effectiveMax = node.free_text_max_length ?? FREE_TEXT_RUNTIME_INPUT_HARD_CAP;
   if (sanitized.length > effectiveMax) {
     return undefined; // too long → invalid (regex never runs)
@@ -1155,6 +1204,11 @@ function applyFreeTextConstraints(value: unknown, node: LeadgenPayloadNode): unk
     if (preset !== undefined && !preset.test(sanitized)) return undefined;
   } else if (pattern === "custom") {
     if (typeof node.free_text_pattern_custom !== "string") return undefined;
+    // Belt-and-suspenders: refuse a catastrophic pattern AT RUNTIME too, not
+    // only at save — a bomb could reach here via legacy/pre-fix stored data or
+    // a direct DB edit that never passed validatePayloadSchema. Cheap (pattern
+    // ≤200 chars) and makes the money path self-defending. Invalid → fallback.
+    if (isCatastrophicRegexShape(node.free_text_pattern_custom)) return undefined;
     try {
       if (!new RegExp(node.free_text_pattern_custom).test(sanitized)) return undefined;
     } catch {

@@ -360,31 +360,30 @@ describe("§6.5 free-text constraint matrix — runtime", () => {
     expect(build(custom, "CA12345")).toEqual({ first_name: "FALLBACK" });
   });
 
-  // MAJOR-1 (adversarial): the money-path ReDoS guard. A stored exponential
-  // custom pattern (the class the save-time heuristic can be edited past) MUST
-  // NOT be `.test()`ed against unbounded visitor input — the runtime caps the
-  // input BEFORE the regex, so over-cap input → fallback in ~O(cap), never a hang.
-  it("ReDoS: exponential custom pattern + huge input returns instantly via fallback (no hang)", () => {
-    const bomb = { free_text_pattern: "custom" as const, free_text_pattern_custom: "(a|a)+$" };
-    const hugeMatch = "a".repeat(5000) + "X"; // pre-fix: ~12s hang; post-fix: capped → fallback
-    const started = performance.now();
-    const out = build(bomb, hugeMatch);
-    const elapsedMs = performance.now() - started;
-    expect(out).toEqual({ first_name: "FALLBACK" }); // over the 4096 hard cap → invalid → fallback
-    expect(elapsedMs).toBeLessThan(250); // linear cap check, never the exponential `.test()`
+  // MAJOR-1 (adversarial, two-layer defense). buildPayload does NOT re-run
+  // save validation, so a node here simulates a bomb that reached the money
+  // path via legacy/pre-fix stored data or a direct DB edit — exactly the
+  // at-cap exponential the re-review proved an input cap alone can't stop.
+  it("ReDoS layer-2 (runtime screen): a stored EXPONENTIAL pattern is refused before .test() → fallback, no hang", () => {
+    // ((a)+)+ evaded the old flat save-regex and hangs ~30-char input in ~seconds.
+    // The runtime isCatastrophicRegexShape screen refuses it regardless of input length.
+    const bomb = { free_text_pattern: "custom" as const, free_text_pattern_custom: "((a)+)+$" };
+    for (const input of ["a".repeat(30) + "X", "a".repeat(40) + "X"]) {
+      const started = performance.now();
+      const out = build(bomb, input); // in-bounds length (≤4096) — the input cap does NOT save us here
+      expect(out).toEqual({ first_name: "FALLBACK" }); // the runtime pattern screen does
+      expect(performance.now() - started).toBeLessThan(250);
+    }
   });
 
-  it("ReDoS: input cap fires even when free_text_max_length is UNSET (custom pattern, no explicit max)", () => {
-    // A short in-bounds input still runs the regex normally (custom matches).
+  it("ReDoS layer-1 (input cap): over-cap input against a linear custom pattern → fallback before .test(), even with max_length UNSET", () => {
+    // a short in-bounds input still runs a benign custom pattern normally
     expect(build({ free_text_pattern: "custom", free_text_pattern_custom: "^a+$" }, "aaa")).toEqual({
       first_name: "aaa",
     });
-    // >4096 chars with no max_length set → invalid before `.test()` → fallback.
+    // >4096 chars, no max_length set → invalid before the regex → fallback, fast
     const started = performance.now();
-    const out = build(
-      { free_text_pattern: "custom", free_text_pattern_custom: "(a|ab)*$" },
-      "a".repeat(6000),
-    );
+    const out = build({ free_text_pattern: "custom", free_text_pattern_custom: "^a+$" }, "a".repeat(6000));
     expect(out).toEqual({ first_name: "FALLBACK" });
     expect(performance.now() - started).toBeLessThan(250);
   });
