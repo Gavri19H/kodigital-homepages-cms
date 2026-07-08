@@ -151,18 +151,28 @@ test.describe.serial('LeadGen Offers — CP2 click-through', () => {
     await expect(page.locator('[data-lg-tab-btn="test"]')).toBeVisible();
     await expect(page.locator('[data-lg-tab-btn="static"]')).toBeHidden();
 
-    // §11.1 builder: the seeded schema tree renders (2 nodes) + live preview.
+    // §11.1 builder (fix-P2 §6.1 three-pane rebuild): the seeded schema
+    // renders as the payload TREE — both explicit nodes with their paths, the
+    // answer node badged mapped, the macro node's source held by the grouped
+    // source picker — plus the live preview.
     await page.locator('[data-lg-tab-btn="payload"]').click();
-    await expect(page.locator('#lg-node-rows .lg-node-row')).toHaveCount(2);
-    await expect(page.locator('#lg-node-rows [data-node-field="path"]').first()).toHaveValue('data.zip');
-    await expect(page.locator('#lg-node-rows [data-node-field="source"]').nth(1)).toHaveValue('macro');
+    await expect(page.locator('#lg-pb-tree .lg-pb-node[data-pb-uid]')).toHaveCount(2);
+    await expect(page.locator('#lg-pb-tree [data-pb-path="data.zip"]')).toBeVisible();
+    await expect(page.locator('#lg-pb-tree [data-pb-path="data.zip"] .lg-pb-badge-mapped')).toBeVisible();
+    await expect(page.locator('#lg-pb-tree [data-pb-path="meta.click_id"]')).toBeVisible();
+    await page.locator('[data-pb-select="meta.click_id"]').click();
+    await expect(page.locator('#lg-pb-editor [data-pb-source-select]')).toHaveValue('macro:click_id');
     await expect(page.locator('#lg-schema-preview')).toContainText('data.zip');
     await expect(page.locator('#lg-payload-meta')).toContainText('Active schema: v1');
 
-    // §11.1 "Test with sample answers" = the inline dry-run panel, INSIDE
-    // the Payload tab (results stay hidden until a run; none is run here).
+    // §11.1 "Test with sample answers" = the dry-run panel, INSIDE the
+    // Payload tab — now behind a collapsed Advanced drawer (§6.14: raw JSON
+    // only behind Advanced). Results stay hidden until a run; none runs here.
+    const dryrunDrawer = page.locator('#lg-dryrun-advanced');
+    await expect(dryrunDrawer).toBeVisible();
+    await expect(page.locator('#lg-dryrun-answers')).toBeHidden();
+    await dryrunDrawer.locator('summary').click();
     await expect(page.locator('#lg-dryrun-run')).toBeVisible();
-    await expect(page.locator('#lg-dryrun-answers')).toBeVisible();
     await expect(page.locator('#lg-dryrun-results')).toBeHidden();
     await page.screenshot({ path: `${SHOT_DIR}/07-dynamic-editor-builder.png` });
 
@@ -171,9 +181,12 @@ test.describe.serial('LeadGen Offers — CP2 click-through', () => {
     await expect(page.locator('#lg-endpoint-production')).toHaveValue('https://provider.e2e.example/api/quotes');
 
     // §11.6 Test panel renders its panels — do NOT run a live provider call.
+    // The raw-answers editor sits behind the collapsed Advanced drawer
+    // (fix-P2 §6.14); the generated form + run button are the normal path.
     await page.locator('[data-lg-tab-btn="test"]').click();
     await expect(page.locator('#lg-test-environment')).toBeVisible();
-    await expect(page.locator('#lg-test-answers')).toBeVisible();
+    await expect(page.locator('#lg-test-form')).toBeVisible();
+    await expect(page.locator('#lg-test-answers')).toBeHidden();
     await expect(page.locator('#lg-test-run')).toBeVisible();
     await expect(page.locator('#lg-test-results')).toBeHidden();
 
