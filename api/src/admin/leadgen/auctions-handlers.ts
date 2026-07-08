@@ -24,6 +24,7 @@ import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import { buildPayload } from "../../leadgen/payload";
 import { redactPii } from "../../leadgen/redact";
+import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
@@ -1649,31 +1650,71 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
   ];
   const excludedReasonByOffer = new Map(result.explain.offers_excluded.map((e) => [e.offer_id, e.reason]));
   const offerPublicIds = [...new Set(consideredWithPlacements.map((o) => o.offer_id))].filter((x) => x !== "");
+  const placementByOffer = new Map(
+    consideredWithPlacements.filter((o) => o.placement_id !== "").map((o) => [o.offer_id, o.placement_id]),
+  );
+  // MAJOR (adversarial §7.6): the preview must be the EXACT generated payload —
+  // built with the SAME macros/computed/placement the engine threads, not
+  // answers alone. Build one simulate runtime context (request + the operator's
+  // simulated `context` overrides) and reuse its macros/computed per offer.
+  const simCtx = buildLeadgenRuntimeContext(
+    { req: { raw: c.req.raw } },
+    {
+      session_id: "",
+      page_view_id: "",
+      funnel_attempt_id: "",
+      quote: resolved.quote,
+      funnel: resolved.funnel,
+      variant: resolved.variant,
+      overrides: context as never, // simulated-context bag (B5 — admin dry-run only)
+    },
+  );
   const payloadExplain: Array<Record<string, unknown>> = [];
   for (const ids of chunk(offerPublicIds)) {
     if (ids.length === 0) continue;
     const marks = ids.map(() => "?").join(",");
+    // The provider-facing EXTERNAL placement_id (not the lgpl_ public id) is
+    // what source:"placement" resolves to at runtime (04 §4.5) — join the
+    // offer's participating placement in THIS auction so the preview matches
+    // what the engine actually sends.
     const rows = await c.env.DB.prepare(
       `SELECT o.public_id AS offer_public_id, s.public_id AS parser_id, s.schema_json,
-              s.carrier_parse_json, s.carrier_parse_version
+              s.carrier_parse_json, s.carrier_parse_version, pl.placement_id AS ext_placement
        FROM leadgen_offers o
        LEFT JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
+       LEFT JOIN leadgen_auction_offers ao ON ao.offer_id = o.id AND ao.auction_id = ?
+       LEFT JOIN leadgen_offer_placements pl ON pl.id = ao.offer_placement_id
        WHERE o.public_id IN (${marks})`,
     )
-      .bind(...ids)
+      .bind(auction.id, ...ids)
       .all<{
         offer_public_id: string;
         parser_id: string | null;
         schema_json: string | null;
         carrier_parse_json: string | null;
         carrier_parse_version: number | null;
+        ext_placement: string | null;
       }>();
     for (const r of rows.results ?? []) {
+      const placementForOffer = placementByOffer.get(r.offer_public_id) ?? "";
       let payloadPreview: unknown = null;
       if (r.schema_json !== null) {
         try {
           const parsedSchema = JSON.parse(r.schema_json) as Parameters<typeof buildPayload>[0];
-          payloadPreview = redactPii(buildPayload(parsedSchema, { answers: sampleAnswers }));
+          // EXACT payload: answers + the same macros/computed the engine uses +
+          // this offer's PROVIDER-FACING placement id (source:"placement" resolves
+          // the external leadgen_offer_placements.placement_id, not the lgpl_ public
+          // id — 04 §4.5, matching the Test-tool peer in payload-builder-handlers).
+          // Secrets never resolve here (no token value passed) and redactPii masks
+          // PII before return.
+          payloadPreview = redactPii(
+            buildPayload(parsedSchema, {
+              answers: sampleAnswers,
+              macros: simCtx.macros,
+              computed: simCtx.computed,
+              offer: { offer_id: r.offer_public_id, placement_id: r.ext_placement ?? placementForOffer },
+            }),
+          );
         } catch {
           payloadPreview = null; // malformed stored schema → null preview, never throw
         }
@@ -1689,11 +1730,9 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
           /* leave empty */
         }
       }
-      const placementId =
-        consideredWithPlacements.find((o) => o.offer_id === r.offer_public_id && o.placement_id !== "")?.placement_id ?? "";
       payloadExplain.push({
         offer_id: r.offer_public_id,
-        placement_id: placementId,
+        placement_id: placementForOffer,
         parser_id: r.parser_id,
         carrier_parse_version: r.carrier_parse_version,
         expected_response_fields: expectedResponseFields,

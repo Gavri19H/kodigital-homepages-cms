@@ -256,6 +256,53 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(Array.isArray(entry!.expected_response_fields)).toBe(true);
   });
 
+  it("S1 MAJOR fix: the preview is the EXACT payload — macro + placement fields resolve (not answers-only)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    // an offer whose ACTIVE schema pulls a source=macro field (utm_source) and
+    // a source=placement field — proving the preview threads the runtime
+    // context, not just answers (the adversarial MAJOR).
+    const offerPublic = mintPublicId("offer");
+    sdb.prepare(
+      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, endpoint_production, endpoint_staging, status)
+       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'https://p.example/q', 'https://s.example/q', 'active')`,
+    ).run(offerPublic);
+    const offerId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublic) as { id: number }).id;
+    const schemaJson = JSON.stringify({
+      version: 1,
+      root: { type: "object", children: [
+        { path: "src", name: "src", type: "string", source: "macro", macro: "utm_source" },
+        { path: "plc", name: "plc", type: "string", source: "placement" },
+      ] },
+    });
+    const schemaPublic = mintPublicId("payload_schema_version");
+    sdb.prepare(
+      "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source) VALUES (?, ?, 1, ?, ?, 1, 'manual')",
+    ).run(schemaPublic, offerId, schemaJson, CARRIER_PARSE);
+    const schemaId = (sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?").get(schemaPublic) as { id: number }).id;
+    sdb.prepare("UPDATE leadgen_offers SET active_payload_schema_id = ? WHERE id = ?").run(schemaId, offerId);
+    const plPublic = mintPublicId("offer_placement");
+    sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-macro-1', 1)").run(plPublic, offerId);
+    const placementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(plPublic) as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(offerPublic); // PASSED test → R4-eligible
+    sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placementRowId, offerId);
+    stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
+
+    const res = await admin.request(
+      `${API}/auctions/${auction.public_id}/simulate`,
+      jsonInit("POST", { sample_answers: {}, context: { utm_source: "fbk-sim" } }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: Record<string, unknown> | null }> };
+    const entry = j.offers_payload_explain.find((e) => e.offer_id === offerPublic);
+    expect(entry?.payload_preview, "preview built").toBeTruthy();
+    // the MACRO field resolved from the simulated context (NOT dropped)…
+    expect((entry!.payload_preview as Record<string, unknown>)["src"]).toBe("fbk-sim");
+    // …and the source=placement field resolved to the participating placement id.
+    expect((entry!.payload_preview as Record<string, unknown>)["plc"]).toBe("plc-macro-1");
+  });
+
   it("an offer-level exclude rule surfaces in offers_excluded with a typed reason", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);

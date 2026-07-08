@@ -1570,7 +1570,17 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
     }
   }
 
-  if (stmts.length > 0) await c.env.DB.batch(stmts);
+  // Atomicity (§7.3 "one transaction"): the children (incl. the REQUIRED
+  // default placement) go in one batch. If it fails, compensate by removing the
+  // just-inserted offer so a placement-less paused clone never persists.
+  if (stmts.length > 0) {
+    try {
+      await c.env.DB.batch(stmts);
+    } catch (err) {
+      await c.env.DB.prepare("DELETE FROM leadgen_offers WHERE public_id = ?").bind(newPublic).run();
+      throw err;
+    }
+  }
 
   // NEVER copied: analytics, cap counters, provider logs, Test results, revenue.
   return c.json(
@@ -1685,6 +1695,62 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
       offerId,
     ),
   );
+  // BLOCKER (adversarial): a funnel redirect rule that targets this Offer
+  // (§11 direct_offer_redirect) is a live wired reference — deleting the Offer
+  // would break the redirect. Blocking.
+  add(
+    "funnel_rules_targeting",
+    await countRefs(
+      db,
+      `SELECT r.id, r.public_id, COALESCE(f.funnel_name, 'funnel rule') AS name,
+              '/admin/leadgen/quotes' AS link
+       FROM leadgen_funnel_rules r
+       LEFT JOIN leadgen_funnel_variants v ON v.id = r.variant_id
+       LEFT JOIN leadgen_funnels f ON f.id = v.funnel_id
+       WHERE r.target_offer_id = ? ORDER BY r.id`,
+      offerId,
+    ),
+  );
+  // BLOCKER (adversarial): an Auction using this Offer as its backfill source
+  // (leadgen_auctions.backfill_source_offer_id — write-enforced FK) would be
+  // left dangling + un-saveable. Blocking.
+  add(
+    "auction_backfill_source",
+    await countRefs(
+      db,
+      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit' AS link
+       FROM leadgen_auctions a WHERE a.backfill_source_offer_id = ? ORDER BY a.auction_name`,
+      offerId,
+    ),
+  );
+  // MAJOR (adversarial): the §7.4-named kinds that were missing. quotes_indirect
+  // (Quotes whose Sections select this Offer) is blocking; region_rules (own —
+  // cascade-deleted on clean delete) is INFORMATIONAL (warning-only, never
+  // blocks — the cascade handles it); revenue_attribution is warning-only.
+  add(
+    "quotes_indirect",
+    await countRefs(
+      db,
+      `SELECT DISTINCT q.id, q.public_id, q.quote_name AS name, '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
+       FROM leadgen_section_available_offers sao
+       JOIN leadgen_funnel_variant_sections fvs ON fvs.section_id = sao.section_id
+       JOIN leadgen_funnel_variants fv ON fv.id = fvs.variant_id
+       JOIN leadgen_funnels f ON f.id = fv.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE sao.offer_id = ? ORDER BY q.quote_name`,
+      offerId,
+    ),
+  );
+  add(
+    "region_rules",
+    await countRefs(
+      db,
+      `SELECT id, public_id, dimension AS name, '' AS link
+       FROM leadgen_offer_region_rules WHERE offer_id = ? ORDER BY id`,
+      offerId,
+    ),
+    true, // own children — cascade-deleted; informational, never blocks
+  );
   add(
     "cap_counters_active",
     await countRefs(
@@ -1696,15 +1762,19 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
   );
   // Warning-only historical rows — keyed on offer_public_id. A single synthetic
   // item carrying the row count when > 0 (never blocks a delete).
-  const providerLogCount = await countScalar(
-    db,
-    `SELECT COUNT(*) AS n FROM leadgen_provider_request_log
-     WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
-    offerId,
-  );
+  const providerLog = await db
+    .prepare(
+      `SELECT COUNT(*) AS n, MAX(created_at) AS latest FROM leadgen_provider_request_log
+       WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
+    )
+    .bind(offerId)
+    .first<{ n: number; latest: number | null }>();
+  const providerLogCount = providerLog?.n ?? 0;
   add(
     "provider_request_logs",
-    providerLogCount > 0 ? [{ id: 1, public_id: String(providerLogCount), name: `${providerLogCount} provider requests`, link: "" }] : [],
+    providerLogCount > 0
+      ? [{ id: providerLog?.latest ?? 1, public_id: String(providerLogCount), name: `${providerLogCount} provider requests (latest ts ${providerLog?.latest ?? "?"})`, link: "" }]
+      : [],
     true,
   );
   const analyticsCount = await countScalar(
@@ -1716,6 +1786,19 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
   add(
     "analytics_mirror_rows",
     analyticsCount > 0 ? [{ id: 1, public_id: String(analyticsCount), name: `${analyticsCount} analytics rows`, link: "" }] : [],
+    true,
+  );
+  // revenue_attribution — warning-only (§7.4); revenue_raw rows keyed by
+  // offer_public_id (historical attribution, never blocks a delete).
+  const revenueCount = await countScalar(
+    db,
+    `SELECT COUNT(*) AS n FROM leadgen_revenue_raw
+     WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
+    offerId,
+  );
+  add(
+    "revenue_attribution",
+    revenueCount > 0 ? [{ id: 1, public_id: String(revenueCount), name: `${revenueCount} revenue rows`, link: "" }] : [],
     true,
   );
 
