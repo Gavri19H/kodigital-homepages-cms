@@ -1,0 +1,11 @@
+{
+  "//": "LeadGen hydration-runtime typecheck project (fix-contract v2.4 03 §3.2). The runtime/* modules are BROWSER code (lib DOM, es2019 — the bundle target); the main worker tsconfig excludes them (no DOM lib there) and this project covers ONLY them. The generated bundle module is excluded here (it is a plain exported-string, type-checked in the worker program via the /lg/runtime route's import). Checked by `npm run verify:leadgen-runtime`.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2019",
+    "lib": ["ES2019", "DOM"],
+    "types": []
+  },
+  "include": ["src/public/leadgen/runtime/**/*.ts"],
+  "exclude": ["src/public/leadgen/runtime/engine-bundle.generated.ts"]
+}

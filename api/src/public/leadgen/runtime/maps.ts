@@ -1,0 +1,221 @@
+// LeadGen runtime — Google Places Autocomplete wiring (fix-contract v2.4 03
+// §3.2 maps.ts row; field-level config per 08 §8.8, browser Places leg only).
+//
+// The SHELL decides whether to load the Maps SDK (browser key configured AND
+// a maps-enabled address/ZIP component exists — 03 §3.2 serve.ts row). This
+// module wires whatever is present at hydration time:
+//   * SDK + key present → attach Places Autocomplete to each field carrying a
+//     `data-lg-maps="{configJSON}"` hook; on a place selection, autofill the
+//     mapped internal fields and emit `address_autofill`; a complete/valid
+//     resolution additionally emits `address_validation_success`, an
+//     incomplete one `address_validation_error` (10 §10.2 producer row).
+//   * key/SDK missing → graceful CONSOLE-ERROR-FREE no-op: nothing is wired,
+//     manual entry keeps working (08 §8.8 "Autocomplete/validation will
+//     no-op; manual entry still works").
+//
+// BROWSER module: window/google access strictly inside functions.
+
+export interface LgMapsFieldConfig {
+  autocomplete: boolean;
+  validate: boolean;
+  fills: { street?: string; city?: string; state?: string; zip?: string };
+  normalize: boolean;
+}
+
+// Liberal parse of the per-field data-lg-maps JSON (08 §8.8 authoring keys;
+// both the flat `autofill_*` spelling and a nested `fills` object are
+// accepted so the presets author has room — unknown keys ignored).
+export function parseMapsConfig(raw: string | null): LgMapsFieldConfig | null {
+  if (raw === null || raw === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const c = parsed as Record<string, unknown>;
+  const fillsRaw =
+    c["fills"] !== null && typeof c["fills"] === "object"
+      ? (c["fills"] as Record<string, unknown>)
+      : {};
+  const pick = (flat: string, nested: string): string | undefined => {
+    const v = c[flat] !== undefined ? c[flat] : fillsRaw[nested];
+    return typeof v === "string" && v !== "" ? v : undefined;
+  };
+  const fills: LgMapsFieldConfig["fills"] = {};
+  const street = pick("autofill_street", "street");
+  const city = pick("autofill_city", "city");
+  const state = pick("autofill_state", "state");
+  const zip = pick("autofill_zip", "zip");
+  if (street !== undefined) fills.street = street;
+  if (city !== undefined) fills.city = city;
+  if (state !== undefined) fills.state = state;
+  if (zip !== undefined) fills.zip = zip;
+  return {
+    autocomplete: c["enable_autocomplete"] === true || c["autocomplete"] === true,
+    validate:
+      c["validate_full_address"] === true || c["validate_zip"] === true || c["validate"] === true,
+    fills,
+    normalize: c["normalize_address_line"] === true || c["normalize"] === true,
+  };
+}
+
+// The address parts extracted from a Places result.
+export interface LgResolvedAddress {
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  formatted: string;
+}
+
+interface AddressComponentLike {
+  types?: string[];
+  long_name?: string;
+  short_name?: string;
+}
+
+export function extractAddressParts(components: readonly AddressComponentLike[]): LgResolvedAddress {
+  const find = (type: string, short = false): string => {
+    for (const component of components) {
+      if (Array.isArray(component.types) && component.types.indexOf(type) !== -1) {
+        const v = short ? component.short_name : component.long_name;
+        if (typeof v === "string") return v;
+      }
+    }
+    return "";
+  };
+  const streetNumber = find("street_number");
+  const route = find("route");
+  const street = `${streetNumber} ${route}`.trim();
+  return {
+    street,
+    city: find("locality") || find("sublocality") || find("postal_town"),
+    state: find("administrative_area_level_1", true),
+    zip: find("postal_code"),
+    formatted: "",
+  };
+}
+
+export interface LgMapsHooks {
+  // Write an autofilled value through the engine's normal answer path
+  // (answer_source: user_selected — the user picked the place).
+  setAnswer: (internalField: string, value: unknown, meta: { question_id: string }) => void;
+  // Beacon emitters (engine stamps section dims).
+  emit: (
+    eventType: "address_autofill" | "address_validation_success" | "address_validation_error",
+    fields: Record<string, unknown>,
+  ) => void;
+}
+
+// Minimal structural typing of the Places surface we touch (the SDK is an
+// EXTERNAL runtime global — never a bundled dependency, 03 §3.9).
+interface PlacesAutocompleteLike {
+  addListener(event: "place_changed", handler: () => void): void;
+  getPlace(): {
+    address_components?: AddressComponentLike[];
+    formatted_address?: string;
+  } | null;
+}
+
+function placesCtor(): (new (
+  input: Element,
+  opts: Record<string, unknown>,
+) => PlacesAutocompleteLike) | null {
+  const w = window as unknown as {
+    google?: { maps?: { places?: { Autocomplete?: unknown } } };
+  };
+  const ctor = w.google?.maps?.places?.Autocomplete;
+  return typeof ctor === "function"
+    ? (ctor as new (input: Element, opts: Record<string, unknown>) => PlacesAutocompleteLike)
+    : null;
+}
+
+// Wire every `[data-lg-maps]` field under `root`. Returns the number of
+// fields wired (0 = graceful no-op: no SDK, no configs, or nothing enabled).
+export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
+  const Autocomplete = placesCtor();
+  if (Autocomplete === null) return 0; // key/SDK absent → silent no-op (E6)
+
+  const fields = root.querySelectorAll("[data-lg-maps]");
+  let wired = 0;
+  for (let i = 0; i < fields.length; i++) {
+    const fieldEl = fields[i];
+    if (fieldEl === undefined) continue;
+    const config = parseMapsConfig(fieldEl.getAttribute("data-lg-maps"));
+    if (config === null || !config.autocomplete) continue;
+    const input = fieldEl.querySelector("[data-lg-input]") ?? fieldEl.querySelector("input");
+    if (input === null || !(input instanceof HTMLInputElement)) continue;
+
+    const questionId = fieldEl.closest("[data-lg-question]")?.getAttribute("data-lg-question") ?? "";
+    const ownField = fieldEl.closest("[data-lg-field]")?.getAttribute("data-lg-field") ??
+      fieldEl.getAttribute("data-lg-field") ??
+      "";
+
+    // Dedicated try/catch: a Places wiring failure must never break the
+    // funnel (manual entry keeps working) nor log an error.
+    try {
+      const autocomplete = new Autocomplete(input, {
+        types: ["address"],
+        fields: ["address_component", "formatted_address"],
+      });
+      autocomplete.addListener("place_changed", () => {
+        try {
+          const place = autocomplete.getPlace();
+          const components = place?.address_components;
+          if (!Array.isArray(components) || components.length === 0) {
+            if (config.validate) {
+              hooks.emit("address_validation_error", {
+                question_id: questionId,
+                answer_value_normalized: "no_place_details",
+              });
+            }
+            return;
+          }
+          const parts = extractAddressParts(components);
+          const line = config.normalize && parts.street !== "" ? parts.street : input.value;
+
+          // The field's own answer: the (possibly normalized) address line.
+          if (ownField !== "") {
+            hooks.setAnswer(ownField, line, { question_id: questionId });
+          }
+          // Linked autofills (08 §8.8 field pickers).
+          const links: Array<[string | undefined, string]> = [
+            [config.fills.street, parts.street],
+            [config.fills.city, parts.city],
+            [config.fills.state, parts.state],
+            [config.fills.zip, parts.zip],
+          ];
+          const filled: string[] = [];
+          for (const [target, value] of links) {
+            if (target !== undefined && target !== "" && value !== "") {
+              hooks.setAnswer(target, value, { question_id: questionId });
+              filled.push(target);
+            }
+          }
+          hooks.emit("address_autofill", {
+            question_id: questionId,
+            answer_value_normalized: filled.join(","),
+          });
+          if (config.validate) {
+            const complete = parts.zip !== "" && parts.state !== "" && parts.city !== "";
+            hooks.emit(
+              complete ? "address_validation_success" : "address_validation_error",
+              {
+                question_id: questionId,
+                answer_value_normalized: complete ? "ok" : "incomplete_address",
+              },
+            );
+          }
+        } catch {
+          /* place handling is best-effort; manual entry unaffected */
+        }
+      });
+      wired += 1;
+    } catch {
+      /* wiring failure → this field stays manual-entry */
+    }
+  }
+  return wired;
+}
