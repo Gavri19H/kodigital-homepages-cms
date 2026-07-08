@@ -1,6 +1,11 @@
 // LeadGen §30.4 / §24b — the PUBLIC `/lg/config/:funnel_variant_id` DTO
-// builder. Deterministic and PURE given (resolved funnel, resolved design):
-// no I/O, no env, no secrets.
+// builder. `buildPublicConfig` stays deterministic and PURE given (resolved
+// funnel, resolved design, per-section answer-map versions): no I/O, no env,
+// no secrets — which is what lets serve.ts bake the SAME JSON into the
+// visitor-invariant cached shell (#lg-config, fix-contract v2.4 03 §3.2). The
+// one I/O member of this module is `loadAnswerMapVersions` (fix-contract v2.4
+// 03 §3.8 / 05 §5.4 R6): a read-only D1 lookup the /lg route handlers run at
+// resolve time and FEED into the pure builder.
 //
 // ALLOW (contract 08 §24b "Public config DTO" + 09 §30.4): the funnel's public
 // identity (quote_id lgq_, funnel_id lgf_, funnel_variant_id lgn_, funnel_name,
@@ -18,10 +23,14 @@
 // by the resolver, so none can leak here. The auction runs server-side; the
 // client posts only collected answers + the signed binding (§30.4).
 
-import type { ResolvedActivatedFunnel } from "./resolver";
+import type { ResolvedActivatedFunnel, ResolvedFunnelSection } from "./resolver";
 import type { FunnelDesign } from "./designs/registry";
 import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
+// B9 (fix-contract v2.4 06 §6.4): the DTO and the server renderer share ONE
+// normalizing choiceDisplay reader so /lg/config metadata and the rendered
+// Other-group markup can never disagree (09 §9.1 parity by construction).
+import { readChoiceDisplay, type LeadgenChoiceDisplay } from "./components/presets";
 import type {
   LeadgenComponentNode,
   LeadgenComponentConditional,
@@ -53,6 +62,10 @@ export interface PublicSectionComponent {
   conditional?: LeadgenComponentConditional;
   design_preset?: string;
   design_overrides?: LeadgenDesignOverrides;
+  // B9 (06 §6.4) Other-group display metadata — ADDITIVE passthrough, present
+  // only when the content_json node carries it (normalized through the shared
+  // readChoiceDisplay projection; unknown keys inside it are dropped).
+  choiceDisplay?: LeadgenChoiceDisplay;
   props: Record<string, unknown>;
   client_validation?: Record<string, unknown>;
   default_answer?: { value: unknown; answer_source: "default_applied" };
@@ -66,9 +79,13 @@ export interface PublicSectionConfig {
   continue_mode: string;
   address_validation_enabled: boolean;
   section_mapping_version: number;
-  // §24b per-section field. P7 seam: the answer-mapping version is derived from
-  // leadgen_section_answer_maps by Stage B (server-only mapping data the P7
-  // resolver never reads); left "" here rather than faking a version.
+  // §24b per-section field — POPULATED (fix-contract v2.4 03 §3.8 / R6): the
+  // section's answer-mapping version marker from leadgen_section_answer_maps —
+  // String(COALESCE(MAX(id), 0)), the SAME per-section value attempt.ts
+  // computeAttemptBindingExtras hashes into the signed token's
+  // answer_mapping_hash (05 §5.3), so config and token always agree on the
+  // mapping generation ("0" = nothing mapped yet). "" ONLY when the caller
+  // supplied no versions (the admin quote-preview path) — never a faked value.
   answer_mapping_version: string;
   components: PublicSectionComponent[];
 }
@@ -116,8 +133,9 @@ export function computeSectionOrderHash(resolved: ResolvedActivatedFunnel): stri
 
 // Parse a section's `content_json` string into its component nodes. Dedicated
 // try/catch → a corrupt blob yields an empty component list (never throws) per
-// the D1 JSON-parse safety rule.
-function parseSectionComponents(contentJson: string): LeadgenComponentNode[] {
+// the D1 JSON-parse safety rule. Exported: serve.ts renders the SAME nodes
+// into the shell sections (03 §3.2a) — one parser, no drift.
+export function parseSectionComponents(contentJson: string): LeadgenComponentNode[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(contentJson);
@@ -165,6 +183,11 @@ function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   if (node.design_preset !== undefined) component.design_preset = node.design_preset;
   if (node.design_overrides !== undefined) component.design_overrides = node.design_overrides;
 
+  // B9 (06 §6.4): additive choiceDisplay passthrough — only when the node
+  // carries it, normalized through the SAME reader the server renderer uses.
+  const choiceDisplay = readChoiceDisplay(node);
+  if (choiceDisplay !== undefined) component.choiceDisplay = choiceDisplay;
+
   const clientValidation = buildClientValidation(node);
   if (clientValidation !== undefined) component.client_validation = clientValidation;
 
@@ -176,12 +199,71 @@ function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   return component;
 }
 
+// The chunk ceiling for IN(?) lists — D1's 100-binding-per-statement limit,
+// batched at 80 per the d1-database-safety rule.
+const IN_CHUNK = 80;
+
+// R6 (fix-contract v2.4 03 §3.8 / 05 §5.4): the per-section answer-mapping
+// version markers, read from leadgen_section_answer_maps AT RESOLVE TIME by
+// the /lg route handlers (serve.ts) and fed into the pure builder.
+//
+// Version semantics — ONE definition system-wide: a section's
+// answer_mapping_version := String(COALESCE(MAX(leadgen_section_answer_maps
+// .id), 0)). The table carries no dedicated version column; its rows are
+// replace-set re-inserted on every mapping save, so MAX(id) is a
+// strictly-monotonic per-section version that bumps on any remap. This is
+// BYTE-COMPATIBLE with attempt.ts computeAttemptBindingExtras (05 §5.3): the
+// signed token's `answer_mapping_hash` is SHA-256 over EXACTLY these ordered
+// strings, so sha256Hex(JSON.stringify(config.sections.map(s =>
+// s.answer_mapping_version))) === the minted token's answer_mapping_hash —
+// config and token can never disagree on the mapping generation. A section
+// with no rows reports "0" (a real, hash-bound value — not a fake).
+// Read-only; every query is .bind()-parameterized; section-id lists chunk at
+// 80 bindings (the D1 100-binding rule).
+export async function loadAnswerMapVersions(
+  db: D1Database,
+  sections: readonly ResolvedFunnelSection[],
+): Promise<Record<string, string>> {
+  const versions: Record<string, string> = {};
+  if (sections.length === 0) return versions;
+  const publicIdBySectionId = new Map<number, string>();
+  for (const rs of sections) {
+    publicIdBySectionId.set(rs.section.id, rs.section.public_id);
+    versions[rs.section.public_id] = "0"; // unmapped default — hash-symmetric
+  }
+  const ids = [...publicIdBySectionId.keys()];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const chunk = ids.slice(i, i + IN_CHUNK);
+    const placeholders = chunk.map(() => "?").join(",");
+    const result = await db
+      .prepare(
+        `SELECT section_id, COALESCE(MAX(id), 0) AS v
+         FROM leadgen_section_answer_maps
+         WHERE section_id IN (${placeholders})
+         GROUP BY section_id`,
+      )
+      .bind(...chunk)
+      .all<{ section_id: number; v: number }>();
+    for (const row of result.results ?? []) {
+      const publicId = publicIdBySectionId.get(row.section_id);
+      if (publicId !== undefined && typeof row.v === "number" && Number.isFinite(row.v)) {
+        versions[publicId] = String(row.v);
+      }
+    }
+  }
+  return versions;
+}
+
 // Build the public `/lg/config` DTO from a resolved funnel + its resolved
 // visual design. `design` is the output of getFunnelDesign(variant.funnel_
-// design_id) — passed in so the builder stays pure.
+// design_id); `answerMapVersions` (keyed by section public_id) is the output
+// of loadAnswerMapVersions — both passed in so the builder stays pure. The
+// optional third arg keeps the admin quote-preview call site (2-arg) valid:
+// preview has no activation context and honestly reports "".
 export function buildPublicConfig(
   resolved: ResolvedActivatedFunnel,
   design: FunnelDesign,
+  answerMapVersions?: Readonly<Record<string, string>>,
 ): LeadgenPublicConfig {
   // G4: brand the two ids through prefix-validating constructors — a variant id
   // can never be placed in the funnel_id slot, and vice versa.
@@ -198,7 +280,9 @@ export function buildPublicConfig(
       continue_mode: rs.section.continue_mode,
       address_validation_enabled: rs.section.address_validation_enabled === 1,
       section_mapping_version: rs.section.section_mapping_version,
-      answer_mapping_version: "",
+      // R6: the resolve-time marker when supplied; "" (no rows / no lookup)
+      // stays an honest empty — never a faked version.
+      answer_mapping_version: answerMapVersions?.[rs.section.public_id] ?? "",
       components,
     };
     if (rs.section.subheadline_text !== null && rs.section.subheadline_text !== undefined) {

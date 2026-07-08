@@ -149,8 +149,8 @@ describe("cache-keys: leadgen activation_version axis (§28 GA4 cache-coherence 
   it("leadgenShellKey CHANGES when activation_version (a settings/GA4 edit → updated_at bump) changes, same content_version", () => {
     // BEFORE the fix the GA4 id was baked into the body but NOT the key, so a
     // settings-only edit (no content_version move) reused the stale-id key/ETag.
-    const k1 = leadgenShellKey(S, "auto", F, V, 3, 1_700_000_000);
-    const k2 = leadgenShellKey(S, "auto", F, V, 3, 1_700_000_500);
+    const k1 = leadgenShellKey(S, "auto", F, V, 3, 0, 1_700_000_000);
+    const k2 = leadgenShellKey(S, "auto", F, V, 3, 0, 1_700_000_500);
     expect(k1).not.toBe(k2);
     expect(k1.endsWith(":1700000000")).toBe(true);
     expect(k2.endsWith(":1700000500")).toBe(true);
@@ -163,8 +163,52 @@ describe("cache-keys: leadgen activation_version axis (§28 GA4 cache-coherence 
   });
 
   it("the per-site invalidation prefix + the funnel-narrowing segment stay intact (suffix appended, not inserted)", () => {
-    const k = leadgenShellKey(S, "auto", F, V, 3, 1_700_000_000);
+    const k = leadgenShellKey(S, "auto", F, V, 3, 0, 1_700_000_000);
     expect(k.startsWith(`lg-shell:${S}:`)).toBe(true); // invalidateOnQuoteActivation prefix
     expect(k.split(":")[3]).toBe(F); // invalidateOnVariantPublish funnel segment (index 3)
+  });
+});
+
+// Fix-contract v2.4 03 §3.2 — the shell key gains the SAME ab_rev axis
+// leadgenConfigKey already carries: the shell now BAKES the #lg-config test
+// dims into the cached body, and an A/B start/stop/re-bump flips those dims
+// WITHOUT moving content_version — so ab_rev must distinguish cache identity
+// or the stale baked dims serve until TTL.
+describe("cache-keys: leadgen shell ab_rev axis (v2.4 03 §3.2 — baked #lg-config test dims)", () => {
+  const S = "st_0123456789abcdef";
+  const F = "lgf_funnel00000000000000000";
+  const V = "lgn_variant0000000000000000";
+  const ACT = 1_700_000_000;
+
+  it("an A/B START (ab_rev 0 → N) mints a NEW shell key, same content_version + activation_version", () => {
+    const before = leadgenShellKey(S, "auto", F, V, 3, 0, ACT);
+    const running = leadgenShellKey(S, "auto", F, V, 3, 4, ACT);
+    expect(before).not.toBe(running);
+  });
+
+  it("a STOP (ab_rev N → 0) mints another key — distinct from the running key", () => {
+    const running = leadgenShellKey(S, "auto", F, V, 3, 4, ACT);
+    const stopped = leadgenShellKey(S, "auto", F, V, 3, 0, ACT);
+    expect(stopped).not.toBe(running);
+    // …and a re-START at a bumped revision differs from BOTH.
+    const rebumped = leadgenShellKey(S, "auto", F, V, 3, 5, ACT);
+    expect(rebumped).not.toBe(running);
+    expect(rebumped).not.toBe(stopped);
+  });
+
+  it("shell + config keys carry the SAME ab_rev axis semantics (start flips both)", () => {
+    // The staleness class is shared: both bodies bake the §16.3 test dims.
+    expect(leadgenShellKey(S, "auto", F, V, 3, 0, ACT)).not.toBe(leadgenShellKey(S, "auto", F, V, 3, 7, ACT));
+    expect(leadgenConfigKey(S, F, V, 3, 0, ACT)).not.toBe(leadgenConfigKey(S, F, V, 3, 7, ACT));
+  });
+
+  it("the DEV-26 axes still behave with ab_rev present: content_version, activation_version, variant each move the key", () => {
+    const base = leadgenShellKey(S, "auto", F, V, 3, 2, ACT);
+    expect(leadgenShellKey(S, "auto", F, V, 4, 2, ACT)).not.toBe(base); // content_version
+    expect(leadgenShellKey(S, "auto", F, V, 3, 2, ACT + 500)).not.toBe(base); // activation_version
+    expect(leadgenShellKey(S, "auto", F, "lgn_variant0000000000000001", 3, 2, ACT)).not.toBe(base); // variant
+    // invalidation contract intact: site prefix + funnel segment index 3.
+    expect(base.startsWith(`lg-shell:${S}:`)).toBe(true);
+    expect(base.split(":")[3]).toBe(F);
   });
 });

@@ -1,21 +1,52 @@
-// LeadGen §17.2 / §28 / §30.4 — the PUBLIC `/lg/*` funnel runtime shell +
-// client-config + attempt serving (Phase 7 Stage C, tenant hosts only).
+// LeadGen §17.2 / §28 / §30.4 + fix-contract v2.4 03 §3.2 — the PUBLIC `/lg/*`
+// funnel runtime shell + client-config + attempt serving (tenant hosts only).
 //
 // Pipeline (the listicle/serve.ts cacheable-shell mirror for funnels):
 //   host→site (public middleware, siteContext) → resolveActivatedFunnel (§17.2
-//   host→site→quote→funnel→control variant) → (missing/disabled → 404) →
-//   leadgenShellKey(site,slug,funnel_id,content_version) → KV/Cache-API read →
-//   cold render (funnelChromeCss(getFunnelDesign(variant.funnel_design_id)) +
-//   shell scaffold + a bootstrap fetching /lg/config + /lg/attempt) →
-//   write-through → publicHtmlCacheHeaders (public, max-age=300, swr=86400) +
-//   strong ETag + nosniff + 304.
+//   host→site→quote→funnel→assigned variant) → (missing/disabled → 404) →
+//   leadgenShellKey(site,slug,funnel_id,variant_id,content_version,ab_rev,
+//   activation_version) → KV/Cache-API read → cold render → write-through →
+//   publicHtmlCacheHeaders (public, max-age=300, swr=86400) + strong ETag +
+//   nosniff + 304.
+//
+// The v2.4 shell (03 §3.2 — SERVER-rendered sections + hydration; the "empty
+// mount" false-comfort shell is gone, 11 §11.6):
+//   (a) EVERY Section of the resolved variant is server-rendered IN ORDER via
+//       the shared renderSectionComponents preset renderer (09 §9.1 — the same
+//       code path as admin preview / quote preview / content_html), each in
+//       <section data-lg-section data-lg-section-id data-lg-index
+//       data-screen-label hidden> with the FIRST section visible — the first
+//       question renders without JS (03 §3.11);
+//   (b) <script type="application/json" id="lg-config"> carries the SAME
+//       LeadgenPublicConfig JSON /lg/config serves (buildPublicConfig in-request
+//       — variant/test-scoped, ZERO per-visitor fields, so it may ride the
+//       visitor-invariant cached body; `<` is <-escaped);
+//   (c) <script src="/lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js" defer> — the
+//       hydration engine bundle (route: 03 §3.2 runtime-routes row);
+//   (d) the Maps browser key rides the MAPS_KEY_SENTINEL response splice ONLY
+//       (below) when the key is configured AND an address/ZIP component with
+//       Maps enabled exists in the variant.
+// LEADGEN_BOOTSTRAP_JS is REPLACED by a minimal inline pre-hydration stub that
+// ONLY queues [data-lg-choice]/[data-lg-continue] clicks into
+// window.__LG_PREHYDRATE_QUEUE__ for the engine to replay. data-lg-mount stays;
+// data-lg-ready="1" is set by the ENGINE after hydration — the shell MUST NOT
+// pre-set it.
+//
+// CACHE DISCIPLINE (unchanged, now with the ab_rev axis): the cached body is
+// deliberately VISITOR-INVARIANT — per-visitor bits ride response-stream
+// sentinel splices only (Maps key §30.4; §16.3 assignment dims). The baked
+// #lg-config test dims flip on an A/B start/stop/re-bump WITHOUT a
+// content_version move, so the shell key + ETag now carry
+// `resolved.assignment.funnel_ab_test_revision` — the same axis
+// leadgenConfigKey documents (cache-keys.ts).
 //
 // The browser Google-Maps key (§30.2 referrer-restricted browser key) is
 // injected PER-REQUEST via Stage-A resolveBrowserMapsKey and ONLY when the
-// funnel has an address section — it NEVER enters the cached shell HTML
-// (§30.4). The cached body carries only a sentinel comment; the key script is
-// spliced onto the RESPONSE stream, mirroring the listicle post-cache
-// injectListicleContext pattern (the KV entry stays visitor-invariant).
+// funnel has a Maps-enabled address/ZIP component — it NEVER enters the cached
+// shell HTML (§30.4). The cached body carries only a sentinel comment; the key
+// script is spliced onto the RESPONSE stream, mirroring the listicle
+// post-cache injectListicleContext pattern (the KV entry stays
+// visitor-invariant).
 //
 // The shell carries the funnel_id (lgf_) and funnel_variant_id (lgn_) as
 // DISTINCT data attributes (contract 06 §15.1 G4 — never aliased), branded
@@ -32,10 +63,15 @@ import {
   type ResolvedActivatedFunnel,
   type FunnelAssignment,
 } from "./resolver";
-import { buildPublicConfig } from "./config-dto";
+import { buildPublicConfig, parseSectionComponents, loadAnswerMapVersions } from "./config-dto";
 import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
+// 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
+// admin preview, quote preview, and persisted content_html render the live
+// shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
+// server-rendered body stays variant-invariant under the cache-key axes.
+import { renderSectionComponents } from "./components/presets";
 import { toFunnelId, toFunnelVariantId } from "../../leadgen/funnel";
 import { resolveBrowserMapsKey } from "../../leadgen/maps";
 // §16.2 sticky assignment reads the SAME ko_sid session cookie the listicle
@@ -116,15 +152,19 @@ function leadgenShellEtag(
   funnelId: string,
   funnelVariantId: string,
   contentVersion: number,
+  abRev: number,
   activationVersion: number,
 ): Promise<string> {
-  // Material mirrors leadgenShellKey (now variant-scoped + activation-versioned,
-  // §16.2/§28) so the ETag changes iff the key would — two assigned variants get
-  // DISTINCT ETags, and an activation/settings edit (incl. the baked-in GA4 id)
-  // mints a fresh ETag so a returning visitor never 304-loops the stale shell.
+  // Material mirrors leadgenShellKey (variant-scoped + ab_rev'd + activation-
+  // versioned, §16.2/§28 + v2.4 03 §3.2) so the ETag changes iff the key would
+  // — two assigned variants get DISTINCT ETags; an A/B start/stop/re-bump
+  // (which flips the BAKED #lg-config test dims without a content_version
+  // move) mints a fresh ETag; and an activation/settings edit (incl. the
+  // baked-in GA4 id) does too — a returning visitor never 304-loops a stale
+  // shell.
   return computeEtag({
     site_id: siteId,
-    path: `/lg/${quoteSlug ?? ""}:${funnelId}:${funnelVariantId}:${activationVersion}`,
+    path: `/lg/${quoteSlug ?? ""}:${funnelId}:${funnelVariantId}:${abRev}:${activationVersion}`,
     content_version: contentVersion,
     template_version: LEADGEN_TEMPLATE_VERSION,
   });
@@ -161,32 +201,29 @@ function leadgenConfigEtag(
 // Maps-key presence + per-request injection (§30.2 / §30.4)
 // ---------------------------------------------------------------------------
 
-// True when the funnel has an address section — the only place the browser Maps
-// key is needed (§28 "Google Maps only on address sections"). Signals:
-// address_validation_enabled=1 on a section, OR an AddressAutocompleteQuestion
-// component in a section's content_json (dedicated try/catch per the D1
-// JSON-parse safety rule — a corrupt blob never throws).
+// True when the funnel has a Maps-enabled address/ZIP component — the only
+// place the browser Maps key is needed (§28 + v2.4 03 §3.2d / 08 §8.8).
+// Signals, mirroring the presets' data-lg-maps emission exactly:
+//   * address_validation_enabled=1 on a section (the global-checkbox compat
+//     fallback — the column stays for compat, §8.8);
+//   * an AddressAutocompleteQuestion component (always Maps-capable);
+//   * a ZIPInputQuestion with the legacy per-node validate flag OR a
+//     field-level props.maps config (§8.8 — per-field config wins).
+// content_json parses through the shared parseSectionComponents (dedicated
+// try/catch per the D1 JSON-parse safety rule — a corrupt blob never throws).
 function funnelNeedsMapsKey(resolved: ResolvedActivatedFunnel): boolean {
   for (const rs of resolved.sections) {
     if (rs.section.address_validation_enabled === 1) return true;
     const raw = rs.section.content_json;
     if (typeof raw !== "string" || raw === "") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null) continue;
-    const components = (parsed as { components?: unknown }).components;
-    if (!Array.isArray(components)) continue;
-    for (const c of components) {
-      if (
-        c !== null &&
-        typeof c === "object" &&
-        (c as { type?: unknown }).type === "AddressAutocompleteQuestion"
-      ) {
-        return true;
+    for (const c of parseSectionComponents(raw)) {
+      if (c === null || typeof c !== "object") continue;
+      if (c.type === "AddressAutocompleteQuestion") return true;
+      if (c.type === "ZIPInputQuestion") {
+        const props = c.props ?? {};
+        const maps = props["maps"];
+        if (props["validate"] === true) return true;
+        if (typeof maps === "object" && maps !== null && !Array.isArray(maps)) return true;
       }
     }
   }
@@ -281,31 +318,42 @@ function injectAssignment(
 // Shell render (pristine, cacheable — visitor-invariant, no secrets)
 // ---------------------------------------------------------------------------
 
-// The lean vanilla bootstrap (contract 03 §8.3): read the funnel_variant_id off
-// the root data attribute, fetch the cacheable /lg/config + the no-store
-// /lg/attempt, stash both on window.__LG_BOOTSTRAP__ and fire an lg:bootstrap
-// event for the P11 client funnel engine. STATIC (the variant id is read from
-// the DOM, never interpolated) so nothing here needs escaping.
-const LEADGEN_BOOTSTRAP_JS =
-  '(function(){var el=document.getElementById("lg-funnel-root");' +
-  'if(!el||typeof el.getAttribute!=="function")return;' +
-  'var vid=el.getAttribute("data-funnel-variant-id");if(!vid)return;' +
-  "var enc=encodeURIComponent(vid);" +
-  "Promise.all([" +
-  'fetch("/lg/config/"+enc,{headers:{accept:"application/json"}}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}),' +
-  'fetch("/lg/attempt?funnel_variant_id="+enc,{headers:{accept:"application/json"}}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;})' +
-  "]).then(function(res){" +
-  "window.__LG_BOOTSTRAP__={config:res[0],attempt:res[1]};" +
-  'el.setAttribute("data-lg-ready","1");' +
-  'document.dispatchEvent(new CustomEvent("lg:bootstrap",{detail:window.__LG_BOOTSTRAP__}));' +
-  "});})();";
+// The minimal inline PRE-HYDRATION stub (v2.4 03 §3.2 — replaces the old
+// LEADGEN_BOOTSTRAP_JS): it ONLY queues clicks on [data-lg-choice] /
+// [data-lg-continue] into window.__LG_PREHYDRATE_QUEUE__ so the engine
+// (/lg/runtime/{version}.js, another module) can replay an eager visitor's
+// first taps after it hydrates. It fetches NOTHING, renders NOTHING, and never
+// touches data-lg-ready — the ENGINE fetches /lg/attempt and sets
+// data-lg-ready="1" (03 §3.5). Queueing stops once the engine marks ready.
+// STATIC (no interpolation) so nothing here needs escaping.
+const LEADGEN_PREHYDRATE_JS =
+  "(function(){var q=window.__LG_PREHYDRATE_QUEUE__=[];" +
+  'document.addEventListener("click",function(e){' +
+  'var t=e.target;if(!t||typeof t.closest!=="function")return;' +
+  'var el=t.closest("[data-lg-choice],[data-lg-continue]");if(!el)return;' +
+  'var root=document.getElementById("lg-funnel-root");' +
+  'if(root&&root.getAttribute("data-lg-ready")==="1")return;' +
+  "q.push({el:el,t:Date.now()});" +
+  "},true);})();";
 
-// Render the pristine funnel shell: scoped chrome CSS from the resolved design +
-// a mount point + the bootstrap, with the funnel_id (lgf_) and funnel_variant_id
-// (lgn_) as DISTINCT data attributes (G4, prefix-branded). No section content
-// (the P11 client engine renders sections from /lg/config); no secrets; the
-// Maps-key sentinel keeps the browser key out of these bytes (§30.4). Lean (§28).
-function renderFunnelShell(resolved: ResolvedActivatedFunnel, design: FunnelDesign): string {
+// Render the pristine funnel shell (v2.4 03 §3.2): scoped chrome CSS from the
+// resolved design + EVERY Section of the resolved variant server-rendered in
+// order inside the data-lg-mount (first section visible — the first question
+// renders without JS, 03 §3.11), the #lg-config LeadgenPublicConfig JSON, the
+// [data-lg-banners] auction mount, the pre-hydration click-queue stub, and the
+// deferred hydration-engine script tag. The funnel_id (lgf_) and
+// funnel_variant_id (lgn_) ride as DISTINCT data attributes (G4,
+// prefix-branded). VISITOR-INVARIANT: everything here is variant/test-scoped
+// (buildPublicConfig carries zero per-visitor fields; renderSectionComponents
+// is pure over nodes+design with a pinned locale); per-visitor bits ride the
+// sentinel splices only. No secrets; the Maps-key sentinel keeps the browser
+// key out of these bytes (§30.4). data-lg-ready is NOT pre-set — the engine
+// sets it after hydration.
+function renderFunnelShell(
+  resolved: ResolvedActivatedFunnel,
+  design: FunnelDesign,
+  answerMapVersions: Readonly<Record<string, string>>,
+): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
   const quoteId = resolved.quote.public_id;
@@ -313,6 +361,33 @@ function renderFunnelShell(resolved: ResolvedActivatedFunnel, design: FunnelDesi
   const scope = `[${FUNNEL_DESIGN_SCOPE_ATTR}="${designId}"]`;
   const chromeCss = funnelChromeCss(design, scope);
   const contentVersion = resolved.variant.content_version;
+
+  // (a) all Sections server-rendered in ORDER via the shared preset renderer;
+  // wrapper contract EXACTLY per 03 §3.2: data-lg-section + data-lg-section-id
+  // + data-lg-index + data-screen-label="{i+1:02d} · {headline}", first section
+  // not hidden.
+  const sectionsHtml = resolved.sections
+    .map((rs, i) => {
+      const nodes = parseSectionComponents(
+        typeof rs.section.content_json === "string" ? rs.section.content_json : "",
+      );
+      const label = `${String(i + 1).padStart(2, "0")} · ${rs.section.headline_text}`;
+      return (
+        `<section data-lg-section data-lg-section-id="${escapeHtml(rs.section.public_id)}"` +
+        ` data-lg-index="${i}" data-screen-label="${escapeHtml(label)}"${i === 0 ? "" : " hidden"}>` +
+        renderSectionComponents(nodes, design) +
+        `</section>`
+      );
+    })
+    .join("");
+
+  // (b) the SAME LeadgenPublicConfig JSON /lg/config serves, baked in-request.
+  // `<` → < (the injectAssignment pattern) so an authored value can never
+  // forge </script> out of the JSON block.
+  const configJson = JSON.stringify(buildPublicConfig(resolved, design, answerMapVersions)).replace(
+    /</g,
+    "\\u003c",
+  );
 
   return (
     "<!doctype html>" +
@@ -334,13 +409,22 @@ function renderFunnelShell(resolved: ResolvedActivatedFunnel, design: FunnelDesi
     ` data-quote-id="${escapeHtml(quoteId)}"` +
     ` data-content-version="${escapeHtml(String(contentVersion))}">` +
     '<main class="lg-content" data-lg-mount>' +
-    "<noscript>This funnel requires JavaScript to load.</noscript>" +
+    sectionsHtml +
+    // The 03 §3.3 auction mount — the engine injects banners_html here after
+    // the final Section's /lg/auction call; hidden until filled.
+    '<div class="lg-banners" data-lg-banners hidden></div>' +
     "</main>" +
     "</div>" +
-    // Per-request §16.3 assignment dims are spliced here (injectAssignment) BEFORE
-    // the bootstrap so window.__LG_ASSIGNMENT__ is set when lg:bootstrap fires.
+    // (b) the inline config the engine parses FIRST (03 §3.5 init).
+    `<script type="application/json" id="lg-config">${configJson}</script>` +
+    // Per-request §16.3 assignment dims are spliced here (injectAssignment)
+    // BEFORE any script runs so window.__LG_ASSIGNMENT__ is set when the
+    // engine initializes.
     ASSIGN_SENTINEL +
-    `<script>${LEADGEN_BOOTSTRAP_JS}</script>` +
+    `<script>${LEADGEN_PREHYDRATE_JS}</script>` +
+    // (c) the hydration engine — versioned, deferred; the /lg/runtime/:version.js
+    // route serves the generated bundle (03 §3.2 runtime-routes row).
+    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>` +
     "</body></html>"
   );
 }
@@ -379,6 +463,12 @@ export async function serveFunnelShell(
   const variantId = resolved.variant.public_id; // the ASSIGNED variant (§16.2)
   const contentVersion = resolved.variant.content_version;
   const slug = resolved.site_quote.slug;
+  // v2.4 03 §3.2 ab_rev axis: the running test's revision (0 when none). The
+  // shell now BAKES the #lg-config test dims, and a start/stop/re-bump flips
+  // them WITHOUT a content_version move — without this axis the stale baked
+  // dims would serve until TTL (the exact class the leadgenConfigKey comment
+  // documents).
+  const abRev = resolved.assignment.funnel_ab_test_revision;
   // §28: the activation's updated_at bumps on any enable/disable/slug/settings
   // (incl. the baked-in GA4 id) edit → a fresh key + ETag, so a settings-only
   // GA4 change never serves a stale shell (no content_version move on that path).
@@ -387,8 +477,8 @@ export async function serveFunnelShell(
   // §28 cache correctness: key by the ASSIGNED variant (never the control
   // unconditionally) so a running 2-variant test serves two DISTINCT cached
   // shells — one per assigned variant.
-  const key = leadgenShellKey(siteContext.siteId, slug, funnelId, variantId, contentVersion, activationVersion);
-  const etag = await leadgenShellEtag(siteContext.siteId, slug, funnelId, variantId, contentVersion, activationVersion);
+  const key = leadgenShellKey(siteContext.siteId, slug, funnelId, variantId, contentVersion, abRev, activationVersion);
+  const etag = await leadgenShellEtag(siteContext.siteId, slug, funnelId, variantId, contentVersion, abRev, activationVersion);
 
   // A freshly-minted ko_sid rides the RESPONSE (never the cached body) so the
   // assignment is sticky across this session's requests (§16.2).
@@ -407,7 +497,11 @@ export async function serveFunnelShell(
   if (cached !== null) {
     pristine = cached.body;
   } else {
-    pristine = renderFunnelShell(resolved, design);
+    // R6 (v2.4 03 §3.8): the per-section answer-map version markers, read at
+    // resolve time on the COLD path only (a cache hit already carries them
+    // baked into #lg-config).
+    const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
+    pristine = renderFunnelShell(resolved, design, answerMapVersions);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
@@ -461,11 +555,14 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   if (cached !== null) {
     body = cached.body;
   } else {
+    // R6 (v2.4 03 §3.8): per-section answer_mapping_version markers, read at
+    // resolve time on the COLD path (the cached body already bakes them).
+    const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
     // buildPublicConfig is the RED-LINE strip point: it copies only whitelisted
     // public fields, so no provider endpoint / token ref / bid strategy / raw
     // schema / signed token / attempt id can appear (proven in
     // leadgen-config-dto.test.ts; re-proven over HTTP in the runtime test).
-    body = JSON.stringify(buildPublicConfig(resolved, design));
+    body = JSON.stringify(buildPublicConfig(resolved, design, answerMapVersions));
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     await putCachedHtml(c.env, key, body, { expirationTtl: ttl, etag });
   }

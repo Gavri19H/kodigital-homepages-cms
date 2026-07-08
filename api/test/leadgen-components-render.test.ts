@@ -647,3 +647,267 @@ describe("ReassuranceBadge (§14.7)", () => {
     expect(html).toContain("Get your offers in 2 minutes or less.");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix-contract v2.4 03 §3.3 — the data-lg-* hydration hook vocabulary
+// (contract-normative: preview + runtime emit these identically by
+// construction — 09 §9.1/§9.3; the engine + the 11 §11.6 anti-false-PASS
+// probes consume them).
+// ---------------------------------------------------------------------------
+
+describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
+  const QUESTION_TYPES = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].produces !== null);
+  const NON_QUESTION_TYPES = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].produces === null);
+
+  it("every answer-PRODUCING type carries data-lg-question={question_id}", () => {
+    for (const type of QUESTION_TYPES) {
+      const html = renderComponent(NODE_SPECS[type], DESIGN);
+      expect(html, type).toContain(`data-lg-question="${NODE_SPECS[type].question_id}"`);
+    }
+  });
+
+  it("NO chrome/affordance/control type carries data-lg-question (11 §11.6 probe counts questions only)", () => {
+    for (const type of NON_QUESTION_TYPES) {
+      const html = renderComponent(NODE_SPECS[type], DESIGN);
+      expect(html, type).not.toContain("data-lg-question");
+    }
+  });
+
+  it("data-lg-field mirrors internal_field on question components that carry one", () => {
+    expect(renderComponent(NODE_SPECS.TwoButtonYesNo, DESIGN)).toContain('data-lg-field="insured"');
+    expect(renderComponent(NODE_SPECS.FreeTextQuestion, DESIGN)).toContain('data-lg-field="note"');
+    expect(renderComponent(NODE_SPECS.CurrencyRangeQuestion, DESIGN)).toContain('data-lg-field="loan"');
+    // NameFieldsGroup / AddressAutocomplete have no single internal_field → no data-lg-field.
+    expect(renderComponent(NODE_SPECS.NameFieldsGroup, DESIGN)).not.toContain("data-lg-field");
+    expect(renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN)).not.toContain("data-lg-field");
+  });
+
+  it("every selectable choice carries data-lg-choice={value} (buttons, cards, multi, yes/no, dropdown options)", () => {
+    expect(renderComponent(NODE_SPECS.ButtonAnswerGroup, DESIGN)).toContain('data-lg-choice="sole_prop"');
+    expect(renderComponent(NODE_SPECS.ButtonAnswerGroup, DESIGN)).toContain('data-lg-choice="partnership"');
+    expect(renderComponent(NODE_SPECS.IconCardAnswerGrid, DESIGN)).toContain('data-lg-choice="sole_prop"');
+    expect(renderComponent(NODE_SPECS.ImageCardAnswerGrid, DESIGN)).toContain('data-lg-choice="partnership"');
+    expect(renderComponent(NODE_SPECS.MultiChoiceCardGroup, DESIGN)).toContain('data-lg-choice="sole_prop"');
+    const yesno = renderComponent(NODE_SPECS.TwoButtonYesNo, DESIGN);
+    expect(yesno).toContain('data-lg-choice="true"');
+    expect(yesno).toContain('data-lg-choice="false"');
+    const dropdown = renderComponent(NODE_SPECS.DropdownQuestion, DESIGN);
+    expect(dropdown).toContain('data-lg-choice="sole_prop"');
+    expect(dropdown).toContain('data-lg-choice="partnership"');
+  });
+
+  it("data-lg-input marks the text/date/email/phone/zip inputs (incl. name-group + address inputs)", () => {
+    for (const type of [
+      "FreeTextQuestion",
+      "EmailInputQuestion",
+      "PhoneInputQuestion",
+      "DateQuestion",
+      "ZIPInputQuestion",
+    ] as const) {
+      expect(renderComponent(NODE_SPECS[type], DESIGN), type).toContain("data-lg-input");
+    }
+    // both name fields carry it…
+    const name = renderComponent(NODE_SPECS.NameFieldsGroup, DESIGN);
+    expect(name.split("data-lg-input").length - 1).toBe(2);
+    // …and the visible address input (hidden part-fields don't).
+    const addr = renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN);
+    expect(addr.split("data-lg-input").length - 1).toBe(1);
+  });
+
+  it("nav controls: data-lg-continue on Continue + AutoAdvance buttons; data-lg-back on Back", () => {
+    expect(renderComponent(NODE_SPECS.ContinueButton, DESIGN)).toContain("data-lg-continue");
+    expect(renderComponent(NODE_SPECS.AutoAdvanceButton, DESIGN)).toContain("data-lg-continue");
+    expect(renderComponent(NODE_SPECS.BackButton, DESIGN)).toContain("data-lg-back");
+    expect(renderComponent(NODE_SPECS.ContinueButton, DESIGN)).not.toContain("data-lg-back");
+  });
+
+  it("progress bar: data-lg-progress + data-mode ride together", () => {
+    const html = renderComponent(NODE_SPECS.ProgressBar, DESIGN);
+    expect(html).toContain("data-lg-progress");
+    expect(html).toContain('data-mode="percent"');
+    const step = renderComponent(
+      { type: "ProgressBar", question_id: "p", props: { mode: "step", step: 1, totalSteps: 4 } },
+      DESIGN,
+    );
+    expect(step).toContain("data-lg-progress");
+    expect(step).toContain('data-mode="step"');
+  });
+
+  it("data-lg-error-for={internal_field} on a bound error slot; absent on an unbound one", () => {
+    const bound = renderComponent(
+      { type: "ValidationError", question_id: "e1", internal_field: "email", props: { text: "Required" } },
+      DESIGN,
+    );
+    expect(bound).toContain('data-lg-error-for="email"');
+    const unbound = renderComponent(NODE_SPECS.ValidationError, DESIGN);
+    expect(unbound).not.toContain("data-lg-error-for");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.4 03 §3.3 / 08 §8.8 — data-lg-maps on Maps-enabled address/ZIP components
+// ---------------------------------------------------------------------------
+
+describe("v2.4 §3.3 — data-lg-maps (field-level props.maps; compat fallback)", () => {
+  it("AddressAutocompleteQuestion always carries data-lg-maps ('{}' compat fallback without props.maps)", () => {
+    const html = renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN);
+    expect(html).toContain('data-lg-maps="{}"');
+  });
+
+  it("props.maps serializes VERBATIM into data-lg-maps (field-level config wins, §8.8)", () => {
+    const html = renderComponent(
+      {
+        type: "AddressAutocompleteQuestion",
+        question_id: "q_addr",
+        props: { maps: { validateFullAddress: true, autofillCity: "city", autofillState: "state" } },
+      },
+      DESIGN,
+    );
+    // escapeHtml quotes the JSON for the attribute context.
+    expect(html).toContain("data-lg-maps=");
+    expect(html).toContain("validateFullAddress");
+    expect(html).toContain("autofillCity");
+  });
+
+  it("ZIP: data-lg-maps rides the legacy validate flag OR a props.maps config; a plain ZIP has none", () => {
+    const legacy = renderComponent(NODE_SPECS.ZIPInputQuestion, DESIGN); // props.validate: true
+    expect(legacy).toContain("data-lg-maps=");
+    const fieldLevel = renderComponent(
+      { type: "ZIPInputQuestion", question_id: "z2", internal_field: "zip", props: { maps: { autofillCity: "city" } } },
+      DESIGN,
+    );
+    expect(fieldLevel).toContain("autofillCity");
+    const plain = renderComponent(
+      { type: "ZIPInputQuestion", question_id: "z3", internal_field: "zip", props: {} },
+      DESIGN,
+    );
+    expect(plain).not.toContain("data-lg-maps");
+  });
+
+  it("non-address/ZIP components never carry data-lg-maps", () => {
+    for (const type of ["FreeTextQuestion", "ButtonAnswerGroup", "ContinueButton"] as const) {
+      expect(renderComponent(NODE_SPECS[type], DESIGN), type).not.toContain("data-lg-maps");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.4 06 §6.4 (B9) — Other-group markup on choice components with
+// choiceDisplay.otherGroupEnabled. Attributes/markup appear ONLY with the
+// metadata (no existing content has it → no visual change by construction).
+// ---------------------------------------------------------------------------
+
+describe("v2.4 §6.4 (B9) — Other-group render (choiceDisplay)", () => {
+  const CARRIERS = [
+    { label: "Acme", value: "acme", analytics_id: "c_acme" },
+    { label: "Globex", value: "globex", analytics_id: "c_globex" },
+    { label: "Initech", value: "initech", analytics_id: "c_initech" },
+  ];
+  const withDisplay = (extra?: Record<string, unknown>): LeadgenComponentNode =>
+    ({
+      type: "ButtonAnswerGroup",
+      question_id: "q_carrier",
+      internal_field: "carrier",
+      choices: CARRIERS,
+      choiceDisplay: {
+        mainValues: ["acme"],
+        otherGroupEnabled: true,
+        otherGroupLabel: "Other carrier",
+        searchableOther: true,
+        ...extra,
+      },
+    }) as LeadgenComponentNode;
+
+  it("renders main values as normal choices + ONE Other trigger + a hidden panel of secondary REAL values", () => {
+    const html = renderComponent(withDisplay(), DESIGN);
+    // main choice renders as a normal selectable choice…
+    expect(html).toContain('data-lg-choice="acme"');
+    // …the trigger exists, labelled, expandable, and NEVER a choice itself…
+    expect(html).toContain("data-lg-other-trigger");
+    expect(html).toContain("Other carrier");
+    expect(html).toContain('aria-expanded="false"');
+    const triggerTag = html.match(/<button[^>]*data-lg-other-trigger[^>]*>/)?.[0] ?? "";
+    expect(triggerTag).not.toBe("");
+    expect(triggerTag).not.toContain("data-lg-choice");
+    expect(triggerTag).not.toContain("data-value");
+    // …the panel is hidden and carries the secondary REAL values.
+    expect(html).toContain("data-lg-other-panel");
+    expect(html).toMatch(/data-lg-other-panel hidden/);
+    expect(html).toContain('data-lg-choice="globex"');
+    expect(html).toContain('data-lg-choice="initech"');
+    // the literal string "Other" is never a stored value.
+    expect(html).not.toContain('data-lg-choice="Other');
+    expect(html).not.toContain('data-value="Other');
+  });
+
+  it("searchableOther adds the panel search input; searchableOther:false omits it", () => {
+    expect(renderComponent(withDisplay(), DESIGN)).toContain("data-lg-other-search");
+    expect(renderComponent(withDisplay({ searchableOther: false }), DESIGN)).not.toContain("data-lg-other-search");
+  });
+
+  it("card grids + multi-choice render the Other group in their own affordance", () => {
+    const icon = renderComponent(
+      {
+        type: "IconCardAnswerGrid",
+        question_id: "q_biz",
+        internal_field: "biz",
+        choices: CARRIERS.map((c) => ({ ...c, icon: "B" })),
+        choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "More", searchableOther: false },
+      } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(icon).toContain("data-lg-other-trigger");
+    expect(icon).toContain("data-lg-other-panel");
+    expect(icon).toContain('data-lg-choice="globex"');
+    const multi = renderComponent(
+      {
+        type: "MultiChoiceCardGroup",
+        question_id: "q_feat",
+        internal_field: "features",
+        choices: CARRIERS,
+        choiceDisplay: { mainValues: ["acme", "globex"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false },
+      } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(multi).toContain("data-lg-other-trigger");
+    expect(multi).toContain('data-lg-choice="initech"');
+  });
+
+  it("WITHOUT choiceDisplay the markup carries no Other-group artifacts (no visual change)", () => {
+    const html = renderComponent(NODE_SPECS.ButtonAnswerGroup, DESIGN);
+    expect(html).not.toContain("data-lg-other-trigger");
+    expect(html).not.toContain("data-lg-other-panel");
+    expect(html).not.toContain("lg-other-");
+  });
+
+  it("otherGroupEnabled:false renders flat (metadata present but grouping off)", () => {
+    const html = renderComponent(withDisplay({ otherGroupEnabled: false }), DESIGN);
+    expect(html).not.toContain("data-lg-other-trigger");
+    expect(html).toContain('data-lg-choice="globex"'); // all values flat
+  });
+
+  it("escapes a hostile otherGroupLabel (never live markup)", () => {
+    const html = renderComponent(
+      withDisplay({ otherGroupLabel: `<script>alert(1)</script>` }),
+      DESIGN,
+    );
+    expect(html).not.toContain("<script>alert(1)");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("dropdown with choiceDisplay renders ALL values as flat real-value options (panel UX arrives with the Phase-2 preset)", () => {
+    const html = renderComponent(
+      {
+        type: "DropdownQuestion",
+        question_id: "q_dd",
+        internal_field: "insurer",
+        choices: CARRIERS,
+        choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: true },
+      } as LeadgenComponentNode,
+      DESIGN,
+    );
+    expect(html).not.toContain("data-lg-other-trigger");
+    for (const c of CARRIERS) expect(html).toContain(`data-lg-choice="${c.value}"`);
+    expect(html).not.toContain('value="Other"');
+  });
+});
