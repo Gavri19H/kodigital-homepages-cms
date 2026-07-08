@@ -256,23 +256,29 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(Array.isArray(entry!.expected_response_fields)).toBe(true);
   });
 
-  it("S1 MAJOR fix: the preview is the EXACT payload — macro + placement fields resolve (not answers-only)", async () => {
+  it("S1 MAJOR fix: the preview is the EXACT payload — request macro, OFFER-scoped macros, placement + masked token all resolve (not answers-only)", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);
-    // an offer whose ACTIVE schema pulls a source=macro field (utm_source) and
-    // a source=placement field — proving the preview threads the runtime
-    // context, not just answers (the adversarial MAJOR).
+    // an offer whose ACTIVE schema pulls EVERY non-answer source class: a
+    // request-scoped macro (utm_source), the three OFFER-scoped macros
+    // (offer_id / offer_name / placement — derived from ctx.offer, the residual
+    // MAJOR), a source=placement node, and a source=token node — proving the
+    // preview threads the FULL runtime context, not just answers.
     const offerPublic = mintPublicId("offer");
     sdb.prepare(
-      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, endpoint_production, endpoint_staging, status)
-       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'https://p.example/q', 'https://s.example/q', 'active')`,
+      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, endpoint_production, endpoint_staging, status)
+       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'https://p.example/q', 'https://s.example/q', 'active')`,
     ).run(offerPublic);
     const offerId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublic) as { id: number }).id;
     const schemaJson = JSON.stringify({
       version: 1,
       root: { type: "object", children: [
         { path: "src", name: "src", type: "string", source: "macro", macro: "utm_source" },
+        { path: "oid", name: "oid", type: "string", source: "macro", macro: "offer_id" },
+        { path: "onm", name: "onm", type: "string", source: "macro", macro: "offer_name" },
+        { path: "plcm", name: "plcm", type: "string", source: "macro", macro: "placement" },
         { path: "plc", name: "plc", type: "string", source: "placement" },
+        { path: "tok", name: "tok", type: "string", source: "token" },
       ] },
     });
     const schemaPublic = mintPublicId("payload_schema_version");
@@ -297,10 +303,18 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: Record<string, unknown> | null }> };
     const entry = j.offers_payload_explain.find((e) => e.offer_id === offerPublic);
     expect(entry?.payload_preview, "preview built").toBeTruthy();
-    // the MACRO field resolved from the simulated context (NOT dropped)…
-    expect((entry!.payload_preview as Record<string, unknown>)["src"]).toBe("fbk-sim");
-    // …and the source=placement field resolved to the participating placement id.
-    expect((entry!.payload_preview as Record<string, unknown>)["plc"]).toBe("plc-macro-1");
+    const pv = entry!.payload_preview as Record<string, unknown>;
+    // request-scoped macro resolves from the simulated context…
+    expect(pv["src"]).toBe("fbk-sim");
+    // …the three OFFER-scoped macros resolve from ctx.offer (were empty before the fix)…
+    expect(pv["oid"]).toBe(offerPublic);
+    expect(pv["onm"]).toBe("MacroOffer");
+    expect(pv["plcm"]).toBe("plc-macro-1"); // macro:"placement" == the offer's external id, NOT traffic
+    // …source=placement resolves to the provider-facing external id…
+    expect(pv["plc"]).toBe("plc-macro-1");
+    // …and the source=token node renders PRESENT-but-MASKED ([REDACTED]); the
+    // real secret is NEVER resolved in an admin dry-run (§7.6 "masked").
+    expect(pv["tok"]).toBe("[REDACTED]");
   });
 
   it("an offer-level exclude rule surfaces in offers_excluded with a typed reason", async () => {

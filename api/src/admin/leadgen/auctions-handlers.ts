@@ -23,7 +23,7 @@ import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import { buildPayload } from "../../leadgen/payload";
-import { redactPii } from "../../leadgen/redact";
+import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
@@ -57,8 +57,10 @@ import type {
   LeadgenQuoteRow,
   LeadgenSiteQuoteRow,
   LeadgenMultiOfferMode,
+  LeadgenApiTokenPlacement,
   LeadgenRenderMode,
   LeadgenRemovalScope,
+  LeadgenRequestExecutionMode,
   LeadgenRuleAction,
   LeadgenRuleConditionGroup,
   LeadgenRuleConditions,
@@ -1655,20 +1657,20 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
   );
   // MAJOR (adversarial §7.6): the preview must be the EXACT generated payload —
   // built with the SAME macros/computed/placement the engine threads, not
-  // answers alone. Build one simulate runtime context (request + the operator's
-  // simulated `context` overrides) and reuse its macros/computed per offer.
-  const simCtx = buildLeadgenRuntimeContext(
-    { req: { raw: c.req.raw } },
-    {
-      session_id: "",
-      page_view_id: "",
-      funnel_attempt_id: "",
-      quote: resolved.quote,
-      funnel: resolved.funnel,
-      variant: resolved.variant,
-      overrides: context as never, // simulated-context bag (B5 — admin dry-run only)
-    },
-  );
+  // answers alone. The offer slice (offer_id/offer_name/placement) varies per
+  // offer AND feeds three macros (`contextToMacros` derives offer_id/offer_name/
+  // placement from ctx.offer), so the runtime context is rebuilt PER OFFER inside
+  // the loop with that offer's slice — request/traffic/computed are identical
+  // each time; only the offer slice differs. These base opts are the invariant part.
+  const baseCtxOpts = {
+    session_id: "",
+    page_view_id: "",
+    funnel_attempt_id: "",
+    quote: resolved.quote,
+    funnel: resolved.funnel,
+    variant: resolved.variant,
+    overrides: context as never, // simulated-context bag (B5 — admin dry-run only)
+  } as const;
   const payloadExplain: Array<Record<string, unknown>> = [];
   for (const ids of chunk(offerPublicIds)) {
     if (ids.length === 0) continue;
@@ -1678,7 +1680,9 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     // offer's participating placement in THIS auction so the preview matches
     // what the engine actually sends.
     const rows = await c.env.DB.prepare(
-      `SELECT o.public_id AS offer_public_id, s.public_id AS parser_id, s.schema_json,
+      `SELECT o.public_id AS offer_public_id, o.offer_name AS offer_name,
+              o.api_token_placement AS api_token_placement, o.request_execution_mode AS request_execution_mode,
+              s.public_id AS parser_id, s.schema_json,
               s.carrier_parse_json, s.carrier_parse_version, pl.placement_id AS ext_placement
        FROM leadgen_offers o
        LEFT JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
@@ -1689,6 +1693,9 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       .bind(auction.id, ...ids)
       .all<{
         offer_public_id: string;
+        offer_name: string | null;
+        api_token_placement: string | null;
+        request_execution_mode: string | null;
         parser_id: string | null;
         schema_json: string | null;
         carrier_parse_json: string | null;
@@ -1697,22 +1704,39 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       }>();
     for (const r of rows.results ?? []) {
       const placementForOffer = placementByOffer.get(r.offer_public_id) ?? "";
+      // PROVIDER-FACING external placement id (04 §4.5) — never the lgpl_ public id.
+      const externalPlacement = r.ext_placement ?? placementForOffer;
       let payloadPreview: unknown = null;
       if (r.schema_json !== null) {
         try {
           const parsedSchema = JSON.parse(r.schema_json) as Parameters<typeof buildPayload>[0];
-          // EXACT payload: answers + the same macros/computed the engine uses +
-          // this offer's PROVIDER-FACING placement id (source:"placement" resolves
-          // the external leadgen_offer_placements.placement_id, not the lgpl_ public
-          // id — 04 §4.5, matching the Test-tool peer in payload-builder-handlers).
-          // Secrets never resolve here (no token value passed) and redactPii masks
-          // PII before return.
+          // Rebuild the runtime context WITH this offer's slice so the three
+          // offer-scoped macros (`offer_id`/`offer_name`/`placement`) resolve
+          // exactly as the engine threads them — not empty (as they would be
+          // from an offer-less context). Mirrors the Test-tool peer in
+          // payload-builder-handlers.ts.
+          const offerCtx = buildLeadgenRuntimeContext(
+            { req: { raw: c.req.raw } },
+            { ...baseCtxOpts, offer: { offer_id: r.offer_public_id, offer_name: r.offer_name ?? "", placement_id: externalPlacement } },
+          );
+          // EXACT payload: answers + this offer's macros/computed + its
+          // provider-facing placement (source:"placement"). §7.6 "masked": a
+          // source:"token" node renders present-but-MASKED — we inject the
+          // REDACTED sentinel as the token value (the REAL secret is NEVER read
+          // in an admin dry-run), and the node only appears when the offer would
+          // actually inject it (payload placement + server mode). redactPii masks
+          // any PII in the resolved fields before return.
           payloadPreview = redactPii(
             buildPayload(parsedSchema, {
               answers: sampleAnswers,
-              macros: simCtx.macros,
-              computed: simCtx.computed,
-              offer: { offer_id: r.offer_public_id, placement_id: r.ext_placement ?? placementForOffer },
+              macros: offerCtx.macros,
+              computed: offerCtx.computed,
+              offer: { offer_id: r.offer_public_id, placement_id: externalPlacement },
+              token: {
+                value: REDACTED_VALUE,
+                api_token_placement: r.api_token_placement as LeadgenApiTokenPlacement | null,
+                request_execution_mode: (r.request_execution_mode ?? "server") as LeadgenRequestExecutionMode,
+              },
             }),
           );
         } catch {
