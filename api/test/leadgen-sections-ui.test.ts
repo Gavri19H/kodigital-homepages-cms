@@ -18,6 +18,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
@@ -327,10 +328,21 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain('data-preview-viewport="mobile"');
     expect(html).toContain('id="lg-preview-frame"');
     expect(html).toContain('sandbox=""'); // sandboxed preview iframe (no innerHTML)
-    // §14.9 states simulator
-    for (const sim of ["default", "selected", "error", "dependency"]) {
+    // §8.9 design picker (preview under any registered design; "" = server default)
+    expect(html).toContain('id="lg-preview-design"');
+    expect(html).toContain('<option value="default-funnel">');
+    // §14.9/§9.2 states simulator — ALL sims server-rendered via preview params
+    for (const sim of ["default", "selected", "error", "dependency", "validation_success", "validation_error"]) {
       expect(html, `sim state ${sim}`).toContain(`data-sim-state="${sim}"`);
     }
+    // §9.2: the outer-iframe attribute hacks are GONE — the iframe element
+    // carries no data-viewport, and mobile sizing is a plain width class the
+    // island swaps on re-render (server wrapper does the real sizing).
+    const iframeTag = html.match(/<iframe[^>]*id="lg-preview-frame"[^>]*>/);
+    expect(iframeTag).not.toBeNull();
+    expect(iframeTag![0]).not.toContain("data-viewport");
+    expect(html).not.toContain(".lg-preview-frame[data-viewport");
+    expect(html).toContain(".lg-preview-frame-mobile{max-width:375px}");
     // §12.8 Google-Maps toggle (key is a secret — the note says so, no key embedded)
     expect(html).toContain('id="lg-address-validation"');
     expect(html).toContain("GOOGLE_MAPS_BROWSER_KEY");
@@ -726,7 +738,7 @@ describe("mappingSummaryOf — edge-level errors block publish (sectionValidatio
 // ---------------------------------------------------------------------------
 
 describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key state", () => {
-  it("renders the §12.3 dependency simulator control + wires it to /sections/preview with sample_answers", async () => {
+  it("renders the §12.3 dependency simulator control + wires it to /sections/preview via §9.2 sim params", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
@@ -735,14 +747,36 @@ describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key s
     expect(html).toContain("data-dependency-answers");
     expect(html).toContain('id="lg-dependency-apply"');
     expect(html).toContain("data-dependency-status");
-    // the P5 "dependency" sim button now drives the state variable
+    // the sim buttons drive the state variable
     expect(html).toContain('data-sim-state="dependency"');
     expect(html).toContain("simState = stateName");
-    // runPreview sends sample_answers ONLY in dependency mode + reflects the verdict
+    // §9.2: runPreview sends the parameterized body — viewport + sim {state,
+    // answers} (answers on every non-default sim) — and consumes preview.html
     expect(html).toContain("function sampleAnswers(");
     expect(html).toContain("function renderDependencyStatus(");
-    expect(html).toContain("requestBody.sample_answers = sampleAnswers()");
-    expect(html).toContain("simState === 'dependency'");
+    expect(html).toContain("viewport: previewViewport");
+    expect(html).toContain("sim: { state: simState }");
+    expect(html).toContain("requestBody.sim.answers = sampleAnswers()");
+    expect(html).toContain("simState !== 'default'");
+    expect(html).toContain("res.body.preview.html");
+    // the legacy body key is gone from the island
+    expect(html).not.toContain("requestBody.sample_answers");
+  });
+
+  it("§9.2: the outer-iframe attribute hacks are DELETED from the island source", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const island = extractScripts(html).find((s) => s.includes("runPreview"));
+    expect(island, "builder island present").toBeDefined();
+    // the sim-state + viewport writes onto the iframe element are gone —
+    // every sim/viewport is SERVER-rendered into the srcdoc markup
+    expect(island!).not.toContain("setAttribute('data-sim-state'");
+    expect(island!).not.toContain("setAttribute('data-viewport'");
+    // the only frame attribute the island writes is the srcdoc itself
+    expect(island!).toContain("setAttribute('srcdoc'");
+    // mobile sizing = plain class swap on re-render (not an attribute selector)
+    expect(island!).toContain("'lg-preview-frame lg-preview-frame-mobile'");
   });
 
   it("surfaces the §30.2 Maps-key ABSENT state when no browser key is configured", async () => {
@@ -763,5 +797,261 @@ describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key s
     const html = await res.text();
     expect(html).toContain('data-maps-key="configured"');
     expect(html).not.toContain("browser-abc"); // §30.2 — the key VALUE is never embedded
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §9.2 EXECUTED island probe — the REAL runPreview sliced from the served page
+// runs in a vm whose fetch is the REAL admin router (client-vs-server-JSON
+// seam: the request body the island BUILDS is served by the live handler and
+// the island CONSUMES the live response — preview.html → srcdoc, class swap).
+// ---------------------------------------------------------------------------
+
+// Two-component content whose second question depends on the first (drives a
+// real dependencies verdict through the executed round-trip).
+const UI_DEP_CONTENT = {
+  components: [
+    { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+    {
+      type: "FreeTextQuestion",
+      question_id: "q2",
+      question_key: "insurer_q",
+      internal_field: "insurer",
+      answer_type: "string",
+      required: true,
+      conditional: { when: "currently_insured", op: "eq", value: true },
+    },
+  ],
+};
+
+function sliceIslandFunction(script: string, name: string): string {
+  const marker = `function ${name}(`;
+  const start = script.indexOf(marker);
+  expect(start, `island function ${name} present`).toBeGreaterThan(-1);
+  const open = script.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return script.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces while slicing island function ${name}`);
+}
+
+// Minimal element stand-in implementing exactly the DOM surface the preview
+// slice touches (value/hidden/className, get/setAttribute, text children).
+interface ProbeEl {
+  hidden: boolean;
+  value: string;
+  className: string;
+  textContent: string;
+  attrs: Map<string, string>;
+  children: unknown[];
+  readonly firstChild: unknown;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  appendChild(c: unknown): unknown;
+  removeChild(c: unknown): unknown;
+}
+
+function probeEl(): ProbeEl {
+  const attrs = new Map<string, string>();
+  const children: unknown[] = [];
+  return {
+    hidden: false,
+    value: "",
+    className: "",
+    textContent: "",
+    attrs,
+    children,
+    get firstChild() {
+      return children.length > 0 ? children[0]! : null;
+    },
+    setAttribute(k, v) {
+      attrs.set(k, String(v));
+    },
+    getAttribute(k) {
+      return attrs.has(k) ? attrs.get(k)! : null;
+    },
+    appendChild(c) {
+      children.push(c);
+      return c;
+    },
+    removeChild(c) {
+      const i = children.indexOf(c);
+      if (i !== -1) children.splice(i, 1);
+      return c;
+    },
+  };
+}
+
+interface PreviewProbeOut {
+  requestBody: Record<string, unknown>;
+  url: string;
+  frame: ProbeEl;
+  errEl: ProbeEl;
+  statusEl: ProbeEl;
+}
+
+// Slice trimStr/sampleAnswers/renderDependencyStatus/runPreview out of the
+// SERVED island, execute runPreview() in a vm, and route its fetch through
+// the REAL admin router. Waits for the async chain to land (srcdoc or error).
+async function runPreviewProbe(opts: {
+  env: Env;
+  island: string;
+  content: unknown;
+  simState: string;
+  viewport: string;
+  answersJson?: string;
+  designValue?: string;
+}): Promise<PreviewProbeOut> {
+  const frame = probeEl();
+  frame.className = "lg-preview-frame";
+  const errEl = probeEl();
+  errEl.hidden = true;
+  const statusEl = probeEl();
+  const answersEl = probeEl();
+  answersEl.value = opts.answersJson ?? "";
+  const designEl = probeEl();
+  designEl.value = opts.designValue ?? "";
+  let captured: { url: string; init: RequestInit } | null = null;
+  const sandbox = {
+    document: {
+      getElementById(id: string): ProbeEl | null {
+        if (id === "lg-preview-frame") return frame;
+        if (id === "lg-preview-error") return errEl;
+        if (id === "lg-dependency-answers") return answersEl;
+        if (id === "lg-preview-design") return designEl;
+        return null;
+      },
+      querySelector(sel: string): ProbeEl | null {
+        return sel === "[data-dependency-status]" ? statusEl : null;
+      },
+      createTextNode(t: string): unknown {
+        return { nodeType: 3, textContent: String(t) };
+      },
+    },
+    fetch(url: string, init: RequestInit): Promise<Response> {
+      captured = { url, init };
+      return Promise.resolve(admin.request(url, init, opts.env));
+    },
+  };
+  const source = [
+    `var state = { content: ${JSON.stringify(opts.content)} };`,
+    `var simState = ${JSON.stringify(opts.simState)};`,
+    `var previewViewport = ${JSON.stringify(opts.viewport)};`,
+    sliceIslandFunction(opts.island, "trimStr"),
+    sliceIslandFunction(opts.island, "sampleAnswers"),
+    sliceIslandFunction(opts.island, "renderDependencyStatus"),
+    sliceIslandFunction(opts.island, "runPreview"),
+    "runPreview();",
+  ].join("\n");
+  runInNewContext(source, sandbox);
+  for (let i = 0; i < 200 && !frame.attrs.has("srcdoc") && errEl.hidden; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  expect(captured, "island fetch executed").not.toBeNull();
+  const { url, init } = captured!;
+  return {
+    url,
+    requestBody: JSON.parse(String(init.body)) as Record<string, unknown>,
+    frame,
+    errEl,
+    statusEl,
+  };
+}
+
+describeDb("§9.2 executed island — runPreview against the REAL preview handler", () => {
+  async function editorIsland(env: Env): Promise<string> {
+    const html = await getHtml(env, "/admin/leadgen/sections/new");
+    const island = extractScripts(html).find((s) => s.includes("function runPreview("));
+    expect(island, "builder island present").toBeDefined();
+    return island!;
+  }
+
+  it("dependency sim @ mobile: body carries viewport+sim.answers; srcdoc consumes preview.html; class swap (no attribute hacks)", async () => {
+    const { env } = newHarness();
+    const island = await editorIsland(env);
+    const out = await runPreviewProbe({
+      env,
+      island,
+      content: UI_DEP_CONTENT,
+      simState: "dependency",
+      viewport: "mobile",
+      answersJson: '{"currently_insured": true}',
+    });
+
+    // --- the CLIENT-built request body (the §9.2 shape) ---------------------
+    expect(out.url).toBe("/api/admin/leadgen/sections/preview");
+    expect(out.requestBody["content_json"]).toBe(JSON.stringify(UI_DEP_CONTENT));
+    expect(out.requestBody["viewport"]).toBe("mobile");
+    expect(out.requestBody["sim"]).toEqual({ state: "dependency", answers: { currently_insured: true } });
+    expect("design_id" in out.requestBody).toBe(false); // picker empty ⇒ omitted
+    expect("sample_answers" in out.requestBody).toBe(false); // legacy key gone
+
+    // --- the island CONSUMED the live server JSON ---------------------------
+    expect(out.errEl.hidden).toBe(true);
+    const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
+    expect(srcdoc.startsWith("<style>")).toBe(true);
+    // preview.html is the MOBILE wrapper (the requested viewport), not desktop
+    expect(srcdoc).toContain("lg-preview-mobile");
+    expect(srcdoc).not.toContain("lg-preview-desktop");
+    // both dependency-visible questions rendered by the live handler
+    expect(srcdoc).toContain('data-lg-question="q1"');
+    expect(srcdoc).toContain('data-lg-question="q2"');
+    // mobile sizing = plain class swap on re-render; srcdoc is the ONLY
+    // attribute the island writes on the iframe (hacks deleted)
+    expect(out.frame.className).toBe("lg-preview-frame lg-preview-frame-mobile");
+    expect([...out.frame.attrs.keys()]).toEqual(["srcdoc"]);
+    // the live dependencies verdict landed in the status line (q2 visible +
+    // required + unanswered ⇒ continue blocked)
+    expect(out.statusEl.attrs.get("data-continue-blocked")).toBe("true");
+  });
+
+  it("selected sim @ desktop with the design picker: design_id rides; the srcdoc markup is SERVER-rendered selected state", async () => {
+    const { env } = newHarness();
+    const island = await editorIsland(env);
+    const out = await runPreviewProbe({
+      env,
+      island,
+      content: YESNO_CONTENT,
+      simState: "selected",
+      viewport: "desktop",
+      answersJson: '{"currently_insured": true}',
+      designValue: "default-funnel",
+    });
+
+    expect(out.requestBody["design_id"]).toBe("default-funnel");
+    expect(out.requestBody["viewport"]).toBe("desktop");
+    expect((out.requestBody["sim"] as Record<string, unknown>)["state"]).toBe("selected");
+
+    const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
+    expect(srcdoc).toContain("lg-preview-desktop");
+    expect(srcdoc).toContain('data-funnel-design="default-funnel"');
+    // the SERVER rendered the selection into the markup — the client painted
+    // nothing (E5: never attributes for the client to interpret)
+    expect(srcdoc).toContain('aria-checked="true"');
+    expect(srcdoc).toContain("lg-selected");
+    expect(srcdoc).toContain('aria-pressed="true"');
+    expect(out.frame.className).toBe("lg-preview-frame");
+  });
+
+  it("default sim sends NO sim.answers (classic full render request)", async () => {
+    const { env } = newHarness();
+    const island = await editorIsland(env);
+    const out = await runPreviewProbe({
+      env,
+      island,
+      content: YESNO_CONTENT,
+      simState: "default",
+      viewport: "desktop",
+      answersJson: '{"currently_insured": true}', // affordance filled but state=default ⇒ ignored
+    });
+    expect(out.requestBody["sim"]).toEqual({ state: "default" });
+    const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
+    expect(srcdoc).toContain("lg-preview-desktop");
+    expect(srcdoc).not.toContain("lg-selected");
   });
 });

@@ -40,6 +40,9 @@ import {
 // dependency evaluator (admin preview + P7 runtime share it) and the §12.8
 // server-side ZIP validator (`/^\d{5}$/`).
 import { evaluateDependencies, type LeadgenDependencyState } from "../../leadgen/dependencies";
+// §9.2 (E5) preview sims: typed `sim` parse + the pure post-render markup
+// transform (preview-only — the shared preset renderer stays untouched, §9.1).
+import { applyPreviewSimMarkup, parsePreviewSim } from "./preview-sim";
 import { validateZip } from "../../leadgen/maps";
 import {
   mappingCompleteness,
@@ -936,9 +939,22 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 // §14.9: render a (possibly mid-edit) Section from a DRAFT content_json — no
-// persist. Structural parse only (malformed JSON is the only rejection; a
-// mapping-less draft still previews). Returns BOTH viewports' HTML + the
-// scoped chrome CSS; the editor's preview iframe injects the CSS.
+// persist. Structural parse only (malformed JSON — or a malformed §9.2
+// parameter — is the only rejection; a mapping-less draft still previews).
+// Returns BOTH viewports' HTML + the scoped chrome CSS; the editor's preview
+// iframe injects the CSS.
+//
+// §9.2 (E5) parameterization — ADDITIVE body params over the legacy shape:
+//   design_id?  → getFunnelDesign(design_id) (absent/unknown → default,
+//                 §14.1); the wrapper's data-funnel-design + the chrome-CSS
+//                 scope carry the RESOLVED id (the :962 hardcode is gone).
+//   viewport?   → "desktop"|"mobile"; when present the response ALSO carries
+//                 preview.html = that viewport's markup.
+//   sim?        → { state?, answers?, auto_advance?, flow? } — every sim is
+//                 SERVER-rendered into the markup (preview-sim.ts), never a
+//                 cosmetic attribute for the client to interpret.
+// A legacy body (none of the new params) produces byte-identical
+// preview.{css,desktop,mobile,component_count} — regression-pinned.
 export async function previewSectionHandler(c: AdminContext): Promise<Response> {
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
@@ -963,25 +979,64 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", fields: { content_json: "content_json is required" } }, 400);
   }
 
-  // §12.3/§14.9 conditional-dependency preview: when the caller supplies
-  // `sample_answers`, normalize them (answers.ts §12.7) and run the Stage-A
-  // evaluateDependencies over the draft component nodes. The preview then
-  // renders with hidden components ACTUALLY hidden (the editor's "dependency"
-  // simulator state shows the real show/hide), and the response carries the
-  // per-component {visible, required_now} + the section-level continue gate.
-  // No sample_answers ⇒ the classic full-render preview (unchanged).
-  const design = getFunnelDesign(null);
+  // --- §9.2 parameter parse (design_id / viewport / sim) --------------------
+  const rawDesignId = body["design_id"];
+  if (rawDesignId !== undefined && rawDesignId !== null && typeof rawDesignId !== "string") {
+    return c.json(
+      { error: "Validation failed", fields: { design_id: "design_id must be a string" } },
+      400,
+    );
+  }
+  // Absent/unknown → the default design (§14.1 registry rule). The RESOLVED
+  // design drives the wrapper attribute, the CSS scope, and the echo below —
+  // this replaces the previous getFunnelDesign(null) hardcode.
+  const design = getFunnelDesign(typeof rawDesignId === "string" ? rawDesignId : null);
+
+  const rawViewport = body["viewport"];
+  if (rawViewport !== undefined && rawViewport !== null && rawViewport !== "desktop" && rawViewport !== "mobile") {
+    return c.json(
+      { error: "Validation failed", fields: { viewport: 'viewport must be "desktop" or "mobile"' } },
+      400,
+    );
+  }
+  const viewport = rawViewport === "desktop" || rawViewport === "mobile" ? rawViewport : undefined;
+
+  const simParse = parsePreviewSim(body["sim"]);
+  if (simParse.error !== null) {
+    return c.json({ error: "Validation failed", fields: simParse.error }, 400);
+  }
+  const sim = simParse.sim;
+
+  // §12.3/§14.9 conditional-dependency preview: the answers BASIS is the
+  // legacy `sample_answers` record overlaid by `sim.answers` overlaid by the
+  // §9.2 flow reduction (later entries win). Any basis — or the explicit
+  // "dependency" sim — normalizes (answers.ts §12.7) and runs the Stage-A
+  // evaluateDependencies over the draft component nodes, so hidden components
+  // are ACTUALLY hidden in the markup, exactly as the P7 runtime hides them.
+  // No basis ⇒ the classic full-render preview (unchanged, byte-compatible).
   const nodes = content.components as LeadgenComponentNode[];
   const rawSample = body["sample_answers"] ?? body["answers"];
+  const flowAnswers: Record<string, unknown> = {};
+  for (const step of sim.flow) flowAnswers[step.internal_field] = step.value;
+  const hasAnswerBasis = isRecord(rawSample) || sim.answers !== null || sim.flow.length > 0;
+  const mergedRawAnswers: Record<string, unknown> = {
+    ...(isRecord(rawSample) ? (rawSample as Record<string, unknown>) : {}),
+    ...(sim.answers ?? {}),
+    ...flowAnswers,
+  };
+
   let dependencies: LeadgenDependencyState | null = null;
+  let normalizedAnswers: Record<string, unknown> = {};
+  let visible: Set<string> | null = null;
   let rendered: string;
   let componentCount: number;
-  if (isRecord(rawSample)) {
-    const normalized = normalizeAnswers(content, rawSample as LeadgenRawAnswers);
+  if (hasAnswerBasis || sim.state === "dependency") {
+    const normalized = normalizeAnswers(content, mergedRawAnswers as LeadgenRawAnswers);
+    normalizedAnswers = normalized.answers;
     // evaluateDependencies runs over the §8.5 flattened LEAF projection (its
     // own canonical flatten) — nested questions participate like top-level.
     dependencies = evaluateDependencies(nodes, normalized.answers);
-    const visible = new Set(
+    visible = new Set(
       dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
     );
     // Filter the render to the visible LEAVES only — a component whose inline
@@ -995,28 +1050,65 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     // The count mirrors what renders: visible LEAF nodes (flat content: the
     // exact pre-§8.5 filtered-list length — flatten is the identity there).
     componentCount = flattenComponents(nodes).filter(
-      (n) => isRecord(n) && typeof n.question_id === "string" && visible.has(n.question_id),
+      (n) => isRecord(n) && typeof n.question_id === "string" && visible!.has(n.question_id),
     ).length;
   } else {
-    // No sample_answers ⇒ the classic full-render preview (unchanged); the
-    // renderer receives the FULL tree (container presets recurse).
+    // No basis ⇒ the classic full-render preview (unchanged); the renderer
+    // receives the FULL tree (container presets recurse).
     rendered = renderSectionComponents(nodes, design);
     componentCount = nodes.length;
   }
-  const wrap = (viewport: "desktop" | "mobile", maxWidth: string): string =>
-    `<div data-funnel-design="${design.id}" data-viewport="${viewport}" class="lg-preview lg-preview-${viewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
+
+  // §9.2: every sim is SERVER-rendered INTO the markup (selected classes,
+  // error markup, success markup) — the outer-iframe attribute hacks are
+  // gone. Selection also rides a provided flow (its record is the
+  // dependency+selected basis).
+  const markSelection = sim.state === "selected" || sim.flow.length > 0;
+  if (
+    markSelection ||
+    sim.state === "error" ||
+    sim.state === "validation_success" ||
+    sim.state === "validation_error"
+  ) {
+    rendered = applyPreviewSimMarkup(rendered, nodes, design, {
+      state: sim.state,
+      markSelection,
+      answers: normalizedAnswers,
+      visibleIds: visible,
+      requiredNow:
+        dependencies === null
+          ? null
+          : new Map(dependencies.components.map((cc) => [cc.question_id, cc.required_now])),
+    });
+  }
+
+  const wrap = (wrapViewport: "desktop" | "mobile", maxWidth: string): string =>
+    `<div data-funnel-design="${design.id}" data-viewport="${wrapViewport}" class="lg-preview lg-preview-${wrapViewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
 
   // The scoped chrome CSS is imported lazily so this handler stays free of the
-  // styles module unless a preview is requested.
-  const { funnelChromeCss } = await import("../../public/leadgen/designs/default-funnel/styles");
-  const responseBody: Record<string, unknown> = {
-    preview: {
-      css: funnelChromeCss(design),
-      desktop: wrap("desktop", design.header.contentMaxWidth),
-      mobile: wrap("mobile", design.breakpoints.mobileMax),
-      component_count: componentCount,
-    },
+  // styles module unless a preview is requested. The scope attribute value is
+  // the RESOLVED design id (the serve.ts funnel-shell pattern) — for the
+  // default design this equals the module's DEFAULT_FUNNEL_SCOPE, so legacy
+  // bodies stay byte-identical.
+  const { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } = await import(
+    "../../public/leadgen/designs/default-funnel/styles"
+  );
+  const desktopHtml = wrap("desktop", design.header.contentMaxWidth);
+  const mobileHtml = wrap("mobile", design.breakpoints.mobileMax);
+  const preview: Record<string, unknown> = {
+    css: funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`),
+    desktop: desktopHtml,
+    mobile: mobileHtml,
+    component_count: componentCount,
+    // §9.2 additive echoes: the RESOLVED design id + the RESOLVED sim state
+    // ("default" when the caller sent none).
+    design_id: design.id,
+    sim_state: sim.state,
   };
+  // When the caller names a viewport, ALSO return that viewport's markup as
+  // preview.html (the Studio srcdoc consumes it directly).
+  if (viewport !== undefined) preview["html"] = viewport === "mobile" ? mobileHtml : desktopHtml;
+  const responseBody: Record<string, unknown> = { preview };
   if (dependencies !== null) {
     responseBody["dependencies"] = {
       components: dependencies.components,

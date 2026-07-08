@@ -3,7 +3,9 @@
 // renders the editor's LEFT canvas (add/reorder components from the capability
 // catalog), the RIGHT inspector (curated §14.8 style tokens + the answer→Offer
 // mapping grid), the Desktop/Mobile preview toggle, and the states simulator
-// (default/selected/error/dependency). All interaction is a single strict-ES5
+// (default/selected/error/dependency/validation_success/validation_error —
+// every sim SERVER-rendered via the §9.2 preview params, never a cosmetic
+// outer-iframe attribute). All interaction is a single strict-ES5
 // inline script (the layout.ts constraint the listicles pages hold too —
 // asserted by the ES5 parse test). Every author value is escapeHtml-escaped;
 // author content never flows into a style attribute (§14.10). The preview
@@ -13,6 +15,7 @@
 import { escapeHtml } from "../templates/layout";
 import { COMPONENT_CATALOG, type ComponentType } from "../../public/leadgen/components/registry";
 import { CURATED_DESIGN_OVERRIDE_KEYS } from "../../public/leadgen/components/content-schema";
+import { FUNNEL_DESIGNS } from "../../public/leadgen/designs/registry";
 
 // ---------------------------------------------------------------------------
 // Component capability palette (§13.1) — grouped by catalog category
@@ -463,12 +466,27 @@ export type { AnswerMapView, MappingSummary };
 // Desktop/Mobile preview toggle + states simulator (§14.9)
 // ---------------------------------------------------------------------------
 
+// §8.9 design picker options — one entry per DISTINCT registered design (the
+// registry aliases `default` → the default design's canonical id). Value ""
+// = omit design_id (the server resolves its default, §14.1).
+function designPickerOptions(): string {
+  const ids = [...new Set(Object.values(FUNNEL_DESIGNS).map((d) => d.id))];
+  return ids
+    .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`)
+    .join("");
+}
+
 export function renderPreviewToggle(): string {
   return `<div class="lg-preview-controls" data-lg-preview-controls>
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
     <button type="button" class="btn btn-sm btn-secondary" data-preview-viewport="mobile" aria-pressed="false">Mobile</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-preview-refresh">Refresh preview</button>
+    <label class="form-help" for="lg-preview-design">Design:</label>
+    <select id="lg-preview-design" class="form-input lg-preview-design" data-preview-design aria-label="Preview under a funnel design (§8.9)">
+      <option value="" selected>Default design</option>
+      ${designPickerOptions()}
+    </select>
   </div>
   <div class="lg-states-simulator" role="group" aria-label="State simulator (§14.9)">
     <span class="form-help">Simulate state:</span>
@@ -476,15 +494,17 @@ export function renderPreviewToggle(): string {
     <button type="button" class="btn btn-sm btn-outline" data-sim-state="selected" aria-pressed="false">Selected</button>
     <button type="button" class="btn btn-sm btn-outline" data-sim-state="error" aria-pressed="false">Error</button>
     <button type="button" class="btn btn-sm btn-outline" data-sim-state="dependency" aria-pressed="false">Dependency</button>
+    <button type="button" class="btn btn-sm btn-outline" data-sim-state="validation_success" aria-pressed="false">Validation success</button>
+    <button type="button" class="btn btn-sm btn-outline" data-sim-state="validation_error" aria-pressed="false">Validation error</button>
   </div>
   <div class="lg-dependency-panel" data-dependency-panel hidden>
-    <label class="form-label" for="lg-dependency-answers">Sample answers (JSON, keyed by internal field) — §12.3 conditional dependency preview</label>
-    <textarea id="lg-dependency-answers" class="form-input" data-dependency-answers rows="3" aria-label="Sample answers for dependency preview" placeholder='{ "currently_insured": true }'></textarea>
+    <label class="form-label" for="lg-dependency-answers">Sample answers (JSON, keyed by internal field) — drives the dependency/selected/error/validation sims (§9.2)</label>
+    <textarea id="lg-dependency-answers" class="form-input" data-dependency-answers rows="3" aria-label="Sample answers for the state sims" placeholder='{ "currently_insured": true }'></textarea>
     <button type="button" class="btn btn-sm btn-secondary" id="lg-dependency-apply">Apply sample answers</button>
     <p class="lg-dependency-status" data-dependency-status role="status" aria-live="polite"></p>
   </div>
   <p id="lg-preview-error" class="alert alert-error" hidden role="alert"></p>
-  <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview (default funnel design)" sandbox="" data-viewport="desktop"></iframe>
+  <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview" sandbox=""></iframe>
 </div>`;
 }
 
@@ -512,8 +532,13 @@ export const QUESTION_BUILDER_STYLES = `
 .lg-inspector-section{border-top:1px solid var(--c-border);padding-top:12px;margin-top:12px}
 .lg-mapping-grid td,.lg-mapping-grid th{font-size:12px;vertical-align:top}
 .lg-preview-frame{border:1px solid var(--c-border);border-radius:8px;width:100%;min-height:360px;margin-top:8px;background:#fff}
-.lg-preview-frame[data-viewport="mobile"]{max-width:375px}
+/* §9.2: mobile sizing is server-driven — the srcdoc wrapper (lg-preview-mobile)
+   carries the design's mobile max-width; this plain class only narrows the
+   iframe ELEMENT so in-document media queries evaluate at a real 375px, and it
+   is applied by the island on re-render (never a cosmetic attribute hack). */
+.lg-preview-frame-mobile{max-width:375px}
 .lg-viewport-toggle,.lg-states-simulator{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.lg-preview-design{width:auto;font-size:12px;padding:4px 6px}
 .lg-check{display:flex;align-items:center;gap:6px}
 .lg-choice-list{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}
 .lg-choice-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
@@ -733,10 +758,17 @@ export const QUESTION_BUILDER_SCRIPT = `
     var frame = document.getElementById('lg-preview-frame');
     var errEl = document.getElementById('lg-preview-error');
     if (errEl) { errEl.hidden = true; }
-    var requestBody = { content_json: JSON.stringify(state.content) };
-    // Only the dependency state sends sample answers → the server renders with
-    // hidden components actually hidden + returns the per-component visibility.
-    if (simState === 'dependency') { requestBody.sample_answers = sampleAnswers(); }
+    // §9.2 parameterized body: the viewport rides the request (the server
+    // returns that viewport's markup as preview.html) and EVERY sim is
+    // server-rendered — the client never paints state onto the iframe.
+    var requestBody = { content_json: JSON.stringify(state.content), viewport: previewViewport, sim: { state: simState } };
+    // Non-default sims are answers-driven (dependency show/hide, selected
+    // choices, required-but-empty errors, validation states) — the sample-
+    // answers affordance feeds sim.answers.
+    if (simState !== 'default') { requestBody.sim.answers = sampleAnswers(); }
+    // §8.9 design picker: empty value ⇒ omit design_id (server default).
+    var designSel = document.getElementById('lg-preview-design');
+    if (designSel && trimStr(designSel.value) !== '') { requestBody.design_id = trimStr(designSel.value); }
     fetch('/api/admin/leadgen/sections/preview', {
       method: 'POST',
       credentials: 'same-origin',
@@ -750,8 +782,11 @@ export const QUESTION_BUILDER_SCRIPT = `
         return;
       }
       if (frame) {
-        frame.setAttribute('data-viewport', previewViewport);
-        var html = previewViewport === 'mobile' ? res.body.preview.mobile : res.body.preview.desktop;
+        // Mobile sizing comes from the SERVER wrapper inside the srcdoc; the
+        // iframe element only swaps a plain width class on re-render (§9.2 —
+        // the data-viewport attribute hack is gone).
+        frame.className = previewViewport === 'mobile' ? 'lg-preview-frame lg-preview-frame-mobile' : 'lg-preview-frame';
+        var html = res.body.preview.html || (previewViewport === 'mobile' ? res.body.preview.mobile : res.body.preview.desktop);
         // Sandboxed srcdoc document — the listicles preview pattern, never
         // innerHTML. The fragment is server-rendered + escaped by the presets.
         frame.setAttribute('srcdoc', '<style>' + res.body.preview.css + '</style>' + html);
@@ -778,19 +813,21 @@ export const QUESTION_BUILDER_SCRIPT = `
   }
   var refreshBtn = document.getElementById('lg-preview-refresh');
   if (refreshBtn) { refreshBtn.addEventListener('click', runPreview); }
+  // §8.9 design picker → re-render under the chosen design (server-resolved).
+  var designPicker = document.getElementById('lg-preview-design');
+  if (designPicker) { designPicker.addEventListener('change', runPreview); }
 
-  // --- states simulator (§14.9) --------------------------------------------
+  // --- states simulator (§14.9 / §9.2: server-rendered sims only) -----------
   var simBtns = document.querySelectorAll('[data-sim-state]');
   var si;
   for (si = 0; si < simBtns.length; si++) {
     simBtns[si].addEventListener('click', function () {
       var stateName = this.getAttribute('data-sim-state');
       simState = stateName;
-      var frame = document.getElementById('lg-preview-frame');
-      if (frame) { frame.setAttribute('data-sim-state', stateName); }
-      // The dependency sample-answers panel is revealed only in dependency mode.
+      // Every non-default sim is answers-driven — reveal the sample-answers
+      // panel for all of them (dependency/selected/error/validation states).
       var panel = document.querySelector('[data-dependency-panel]');
-      if (panel) { panel.hidden = (stateName !== 'dependency'); }
+      if (panel) { panel.hidden = (stateName === 'default'); }
       var all = document.querySelectorAll('[data-sim-state]');
       var k;
       for (k = 0; k < all.length; k++) {
@@ -798,7 +835,7 @@ export const QUESTION_BUILDER_SCRIPT = `
         all[k].setAttribute('aria-pressed', on ? 'true' : 'false');
         all[k].className = on ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
       }
-      // Re-render the preview for the chosen state (dependency ⇒ filtered).
+      // Re-render: the SERVER renders the chosen state into the markup (§9.2).
       runPreview();
     });
   }
