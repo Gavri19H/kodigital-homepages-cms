@@ -280,6 +280,29 @@ async function offerEligibilityVerdicts(
   return out;
 }
 
+// §6.1 (fix-contract v2.4): the ADDITIVE `last_test_at` riding the Offer
+// detail responses — MAX(created_at) over the Offer's TEST-TOOL provider-log
+// rows. Scoping mirrors LEADGEN_TEST_STATUS_SUBSELECT exactly
+// (auction_instance_id IS NULL — runtime auction rows never count as an
+// operator Test). created_at is unixepoch seconds → ISO string; no rows →
+// null. Fail-open like the eligibility loader: a read error yields null.
+async function offerLastTestAt(db: D1Database, offerPublicId: string): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT MAX(created_at) AS t FROM leadgen_provider_request_log
+          WHERE offer_public_id = ? AND auction_instance_id IS NULL`,
+      )
+      .bind(offerPublicId)
+      .first<{ t: number | null }>();
+    const t = row?.t;
+    return typeof t === "number" && Number.isFinite(t) ? new Date(t * 1000).toISOString() : null;
+  } catch (err) {
+    console.warn("[lg-last-test] loader failed", err instanceof Error ? err.name : String(err));
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // fix-contract v2.4 12 Phase-2: the ADDITIVE `builder_context` projection the
 // rebuilt payload-builder UI reads off the Offer GET — the ACTIVE schema's
@@ -422,7 +445,8 @@ async function offerBuilderContext(
 // (placements seed with the offer, §10.1, and ride the PATCH replace-set;
 // headers + region rules ride the editor tabs, §10.4/§11.3 — no dedicated
 // routes in 03 §8.2) + the additive 05 §5.1 `eligibility` verdict + the
-// additive Phase-2 `builder_context` projection (above).
+// additive Phase-2 `builder_context` projection (above) + the additive §6.1
+// `last_test_at` timestamp.
 async function offerDetailJson(
   db: D1Database,
   row: LeadgenOfferRow,
@@ -443,6 +467,7 @@ async function offerDetailJson(
     region_rules: (rules.results ?? []).map(regionRuleRowToApi),
     eligibility: eligibility.get(row.id) ?? null,
     builder_context: await offerBuilderContext(db, row),
+    last_test_at: await offerLastTestAt(db, row.public_id),
   };
 }
 

@@ -224,6 +224,197 @@ describe("§6.9 default/fallback TYPED emission (B1 cluster)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// §6.9 computed default/fallback references — runtime, through buildPayload
+// ---------------------------------------------------------------------------
+
+describe("§6.9 computed default/fallback references — runtime", () => {
+  const node = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+    path: "sent_at",
+    name: "sent_at",
+    type: "string",
+    source: "answer",
+    internal_field: "sent_at",
+    ...extra,
+  });
+
+  it("ABSENT answer → the computed DEFAULT resolves from ctx.computed (the per-request context)", () => {
+    const schema = schemaWith([node({ default: { source: "computed", key: "today_date_utc" } })]);
+    expect(
+      buildPayload(schema, { answers: {}, computed: { today_date_utc: "2026-07-08" } }),
+    ).toEqual({ sent_at: "2026-07-08" });
+    // per-request `now`: a later build (new context, new computed values)
+    // resolves the NEW value — the ref is resolved at build, never baked in.
+    expect(
+      buildPayload(schema, { answers: {}, computed: { today_date_utc: "2026-07-09" } }),
+    ).toEqual({ sent_at: "2026-07-09" });
+  });
+
+  it("INVALID answer → the computed FALLBACK resolves from ctx.computed", () => {
+    const schema = schemaWith([
+      node({
+        path: "ts",
+        name: "ts",
+        internal_field: "ts",
+        type: "number",
+        fallback: { source: "computed", key: "request_timestamp" },
+      }),
+    ]);
+    expect(
+      buildPayload(schema, {
+        answers: { ts: "not-a-number" },
+        computed: { request_timestamp: 1783468800 },
+      }),
+    ).toEqual({ ts: 1783468800 });
+    // a VALID answer never touches the fallback
+    expect(
+      buildPayload(schema, { answers: { ts: 5 }, computed: { request_timestamp: 1783468800 } }),
+    ).toEqual({ ts: 5 });
+  });
+
+  it("computed value ABSENT/undefined → treated as NO default (the existing absent path)", () => {
+    const schema = schemaWith([node({ default: { source: "computed", key: "today_date_utc" } })]);
+    // key not populated in this build's context
+    expect(buildPayload(schema, { answers: {}, computed: {} })).toEqual({});
+    // no ctx.computed at all (e.g. answers.ts buildOfferPayload's per-Offer leg)
+    expect(buildPayload(schema, { answers: {} })).toEqual({});
+  });
+
+  it("a malformed ref-shaped default (save-blocked) defends as no-default — never a throw", () => {
+    const schema = schemaWith([
+      node({ default: { source: "computed" } as unknown as LeadgenPayloadNode["default"] }),
+    ]);
+    expect(buildPayload(schema, { answers: {}, computed: { today_date_utc: "x" } })).toEqual({});
+  });
+
+  it("LITERAL defaults/fallbacks stay byte-identical alongside refs (incl. legacy looseJson strings)", () => {
+    const schema = schemaWith([
+      node({ path: "lit", name: "lit", internal_field: "lit", default: "web" }),
+      node({ path: "loose", name: "loose", internal_field: "loose", type: "boolean", default: "true" }),
+      node({ path: "obj", name: "obj", internal_field: "obj", type: "object", default: { a: 1 } }),
+      node({ path: "ref", name: "ref", internal_field: "ref", default: { source: "computed", key: "timezone" } }),
+    ]);
+    expect(buildPayload(schema, { answers: {}, computed: { timezone: "Europe/Berlin" } })).toEqual({
+      lit: "web",
+      loose: "true", // legacy loose string, verbatim (§6.14)
+      obj: { a: 1 }, // a literal object default is NOT a ref
+      ref: "Europe/Berlin",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §6.5 free-text constraints (B12 completion) — runtime, through buildPayload
+// ---------------------------------------------------------------------------
+
+describe("§6.5 free-text constraint matrix — runtime", () => {
+  const freeText = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+    path: "first_name",
+    name: "first_name",
+    type: "string",
+    source: "answer",
+    internal_field: "first_name",
+    fallback: "FALLBACK",
+    ...extra,
+  });
+  const build = (nodeExtra: Partial<LeadgenPayloadNode>, answer: unknown): Record<string, unknown> =>
+    buildPayload(schemaWith([freeText(nodeExtra)]), { answers: { first_name: answer } });
+
+  it("max length: under and exactly-at pass (sanitized), over → fallback", () => {
+    expect(build({ free_text_max_length: 10 }, "Alice")).toEqual({ first_name: "Alice" });
+    expect(build({ free_text_max_length: 5 }, "Alice")).toEqual({ first_name: "Alice" });
+    expect(build({ free_text_max_length: 4 }, "Alice")).toEqual({ first_name: "FALLBACK" });
+  });
+
+  it("sanitize runs BEFORE the check: control chars stripped + trimmed, the SANITIZED value is sent", () => {
+    expect(build({ free_text_max_length: 5 }, "  Alice \u0000\u0007 ")).toEqual({
+      first_name: "Alice",
+    });
+    expect(build({ free_text_pattern: "none" }, "\tAl\u001Fice\u007F ")).toEqual({
+      first_name: "Alice",
+    });
+  });
+
+  it("preset letters: letters+spaces pass, digits/symbols → fallback", () => {
+    expect(build({ free_text_pattern: "letters" }, "Mary Jane")).toEqual({ first_name: "Mary Jane" });
+    expect(build({ free_text_pattern: "letters" }, "abc123")).toEqual({ first_name: "FALLBACK" });
+    expect(build({ free_text_pattern: "letters" }, "a-b")).toEqual({ first_name: "FALLBACK" });
+  });
+
+  it("preset digits: digits pass (numbers coerce to their string form first), the rest → fallback", () => {
+    expect(build({ free_text_pattern: "digits" }, "90210")).toEqual({ first_name: "90210" });
+    expect(build({ free_text_pattern: "digits" }, 90210)).toEqual({ first_name: "90210" });
+    expect(build({ free_text_pattern: "digits" }, "90 210")).toEqual({ first_name: "FALLBACK" });
+    expect(build({ free_text_pattern: "digits" }, "9021O")).toEqual({ first_name: "FALLBACK" });
+  });
+
+  it("preset none: sanitize only — no pattern check", () => {
+    expect(build({ free_text_pattern: "none" }, "anything !@# 123")).toEqual({
+      first_name: "anything !@# 123",
+    });
+  });
+
+  it("custom pattern: match passes, mismatch → fallback; case-exact as authored", () => {
+    const custom = { free_text_pattern: "custom" as const, free_text_pattern_custom: "^[A-Z]{2}[0-9]{4}$" };
+    expect(build(custom, "CA1234")).toEqual({ first_name: "CA1234" });
+    expect(build(custom, "ca1234")).toEqual({ first_name: "FALLBACK" });
+    expect(build(custom, "CA12345")).toEqual({ first_name: "FALLBACK" });
+  });
+
+  it("violation with NO fallback → the node cleans away (standard invalid machinery, never a throw)", () => {
+    const schema = schemaWith([
+      {
+        path: "zip",
+        name: "zip",
+        type: "string",
+        source: "answer",
+        internal_field: "zip",
+        free_text_pattern: "digits",
+      },
+    ]);
+    expect(buildPayload(schema, { answers: { zip: "not digits" } })).toEqual({});
+  });
+
+  it("combined max length + pattern: BOTH must hold", () => {
+    const both = { free_text_max_length: 5, free_text_pattern: "digits" as const };
+    expect(build(both, "12345")).toEqual({ first_name: "12345" });
+    expect(build(both, "123456")).toEqual({ first_name: "FALLBACK" }); // too long
+    expect(build(both, "12a45")).toEqual({ first_name: "FALLBACK" }); // pattern miss
+  });
+
+  it("§1.4 byte-compatibility: a plain node WITHOUT the fields passes the raw value through UNsanitized", () => {
+    const plain = schemaWith([
+      { path: "note", name: "note", type: "string", source: "answer", internal_field: "note" },
+    ]);
+    // control chars + padding survive exactly as before the §6.5 completion
+    expect(buildPayload(plain, { answers: { note: " padded \u0007 " } })).toEqual({
+      note: " padded \u0007 ",
+    });
+  });
+
+  it("default/fallback still apply in their §1.4 order around the free-text leg", () => {
+    // ABSENT answer → default (the free-text leg never runs on absence)
+    expect(
+      buildPayload(
+        schemaWith([freeText({ default: "DEFAULT", free_text_pattern: "digits" })]),
+        { answers: {} },
+      ),
+    ).toEqual({ first_name: "DEFAULT" });
+    // violation → fallback may even be a §6.9 computed ref
+    expect(
+      buildPayload(
+        schemaWith([
+          freeText({
+            fallback: { source: "computed", key: "timezone" },
+            free_text_pattern: "digits",
+          }),
+        ]),
+        { answers: { first_name: "not digits" }, computed: { timezone: "Europe/Berlin" } },
+      ),
+    ).toEqual({ first_name: "Europe/Berlin" });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §6.8 array item schemas per SOURCE type (B2 — runtime already correct)
 // ---------------------------------------------------------------------------
 

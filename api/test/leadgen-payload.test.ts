@@ -9,10 +9,13 @@ import {
   applyTransformPipeline,
   buildPayload,
   cleanObject,
+  FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH,
   inferSchemaFromExample,
   isBlockingPayloadSchemaError,
+  isComputedValueRef,
   LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES,
   LEADGEN_PAYLOAD_WARNING_ERROR_CODES,
+  sanitizeFreeText,
   splitPayloadSchemaErrors,
   validatePayloadSchema,
   type LeadgenPayloadBuildContext,
@@ -532,6 +535,205 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       },
     ]);
     expect(validatePayloadSchema(bad).errors.filter((e) => e.code === "conditional_invalid")).toHaveLength(4);
+  });
+
+  // --- §6.5 free-text optional constraints (B12 completion) — validation ----
+
+  describe("free-text constraints (§6.5 B12) — validation matrix", () => {
+    const freeTextNode = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+      path: "first_name",
+      name: "first_name",
+      type: "string",
+      source: "answer",
+      internal_field: "first_name",
+      ...extra,
+    });
+    const codesOf = (schema: LeadgenPayloadSchema): string[] =>
+      validatePayloadSchema(schema).errors.map((e) => e.code);
+
+    it("accepts max length + every pattern preset (+ a sane custom regex) on a free-text node", () => {
+      expect(codesOf(schemaWith([freeTextNode({ free_text_max_length: 40 })]))).toEqual([]);
+      for (const pattern of ["none", "letters", "digits"] as const) {
+        expect(codesOf(schemaWith([freeTextNode({ free_text_pattern: pattern })])), pattern).toEqual([]);
+      }
+      expect(
+        codesOf(
+          schemaWith([
+            freeTextNode({
+              free_text_max_length: 10,
+              free_text_pattern: "custom",
+              free_text_pattern_custom: "^[A-Z]{2}[0-9]{4}$",
+            }),
+          ]),
+        ),
+      ).toEqual([]);
+    });
+
+    it("free_text_constraint_invalid is BLOCKING (exported list + classifier + ok:false)", () => {
+      expect(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES).toContain("free_text_constraint_invalid");
+      expect(LEADGEN_PAYLOAD_WARNING_ERROR_CODES).not.toContain("free_text_constraint_invalid");
+      expect(isBlockingPayloadSchemaError("free_text_constraint_invalid")).toBe(true);
+      expect(validatePayloadSchema(schemaWith([freeTextNode({ free_text_max_length: 0 })])).ok).toBe(false);
+    });
+
+    it("rejects non-positive / non-integer / non-number max lengths", () => {
+      for (const bad of [0, -3, 2.5, "40", true, null]) {
+        expect(
+          codesOf(schemaWith([freeTextNode({ free_text_max_length: bad as never })])),
+          `max_length ${JSON.stringify(bad)}`,
+        ).toContain("free_text_constraint_invalid");
+      }
+    });
+
+    it("rejects an unknown pattern preset", () => {
+      expect(codesOf(schemaWith([freeTextNode({ free_text_pattern: "words" as never })]))).toContain(
+        "free_text_constraint_invalid",
+      );
+    });
+
+    it("custom pattern: required with 'custom', forbidden with other presets, must compile", () => {
+      expect(codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom" })]))).toContain(
+        "free_text_constraint_invalid",
+      );
+      expect(
+        codesOf(
+          schemaWith([freeTextNode({ free_text_pattern: "digits", free_text_pattern_custom: "^\\d+$" })]),
+        ),
+      ).toContain("free_text_constraint_invalid");
+      expect(codesOf(schemaWith([freeTextNode({ free_text_pattern_custom: "^\\d+$" })]))).toContain(
+        "free_text_constraint_invalid",
+      );
+      expect(
+        codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: "([" })])),
+      ).toContain("free_text_constraint_invalid");
+    });
+
+    it("custom pattern is length-capped and regex bombs (nested quantifiers) are rejected", () => {
+      expect(
+        codesOf(
+          schemaWith([
+            freeTextNode({
+              free_text_pattern: "custom",
+              free_text_pattern_custom: "^" + "a".repeat(FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) + "$",
+            }),
+          ]),
+        ),
+      ).toContain("free_text_constraint_invalid");
+      for (const bomb of ["(a+)+$", "^(\\d*)*$", "(ab|a+){3,}"]) {
+        expect(
+          codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: bomb })])),
+          bomb,
+        ).toContain("free_text_constraint_invalid");
+      }
+      // a quantified group WITHOUT an inner quantifier is safe and accepted
+      expect(
+        codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: "^(abc)+$" })])),
+      ).toEqual([]);
+    });
+
+    it("sanitizeFreeText strips C0 control chars + DEL, then trims", () => {
+      expect(sanitizeFreeText("  Alice\u0000 Smith\u0007 ")).toBe("Alice Smith");
+      expect(sanitizeFreeText("a\tb\r\nc\u007Fd")).toBe("abcd");
+      expect(sanitizeFreeText("   ")).toBe("");
+      expect(sanitizeFreeText("plain")).toBe("plain");
+    });
+
+    it("constraints ride ONLY free-text string answer nodes (typed, path-scoped)", () => {
+      const cases: Array<[string, LeadgenPayloadNode]> = [
+        ["mapped node", freeTextNode({ value_map: { a: "A" }, free_text_max_length: 5 })],
+        ["valid-values node", freeTextNode({ valid_values: ["a"], free_text_max_length: 5 })],
+        [
+          "static node",
+          { path: "x", name: "x", type: "string", source: "static", value: "v", free_text_max_length: 5 },
+        ],
+        ["number node", freeTextNode({ type: "number", free_text_max_length: 5 })],
+        ["macro node", { path: "m", name: "m", type: "string", source: "macro", macro: "ip", free_text_pattern: "digits" }],
+      ];
+      for (const [label, node] of cases) {
+        const errors = validatePayloadSchema(schemaWith([node])).errors;
+        const err = errors.find((e) => e.code === "free_text_constraint_invalid");
+        expect(err, label).toBeDefined();
+        expect(err?.path, label).toBe(node.path);
+      }
+    });
+  });
+
+  // --- §6.9 computed default/fallback references — validation ---------------
+
+  describe("computed default/fallback references (§6.9) — validation", () => {
+    const answerNode = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+      path: "sent_at",
+      name: "sent_at",
+      type: "string",
+      source: "answer",
+      internal_field: "sent_at",
+      ...extra,
+    });
+    const codesOf = (schema: LeadgenPayloadSchema): string[] =>
+      validatePayloadSchema(schema).errors.map((e) => e.code);
+
+    it("accepts {source:'computed', key:<registry key>} in BOTH slots", () => {
+      expect(
+        codesOf(
+          schemaWith([
+            answerNode({
+              default: { source: "computed", key: "today_date_utc" },
+              fallback: { source: "computed", key: "iso_timestamp" },
+            }),
+          ]),
+        ),
+      ).toEqual([]);
+    });
+
+    it("unknown key → the existing computed_unknown_key, path-scoped, slot named", () => {
+      for (const slot of ["default", "fallback"] as const) {
+        const result = validatePayloadSchema(
+          schemaWith([answerNode({ [slot]: { source: "computed", key: "ghost_key" } })]),
+        );
+        expect(result.ok).toBe(false);
+        const err = result.errors.find((e) => e.code === "computed_unknown_key");
+        expect(err, slot).toBeDefined();
+        expect(err?.path, slot).toBe("sent_at");
+        expect(err?.message, slot).toContain(slot);
+        expect(err?.message, slot).toContain("ghost_key");
+      }
+    });
+
+    it("a ref-shaped object with a missing/blank key → computed_missing_key (never a silent literal)", () => {
+      for (const badRef of [{ source: "computed" }, { source: "computed", key: "" }, { source: "computed", key: 7 }]) {
+        const codes = codesOf(schemaWith([answerNode({ default: badRef })]));
+        expect(codes, JSON.stringify(badRef)).toContain("computed_missing_key");
+      }
+    });
+
+    it("enum nodes SKIP the static domain check for computed refs (dynamic value)", () => {
+      const schema = schemaWith([
+        answerNode({
+          type: "enum",
+          valid_values: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+          default: { source: "computed", key: "current_day_of_week_utc" },
+        }),
+      ]);
+      expect(codesOf(schema)).toEqual([]);
+    });
+
+    it("literal defaults stay literals: non-ref objects and looseJson strings raise no computed errors", () => {
+      const literalObject = schemaWith([
+        { path: "o", name: "o", type: "object", source: "answer", internal_field: "o", default: { a: 1 } },
+      ]);
+      expect(codesOf(literalObject)).toEqual([]);
+      const looseString = schemaWith([answerNode({ default: "18" })]);
+      expect(codesOf(looseString)).toEqual([]);
+    });
+
+    it("isComputedValueRef discriminates exactly", () => {
+      expect(isComputedValueRef({ source: "computed", key: "today_date_utc" })).toBe(true);
+      expect(isComputedValueRef({ source: "computed", key: "anything" })).toBe(true); // shape, not registry
+      expect(isComputedValueRef({ source: "computed" })).toBe(false);
+      expect(isComputedValueRef({ source: "macro", key: "ip" })).toBe(false);
+      expect(isComputedValueRef("computed")).toBe(false);
+      expect(isComputedValueRef(null)).toBe(false);
+    });
   });
 });
 

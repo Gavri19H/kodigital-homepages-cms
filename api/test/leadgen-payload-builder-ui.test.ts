@@ -506,6 +506,49 @@ describeDb("payload builder §6.1 — three-pane shell", () => {
     expect(html).toContain("mapped field");
     expect(html).toContain("renamePrefix");
   });
+
+  it("§6.1 last-Test chip SSRs `passed <ts>` / `failed <ts>` from the additive last_test_at", async () => {
+    // PASSED with a deterministic timestamp
+    const passed = await (async () => {
+      const { sdb, env } = newHarness();
+      const offer = await createOffer(env, { placements: ["pl-ts"] });
+      await patchOffer(env, offer.public_id, {
+        endpoint_production: "https://provider.example/api/quotes",
+      });
+      await postSchema(env, offer.public_id, RICH_SCHEMA, {
+        carriers_path: "carriers",
+        fields: { carrier_name: "name", bid: "bid", click_url: "url" },
+      });
+      sdb
+        .prepare(
+          "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, created_at) VALUES (?, 'production', 200, ?)",
+        )
+        .run(offer.public_id, 1_783_468_800);
+      return getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    })();
+    const expectedTs = `${new Date(1_783_468_800 * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    expect(passed).toContain('data-test-status="passed"');
+    expect(passed).toContain(`Test: passed at ${expectedTs}`);
+
+    // FAILED keeps the eligibility-derived state + gains the timestamp
+    const failed = await (async () => {
+      const { sdb, env } = newHarness();
+      const offer = await createOffer(env, { placements: ["pl-ts2"] });
+      sdb
+        .prepare(
+          "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, created_at) VALUES (?, 'production', 500, ?)",
+        )
+        .run(offer.public_id, 1_783_468_800);
+      return getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    })();
+    expect(failed).toContain('data-test-status="failed"');
+    expect(failed).toContain(`Test: failed at ${expectedTs}`);
+
+    // UNTESTED (no rows) stays timestamp-free
+    const { html: untested } = await richEditorPage();
+    expect(untested).toContain('data-test-status="untested"');
+    expect(untested).not.toContain("Test: untested at");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -687,6 +730,68 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
     expect(html).toContain("data-pb-freetext-note");
   });
 
+  it("§6.5 constraints: max-length input + pattern preset select (+custom input) live in the NORMAL-mode panel", async () => {
+    const { html } = await richEditorPage();
+    expect(html).toContain("data-pb-freetext-constraints");
+    expect(html).toContain('data-pb-field="free_text_max_length"');
+    const patternBlock = selectBlock(html, 'data-pb-field="free_text_pattern"');
+    expect(optionValues(patternBlock)).toEqual(["none", "letters", "digits", "custom"]);
+    expect(html).toContain('data-pb-field="free_text_pattern_custom"');
+    // violation semantics explained beside the controls
+    expect(html).toContain("does not match the pattern is INVALID at runtime");
+    // NORMAL mode: the constraint controls are NOT gated behind an Advanced drawer
+    const constraintsAt = html.indexOf("data-pb-freetext-constraints");
+    const advancedRe = /<details[^>]*data-lg-advanced[^>]*>[\s\S]*?<\/details>/g;
+    let gated = false;
+    for (const m of html.matchAll(advancedRe)) {
+      const start = m.index ?? 0;
+      if (constraintsAt >= start && constraintsAt < start + m[0].length) gated = true;
+    }
+    expect(gated).toBe(false);
+  });
+
+  it("§6.5 the island script represents the new fields (KNOWN_NODE_KEYS) and mirrors the typed error", async () => {
+    const { html } = await richEditorPage();
+    // KNOWN_NODE_KEYS extension — constrained nodes are NOT advanced-managed
+    expect(html).toContain("'free_text_max_length', 'free_text_pattern', 'free_text_pattern_custom'");
+    // live client mirror of the server's typed blocking error
+    expect(html).toContain("free_text_constraint_invalid");
+    // ...and the blocking-codes footer documents it (rendered from payload.ts)
+    expect(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES).toContain("free_text_constraint_invalid");
+    expect(html).toContain("<li><code>free_text_constraint_invalid</code></li>");
+    // the §6.11 hint table covers it
+    expect(PAYLOAD_SCHEMA_ERROR_HINTS["free_text_constraint_invalid"]).toBeTruthy();
+  });
+
+  it("§6.5 a schema with free-text constraints round-trips through the bootstrap island", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-main"] });
+    linkSection(sdb, offer.id, "Home Details");
+    const schema = JSON.parse(JSON.stringify(RICH_SCHEMA)) as typeof RICH_SCHEMA & {
+      root: { children: Array<Record<string, unknown>> };
+    };
+    schema.root.children.push({
+      path: "first_name",
+      name: "first_name",
+      type: "string",
+      source: "answer",
+      internal_field: "first_name",
+      free_text_max_length: 40,
+      free_text_pattern: "custom",
+      free_text_pattern_custom: "^[A-Za-z '-]+$",
+    });
+    await postSchema(env, offer.public_id, schema);
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    const data = island(html, "lg-payload-data") as {
+      active_schema: { schema: { root: { children: Array<Record<string, unknown>> } } };
+    };
+    const node = data.active_schema.schema.root.children.find((n) => n["path"] === "first_name");
+    expect(node).toBeDefined();
+    expect(node!["free_text_max_length"]).toBe(40);
+    expect(node!["free_text_pattern"]).toBe("custom");
+    expect(node!["free_text_pattern_custom"]).toBe("^[A-Za-z '-]+$");
+  });
+
   it("§6.6 date format picker: the formatDate-expressible formats + Custom; Unix timestamp OMITTED", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="date_format"');
@@ -759,11 +864,12 @@ describeDb("payload builder §6.8 — object/array builders", () => {
 // ---------------------------------------------------------------------------
 
 describeDb("payload builder §6.9 — default/fallback", () => {
-  it("both controls offer Disabled · Static · Copied-from-field with inputs typed by the field", async () => {
+  it("both controls offer Disabled · Static · Computed · Copied-from-field with inputs typed by the field", async () => {
     const { html } = await richEditorPage();
     for (const prefix of ["default", "fallback"] as const) {
       const modeBlock = selectBlock(html, `data-pb-${prefix}-mode`);
-      expect(optionValues(modeBlock)).toEqual(["disabled", "static", "copy"]);
+      expect(optionValues(modeBlock)).toEqual(["disabled", "static", "computed", "copy"]);
+      expect(modeBlock).toContain("Computed value");
       expect(modeBlock).toContain("Copied from another field");
       for (const kind of ["text", "number", "boolean", "date"]) {
         expect(html, `${prefix} typed input ${kind}`).toContain(`data-pb-${prefix}-value="${kind}"`);
@@ -776,6 +882,56 @@ describeDb("payload builder §6.9 — default/fallback", () => {
     // looseJson kill: typed inputs + a normalize prompt for legacy strings
     expect(html).toContain("data-pb-normalize");
     expect(html).toContain("Inputs always match the field type");
+  });
+
+  it("§6.9 computed option: BOTH slots carry a registry dropdown rendered through the §6.2 computed helper", async () => {
+    const { html } = await richEditorPage();
+    for (const prefix of ["default", "fallback"] as const) {
+      expect(html, `${prefix} computed wrap`).toContain(`data-pb-${prefix}-computed-wrap`);
+      const block = selectBlock(html, `data-pb-${prefix}-computed aria-label`);
+      // registry keys only, complete
+      expect(optionValues(block)).toEqual([...LEADGEN_COMPUTED_KEYS]);
+      // §6.2 rendering: label — description (example)
+      const rt = COMPUTED_REGISTRY["today_date_utc"]!;
+      expect(block).toContain(`${rt.label} — ${rt.description} (${rt.example})`);
+    }
+  });
+
+  it("§6.9 the island script EMITS the typed object and re-detects it (round-trip logic present)", async () => {
+    const { html } = await richEditorPage();
+    // emission: mode/dropdown handlers write { source: 'computed', key }
+    expect(html).toContain("{ source: 'computed', key:");
+    // detection: a stored ref renders as the computed mode (isComputedRef)
+    expect(html).toContain("function isComputedRef(");
+    // the sample payload reflects a computed DEFAULT via the registry example
+    expect(html).toContain("computedExample(node['default'].key)");
+  });
+
+  it("§6.9 a schema with computed default/fallback refs round-trips through the bootstrap island", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-main"] });
+    linkSection(sdb, offer.id, "Home Details");
+    const schema = JSON.parse(JSON.stringify(RICH_SCHEMA)) as typeof RICH_SCHEMA & {
+      root: { children: Array<Record<string, unknown>> };
+    };
+    schema.root.children.push({
+      path: "sent_at",
+      name: "sent_at",
+      type: "string",
+      source: "answer",
+      internal_field: "sent_at",
+      default: { source: "computed", key: "today_date_utc" },
+      fallback: { source: "computed", key: "timezone" },
+    });
+    await postSchema(env, offer.public_id, schema);
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    const data = island(html, "lg-payload-data") as {
+      active_schema: { schema: { root: { children: Array<Record<string, unknown>> } } };
+    };
+    const node = data.active_schema.schema.root.children.find((n) => n["path"] === "sent_at");
+    expect(node).toBeDefined();
+    expect(node!["default"]).toEqual({ source: "computed", key: "today_date_utc" });
+    expect(node!["fallback"]).toEqual({ source: "computed", key: "timezone" });
   });
 });
 

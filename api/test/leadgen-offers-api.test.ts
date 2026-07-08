@@ -1291,6 +1291,146 @@ describeDb("payload-schemas — §11.8 immutable versioning + active pointer", (
   });
 });
 
+// --- §6.1 last_test_at — the additive detail timestamp --------------------------------------
+
+describeDb("offer detail last_test_at — §6.1 right-column chip source", () => {
+  it("is null without any test run (create response + GET detail)", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env);
+    expect(offer["last_test_at"]).toBeNull();
+    const res = await admin.request(`${API}/offers/${offer.id}`, {}, env);
+    expect(res.status).toBe(200);
+    const detail = (await res.json()) as { last_test_at: string | null };
+    expect(detail.last_test_at).toBeNull();
+  });
+
+  it("returns MAX(created_at) of TEST-TOOL rows as an ISO string; runtime auction rows NEVER count", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    const t1 = 1_783_000_000;
+    const t2 = 1_783_100_000; // newer TEST row (failed — status still counts for the timestamp)
+    const t3 = 1_783_200_000; // newest of all — but an AUCTION row (auction_instance_id set)
+    const seed = sdb.prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, auction_instance_id, created_at) VALUES (?, 'production', ?, ?, ?)",
+    );
+    seed.run(offer.public_id, 200, null, t1);
+    seed.run(offer.public_id, 500, null, t2);
+    seed.run(offer.public_id, 200, "lgai_runtime_row", t3);
+
+    const res = await admin.request(`${API}/offers/${offer.id}`, {}, env);
+    const detail = (await res.json()) as { last_test_at: string | null };
+    // the auction_instance_id IS NULL discipline (mirrors last_test_status):
+    // t3 is invisible; the newest TEST row wins.
+    expect(detail.last_test_at).toBe(new Date(t2 * 1000).toISOString());
+  });
+
+  it("another offer's test rows never leak in (.bind-scoped by public_id)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { offer_name: "Mine", placements: ["lt-1"] });
+    const other = await createOffer(env, { offer_name: "Other", placements: ["lt-2"] });
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, created_at) VALUES (?, 'production', 200, 1783000000)",
+      )
+      .run(other.public_id);
+    const res = await admin.request(`${API}/offers/${offer.id}`, {}, env);
+    expect(((await res.json()) as { last_test_at: string | null }).last_test_at).toBeNull();
+  });
+});
+
+// --- §6.5/§6.9 additive node fields — storage passthrough (§6.14) ---------------------------
+
+describeDb("payload-schemas — §6.5/§6.9 additive node fields persist verbatim (§6.14)", () => {
+  it("free_text_* + computed default/fallback refs save (201, no warnings) and round-trip byte-faithfully", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    const schema = {
+      version: 1,
+      root: {
+        type: "object",
+        children: [
+          {
+            path: "first_name",
+            name: "first_name",
+            type: "string",
+            source: "answer",
+            internal_field: "first_name",
+            free_text_max_length: 40,
+            free_text_pattern: "letters",
+            fallback: { source: "computed", key: "timezone" },
+          },
+          {
+            path: "sent_at",
+            name: "sent_at",
+            type: "string",
+            source: "answer",
+            internal_field: "sent_at",
+            default: { source: "computed", key: "today_date_utc" },
+          },
+        ],
+      },
+    };
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: schema }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const created = (await res.json()) as {
+      id: number;
+      warnings: unknown[];
+      schema_json: { root: { children: unknown[] } };
+    };
+    expect(created.warnings).toEqual([]);
+    expect(created.schema_json.root.children).toEqual(schema.root.children);
+    // §6.14: the STORED bytes carry the additive fields verbatim (existing
+    // schemas without them are untouched — the fields are purely additive).
+    const row = sdb
+      .prepare("SELECT schema_json FROM leadgen_offer_payload_schemas WHERE id = ?")
+      .get(created.id) as { schema_json: string };
+    expect(JSON.parse(row.schema_json)).toEqual(schema);
+  });
+
+  it("a bad free-text config / unknown computed ref key REJECT the save with the typed blocking codes", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env);
+    const bad = {
+      version: 1,
+      root: {
+        type: "object",
+        children: [
+          {
+            path: "a",
+            name: "a",
+            type: "string",
+            source: "answer",
+            internal_field: "a",
+            free_text_max_length: 0,
+          },
+          {
+            path: "b",
+            name: "b",
+            type: "string",
+            source: "answer",
+            internal_field: "b",
+            default: { source: "computed", key: "ghost" },
+          },
+        ],
+      },
+    };
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: bad }),
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { schema_errors: Array<{ code: string; path?: string }> };
+    const codes = body.schema_errors.map((e) => e.code);
+    expect(codes).toContain("free_text_constraint_invalid");
+    expect(codes).toContain("computed_unknown_key");
+  });
+});
+
 describeDb("payload-schemas/from-example — §11.2 automatic generation", () => {
   it("infers a VALID editable schema, persists it as the next active version", async () => {
     const { sdb, env } = newHarness();

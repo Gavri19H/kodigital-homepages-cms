@@ -110,12 +110,21 @@ function macroMember(name: string, label: string, help: string): PayloadSourceMe
   return { value: `macro:${name}`, label, help };
 }
 
+// The §6.2 computed rendering helper: one registry entry rendered as
+// `label — description (example)`. Reused by the §6.2 source-picker group
+// AND the §6.9 default/fallback computed dropdowns so the two surfaces can
+// never drift.
+export function computedOptionLabel(key: string): string {
+  const v = COMPUTED_REGISTRY[key];
+  return v !== undefined ? `${v.label} — ${v.description} (${v.example})` : key;
+}
+
 // The §6.2 Computed group: one option per COMPUTED_REGISTRY entry rendered
 // as `label — description (example)` (04 §4.4 — free-text keys are gone).
 const COMPUTED_MEMBERS: ReadonlyArray<PayloadSourceMember> = LEADGEN_COMPUTED_KEYS.map(
   (key) => {
     const v = COMPUTED_REGISTRY[key];
-    const label = v !== undefined ? `${v.label} — ${v.description} (${v.example})` : key;
+    const label = computedOptionLabel(key);
     const help = v !== undefined ? `${v.label} — ${v.description}, e.g. ${v.example}` : key;
     return { value: `computed:${key}`, label, help };
   },
@@ -349,6 +358,8 @@ export const PAYLOAD_SCHEMA_ERROR_HINTS: Readonly<Record<string, string>> = {
   token_node_duplicate: "Only one token field is allowed — delete the extra one.",
   conditional_invalid: "The condition is incomplete — pick a field, an operator and a value.",
   choice_display_invalid: "The Other-grouping settings reference values outside the field's value map — re-check the Main choices.",
+  free_text_constraint_invalid:
+    "The free-text limits are misconfigured — max length must be a positive whole number and a custom pattern must be a short, valid expression on a free-text field.",
 };
 
 // Blocking-class codes documented in the §6.11 panel footer — rendered from
@@ -442,12 +453,16 @@ export interface PayloadEligibilityVerdict {
 }
 
 // The editor page hands the FULL offer detail object through (ui-offers.ts
-// passes its OfferDetail): placements / eligibility / builder_context are
-// additive-optional so the widened type stays assignable from every caller.
+// passes its OfferDetail): placements / eligibility / builder_context /
+// last_test_at are additive-optional so the widened type stays assignable
+// from every caller.
 export type PayloadBuilderOffer = LeadgenOfferApi & {
   placements?: readonly LeadgenOfferPlacementApi[];
   eligibility?: PayloadEligibilityVerdict | null;
   builder_context?: PayloadBuilderContext | null;
+  // §6.1: ISO timestamp of the newest TEST-TOOL provider-log row
+  // (offers-handlers offerLastTestAt) — null when the Offer was never tested.
+  last_test_at?: string | null;
 };
 
 export interface PayloadPanelProps {
@@ -509,7 +524,14 @@ function renderEditorTemplate(): string {
   const defaultModeOptions = `
       <option value="disabled">Disabled</option>
       <option value="static">Static value</option>
+      <option value="computed">Computed value</option>
       <option value="copy">Copied from another field</option>`;
+  // §6.9 computed dropdown for both slots — rendered through the SAME §6.2
+  // computed helper (label — description (example)); emits the TYPED object
+  // {source:"computed", key} into default/fallback.
+  const computedValueOptions = LEADGEN_COMPUTED_KEYS.map(
+    (key) => `<option value="${escapeHtml(key)}">${escapeHtml(computedOptionLabel(key))}</option>`,
+  ).join("");
   return `<template id="lg-pb-editor-template">
   <div class="lg-pb-editor-body" data-pb-editor-body>
     <p class="form-error" data-pb-node-error hidden></p>
@@ -557,6 +579,21 @@ function renderEditorTemplate(): string {
       <label class="form-label lg-pb-required"><input type="checkbox" data-pb-field="free_text" /> Free text (no fixed answer list)</label>
       <p class="form-help">Free text: the value-map table and valid-values chips are off — the visitor's text is sent as typed (trimmed, control characters stripped, coerced to text). Required, default and fallback still apply.</p>
       <p class="form-help" data-pb-freetext-note hidden>This field is in free-text mode — mapping is disabled.</p>
+      <div data-pb-freetext-constraints hidden>
+        <div class="lg-pb-grid-2">
+          <div><label class="form-label">Max length (optional)</label>
+            <input type="number" min="1" step="1" class="form-input" data-pb-field="free_text_max_length" aria-label="Free text max length" placeholder="No limit" /></div>
+          <div><label class="form-label">Pattern (optional)</label>
+            <select class="form-select" data-pb-field="free_text_pattern" aria-label="Free text pattern preset">
+              <option value="none">None</option>
+              <option value="letters">Letters only</option>
+              <option value="digits">Digits only</option>
+              <option value="custom">Custom&#8230;</option>
+            </select>
+            <input type="text" class="form-input" data-pb-field="free_text_pattern_custom" placeholder="e.g. ^[A-Z]{2}[0-9]{4}$" aria-label="Custom pattern" hidden /></div>
+        </div>
+        <p class="form-help">Text that is too long or does not match the pattern is INVALID at runtime &#8658; the field's fallback is sent instead (never the raw text).</p>
+      </div>
     </div>
 
     <div data-pb-panel="valuemap" hidden>
@@ -657,6 +694,10 @@ function renderEditorTemplate(): string {
             <select class="form-select" data-pb-default-value="boolean" aria-label="Default boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
             <input type="date" class="form-input" data-pb-default-value="date" aria-label="Default date value" hidden />
           </div>
+          <div data-pb-default-computed-wrap hidden>
+            <select class="form-select" data-pb-default-computed aria-label="Default computed variable">${computedValueOptions}</select>
+            <p class="form-help">The computed value is resolved at request time (e.g. today&#39;s date) and sent when the answer is absent.</p>
+          </div>
           <div data-pb-default-copy-wrap hidden>
             <select class="form-select" data-pb-default-copy-from aria-label="Copy default from field"></select>
             <button type="button" class="btn btn-outline btn-sm" data-pb-default-copy>Copy its value now</button>
@@ -672,6 +713,10 @@ function renderEditorTemplate(): string {
             <input type="number" class="form-input" data-pb-fallback-value="number" aria-label="Fallback number value" hidden />
             <select class="form-select" data-pb-fallback-value="boolean" aria-label="Fallback boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
             <input type="date" class="form-input" data-pb-fallback-value="date" aria-label="Fallback date value" hidden />
+          </div>
+          <div data-pb-fallback-computed-wrap hidden>
+            <select class="form-select" data-pb-fallback-computed aria-label="Fallback computed variable">${computedValueOptions}</select>
+            <p class="form-help">The computed value is resolved at request time and sent when the answer is invalid.</p>
           </div>
           <div data-pb-fallback-copy-wrap hidden>
             <select class="form-select" data-pb-fallback-copy-from aria-label="Copy fallback from field"></select>
@@ -781,21 +826,35 @@ function renderValueMapModal(): string {
 // §6.1 — the Payload tab panel (three-pane shell)
 // ---------------------------------------------------------------------------
 
+// §6.1 chip timestamp: compact UTC form of the offer's last_test_at ISO
+// string ("2026-07-08 14:00 UTC" — the SSR sibling of the live-run chip's
+// local "at HH:MM"). Unparseable input renders verbatim (never a crash).
+function formatTestTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
 // Derives the SSR last-Test chip state from the server eligibility verdict
-// (no last-test timestamp rides the offer API; a live run updates the chip
-// with the run time client-side).
+// (state stays eligibility-derived; the additive last_test_at timestamp
+// dresses the passed/failed states as `passed <ts>` / `failed <ts>` —
+// §6.1). A live run updates the chip with the run time client-side.
 function testChip(offer: PayloadBuilderOffer): { status: string; text: string } {
   const reasons = offer.eligibility?.reasons ?? [];
+  const ts =
+    typeof offer.last_test_at === "string" && offer.last_test_at !== ""
+      ? ` at ${formatTestTimestamp(offer.last_test_at)}`
+      : "";
   if (reasons.indexOf("test_untested") !== -1) {
     return { status: "untested", text: `Test: untested — ${eligibilityReasonLabel("test_untested")}` };
   }
   if (reasons.indexOf("test_failed") !== -1) {
-    return { status: "failed", text: `Test: failed — ${eligibilityReasonLabel("test_failed")}` };
+    return { status: "failed", text: `Test: failed${ts} — ${eligibilityReasonLabel("test_failed")}` };
   }
   if (offer.eligibility === undefined || offer.eligibility === null) {
     return { status: "untested", text: "Test: untested" };
   }
-  return { status: "passed", text: "Test: passed" };
+  return { status: "passed", text: `Test: passed${ts}` };
 }
 
 export function renderPayloadPanel(props: PayloadPanelProps): string {
@@ -1399,7 +1458,18 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   // advanced-managed (preserved verbatim, flagged).
   var KNOWN_NODE_KEYS = ['path', 'name', 'label', 'type', 'required', 'valid_values',
     'default', 'fallback', 'source', 'internal_field', 'value_map', 'transform',
-    'value', 'computed', 'macro', 'conditional', 'choiceDisplay', 'notes'];
+    'value', 'computed', 'macro', 'conditional', 'choiceDisplay', 'notes',
+    'free_text_max_length', 'free_text_pattern', 'free_text_pattern_custom'];
+  var FREE_TEXT_KEYS = ['free_text_max_length', 'free_text_pattern', 'free_text_pattern_custom'];
+  var FREE_TEXT_PATTERNS = ['none', 'letters', 'digits', 'custom'];
+  var FREE_TEXT_CUSTOM_MAX = 200;
+  // §6.5 nested-quantifier screen — mirrors payload.ts NESTED_QUANTIFIER_BOMB_RE.
+  var FREE_TEXT_BOMB_RE = /\\([^()]*[+*{][^()]*\\)\\s*[+*{]/;
+  // §6.9 typed computed default/fallback reference (payload.ts
+  // isComputedValueRef): {source:'computed', key:'<registry key>'}.
+  function isComputedRef(v) {
+    return isRecordVal(v) && v.source === 'computed' && typeof v.key === 'string';
+  }
   var KNOWN_COND_OPS = ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'range', 'in', 'not_in'];
   var FORBIDDEN_SEGMENTS = ['__proto__', 'constructor', 'prototype'];
   var NAME_RE = /^[A-Za-z0-9_]+$/;
@@ -1421,6 +1491,13 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (computedOptions[i].key === key) { return computedOptions[i]; }
     }
     return null;
+  }
+  // The registry example, typed by output_type (sample-payload rendering for
+  // computed sources AND §6.9 computed defaults).
+  function computedExample(key) {
+    var c = computedByKey(key);
+    if (!c) { return undefined; }
+    return c.output_type === 'number' ? Number(c.example) : c.example;
   }
   function linkedByInternal(internal) {
     var i;
@@ -1450,6 +1527,13 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   function isFreeText(node) {
     return node.source === 'answer' && displayTypeOf(node) === 'string' &&
       node.value_map === undefined && node.valid_values === undefined;
+  }
+  // §6.5: constraints ride ONLY free-text string answer nodes — clear them
+  // whenever the node leaves that mode (toggle off / source / type change).
+  function clearFreeTextConstraints(node) {
+    delete node.free_text_max_length;
+    delete node.free_text_pattern;
+    delete node.free_text_pattern_custom;
   }
   function sourceValueOf(node) {
     if (node.source === 'macro') { return 'macro:' + (node.macro || ''); }
@@ -1531,6 +1615,64 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     }
     return out;
   }
+  // §6.9 mirror of the server's computed default/fallback-reference checks
+  // (payload.ts) so hints line up live.
+  function validateComputedRefSlots(node, path, errors) {
+    var slots = ['default', 'fallback'];
+    var si, sv;
+    for (si = 0; si < slots.length; si++) {
+      sv = node[slots[si]];
+      if (!isRecordVal(sv) || sv.source !== 'computed') { continue; }
+      if (typeof sv.key !== 'string' || trimStr(sv.key) === '') {
+        errors.push({ code: 'computed_missing_key', path: path, message: slots[si] + ': a computed value reference requires a key' });
+      } else if (!computedByKey(sv.key)) {
+        errors.push({ code: 'computed_unknown_key', path: path, message: slots[si] + ': ' + sv.key + ' is not a computed variable' });
+      }
+    }
+  }
+  // §6.5 mirror of the server's free_text_constraint_invalid checks.
+  function validateFreeTextClient(node, path, errors) {
+    var present = [];
+    var fi;
+    for (fi = 0; fi < FREE_TEXT_KEYS.length; fi++) {
+      if (node[FREE_TEXT_KEYS[fi]] !== undefined) { present.push(FREE_TEXT_KEYS[fi]); }
+    }
+    if (present.length === 0) { return; }
+    function pushFt(message) {
+      errors.push({ code: 'free_text_constraint_invalid', path: path, message: message });
+    }
+    var ftOk = node.source === 'answer' && node.type === 'string' &&
+      node.value_map === undefined && node.valid_values === undefined;
+    if (!ftOk) {
+      pushFt('free-text limits need a free-text string answer field');
+      return;
+    }
+    var ftMax = node.free_text_max_length;
+    if (ftMax !== undefined && (typeof ftMax !== 'number' || ftMax % 1 !== 0 || ftMax < 1)) {
+      pushFt('max length must be a positive whole number');
+    }
+    var ftPat = node.free_text_pattern;
+    if (ftPat !== undefined && FREE_TEXT_PATTERNS.indexOf(ftPat) === -1) {
+      pushFt('unknown pattern preset');
+    }
+    var ftCustom = node.free_text_pattern_custom;
+    if (ftPat === 'custom') {
+      if (typeof ftCustom !== 'string' || trimStr(ftCustom) === '') {
+        pushFt('the Custom preset needs a pattern');
+      } else if (ftCustom.length > FREE_TEXT_CUSTOM_MAX) {
+        pushFt('custom pattern is too long (max ' + FREE_TEXT_CUSTOM_MAX + ' characters)');
+      } else if (FREE_TEXT_BOMB_RE.test(ftCustom)) {
+        pushFt('custom pattern risks catastrophic backtracking (nested quantifier)');
+      } else {
+        var reOk = true;
+        try { void new RegExp(ftCustom); } catch (reErr) { reOk = false; }
+        if (!reOk) { pushFt('custom pattern is not a valid regular expression'); }
+      }
+    } else if (ftCustom !== undefined) {
+      pushFt('a custom pattern requires the Custom preset');
+    }
+  }
+
   var MACRO_SET = null;
   function clientValidate() {
     if (MACRO_SET === null) { MACRO_SET = validMacroSet(); }
@@ -1607,6 +1749,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           errors.push({ code: 'conditional_invalid', path: path, message: 'list operators need values' });
         }
       }
+      validateComputedRefSlots(node, path, errors);
+      validateFreeTextClient(node, path, errors);
     }
     for (i = 0; i < scalarPaths.length; i++) {
       for (j = 0; j < items.length; j++) {
@@ -1718,7 +1862,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     valid_values_invalid: '[data-pb-validvalues-input]',
     value_map_invalid: '[data-pb-valuemap-open]',
     choice_display_invalid: '[data-pb-valuemap-open]',
-    conditional_invalid: '[data-pb-condition-rows]'
+    conditional_invalid: '[data-pb-condition-rows]',
+    free_text_constraint_invalid: '[data-pb-field="free_text_pattern"]'
   };
   function jumpToIssue(entry) {
     var item = itemByPath(entry.path);
@@ -1931,9 +2076,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var dtype = displayTypeOf(node);
     if (node.source === 'static') { return node.value; }
     if (node.source === 'computed') {
-      var c = computedByKey(node.computed || '');
-      if (c) { return c.output_type === 'number' ? Number(c.example) : c.example; }
-      return undefined;
+      return computedExample(node.computed || '');
     }
     if (node.source === 'macro') {
       return hasOwn(MACRO_SAMPLES, node.macro || '') ? MACRO_SAMPLES[node.macro] : '';
@@ -1951,6 +2094,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (out !== undefined) { return out; }
     }
     if (dtype === 'date') { return '07/08/1996'; }
+    // §6.5: a digits-constrained free-text field samples a compliant value.
+    if (node.free_text_pattern === 'digits') { return '12345'; }
     return sampleByType(node.type || 'string');
   }
   function setAtPathLite(target, path, value) {
@@ -1986,6 +2131,9 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         continue;
       }
       v = sampleValueFor(node);
+      // §6.9: a node with no sample of its own reflects its computed DEFAULT
+      // (the registry example) — exactly the absent→default runtime path.
+      if (v === undefined && isComputedRef(node['default'])) { v = computedExample(node['default'].key); }
       if (v !== undefined) { setAtPathLite(out, node.path, v); }
     }
     sampleEl.textContent = JSON.stringify(out, null, 2);
@@ -2462,22 +2610,31 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var mode = bodyEl.querySelector('[data-pb-' + prefix + '-mode]');
     var inputsBox = bodyEl.querySelector('[data-pb-' + prefix + '-inputs]');
     var copyWrap = bodyEl.querySelector('[data-pb-' + prefix + '-copy-wrap]');
+    var computedWrap = bodyEl.querySelector('[data-pb-' + prefix + '-computed-wrap]');
     var dtype = displayTypeOf(node);
     var typedKind = dtype === 'number' ? 'number' : (dtype === 'boolean' ? 'boolean' : (dtype === 'date' ? 'date' : 'text'));
-    if (mode) { mode.value = node[key] === undefined ? 'disabled' : 'static'; }
+    // §6.9: a stored {source:'computed', ...} object is the TYPED computed
+    // reference (ref intent even when malformed — validation owns errors).
+    var isRef = isRecordVal(node[key]) && node[key].source === 'computed';
+    if (mode) { mode.value = node[key] === undefined ? 'disabled' : (isRef ? 'computed' : 'static'); }
     if (inputsBox) {
-      inputsBox.hidden = node[key] === undefined;
+      inputsBox.hidden = node[key] === undefined || isRef;
       var kinds = ['text', 'number', 'boolean', 'date'];
       var i, input;
       for (i = 0; i < kinds.length; i++) {
         input = bodyEl.querySelector('[data-pb-' + prefix + '-value="' + kinds[i] + '"]');
         if (!input) { continue; }
         input.hidden = kinds[i] !== typedKind;
-        if (kinds[i] === typedKind && node[key] !== undefined) {
+        if (kinds[i] === typedKind && node[key] !== undefined && !isRef) {
           if (typedKind === 'boolean') { input.value = node[key] === true ? 'true' : 'false'; }
           else { input.value = typeof node[key] === 'string' ? node[key] : displayScalar(node[key]); }
         }
       }
+    }
+    if (computedWrap) {
+      computedWrap.hidden = !isRef;
+      var compSel = bodyEl.querySelector('[data-pb-' + prefix + '-computed]');
+      if (compSel && isRef && typeof node[key].key === 'string') { compSel.value = node[key].key; }
     }
     if (copyWrap) {
       copyWrap.hidden = true;
@@ -2746,6 +2903,25 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (ftNote) { ftNote.hidden = !freeText; }
     var ftToggle = bodyEl.querySelector('[data-pb-field="free_text"]');
     if (ftToggle) { ftToggle.checked = freeText; }
+    // §6.5: the optional max-length + pattern controls exist only in
+    // free-text mode.
+    var ftConstraints = bodyEl.querySelector('[data-pb-freetext-constraints]');
+    if (ftConstraints) { ftConstraints.hidden = !freeText; }
+  }
+  // §6.5 constraint controls ⇄ storage fields (free_text_max_length /
+  // free_text_pattern / free_text_pattern_custom).
+  function fillFreeTextPanel(bodyEl, node) {
+    var maxIn = bodyEl.querySelector('[data-pb-field="free_text_max_length"]');
+    if (maxIn) { maxIn.value = node.free_text_max_length === undefined ? '' : String(node.free_text_max_length); }
+    var pat = typeof node.free_text_pattern === 'string' && FREE_TEXT_PATTERNS.indexOf(node.free_text_pattern) !== -1
+      ? node.free_text_pattern : 'none';
+    var patSel = bodyEl.querySelector('[data-pb-field="free_text_pattern"]');
+    if (patSel) { patSel.value = pat; }
+    var customIn = bodyEl.querySelector('[data-pb-field="free_text_pattern_custom"]');
+    if (customIn) {
+      customIn.hidden = pat !== 'custom';
+      customIn.value = typeof node.free_text_pattern_custom === 'string' ? node.free_text_pattern_custom : '';
+    }
   }
   function renderImplicitEditor(path) {
     clearChildren(editorEl);
@@ -2840,6 +3016,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       }
     }
     fillValueMapCompact(bodyEl, node);
+    fillFreeTextPanel(bodyEl, node);
     setVal(bodyEl, '[data-pb-field="otherGroupEnabled"]', !!(node.choiceDisplay && node.choiceDisplay.otherGroupEnabled));
     setVal(bodyEl, '[data-pb-field="otherGroupLabel"]', node.choiceDisplay ? node.choiceDisplay.otherGroupLabel : '');
     setVal(bodyEl, '[data-pb-field="searchableOther"]', !!(node.choiceDisplay && node.choiceDisplay.searchableOther));
@@ -2916,6 +3093,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       renderEditor();
       return;
     }
+    // §6.5: free-text constraints require the plain string display type.
+    if (newType !== 'string') { clearFreeTextConstraints(node); }
     var wasDate = isDateNode(node);
     if (newType === 'date') {
       applyDateFormat(node, 'YYYY-MM-DD');
@@ -2948,6 +3127,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (node.source === 'answer' && encoded.indexOf('answer') !== 0) {
       delete node.value_map;
       delete node.choiceDisplay;
+      clearFreeTextConstraints(node);
       if (!isDateNode(node)) { delete node.transform; }
     }
     if (encoded === 'answer') { node.source = 'answer'; }
@@ -3015,11 +3195,41 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           delete node.value_map;
           delete node.valid_values;
           delete node.choiceDisplay;
-        } else if (node.value_map === undefined) {
-          node.value_map = {};
+        } else {
+          // leaving free-text mode: the §6.5 constraints are meaningless on
+          // a mapped node — drop them with it.
+          clearFreeTextConstraints(node);
+          if (node.value_map === undefined) { node.value_map = {}; }
         }
         refreshAdvReasons(item);
         renderEditor();
+        afterModelChange();
+        return;
+      }
+      if (field === 'free_text_max_length') {
+        var maxRaw = trimStr(t.value);
+        var maxNum = Number(maxRaw);
+        if (maxRaw === '' || !isFinite(maxNum)) { delete node.free_text_max_length; }
+        else { node.free_text_max_length = maxNum; }
+        afterModelChange();
+        return;
+      }
+      if (field === 'free_text_pattern') {
+        if (t.value === 'none') {
+          // "None" = unconstrained — drop the pattern pair entirely.
+          delete node.free_text_pattern;
+          delete node.free_text_pattern_custom;
+        } else {
+          node.free_text_pattern = t.value;
+          if (t.value !== 'custom') { delete node.free_text_pattern_custom; }
+        }
+        renderEditor();
+        afterModelChange();
+        return;
+      }
+      if (field === 'free_text_pattern_custom') {
+        if (trimStr(t.value) === '') { delete node.free_text_pattern_custom; }
+        else { node.free_text_pattern_custom = t.value; }
         afterModelChange();
         return;
       }
@@ -3076,14 +3286,27 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (t.getAttribute('data-pb-default-mode') !== null || t.getAttribute('data-pb-fallback-mode') !== null) {
         var prefix = t.getAttribute('data-pb-default-mode') !== null ? 'default' : 'fallback';
         var keyName = prefix;
+        var wasRef = isRecordVal(node[keyName]) && node[keyName].source === 'computed';
         if (t.value === 'disabled') { delete node[keyName]; }
-        else if (t.value === 'static' && node[keyName] === undefined) {
+        else if (t.value === 'static' && (node[keyName] === undefined || wasRef)) {
           var dt = displayTypeOf(node);
           node[keyName] = dt === 'number' ? 0 : (dt === 'boolean' ? false : '');
         }
+        else if (t.value === 'computed') {
+          // §6.9: emit the TYPED object — the registry dropdown picks the key.
+          var compSel = editorEl.querySelector('[data-pb-' + prefix + '-computed]');
+          node[keyName] = { source: 'computed', key: compSel ? compSel.value : '' };
+        }
         show(editorEl, '[data-pb-' + prefix + '-inputs]', t.value === 'static');
+        show(editorEl, '[data-pb-' + prefix + '-computed-wrap]', t.value === 'computed');
         show(editorEl, '[data-pb-' + prefix + '-copy-wrap]', t.value === 'copy');
         if (t.value !== 'copy') { renderEditor(); }
+        afterModelChange();
+        return;
+      }
+      if (t.getAttribute('data-pb-default-computed') !== null || t.getAttribute('data-pb-fallback-computed') !== null) {
+        var prefixC = t.getAttribute('data-pb-default-computed') !== null ? 'default' : 'fallback';
+        node[prefixC] = { source: 'computed', key: t.value };
         afterModelChange();
         return;
       }
