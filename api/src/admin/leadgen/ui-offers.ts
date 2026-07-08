@@ -181,6 +181,44 @@ export function eligibilityReasonLabel(code: string): string {
   return LEADGEN_ELIGIBILITY_REASON_LABELS[code] ?? `Blocked (${code.replace(/_/g, " ")})`;
 }
 
+// §7.4 usage report — the full-inventory reference kinds, in display order,
+// with operator-English labels. The SAME payload drives the §7.2 delete guard
+// (409 offer_in_use) and the §7.1 Usage panel (one query set, two consumers).
+// warning_only kinds (logs/revenue/analytics) never block a delete — they are
+// shown for context (their absence is not required for eligibility). The panel
+// island renders data-driven over the returned object keys; this list only
+// controls ORDER + LABELS, so a server that adds a kind still renders (unknown
+// keys get a humanized fallback). Emitted verbatim as the lg-offer-usage-kinds
+// bootstrap island so the ES5 island reads labels via JSON.parse(textContent).
+export interface OfferUsageKindMeta {
+  kind: string;
+  label: string;
+  warning_only: boolean;
+}
+
+export const LEADGEN_OFFER_USAGE_KINDS: ReadonlyArray<OfferUsageKindMeta> = [
+  { kind: "sections_available", label: "Sections offering this offer", warning_only: false },
+  { kind: "answer_maps", label: "Section answer maps referencing this offer", warning_only: false },
+  { kind: "quotes_indirect", label: "Quotes / funnels (via their sections)", warning_only: false },
+  { kind: "auctions_participating", label: "Auctions this offer participates in", warning_only: false },
+  { kind: "payload_schemas", label: "Active payload schemas in use", warning_only: false },
+  { kind: "region_rules", label: "Region rules (own — cascade-deleted)", warning_only: false },
+  { kind: "auction_rules_targeting", label: "Auction rules targeting this offer / its carriers", warning_only: false },
+  { kind: "cap_counters_active", label: "Cap counters with activity", warning_only: false },
+  { kind: "cap_fallback_referenced_by", label: "Other offers using this as a cap fallback", warning_only: false },
+  { kind: "provider_request_logs", label: "Provider request logs", warning_only: true },
+  { kind: "revenue_attribution", label: "Click / revenue attribution rows", warning_only: true },
+  { kind: "analytics_mirror_rows", label: "Analytics mirror rows", warning_only: true },
+];
+
+// §7.3 duplicate — the three copy toggles, in the modal + banner order. Labels
+// double as the "Duplicated from …" banner rows (what was / wasn't copied).
+const OFFER_COPY_DIMENSION_LABELS: Readonly<Record<string, string>> = {
+  copy_region_rules: "Region rules",
+  copy_endpoint_config: "Endpoint & request config",
+  copy_cap_settings: "Cap settings (copied disabled)",
+};
+
 // §10.2 mode picker options — value → the two flags per the 0036 DDL comment.
 const OFFER_MODES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "static_no_request", label: "Static — no provider request" },
@@ -390,8 +428,16 @@ function renderOfferRow(o: OfferListItem): string {
   ${renderAnalyticsSkeletonCells()}
   <td><div class="table-actions">
     <a href="${editHref}" class="btn btn-sm btn-secondary">Edit</a>
-    <button type="button" class="btn btn-sm btn-danger" data-offer-archive="${escapeHtml(o.public_id)}" data-offer-name="${name}">Archive</button>
-    <button type="button" class="btn btn-sm btn-outline" data-offer-usage="${escapeHtml(o.public_id)}" data-offer-name="${name}">Usage</button>
+    <div class="lg-kebab" data-offer-kebab>
+      <button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-offer-kebab-toggle="${escapeHtml(o.public_id)}" aria-haspopup="true" aria-expanded="false" aria-label="More actions for ${name}">&#8942;</button>
+      <div class="lg-kebab-menu" data-offer-kebab-menu hidden role="menu">
+        <a href="${editHref}" class="lg-kebab-item" role="menuitem">Edit</a>
+        <button type="button" class="lg-kebab-item" role="menuitem" data-offer-duplicate="${escapeHtml(o.public_id)}" data-offer-name="${name}">Duplicate</button>
+        <button type="button" class="lg-kebab-item" role="menuitem" data-offer-archive="${escapeHtml(o.public_id)}" data-offer-name="${name}">Archive</button>
+        <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-offer-delete="${escapeHtml(o.public_id)}" data-offer-name="${name}">Delete</button>
+        <button type="button" class="lg-kebab-item" role="menuitem" data-offer-usage="${escapeHtml(o.public_id)}" data-offer-name="${name}">Usage</button>
+      </div>
+    </div>
   </div></td>
 </tr>`;
 }
@@ -548,6 +594,88 @@ function renderCreateOfferModal(): string {
 }
 
 // ---------------------------------------------------------------------------
+// §7.3 Duplicate-Offer modal (A2)
+// ---------------------------------------------------------------------------
+//
+// Fields per 07 §7.3: New Offer name (island prefills "<name> (copy)"), New
+// default placement ID (REQUIRED — the island blocks submit when empty; source
+// placement ids are never copied verbatim), ☑ Copy region rules (default ON),
+// ☐ Copy cap settings ("copied disabled", default OFF), ☑ Copy endpoint/request
+// config (refs only, default ON). [Create draft] POSTs the pinned body to
+// /offers/:id/duplicate; success navigates to the new editor with the
+// "Duplicated from <name>" banner (query-param driven, renderDuplicatedBanner).
+function renderDuplicateModal(): string {
+  return `<div id="lg-offer-duplicate-modal" class="modal hidden" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="lg-dup-title" aria-hidden="true">
+  <div class="modal-content">
+    <h2 id="lg-dup-title" class="modal-title">Duplicate offer</h2>
+    <form id="lg-offer-duplicate-form" novalidate>
+      <p id="lg-dup-error" class="alert alert-error" hidden role="alert"></p>
+      <p id="lg-dup-status" class="form-status" role="status" aria-live="polite"></p>
+      <p class="form-help">Creates a <strong>draft</strong> copy (status inactive, test status untested). Analytics, cap counters, provider logs, test results and revenue are never copied.</p>
+      <div class="form-group">
+        <label for="lg-dup-name" class="form-label">New offer name *</label>
+        <input id="lg-dup-name" name="name" type="text" class="form-input" required aria-required="true" />
+        ${fieldError("name")}
+      </div>
+      <div class="form-group">
+        <label for="lg-dup-placement" class="form-label">New default placement ID *</label>
+        <input id="lg-dup-placement" name="default_placement_id" type="text" class="form-input" placeholder="pl-12345" required aria-required="true" />
+        <span class="form-help">Required — two offers must never serve the same provider feed id by accident. Any additional placements are copied as blank rows flagged &ldquo;needs value&rdquo;.</span>
+        ${fieldError("default_placement_id")}
+      </div>
+      <fieldset class="form-group">
+        <legend class="form-label">Copy from the source offer</legend>
+        <label class="form-label lg-radio"><input id="lg-dup-copy-region" name="copy_region_rules" type="checkbox" value="1" checked /> Copy region rules</label>
+        <label class="form-label lg-radio"><input id="lg-dup-copy-endpoint" name="copy_endpoint_config" type="checkbox" value="1" checked /> Copy endpoint &amp; request config <span class="form-help">(refs only — secrets never move)</span></label>
+        <label class="form-label lg-radio"><input id="lg-dup-copy-cap" name="copy_cap_settings" type="checkbox" value="1" /> Copy cap settings <span class="form-help">(copied disabled)</span></label>
+      </fieldset>
+      <div class="modal-actions">
+        <button type="submit" id="lg-dup-submit" class="btn btn-primary">Create draft</button>
+        <button type="button" id="lg-dup-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// §7.2 Delete-Offer confirm modal (A1) — guarded hard delete
+// ---------------------------------------------------------------------------
+//
+// Type-the-offer-name-to-confirm gate (Delete stays disabled until the typed
+// name matches). Confirm → DELETE ?mode=hard. A 200 cascades own children; a
+// 409 offer_in_use renders the §7.4 usage report as the "in use" modal (via
+// the shared lg-dialog) with per-kind counts + links + an "Archive instead"
+// primary action — the blocked state explains itself, never hidden.
+function renderDeleteModal(): string {
+  return `<div id="lg-offer-delete-modal" class="modal hidden" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="lg-del-title" aria-hidden="true">
+  <div class="modal-content">
+    <h2 id="lg-del-title" class="modal-title">Delete offer permanently</h2>
+    <form id="lg-offer-delete-form" novalidate>
+      <p id="lg-del-error" class="alert alert-error" hidden role="alert"></p>
+      <p class="alert alert-error" role="alert">This permanently deletes the offer and its own children (placements, schema versions, region rules, own cap counters). This cannot be undone. Logs, revenue and analytics are never deleted.</p>
+      <div class="form-group">
+        <label for="lg-del-confirm" class="form-label">Type the offer name <strong data-delete-offer-name></strong> to confirm</label>
+        <input id="lg-del-confirm" type="text" class="form-input" autocomplete="off" aria-label="Type the offer name to confirm deletion" />
+      </div>
+      <div class="modal-actions">
+        <button type="submit" id="lg-del-submit" class="btn btn-danger" disabled aria-disabled="true">Delete permanently</button>
+        <button type="button" id="lg-del-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>`;
+}
+
+// The lg-offer-usage-kinds bootstrap-data island: the §7.4 ordered kind→label
+// map (+ warning_only flags), read by the list-actions island via
+// JSON.parse(textContent) to render the Usage / in-use panels data-driven.
+function renderUsageKindsIsland(): string {
+  const json = JSON.stringify(LEADGEN_OFFER_USAGE_KINDS).replace(/</g, "\\u003c");
+  return `<script type="application/json" id="lg-offer-usage-kinds">${json}</script>`;
+}
+
+// ---------------------------------------------------------------------------
 // Styles (offers list + editor)
 // ---------------------------------------------------------------------------
 
@@ -593,6 +721,37 @@ const LG_OFFERS_STYLES = `
 .lg-eligibility-reasons{margin:6px 0 8px 18px}
 .lg-eligibility-reasons li{margin-bottom:2px}
 .lg-eligibility-links{display:flex;gap:8px;flex-wrap:wrap}
+.lg-kebab{position:relative;display:inline-block}
+.lg-kebab-btn{line-height:1;font-weight:700}
+.lg-kebab-menu{position:absolute;right:0;top:100%;z-index:20;min-width:180px;background:#fff;border:1px solid var(--c-border);border-radius:6px;box-shadow:0 8px 20px rgba(0,0,0,0.14);padding:4px;display:flex;flex-direction:column}
+.lg-kebab-menu[hidden]{display:none}
+.lg-kebab-item{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;font-size:13px;color:var(--c-text);text-decoration:none;cursor:pointer;border-radius:4px}
+.lg-kebab-item:hover{background:var(--c-bg-alt)}
+.lg-kebab-danger{color:var(--c-danger,#8a1f11)}
+.lg-usage-kind{margin:10px 0}
+.lg-usage-kind-head{display:flex;align-items:baseline;gap:8px;font-weight:600;font-size:13px}
+.lg-usage-count{color:var(--c-muted);font-weight:400}
+.lg-usage-warn-tag{font-size:11px;color:var(--c-warn,#8a5300);border:1px solid var(--c-warn,#e0a04a);border-radius:9999px;padding:0 8px}
+.lg-usage-empty{color:var(--c-muted);font-size:13px;margin:2px 0 0 0}
+.lg-usage-verdict{border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:13px;border:1px solid transparent}
+.lg-usage-verdict.lg-eligible{background:var(--c-success-bg,#e8f7ee);color:var(--c-success,#186a3b);border-color:var(--c-success,#7dcb9a)}
+.lg-usage-verdict.lg-blocked{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
+.lg-dup-banner{border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px;background:var(--c-info-bg,#eaf2fb);color:var(--c-info,#1c4e80);border:1px solid var(--c-info,#a9c9ea)}
+.lg-dup-banner ul{margin:6px 0 0 18px}
+.lg-region-values{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lg-chips{display:flex;flex-wrap:wrap;gap:6px}
+.lg-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 4px 2px 10px;border:1px solid var(--c-border);border-radius:9999px;background:var(--c-bg-alt);color:var(--c-text)}
+.lg-chip button{border:0;background:none;cursor:pointer;color:var(--c-muted);font-size:14px;line-height:1;padding:0 4px}
+.lg-chip button:hover{color:var(--c-danger,#8a1f11)}
+.lg-region-entry{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lg-region-entry [hidden]{display:none}
+.lg-region-paste{display:flex;flex-direction:column;gap:6px}
+.lg-region-paste[hidden]{display:none}
+.lg-region-invalid{color:var(--c-danger,#8a1f11);font-size:12px}
+.lg-region-invalid[hidden]{display:none}
+.lg-region-help{color:var(--c-muted);font-size:12px}
+.lg-region-order{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--c-muted)}
+.lg-region-order input{width:90px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1055,81 +1214,360 @@ const LG_OFFER_MODAL_SCRIPT = `
 const LG_OFFERS_LIST_ACTIONS_SCRIPT = `
 (function () {
   var getJson = window.lgUi.getJson;
+  var API = '/api/admin/leadgen/offers/';
 
-  // §9.6: archive is a reversible status flip behind a confirm (the B1
-  // DELETE archives — never a hard delete).
+  // §7.4 kind order + labels from the bootstrap island (JSON.parse(textContent)).
+  function usageKinds() {
+    var el = document.getElementById('lg-offer-usage-kinds');
+    if (!el) { return []; }
+    try { return JSON.parse(el.textContent || '[]'); } catch (e) { return []; }
+  }
+  function humanizeKind(kind) {
+    return String(kind || '').replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); });
+  }
+  // Only http(s) or root-relative links are honored (XSS: never javascript:).
+  function safeLink(href) {
+    var h = String(href || '');
+    if (h.charAt(0) === '/' && h.charAt(1) !== '/') { return h; }
+    if (h.indexOf('https://') === 0 || h.indexOf('http://') === 0) { return h; }
+    return '';
+  }
+  function itemLabel(it) {
+    if (!it) { return ''; }
+    return String(it.name || it.public_id || (it.id !== undefined && it.id !== null ? it.id : '') || '');
+  }
+
+  // Render the §7.4 report into a dialog body. mode='blocked' (409 in-use)
+  // adds the cannot-delete verdict + an "Archive instead" primary; mode='view'
+  // (Usage action) shows the delete-eligibility verdict read-only. Every kind
+  // is rendered (count 0 → "None."); server-derived text via createTextNode.
+  function renderUsage(bodyEl, usage, mode, offerId, offerName) {
+    var kinds = usageKinds();
+    var elig = usage && usage.delete_eligibility ? usage.delete_eligibility : null;
+    var eligible = elig ? !!elig.eligible : false;
+
+    var verdict = document.createElement('div');
+    verdict.className = 'lg-usage-verdict ' + (eligible ? 'lg-eligible' : 'lg-blocked');
+    verdict.setAttribute('data-usage-verdict', eligible ? 'eligible' : 'blocked');
+    if (mode === 'blocked') {
+      verdict.appendChild(document.createTextNode('This offer is in use and cannot be deleted. Remove the references below, or archive it instead.'));
+    } else {
+      verdict.appendChild(document.createTextNode(eligible
+        ? 'No references \\u2014 this offer can be permanently deleted.'
+        : 'This offer is referenced and cannot be permanently deleted (it can be archived).'));
+    }
+    bodyEl.appendChild(verdict);
+
+    // Prefer the server kind order; append any unknown keys with a humanized label.
+    var order = [];
+    var seen = {};
+    var i;
+    for (i = 0; i < kinds.length; i++) { order.push({ kind: kinds[i].kind, label: kinds[i].label, warning_only: kinds[i].warning_only }); seen[kinds[i].kind] = true; }
+    if (usage) {
+      var k;
+      for (k in usage) {
+        if (Object.prototype.hasOwnProperty.call(usage, k) && k !== 'delete_eligibility' && !seen[k]) {
+          order.push({ kind: k, label: humanizeKind(k), warning_only: false });
+        }
+      }
+    }
+
+    for (i = 0; i < order.length; i++) {
+      var meta = order[i];
+      var entry = usage ? usage[meta.kind] : null;
+      var count = entry && entry.count !== undefined && entry.count !== null ? Number(entry.count) : (entry && entry.items ? entry.items.length : 0);
+      var items = entry && entry.items ? entry.items : [];
+
+      var block = document.createElement('div');
+      block.className = 'lg-usage-kind';
+      block.setAttribute('data-usage-kind', meta.kind);
+
+      var head = document.createElement('div');
+      head.className = 'lg-usage-kind-head';
+      head.appendChild(document.createTextNode(meta.label));
+      var cnt = document.createElement('span');
+      cnt.className = 'lg-usage-count';
+      cnt.appendChild(document.createTextNode('(' + count + ')'));
+      head.appendChild(cnt);
+      if (meta.warning_only) {
+        var wtag = document.createElement('span');
+        wtag.className = 'lg-usage-warn-tag';
+        wtag.appendChild(document.createTextNode('does not block delete'));
+        head.appendChild(wtag);
+      }
+      block.appendChild(head);
+
+      if (!items || items.length === 0) {
+        var none = document.createElement('p');
+        none.className = 'lg-usage-empty';
+        none.appendChild(document.createTextNode('None.'));
+        block.appendChild(none);
+      } else {
+        var ul = document.createElement('ul');
+        ul.className = 'lg-usage-list';
+        var j;
+        for (j = 0; j < items.length; j++) {
+          var li = document.createElement('li');
+          var href = safeLink(items[j] ? items[j].link : '');
+          if (href) {
+            var a = document.createElement('a');
+            a.setAttribute('href', href);
+            a.appendChild(document.createTextNode(itemLabel(items[j])));
+            li.appendChild(a);
+          } else {
+            li.appendChild(document.createTextNode(itemLabel(items[j])));
+          }
+          ul.appendChild(li);
+        }
+        block.appendChild(ul);
+      }
+      bodyEl.appendChild(block);
+    }
+
+    if (mode === 'blocked') {
+      var actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      var archive = document.createElement('button');
+      archive.type = 'button';
+      archive.className = 'btn btn-primary';
+      archive.setAttribute('data-usage-archive', offerId || '');
+      archive.setAttribute('data-offer-name', offerName || '');
+      archive.appendChild(document.createTextNode('Archive instead'));
+      actions.appendChild(archive);
+      bodyEl.appendChild(actions);
+    }
+  }
+
+  // §9.6 archive — reversible status flip (the default DELETE archives).
   function onArchive(id, name) {
     if (!window.confirm('Archive offer "' + name + '"? It can be re-activated from the editor.')) { return; }
-    getJson('DELETE', '/api/admin/leadgen/offers/' + encodeURIComponent(id)).then(function (res) {
+    getJson('DELETE', API + encodeURIComponent(id)).then(function (res) {
       if (res.ok) {
         window.showToast('Offer archived', 'success');
         window.setTimeout(function () { window.location.reload(); }, 600);
         return;
       }
       window.showToast('Failed to archive offer' + (res.body && res.body.error ? ': ' + res.body.error : ''), 'error');
-    }).catch(function () {
-      window.showToast('Failed to archive offer', 'error');
-    });
+    }).catch(function () { window.showToast('Failed to archive offer', 'error'); });
   }
 
-  // §9.2 usage row action — Sections mapping the offer + Auctions it joins.
+  // §7.1 Usage row action — the full §7.4 report (read-only "where is this used").
   function showUsage(id, name) {
     var bodyEl = window.lgUi.openDialog('Usage' + (name ? ' \\u2014 ' + name : ''));
     if (!bodyEl) { return; }
     var loading = document.createElement('p');
     loading.appendChild(document.createTextNode('Loading\\u2026'));
     bodyEl.appendChild(loading);
-    function showError() {
+    getJson('GET', API + encodeURIComponent(id) + '/usage').then(function (res) {
       if (loading.parentNode) { loading.parentNode.removeChild(loading); }
-      var err = document.createElement('p');
-      err.className = 'alert alert-error';
-      err.appendChild(document.createTextNode('Failed to load usage.'));
-      bodyEl.appendChild(err);
+      if (!res.ok || !res.body || !res.body.usage) {
+        var err = document.createElement('p');
+        err.className = 'alert alert-error';
+        err.appendChild(document.createTextNode('Failed to load usage.'));
+        bodyEl.appendChild(err);
+        return;
+      }
+      renderUsage(bodyEl, res.body.usage, 'view', id, name);
+    }).catch(function () {
+      if (loading.parentNode) { loading.parentNode.removeChild(loading); }
       if (window.showToast) { window.showToast('Failed to load usage', 'error'); }
+    });
+  }
+
+  // --- §7.2 delete (type-name-to-confirm → DELETE ?mode=hard → 409 usage) ------
+  var delModal = document.getElementById('lg-offer-delete-modal');
+  var delForm = document.getElementById('lg-offer-delete-form');
+  var delInput = document.getElementById('lg-del-confirm');
+  var delSubmit = document.getElementById('lg-del-submit');
+  var delError = document.getElementById('lg-del-error');
+  var delNameEls = delModal ? delModal.querySelectorAll('[data-delete-offer-name]') : [];
+  var delTarget = { id: '', name: '' };
+  function openModal(m) { if (m) { m.style.display = 'flex'; m.classList.remove('hidden'); m.setAttribute('aria-hidden', 'false'); } }
+  function closeModal(m) { if (m) { m.style.display = 'none'; m.classList.add('hidden'); m.setAttribute('aria-hidden', 'true'); } }
+  function syncDeleteEnabled() {
+    if (!delSubmit) { return; }
+    var match = delInput && String(delInput.value || '') === delTarget.name && delTarget.name !== '';
+    delSubmit.disabled = !match;
+    delSubmit.setAttribute('aria-disabled', match ? 'false' : 'true');
+  }
+  function openDelete(id, name) {
+    delTarget = { id: id, name: name || '' };
+    var i;
+    for (i = 0; i < delNameEls.length; i++) {
+      while (delNameEls[i].firstChild) { delNameEls[i].removeChild(delNameEls[i].firstChild); }
+      delNameEls[i].appendChild(document.createTextNode(delTarget.name));
     }
-    getJson('GET', '/api/admin/leadgen/offers/' + encodeURIComponent(id) + '/usage').then(function (res) {
-      if (loading.parentNode) { loading.parentNode.removeChild(loading); }
-      if (!res.ok || !res.body || !res.body.usage) { showError(); return; }
-      var usage = res.body.usage;
-      function section(title, rows, describe) {
-        var h = document.createElement('h3');
-        h.className = 'form-label';
-        h.appendChild(document.createTextNode(title));
-        bodyEl.appendChild(h);
-        if (!rows || rows.length === 0) {
-          var none = document.createElement('p');
-          none.className = 'form-help';
-          none.appendChild(document.createTextNode('None.'));
-          bodyEl.appendChild(none);
+    if (delInput) { delInput.value = ''; }
+    if (delError) { delError.hidden = true; delError.textContent = ''; }
+    syncDeleteEnabled();
+    openModal(delModal);
+    if (delInput) { delInput.focus(); }
+  }
+  if (delInput) { delInput.addEventListener('input', syncDeleteEnabled); }
+  if (delForm) {
+    delForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (delSubmit && delSubmit.disabled) { return; }
+      if (delSubmit) { delSubmit.disabled = true; delSubmit.classList.add('lg-saving'); }
+      getJson('DELETE', API + encodeURIComponent(delTarget.id) + '?mode=hard').then(function (res) {
+        if (delSubmit) { delSubmit.classList.remove('lg-saving'); }
+        if (res.ok) {
+          if (window.showToast) { window.showToast('Offer deleted', 'success'); }
+          closeModal(delModal);
+          window.setTimeout(function () { window.location.reload(); }, 600);
           return;
         }
-        var ul = document.createElement('ul');
-        ul.className = 'lg-usage-list';
-        var i, li;
-        for (i = 0; i < rows.length; i++) {
-          li = document.createElement('li');
-          li.appendChild(document.createTextNode(describe(rows[i])));
-          ul.appendChild(li);
+        if (res.status === 409 && res.body && res.body.usage) {
+          closeModal(delModal);
+          var bodyEl = window.lgUi.openDialog('Cannot delete \\u2014 ' + delTarget.name);
+          if (bodyEl) { renderUsage(bodyEl, res.body.usage, 'blocked', delTarget.id, delTarget.name); }
+          return;
         }
-        bodyEl.appendChild(ul);
-      }
-      section('Sections mapping this offer', usage.sections, function (s) {
-        return (s.section_name || s.public_id) + ' (' + s.status + ', mapping ' + s.mapping_state + ')';
+        syncDeleteEnabled();
+        if (delError) { delError.hidden = false; delError.textContent = (res.body && res.body.error) || ('Error ' + res.status); }
+      }).catch(function () {
+        if (delSubmit) { delSubmit.classList.remove('lg-saving'); }
+        syncDeleteEnabled();
+        if (delError) { delError.hidden = false; delError.textContent = 'Network error \\u2014 the offer was not deleted.'; }
       });
-      section('Auctions it participates in', usage.auctions, function (a) {
-        return (a.auction_name || a.public_id) + ' (' + a.auction_type + ', ' + a.status + ') \\u00b7 placement ' + a.placement_id + (a.enabled ? '' : ' \\u00b7 disabled');
+    });
+  }
+  var delCancel = document.getElementById('lg-del-cancel');
+  if (delCancel) { delCancel.addEventListener('click', function () { closeModal(delModal); }); }
+
+  // --- §7.3 duplicate (prefill "<name> (copy)"; require placement id) ----------
+  var dupModal = document.getElementById('lg-offer-duplicate-modal');
+  var dupForm = document.getElementById('lg-offer-duplicate-form');
+  var dupName = document.getElementById('lg-dup-name');
+  var dupPlacement = document.getElementById('lg-dup-placement');
+  var dupSubmit = document.getElementById('lg-dup-submit');
+  var dupError = document.getElementById('lg-dup-error');
+  var dupStatus = document.getElementById('lg-dup-status');
+  var dupTarget = { id: '', name: '' };
+  function dupFieldError(name, msg) {
+    var el = dupForm ? dupForm.querySelector('[data-error-for="' + name + '"]') : null;
+    if (el) { el.hidden = !msg; el.textContent = msg || ''; }
+  }
+  function openDuplicate(id, name) {
+    dupTarget = { id: id, name: name || '' };
+    if (dupName) { dupName.value = (name || 'Offer') + ' (copy)'; }
+    if (dupPlacement) { dupPlacement.value = ''; }
+    if (document.getElementById('lg-dup-copy-region')) { document.getElementById('lg-dup-copy-region').checked = true; }
+    if (document.getElementById('lg-dup-copy-endpoint')) { document.getElementById('lg-dup-copy-endpoint').checked = true; }
+    if (document.getElementById('lg-dup-copy-cap')) { document.getElementById('lg-dup-copy-cap').checked = false; }
+    dupFieldError('name', ''); dupFieldError('default_placement_id', '');
+    if (dupError) { dupError.hidden = true; dupError.textContent = ''; }
+    if (dupStatus) { dupStatus.textContent = ''; }
+    openModal(dupModal);
+    if (dupPlacement) { dupPlacement.focus(); }
+  }
+  if (dupForm) {
+    dupForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      dupFieldError('name', ''); dupFieldError('default_placement_id', '');
+      if (dupError) { dupError.hidden = true; dupError.textContent = ''; }
+      var nameVal = dupName ? String(dupName.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+      var placementVal = dupPlacement ? String(dupPlacement.value || '').replace(/^\\s+|\\s+$/g, '') : '';
+      var bad = false;
+      if (nameVal === '') { dupFieldError('name', 'A name is required'); bad = true; }
+      // §7.3: default placement id is REQUIRED — block submit when empty.
+      if (placementVal === '') { dupFieldError('default_placement_id', 'A new default placement ID is required'); bad = true; }
+      if (bad) { if (dupStatus) { dupStatus.textContent = 'Validation failed'; } return; }
+      var copyRegion = !!(document.getElementById('lg-dup-copy-region') && document.getElementById('lg-dup-copy-region').checked);
+      var copyEndpoint = !!(document.getElementById('lg-dup-copy-endpoint') && document.getElementById('lg-dup-copy-endpoint').checked);
+      var copyCap = !!(document.getElementById('lg-dup-copy-cap') && document.getElementById('lg-dup-copy-cap').checked);
+      var body = {
+        name: nameVal,
+        default_placement_id: placementVal,
+        copy_region_rules: copyRegion,
+        copy_cap_settings: copyCap,
+        copy_endpoint_config: copyEndpoint
+      };
+      if (dupSubmit) { dupSubmit.disabled = true; dupSubmit.classList.add('lg-saving'); }
+      if (dupStatus) { dupStatus.textContent = 'Creating draft\\u2026'; }
+      getJson('POST', API + encodeURIComponent(dupTarget.id) + '/duplicate', body).then(function (res) {
+        if (dupSubmit) { dupSubmit.disabled = false; dupSubmit.classList.remove('lg-saving'); }
+        if (res.ok && res.body && res.body.public_id) {
+          // The "Duplicated from <name>" banner is server-rendered on the new
+          // editor from these query params (copied/skipped = the operator's
+          // intent; pending = blank-placement count from the response summary).
+          var copied = [];
+          var skipped = [];
+          (copyRegion ? copied : skipped).push('copy_region_rules');
+          (copyEndpoint ? copied : skipped).push('copy_endpoint_config');
+          (copyCap ? copied : skipped).push('copy_cap_settings');
+          var summary = res.body.summary || res.body;
+          var pending = summary && summary.placements_pending !== undefined ? summary.placements_pending
+            : (summary && summary.blank_placements !== undefined ? summary.blank_placements : null);
+          var qs = '?duplicated_from=' + encodeURIComponent(dupTarget.name) +
+            '&copied=' + encodeURIComponent(copied.join(',')) +
+            '&skipped=' + encodeURIComponent(skipped.join(','));
+          if (pending !== null && pending !== undefined) { qs += '&pending=' + encodeURIComponent(String(pending)); }
+          if (window.showToast) { window.showToast('Draft created \\u2014 opening the editor', 'success'); }
+          window.location.href = '/admin/leadgen/offers/' + encodeURIComponent(res.body.public_id) + '/edit' + qs;
+          return;
+        }
+        if (res.body && res.body.fields) {
+          var k;
+          for (k in res.body.fields) { if (Object.prototype.hasOwnProperty.call(res.body.fields, k)) { dupFieldError(k, res.body.fields[k]); } }
+          if (dupStatus) { dupStatus.textContent = 'Validation failed'; }
+          return;
+        }
+        if (dupError) { dupError.hidden = false; dupError.textContent = (res.body && res.body.error) || ('Error ' + res.status); }
+        if (dupStatus) { dupStatus.textContent = 'Failed'; }
+      }).catch(function () {
+        if (dupSubmit) { dupSubmit.disabled = false; dupSubmit.classList.remove('lg-saving'); }
+        if (dupError) { dupError.hidden = false; dupError.textContent = 'Network error \\u2014 the offer was not duplicated.'; }
+        if (dupStatus) { dupStatus.textContent = 'Failed'; }
       });
-    }).catch(showError);
+    });
+  }
+  var dupCancel = document.getElementById('lg-dup-cancel');
+  if (dupCancel) { dupCancel.addEventListener('click', function () { closeModal(dupModal); }); }
+
+  // --- kebab menus (open one at a time; close on outside click / Escape) -------
+  function closeKebabs() {
+    var open = document.querySelectorAll('[data-offer-kebab-menu]:not([hidden])');
+    var i;
+    for (i = 0; i < open.length; i++) {
+      open[i].hidden = true;
+      var btn = open[i].parentNode ? open[i].parentNode.querySelector('[data-offer-kebab-toggle]') : null;
+      if (btn) { btn.setAttribute('aria-expanded', 'false'); }
+    }
   }
 
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) { return; }
+    var toggle = t.closest('[data-offer-kebab-toggle]');
+    if (toggle) {
+      var menu = toggle.parentNode ? toggle.parentNode.querySelector('[data-offer-kebab-menu]') : null;
+      var wasHidden = menu ? menu.hidden : true;
+      closeKebabs();
+      if (menu && wasHidden) { menu.hidden = false; toggle.setAttribute('aria-expanded', 'true'); }
+      return;
+    }
+    var dupBtn = t.closest('[data-offer-duplicate]');
+    if (dupBtn) { closeKebabs(); openDuplicate(dupBtn.getAttribute('data-offer-duplicate'), dupBtn.getAttribute('data-offer-name') || ''); return; }
+    var delBtn = t.closest('[data-offer-delete]');
+    if (delBtn) { closeKebabs(); openDelete(delBtn.getAttribute('data-offer-delete'), delBtn.getAttribute('data-offer-name') || 'this offer'); return; }
     var archiveBtn = t.closest('[data-offer-archive]');
-    if (archiveBtn) { onArchive(archiveBtn.getAttribute('data-offer-archive'), archiveBtn.getAttribute('data-offer-name') || 'this offer'); return; }
+    if (archiveBtn) { closeKebabs(); onArchive(archiveBtn.getAttribute('data-offer-archive'), archiveBtn.getAttribute('data-offer-name') || 'this offer'); return; }
     var usageBtn = t.closest('[data-offer-usage]');
-    if (usageBtn) { showUsage(usageBtn.getAttribute('data-offer-usage'), usageBtn.getAttribute('data-offer-name') || ''); return; }
+    if (usageBtn) { closeKebabs(); showUsage(usageBtn.getAttribute('data-offer-usage'), usageBtn.getAttribute('data-offer-name') || ''); return; }
+    var usageArchive = t.closest('[data-usage-archive]');
+    if (usageArchive) { window.lgUi.closeDialog(); onArchive(usageArchive.getAttribute('data-usage-archive'), usageArchive.getAttribute('data-offer-name') || 'this offer'); return; }
+    if (!t.closest('[data-offer-kebab]')) { closeKebabs(); }
   });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      closeKebabs();
+      if (dupModal && !dupModal.classList.contains('hidden')) { closeModal(dupModal); }
+      if (delModal && !delModal.classList.contains('hidden')) { closeModal(delModal); }
+    }
+  });
+  if (dupModal) { dupModal.addEventListener('click', function (e) { if (e.target === dupModal) { closeModal(dupModal); } }); }
+  if (delModal) { delModal.addEventListener('click', function (e) { if (e.target === delModal) { closeModal(delModal); } }); }
 }());
 `;
 
@@ -1165,7 +1603,10 @@ ${renderOffersToolbar(props)}
 ${renderOffersTable(props)}
 ${pager}
 ${renderCreateOfferModal()}
+${renderDuplicateModal()}
+${renderDeleteModal()}
 ${renderLgDialogShell()}
+${renderUsageKindsIsland()}
 </div>`;
   return leadgenPageShell({
     activePath: "/admin/leadgen/offers",
@@ -1406,39 +1847,143 @@ function renderStaticPanel(o: OfferDetail): string {
 </section>`;
 }
 
+// §7.5 D1: the FROZEN rule-action enum surfaces as TWO plain behaviors. New
+// rows write include_only/exclude ONLY; legacy allow_list/block_list rows
+// display identically (the pairs are formally declared identical — v2.4
+// erratum to 04 §10.4). Semantics are frozen; this is a label + normalization
+// layer over the unchanged storage enum (LEADGEN_RULE_ACTIONS).
+const REGION_ACTION_BEHAVIOR_LABELS: Readonly<Record<string, string>> = {
+  include_only: "Allow only these regions",
+  exclude: "Block these regions",
+};
+const REGION_ACTION_BEHAVIOR_VALUES: ReadonlyArray<string> = ["include_only", "exclude"];
+
+function normalizeRegionAction(action: string): string {
+  if (action === "allow_list" || action === "include_only") return "include_only";
+  if (action === "block_list" || action === "exclude") return "exclude";
+  return "";
+}
+
+// §7.5 D3 geo: Country = ISO-3166-1 alpha-2; State = code (US states + DC and
+// CA provinces baseline), filtered by country. Curated + extensible — the
+// server region validators (validation.ts) remain the source of truth.
+const ISO_ALPHA2_COUNTRIES: ReadonlyArray<[string, string]> = [
+  ["US", "United States"], ["CA", "Canada"], ["GB", "United Kingdom"], ["IE", "Ireland"],
+  ["AU", "Australia"], ["NZ", "New Zealand"], ["DE", "Germany"], ["FR", "France"],
+  ["ES", "Spain"], ["IT", "Italy"], ["PT", "Portugal"], ["NL", "Netherlands"],
+  ["BE", "Belgium"], ["LU", "Luxembourg"], ["CH", "Switzerland"], ["AT", "Austria"],
+  ["SE", "Sweden"], ["NO", "Norway"], ["DK", "Denmark"], ["FI", "Finland"],
+  ["PL", "Poland"], ["CZ", "Czechia"], ["GR", "Greece"], ["RO", "Romania"],
+  ["MX", "Mexico"], ["BR", "Brazil"], ["AR", "Argentina"], ["CL", "Chile"],
+  ["CO", "Colombia"], ["JP", "Japan"], ["KR", "South Korea"], ["CN", "China"],
+  ["HK", "Hong Kong"], ["SG", "Singapore"], ["IN", "India"], ["ID", "Indonesia"],
+  ["PH", "Philippines"], ["MY", "Malaysia"], ["TH", "Thailand"], ["VN", "Vietnam"],
+  ["ZA", "South Africa"], ["AE", "United Arab Emirates"], ["SA", "Saudi Arabia"],
+  ["IL", "Israel"], ["TR", "Turkey"],
+];
+
+const STATES_BY_COUNTRY: Readonly<Record<string, ReadonlyArray<[string, string]>>> = {
+  US: [
+    ["AL", "Alabama"], ["AK", "Alaska"], ["AZ", "Arizona"], ["AR", "Arkansas"], ["CA", "California"],
+    ["CO", "Colorado"], ["CT", "Connecticut"], ["DE", "Delaware"], ["DC", "District of Columbia"],
+    ["FL", "Florida"], ["GA", "Georgia"], ["HI", "Hawaii"], ["ID", "Idaho"], ["IL", "Illinois"],
+    ["IN", "Indiana"], ["IA", "Iowa"], ["KS", "Kansas"], ["KY", "Kentucky"], ["LA", "Louisiana"],
+    ["ME", "Maine"], ["MD", "Maryland"], ["MA", "Massachusetts"], ["MI", "Michigan"], ["MN", "Minnesota"],
+    ["MS", "Mississippi"], ["MO", "Missouri"], ["MT", "Montana"], ["NE", "Nebraska"], ["NV", "Nevada"],
+    ["NH", "New Hampshire"], ["NJ", "New Jersey"], ["NM", "New Mexico"], ["NY", "New York"],
+    ["NC", "North Carolina"], ["ND", "North Dakota"], ["OH", "Ohio"], ["OK", "Oklahoma"], ["OR", "Oregon"],
+    ["PA", "Pennsylvania"], ["RI", "Rhode Island"], ["SC", "South Carolina"], ["SD", "South Dakota"],
+    ["TN", "Tennessee"], ["TX", "Texas"], ["UT", "Utah"], ["VT", "Vermont"], ["VA", "Virginia"],
+    ["WA", "Washington"], ["WV", "West Virginia"], ["WI", "Wisconsin"], ["WY", "Wyoming"],
+  ],
+  CA: [
+    ["AB", "Alberta"], ["BC", "British Columbia"], ["MB", "Manitoba"], ["NB", "New Brunswick"],
+    ["NL", "Newfoundland and Labrador"], ["NS", "Nova Scotia"], ["NT", "Northwest Territories"],
+    ["NU", "Nunavut"], ["ON", "Ontario"], ["PE", "Prince Edward Island"], ["QC", "Quebec"],
+    ["SK", "Saskatchewan"], ["YT", "Yukon"],
+  ],
+};
+
+function renderRegionCountryOptions(): string {
+  return (
+    `<option value="">Country…</option>` +
+    ISO_ALPHA2_COUNTRIES.map(
+      ([code, name]) => `<option value="${escapeHtml(code)}">${escapeHtml(name)} (${escapeHtml(code)})</option>`,
+    ).join("")
+  );
+}
+
+function renderRegionStateCountryOptions(): string {
+  return Object.keys(STATES_BY_COUNTRY)
+    .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+    .join("");
+}
+
+// The lg-region-geo bootstrap island: states-by-country for the D3 state
+// dropdown's client-side "filtered by country" rebuild.
+function renderRegionGeoIsland(): string {
+  const json = JSON.stringify({ states: STATES_BY_COUNTRY }).replace(/</g, "\\u003c");
+  return `<script type="application/json" id="lg-region-geo">${json}</script>`;
+}
+
+// §7.5 D1/D2/D3. The row keeps a HIDDEN canonical values field (comma-joined —
+// the collectRegionRules replace-set + legacy SSR contract) that the D3 chip
+// editor (LG_REGION_EDITOR_SCRIPT) reads + writes. dimension drives which entry
+// control is shown; action shows the two frozen behaviors; priority is labeled
+// "Evaluation order".
 function renderRegionRuleRow(rule: LeadgenOfferRegionRuleApi | null): string {
   const publicId = rule !== null ? ` data-rule-public-id="${escapeHtml(rule.public_id)}"` : "";
   const dimension = rule !== null ? rule.dimension : "";
-  const action = rule !== null ? rule.action : "";
+  const action = rule !== null ? normalizeRegionAction(rule.action) : "";
   const values =
     rule !== null && Array.isArray(rule.values_json)
       ? rule.values_json.filter((v): v is string => typeof v === "string").join(", ")
       : "";
   const priority = rule !== null ? String(rule.priority) : "100";
   const enabled = rule === null || rule.enabled ? " checked" : "";
-  return `<div class="lg-rule-row"${publicId}>
+  const usStates = STATES_BY_COUNTRY["US"] ?? [];
+  return `<div class="lg-rule-row" data-region-rule${publicId}>
     <select class="form-select" data-rule-field="dimension" aria-label="Rule dimension">${options(LEADGEN_REGION_DIMENSIONS, null, dimension, "Dimension…")}</select>
-    <select class="form-select" data-rule-field="action" aria-label="Rule action">${options(LEADGEN_RULE_ACTIONS, null, action, "Action…")}</select>
-    <input type="text" class="form-input" data-rule-field="values" placeholder="CA, NY, 90210" aria-label="Rule values (comma-separated)" value="${escapeHtml(values)}" />
-    <input type="number" class="form-input" data-rule-field="priority" step="1" aria-label="Rule priority" value="${escapeHtml(priority)}" />
+    <select class="form-select" data-rule-field="action" aria-label="Region behavior">${options(REGION_ACTION_BEHAVIOR_VALUES, REGION_ACTION_BEHAVIOR_LABELS, action, "Choose a behavior…")}</select>
+    <div class="lg-region-values" data-region-values>
+      <input type="hidden" data-rule-field="values" value="${escapeHtml(values)}" />
+      <div class="lg-chips" data-region-chips aria-live="polite"></div>
+      <div class="lg-region-entry" data-region-entry>
+        <select class="form-select" data-region-input="country" aria-label="Country (ISO alpha-2)" hidden>${renderRegionCountryOptions()}</select>
+        <select class="form-select" data-region-state-country aria-label="State filter — country" hidden>${renderRegionStateCountryOptions()}</select>
+        <select class="form-select" data-region-input="state" aria-label="State / province" hidden>${usStates.map(([code, name]) => `<option value="${escapeHtml(code)}">${escapeHtml(name)} (${escapeHtml(code)})</option>`).join("")}</select>
+        <input type="text" class="form-input" data-region-input="text" placeholder="Add value…" aria-label="Region value" />
+        <button type="button" class="btn btn-sm btn-secondary" data-region-add>Add</button>
+        <button type="button" class="btn btn-sm btn-outline" data-region-paste-toggle>Paste multiple</button>
+      </div>
+      <div class="lg-region-paste" data-region-paste hidden>
+        <textarea class="form-textarea" rows="3" data-region-paste-box placeholder="Paste values separated by commas or new lines" aria-label="Paste multiple region values"></textarea>
+        <div><button type="button" class="btn btn-sm btn-secondary" data-region-paste-apply>Add pasted values</button></div>
+      </div>
+      <p class="lg-region-invalid form-error" data-region-invalid hidden></p>
+    </div>
+    <label class="form-help lg-region-order"><span>Evaluation order</span><input type="number" class="form-input" data-rule-field="priority" step="1" min="0" aria-label="Evaluation order" value="${escapeHtml(priority)}" /></label>
     <label class="form-label lg-radio"><input type="checkbox" data-rule-field="enabled"${enabled} /> Enabled</label>
     <button type="button" class="btn btn-sm btn-danger" data-rule-remove>Remove</button>
   </div>`;
 }
 
-// §10.4: Offer rules = provider region-block ONLY. Answer-based
-// include/exclude lives in Auction rules (§21) — stated in the panel help.
+// §7.5 / §10.4: Offer rules = PROVIDER region-block ONLY. Answer-based Offer
+// participation lives in the Auction editor — the section header help draws the
+// line. Priority help states the §7.5 D2 evaluation-order semantics.
 function renderRegionPanel(o: OfferDetail): string {
   const rows = o.region_rules.map((r) => renderRegionRuleRow(r)).join("");
   return `<section class="lg-editor-panel" data-lg-tab-panel="region" hidden>
   <div class="card">
     <div class="card-header"><h3 class="card-title">Region rules (§10.4)</h3></div>
-    <p class="form-help">Provider region-block rules only: include_only / exclude / allow_list / block_list over country, state, city or ZIP (comma-separated values). Answer-based participation rules live in the Auction editor (§21).</p>
+    <p class="form-help" data-region-scope-help>These are provider region-block rules only. Answer-based Offer participation rules are configured in Auction.</p>
+    <p class="form-help" data-region-order-help>Evaluation order: Rules run lowest number first; the first blocking rule wins. Default 100.</p>
     <div id="lg-region-rows">${rows}</div>
     <button type="button" id="lg-region-add" class="btn btn-secondary">+ Add region rule</button>
     ${fieldError("region_rules")}
   </div>
   <template id="lg-rule-template">${renderRegionRuleRow(null)}</template>
+  ${renderRegionGeoIsland()}
 </section>`;
 }
 
@@ -1517,6 +2062,55 @@ function renderEligibilityBanner(o: OfferDetail): string {
     <button type="button" class="btn btn-sm btn-secondary" data-eligibility-fix="payload">Open Payload Schema</button>
     <button type="button" class="btn btn-sm btn-secondary" data-eligibility-fix="test">Open Test tab</button>
   </div>
+</div>`;
+}
+
+// §7.3: the post-duplicate banner. Driven by the query params the duplicate
+// island appends on navigation (copied/skipped = the operator's copy intent;
+// pending = the response summary's blank-placement count) — server-rendered so
+// it survives the full page load into the new editor.
+interface DuplicatedInfo {
+  from: string;
+  copied: string[];
+  skipped: string[];
+  pending: number | null;
+}
+
+function parseDuplicatedInfo(c: UiContext): DuplicatedInfo | null {
+  const from = queryParam(c, "duplicated_from");
+  if (from === "") return null;
+  const split = (name: string): string[] =>
+    queryParam(c, name)
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => OFFER_COPY_DIMENSION_LABELS[s] !== undefined);
+  const pendingRaw = queryParam(c, "pending");
+  const pendingNum = pendingRaw === "" ? Number.NaN : Number.parseInt(pendingRaw, 10);
+  return {
+    from,
+    copied: split("copied"),
+    skipped: split("skipped"),
+    pending: Number.isFinite(pendingNum) ? pendingNum : null,
+  };
+}
+
+function renderDuplicatedBanner(info: DuplicatedInfo | null): string {
+  if (info === null) return "";
+  const lines = (keys: string[], copied: boolean): string =>
+    keys
+      .map(
+        (k) =>
+          `<li data-dup-${copied ? "copied" : "skipped"}="${escapeHtml(k)}">${escapeHtml(OFFER_COPY_DIMENSION_LABELS[k] ?? k)}: ${copied ? "copied" : "not copied"}</li>`,
+      )
+      .join("");
+  const items = lines(info.copied, true) + lines(info.skipped, false);
+  const pending =
+    info.pending !== null && info.pending > 0
+      ? `<li data-dup-pending="${info.pending}">${info.pending} additional placement${info.pending === 1 ? "" : "s"} copied blank &mdash; set a value before going live</li>`
+      : "";
+  return `<div class="lg-dup-banner" data-dup-banner role="status">
+  <strong>Duplicated from ${escapeHtml(info.from)}</strong> &mdash; a new draft (test status untested; blocked from live auction until tested).
+  <ul>${items}${pending}</ul>
 </div>`;
 }
 
@@ -2017,9 +2611,11 @@ const LG_EDITOR_SCRIPT = `
           window.setTimeout(function () { window.location.reload(); }, 600);
           return;
         }
-        if (res.body && res.body.fields && renderErrors(res.body.fields)) {
-          setStatus('Validation failed');
-          return;
+        if (res.body && res.body.fields) {
+          // §7.5: typed region_value_invalid (dimension+token) surfaces inline
+          // on the offending region rule row (window.lgRegionErrors).
+          if (window.lgRegionErrors) { window.lgRegionErrors(res.body.fields); }
+          if (renderErrors(res.body.fields)) { setStatus('Validation failed'); return; }
         }
         setTopError((res.body && res.body.error) || ('Error ' + res.status));
         setStatus('Save failed');
@@ -2058,6 +2654,227 @@ const LG_EDITOR_SCRIPT = `
 `;
 
 // ---------------------------------------------------------------------------
+// §7.5 D3 region chip editor (strict ES5) — Country/State/City/ZIP entry
+// ---------------------------------------------------------------------------
+//
+// Progressive-enhancement island over the region-rule rows: reads + writes the
+// HIDDEN canonical data-rule-field="values" input (comma-joined — the contract
+// LG_EDITOR_SCRIPT.collectRegionRules consumes), so the two islands never
+// couple beyond that field. Country/State come from dropdowns (State filtered
+// by country via the lg-region-geo island); City/ZIP are free-text chips; ZIP
+// is client-validated /^\\d{5}$/; "Paste multiple" splits on comma/newline with
+// per-token validation and lists rejected tokens inline. window.lgRegionErrors
+// surfaces the server's typed region_value_invalid (dimension+token) inline.
+
+const LG_REGION_EDITOR_SCRIPT = `
+(function () {
+  var rowsHost = document.getElementById('lg-region-rows');
+  if (!rowsHost) { return; }
+  var geo = { states: {} };
+  var geoEl = document.getElementById('lg-region-geo');
+  if (geoEl) { try { geo = JSON.parse(geoEl.textContent || '{}') || { states: {} }; } catch (e) { geo = { states: {} }; } }
+  if (!geo.states) { geo.states = {}; }
+
+  var ZIP_RE = /^\\d{5}$/;
+
+  function trim(s) { return String(s === null || s === undefined ? '' : s).replace(/^\\s+|\\s+$/g, ''); }
+  function fireChange(el) {
+    if (!el) { return; }
+    var ev;
+    if (typeof Event === 'function') { ev = new Event('change', { bubbles: true }); }
+    else { ev = document.createEvent('Event'); ev.initEvent('change', true, false); }
+    el.dispatchEvent(ev);
+  }
+  function closest(el, sel) { return el && el.closest ? el.closest(sel) : null; }
+  function rowOf(el) { return closest(el, '[data-region-rule]'); }
+  function hiddenOf(row) { return row ? row.querySelector('[data-rule-field="values"]') : null; }
+  function chipsOf(row) { return row ? row.querySelector('[data-region-chips]') : null; }
+  function dimOf(row) { var s = row ? row.querySelector('[data-rule-field="dimension"]') : null; return s ? s.value : ''; }
+  function invalidOf(row) { return row ? row.querySelector('[data-region-invalid]') : null; }
+  function clearInvalid(row) { var el = invalidOf(row); if (el) { el.hidden = true; el.textContent = ''; } }
+  function showInvalid(row, msg) { var el = invalidOf(row); if (el) { el.hidden = false; el.textContent = msg; } }
+
+  function valuesOf(row) {
+    var h = hiddenOf(row);
+    var parts = (h ? String(h.value || '') : '').split(',');
+    var out = [], i, v;
+    for (i = 0; i < parts.length; i++) { v = trim(parts[i]); if (v !== '') { out.push(v); } }
+    return out;
+  }
+  function renderChips(row) {
+    var host = chipsOf(row);
+    if (!host) { return; }
+    while (host.firstChild) { host.removeChild(host.firstChild); }
+    var vals = valuesOf(row), i;
+    for (i = 0; i < vals.length; i++) {
+      var chip = document.createElement('span');
+      chip.className = 'lg-chip';
+      chip.appendChild(document.createTextNode(vals[i]));
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.setAttribute('data-region-chip-remove', vals[i]);
+      x.setAttribute('aria-label', 'Remove ' + vals[i]);
+      x.appendChild(document.createTextNode('\\u00d7'));
+      chip.appendChild(x);
+      host.appendChild(chip);
+    }
+  }
+  function writeValues(row, vals) { var h = hiddenOf(row); if (h) { h.value = vals.join(', '); } }
+  function setValues(row, vals) { writeValues(row, vals); renderChips(row); var h = hiddenOf(row); if (h) { fireChange(h); } }
+
+  function normalizeToken(dim, token) {
+    var t = trim(token);
+    if (t === '') { return ''; }
+    if (dim === 'country' || dim === 'state') { return t.toUpperCase(); }
+    return t;
+  }
+  function validToken(dim, token) {
+    if (token === '') { return false; }
+    if (dim === 'zip') { return ZIP_RE.test(token); }
+    return true;
+  }
+  function hasValue(vals, token) { var i; for (i = 0; i < vals.length; i++) { if (vals[i] === token) { return true; } } return false; }
+
+  function addValue(row, rawToken) {
+    var dim = dimOf(row);
+    var token = normalizeToken(dim, rawToken);
+    if (token === '') { return false; }
+    if (!validToken(dim, token)) {
+      showInvalid(row, 'Rejected \\u2014 "' + trim(rawToken) + '" is not a valid ' + (dim || 'value') + (dim === 'zip' ? ' (5 digits)' : ''));
+      return false;
+    }
+    var vals = valuesOf(row);
+    if (!hasValue(vals, token)) { vals.push(token); setValues(row, vals); }
+    return true;
+  }
+
+  function pasteMultiple(row) {
+    var box = row.querySelector('[data-region-paste-box]');
+    if (!box) { return; }
+    var dim = dimOf(row);
+    var tokens = String(box.value || '').split(/[,\\n\\r]+/);
+    var vals = valuesOf(row);
+    var i, token, norm, invalid = [];
+    for (i = 0; i < tokens.length; i++) {
+      token = trim(tokens[i]);
+      if (token === '') { continue; }
+      norm = normalizeToken(dim, token);
+      if (validToken(dim, norm)) { if (!hasValue(vals, norm)) { vals.push(norm); } }
+      else { invalid.push(token); }
+    }
+    setValues(row, vals);
+    if (invalid.length > 0) { showInvalid(row, 'Rejected ' + invalid.length + ' invalid ' + (dim || 'value') + ' token(s): ' + invalid.join(', ')); }
+    else { clearInvalid(row); }
+    box.value = '';
+  }
+
+  function rebuildStates(row) {
+    var cSel = row.querySelector('[data-region-state-country]');
+    var sSel = row.querySelector('[data-region-input="state"]');
+    if (!cSel || !sSel) { return; }
+    var list = geo.states[cSel.value || 'US'] || [];
+    while (sSel.firstChild) { sSel.removeChild(sSel.firstChild); }
+    var i, opt;
+    for (i = 0; i < list.length; i++) {
+      opt = document.createElement('option');
+      opt.value = list[i][0];
+      opt.appendChild(document.createTextNode(list[i][1] + ' (' + list[i][0] + ')'));
+      sSel.appendChild(opt);
+    }
+  }
+  function show(el, on) { if (el) { el.hidden = !on; } }
+  function applyDimension(row) {
+    var dim = dimOf(row);
+    show(row.querySelector('[data-region-input="country"]'), dim === 'country');
+    show(row.querySelector('[data-region-state-country]'), dim === 'state');
+    show(row.querySelector('[data-region-input="state"]'), dim === 'state');
+    var text = row.querySelector('[data-region-input="text"]');
+    show(text, dim === 'city' || dim === 'zip' || dim === '');
+    if (text) { text.placeholder = dim === 'zip' ? '90210' : (dim === 'city' ? 'City name' : 'Add value\\u2026'); }
+    if (dim === 'state') { rebuildStates(row); }
+    clearInvalid(row);
+  }
+  function currentEntryValue(row) {
+    var dim = dimOf(row), el;
+    if (dim === 'country') { el = row.querySelector('[data-region-input="country"]'); }
+    else if (dim === 'state') { el = row.querySelector('[data-region-input="state"]'); }
+    else { el = row.querySelector('[data-region-input="text"]'); }
+    return el ? el.value : '';
+  }
+  function clearEntry(row) { var t = row.querySelector('[data-region-input="text"]'); if (t) { t.value = ''; } }
+
+  function initAll() {
+    var list = rowsHost.querySelectorAll('[data-region-rule]');
+    var i;
+    for (i = 0; i < list.length; i++) { applyDimension(list[i]); renderChips(list[i]); }
+  }
+
+  rowsHost.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t) { return; }
+    var rm = closest(t, '[data-region-chip-remove]');
+    if (rm) {
+      var row = rowOf(rm), token = rm.getAttribute('data-region-chip-remove');
+      var vals = valuesOf(row), out = [], i;
+      for (i = 0; i < vals.length; i++) { if (vals[i] !== token) { out.push(vals[i]); } }
+      setValues(row, out); clearInvalid(row);
+      return;
+    }
+    var add = closest(t, '[data-region-add]');
+    if (add) { var r1 = rowOf(add); if (addValue(r1, currentEntryValue(r1))) { clearEntry(r1); } return; }
+    var pt = closest(t, '[data-region-paste-toggle]');
+    if (pt) { var box = rowOf(pt).querySelector('[data-region-paste]'); if (box) { box.hidden = !box.hidden; } return; }
+    var pa = closest(t, '[data-region-paste-apply]');
+    if (pa) { pasteMultiple(rowOf(pa)); return; }
+  });
+  rowsHost.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) { return; }
+    if (t.getAttribute('data-rule-field') === 'dimension') { applyDimension(rowOf(t)); }
+    else if (t.getAttribute('data-region-state-country') !== null) { rebuildStates(rowOf(t)); }
+  });
+  rowsHost.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) { return; }
+    if (t.getAttribute('data-region-input') === 'text' && (e.key === 'Enter' || e.keyCode === 13)) {
+      e.preventDefault();
+      var row = rowOf(t);
+      if (addValue(row, currentEntryValue(row))) { clearEntry(row); }
+    }
+  });
+  var addRuleBtn = document.getElementById('lg-region-add');
+  if (addRuleBtn) { addRuleBtn.addEventListener('click', function () { window.setTimeout(initAll, 0); }); }
+
+  // §7.5: surface the server's typed region_value_invalid (dimension+token)
+  // inline on the offending row (clears stale messages first).
+  window.lgRegionErrors = function (fields) {
+    var list = rowsHost.querySelectorAll('[data-region-rule]'), i;
+    for (i = 0; i < list.length; i++) { clearInvalid(list[i]); }
+    if (!fields) { return; }
+    var k;
+    for (k in fields) {
+      if (!Object.prototype.hasOwnProperty.call(fields, k)) { continue; }
+      var v = fields[k], msg = '', isRegion = false, dim = '', token = '';
+      if (v && typeof v === 'object') {
+        if (v.code === 'region_value_invalid' || v.dimension || v.token) { isRegion = true; dim = v.dimension || ''; token = v.token || ''; }
+        msg = v.message || ('Invalid ' + (dim || 'region') + ' value' + (token ? ': ' + token : ''));
+      } else {
+        msg = String(v === null || v === undefined ? '' : v);
+        if (k.indexOf('region') !== -1 || msg.indexOf('region_value_invalid') !== -1) { isRegion = true; }
+      }
+      if (!isRegion) { continue; }
+      var idx = -1, m = k.match(/region_rules\\[?(\\d+)\\]?/) || k.match(/\\.(\\d+)\\./);
+      if (m) { idx = parseInt(m[1], 10); }
+      if (idx >= 0 && list[idx]) { showInvalid(list[idx], msg); }
+      else { for (i = 0; i < list.length; i++) { showInvalid(list[i], msg); } }
+    }
+  };
+
+  initAll();
+}());
+`;
+
+// ---------------------------------------------------------------------------
 // Editor page assembly + route handler
 // ---------------------------------------------------------------------------
 
@@ -2071,6 +2888,7 @@ interface EditorPageData {
   analytics: OfferAnalyticsBody["analytics"] | null;
   analyticsError: string | null;
   timeframe: Timeframe;
+  duplicated: DuplicatedInfo | null;
 }
 
 function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): string {
@@ -2088,6 +2906,7 @@ function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): s
   </div>
   <p id="lg-editor-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-editor-status" class="form-status" role="status" aria-live="polite"></p>
+  ${renderDuplicatedBanner(data.duplicated)}
   ${renderEligibilityBanner(o)}
   ${renderEditorTabBar(o)}
   <form id="lg-editor-form" novalidate>
@@ -2111,7 +2930,12 @@ function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): s
     userEmail: brand.userEmail,
     content,
     styles: LG_OFFERS_STYLES + PAYLOAD_BUILDER_STYLES,
-    scripts: LG_SHARED_SCRIPT + LG_EDITOR_SCRIPT + PAYLOAD_BUILDER_SCRIPT + listFilterScript,
+    scripts:
+      LG_SHARED_SCRIPT +
+      LG_EDITOR_SCRIPT +
+      LG_REGION_EDITOR_SCRIPT +
+      PAYLOAD_BUILDER_SCRIPT +
+      listFilterScript,
   });
 }
 
@@ -2196,6 +3020,7 @@ export async function leadgenOfferEditorPage(c: UiContext): Promise<Response> {
         analytics: analytics.ok ? analytics.body.analytics : null,
         analyticsError: analytics.ok ? null : analytics.error,
         timeframe,
+        duplicated: parseDuplicatedInfo(c),
       },
       branding(c),
     ),

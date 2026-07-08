@@ -306,10 +306,18 @@ describe("validateClientModeConstraints — §10.3 typed save-errors", () => {
 });
 
 describe("validateRegionRule — §10.4", () => {
-  it("accepts every dimension × action combination from the DDL CHECKs", () => {
+  it("accepts every dimension × action combination from the DDL CHECKs (dimension-valid values — D3)", () => {
+    // D3 (07 §7.5): values must now be valid FOR THE DIMENSION (zip = 5 digits,
+    // country/state = 2-letter codes), so this uses per-dimension valid tokens.
+    const validValues: Record<string, string[]> = {
+      country: ["US", "CA"],
+      state: ["CA", "NY"],
+      city: ["Los Angeles", "Austin"],
+      zip: ["90210", "10001"],
+    };
     for (const dimension of LEADGEN_REGION_DIMENSIONS) {
       for (const action of LEADGEN_RULE_ACTIONS) {
-        const result = validateRegionRule({ dimension, action, values: ["CA", "NY"] });
+        const result = validateRegionRule({ dimension, action, values: validValues[dimension] });
         expect(result.errors, `${dimension}×${action}`).toEqual({});
         expect(result.value?.dimension).toBe(dimension);
         expect(result.value?.action).toBe(action);
@@ -317,6 +325,26 @@ describe("validateRegionRule — §10.4", () => {
         expect(result.value?.enabled).toBe(true); // DDL default
       }
     }
+  });
+
+  it("D3 (07 §7.5): per-dimension value validators — bad zip/country/state rejected with region_value_invalid", () => {
+    const zipBad = validateRegionRule({ dimension: "zip", action: "exclude", values: ["not-a-zip"] });
+    expect(zipBad.errors["values_json[0]"]).toContain("region_value_invalid");
+    expect(zipBad.value).toBeNull();
+    expect(validateRegionRule({ dimension: "zip", action: "exclude", values: ["9021"] }).errors["values_json[0]"]).toContain(
+      "region_value_invalid",
+    );
+    expect(validateRegionRule({ dimension: "country", action: "exclude", values: ["USA"] }).errors["values_json[0]"]).toContain(
+      "region_value_invalid",
+    );
+    expect(validateRegionRule({ dimension: "state", action: "exclude", values: ["California"] }).errors["values_json[0]"]).toContain(
+      "region_value_invalid",
+    );
+    // paste-multiple: the VALID token survives the collection, the invalid one is rejected per-index
+    const mixed = validateRegionRule({ dimension: "zip", action: "exclude", values: ["90210", "bad"] });
+    expect(mixed.errors["values_json[1]"]).toContain("region_value_invalid");
+    // city is free text — anything non-empty is accepted
+    expect(validateRegionRule({ dimension: "city", action: "exclude", values: ["Any City"] }).errors).toEqual({});
   });
 
   it("rejects out-of-enum dimension and action", () => {

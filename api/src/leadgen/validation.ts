@@ -409,9 +409,30 @@ export interface LeadgenRegionRuleCreateResult {
   value: LeadgenRegionRuleCreateInput | null;
 }
 
+// D3 (07 §7.5): per-dimension region value validators. Country/state are
+// ISO-3166-ish 2-letter codes (the UI supplies closed dropdowns; this is the
+// server-side shape gate); ZIP is US 5-digit; city is free text (validated as
+// non-empty upstream). Returns a human message naming the bad token, or null.
+const ZIP_RE = /^\d{5}$/;
+const ALPHA2_RE = /^[A-Za-z]{2}$/;
+export function regionValueError(dimension: LeadgenRegionDimension, token: string): string | null {
+  switch (dimension) {
+    case "zip":
+      return ZIP_RE.test(token) ? null : `zip "${token}" must be 5 digits`;
+    case "country":
+      return ALPHA2_RE.test(token) ? null : `country "${token}" must be a 2-letter ISO-3166-1 alpha-2 code`;
+    case "state":
+      return ALPHA2_RE.test(token) ? null : `state "${token}" must be a 2-letter code`;
+    case "city":
+      return null; // free text (non-empty already enforced)
+    default:
+      return null;
+  }
+}
+
 // Validate one region rule: dimension/action from the DDL CHECK enums,
-// values_json a non-empty array of non-empty strings. `values` accepts the
-// parsed array or the raw values_json string (handlers pass either).
+// values_json a non-empty array of non-empty strings + per-dimension format
+// (D3). `values` accepts the parsed array or the raw values_json string.
 export function validateRegionRule(raw: unknown): LeadgenRegionRuleCreateResult {
   const errors: FieldErrors = {};
   if (!isRecord(raw)) {
@@ -441,12 +462,22 @@ export function validateRegionRule(raw: unknown): LeadgenRegionRuleCreateResult 
     if (!Array.isArray(rawValues) || rawValues.length === 0) {
       errors["values_json"] = "values_json must be a non-empty array of strings";
     } else {
+      const dim = isOneOf(dimension, LEADGEN_REGION_DIMENSIONS) ? dimension : null;
       for (let i = 0; i < rawValues.length; i++) {
         const value = trimmedString(rawValues[i]);
         if (value === null) {
           errors[`values_json[${i}]`] = "region values must be non-empty strings";
         } else {
-          values.push(value);
+          // D3 (07 §7.5): per-dimension format validation — `zip:"not-a-zip"`
+          // and malformed country/state codes can no longer save. Typed
+          // `region_value_invalid` (dimension + offending token). City is
+          // free text (trimmed non-empty, already checked).
+          const invalid = dim !== null ? regionValueError(dim, value) : null;
+          if (invalid !== null) {
+            errors[`values_json[${i}]`] = `region_value_invalid: ${invalid}`;
+          } else {
+            values.push(value);
+          }
         }
       }
     }

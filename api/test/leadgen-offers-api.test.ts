@@ -1012,30 +1012,37 @@ describeDb("GET /offers/:id/usage — sections + auctions joins", () => {
       .prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id) VALUES (?, ?, ?)")
       .run(auctionId, placementRowId, offer.id);
 
+    // v2.4 §7.4: the usage response is the full reference-KIND inventory.
     const res = await admin.request(`${API}/offers/${offer.id}/usage`, {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       usage: {
-        sections: Array<{ section_name: string; selected: boolean; mapping_state: string }>;
-        auctions: Array<{ auction_name: string; auction_type: string; placement_id: string; enabled: boolean }>;
+        kinds: Array<{ kind: string; count: number; items: Array<{ name: string }> }>;
+        delete_eligibility: { eligible: boolean; blocking_kinds: string[] };
       };
     };
-    expect(body.usage.sections).toHaveLength(1);
-    expect(body.usage.sections[0]?.section_name).toBe("Home Q");
-    expect(body.usage.sections[0]?.selected).toBe(true);
-    expect(body.usage.sections[0]?.mapping_state).toBe("complete");
-    expect(body.usage.auctions).toHaveLength(1);
-    expect(body.usage.auctions[0]?.auction_name).toBe("Main Auction");
-    expect(body.usage.auctions[0]?.placement_id).toBe("pl-100");
-    expect(body.usage.auctions[0]?.enabled).toBe(true);
+    const kind = (k: string): { count: number; items: Array<{ name: string }> } | undefined =>
+      body.usage.kinds.find((x) => x.kind === k);
+    expect(kind("sections_available")?.count).toBe(1);
+    expect(kind("sections_available")?.items[0]?.name).toBe("Home Q");
+    expect(kind("auctions_participating")?.count).toBe(1);
+    expect(kind("auctions_participating")?.items[0]?.name).toBe("Main Auction");
+    // referenced by a Section + an Auction → NOT deletable, both kinds blocking.
+    expect(body.usage.delete_eligibility.eligible).toBe(false);
+    expect(body.usage.delete_eligibility.blocking_kinds).toEqual(
+      expect.arrayContaining(["sections_available", "auctions_participating"]),
+    );
   });
 
-  it("returns empty lists for an unused offer", async () => {
+  it("an unused offer references nothing and is delete-eligible", async () => {
     const { env } = newHarness();
     const offer = await createOffer(env);
     const res = await admin.request(`${API}/offers/${offer.id}/usage`, {}, env);
-    const body = (await res.json()) as { usage: { sections: unknown[]; auctions: unknown[] } };
-    expect(body.usage).toEqual({ sections: [], auctions: [] });
+    const body = (await res.json()) as {
+      usage: { kinds: Array<{ count: number }>; delete_eligibility: { eligible: boolean } };
+    };
+    expect(body.usage.kinds.every((k) => k.count === 0)).toBe(true);
+    expect(body.usage.delete_eligibility.eligible).toBe(true);
   });
 });
 
@@ -1526,5 +1533,86 @@ describeDb("GET /verticals + /activities — 03 §8.2 Shared filter options", ()
       expect(await res.json()).toEqual({ items: [] });
       expect(res.headers.get("Cache-Control"), `${path} no-store`).toBe("private, no-store");
     }
+  });
+});
+
+// ===========================================================================
+// Fix-contract v2.4 Phase 3 (07 §§7.2–7.4) — offer lifecycle
+// ===========================================================================
+
+describeDb("A2 duplicate — POST /offers/:id/duplicate (07 §7.3)", () => {
+  it("clones to a paused draft: new lgo_/lgpl_ ids, required new default placement, untested, nothing operational copied", async () => {
+    const { env } = newHarness();
+    const src = await createOffer(env, { offer_name: "Source", placements: ["pl-src-A", "pl-src-B"] });
+
+    const missing = await admin.request(`${API}/offers/${src.id}/duplicate`, jsonInit("POST", { name: "Copy" }), env);
+    expect(missing.status, "default_placement_id required").toBe(400);
+
+    const res = await admin.request(
+      `${API}/offers/${src.id}/duplicate`,
+      jsonInit("POST", { name: "My Copy", default_placement_id: "pl-copy-DEFAULT" }),
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      offer: { id: number; public_id: string; offer_name: string; status: string };
+      not_copied: string[];
+      test_status: string;
+    };
+    expect(isPublicId("offer", body.offer.public_id)).toBe(true);
+    expect(body.offer.public_id).not.toBe(src.public_id);
+    expect(body.offer.offer_name).toBe("My Copy");
+    expect(body.offer.status).toBe("paused");
+    expect(body.test_status).toBe("untested");
+    expect(body.not_copied).toEqual(
+      expect.arrayContaining(["analytics", "cap_counters", "provider_logs", "revenue"]),
+    );
+
+    const detail = (await (await admin.request(`${API}/offers/${body.offer.id}`, {}, env)).json()) as {
+      placements: Array<{ placement_id: string; is_default: boolean }>;
+    };
+    expect(detail.placements.find((p) => p.is_default)?.placement_id).toBe("pl-copy-DEFAULT");
+    expect(detail.placements.some((p) => p.placement_id === "pl-src-B"), "source ids not reused verbatim").toBe(false);
+  });
+});
+
+describeDb("A1 guarded hard delete — DELETE /offers/:id?mode=hard (07 §7.2)", () => {
+  it("archives by default; hard-deletes a clean offer permanently", async () => {
+    const { env } = newHarness();
+    const clean = await createOffer(env);
+
+    const arch = await admin.request(`${API}/offers/${clean.id}`, { method: "DELETE" }, env);
+    expect(arch.status).toBe(200);
+    expect(((await arch.json()) as { status: string }).status).toBe("archived");
+
+    const hard = await admin.request(`${API}/offers/${clean.id}?mode=hard`, { method: "DELETE" }, env);
+    expect(hard.status).toBe(200);
+    expect(((await hard.json()) as { deleted: string }).deleted).toBe("hard");
+    expect((await admin.request(`${API}/offers/${clean.id}`, {}, env)).status).toBe(404);
+  });
+});
+
+describeDb("A3 usage inventory — GET /offers/:id/usage (07 §7.4)", () => {
+  it("reports the full reference-kind set + delete_eligibility; provider-logs/analytics are warning-only", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env);
+    const res = await admin.request(`${API}/offers/${offer.id}/usage`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      usage: {
+        kinds: Array<{ kind: string; count: number; warning_only?: boolean }>;
+        delete_eligibility: { eligible: boolean; blocking_kinds: string[] };
+      };
+    };
+    const kinds = body.usage.kinds.map((k) => k.kind);
+    for (const k of [
+      "sections_available", "answer_maps", "auctions_participating", "auction_rules_targeting",
+      "cap_fallback_referenced_by", "cap_counters_active", "provider_request_logs", "analytics_mirror_rows",
+    ]) {
+      expect(kinds, k).toContain(k);
+    }
+    expect(body.usage.delete_eligibility.eligible, "fresh offer references nothing").toBe(true);
+    expect(body.usage.kinds.find((k) => k.kind === "provider_request_logs")?.warning_only).toBe(true);
+    expect(body.usage.kinds.find((k) => k.kind === "analytics_mirror_rows")?.warning_only).toBe(true);
   });
 });

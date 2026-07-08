@@ -221,6 +221,41 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(provCount.n).toBe(0);
   });
 
+  it("S1 (07 §7.6): offers_payload_explain carries the REDACTED payload preview + parser id/version + expected fields per considered offer", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedDynamicOffer(sdb);
+    sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o1.placement_id, o1.offer_id);
+    stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
+
+    const res = await admin.request(
+      `${API}/auctions/${auction.public_id}/simulate`,
+      jsonInit("POST", { sample_answers: { homeowner: true } }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as {
+      offers_payload_explain: Array<{
+        offer_id: string;
+        parser_id: string | null;
+        carrier_parse_version: number | null;
+        expected_response_fields: string[];
+        payload_preview: unknown;
+        excluded_reason: string | null;
+      }>;
+    };
+    // the seeded dynamic offer appears with its S1 explainability (NOT on
+    // offers_considered — this is the additive §7.6 array the UI reads).
+    const entry = j.offers_payload_explain.find((e) => e.offer_id === o1.offer_public_id);
+    expect(entry, "considered offer has a payload-explain entry").toBeDefined();
+    expect(entry!.parser_id, "parser id surfaced").not.toBeNull();
+    expect(entry!.payload_preview, "a payload preview is built").not.toBeNull();
+    // the preview is an object (the generated provider payload), redacted — a
+    // PII-shaped key would be masked. buildPayload output is a plain object.
+    expect(typeof entry!.payload_preview).toBe("object");
+    expect(Array.isArray(entry!.expected_response_fields)).toBe(true);
+  });
+
   it("an offer-level exclude rule surfaces in offers_excluded with a typed reason", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);

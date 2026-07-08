@@ -22,6 +22,8 @@ import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
+import { buildPayload } from "../../leadgen/payload";
+import { redactPii } from "../../leadgen/redact";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
@@ -1635,6 +1637,72 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     { dryRun: true },
   );
 
+  // S1 (07 §7.6): per-considered-offer explainability — the EXACT generated
+  // payload (redacted via redactPii), the parser id + version, the expected
+  // response fields, and the placement used. Re-derived here with the SAME
+  // buildPayload + sample answers (simulate is dry + admin-side; nothing is
+  // sent). Excluded offers carry their exclusion reason (already in
+  // offers_excluded). Never a throw — a bad schema yields a null preview.
+  const consideredWithPlacements = [
+    ...result.explain.offers_considered,
+    ...result.explain.offers_excluded.map((e) => ({ offer_id: e.offer_id, placement_id: "" })),
+  ];
+  const excludedReasonByOffer = new Map(result.explain.offers_excluded.map((e) => [e.offer_id, e.reason]));
+  const offerPublicIds = [...new Set(consideredWithPlacements.map((o) => o.offer_id))].filter((x) => x !== "");
+  const payloadExplain: Array<Record<string, unknown>> = [];
+  for (const ids of chunk(offerPublicIds)) {
+    if (ids.length === 0) continue;
+    const marks = ids.map(() => "?").join(",");
+    const rows = await c.env.DB.prepare(
+      `SELECT o.public_id AS offer_public_id, s.public_id AS parser_id, s.schema_json,
+              s.carrier_parse_json, s.carrier_parse_version
+       FROM leadgen_offers o
+       LEFT JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
+       WHERE o.public_id IN (${marks})`,
+    )
+      .bind(...ids)
+      .all<{
+        offer_public_id: string;
+        parser_id: string | null;
+        schema_json: string | null;
+        carrier_parse_json: string | null;
+        carrier_parse_version: number | null;
+      }>();
+    for (const r of rows.results ?? []) {
+      let payloadPreview: unknown = null;
+      if (r.schema_json !== null) {
+        try {
+          const parsedSchema = JSON.parse(r.schema_json) as Parameters<typeof buildPayload>[0];
+          payloadPreview = redactPii(buildPayload(parsedSchema, { answers: sampleAnswers }));
+        } catch {
+          payloadPreview = null; // malformed stored schema → null preview, never throw
+        }
+      }
+      let expectedResponseFields: string[] = [];
+      if (r.carrier_parse_json !== null) {
+        try {
+          const parsed = JSON.parse(r.carrier_parse_json) as unknown;
+          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+            expectedResponseFields = Object.keys(parsed as Record<string, unknown>);
+          }
+        } catch {
+          /* leave empty */
+        }
+      }
+      const placementId =
+        consideredWithPlacements.find((o) => o.offer_id === r.offer_public_id && o.placement_id !== "")?.placement_id ?? "";
+      payloadExplain.push({
+        offer_id: r.offer_public_id,
+        placement_id: placementId,
+        parser_id: r.parser_id,
+        carrier_parse_version: r.carrier_parse_version,
+        expected_response_fields: expectedResponseFields,
+        payload_preview: payloadPreview,
+        excluded_reason: excludedReasonByOffer.get(r.offer_public_id) ?? null,
+      });
+    }
+  }
+
   // The full §19.2 trace. WRITES NOTHING (dryRun) — persistAuctionResult is
   // never called. Provider requested/responded + carriers filtered are the
   // §19.2 join-surfaced extras (not result-log columns).
@@ -1645,6 +1713,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     winner: result.explain.winner,
     unfilled_reason: result.explain.unfilled_reason,
     offers_considered: result.explain.offers_considered,
+    offers_payload_explain: payloadExplain, // S1 (07 §7.6)
     offers_excluded: result.explain.offers_excluded,
     providers_requested: result.explain.providers_requested,
     providers_responded: result.explain.providers_responded,

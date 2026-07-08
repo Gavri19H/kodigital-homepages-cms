@@ -313,10 +313,53 @@ describeDb("leadgen auction editor page (§9.5)", () => {
     expect(html).toContain('data-fieldmap-key="click_url"');
   });
 
-  it("Simulator: renders the P10 'ships in Phase 10' placeholder", async () => {
+  // §7.6 (S1): the P10 placeholder is replaced by the real dry-run readout.
+  it("Simulator: renders the §7.6 dry-run trace panel (enabled Run + results region)", async () => {
     const { html } = await seedEditorAuction();
-    expect(html).toContain("data-simulator-p10");
-    expect(html).toContain("Phase 10");
+    // dry-run note (no provider calls, nothing written) replaces the P10 note
+    expect(html).toContain("data-simulator-dryrun");
+    expect(html).not.toContain("data-simulator-p10");
+    expect(html).not.toContain("Ships in P10");
+    // Run button is ENABLED now (not the disabled P10 stub)
+    const runIdx = html.indexOf('id="lg-a-simulate"');
+    expect(runIdx).toBeGreaterThan(-1);
+    const runOpen = html.lastIndexOf("<", runIdx);
+    const runTag = html.slice(runOpen, html.indexOf(">", runIdx) + 1);
+    expect(runTag).not.toContain("disabled");
+    // sample-answers / context inputs + results region
+    expect(html).toContain("data-sim-answers");
+    expect(html).toContain("data-sim-context");
+    expect(html).toContain("data-simulate-results");
+  });
+
+  it("Simulator: the island renders the §7.6 per-offer trace fields + reuses the eligibility labels", async () => {
+    const { html } = await seedEditorAuction();
+    // POSTs the dry-run to the simulate endpoint
+    expect(html).toContain("apiBase + '/simulate'");
+    expect(html).toContain("sample_answers");
+    // S1 seam: the per-offer explainability rides `offers_payload_explain`
+    // (NOT offers_considered, which is only {offer_id, placement_id}). The
+    // island MUST read that array or the whole §7.6 panel renders empty.
+    expect(html, "reads the offers_payload_explain array").toContain("offers_payload_explain");
+    // every §7.6 per-offer additive field is read + rendered
+    for (const field of [
+      "payload_preview",
+      "parser_id",
+      "carrier_parse_version",
+      "expected_response_fields",
+      "excluded_reason",
+    ]) {
+      expect(html, `simulate trace reads ${field}`).toContain(field);
+    }
+    // eligibility verdict + reasons reuse the shared label map (eligibilityLabel)
+    expect(html).toContain("offer.eligibility");
+    expect(html).toContain("eligibilityLabel(reasons[ri])");
+    // redacted payload preview rendered into a masked <pre> (createTextNode)
+    expect(html).toContain("data-sim-payload");
+    // dry-run readout: explicit "no provider calls, nothing written" note
+    expect(html).toContain("data-sim-dryrun-note");
+    // verdict hooks for both states
+    expect(html).toContain('data-sim-verdict');
   });
 
   it("Analytics: renders the §18.9 read-only table scaffold", async () => {
