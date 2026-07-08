@@ -70,17 +70,29 @@ import {
 // Shapes returned by the B1 offers API (offers-handlers.ts)
 // ---------------------------------------------------------------------------
 
-// GET /offers list items carry the default placement for the §9.2 column.
+// The additive 05 §5.1 per-offer eligibility verdict riding GET/list
+// responses (fix-contract v2.4, R4). SERVER-computed via the shared
+// evaluateDynamicOffersEligibility loader — the UI never re-derives rules.
+export interface OfferEligibilityVerdict {
+  eligible: boolean;
+  reasons: string[];
+}
+
+// GET /offers list items carry the default placement for the §9.2 column
+// + the additive eligibility verdict for the §5.1 badge column.
 type OfferListItem = LeadgenOfferApi & {
   default_placement_id: string | null;
   default_placement_public_id: string | null;
+  eligibility?: OfferEligibilityVerdict | null;
 };
 
-// GET /offers/:id detail — the mapped row + its three editor collections.
+// GET /offers/:id detail — the mapped row + its three editor collections
+// + the additive eligibility verdict for the §5.1 editor banner.
 type OfferDetail = LeadgenOfferApi & {
   placements: LeadgenOfferPlacementApi[];
   headers: LeadgenOfferHeaderApi[];
   region_rules: LeadgenOfferRegionRuleApi[];
+  eligibility?: OfferEligibilityVerdict | null;
 };
 
 interface OfferAnalyticsBody {
@@ -148,6 +160,26 @@ const CAP_COUNT_BY_LABELS: Readonly<Record<string, string>> = {
   clicks: "Clicks",
   conversions: "Conversions",
 };
+
+// 05 §5.1 (R4): plain-operator-English labels for ALL 8 eligibility reason
+// codes (leadgen/validation.ts LeadgenDynamicIneligibilityReason). Shared by
+// the Offer editor banner + list badge here, the Quotes preflight panel
+// (offer_ineligible block fields) and the Auctions participating-picker
+// warning chips — operators never see raw codes.
+export const LEADGEN_ELIGIBILITY_REASON_LABELS: Readonly<Record<string, string>> = {
+  no_active_schema: "No active payload schema",
+  schema_validation_errors: "Active payload schema has validation errors",
+  test_untested: "Provider test has not been run yet",
+  test_failed: "Last provider test failed",
+  endpoint_missing: "No endpoint configured for the live (production) environment",
+  invalid_headers: "A request header cannot resolve (empty name or missing macro/secret reference)",
+  carrier_parse_missing: "Response parsing (carrier parse) is not configured",
+  carrier_parse_invalid: "Response parsing (carrier parse) configuration is invalid",
+};
+
+export function eligibilityReasonLabel(code: string): string {
+  return LEADGEN_ELIGIBILITY_REASON_LABELS[code] ?? `Blocked (${code.replace(/_/g, " ")})`;
+}
 
 // §10.2 mode picker options — value → the two flags per the 0036 DDL comment.
 const OFFER_MODES: ReadonlyArray<{ value: string; label: string }> = [
@@ -278,8 +310,8 @@ const OFFER_ANALYTICS_COLUMNS: ReadonlyArray<{ metric: string; label: string }> 
   { metric: "rpm", label: "RPM" },
 ];
 
-// 8 descriptive + 8 analytics + actions.
-const OFFER_COLUMN_COUNT = 8 + OFFER_ANALYTICS_COLUMNS.length + 1;
+// 8 descriptive + the §5.1 eligibility badge + 8 analytics + actions.
+const OFFER_COLUMN_COUNT = 9 + OFFER_ANALYTICS_COLUMNS.length + 1;
 
 // §9.2 toolbar: + Create an Offer FIRST (top-left, opens the modal), then
 // search, then the 6 filters + the timeframe select (all reload via the
@@ -317,6 +349,24 @@ function capBadge(o: OfferListItem): string {
   return `<span class="badge badge-scheduled">${escapeHtml(amount)}</span>`;
 }
 
+// 05 §5.1 list badge: SERVER-verdict-driven auction eligibility. Dynamic
+// offers show Eligible/Blocked (blocked reasons ride the title as operator
+// labels); static offers are outside the gate → a neutral dash.
+function eligibilityBadge(o: OfferListItem): string {
+  if (!o.calls_provider_api) {
+    return `<span data-offer-eligibility="na">${EM_DASH}</span>`;
+  }
+  const verdict = o.eligibility ?? null;
+  if (verdict === null) {
+    return `<span data-offer-eligibility="unknown">${EM_DASH}</span>`;
+  }
+  if (verdict.eligible) {
+    return `<span class="badge badge-published" data-offer-eligibility="eligible">Eligible</span>`;
+  }
+  const labels = verdict.reasons.map(eligibilityReasonLabel).join(" · ");
+  return `<span class="badge badge-archived" data-offer-eligibility="blocked" title="${escapeHtml(labels)}">Blocked</span>`;
+}
+
 function renderAnalyticsSkeletonCells(): string {
   return OFFER_ANALYTICS_COLUMNS.map(
     (col) =>
@@ -334,6 +384,7 @@ function renderOfferRow(o: OfferListItem): string {
   <td>${escapeHtml(o.vertical)} / ${escapeHtml(o.activity)}</td>
   <td>${escapeHtml(OFFER_TYPE_LABELS[o.offer_type] ?? o.offer_type)}</td>
   <td>${dynamicBadge(o)}</td>
+  <td data-eligibility-cell>${eligibilityBadge(o)}</td>
   <td>${capBadge(o)}</td>
   <td>${statusBadge(o.status)}</td>
   ${renderAnalyticsSkeletonCells()}
@@ -378,6 +429,7 @@ function renderOffersTable(props: OffersPageProps): string {
         <th scope="col">Vertical / Activity</th>
         <th scope="col">Type</th>
         <th scope="col">Dynamic/Static</th>
+        <th scope="col">Eligibility</th>
         <th scope="col">Cap</th>
         <th scope="col">Status</th>
         ${analyticsHeaders}
@@ -535,6 +587,12 @@ const LG_OFFERS_STYLES = `
 .lg-fallback-result:hover{background:var(--c-bg-alt)}
 .lg-fallback-selected{margin-top:6px;font-size:13px}
 .lg-metric-null{color:var(--c-muted)}
+.lg-eligibility-banner{border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px;border:1px solid transparent}
+.lg-eligibility-banner.lg-eligible{background:var(--c-success-bg,#e8f7ee);color:var(--c-success,#186a3b);border-color:var(--c-success,#7dcb9a)}
+.lg-eligibility-banner.lg-blocked{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
+.lg-eligibility-reasons{margin:6px 0 8px 18px}
+.lg-eligibility-reasons li{margin-bottom:2px}
+.lg-eligibility-links{display:flex;gap:8px;flex-wrap:wrap}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1434,6 +1492,34 @@ function renderCapPanel(o: OfferDetail, cap: OfferCapBody["cap"] | null, capErro
 </section>`;
 }
 
+// 05 §5.1 site 1 (R4): the PERSISTENT auction-eligibility banner on DYNAMIC
+// offers (calls_provider_api). Server-verdict-driven — renders the additive
+// `eligibility` field off the offer GET; never re-derives rules client-side.
+// Blocked → "Blocked: <operator label per reason>" + fix links into the
+// schema editor (Payload) tab and the Test tab. Static offers: no banner.
+function renderEligibilityBanner(o: OfferDetail): string {
+  if (!o.calls_provider_api) return "";
+  const verdict = o.eligibility ?? null;
+  if (verdict === null) return "";
+  if (verdict.eligible) {
+    return `<div class="lg-eligibility-banner lg-eligible" data-eligibility-banner="eligible" role="status">Eligible for live auction</div>`;
+  }
+  const reasons = verdict.reasons
+    .map(
+      (code) =>
+        `<li data-eligibility-reason="${escapeHtml(code)}">${escapeHtml(eligibilityReasonLabel(code))}</li>`,
+    )
+    .join("");
+  return `<div class="lg-eligibility-banner lg-blocked" data-eligibility-banner="blocked" role="alert">
+  <strong>Blocked from live auction:</strong>
+  <ul class="lg-eligibility-reasons">${reasons}</ul>
+  <div class="lg-eligibility-links">
+    <button type="button" class="btn btn-sm btn-secondary" data-eligibility-fix="payload">Open Payload Schema</button>
+    <button type="button" class="btn btn-sm btn-secondary" data-eligibility-fix="test">Open Test tab</button>
+  </div>
+</div>`;
+}
+
 function fmtMetricInt(v: number | null | undefined): string {
   return typeof v === "number" && Number.isFinite(v) ? String(Math.round(v)) : EM_DASH;
 }
@@ -1579,6 +1665,10 @@ const LG_EDITOR_SCRIPT = `
   document.addEventListener('click', function (e) {
     var btn = e.target && e.target.closest ? e.target.closest('[data-lg-tab-btn]') : null;
     if (btn && !btn.hidden) { activateTab(btn.getAttribute('data-lg-tab-btn')); }
+    // 05 5.1 eligibility-banner fix links: jump to the schema editor
+    // (Payload) tab / the Test tab.
+    var fix = e.target && e.target.closest ? e.target.closest('[data-eligibility-fix]') : null;
+    if (fix) { activateTab(fix.getAttribute('data-eligibility-fix')); }
   });
   form.addEventListener('change', function (e) {
     if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); }
@@ -1998,6 +2088,7 @@ function offerEditorHtml(data: EditorPageData, brand: { userEmail?: string }): s
   </div>
   <p id="lg-editor-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-editor-status" class="form-status" role="status" aria-live="polite"></p>
+  ${renderEligibilityBanner(o)}
   ${renderEditorTabBar(o)}
   <form id="lg-editor-form" novalidate>
     ${renderBasicsPanel(o)}

@@ -408,3 +408,85 @@ describeDb("leadgen auction pages — ES5-only inline scripts", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 05 §5.1 site 2 (fix-contract v2.4, R4) — participating-offer eligibility
+// warnings: the PUT response's warnings[] surface as per-offer chips + the
+// quote-activation notice; rows carry the offer public id for matching.
+// ---------------------------------------------------------------------------
+
+// A DYNAMIC offer (calls_provider_api=1) with no schema/test/endpoint →
+// ineligible → the auctions PUT emits {offer_id, eligible:false, reasons[]}.
+function seedDynamicOfferWithPlacement(sdb: SqliteDb): { offer_public_id: string; placement_id: number } {
+  const offerPublic = mintPublicId("offer");
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_offers (public_id, offer_name, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, status) VALUES (?, 'Unready Dynamic', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'active')",
+    )
+    .run(offerPublic);
+  const offer = sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublic) as { id: number };
+  const placementPublic = mintPublicId("offer_placement");
+  sdb
+    .prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, ?, 1)")
+    .run(placementPublic, offer.id, `plc-${offerPublic.slice(-4)}`);
+  const placement = sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(placementPublic) as { id: number };
+  return { offer_public_id: offerPublic, placement_id: placement.id };
+}
+
+describeDb("Participating-offer eligibility warnings (05 §5.1)", () => {
+  it("the PUT returns warnings[] for an ineligible dynamic offer and the row SSRs its public id for chip matching", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const auction = await createAuction(env, { auction_name: "Warn Auction", quote_id: quote.id, auction_type: "dynamic" });
+    const dyn = seedDynamicOfferWithPlacement(sdb);
+
+    const put = await admin.request(
+      `${API}/auctions/${auction.public_id}/offers`,
+      jsonInit("PUT", { offers: [{ offer_placement_id: dyn.placement_id }] }),
+      env,
+    );
+    expect(put.status, `put offers: ${await put.clone().text()}`).toBe(200);
+    const body = (await put.json()) as {
+      items: Array<{ offer_public_id: string | null }>;
+      warnings: Array<{ offer_id: string; eligible: false; reasons: string[] }>;
+    };
+    // the save LANDS with warnings (draft auctions may reference unready offers)
+    expect(body.items.length).toBe(1);
+    expect(body.warnings.length).toBe(1);
+    expect(body.warnings[0]!.offer_id).toBe(dyn.offer_public_id);
+    expect(body.warnings[0]!.reasons).toContain("no_active_schema");
+
+    // the editor SSRs the row with data-offer-public-id (the chip anchor)
+    const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
+    expect(html).toContain(`data-offer-public-id="${dyn.offer_public_id}"`);
+  });
+
+  it("the editor ships the warning-chip wiring: operator labels for all 8 codes + the quote-activation notice", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    const auction = await createAuction(env, { auction_name: "Chips", quote_id: quote.id, auction_type: "dynamic" });
+    const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
+
+    // per-offer inline chips: rebuilt from the PUT response's warnings[]
+    expect(html).toContain("renderEligibilityWarnings(res.body && res.body.warnings");
+    expect(html).toContain("data-offer-warning");
+    expect(html).toContain("'Ineligible: '");
+    // the notice: ineligible offers block QUOTE activation, not the save
+    expect(html).toContain("they block QUOTE activation, not this save");
+    expect(html).toContain("data-eligibility-note");
+    expect(html).toContain("block activating any Quote this auction serves");
+    // the embedded §5.1 label map carries ALL 8 operator labels
+    for (const pair of [
+      '"no_active_schema":"No active payload schema"',
+      '"schema_validation_errors":"Active payload schema has validation errors"',
+      '"test_untested":"Provider test has not been run yet"',
+      '"test_failed":"Last provider test failed"',
+      '"endpoint_missing":"No endpoint configured for the live (production) environment"',
+      '"invalid_headers":"A request header cannot resolve (empty name or missing macro/secret reference)"',
+      '"carrier_parse_missing":"Response parsing (carrier parse) is not configured"',
+      '"carrier_parse_invalid":"Response parsing (carrier parse) configuration is invalid"',
+    ]) {
+      expect(html, `embedded label ${pair}`).toContain(pair);
+    }
+  });
+});

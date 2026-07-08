@@ -377,3 +377,238 @@ describeDb("leadgen quotes pages — ES5-only inline scripts", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 05 §5.2 (fix-contract v2.4, R5) — the Activation-tab preflight panel:
+// server-verdict-driven blocking cards / green PASS checks, the head badge,
+// and the 409-report + variant-save re-render wiring.
+// ---------------------------------------------------------------------------
+
+// A dynamic offer with REQUIRED provider fields, SELECTED on the section,
+// with NO answer maps → missing_required_provider_fields (the normative
+// §5.2 example: current_insurance.carrier + current_insurance.carrier_months).
+function seedSelectedOfferMissingRequired(
+  sdb: SqliteDb,
+  sectionId: number,
+  offerName: string,
+): { offerPublicId: string } {
+  const offerPublicId = mintPublicId("offer");
+  sdb
+    .prepare(
+      `INSERT INTO leadgen_offers
+         (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type,
+          calls_provider_api, bid_source, request_execution_mode, request_method, endpoint_production, status)
+       VALUES (?, ?, 'Prov', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'https://provider.example/q', 'active')`,
+    )
+    .run(offerPublicId, offerName);
+  const offer = sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublicId) as { id: number };
+  const schemaPublic = mintPublicId("payload_schema_version");
+  const schemaJson = JSON.stringify({
+    version: 1,
+    root: {
+      type: "object",
+      children: [
+        { path: "current_insurance.carrier", name: "carrier", type: "string", source: "answer", internal_field: "f", required: true },
+        { path: "current_insurance.carrier_months", name: "carrier_months", type: "string", source: "answer", internal_field: "f", required: true },
+      ],
+    },
+  });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source) VALUES (?, ?, 1, ?, ?, 1, 'manual')",
+    )
+    .run(
+      schemaPublic,
+      offer.id,
+      schemaJson,
+      JSON.stringify({ carriers_path: "carriers", fields: { carrier_name: "name", bid: "bid", click_url: "url" } }),
+    );
+  const schema = sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?").get(schemaPublic) as { id: number };
+  sdb.prepare("UPDATE leadgen_offers SET active_payload_schema_id = ? WHERE id = ?").run(schema.id, offer.id);
+  sdb
+    .prepare("INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state) VALUES (?, ?, 1, 'selected')")
+    .run(sectionId, offer.id);
+  return { offerPublicId };
+}
+
+async function seedQuoteWithSection(
+  opts: { sectionName: string } = { sectionName: "ZIP" },
+): Promise<{ sdb: SqliteDb; env: Env; quotePublicId: string; sectionId: number; sectionPublicId: string }> {
+  const { sdb, env } = newHarness();
+  const q = await createQuote(env, { quote_name: "Preflight Q" });
+  const variantId = q.funnels[0]!.variants[0]!.public_id;
+  const section = seedSection(sdb, { activity: "quote_funnel", vertical: "life", name: opts.sectionName });
+  const put = await admin.request(
+    `${API}/variants/${variantId}`,
+    jsonInit("PUT", { sections: [{ section_id: section.id }] }),
+    env,
+  );
+  expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
+  return { sdb, env, quotePublicId: q.public_id, sectionId: section.id, sectionPublicId: section.public_id };
+}
+
+describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
+  it("clean quote: PASS panel with green itemized checks + the Publishable head badge", async () => {
+    const { env, quotePublicId } = await seedQuoteWithSection();
+    const html = await getHtml(env, `/admin/leadgen/quotes/${quotePublicId}/edit`);
+    expect(html).toContain('id="lg-preflight-panel"');
+    expect(html).toContain('data-preflight-state="pass"');
+    expect(html).toContain("Ready to activate — all preflight checks pass.");
+    for (const check of [
+      "section_mappings_complete",
+      "required_provider_fields_mapped",
+      "no_orphaned_provider_fields",
+      "type_conversions_valid",
+      "payload_schema_versions_present",
+      "dependencies_resolve",
+      "auction_config_valid",
+      "participating_offers_eligible",
+    ]) {
+      expect(html, `pass check ${check}`).toContain(`data-preflight-check="${check}"`);
+    }
+    // the head badge reflects the SAME server verdict (authoritative)
+    expect(html).toContain('data-publish-verdict="ok"');
+    expect(html).toContain(">Publishable</span>");
+    // no blocked panel/badge state anywhere (the ES5 renderer's string
+    // constants legitimately live in the page script; the SSR state matters)
+    expect(html).not.toContain('data-preflight-state="blocked"');
+    expect(html).not.toContain('data-publish-verdict="blocked"');
+    expect(html).not.toContain('class="lg-preflight-blocked-title"');
+  });
+
+  it("blocked quote: blocking card renders EXACTLY the operator copy pattern + both fix links", async () => {
+    const { sdb, env, quotePublicId, sectionId, sectionPublicId } = await seedQuoteWithSection({ sectionName: "ZIP" });
+    const { offerPublicId } = seedSelectedOfferMissingRequired(sdb, sectionId, "NextInsure");
+
+    // the activation PUT HARD-BLOCKS (the server gate the panel mirrors)
+    const put = await admin.request(
+      `${API}/quotes/${quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "blocked-ui" }),
+      env,
+    );
+    expect(put.status).toBe(409);
+    const report = (await put.json()) as { error: string };
+    expect(report.error).toBe("quote_activation_blocked");
+
+    const html = await getHtml(env, `/admin/leadgen/quotes/${quotePublicId}/edit`);
+    expect(html).toContain('data-preflight-state="blocked"');
+    expect(html).toContain("Cannot activate this Quote.");
+    expect(html).toContain('data-preflight-code="missing_required_provider_fields"');
+    // the normative §5.2 operator copy pattern, verbatim
+    expect(html).toContain(
+      "Section: ZIP · Offer: NextInsure · Missing required provider fields: current_insurance.carrier, current_insurance.carrier_months",
+    );
+    expect(html).toContain(`href="/admin/leadgen/sections/${sectionPublicId}/edit#mapping"`);
+    expect(html).toContain(">Open Section Mapping</a>");
+    expect(html).toContain(`href="/admin/leadgen/offers/${offerPublicId}/edit#payload"`);
+    expect(html).toContain(">Open Offer Payload Schema</a>");
+    // the head badge flips to the blocked verdict
+    expect(html).toContain('data-publish-verdict="blocked"');
+    expect(html).toContain(">Blocked from publish</span>");
+  });
+
+  it("hostile section/offer names render escaped inside the blocking card", async () => {
+    const { sdb, env, quotePublicId, sectionId } = await seedQuoteWithSection({
+      sectionName: '<img src=x onerror=alert(1)>',
+    });
+    seedSelectedOfferMissingRequired(sdb, sectionId, "<b>EvilOffer</b>");
+    const html = await getHtml(env, `/admin/leadgen/quotes/${quotePublicId}/edit`);
+    expect(html).toContain('data-preflight-state="blocked"');
+    expect(html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(html).not.toContain("<b>EvilOffer</b>");
+    expect(html).toContain("&lt;b&gt;EvilOffer&lt;/b&gt;");
+  });
+
+  it("offer_ineligible block fields render as §5.1 operator labels, never raw codes", async () => {
+    // an auction whose participating dynamic offer has NO schema/test →
+    // the §5.1 leg of the preflight (offer_ineligible with reason codes).
+    const { sdb, env, quotePublicId } = await seedQuoteWithSection();
+    const offerPublicId = mintPublicId("offer");
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_offers
+           (public_id, offer_name, activity, vertical, conversion_tracking_method, offer_type,
+            calls_provider_api, bid_source, status)
+         VALUES (?, 'Unready Dyn', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'active')`,
+      )
+      .run(offerPublicId);
+    const offer = sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublicId) as { id: number };
+    const placementPublic = mintPublicId("offer_placement");
+    sdb
+      .prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-x', 1)")
+      .run(placementPublic, offer.id);
+    const placement = sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(placementPublic) as { id: number };
+    const auctionPublic = mintPublicId("auction");
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auctions
+           (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+            surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers,
+            backfill, backfill_trigger, remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+         VALUES (?, 'A', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 1, 'offer', 2500, 1, 'active')`,
+      )
+      .run(auctionPublic);
+    const auction = sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = ?").get(auctionPublic) as { id: number };
+    sdb
+      .prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)")
+      .run(auction.id, placement.id, offer.id);
+    const variantRow = sdb
+      .prepare(
+        "SELECT v.public_id FROM leadgen_funnel_variants v JOIN leadgen_funnels f ON f.id = v.funnel_id JOIN leadgen_quotes q ON q.id = f.quote_id WHERE q.public_id = ?",
+      )
+      .get(quotePublicId) as { public_id: string };
+    sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE public_id = ?").run(auction.id, variantRow.public_id);
+
+    const html = await getHtml(env, `/admin/leadgen/quotes/${quotePublicId}/edit`);
+    expect(html).toContain('data-preflight-code="offer_ineligible"');
+    expect(html).toContain("Participating offer is not eligible for live auction");
+    // §5.1 reason codes mapped to operator labels in the card text
+    expect(html).toContain("No active payload schema");
+    expect(html).toContain("Provider test has not been run yet");
+    // the raw codes never appear as visible card text (only labels)
+    expect(html).not.toContain("no_active_schema,");
+    expect(html).not.toContain("Offer: Unready Dyn · offer_ineligible");
+  });
+
+  it("the editor script wires the 409 report + variant-save verdict into the panel (re-render, no raw JSON)", async () => {
+    const { env, quotePublicId } = await seedQuoteWithSection();
+    const html = await getHtml(env, `/admin/leadgen/quotes/${quotePublicId}/edit`);
+    // 409 report path: typed error → renderPreflight(report.blocks), operator message
+    expect(html).toContain("quote_activation_blocked");
+    expect(html).toContain("renderPreflight({ ok: false, blocks: res.body.blocks || [] })");
+    expect(html).toContain("status: r.status");
+    // variant save + activation PUT success both re-render the panel
+    expect(html).toContain("res.body.activation_preflight");
+    // the client renderer builds the SAME operator copy + fix links
+    expect(html).toContain("'Cannot activate this Quote.'");
+    expect(html).toContain("'Open Section Mapping'");
+    expect(html).toContain("'Open Offer Payload Schema'");
+    expect(html).toContain("'Blocked from publish'");
+    // ALL 8 preflight block-code labels ship in the embedded map
+    for (const pair of [
+      '"missing_required_provider_fields":"Missing required provider fields"',
+      '"orphaned_provider_fields":"Mapped provider fields no longer exist in the active payload schema"',
+      '"type_conversion_invalid":"Answer type conversion is invalid for provider fields"',
+      '"payload_schema_version_missing":"The selected offer has no active payload schema version"',
+      '"dependency_missing_field":"A visibility condition references a missing field"',
+      '"mapping_incomplete":"Offer mapping is incomplete"',
+      '"auction_config_invalid":"Auction configuration is invalid"',
+      '"offer_ineligible":"Participating offer is not eligible for live auction"',
+    ]) {
+      expect(html, `embedded label ${pair}`).toContain(pair);
+    }
+    // ALL 8 §5.1 eligibility reason labels ship for offer_ineligible fields
+    for (const pair of [
+      '"no_active_schema":"No active payload schema"',
+      '"schema_validation_errors":"Active payload schema has validation errors"',
+      '"test_untested":"Provider test has not been run yet"',
+      '"test_failed":"Last provider test failed"',
+      '"endpoint_missing":"No endpoint configured for the live (production) environment"',
+      '"invalid_headers":"A request header cannot resolve (empty name or missing macro/secret reference)"',
+      '"carrier_parse_missing":"Response parsing (carrier parse) is not configured"',
+      '"carrier_parse_invalid":"Response parsing (carrier parse) configuration is invalid"',
+    ]) {
+      expect(html, `embedded eligibility label ${pair}`).toContain(pair);
+    }
+  });
+});
