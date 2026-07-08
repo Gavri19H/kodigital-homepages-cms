@@ -33,7 +33,9 @@ import {
   runAuction,
   type AntiTamperInput,
 } from "./auction/engine";
+import { emitLeadgenRecords } from "../../analytics/leadgen-events";
 import type { ClickedRef } from "../../leadgen/auction-core";
+import type { LeadgenRawAnswers } from "../../leadgen/answers";
 import type { LeadgenAuctionRow, LeadgenEnvironment } from "../../admin/leadgen/db-types";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
@@ -89,6 +91,22 @@ async function loadAuctionRow(db: D1Database, auctionId: number): Promise<Leadge
   return row ?? null;
 }
 
+// 03 §3.6: the client engine POSTs answers as
+// Record<internal_field, {value, answer_source}>. Unwrap the envelope into the
+// raw-value map normalizeAnswers consumes (RED LINE 3 re-normalizes them
+// server-side regardless); bare raw values are accepted too (legacy shape).
+function unwrapAnswers(raw: Record<string, unknown>): LeadgenRawAnswers {
+  const out: Record<string, unknown> = {};
+  for (const [field, entry] of Object.entries(raw)) {
+    if (isRecord(entry) && "value" in entry) {
+      out[field] = entry["value"];
+    } else {
+      out[field] = entry;
+    }
+  }
+  return out as LeadgenRawAnswers;
+}
+
 // The already-clicked offers/carriers for this funnel attempt (07 §18.7 remove-
 // clicked). Joined to the Offer public_id the engine keys on.
 async function loadClickedOffers(db: D1Database, funnelAttemptId: string): Promise<ClickedRef[]> {
@@ -132,9 +150,15 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   const auction = await loadAuctionRow(c.env.DB, auctionId);
   if (auction === null) return jsonNoStore({ status: "no_auction", banners: [], banners_html: "" }, 200);
 
-  // The signed anti-tamper binding + the UNTRUSTED raw answers.
+  // The signed anti-tamper binding + the UNTRUSTED raw answers. session_id /
+  // page_view_id are the POSTed values (04 §4.2 — session_id is v2
+  // crypto-bound by the tuple, so a forged session rejects at step 1).
   const funnelAttemptId = asString(body["funnel_attempt_id"]);
   const sessionId = asString(body["session_id"]) || readCookie(c.req.header("Cookie") ?? null, "ko_sid") || null;
+  const pageViewId = asString(body["page_view_id"]);
+  // Legacy ARRAY shape only for the pre-v2 equality check; the 03 §3.6 Record
+  // shape (section_public_id → version) is accepted but NOT equality-checked
+  // here — the v2 answer_mapping_hash tuple field is its cryptographic gate.
   const answerMappingVersions = Array.isArray(body["answer_mapping_versions"])
     ? (body["answer_mapping_versions"] as unknown[]).filter((v): v is string | number => typeof v === "string" || typeof v === "number")
     : undefined;
@@ -151,7 +175,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
     ...(auctionConfigVersion !== undefined ? { auction_config_version: auctionConfigVersion } : {}),
     session_id: sessionId,
   };
-  const rawAnswers = isRecord(body["answers"]) ? body["answers"] : {};
+  const rawAnswers = isRecord(body["answers"]) ? unwrapAnswers(body["answers"]) : {};
 
   const bundle = await loadAuctionBundle(c.env.DB, auction, resolved.variant.id);
   const clicked = await loadClickedOffers(c.env.DB, funnelAttemptId);
@@ -167,6 +191,11 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       session_id: sessionId,
       raw_answers: rawAnswers,
       request_context: requestContext,
+      // 04 §4.7 site 1: the live request feeds the canonical context builder's
+      // request/cf slices; the traffic slice comes from the VERIFIED token's
+      // landing_url inside the engine. Overrides are NEVER accepted here (B5
+      // is the admin Test tool's alone — this public route reads none).
+      runtime: { source: c.req.raw, page_view_id: pageViewId },
       clicked,
     },
     { dryRun: false },
@@ -189,10 +218,26 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
     void writes;
   }
 
+  // 10 §10.2: the SERVER emits the auction-path telemetry (auction_start,
+  // per-offer request/response/timeout/error, carrier_eligible/filtered,
+  // filled/unfilled — §5.4-stamped). Clients never own auction truth.
+  // Fail-open like every beacon (emitLeadgenRecords no-ops without stream).
+  try {
+    emitLeadgenRecords(c.env, c.executionCtx, [...result.events]);
+  } catch {
+    /* fail-open: telemetry never breaks the auction response */
+  }
+
+  // 03 §3.6 response: banners_html (existing) + auction_result_id +
+  // banner_render_id + impressions[] (R7 — the server half the client engine
+  // beacons on viewability) + unfilled?:true.
+  const unfilled = result.status === "unfilled" || result.status === "no_bid";
   return jsonNoStore(
     {
       status: result.status,
       auction_instance_id: result.auction_instance_id,
+      auction_result_id: result.auction_result_id,
+      banner_render_id: result.banner_render_ids[0] ?? "",
       banners_css: result.banners_css,
       banners_html: result.banners_html,
       banners: result.banners.map((b) => ({
@@ -203,7 +248,9 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
         bid: b.bid,
         click_url: b.click_url,
       })),
+      impressions: result.impression_rows,
       unfilled_reason: result.explain.unfilled_reason,
+      ...(unfilled ? { unfilled: true as const } : {}),
       ...(result.redirect !== null ? { redirect: result.redirect } : {}),
     },
     200,

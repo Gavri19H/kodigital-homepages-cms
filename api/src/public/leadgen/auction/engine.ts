@@ -37,7 +37,11 @@
 
 import type { Env } from "../../../env";
 import { ulid } from "../../../leadgen/ids";
-import { verifyConfigToken, type ConfigTokenTuple } from "../attempt";
+import {
+  computeAttemptBindingExtras,
+  verifyConfigTokenDetailed,
+  type ConfigTokenTuple,
+} from "../attempt";
 import { computeSectionOrderHash } from "../config-dto";
 import type { ResolvedActivatedFunnel } from "../resolver";
 import { normalizeAnswers, type LeadgenRawAnswers } from "../../../leadgen/answers";
@@ -90,6 +94,21 @@ import {
 } from "./explain";
 import { validatePayloadSchema, type LeadgenPayloadSchema } from "../../../leadgen/payload";
 import {
+  buildLeadgenRuntimeContext,
+  type LeadGenRuntimeContext,
+  type LeadgenRuntimeRequestSource,
+} from "../../../leadgen/runtime-context";
+import {
+  dynamicAuctionEligibility,
+  type LeadgenOfferTestStatus,
+} from "../../../leadgen/validation";
+import {
+  blankLeadgenEvent,
+  stampAuctionIds,
+  type LeadgenAuctionEventStamp,
+  type LeadgenEvent,
+} from "../../../analytics/leadgen-events";
+import {
   DEBUG_BLOB_TTL_SECONDS,
   DEBUG_ENCRYPTION_SECRET_NAME,
   DEBUG_REF_PREFIX,
@@ -113,18 +132,36 @@ import type {
 // Loaded auction bundle (READ-ONLY; safe to load in dry-run)
 // ---------------------------------------------------------------------------
 
+// The dynamic Offer's active-schema state (fix-contract v2.4 05 §5.1). The
+// EMPTY_SCHEMA degradation is DELETED: a missing/unparseable/invalid schema is
+// carried as its typed state and the R4 eligibility gate excludes the Offer —
+// an empty payload is never silently POSTed to a provider.
+export type AuctionOfferSchemaState = "none" | "invalid" | "valid";
+
 // One participating Offer + everything the pipeline needs to run it: the full
 // Offer row, its resolved placement, headers, active payload schema (parsed +
-// validated), carrier_parse config, and region rules.
+// validated), carrier_parse config, region rules, and the §5.1 eligibility
+// inputs (schema state + version, Test status).
 export interface AuctionBundleOffer {
   offer: LeadgenOfferRow;
   placement_public_id: string | null;
+  // The provider-facing placement identifier (leadgen_offer_placements.
+  // placement_id) — the value the `placement` macro / source:"placement"
+  // resolve to (04 §4.5); placement_public_id stays the log identifier.
+  placement_external_id: string | null;
   static_bid_override: number | null;
   static_order: number | null;
   headers: LeadgenOfferHeaderRow[];
-  payload_schema: LeadgenPayloadSchema;
+  // null unless schema_state === "valid" (no fallback-to-empty).
+  payload_schema: LeadgenPayloadSchema | null;
+  schema_state: AuctionOfferSchemaState;
+  // The ACTIVE schema's version number (§5.4 payload_schema_version stamp).
+  schema_version: number | null;
   carrier_parse_json: unknown;
   carrier_parse_version: number | null;
+  // Newest TEST-TOOL provider_request_log verdict (auction_instance_id IS
+  // NULL): 'passed' | 'failed' | 'untested' (§5.1 test_* codes).
+  last_test_status: LeadgenOfferTestStatus;
   region_rules: LeadgenRegionRuleInput[];
 }
 
@@ -152,8 +189,6 @@ export interface AuctionBundle {
   funnel_rules: AuctionFunnelRule[];
 }
 
-const EMPTY_SCHEMA: LeadgenPayloadSchema = { version: 1, root: { type: "object", children: [] } };
-
 function parseJson(raw: string | null): unknown {
   if (raw === null) return null;
   try {
@@ -163,13 +198,16 @@ function parseJson(raw: string | null): unknown {
   }
 }
 
-// Parse a stored schema_json into a usable LeadgenPayloadSchema; a broken /
-// absent schema degrades to the empty schema (buildPayload -> {}), never throws.
-function parseSchema(raw: string | null): LeadgenPayloadSchema {
+// Parse a stored schema_json into a typed schema state (05 §5.1). The former
+// EMPTY_SCHEMA degradation is DELETED: a broken/absent/invalid schema returns
+// its typed state (the R4 gate then excludes the Offer) — buildPayload never
+// runs against a silently-emptied schema.
+function parseSchema(raw: string | null): { schema: LeadgenPayloadSchema | null; state: AuctionOfferSchemaState } {
   const parsed = parseJson(raw);
-  if (parsed === null) return EMPTY_SCHEMA;
+  if (parsed === null) return { schema: null, state: "none" };
   const validation = validatePayloadSchema(parsed);
-  return validation.ok ? (parsed as LeadgenPayloadSchema) : EMPTY_SCHEMA;
+  if (!validation.ok) return { schema: null, state: "invalid" };
+  return { schema: parsed as LeadgenPayloadSchema, state: "valid" };
 }
 
 function parseConditions(raw: string | null): LeadgenRuleConditions | null {
@@ -187,10 +225,18 @@ export async function loadAuctionBundle(
   variantId: number | null,
 ): Promise<AuctionBundle> {
   // --- participating offers (enabled) + placement -------------------------
+  // last_test_status: newest TEST-TOOL provider_request_log row for the offer
+  // (auction_instance_id IS NULL — runtime rows never flip the Test verdict;
+  // §5.1's test_untested/test_failed is the OPERATOR Test status).
   const offerJoin = await db
     .prepare(
       `SELECT ao.static_order AS static_order, ao.static_bid_override AS static_bid_override,
-              p.public_id AS placement_public_id, o.id AS offer_id
+              p.public_id AS placement_public_id, p.placement_id AS placement_external_id, o.id AS offer_id,
+              (SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
+                           WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END
+                 FROM leadgen_provider_request_log prl
+                 WHERE prl.offer_public_id = o.public_id AND prl.auction_instance_id IS NULL
+                 ORDER BY prl.created_at DESC, prl.id DESC LIMIT 1) AS last_test_status
          FROM leadgen_auction_offers ao
          JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
          JOIN leadgen_offers o ON o.id = ao.offer_id
@@ -202,7 +248,9 @@ export async function loadAuctionBundle(
       static_order: number | null;
       static_bid_override: number | null;
       placement_public_id: string;
+      placement_external_id: string | null;
       offer_id: number;
+      last_test_status: LeadgenOfferTestStatus | null;
     }>();
 
   const offers: AuctionBundleOffer[] = [];
@@ -218,18 +266,23 @@ export async function loadAuctionBundle(
       .bind(offer.id)
       .all<LeadgenOfferHeaderRow>();
 
-    let payloadSchema: LeadgenPayloadSchema = EMPTY_SCHEMA;
+    let payloadSchema: LeadgenPayloadSchema | null = null;
+    let schemaState: AuctionOfferSchemaState = "none";
+    let schemaVersion: number | null = null;
     let carrierParseJson: unknown = null;
     let carrierParseVersion: number | null = null;
     if (offer.active_payload_schema_id !== null) {
       const schemaRow = await db
         .prepare(
-          "SELECT schema_json, carrier_parse_json, carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
+          "SELECT schema_json, carrier_parse_json, carrier_parse_version, version FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
         )
         .bind(offer.active_payload_schema_id)
-        .first<{ schema_json: string; carrier_parse_json: string | null; carrier_parse_version: number }>();
+        .first<{ schema_json: string; carrier_parse_json: string | null; carrier_parse_version: number; version: number }>();
       if (schemaRow !== null) {
-        payloadSchema = parseSchema(schemaRow.schema_json);
+        const parsed = parseSchema(schemaRow.schema_json);
+        payloadSchema = parsed.schema;
+        schemaState = parsed.state;
+        schemaVersion = schemaRow.version;
         carrierParseJson = parseJson(schemaRow.carrier_parse_json);
         carrierParseVersion = schemaRow.carrier_parse_version;
       }
@@ -265,12 +318,16 @@ export async function loadAuctionBundle(
     offers.push({
       offer,
       placement_public_id: join.placement_public_id,
+      placement_external_id: join.placement_external_id,
       static_bid_override: join.static_bid_override,
       static_order: join.static_order,
       headers: headers.results ?? [],
       payload_schema: payloadSchema,
+      schema_state: schemaState,
+      schema_version: schemaVersion,
       carrier_parse_json: carrierParseJson,
       carrier_parse_version: carrierParseVersion,
+      last_test_status: join.last_test_status ?? "untested",
       region_rules,
     });
   }
@@ -385,30 +442,29 @@ export type AntiTamperReason =
   | "answer_mapping_version_mismatch"
   | "auction_config_version_mismatch";
 
-export type AntiTamperVerdict = { ok: true } | { ok: false; reason: AntiTamperReason };
+export type AntiTamperVerdict =
+  // `landing_url` = the VERIFIED attempt-context funnel-page URL persisted in
+  // the signed token at /lg/attempt time (04 §4.2) — the auction path rebuilds
+  // its traffic slice from THIS, never from its own request URL.
+  | { ok: true; landing_url: string }
+  | { ok: false; reason: AntiTamperReason };
 
 // Validate the S19.1 binding against the freshly-RESOLVED funnel.
 //
-// TUPLE RECONCILIATION (S19.1 prose vs the P7 attempt.ts token, REPORTED):
-//   S19.1 prose signs {funnel_variant_id, funnel_attempt_id, session_id,
-//   auction_config_version}. The SHIPPED P7 token (attempt.ts / config-dto)
-//   instead signs {funnel_variant_id, section_order_hash, content_version,
-//   funnel_attempt_id}. verifyConfigToken's ACTUAL tuple is the cryptographic
-//   authority here, so a forged variant / reordered sections (different
-//   section_order_hash) / stale content_version / forged attempt id all break
-//   the HMAC or the tuple equality => reject. The two prose-only fields are
-//   handled thus:
-//     * session_id -- NOT in the P7 signed tuple, so it CANNOT be a crypto gate;
-//       it is used only for clicked-offer scoping + logging (never a tamper
-//       reject). REPORTED as a reconciliation gap.
-//     * answer_mapping_version(s) + auction_config_version -- checked as NON-
-//       crypto equality here when the client sends them (they post-date the P7
-//       token). answer_mapping_version(s) reconcile against the resolved
-//       sections' section_mapping_version (the value /lg/config exposes);
-//       auction_config_version reconciles against the auction's
-//       carrier_normalization_version (the only per-auction version column --
-//       /lg/config does not expose an auction version, so a well-behaved client
-//       omits it and the check is skipped). Any mismatch => tamper.
+// v2 TUPLE (fix-contract v2.4 05 §5.3 — supersedes the P7 reconciliation
+// note): the signed tuple now BINDS {funnel_variant_id, section_order_hash,
+// content_version, funnel_attempt_id, session_id, answer_mapping_hash,
+// auction_config_version}. The expected values are recomputed server-side
+// HERE (computeAttemptBindingExtras — the SAME function the mint used), so:
+//   * session_id — CRYPTO-bound: the auction's binding-verified session must
+//     equal the session the attempt was minted for;
+//   * answer_mapping_hash — SHA-256 over the ordered per-section
+//     answer-mapping versions; a mid-session remap breaks the tuple;
+//   * auction_config_version — the auction's carrier_normalization_version
+//     proxy; a mid-session auction re-version breaks the tuple.
+// The pre-v2 NON-crypto equality checks (client-sent answer_mapping_versions
+// array vs section_mapping_version; client-sent auction_config_version) are
+// KEPT additively below.
 export async function validateAntiTamper(
   env: Env,
   resolved: ResolvedActivatedFunnel,
@@ -427,19 +483,24 @@ export async function validateAntiTamper(
     return { ok: false, reason: "section_order_hash_mismatch" };
   }
 
-  // (c) the signed HMAC binding -- verifyConfigToken's actual tuple.
+  // (c) the signed HMAC binding -- the v2 tuple, expected values recomputed
+  // server-side by the SAME computation the mint used.
+  const extras = await computeAttemptBindingExtras(env, resolved);
   const tuple: ConfigTokenTuple = {
     funnel_variant_id: resolved.variant.public_id,
     section_order_hash: serverHash,
     content_version: resolved.variant.content_version,
     funnel_attempt_id: input.funnel_attempt_id,
+    session_id: input.session_id ?? "",
+    answer_mapping_hash: extras.answer_mapping_hash,
+    auction_config_version: extras.auction_config_version,
   };
   // requireSigned: the live /lg/auction path (validateAntiTamper is invoked
   // ONLY on the non-dry money path) must FAIL CLOSED — an unsigned token is
   // rejected even when LEADGEN_CONFIG_SIGNING_KEY is absent, so a misconfigured
   // deploy can never silently void anti-tamper.
-  const tokenOk = await verifyConfigToken(env, input.signed_config_token, tuple, { requireSigned: true });
-  if (!tokenOk) return { ok: false, reason: "signed_token_invalid" };
+  const verification = await verifyConfigTokenDetailed(env, input.signed_config_token, tuple, { requireSigned: true });
+  if (!verification.ok) return { ok: false, reason: "signed_token_invalid" };
 
   // (d) answer_mapping_version(s) -- reconcile against the resolved sections
   // (order-sensitive) when the client sends them.
@@ -464,7 +525,7 @@ export async function validateAntiTamper(
     }
   }
 
-  return { ok: true };
+  return { ok: true, landing_url: verification.landing_url };
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +543,17 @@ export interface RunAuctionInput {
   raw_answers: LeadgenRawAnswers;
   // Request-derived rule dims (device/geo) merged into the S21.4 eval context.
   request_context?: Readonly<Record<string, unknown>>;
+  // 04 §4.7 site 1: the live request the canonical runtime context is built
+  // from (ip/ua/referer/language/cf slices) + the client-minted page_view_id
+  // (POSTed, binding-verified upstream). The TRAFFIC slice comes from the
+  // VERIFIED token's landing_url (04 §4.2), never from this request's URL.
+  // Absent (legacy harnesses / providerResultsOverride paths) ⇒ the engine
+  // builds the context from a synthetic empty request so a context ALWAYS
+  // exists (fetch.ts treats absence as a programming error).
+  runtime?: {
+    source: LeadgenRuntimeRequestSource;
+    page_view_id?: string;
+  };
   // Already-clicked offers/carriers for this funnel_attempt (remove-clicked).
   clicked: readonly ClickedRef[];
   // Injectables for deterministic tests.
@@ -526,6 +598,20 @@ export interface ProviderLogRowToPersist {
   debug_record: unknown;
 }
 
+// One /lg/auction impression row (fix-contract v2.4 03 §3.6 — R7): the server
+// half. carrier_impression = one per rendered slot; offer_impression = one per
+// DISTINCT rendered Offer (§6.4 dedupe identity (auction_instance_id,
+// offer_id) — slot_index is the Offer's first rendered slot).
+export interface AuctionImpressionRow {
+  event_type: "carrier_impression" | "offer_impression";
+  offer_id: string;
+  placement_id: string;
+  carrier_key?: string;
+  slot_index: number;
+  auction_result_id: string;
+  banner_render_id: string;
+}
+
 export interface RunAuctionResult {
   status: RunAuctionStatus;
   http_status: number;
@@ -533,12 +619,23 @@ export interface RunAuctionResult {
   auction_instance_id: string;
   auction_result_id: string;
   auction_config_id: string;
+  // 07 §19 step 7 grouping id ("" when no provider batch ran) — §5.4 stamp.
+  auction_request_id: string;
   // Banner render output (empty on tamper/disqualify).
   banners_css: string;
   banners_html: string;
   banners: RenderedBannerSlot[];
   banner_render_ids: string[];
   carrier_impressions: CarrierImpression[];
+  // 03 §3.6 response impressions (returned to the client engine — R7).
+  impression_rows: AuctionImpressionRow[];
+  // 04 §4.6 REDACTED macro snapshot (session/traffic/offer-scoped keys only —
+  // NO raw ip/ua/request-scoped values) persisted to
+  // leadgen_auction_result_log.macro_context_json by persistAuctionResult.
+  macro_context_snapshot: Record<string, string>;
+  // 10 §10.2 auction-path events (server-owned; §5.4-stamped). The LIVE route
+  // emits them; a dry-run caller discards them (writes nothing).
+  events: LeadgenEvent[];
   // S19.2 trace + the persistable result-log row.
   explain: AuctionExplainTrace;
   result_log_row: AuctionResultLogRowInsert | null;
@@ -612,6 +709,73 @@ interface WorkingCarrier {
   response_context: unknown;
 }
 
+// ---------------------------------------------------------------------------
+// 04 §4.6 / §4.7 runtime-context plumbing
+// ---------------------------------------------------------------------------
+
+// The macro keys the REDACTED result-log snapshot may carry (04 §4.6):
+// session/traffic/offer-scoped ONLY. Request-scoped values (ip/ua/url/referer/
+// language/device family/geo/page) are NEVER persisted — the click resolver
+// re-derives them fresh from ITS request.
+const SNAPSHOT_MACRO_KEYS = [
+  "session_id",
+  "lander_v",
+  "utm_source",
+  "utm_medium",
+  "utm_content",
+  "traffic_source",
+  "placement",
+  "sub1",
+  "sub2",
+  "sub3",
+  "sub4",
+  "sub5",
+  "cpc",
+  "fbc",
+  "fbclid",
+  "offer_id",
+  "offer_name",
+] as const;
+
+// Project a macro map onto the redacted snapshot whitelist (empty values are
+// dropped — the click-time merge treats an absent key as "no persisted value,
+// fresh may fill").
+export function redactedMacroSnapshot(macros: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of SNAPSHOT_MACRO_KEYS) {
+    const value = macros[key];
+    if (typeof value === "string" && value !== "") out[key] = value;
+  }
+  return out;
+}
+
+// The runtime-context builder consumes only `.url` / `.headers` / `.cf` off
+// its request source (rawRequestOf → headers.get / url / readCfSignals).
+// This synthesizes a source carrying the VERIFIED landing URL as its url
+// while keeping the LIVE request's headers + cf — the 04 §4.2 split:
+// request-scoped slices from the live request, traffic (+ url/page macros)
+// from the persisted attempt context, never from the auction POST's URL.
+function requestSourceWithUrl(
+  source: LeadgenRuntimeRequestSource,
+  url: string,
+): LeadgenRuntimeRequestSource {
+  const raw = "req" in source ? source.req.raw : source;
+  return {
+    url,
+    headers: raw.headers,
+    cf: (raw as unknown as { cf?: unknown }).cf,
+  } as unknown as Request;
+}
+
+// A deliberately-empty request source for callers that supply none (admin
+// dry-run without a threaded request / legacy harnesses): the context then
+// carries empty request/cf slices but REAL session/offer/computed values —
+// the builder always runs, so fetch.ts's `no_runtime_context` programming-
+// error branch can never trigger from the engine path.
+function syntheticRequestSource(): LeadgenRuntimeRequestSource {
+  return new Request("http://leadgen.invalid/");
+}
+
 // Run the S19 pipeline. Steps 1-15 in order. dryRun => compute everything, write
 // nothing (the caller does not persist; no cap is incremented). Never throws.
 export async function runAuction(
@@ -639,6 +803,11 @@ export async function runAuction(
     funnel_variant_id: input.resolved.variant.public_id,
   };
 
+  // 10 §10.2: the server-owned auction-path event list (clients never own
+  // auction truth). Built during the run; the LIVE route emits, dry-run
+  // discards. Empty on tamper (a tampered request produces NO records).
+  const events: LeadgenEvent[] = [];
+
   const empty = (
     status: RunAuctionStatus,
     httpStatus: number,
@@ -654,11 +823,15 @@ export async function runAuction(
       auction_instance_id: auctionInstanceId,
       auction_result_id: auctionResultId,
       auction_config_id: auctionConfigId,
+      auction_request_id: "",
       banners_css: "",
       banners_html: "",
       banners: [],
       banner_render_ids: [],
       carrier_impressions: [],
+      impression_rows: [],
+      macro_context_snapshot: {},
+      events: status === "tampered" ? [] : [...events],
       explain: trace,
       // A tampered request writes NOTHING (RED LINE 2); a disqualify/redirect
       // still records the result log so analytics see the terminal state.
@@ -671,12 +844,117 @@ export async function runAuction(
 
   // Step 1: anti-tamper (RED LINE 2). Skipped in dry-run (admin simulate has no
   // real client binding). A mismatch => 422, tampered flag, NO calls, NO writes.
+  // A pass yields the VERIFIED attempt-context landing URL (04 §4.2).
+  let landingUrl = "";
   if (!opts.dryRun) {
     const verdict = await validateAntiTamper(env, input.resolved, auction, input.binding);
     if (!verdict.ok) {
       return empty("tampered", 422, "tampered", null, null);
     }
+    landingUrl = verdict.landing_url;
   }
+
+  // 04 §4.7 site 1: build the canonical runtime context via THE ONE builder.
+  // Request-scoped slices come from the live request; the traffic slice (and
+  // the url/page macros) from the VERIFIED landing URL persisted at
+  // /lg/attempt time — never from the auction POST's URL. Public routes never
+  // pass overrides (B5 is the Test tool's alone).
+  const liveSource = input.runtime?.source ?? syntheticRequestSource();
+  const contextSource = landingUrl !== "" ? requestSourceWithUrl(liveSource, landingUrl) : liveSource;
+  const contextOptsBase = {
+    session_id: input.session_id ?? "",
+    page_view_id: input.runtime?.page_view_id ?? "",
+    funnel_attempt_id: input.binding.funnel_attempt_id,
+    quote: input.resolved.quote,
+    funnel: input.resolved.funnel,
+    variant: input.resolved.variant,
+    auction_config_id: auctionConfigId,
+    now: nowMs,
+  };
+  // The auction-level (offer-less) context: snapshot + envelope dims.
+  const baseContext = buildLeadgenRuntimeContext(contextSource, contextOptsBase);
+  // Per-Offer contexts (offer identity + PARTICIPATING placement — 04 §4.5;
+  // the provider-facing placement_external_id is the macro/payload value).
+  const contextByOffer = new Map<string, LeadGenRuntimeContext>();
+  const contextFor = (b: AuctionBundleOffer): LeadGenRuntimeContext => {
+    const existing = contextByOffer.get(b.offer.public_id);
+    if (existing !== undefined) return existing;
+    const ctx = buildLeadgenRuntimeContext(contextSource, {
+      ...contextOptsBase,
+      offer: {
+        offer_id: b.offer.public_id,
+        offer_name: b.offer.offer_name,
+        placement_id: b.placement_external_id ?? undefined,
+      },
+    });
+    contextByOffer.set(b.offer.public_id, ctx);
+    return ctx;
+  };
+
+  // §5.4 base stamp + the 08 §22.2 envelope dims every auction-path event
+  // carries. Traffic/geo/device dims come from the canonical context macros.
+  const auctionConfigVersion = String(auction.carrier_normalization_version);
+  const baseStamp: LeadgenAuctionEventStamp = {
+    auction_config_id: auctionConfigId,
+    auction_config_version: auctionConfigVersion,
+    auction_instance_id: auctionInstanceId,
+    auction_result_id: auctionResultId,
+  };
+  const m = baseContext.macros;
+  const pushEvent = (
+    eventType: string,
+    fill?: (e: LeadgenEvent) => void,
+  ): LeadgenEvent => {
+    const e = blankLeadgenEvent(eventType, nowMs);
+    e.event_id = mintId();
+    e.session_id = input.session_id ?? "";
+    e.page_view_id = input.runtime?.page_view_id ?? "";
+    e.funnel_attempt_id = input.binding.funnel_attempt_id;
+    e.site_id = input.resolved.site_quote.site_id;
+    e.quote_id = input.resolved.quote.public_id;
+    e.funnel_id = input.resolved.funnel.public_id;
+    e.funnel_variant_id = input.resolved.variant.public_id;
+    e.auction_type = auction.auction_type;
+    e.winner_logic = auction.winner_logic;
+    e.url = landingUrl;
+    e.utm_source = m["utm_source"] ?? "";
+    e.utm_medium = m["utm_medium"] ?? "";
+    e.utm_content = m["utm_content"] ?? "";
+    e.traffic_source = m["traffic_source"] ?? "";
+    e.placement = m["placement"] ?? "";
+    e.cpc = m["cpc"] ?? "";
+    e.fbc = m["fbc"] ?? "";
+    e.fbclid = m["fbclid"] ?? "";
+    e.sub1 = m["sub1"] ?? "";
+    e.sub2 = m["sub2"] ?? "";
+    e.sub3 = m["sub3"] ?? "";
+    e.sub4 = m["sub4"] ?? "";
+    e.sub5 = m["sub5"] ?? "";
+    e.device = m["device"] ?? "";
+    e.os = m["os"] ?? "";
+    e.os_version = m["os_version"] ?? "";
+    e.browser = m["browser"] ?? "";
+    e.browser_version = m["browser_version"] ?? "";
+    e.country = m["country"] ?? "";
+    e.state = m["state"] ?? "";
+    e.city = m["city"] ?? "";
+    stampAuctionIds(e, baseStamp);
+    if (fill !== undefined) fill(e);
+    events.push(e);
+    return e;
+  };
+  // Per-Offer event identity + §5.4 per-offer stamps.
+  const fillOffer = (e: LeadgenEvent, b: AuctionBundleOffer): void => {
+    e.offer_id = b.offer.public_id;
+    e.offer_name = b.offer.offer_name;
+    e.placement_id = b.placement_external_id ?? "";
+    e.offer_type = b.offer.offer_type;
+    if (b.offer.provider !== null) e.provider = b.offer.provider;
+    if (b.schema_version !== null) e.payload_schema_version = String(b.schema_version);
+  };
+
+  // 10 §10.2: auction_start — the auction began (post-anti-tamper).
+  pushEvent("auction_start");
 
   // Step 3: re-normalize answers server-side (RED LINE 3 -- never trust client
   // values). Merge each section's normalized answers into one internal space.
@@ -716,9 +994,20 @@ export async function runAuction(
       return empty("disqualified", 200, null, "disqualified", null);
     }
     if (fr.rule_type === "redirect_direct_offer" && conditionsMatch(fr.conditions, ruleContext)) {
+      // 10 §10.2 redirect producers (server, where the rule triggers):
+      // redirect_rule_triggered = a redirect funnel rule fired;
+      // direct_offer_redirect = the redirect targets a direct Offer.
+      const redirectUrl = fr.redirect_url_allowlisted === 1 ? fr.redirect_url : null;
+      pushEvent("redirect_rule_triggered");
+      if (fr.target_offer_id !== null) {
+        pushEvent("direct_offer_redirect", (e) => {
+          const target = input.bundle.offers.find((b) => b.offer.id === fr.target_offer_id);
+          if (target !== undefined) fillOffer(e, target);
+        });
+      }
       return empty("redirect", 200, null, "redirect", {
         target_offer_id: fr.target_offer_id,
-        redirect_url: fr.redirect_url_allowlisted === 1 ? fr.redirect_url : null,
+        redirect_url: redirectUrl,
       });
     }
   }
@@ -741,11 +1030,16 @@ export async function runAuction(
       continue;
     }
     // Caps -- READ the counter, never increment at auction time (S10.6 bumps on
-    // click, P11). A capped-out Offer does not participate.
+    // click, P11). A capped-out Offer does not participate (05 §5.1: the
+    // runtime-only exclusion, surfaced in explainability as `cap_reached`).
     if (b.offer.cap_enabled === 1) {
       const status = await readCapStatus(env.DB, b.offer, new Date(nowMs));
       if (capExceeded(status, b.offer)) {
-        offersExcluded.push({ offer_id: b.offer.public_id, reason: "cap" });
+        offersExcluded.push({ offer_id: b.offer.public_id, reason: "cap_reached" });
+        pushEvent("auction_carrier_filtered", (e) => {
+          fillOffer(e, b);
+          e.carrier_filtered_reason = "cap_reached";
+        });
         continue;
       }
     }
@@ -759,23 +1053,77 @@ export async function runAuction(
   });
   for (const ex of participation.excluded) offersExcluded.push(ex);
   const participatingSet = new Set(participation.participating);
-  const candidates = regionCapSurvivors.filter((b) => participatingSet.has(b.offer.public_id));
+  const ruleSurvivors = regionCapSurvivors.filter((b) => participatingSet.has(b.offer.public_id));
+
+  // Step 5.5 — the R4 dynamic-Offer eligibility gate (05 §5.1), BEFORE any
+  // payload build: a dynamic Offer with an invalid/missing schema, an
+  // untested/failed Test status, a missing endpoint for this environment,
+  // unresolvable headers, or a missing/invalid response parser is EXCLUDED
+  // with the typed eligibility reason(s), emits auction_carrier_filtered, and
+  // is recorded in explainability. The provider is NEVER called for it (the
+  // former EMPTY_SCHEMA degradation is deleted — an empty payload is never
+  // POSTed). Static Offers pass through (the §18.2 static path).
+  const candidates: AuctionBundleOffer[] = [];
+  for (const b of ruleSurvivors) {
+    if (!callsProvider(b.offer)) {
+      candidates.push(b);
+      continue;
+    }
+    const verdict = dynamicAuctionEligibility(
+      b.offer,
+      b.schema_state === "none" ? null : { ok: b.schema_state === "valid", errors: [] },
+      b.last_test_status,
+      {
+        endpoint:
+          input.environment === "staging" ? b.offer.endpoint_staging : b.offer.endpoint_production,
+        headers: b.headers.map((h) => ({
+          header_name: h.header_name,
+          value_kind: h.value_kind,
+          value_text: h.value_text,
+        })),
+        carrier_parse: b.carrier_parse_json,
+      },
+    );
+    if (!verdict.eligible) {
+      const reason = verdict.reasons.join(",");
+      offersExcluded.push({ offer_id: b.offer.public_id, reason });
+      pushEvent("auction_carrier_filtered", (e) => {
+        fillOffer(e, b);
+        e.carrier_filtered_reason = reason;
+      });
+      continue;
+    }
+    candidates.push(b);
+  }
 
   // Steps 6-7: build payloads + fire provider requests in parallel (dynamic
-  // Offers only). Static_no_request Offers skip the fetch.
+  // Offers only; every one is R4-eligible ⇒ payload_schema is non-null).
+  // Each request carries ITS Offer's canonical runtime context (04 §4.7.1):
+  // macros + computed + the offer/placement slice from THE builder.
   const dynamicCandidates = candidates.filter((b) => callsProvider(b.offer));
-  const requests: ParallelProviderRequest[] = dynamicCandidates.map((b) => ({
-    offer: b.offer,
-    headers: b.headers,
-    payloadSchema: b.payload_schema,
-    ctx: {
-      answers: normalizedAnswers,
-      timeout_ms: auction.timeout_ms,
-      carrier_parse_version: b.carrier_parse_version,
-      placement_public_id: b.placement_public_id,
-      mintId,
-    },
-  }));
+  const requests: ParallelProviderRequest[] = dynamicCandidates.flatMap((b) => {
+    // R4 invariant: an eligible dynamic Offer HAS a valid schema. The guard is
+    // defensive only — it can never fabricate an empty schema to POST.
+    if (b.payload_schema === null) return [];
+    const ctx = contextFor(b);
+    return [
+      {
+        offer: b.offer,
+        headers: b.headers,
+        payloadSchema: b.payload_schema,
+        ctx: {
+          answers: normalizedAnswers,
+          macros: ctx.macros,
+          computed: ctx.computed,
+          offer: ctx.offer,
+          timeout_ms: auction.timeout_ms,
+          carrier_parse_version: b.carrier_parse_version,
+          placement_public_id: b.placement_public_id,
+          mintId,
+        },
+      },
+    ];
+  });
 
   let fetchBatch: { auction_request_id: string; results: FetchProviderResult[] };
   if (input.providerResultsOverride !== undefined) {
@@ -788,11 +1136,15 @@ export async function runAuction(
   const auctionRequestId = fetchBatch.auction_request_id;
 
   // Provider log rows (redacted + SEPARATE debug record, RED LINE 1) + S19.2
-  // requested/responded views. One row per dynamic request.
+  // requested/responded views + the 10 §10.2 per-offer events
+  // (auction_offer_request/response/timeout/error, §5.4-stamped). One row per
+  // dynamic request.
   const providersRequested: ExplainProviderRequested[] = [];
   const providersResponded: ExplainProviderResponded[] = [];
   const providerLogRows: ProviderLogRowToPersist[] = [];
   const resultByOffer = new Map<string, FetchProviderResult>();
+  const bundleByPublicId = new Map<string, AuctionBundleOffer>();
+  for (const b of input.bundle.offers) bundleByPublicId.set(b.offer.public_id, b);
   for (const result of fetchBatch.results) {
     resultByOffer.set(result.offer_public_id, result);
     providersRequested.push({
@@ -807,6 +1159,28 @@ export async function runAuction(
       latency_ms: result.latency_ms,
       provider_error_reason: result.error_reason,
     });
+    const bundleOffer = bundleByPublicId.get(result.offer_public_id);
+    const perOffer = (e: LeadgenEvent): void => {
+      if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
+      stampAuctionIds(e, {
+        auction_request_id: auctionRequestId,
+        provider_request_id: result.provider_request_id,
+      });
+    };
+    pushEvent("auction_offer_request", perOffer);
+    if (result.timed_out) {
+      pushEvent("auction_offer_timeout", (e) => {
+        perOffer(e);
+        e.provider_error_reason = "timeout";
+      });
+    } else if (result.error_reason !== null) {
+      pushEvent("auction_offer_error", (e) => {
+        perOffer(e);
+        e.provider_error_reason = result.error_reason ?? "";
+      });
+    } else {
+      pushEvent("auction_offer_response", perOffer);
+    }
   }
 
   // Step 8: parse each dynamic response -> canonical carriers; FX-normalize bids
@@ -908,6 +1282,18 @@ export async function runAuction(
     includeSurviving.push(w);
   }
 
+  // 10 §10.2: auction_carrier_eligible — one per carrier that survived rules +
+  // floor into surfacing candidacy (§5.4-stamped; carrier identity + USD bid).
+  for (const w of includeSurviving) {
+    pushEvent("auction_carrier_eligible", (e) => {
+      fillOffer(e, w.offer);
+      stampAuctionIds(e, { auction_request_id: auctionRequestId });
+      e.carrier_key = w.parsed.carrier_key;
+      e.carrier_name = typeof w.parsed.carrier_name === "string" ? w.parsed.carrier_name : "";
+      e.bid_value = w.usd_bid;
+    });
+  }
+
   // Step 11: winner logic (S18.4) over the eligible carriers grouped by Offer.
   const eligibleByOffer = new Map<string, AuctionCarrier[]>();
   for (const w of includeSurviving) {
@@ -952,10 +1338,15 @@ export async function runAuction(
   // banner render context so the LIVE governed /lg/lc href carries faid=<attempt>
   // (buildLeadgenClickUrl). The binding's attempt id is the anti-tamper-validated
   // one on the live path; a dry-run/simulate passes its placeholder unchanged.
+  // 04 §4.7 site 4: banner URL canonical macros resolve with the AUCTION-TIME
+  // context — the render-level set is the auction-level context's macros and
+  // each entry carries ITS Offer's per-offer projection ({response:*} stays
+  // click-time; {click_id} stays empty until /lg/lc mints it).
   const bannerCtx = {
     auction_instance_id: auctionInstanceId,
     banner_design_id: auction.banner_design_id,
     funnel_attempt_id: input.binding.funnel_attempt_id,
+    canonical_macros: baseContext.macros,
   };
 
   const toRenderCarrier = (s: SurfacedCarrier): BannerRenderCarrier => {
@@ -968,6 +1359,7 @@ export async function runAuction(
       bid: s.bid,
       banner_url_template: meta?.offer.offer.banner_url_template ?? null,
       response_context: meta?.response_context ?? null,
+      ...(meta !== undefined ? { canonical_macros: contextFor(meta.offer).macros } : {}),
     };
   };
 
@@ -1025,6 +1417,66 @@ export async function runAuction(
     status = winner.winner === null && surfaced.length === 0 ? "no_bid" : "unfilled";
   }
 
+  // 10 §10.2: auction_carrier_filtered — one per post-parse filtered carrier
+  // (carrier rules / below_floor / include-only / banner drops); the pre-fetch
+  // offer-level exclusions (eligibility, cap_reached) already emitted theirs.
+  for (const cf of carriersFiltered) {
+    pushEvent("auction_carrier_filtered", (e) => {
+      const bundleOffer = bundleByPublicId.get(cf.offer_id);
+      if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
+      stampAuctionIds(e, { auction_request_id: auctionRequestId });
+      e.carrier_key = cf.carrier_key;
+      e.carrier_filtered_reason = cf.carrier_filtered_reason;
+    });
+  }
+
+  // 03 §3.6 impressions (R7): one carrier_impression per rendered slot + one
+  // offer_impression per DISTINCT rendered Offer — RETURNED to the client
+  // (never discarded); the client engine beacons them on viewability.
+  const impressionRows: AuctionImpressionRow[] = [];
+  const seenImpressionOffers = new Set<string>();
+  for (const imp of impressions) {
+    const bundleOffer = bundleByPublicId.get(imp.offer_public_id);
+    const placementId = bundleOffer?.placement_external_id ?? "";
+    impressionRows.push({
+      event_type: "carrier_impression",
+      offer_id: imp.offer_public_id,
+      placement_id: placementId,
+      carrier_key: imp.carrier_key,
+      slot_index: imp.slot,
+      auction_result_id: auctionResultId,
+      banner_render_id: imp.banner_render_id,
+    });
+    if (!seenImpressionOffers.has(imp.offer_public_id)) {
+      seenImpressionOffers.add(imp.offer_public_id);
+      impressionRows.push({
+        event_type: "offer_impression",
+        offer_id: imp.offer_public_id,
+        placement_id: placementId,
+        slot_index: imp.slot,
+        auction_result_id: auctionResultId,
+        banner_render_id: imp.banner_render_id,
+      });
+    }
+  }
+
+  // 10 §10.2 terminal event: auction_filled / auction_unfilled (§5.4-stamped;
+  // the filled event carries the primary banner_render_id).
+  if (renderedSlots.length > 0) {
+    pushEvent("auction_filled", (e) => {
+      stampAuctionIds(e, { auction_request_id: auctionRequestId, banner_render_id: bannerRenderIds[0] ?? "" });
+      if (winner.winner !== null) {
+        const winnerOffer = bundleByPublicId.get(winner.winner);
+        if (winnerOffer !== undefined) fillOffer(e, winnerOffer);
+      }
+    });
+  } else {
+    pushEvent("auction_unfilled", (e) => {
+      stampAuctionIds(e, { auction_request_id: auctionRequestId });
+      e.auction_unfilled_reason = unfilledReason ?? "";
+    });
+  }
+
   // Assemble the S19.2 trace + the persistable result-log row.
   const carriersShown = renderedSlots.map((s) => ({ carrier_key: s.carrier_key, offer_id: s.offer_public_id, bid: s.bid, slot: s.slot }));
   const trace = buildExplainTrace({
@@ -1071,11 +1523,17 @@ export async function runAuction(
     auction_instance_id: auctionInstanceId,
     auction_result_id: auctionResultId,
     auction_config_id: auctionConfigId,
+    auction_request_id: auctionRequestId,
     banners_css: cssOut,
     banners_html: htmlOut,
     banners: renderedSlots,
     banner_render_ids: bannerRenderIds,
     carrier_impressions: impressions,
+    impression_rows: impressionRows,
+    // 04 §4.6: the REDACTED snapshot (session/traffic-scoped macros of the
+    // auction-level context; request-scoped values are re-derived at click).
+    macro_context_snapshot: redactedMacroSnapshot(baseContext.macros),
+    events,
     explain: trace,
     result_log_row: toResultLogRow(trace),
     provider_log_rows: providerLogRows,
@@ -1151,8 +1609,11 @@ export async function persistAuctionResult(
     }
   }
 
-  // The 1:1 auction result log (explainability). NULL result_log_row => nothing
-  // to persist (tampered).
+  // The 1:1 auction result log (explainability) + the 04 §4.6 REDACTED macro
+  // snapshot (migration 0040 `macro_context_json`: session/traffic/offer-
+  // scoped macros ONLY — the engine's redactedMacroSnapshot whitelist
+  // guarantees no raw ip/ua/request-scoped value can reach this column).
+  // NULL result_log_row => nothing to persist (tampered).
   const log = result.result_log_row;
   if (log !== null) {
     try {
@@ -1160,8 +1621,9 @@ export async function persistAuctionResult(
         `INSERT INTO leadgen_auction_result_log
            (auction_instance_id, auction_result_id, auction_config_id, session_id,
             funnel_attempt_id, funnel_id, funnel_variant_id, banner_render_ids_json,
-            offers_considered_json, offers_excluded_json, carriers_shown_json, winner_json, unfilled_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            offers_considered_json, offers_excluded_json, carriers_shown_json, winner_json, unfilled_reason,
+            macro_context_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(
           log.auction_instance_id,
@@ -1177,6 +1639,7 @@ export async function persistAuctionResult(
           log.carriers_shown_json,
           log.winner_json,
           log.unfilled_reason,
+          JSON.stringify(result.macro_context_snapshot),
         )
         .run();
     } catch {

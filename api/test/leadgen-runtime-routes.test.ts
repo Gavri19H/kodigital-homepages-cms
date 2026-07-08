@@ -120,6 +120,7 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql", // macro_context_json snapshot (04 §4.6)
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -563,6 +564,12 @@ function seedDynamicAuctionForVariant(sdb: SqliteDb, variantId: string): { offer
   const auction = sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = ?").get(auctionPublic) as { id: number };
   sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placement.id, offer.id);
   sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE public_id = ?").run(auction.id, variantId);
+  // R4 (fix-contract v2.4 05 §5.1): a dynamic Offer participates only with a
+  // PASSED Test verdict — one TEST-TOOL provider_request_log row (NULL
+  // auction_instance_id) marks it tested.
+  sdb
+    .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)")
+    .run(offerPublicId);
   return { offerPublicId, offerId: offer.id };
 }
 

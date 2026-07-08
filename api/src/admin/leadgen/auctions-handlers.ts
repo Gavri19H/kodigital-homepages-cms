@@ -21,6 +21,7 @@
 import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
+import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
@@ -657,9 +658,11 @@ interface AuctionOfferJoinRow {
 }
 
 async function readAuctionOffers(db: D1Database, auctionId: number): Promise<AuctionOfferJoinRow[]> {
-  // last_test_status: newest provider-request-log status for the offer (2xx →
-  // passed; any other → failed; no rows → untested). The provider log is P10
-  // runtime data, so this reads `untested` until P10 records requests.
+  // last_test_status: newest TEST-TOOL provider-request-log status for the
+  // offer (auction_instance_id IS NULL — 05 §5.1: the Test verdict is the
+  // OPERATOR Test status; runtime auction rows never flip it). 2xx → passed;
+  // any other status → failed; no rows / never-returned → untested. The SAME
+  // scoping the R4 engine gate + evaluateDynamicOffersEligibility use.
   const result = await db
     .prepare(
       `SELECT ao.offer_placement_id, ao.offer_id, ao.static_order, ao.static_bid_override, ao.enabled,
@@ -670,8 +673,8 @@ async function readAuctionOffers(db: D1Database, auctionId: number): Promise<Auc
               (SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
                            WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END
                  FROM leadgen_provider_request_log prl
-                 WHERE prl.offer_public_id = o.public_id
-                 ORDER BY prl.created_at DESC LIMIT 1) AS last_test_status
+                 WHERE prl.offer_public_id = o.public_id AND prl.auction_instance_id IS NULL
+                 ORDER BY prl.created_at DESC, prl.id DESC LIMIT 1) AS last_test_status
        FROM leadgen_auction_offers ao
        JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
        JOIN leadgen_offers o ON o.id = ao.offer_id
@@ -862,8 +865,25 @@ export async function putAuctionOffersHandler(c: AdminContext): Promise<Response
   }
   await c.env.DB.batch(statements);
 
+  // 05 §5.1 site 2 (R4): per-offer eligibility WARNINGS on the saved set —
+  // the save is ACCEPTED (draft auctions may reference not-yet-ready Offers);
+  // the R5 activation gate is what blocks attaching an ineligible set to an
+  // ACTIVE Quote. Live participation checks production endpoints.
+  const eligibility = await evaluateDynamicOffersEligibility(
+    c.env.DB,
+    parsed.map((p) => p.offer_id),
+    "production",
+  );
+  const warnings: Array<{ offer_id: string; eligible: false; reasons: string[] }> = [];
+  for (const p of parsed) {
+    const row = eligibility.get(p.offer_id);
+    if (row !== undefined && !row.verdict.eligible) {
+      warnings.push({ offer_id: row.offer_public_id, eligible: false, reasons: [...row.verdict.reasons] });
+    }
+  }
+
   const rows = await readAuctionOffers(c.env.DB, auction.id);
-  return c.json({ items: rows.map(auctionOfferRowToApi) });
+  return c.json({ items: rows.map(auctionOfferRowToApi), warnings });
 }
 
 // ---------------------------------------------------------------------------
@@ -1605,6 +1625,11 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       raw_answers: {},
       normalizedAnswersOverride: sampleAnswers,
       request_context: context,
+      // 04 §4.7: the dry-run builds its runtime context from the admin
+      // request (a simulate has no funnel session; payload macros resolve
+      // from the admin's own request slices). Events are built but NEVER
+      // emitted (dry-run writes nothing).
+      runtime: { source: c.req.raw },
       clicked: [],
     },
     { dryRun: true },

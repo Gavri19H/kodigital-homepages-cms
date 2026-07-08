@@ -50,12 +50,17 @@ import type {
 //   malformed_response — a body arrived but is not valid JSON,
 //   no_endpoint        — the chosen environment has no configured endpoint
 //                        (config error: no request is made),
+//   no_runtime_context — the caller supplied no runtime macro context
+//                        (fix-contract v2.4 04 §4.7.1: context absence is a
+//                        PROGRAMMING error → typed exclusion; a payload built
+//                        against an empty macro set is never silently POSTed),
 //   http_<status>      — a non-2xx HTTP status.
 export type LeadgenProviderErrorReason =
   | "timeout"
   | "network_error"
   | "malformed_response"
   | "no_endpoint"
+  | "no_runtime_context"
   | `http_${number}`;
 
 // A typed no-op note (09 §30.2), structurally identical to the §11.6
@@ -122,12 +127,19 @@ export interface FetchProviderResult {
 }
 
 // The runtime build + timeout context (07 §19 steps 6-7). `answers` are the
-// server re-normalized answers (§19 step 3); `macros` are the canonical macro
-// runtime values; `timeout_ms` is the auction's per-request bound (§18.1).
+// server re-normalized answers (§19 step 3); `macros`/`computed` are the
+// canonical runtime-context projections (04 §4.7.1 — REQUIRED at runtime: the
+// engine builds them via buildLeadgenRuntimeContext; an absent `macros` is a
+// programming error and yields the typed `no_runtime_context` exclusion, never
+// a silent empty POST); `timeout_ms` is the auction's per-request bound
+// (§18.1).
 export interface FetchProviderContext {
   answers: Readonly<Record<string, unknown>>;
   macros?: Readonly<Record<string, string>>;
   computed?: Readonly<Record<string, unknown>>;
+  // The Offer in scope (04 §4.5) — buildPayload's source:"placement" resolves
+  // from offer.placement_id. Bridged from LeadGenRuntimeContext.offer.
+  offer?: Readonly<{ offer_id?: string; offer_name?: string; placement_id?: string }>;
   timeout_ms: number;
   // Stamped onto the redacted log row (issue 21 / §7.4). Optional — Stage B
   // may fill them instead.
@@ -170,6 +182,10 @@ export async function fetchProvider(
   const mintId = ctx.mintId ?? ulid;
   const providerRequestId = mintId();
   const notes: LeadgenFetchNote[] = [];
+  // 04 §4.7.1: NO `?? {}` default — a missing runtime context is a programming
+  // error (the engine always builds one via buildLeadgenRuntimeContext). The
+  // typed no-call exclusion is returned after the log-shape builder below.
+  const missingRuntimeContext = ctx.macros === undefined;
   const macroValues: Readonly<Record<string, string>> = ctx.macros ?? {};
   const serverMode = offer.request_execution_mode === "server";
 
@@ -199,6 +215,7 @@ export async function fetchProvider(
     answers: ctx.answers,
     macros: macroValues,
     ...(ctx.computed !== undefined ? { computed: ctx.computed } : {}),
+    ...(ctx.offer !== undefined ? { offer: ctx.offer } : {}),
     token: {
       ...(tokenValue !== undefined ? { value: tokenValue } : {}),
       api_token_placement: offer.api_token_placement,
@@ -338,6 +355,13 @@ export async function fetchProvider(
     if (responseIsJson) result.parsed = parsedJson;
     return result;
   };
+
+  // --- 04 §4.7.1 context gate: a missing runtime context is a typed no-call
+  // exclusion (never a silent empty-macro POST) — checked BEFORE the endpoint
+  // so the reason names the actual defect.
+  if (missingRuntimeContext) {
+    return buildResult(null, null, undefined, false, "no_runtime_context", null, 0, false);
+  }
 
   // --- environment routing: a missing endpoint is a typed no-op, never a fetch
   if (endpoint === "") {

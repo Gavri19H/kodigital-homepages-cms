@@ -418,6 +418,43 @@ export function blankLeadgenEvent(eventType: string, now: number): LeadgenEvent 
 }
 
 // ---------------------------------------------------------------------------
+// §5.4 (fix-contract v2.4) version/id stamp helpers — R6.
+//
+// The SERVER stamps these on every auction-path record/event (clients never
+// own auction truth — 10 §10.2). The blankLeadgenEvent initializers stay ""
+// ONLY as the pre-parse default; producers on the auction path MUST call
+// stampAuctionIds so the §5.4 fields are non-empty wherever they apply.
+// ---------------------------------------------------------------------------
+
+export interface LeadgenAuctionEventStamp {
+  auction_config_id?: string;
+  auction_config_version?: string;
+  auction_instance_id?: string;
+  auction_request_id?: string;
+  auction_result_id?: string;
+  // Per-offer stamps (request/response/timeout/error + impression events):
+  provider_request_id?: string;
+  // The ACTIVE payload schema version used for that Offer's build.
+  payload_schema_version?: string;
+  banner_render_id?: string;
+}
+
+// Stamp the §5.4 ids/versions onto an event IN PLACE (empty-string inputs are
+// skipped so a partial stamp never blanks an earlier one). Returns the event
+// for chaining.
+export function stampAuctionIds(e: LeadgenEvent, stamp: LeadgenAuctionEventStamp): LeadgenEvent {
+  if (stamp.auction_config_id !== undefined && stamp.auction_config_id !== "") e.auction_config_id = stamp.auction_config_id;
+  if (stamp.auction_config_version !== undefined && stamp.auction_config_version !== "") e.auction_config_version = stamp.auction_config_version;
+  if (stamp.auction_instance_id !== undefined && stamp.auction_instance_id !== "") e.auction_instance_id = stamp.auction_instance_id;
+  if (stamp.auction_request_id !== undefined && stamp.auction_request_id !== "") e.auction_request_id = stamp.auction_request_id;
+  if (stamp.auction_result_id !== undefined && stamp.auction_result_id !== "") e.auction_result_id = stamp.auction_result_id;
+  if (stamp.provider_request_id !== undefined && stamp.provider_request_id !== "") e.provider_request_id = stamp.provider_request_id;
+  if (stamp.payload_schema_version !== undefined && stamp.payload_schema_version !== "") e.payload_schema_version = stamp.payload_schema_version;
+  if (stamp.banner_render_id !== undefined && stamp.banner_render_id !== "") e.banner_render_id = stamp.banner_render_id;
+  return e;
+}
+
+// ---------------------------------------------------------------------------
 // Event builder / enricher (§22.2 stamping + §22.5 / §30.3 privacy)
 // ---------------------------------------------------------------------------
 

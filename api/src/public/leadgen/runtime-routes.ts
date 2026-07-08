@@ -25,12 +25,16 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "../../env";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
-import { serveFunnelShell, serveLeadgenConfig, serveLeadgenAttempt } from "./serve";
+import { serveFunnelShell, serveLeadgenConfig, leadgenNoStoreHeaders } from "./serve";
 import { serveLeadgenAuction } from "./serve-auction";
 import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
 import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
+import { mintFunnelAttempt } from "./attempt";
+import { resolveActivatedFunnelByVariant } from "./resolver";
+import { readCookie } from "../listicle/experiment-pick";
+import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import type { LeadgenCapOffer } from "../../leadgen/caps";
 import type { LeadgenParsedCarrier } from "./auction/parse";
 import type { LeadgenEvent } from "../../analytics/leadgen-events";
@@ -42,6 +46,63 @@ const leadgenPublicRouter = new Hono<{ Bindings: Env; Variables: PublicSiteVaria
 // host→site for every /lg* route (admin host → safe 404 upstream).
 leadgenPublicRouter.use("/lg", publicSiteContextMiddleware);
 leadgenPublicRouter.use("/lg/*", publicSiteContextMiddleware);
+
+// ---------------------------------------------------------------------------
+// GET /lg/attempt — the v2 mint (fix-contract v2.4 04 §4.2 + 05 §5.3).
+// ---------------------------------------------------------------------------
+
+// The funnel page's ORIGINAL URL: the `u` query param the client engine sends
+// (GET /lg/attempt?vid=…&u=<encodeURIComponent(location.href)>), with the
+// SAME-ORIGIN Referer header as the fallback when `u` is absent. Anything
+// unparseable / cross-origin degrades to "" (no attempt context — the token
+// still mints; traffic macros then resolve empty).
+function resolveAttemptLandingUrl(c: PublicContext): string {
+  const u = c.req.query("u") ?? "";
+  if (u !== "") {
+    try {
+      return new URL(u).toString();
+    } catch {
+      /* fall through to the Referer fallback */
+    }
+  }
+  const referer = c.req.header("Referer") ?? c.req.header("Referrer") ?? "";
+  if (referer !== "") {
+    try {
+      const parsed = new URL(referer);
+      const requestHost = new URL(c.req.url).host;
+      if (parsed.host === requestHost) return parsed.toString();
+    } catch {
+      /* not a usable fallback */
+    }
+  }
+  return "";
+}
+
+// v2 /lg/attempt: mints { funnel_attempt_id, signed_config_token } with the
+// R9 v2 tuple (session_id + answer_mapping_hash + auction_config_version
+// crypto-bound) and the 04 §4.2 attempt context (the traffic slice persisted
+// as the landing URL inside the SIGNED payload — the token is the carrier, no
+// new tables). Accepts `funnel_variant_id` (existing) and the client engine's
+// short `vid` alias. no-store (§8.3 — session-specific, never cached).
+async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
+  const siteContext = c.get("siteContext");
+  const variantId = c.req.query("funnel_variant_id") ?? c.req.query("vid") ?? "";
+  const resolved = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantId);
+  if (resolved === null) {
+    return new Response(JSON.stringify({ error: "Not Found" }), {
+      status: 404,
+      headers: leadgenNoStoreHeaders(),
+    });
+  }
+  const attempt = await mintFunnelAttempt(c.env, resolved, Date.now(), {
+    session_id: readCookie(c.req.header("Cookie") ?? null, "ko_sid"),
+    landing_url: resolveAttemptLandingUrl(c),
+  });
+  return new Response(JSON.stringify(attempt), {
+    status: 200,
+    headers: leadgenNoStoreHeaders(),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // /lg/lc — the P11 governed click resolver route (§19 step 16 / §4.3 no-store).
@@ -101,12 +162,19 @@ function findParsedCarrier(parsedCarriersJson: string | null, carrierKey: string
 // click_id, counts the click, and either 302s or safely does not).
 interface LoadedClickContext {
   offer: LeadgenCapOffer | null;
+  offer_name: string;
   banner_url_template: string | null;
   carrier: LeadgenParsedCarrier | null;
   response_context: unknown;
   removal_scope: "offer" | "carrier";
   auction_id: number | null;
   session_id: string | null;
+  funnel_id: string | null;
+  funnel_variant_id: string | null;
+  // The 04 §4.6 REDACTED macro snapshot persisted at auction time
+  // (leadgen_auction_result_log.macro_context_json — session/traffic/offer
+  // keys only; {} when absent/corrupt).
+  macro_snapshot: Record<string, string>;
   event_context: Partial<LeadgenEvent>;
 }
 
@@ -136,12 +204,16 @@ async function loadLeadgenClickContext(
 ): Promise<LoadedClickContext> {
   const out: LoadedClickContext = {
     offer: null,
+    offer_name: "",
     banner_url_template: null,
     carrier: null,
     response_context: null,
     removal_scope: "offer",
     auction_id: null,
     session_id: null,
+    funnel_id: null,
+    funnel_variant_id: null,
+    macro_snapshot: {},
     event_context: {},
   };
 
@@ -176,6 +248,7 @@ async function loadLeadgenClickContext(
           cap_fallback_offer_id: row.cap_fallback_offer_id,
           cap_fallback_url: row.cap_fallback_url,
         };
+        out.offer_name = row.offer_name;
         out.banner_url_template = row.banner_url_template;
         out.event_context.offer_id = params.offerPublicId;
         out.event_context.offer_name = row.offer_name;
@@ -205,13 +278,13 @@ async function loadLeadgenClickContext(
     }
   }
 
-  // Result log → funnel/variant/session dims + auction_config_id → the auction's
-  // removal_scope + numeric id.
+  // Result log → funnel/variant/session dims + the 04 §4.6 macro snapshot +
+  // auction_config_id → the auction's removal_scope + numeric id.
   if (params.auctionInstanceId !== "") {
     try {
       const row = await db
         .prepare(
-          "SELECT auction_config_id, session_id, funnel_id, funnel_variant_id FROM leadgen_auction_result_log WHERE auction_instance_id = ? LIMIT 1",
+          "SELECT auction_config_id, session_id, funnel_id, funnel_variant_id, macro_context_json FROM leadgen_auction_result_log WHERE auction_instance_id = ? LIMIT 1",
         )
         .bind(params.auctionInstanceId)
         .first<{
@@ -219,11 +292,26 @@ async function loadLeadgenClickContext(
           session_id: string | null;
           funnel_id: string | null;
           funnel_variant_id: string | null;
+          macro_context_json: string | null;
         }>();
       if (row !== null) {
         out.session_id = row.session_id;
-        if (row.funnel_id !== null) out.event_context.funnel_id = row.funnel_id;
-        if (row.funnel_variant_id !== null) out.event_context.funnel_variant_id = row.funnel_variant_id;
+        // Dedicated try/catch parse (D1 JSON safety): corrupt → {} → the click
+        // still resolves with fresh request-scoped macros only.
+        const snapshot = parseJsonSafe(row.macro_context_json);
+        if (snapshot !== null && typeof snapshot === "object" && !Array.isArray(snapshot)) {
+          for (const [k, v] of Object.entries(snapshot as Record<string, unknown>)) {
+            if (typeof v === "string" && v !== "") out.macro_snapshot[k] = v;
+          }
+        }
+        if (row.funnel_id !== null) {
+          out.funnel_id = row.funnel_id;
+          out.event_context.funnel_id = row.funnel_id;
+        }
+        if (row.funnel_variant_id !== null) {
+          out.funnel_variant_id = row.funnel_variant_id;
+          out.event_context.funnel_variant_id = row.funnel_variant_id;
+        }
         if (row.auction_config_id !== null) {
           out.event_context.auction_config_id = row.auction_config_id;
           const auction = await db
@@ -261,6 +349,43 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
   const execCtx = safeExecutionCtx(c);
   const ctx = await loadLeadgenClickContext(c.env.DB, { offerPublicId, auctionInstanceId, carrierKey });
 
+  // 04 §4.6 click-time macros: FRESH request-scoped values from THIS click
+  // request (ip/ua/url/referer/language/device family/geo — via the ONE
+  // canonical builder) ⊕ the PERSISTED auction snapshot (session/traffic/offer
+  // keys — persisted wins) ⊕ the freshly-minted click_id (injected by
+  // resolveLeadgenClick — always fresh) ⊕ {response:*} from the persisted
+  // winner response (resolved downstream, unchanged).
+  const freshCtx = buildLeadgenRuntimeContext(c.req.raw, {
+    session_id: ctx.session_id ?? "",
+    page_view_id: "",
+    funnel_attempt_id: funnelAttemptId,
+    quote: "",
+    funnel: ctx.funnel_id ?? "",
+    variant: ctx.funnel_variant_id ?? "",
+    offer: { offer_id: offerPublicId, offer_name: ctx.offer_name },
+  });
+  const canonicalMacros: Record<string, string> = { ...freshCtx.macros };
+  for (const [key, value] of Object.entries(ctx.macro_snapshot)) {
+    if (value !== "") canonicalMacros[key] = value; // persisted wins for snapshot keys
+  }
+
+  // §4.7.5 attribution consistency: the click events (→ CH → S2S dispatch)
+  // carry the SAME persisted-snapshot traffic dims the auction payload used.
+  const ec = ctx.event_context;
+  ec.utm_source = canonicalMacros["utm_source"] ?? "";
+  ec.utm_medium = canonicalMacros["utm_medium"] ?? "";
+  ec.utm_content = canonicalMacros["utm_content"] ?? "";
+  ec.traffic_source = canonicalMacros["traffic_source"] ?? "";
+  ec.placement = canonicalMacros["placement"] ?? "";
+  ec.cpc = canonicalMacros["cpc"] ?? "";
+  ec.fbc = canonicalMacros["fbc"] ?? "";
+  ec.fbclid = canonicalMacros["fbclid"] ?? "";
+  ec.sub1 = canonicalMacros["sub1"] ?? "";
+  ec.sub2 = canonicalMacros["sub2"] ?? "";
+  ec.sub3 = canonicalMacros["sub3"] ?? "";
+  ec.sub4 = canonicalMacros["sub4"] ?? "";
+  ec.sub5 = canonicalMacros["sub5"] ?? "";
+
   const input: LeadgenClickInput = {
     offer_public_id: offerPublicId,
     carrier_key: carrierKey,
@@ -274,10 +399,10 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
     banner_url_template: ctx.banner_url_template,
     response_macro_fallbacks: null,
     response_context: ctx.response_context,
-    canonical_macros: {},
+    canonical_macros: canonicalMacros,
     offer: ctx.offer,
     removal_scope: ctx.removal_scope,
-    event_context: ctx.event_context,
+    event_context: ec,
   };
 
   const result = await resolveLeadgenClick(c.env, execCtx, input);
@@ -373,7 +498,7 @@ async function serveLeadgenPixel(c: PublicContext): Promise<Response> {
 // `lc/:offer_id` + `pb/:provider` + `px/:token` are never swallowed by the slug
 // catch. /lg/auction (P10 §19) + /lg/track (P11 §22) + /lg/pb (P13 §25) are POST
 // + no-store; /lg/lc (P11 §19.16) + /lg/px (P13 §27) are GET.
-leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttempt(c));
+leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttemptV2(c));
 leadgenPublicRouter.get("/lg/config/:funnel_variant_id", (c) => serveLeadgenConfig(c));
 leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuctionGuarded(c));
 leadgenPublicRouter.post("/lg/track", (c) => serveLeadgenTrack(c));

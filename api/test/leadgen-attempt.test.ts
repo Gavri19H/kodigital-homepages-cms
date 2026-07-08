@@ -1,13 +1,16 @@
 // LeadGen §8.3 / §24c `/lg/attempt` token minting — unit tests. Proves the
-// mint returns both ids, the signed token verifies against the EXACT tuple and
-// FAILS on any tampered field or tampered signature, the absent-secret path
-// mints an explicit `unsigned.` token that fails closed when a secret is
-// configured, and two attempts get distinct funnel_attempt_ids.
+// mint returns both ids, the signed v2 token (fix-contract v2.4 05 §5.3)
+// verifies against the EXACT 7-field tuple and FAILS on any tampered field or
+// tampered signature, the absent-secret path mints an explicit `unsigned.`
+// token that fails closed when a secret is configured, and two attempts get
+// distinct funnel_attempt_ids.
 
 import { describe, expect, it } from "vitest";
 import {
+  computeAttemptBindingExtras,
   mintFunnelAttempt,
   verifyConfigToken,
+  verifyConfigTokenDetailed,
   mintFunnelAttemptId,
   isSignedToken,
   timingSafeEqualBytes,
@@ -126,47 +129,71 @@ function buildResolved(): ResolvedActivatedFunnel {
   };
 }
 
-function expectedTupleFor(resolved: ResolvedActivatedFunnel, funnelAttemptId: string): ConfigTokenTuple {
+// The v2 expected tuple (05 §5.3): the mapping/auction extras come from the
+// SAME computeAttemptBindingExtras the mint used (no-DB env ⇒ per-section "0"
+// versions + "" auction version — symmetric by construction).
+async function expectedTupleFor(
+  env: Env,
+  resolved: ResolvedActivatedFunnel,
+  funnelAttemptId: string,
+  sessionId = "",
+): Promise<ConfigTokenTuple> {
+  const extras = await computeAttemptBindingExtras(env, resolved);
   return {
     funnel_variant_id: resolved.variant.public_id,
     section_order_hash: computeSectionOrderHash(resolved),
     content_version: resolved.variant.content_version,
     funnel_attempt_id: funnelAttemptId,
+    session_id: sessionId,
+    answer_mapping_hash: extras.answer_mapping_hash,
+    auction_config_version: extras.auction_config_version,
   };
 }
 
 describe("mintFunnelAttempt — signed (secret configured)", () => {
-  it("returns a funnel_attempt_id (att_ prefix, NOT a public_id kind) + a signed token", async () => {
+  it("returns a funnel_attempt_id (att_ prefix, NOT a public_id kind) + a signed v2 token", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
     expect(attempt.funnel_attempt_id.startsWith("att_")).toBe(true);
     expect(attempt.funnel_attempt_id.startsWith("lg")).toBe(false);
     expect(isSignedToken(attempt.signed_config_token)).toBe(true);
-    expect(attempt.signed_config_token.startsWith("v1.")).toBe(true);
+    // 05 §5.3: minting is ALWAYS the v2 scheme.
+    expect(attempt.signed_config_token.startsWith("v2.")).toBe(true);
   });
 
-  it("the signed token verifies against the EXACT tuple", async () => {
+  it("the signed token verifies against the EXACT v2 tuple + returns the verified landing_url", async () => {
     const resolved = buildResolved();
-    const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved, Date.now(), {
+      session_id: "sess-a",
+      landing_url: "https://one.example.com/lg/life?utm_source=fb",
+    });
+    const tuple = await expectedTupleFor(SIGNED_ENV, resolved, attempt.funnel_attempt_id, "sess-a");
+    const detailed = await verifyConfigTokenDetailed(SIGNED_ENV, attempt.signed_config_token, tuple);
+    expect(detailed.ok).toBe(true);
+    // 04 §4.2: the persisted attempt context comes back from the VERIFIED payload.
+    expect(detailed.landing_url).toBe("https://one.example.com/lg/life?utm_source=fb");
     expect(await verifyConfigToken(SIGNED_ENV, attempt.signed_config_token, tuple)).toBe(true);
   });
 
-  it("FAILS verification on ANY tampered tuple field", async () => {
+  it("FAILS verification on ANY tampered tuple field (all 7 v2 fields)", async () => {
     const resolved = buildResolved();
-    const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
-    const base = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved, Date.now(), { session_id: "sess-a" });
+    const base = await expectedTupleFor(SIGNED_ENV, resolved, attempt.funnel_attempt_id, "sess-a");
     const token = attempt.signed_config_token;
     expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, funnel_variant_id: mintPublicId("funnel_variant") })).toBe(false);
     expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, section_order_hash: "deadbeef" })).toBe(false);
     expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, content_version: base.content_version + 1 })).toBe(false);
     expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, funnel_attempt_id: "att_other" })).toBe(false);
+    // v2 additions (05 §5.3): session / mapping hash / auction version.
+    expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, session_id: "sess-FORGED" })).toBe(false);
+    expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, answer_mapping_hash: "0".repeat(64) })).toBe(false);
+    expect(await verifyConfigToken(SIGNED_ENV, token, { ...base, auction_config_version: "999" })).toBe(false);
   });
 
   it("FAILS verification when the token signature is tampered", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const tuple = await expectedTupleFor(SIGNED_ENV, resolved, attempt.funnel_attempt_id);
     const parts = attempt.signed_config_token.split(".");
     // Tamper the FIRST base64url char of the signature (mirrors the payload-
     // tamper test below). The LAST char of a no-padding 32-byte base64url
@@ -182,7 +209,7 @@ describe("mintFunnelAttempt — signed (secret configured)", () => {
   it("FAILS verification when the token payload is tampered", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const tuple = await expectedTupleFor(SIGNED_ENV, resolved, attempt.funnel_attempt_id);
     const parts = attempt.signed_config_token.split(".");
     const firstChar = parts[1]!.slice(0, 1) === "A" ? "B" : "A";
     const tamperedPayload = `${parts[0]}.${firstChar}${parts[1]!.slice(1)}.${parts[2]}`;
@@ -208,7 +235,7 @@ describe("mintFunnelAttempt — absent secret (dev fallback, fails closed in pro
   it("an unsigned token verifies in dev (no secret) only when the tuple matches", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(NO_SECRET_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const tuple = await expectedTupleFor(NO_SECRET_ENV, resolved, attempt.funnel_attempt_id);
     expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, tuple)).toBe(true);
     expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, { ...tuple, content_version: 99 })).toBe(false);
   });
@@ -216,7 +243,7 @@ describe("mintFunnelAttempt — absent secret (dev fallback, fails closed in pro
   it("requireSigned FAILS CLOSED: an unsigned token is rejected even with NO secret (the money-path guard)", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(NO_SECRET_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const tuple = await expectedTupleFor(NO_SECRET_ENV, resolved, attempt.funnel_attempt_id);
     // Without requireSigned (dev), the tuple-matching unsigned token is accepted…
     expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, tuple)).toBe(true);
     // …but requireSigned (the live /lg/auction path) rejects it REGARDLESS of secret
@@ -225,21 +252,21 @@ describe("mintFunnelAttempt — absent secret (dev fallback, fails closed in pro
     expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, tuple, { requireSigned: true })).toBe(false);
     // And a genuinely signed token still passes requireSigned when the secret is present (no regression).
     const signed = await mintFunnelAttempt(SIGNED_ENV, resolved);
-    const signedTuple = expectedTupleFor(resolved, signed.funnel_attempt_id);
+    const signedTuple = await expectedTupleFor(SIGNED_ENV, resolved, signed.funnel_attempt_id);
     expect(await verifyConfigToken(SIGNED_ENV, signed.signed_config_token, signedTuple, { requireSigned: true })).toBe(true);
   });
 
   it("PRODUCTION (secret configured) REJECTS an unsigned token", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(NO_SECRET_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const tuple = await expectedTupleFor(SIGNED_ENV, resolved, attempt.funnel_attempt_id);
     expect(await verifyConfigToken(SIGNED_ENV, attempt.signed_config_token, tuple)).toBe(false);
   });
 
   it("a signed token cannot be verified without the secret (dev)", async () => {
     const resolved = buildResolved();
     const attempt = await mintFunnelAttempt(SIGNED_ENV, resolved);
-    const tuple = expectedTupleFor(resolved, attempt.funnel_attempt_id);
+    const tuple = await expectedTupleFor(NO_SECRET_ENV, resolved, attempt.funnel_attempt_id);
     expect(await verifyConfigToken(NO_SECRET_ENV, attempt.signed_config_token, tuple)).toBe(false);
   });
 });

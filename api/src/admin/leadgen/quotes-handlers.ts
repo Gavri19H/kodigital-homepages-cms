@@ -40,6 +40,14 @@ import {
   type FunnelRuleInput,
 } from "../../leadgen/funnel";
 import { sha256Hex } from "../../public/leadgen/auction/parse";
+import {
+  rebuildDerivedIndexes,
+  sectionValidationStatus,
+  type LeadgenAnswerMapEdge,
+  type OfferSchemaInfo,
+} from "../../leadgen/sections";
+import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
+import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen/payload";
 import { getFunnelDesign, FUNNEL_DESIGNS } from "../../public/leadgen/designs/registry";
 import { funnelChromeCss } from "../../public/leadgen/designs/default-funnel/styles";
 import { renderSectionComponents } from "../../public/leadgen/components/presets";
@@ -1179,7 +1187,10 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   // key; evict the orphaned prior entries (courtesy) across the funnel's activated
   // sites. Non-blocking; never breaks the save.
   scheduleVariantPublishInvalidate(c, variant);
-  return c.json(await variantDetailJson(c.env.DB, updated));
+  // R5 (05 §5.2a): every variant save RECOMPUTES + stores the activation
+  // preflight verdict (advisory copy; the activation PUT recomputes its own).
+  const preflight = await storeVariantPreflight(c, updated, owner.quote);
+  return c.json({ ...(await variantDetailJson(c.env.DB, updated)), activation_preflight: preflight });
 }
 
 function jsonStringOrNull(value: unknown): string | null {
@@ -1582,7 +1593,408 @@ export async function quoteActivationHandler(c: AdminContext): Promise<Response>
     preview_url: previewUrl(r.domain, r.slug),
   }));
 
-  return c.json({ quote_id: quote.public_id, sites });
+  // R5 (05 §5.2 — additive): the quote-level activation preflight verdict the
+  // Phase-2 Activation-tab panel renders (PASS state = ok:true, blocks:[]).
+  const activation_preflight = await computeQuoteActivationPreflight(c.env.DB, quote);
+  return c.json({ quote_id: quote.public_id, sites, activation_preflight });
+}
+
+// ---------------------------------------------------------------------------
+// R5 — Quote publish/activation preflight (fix-contract v2.4 05 §5.2).
+//
+// New CALLERS over the EXISTING §12.11 machinery (rebuildDerivedIndexes +
+// sectionValidationStatus + the §5.1 eligibility loader) — no new validation
+// logic. Computed at (a) variant save (stored verdict, advisory) and (b)
+// activation PUT (authoritative recompute → HARD 409 on any block).
+// ---------------------------------------------------------------------------
+
+export interface QuoteActivationBlock {
+  section_id: string;
+  section_name: string;
+  offer_id: string;
+  offer_name: string;
+  code: string;
+  fields: string[];
+  fix_links: { section_mapping?: string; offer_schema?: string };
+}
+
+export interface QuoteActivationPreflight {
+  ok: boolean;
+  quote_id: string;
+  funnel_id: string;
+  funnel_variant_id: string;
+  blocks: QuoteActivationBlock[];
+  computed_at: number;
+}
+
+// KV key for the stored (advisory) per-variant verdict — the activation gate
+// always RECOMPUTES; the stored copy feeds the Phase-2 preflight panel.
+export function preflightKvKey(variantPublicId: string): string {
+  return `lg-preflight:${variantPublicId}`;
+}
+
+interface PreflightOfferRef {
+  id: number;
+  public_id: string;
+  offer_name: string;
+  calls_provider_api: number;
+  active_payload_schema_id: number | null;
+}
+
+const SECTION_MAPPING_LINK = (sectionPublicId: string): string =>
+  `/admin/leadgen/sections/${sectionPublicId}/edit#mapping`;
+const OFFER_SCHEMA_LINK = (offerPublicId: string): string =>
+  `/admin/leadgen/offers/${offerPublicId}/edit#payload`;
+
+// Flat schema field info from a schema_json blob (path → type + required
+// paths) — the same projection the §12.11 rebuild consumes.
+function schemaInfoFromJson(schemaJson: string | null): {
+  fieldTypes: Map<string, LeadgenPayloadNodeType>;
+  requiredFieldPaths: string[];
+} {
+  const fieldTypes = new Map<string, LeadgenPayloadNodeType>();
+  const requiredFieldPaths: string[] = [];
+  const parsed = parseJsonColumn(schemaJson);
+  if (isRecord(parsed) && isRecord(parsed["root"]) && Array.isArray((parsed["root"] as Record<string, unknown>)["children"])) {
+    for (const node of (parsed["root"] as { children: unknown[] }).children) {
+      if (!isRecord(node)) continue;
+      const path = typeof node["path"] === "string" ? node["path"] : "";
+      const type = typeof node["type"] === "string" ? node["type"] : "";
+      if (path === "" || type === "") continue;
+      fieldTypes.set(path, type as LeadgenPayloadNodeType);
+      if (node["required"] === true) requiredFieldPaths.push(path);
+    }
+  }
+  return { fieldTypes, requiredFieldPaths };
+}
+
+// Compute the §5.2 preflight for ONE variant. Every check calls the existing
+// machinery; blocks carry per-section/per-offer identity + typed code +
+// fields[] + fix links (the normative report shape).
+async function computeVariantPreflightBlocks(
+  db: D1Database,
+  variant: LeadgenFunnelVariantRow,
+): Promise<QuoteActivationBlock[]> {
+  const blocks: QuoteActivationBlock[] = [];
+  const sections = await readVariantSections(db, variant.id);
+  const activeSections = sections.filter((s) => s.status === "active");
+
+  // The variant-wide internal-field set (dependency targets must exist).
+  interface SectionContentRow {
+    id: number;
+    public_id: string;
+    section_name: string;
+    content_json: string;
+  }
+  const contentRows = new Map<number, SectionContentRow>();
+  for (const s of activeSections) {
+    const row = await db
+      .prepare("SELECT id, public_id, section_name, content_json FROM leadgen_sections WHERE id = ? LIMIT 1")
+      .bind(s.section_id)
+      .first<SectionContentRow>();
+    if (row !== null) contentRows.set(s.section_id, row);
+  }
+  const knownFields = new Set<string>();
+  const componentsBySection = new Map<number, Record<string, unknown>[]>();
+  for (const [sectionId, row] of contentRows) {
+    const parsed = parseJsonColumn(row.content_json);
+    const components =
+      isRecord(parsed) && Array.isArray(parsed["components"])
+        ? (parsed["components"] as unknown[]).filter(isRecord)
+        : [];
+    componentsBySection.set(sectionId, components);
+    for (const node of components) {
+      if (typeof node["internal_field"] === "string" && node["internal_field"] !== "") {
+        knownFields.add(node["internal_field"]);
+      }
+    }
+  }
+
+  for (const s of activeSections) {
+    const content = contentRows.get(s.section_id);
+    if (content === undefined) continue;
+
+    // §5.2 "a dependency references a missing field" — the shared conditional
+    // shape {when, op, …} over the VARIANT's internal-field space.
+    for (const node of componentsBySection.get(s.section_id) ?? []) {
+      const conditional = node["conditional"];
+      if (isRecord(conditional) && typeof conditional["when"] === "string" && conditional["when"] !== "") {
+        const when = conditional["when"];
+        if (!knownFields.has(when)) {
+          blocks.push({
+            section_id: content.public_id,
+            section_name: content.section_name,
+            offer_id: "",
+            offer_name: "",
+            code: "dependency_missing_field",
+            fields: [when],
+            fix_links: { section_mapping: SECTION_MAPPING_LINK(content.public_id) },
+          });
+        }
+      }
+    }
+
+    // Stored mapping rows + selected offers for THIS section.
+    const mapRows = await db
+      .prepare("SELECT * FROM leadgen_section_answer_maps WHERE section_id = ?")
+      .bind(s.section_id)
+      .all<{
+        question_id: string;
+        question_key: string;
+        internal_field: string;
+        answer_type: string;
+        offer_id: number;
+        offer_payload_field_path: string;
+        provider_expected_type: string;
+        output_value_map_json: string | null;
+        transform_json: string | null;
+        required_for_offer: number;
+        default_value: string | null;
+        fallback_value: string | null;
+      }>();
+    const selectedRows = await db
+      .prepare("SELECT offer_id FROM leadgen_section_available_offers WHERE section_id = ? AND selected = 1")
+      .bind(s.section_id)
+      .all<{ offer_id: number }>();
+    const selectedOfferIds = new Set((selectedRows.results ?? []).map((r) => r.offer_id));
+    const mappedOfferIds = new Set((mapRows.results ?? []).map((r) => r.offer_id));
+    const offerIds = [...new Set([...selectedOfferIds, ...mappedOfferIds])];
+    if (offerIds.length === 0) continue;
+
+    // Offer refs + active-schema info (chunked ≤80 — D1 binding rule).
+    const offerRefs = new Map<number, PreflightOfferRef>();
+    for (let i = 0; i < offerIds.length; i += 80) {
+      const ids = offerIds.slice(i, i + 80);
+      const marks = ids.map(() => "?").join(",");
+      const rows = await db
+        .prepare(
+          `SELECT id, public_id, offer_name, calls_provider_api, active_payload_schema_id FROM leadgen_offers WHERE id IN (${marks})`,
+        )
+        .bind(...ids)
+        .all<PreflightOfferRef>();
+      for (const r of rows.results ?? []) offerRefs.set(r.id, r);
+    }
+    const offerSchemas = new Map<number, OfferSchemaInfo>();
+    for (const [offerId, ref] of offerRefs) {
+      let schemaRow: { public_id: string; schema_json: string | null } | null = null;
+      if (ref.active_payload_schema_id !== null) {
+        schemaRow = await db
+          .prepare("SELECT public_id, schema_json FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1")
+          .bind(ref.active_payload_schema_id)
+          .first<{ public_id: string; schema_json: string | null }>();
+      }
+      const info = schemaInfoFromJson(schemaRow?.schema_json ?? null);
+      offerSchemas.set(offerId, {
+        status: "active",
+        activity: "",
+        vertical: "",
+        active_schema_id: ref.active_payload_schema_id,
+        active_schema_public_id: schemaRow?.public_id ?? null,
+        fieldTypes: info.fieldTypes,
+        requiredFieldPaths: info.requiredFieldPaths,
+      });
+    }
+
+    // The §12.11 rebuild + verdict — THE existing machinery.
+    const edges: LeadgenAnswerMapEdge[] = (mapRows.results ?? []).map((r) => ({
+      question_id: r.question_id,
+      question_key: r.question_key,
+      internal_field: r.internal_field,
+      answer_type: r.answer_type,
+      offer_id: r.offer_id,
+      offer_payload_field_path: r.offer_payload_field_path,
+      provider_expected_type: r.provider_expected_type,
+      output_value_map: (parseJsonColumn(r.output_value_map_json) as Record<string, unknown> | null) ?? null,
+      value_transform: (parseJsonColumn(r.transform_json) as LeadgenTransformStep[] | null) ?? null,
+      required_for_offer: r.required_for_offer !== 0,
+      default_value: r.default_value,
+      fallback_value: r.fallback_value,
+    }));
+    const rebuilt = rebuildDerivedIndexes({
+      content: { components: (componentsBySection.get(s.section_id) ?? []) as never },
+      answerMaps: edges,
+      offerSchemas,
+      selectedOfferIds,
+    });
+    const verdict = sectionValidationStatus(rebuilt);
+
+    for (const offerVerdict of verdict.offers) {
+      // Only SELECTED Offers gate activation (§5.2 "for a selected Offer").
+      if (!selectedOfferIds.has(offerVerdict.offer_id)) continue;
+      const ref = offerRefs.get(offerVerdict.offer_id);
+      const offerPublicId = ref?.public_id ?? String(offerVerdict.offer_id);
+      const offerName = ref?.offer_name ?? "";
+      const fixLinks = {
+        section_mapping: SECTION_MAPPING_LINK(content?.public_id ?? ""),
+        offer_schema: OFFER_SCHEMA_LINK(offerPublicId),
+      };
+      const pushBlock = (code: string, fields: string[]): void => {
+        blocks.push({
+          section_id: content?.public_id ?? "",
+          section_name: content?.section_name ?? "",
+          offer_id: offerPublicId,
+          offer_name: offerName,
+          code,
+          fields,
+          fix_links: fixLinks,
+        });
+      };
+
+      // §5.2 "payload schema version missing": a selected DYNAMIC Offer with
+      // no active schema cannot be validated at all.
+      if (ref !== undefined && ref.calls_provider_api === 1 && ref.active_payload_schema_id === null) {
+        pushBlock("payload_schema_version_missing", []);
+        continue;
+      }
+      if (offerVerdict.validation_status !== "error") continue;
+
+      // Typed codes from the rebuilt edge states (the machinery's own rows).
+      const offerEdges = rebuilt.answerMaps.filter((r) => r.offer_id === offerVerdict.offer_id);
+      const orphaned = offerEdges.filter((r) => r.mapping_completeness === "orphaned").map((r) => r.offer_payload_field_path);
+      const mismatched = offerEdges.filter((r) => r.mapping_completeness === "type_mismatch").map((r) => r.offer_payload_field_path);
+      if (orphaned.length > 0) pushBlock("orphaned_provider_fields", orphaned);
+      if (mismatched.length > 0) pushBlock("type_conversion_invalid", mismatched);
+      const schemaInfo = offerSchemas.get(offerVerdict.offer_id);
+      const mappedComplete = new Set(
+        offerEdges.filter((r) => r.mapping_completeness === "complete").map((r) => r.offer_payload_field_path),
+      );
+      const missingRequired = (schemaInfo?.requiredFieldPaths ?? []).filter((p) => !mappedComplete.has(p));
+      if (missingRequired.length > 0) pushBlock("missing_required_provider_fields", missingRequired);
+      if (orphaned.length === 0 && mismatched.length === 0 && missingRequired.length === 0) {
+        // The machinery flagged an error we could not decompose — surface it
+        // as the generic incomplete-mapping block (never silently pass).
+        pushBlock("mapping_incomplete", offerVerdict.reasons);
+      }
+    }
+  }
+
+  // §5.2 "the final auction config invalid" + "any participating dynamic
+  // Offer ineligible (§5.1)".
+  if (variant.auction_id !== null) {
+    const auctionRow = await db
+      .prepare("SELECT id, public_id FROM leadgen_auctions WHERE id = ? LIMIT 1")
+      .bind(variant.auction_id)
+      .first<{ id: number; public_id: string }>();
+    if (auctionRow === null) {
+      blocks.push({
+        section_id: "",
+        section_name: "",
+        offer_id: "",
+        offer_name: "",
+        code: "auction_config_invalid",
+        fields: [`auction_id ${variant.auction_id} does not exist`],
+        fix_links: {},
+      });
+    } else {
+      const participating = await db
+        .prepare("SELECT offer_id FROM leadgen_auction_offers WHERE auction_id = ? AND enabled = 1")
+        .bind(auctionRow.id)
+        .all<{ offer_id: number }>();
+      const eligibility = await evaluateDynamicOffersEligibility(
+        db,
+        (participating.results ?? []).map((r) => r.offer_id),
+        "production",
+      );
+      for (const row of eligibility.values()) {
+        if (row.verdict.eligible) continue;
+        blocks.push({
+          section_id: "",
+          section_name: "",
+          offer_id: row.offer_public_id,
+          offer_name: row.offer_name,
+          code: "offer_ineligible",
+          fields: [...row.verdict.reasons],
+          fix_links: { offer_schema: OFFER_SCHEMA_LINK(row.offer_public_id) },
+        });
+      }
+    }
+  }
+
+  return blocks;
+}
+
+// Compute the quote-level preflight across every ACTIVE variant of every
+// funnel. The normative report stamps the FIRST blocking variant's identity
+// (the §5.2 shape carries one funnel/variant pair); blocks aggregate.
+export async function computeQuoteActivationPreflight(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  now: number = Date.now(),
+): Promise<QuoteActivationPreflight> {
+  const funnels = await readQuoteFunnels(db, quote.id);
+  let firstFunnelId = "";
+  let firstVariantId = "";
+  const blocks: QuoteActivationBlock[] = [];
+  for (const funnel of funnels) {
+    if (funnel.status !== "active") continue;
+    const variants = await readActiveFunnelVariants(db, funnel.id);
+    for (const variant of variants) {
+      const variantBlocks = await computeVariantPreflightBlocks(db, variant);
+      if (variantBlocks.length > 0 && firstVariantId === "") {
+        firstFunnelId = funnel.public_id;
+        firstVariantId = variant.public_id;
+      }
+      blocks.push(...variantBlocks);
+    }
+    if (firstFunnelId === "" && variants.length > 0) {
+      firstFunnelId = funnel.public_id;
+      firstVariantId = variants[0]?.public_id ?? "";
+    }
+  }
+  return {
+    ok: blocks.length === 0,
+    quote_id: quote.public_id,
+    funnel_id: firstFunnelId,
+    funnel_variant_id: firstVariantId,
+    blocks,
+    computed_at: now,
+  };
+}
+
+// The EXACT normative 409 body (05 §5.2).
+export function activationBlockedReport(preflight: QuoteActivationPreflight): Record<string, unknown> {
+  return {
+    error: "quote_activation_blocked",
+    quote_id: preflight.quote_id,
+    funnel_id: preflight.funnel_id,
+    funnel_variant_id: preflight.funnel_variant_id,
+    blocks: preflight.blocks.map((b) => ({
+      section_id: b.section_id,
+      section_name: b.section_name,
+      offer_id: b.offer_id,
+      offer_name: b.offer_name,
+      code: b.code,
+      fields: b.fields,
+      fix_links: b.fix_links,
+    })),
+  };
+}
+
+// Store the advisory per-variant verdict (variant-save leg — fail-open: KV
+// hiccups never break the save; the activation gate recomputes regardless).
+async function storeVariantPreflight(
+  c: AdminContext,
+  variant: LeadgenFunnelVariantRow,
+  quote: LeadgenQuoteRow,
+): Promise<QuoteActivationPreflight> {
+  const blocks = await computeVariantPreflightBlocks(c.env.DB, variant);
+  const funnel = await c.env.DB.prepare("SELECT public_id FROM leadgen_funnels WHERE id = ? LIMIT 1")
+    .bind(variant.funnel_id)
+    .first<{ public_id: string }>();
+  const preflight: QuoteActivationPreflight = {
+    ok: blocks.length === 0,
+    quote_id: quote.public_id,
+    funnel_id: funnel?.public_id ?? "",
+    funnel_variant_id: variant.public_id,
+    blocks,
+    computed_at: Date.now(),
+  };
+  try {
+    await c.env.CACHE.put(preflightKvKey(variant.public_id), JSON.stringify(preflight));
+  } catch {
+    /* advisory store is fail-open */
+  }
+  return preflight;
 }
 
 export async function putActivationHandler(c: AdminContext): Promise<Response> {
@@ -1631,6 +2043,17 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
     return c.json({ error: "Validation failed", fields }, 400);
   }
 
+  // R5 (05 §5.2): ENABLING a quote on a site HARD-BLOCKS with the normative
+  // 409 report while any preflight block exists (incomplete/orphaned/invalid
+  // mappings, unmapped required provider fields, missing schema version,
+  // missing dependency fields, invalid auction config, §5.1-ineligible
+  // participating dynamic Offers). Disabling is never blocked. The verdict is
+  // RECOMPUTED here — the stored variant-save copy is advisory only.
+  const preflight = await computeQuoteActivationPreflight(c.env.DB, quote);
+  if (enabled && !preflight.ok) {
+    return c.json(activationBlockedReport(preflight), 409);
+  }
+
   if (existingForQuote === null) {
     await c.env.DB.prepare(
       `INSERT INTO leadgen_site_quotes (site_id, quote_id, enabled, slug, settings_overrides_json)
@@ -1661,7 +2084,13 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
   // change the baked-in GA4 id (settings_overrides_json) — none bump content_version,
   // so evict this site's stale funnel shells + configs. Non-blocking; fail-open.
   scheduleActivationInvalidate(c, siteId);
-  return c.json({ ...siteQuoteRowToApi(row), preview_url: previewUrl(domainRow?.domain ?? null, row.slug) });
+  // Additive (§5.2 — the Phase-2 preflight panel reads it): the recomputed
+  // verdict rides the success response (PASS state = ok:true, blocks:[]).
+  return c.json({
+    ...siteQuoteRowToApi(row),
+    preview_url: previewUrl(domainRow?.domain ?? null, row.slug),
+    activation_preflight: preflight,
+  });
 }
 
 export async function deleteActivationHandler(c: AdminContext): Promise<Response> {

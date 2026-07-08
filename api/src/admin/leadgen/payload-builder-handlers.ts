@@ -38,6 +38,10 @@ import { readEnvSecret } from "../../env";
 import { ulid } from "../../leadgen/ids";
 import { resolveMacros } from "../../leadgen/macros";
 import { buildPayload, inferSchemaFromExample, type LeadgenPayloadSchema } from "../../leadgen/payload";
+import {
+  buildLeadgenRuntimeContext,
+  type LeadgenRuntimeContextOverrides,
+} from "../../leadgen/runtime-context";
 import { REDACTED_VALUE, maskPaths, maskSecretHeaders, redactPii } from "../../leadgen/redact";
 import { parseProviderResponse } from "../../public/leadgen/auction/parse";
 import type { LeadgenOfferPayloadSchemaRow } from "./db-types";
@@ -71,6 +75,55 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function is2xx(status: number | null): boolean {
   return status !== null && status >= 200 && status < 300;
+}
+
+// The B5 overridable simulated-context fields (fix-contract v2.4 04 §4.7.2):
+// exactly the runtime-context override bag's keys. The Test tool is the ONLY
+// surface that may pass overrides — public routes never accept them.
+const TEST_OVERRIDE_KEYS = [
+  "ip",
+  "ua",
+  "url",
+  "referer",
+  "language",
+  "country",
+  "region",
+  "state",
+  "city",
+  "postalCode",
+  "timezone",
+  "colo",
+  "utm_source",
+  "utm_medium",
+  "utm_content",
+  "traffic_source",
+  "placement",
+  "sub1",
+  "sub2",
+  "sub3",
+  "sub4",
+  "sub5",
+  "cpc",
+  "fbclid",
+  "fbc",
+] as const;
+const TEST_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(TEST_OVERRIDE_KEYS);
+
+// Parse + validate the request's `overrides` object → the builder's typed
+// bag. Unknown keys / non-string values are typed 400s (never silently
+// dropped — the operator meant to simulate something).
+function parseTestOverrides(raw: unknown): { overrides?: LeadgenRuntimeContextOverrides; error?: string } {
+  if (raw === undefined) return {};
+  if (!isRecord(raw)) return { error: "overrides must be an object of string fields" };
+  const overrides: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!TEST_OVERRIDE_KEY_SET.has(key)) {
+      return { error: `unknown override '${key}' (valid: ${TEST_OVERRIDE_KEYS.join(", ")})` };
+    }
+    if (typeof value !== "string") return { error: `override '${key}' must be a string` };
+    overrides[key] = value;
+  }
+  return { overrides: overrides as LeadgenRuntimeContextOverrides };
 }
 
 // --- AES-GCM debug-blob encryption (WebCrypto; authored convention above) ---
@@ -200,13 +253,67 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
 
   const notes: LeadgenTestNote[] = [];
 
-  // Canonical-macro runtime ctx for a TEST run: only the offer's own
-  // identity macros have real values here; everything else resolves empty
-  // (the macros.ts unresolved-macro policy) — there is no live session.
-  const macroValues: Record<string, string> = {
-    offer_id: offer.public_id,
-    offer_name: offer.offer_name,
-  };
+  // --- B5 simulated context (fix-contract v2.4 04 §4.7.2) -------------------
+  // The Test tool builds its context through the SAME canonical builder the
+  // runtime uses (buildLeadgenRuntimeContext) so Test and runtime can never
+  // drift: defaults mirror runtime (this admin request's own ip/ua/cf/URL
+  // slices stand in), and the operator may override the B5 field set.
+  const overridesParse = parseTestOverrides(body["overrides"]);
+  if (overridesParse.error !== undefined) {
+    return c.json({ error: "Validation failed", fields: { overrides: overridesParse.error } }, 400);
+  }
+
+  // §4.5 placement in scope: the operator-selected placement
+  // (`offer_placement_id`: lgp_ public id or numeric id, must belong to this
+  // Offer) — default: the Offer's is_default placement. The provider-facing
+  // `placement_id` column value feeds the macro/payload; the public_id goes to
+  // the log row.
+  interface PlacementRow { id: number; public_id: string; placement_id: string }
+  let placementRow: PlacementRow | null = null;
+  const placementRef = body["offer_placement_id"];
+  if (placementRef !== undefined && placementRef !== null && placementRef !== "") {
+    if (typeof placementRef === "number" && Number.isInteger(placementRef)) {
+      placementRow = await c.env.DB.prepare(
+        "SELECT id, public_id, placement_id FROM leadgen_offer_placements WHERE id = ? AND offer_id = ? LIMIT 1",
+      )
+        .bind(placementRef, offer.id)
+        .first<PlacementRow>();
+    } else if (typeof placementRef === "string") {
+      placementRow = await c.env.DB.prepare(
+        "SELECT id, public_id, placement_id FROM leadgen_offer_placements WHERE public_id = ? AND offer_id = ? LIMIT 1",
+      )
+        .bind(placementRef, offer.id)
+        .first<PlacementRow>();
+    }
+    if (placementRow === null) {
+      return c.json(
+        { error: "Validation failed", fields: { offer_placement_id: "placement not found on this offer" } },
+        400,
+      );
+    }
+  } else {
+    placementRow = await c.env.DB.prepare(
+      "SELECT id, public_id, placement_id FROM leadgen_offer_placements WHERE offer_id = ? AND is_default = 1 LIMIT 1",
+    )
+      .bind(offer.id)
+      .first<PlacementRow>();
+  }
+
+  const simulatedCtx = buildLeadgenRuntimeContext(c.req.raw, {
+    session_id: "",
+    page_view_id: "",
+    funnel_attempt_id: "",
+    quote: "",
+    funnel: "",
+    variant: "",
+    offer: {
+      offer_id: offer.public_id,
+      offer_name: offer.offer_name,
+      placement_id: placementRow?.placement_id ?? undefined,
+    },
+    ...(overridesParse.overrides !== undefined ? { overrides: overridesParse.overrides } : {}),
+  });
+  const macroValues: Record<string, string> = simulatedCtx.macros;
 
   const secretRef =
     typeof offer.api_token_secret_ref === "string" && offer.api_token_secret_ref.trim() !== ""
@@ -226,6 +333,11 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   const payload = buildPayload(schema, {
     answers: sampleAnswers,
     macros: macroValues,
+    // §4.7.2 parity: computed + the offer/placement slice come from the SAME
+    // simulated context — an identical simulated context therefore yields the
+    // identical payload the runtime builder produces.
+    computed: simulatedCtx.computed,
+    ...(simulatedCtx.offer !== undefined ? { offer: simulatedCtx.offer } : {}),
     token: {
       ...(tokenValue !== undefined ? { value: tokenValue } : {}),
       api_token_placement: offer.api_token_placement,
@@ -316,6 +428,15 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   // typed notes, §30.2 masking). SKIPPED: the outbound fetch, the
   // sample_response_json persistence, the provider_request_log row, and the
   // debug blob — a dry run leaves NO trace beyond its response.
+  // The simulated-context echo (additive — the Phase-2 Test-tab context panel
+  // reads it): which placement + macro/computed values fed this build.
+  const contextUsed = {
+    placement_public_id: placementRow?.public_id ?? null,
+    placement_id: placementRow?.placement_id ?? null,
+    macros: macroValues,
+    computed: simulatedCtx.computed,
+  };
+
   if (dryRun) {
     return c.json({
       dry_run: true,
@@ -332,6 +453,7 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
       notes,
       provider_error_reason: null,
       debug_ref: null,
+      context_used: contextUsed,
     });
   }
 
@@ -422,13 +544,10 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   }
 
   // --- redacted provider-request log row (§30.3) ----------------------------
+  // §4.5 explainability: the row records WHICH placement the Test used (the
+  // operator-selected/default one resolved above — no second lookup).
   const maskedHeaders = maskSecretHeaders(sentHeaders, secretHeaderNames);
   const maskedPayload = maskPaths(payload, tokenPaths);
-  const defaultPlacement = await c.env.DB.prepare(
-    "SELECT public_id FROM leadgen_offer_placements WHERE offer_id = ? AND is_default = 1 LIMIT 1",
-  )
-    .bind(offer.id)
-    .first<{ public_id: string }>();
   await c.env.DB.prepare(
     `INSERT INTO leadgen_provider_request_log
        (provider_request_id, offer_public_id, placement_public_id, carrier_parse_version,
@@ -440,7 +559,7 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     .bind(
       ulid(),
       offer.public_id,
-      defaultPlacement?.public_id ?? null,
+      placementRow?.public_id ?? null,
       schemaRow.carrier_parse_version,
       environment,
       statusCode,
@@ -483,5 +602,6 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     notes,
     provider_error_reason: providerErrorReason,
     debug_ref: debugRef,
+    context_used: contextUsed,
   });
 }
