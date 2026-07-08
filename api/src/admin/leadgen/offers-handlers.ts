@@ -33,7 +33,13 @@ import type { Env } from "../../env";
 import { isPublicId, mintPublicId, type PublicIdKind } from "../../leadgen/ids";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
-import { inferSchemaFromExample, validatePayloadSchema } from "../../leadgen/payload";
+import {
+  inferSchemaFromExample,
+  splitPayloadSchemaErrors,
+  validatePayloadSchema,
+  type LeadgenPayloadNode,
+} from "../../leadgen/payload";
+import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import {
   LEADGEN_BID_SOURCES,
   LEADGEN_CAP_COUNT_BY,
@@ -274,10 +280,173 @@ async function offerEligibilityVerdicts(
   return out;
 }
 
+// §6.1 (fix-contract v2.4): the ADDITIVE `last_test_at` riding the Offer
+// detail responses — MAX(created_at) over the Offer's TEST-TOOL provider-log
+// rows. Scoping mirrors LEADGEN_TEST_STATUS_SUBSELECT exactly
+// (auction_instance_id IS NULL — runtime auction rows never count as an
+// operator Test). created_at is unixepoch seconds → ISO string; no rows →
+// null. Fail-open like the eligibility loader: a read error yields null.
+async function offerLastTestAt(db: D1Database, offerPublicId: string): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT MAX(created_at) AS t FROM leadgen_provider_request_log
+          WHERE offer_public_id = ? AND auction_instance_id IS NULL`,
+      )
+      .bind(offerPublicId)
+      .first<{ t: number | null }>();
+    const t = row?.t;
+    return typeof t === "number" && Number.isFinite(t) ? new Date(t * 1000).toISOString() : null;
+  } catch (err) {
+    console.warn("[lg-last-test] loader failed", err instanceof Error ? err.name : String(err));
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// fix-contract v2.4 12 Phase-2: the ADDITIVE `builder_context` projection the
+// rebuilt payload-builder UI reads off the Offer GET — the ACTIVE schema's
+// parsed node list (per-node `source` included, §6.2 grouped source picker)
+// plus the linked-Section internal-field inventory feeding the §6.2 "User
+// answer" picker and the §6.10 condition-field dropdown.
+// ---------------------------------------------------------------------------
+
+// One answer-emitting component of a Section linked to the Offer (via
+// leadgen_section_available_offers). The pinned builder_context row projects
+// {internal_field, section_public_id, section_name, answer_type,
+// choice_count}; the extra component fields feed the B4 sample-answer
+// generator (payload-builder-handlers.ts) so both surfaces read ONE loader.
+export interface LeadgenLinkedSectionField {
+  internal_field: string;
+  section_public_id: string;
+  section_name: string;
+  answer_type: string;
+  choice_count: number;
+  component_type: string;
+  choices: Array<{ value: string | number | boolean; label: string }>;
+  props: Record<string, unknown>;
+}
+
+function isChoicePrimitive(value: unknown): value is string | number | boolean {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+// Enumerate the answer fields of every Section linked to the Offer: parse
+// each linked Section's content_json and keep the components carrying a
+// non-empty internal_field (the countQuestions convention — multi-field
+// components like NameFieldsGroup/AddressAutocompleteQuestion expose no
+// single internal_field and are outside the §6.2 single-field picker).
+// answer_type falls back to the catalog's `produces` when the node omits it.
+// ONE query via the join (a single bound param — no IN() list, trivially
+// inside the 100-binding limit); rows ordered by section_name for a
+// deterministic picker; per-Section duplicate internal_fields keep the first.
+export async function readLinkedSectionFields(
+  db: D1Database,
+  offerId: number,
+): Promise<LeadgenLinkedSectionField[]> {
+  const sections = await db
+    .prepare(
+      `SELECT s.public_id, s.section_name, s.content_json
+       FROM leadgen_section_available_offers sao
+       JOIN leadgen_sections s ON s.id = sao.section_id
+       WHERE sao.offer_id = ?
+       ORDER BY s.section_name ASC, s.id ASC`,
+    )
+    .bind(offerId)
+    .all<{ public_id: string; section_name: string; content_json: string }>();
+
+  const out: LeadgenLinkedSectionField[] = [];
+  for (const section of sections.results ?? []) {
+    const parsed = parseJsonColumn(section.content_json);
+    if (!isRecord(parsed) || !Array.isArray(parsed["components"])) continue;
+    const seen = new Set<string>();
+    for (const raw of parsed["components"]) {
+      if (!isRecord(raw)) continue;
+      const internalField = raw["internal_field"];
+      if (typeof internalField !== "string" || internalField.trim() === "") continue;
+      if (seen.has(internalField)) continue;
+      seen.add(internalField);
+      const componentType = typeof raw["type"] === "string" ? raw["type"] : "";
+      const catalogProduces = Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, componentType)
+        ? COMPONENT_CATALOG[componentType as keyof typeof COMPONENT_CATALOG].produces
+        : null;
+      const answerType =
+        typeof raw["answer_type"] === "string" && raw["answer_type"] !== ""
+          ? raw["answer_type"]
+          : (catalogProduces ?? "string");
+      const choices: Array<{ value: string | number | boolean; label: string }> = [];
+      if (Array.isArray(raw["choices"])) {
+        for (const choice of raw["choices"]) {
+          if (!isRecord(choice) || !isChoicePrimitive(choice["value"])) continue;
+          choices.push({
+            value: choice["value"],
+            label: typeof choice["label"] === "string" ? choice["label"] : String(choice["value"]),
+          });
+        }
+      }
+      out.push({
+        internal_field: internalField,
+        section_public_id: section.public_id,
+        section_name: section.section_name,
+        answer_type: answerType,
+        choice_count: choices.length,
+        component_type: componentType,
+        choices,
+        props: isRecord(raw["props"]) ? (raw["props"] as Record<string, unknown>) : {},
+      });
+    }
+  }
+  return out;
+}
+
+// The ACTIVE schema's parsed node list (defensive: an unreadable stored
+// schema yields nodes:[] — the B7 gates own error surfacing, this projection
+// only feeds the tree/editor).
+async function offerBuilderContext(
+  db: D1Database,
+  row: LeadgenOfferRow,
+): Promise<Record<string, unknown>> {
+  let activeSchema: Record<string, unknown> | null = null;
+  if (row.active_payload_schema_id !== null) {
+    const schemaRow = await db
+      .prepare(
+        "SELECT id, public_id, version, schema_json FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
+      )
+      .bind(row.active_payload_schema_id)
+      .first<{ id: number; public_id: string; version: number; schema_json: string }>();
+    if (schemaRow) {
+      const parsed = parseJsonColumn(schemaRow.schema_json);
+      const nodes: LeadgenPayloadNode[] =
+        isRecord(parsed) && isRecord(parsed["root"]) && Array.isArray(parsed["root"]["children"])
+          ? (parsed["root"]["children"].filter(isRecord) as unknown as LeadgenPayloadNode[])
+          : [];
+      activeSchema = {
+        id: schemaRow.id,
+        public_id: schemaRow.public_id,
+        version: schemaRow.version,
+        nodes,
+      };
+    }
+  }
+  const linkedFields = await readLinkedSectionFields(db, row.id);
+  return {
+    active_schema: activeSchema,
+    linked_fields: linkedFields.map((f) => ({
+      internal_field: f.internal_field,
+      section_public_id: f.section_public_id,
+      section_name: f.section_name,
+      answer_type: f.answer_type,
+      choice_count: f.choice_count,
+    })),
+  };
+}
+
 // The Offer detail shape: the mapped API row + its three editor collections
 // (placements seed with the offer, §10.1, and ride the PATCH replace-set;
 // headers + region rules ride the editor tabs, §10.4/§11.3 — no dedicated
-// routes in 03 §8.2) + the additive 05 §5.1 `eligibility` verdict.
+// routes in 03 §8.2) + the additive 05 §5.1 `eligibility` verdict + the
+// additive Phase-2 `builder_context` projection (above) + the additive §6.1
+// `last_test_at` timestamp.
 async function offerDetailJson(
   db: D1Database,
   row: LeadgenOfferRow,
@@ -297,6 +466,8 @@ async function offerDetailJson(
     headers,
     region_rules: (rules.results ?? []).map(regionRuleRowToApi),
     eligibility: eligibility.get(row.id) ?? null,
+    builder_context: await offerBuilderContext(db, row),
+    last_test_at: await offerLastTestAt(db, row.public_id),
   };
 }
 
@@ -1449,13 +1620,17 @@ export async function createPayloadSchemaHandler(c: AdminContext): Promise<Respo
       400,
     );
   }
+  // B7 pre-save gate (fix-contract v2.4 05 §5.5): BLOCKING-class errors
+  // reject the save (the full typed error list rides along for the §6.11
+  // validation panel); warning-class findings persist WITH the version and
+  // ride the 201 response as `warnings[]`.
   const validation = validatePayloadSchema(rawSchema);
-  if (!validation.ok) {
-    // The full typed error list rides along for the §11.1 validation panel.
+  const { blocking, warnings } = splitPayloadSchemaErrors(validation.errors);
+  if (blocking.length > 0) {
     return c.json(
       {
         error: "Validation failed",
-        fields: { schema_json: validation.errors[0]?.message ?? "schema_json is invalid" },
+        fields: { schema_json: blocking[0]?.message ?? "schema_json is invalid" },
         schema_errors: validation.errors,
       },
       400,
@@ -1487,7 +1662,9 @@ export async function createPayloadSchemaHandler(c: AdminContext): Promise<Respo
     "manual",
   );
   if (created === null) return c.json({ error: "Insert failed" }, 500);
-  return c.json(schemaRowToApi(created), 201);
+  // Additive B7 field: ALWAYS present (empty when clean) so the §6.11 panel
+  // footer reads one stable shape.
+  return c.json({ ...schemaRowToApi(created), warnings }, 201);
 }
 
 // §11.2 automatic generation: paste an example provider payload → inferred

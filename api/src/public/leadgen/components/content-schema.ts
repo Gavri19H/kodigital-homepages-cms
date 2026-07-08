@@ -42,6 +42,22 @@ export interface LeadgenChoice {
   imageMediaId?: string;
 }
 
+// B9 Other-group display metadata MIRROR (fix-contract v2.4 06 §6.4) — the
+// schema-side original lives on the Offer payload node (payload.ts
+// LeadgenPayloadChoiceDisplay); a Section node carries this mirrored copy
+// where it renders the choices. Every field is OPTIONAL in storage: the
+// Phase-1 render leg (presets.ts readChoiceDisplay — the SINGLE normalizing
+// reader) applies the contract defaults (otherGroupLabel → "Other",
+// booleans → false). This module only VALIDATES the authored value.
+export interface LeadgenComponentChoiceDisplay {
+  // Choice values (matched by String(choice.value)) shown as normal choices;
+  // the rest fold into the "Other" secondary panel.
+  mainValues?: string[];
+  otherGroupEnabled?: boolean;
+  otherGroupLabel?: string;
+  searchableOther?: boolean;
+}
+
 // Inline dependency stored on a component (§12.3): "show/require this when
 // field <when> <op> <value>". `op` reuses the canonical LeadGen condition-op
 // vocabulary (db-types.ts / payload.ts — eq|neq|gt|lt|gte|lte|range|in|not_in).
@@ -96,6 +112,8 @@ export interface LeadgenComponentNode {
   required?: boolean;
   valid_values?: Array<string | number | boolean>;
   choices?: LeadgenChoice[];
+  // B9 §6.4 mirrored Other-group display metadata (choice components only).
+  choiceDisplay?: LeadgenComponentChoiceDisplay;
   conditional?: LeadgenComponentConditional;
   design_preset?: string;
   design_overrides?: LeadgenDesignOverrides;
@@ -128,7 +146,8 @@ export type SectionContentErrorCode =
   | "conditional_invalid"
   | "conditional_unknown_field"
   | "non_curated_override_key"
-  | "arbitrary_css_override";
+  | "arbitrary_css_override"
+  | "choice_display_invalid";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -400,6 +419,14 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       validateConditional(raw["conditional"], `${base}.conditional`, knownFields, push);
     }
 
+    // B9 §6.4 mirrored choiceDisplay (Phase-2 authoring leg): typed shape,
+    // known keys only, mainValues ⊆ the node's authored choice values. The
+    // render leg (readChoiceDisplay) stays defensive — this validation stops
+    // author mistakes at save.
+    if (raw["choiceDisplay"] !== undefined) {
+      validateChoiceDisplayMirror(raw["choiceDisplay"], raw["choices"], `${base}.choiceDisplay`, push);
+    }
+
     // design_overrides: curated keys only; token/scalar values, never CSS.
     if (raw["design_overrides"] !== undefined) {
       const overrides = raw["design_overrides"];
@@ -430,6 +457,90 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   }
 
   return { ok: errors.length === 0, errors };
+}
+
+// B9 §6.4 mirrored-choiceDisplay check (mirrors payload.ts
+// validateChoiceDisplay, with the Section-side domain: the node's authored
+// choices — mainValues members must equal String(choice.value) of one of
+// them, exactly how the render leg (presets.ts splitChoicesForOtherGroup)
+// matches membership).
+const CHOICE_DISPLAY_KEYS = [
+  "mainValues",
+  "otherGroupEnabled",
+  "otherGroupLabel",
+  "searchableOther",
+] as const;
+const CHOICE_DISPLAY_KEY_SET: ReadonlySet<string> = new Set(CHOICE_DISPLAY_KEYS);
+
+function validateChoiceDisplayMirror(
+  raw: unknown,
+  rawChoices: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(raw)) {
+    push("choice_display_invalid", path, "choiceDisplay must be an object");
+    return;
+  }
+  for (const key of Object.keys(raw)) {
+    if (!CHOICE_DISPLAY_KEY_SET.has(key)) {
+      push(
+        "choice_display_invalid",
+        `${path}.${key}`,
+        `unknown choiceDisplay key '${key}' (allowed: ${CHOICE_DISPLAY_KEYS.join(", ")})`,
+      );
+    }
+  }
+  const choiceValues = new Set<string>();
+  const hasChoices = Array.isArray(rawChoices) && rawChoices.length > 0;
+  if (hasChoices) {
+    for (const choice of rawChoices) {
+      if (isRecord(choice) && isChoicePrimitive(choice["value"])) {
+        choiceValues.add(String(choice["value"]));
+      }
+    }
+  } else {
+    push(
+      "choice_display_invalid",
+      path,
+      "choiceDisplay requires an authorable choices list on the same component",
+    );
+  }
+  const mainValues = raw["mainValues"];
+  if (mainValues !== undefined) {
+    if (!Array.isArray(mainValues)) {
+      push("choice_display_invalid", `${path}.mainValues`, "mainValues must be an array of strings");
+    } else {
+      const nonStrings = mainValues.filter((v) => typeof v !== "string");
+      if (nonStrings.length > 0) {
+        push(
+          "choice_display_invalid",
+          `${path}.mainValues`,
+          `mainValues must be strings (offenders: ${nonStrings.map((v) => JSON.stringify(v)).join(", ")})`,
+        );
+      }
+      if (hasChoices) {
+        const offenders = mainValues.filter(
+          (v): v is string => typeof v === "string" && !choiceValues.has(v),
+        );
+        if (offenders.length > 0) {
+          push(
+            "choice_display_invalid",
+            `${path}.mainValues`,
+            `mainValues not among this component's choice values: ${offenders.join(", ")}`,
+          );
+        }
+      }
+    }
+  }
+  for (const key of ["otherGroupEnabled", "searchableOther"] as const) {
+    if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
+      push("choice_display_invalid", `${path}.${key}`, `choiceDisplay.${key} must be a boolean`);
+    }
+  }
+  if (raw["otherGroupLabel"] !== undefined && typeof raw["otherGroupLabel"] !== "string") {
+    push("choice_display_invalid", `${path}.otherGroupLabel`, "choiceDisplay.otherGroupLabel must be a string");
+  }
 }
 
 // conditional shape check (mirrors payload.ts validateConditional) + the

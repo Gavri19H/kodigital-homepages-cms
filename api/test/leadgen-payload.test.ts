@@ -9,7 +9,14 @@ import {
   applyTransformPipeline,
   buildPayload,
   cleanObject,
+  FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH,
   inferSchemaFromExample,
+  isBlockingPayloadSchemaError,
+  isComputedValueRef,
+  LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES,
+  LEADGEN_PAYLOAD_WARNING_ERROR_CODES,
+  sanitizeFreeText,
+  splitPayloadSchemaErrors,
   validatePayloadSchema,
   type LeadgenPayloadBuildContext,
   type LeadgenPayloadNode,
@@ -250,6 +257,248 @@ describe("validatePayloadSchema — §11.5 shape", () => {
     expect(codes).toContain("token_node_invalid");
   });
 
+  // --- B9 choiceDisplay acceptance/rejection matrix (fix-contract v2.4 06 §6.4)
+
+  describe("choiceDisplay (B9 §6.4) — acceptance", () => {
+    const answerNode = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+      path: "carrier",
+      name: "carrier",
+      type: "string",
+      source: "answer",
+      internal_field: "carrier",
+      ...extra,
+    });
+
+    it("accepts a full choiceDisplay whose mainValues ⊆ value_map internal keys", () => {
+      const schema = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM", globex: "GLX", initech: "INI" },
+          choiceDisplay: {
+            mainValues: ["acme", "globex"],
+            otherGroupEnabled: true,
+            otherGroupLabel: "More carriers",
+            searchableOther: true,
+          },
+        }),
+      ]);
+      expect(validatePayloadSchema(schema).errors).toEqual([]);
+    });
+
+    it("accepts mainValues drawn from valid_values and from the value_map ∪ valid_values union", () => {
+      const fromValidValues = schemaWith([
+        answerNode({
+          type: "enum",
+          valid_values: ["gold", "silver", "bronze"],
+          choiceDisplay: { mainValues: ["gold"], otherGroupEnabled: true },
+        }),
+      ]);
+      expect(validatePayloadSchema(fromValidValues).errors).toEqual([]);
+
+      const fromUnion = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM" },
+          valid_values: ["ACM", "OTHER"],
+          choiceDisplay: { mainValues: ["acme", "OTHER"] },
+        }),
+      ]);
+      expect(validatePayloadSchema(fromUnion).errors).toEqual([]);
+    });
+
+    it("accepts a minimal/empty choiceDisplay — defaults (otherGroupLabel 'Other') apply at render", () => {
+      const schema = schemaWith([answerNode({ value_map: { a: 1 }, choiceDisplay: {} })]);
+      expect(validatePayloadSchema(schema).errors).toEqual([]);
+      const labelOmitted = schemaWith([
+        answerNode({
+          value_map: { a: 1 },
+          choiceDisplay: { mainValues: ["a"], otherGroupEnabled: true, searchableOther: false },
+        }),
+      ]);
+      expect(validatePayloadSchema(labelOmitted).errors).toEqual([]);
+    });
+
+    it("buildPayload is UNAFFECTED by choiceDisplay (display-only metadata)", () => {
+      const withDisplay = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM", globex: "GLX" },
+          choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true },
+        }),
+      ]);
+      const withoutDisplay = schemaWith([answerNode({ value_map: { acme: "ACM", globex: "GLX" } })]);
+      const answers = { carrier: "globex" }; // a SECONDARY (Other-panel) value
+      expect(buildPayload(withDisplay, ctx({ answers }))).toEqual(
+        buildPayload(withoutDisplay, ctx({ answers })),
+      );
+      // §6.4: the secondary selection emits its REAL provider output value.
+      expect(buildPayload(withDisplay, ctx({ answers }))).toEqual({ carrier: "GLX" });
+    });
+
+    it("§6.4 never-literal-'Other': the string 'Other' is sent ONLY when a mapping row outputs it", () => {
+      const schema = schemaWith([
+        answerNode({
+          value_map: { acme: "ACM", other_carrier: "Other" },
+          choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "Other" },
+        }),
+      ]);
+      // Selecting a secondary REAL value → its REAL output, never the label.
+      expect(buildPayload(schema, ctx({ answers: { carrier: "acme" } }))).toEqual({ carrier: "ACM" });
+      // Only an explicit mapping row whose provider output IS "Other" emits it.
+      expect(buildPayload(schema, ctx({ answers: { carrier: "other_carrier" } }))).toEqual({
+        carrier: "Other",
+      });
+      // The Other-group LABEL is not an answer value: a map miss → fallback path (absent here → dropped).
+      expect(buildPayload(schema, ctx({ answers: { carrier: "Other" } }))).toEqual({});
+    });
+  });
+
+  describe("choiceDisplay (B9 §6.4) — rejection (typed choice_display_invalid, warning-class)", () => {
+    const withDisplay = (choiceDisplay: unknown, extra: Partial<LeadgenPayloadNode> = {}): LeadgenPayloadSchema =>
+      schemaWith([
+        {
+          path: "carrier",
+          name: "carrier",
+          type: "string",
+          source: "answer",
+          internal_field: "carrier",
+          value_map: { acme: "ACM", globex: "GLX" },
+          choiceDisplay: choiceDisplay as LeadgenPayloadNode["choiceDisplay"],
+          ...extra,
+        },
+      ]);
+
+    const codesOf = (schema: LeadgenPayloadSchema): string[] =>
+      validatePayloadSchema(schema).errors.map((e) => e.code);
+
+    it("rejects a non-object choiceDisplay", () => {
+      for (const bad of ["yes", 5, ["a"], null]) {
+        expect(codesOf(withDisplay(bad))).toContain("choice_display_invalid");
+      }
+    });
+
+    it("rejects non-string mainValues members, naming the offenders", () => {
+      const result = validatePayloadSchema(withDisplay({ mainValues: ["acme", 7, true] }));
+      const error = result.errors.find((e) => e.code === "choice_display_invalid");
+      expect(error?.message).toContain("7");
+      expect(error?.message).toContain("true");
+      expect(error?.path).toBe("carrier");
+    });
+
+    it("rejects mainValues outside value_map keys ∪ valid_values, naming the offenders", () => {
+      const result = validatePayloadSchema(
+        withDisplay({ mainValues: ["acme", "ghost", "phantom"], otherGroupEnabled: true }),
+      );
+      const error = result.errors.find((e) => e.code === "choice_display_invalid");
+      expect(error?.message).toContain("ghost");
+      expect(error?.message).toContain("phantom");
+      expect(error?.message).not.toContain("acme,"); // in-domain member is not an offender
+    });
+
+    it("a node declaring NO value domain cannot mark main values", () => {
+      const schema = schemaWith([
+        {
+          path: "notes",
+          name: "notes",
+          type: "string",
+          source: "answer",
+          internal_field: "notes",
+          choiceDisplay: { mainValues: ["anything"] },
+        },
+      ]);
+      expect(codesOf(schema)).toContain("choice_display_invalid");
+    });
+
+    it("rejects unknown keys and mistyped otherGroupEnabled/otherGroupLabel/searchableOther", () => {
+      expect(codesOf(withDisplay({ rogue: 1 }))).toContain("choice_display_invalid");
+      expect(codesOf(withDisplay({ otherGroupEnabled: "yes" }))).toContain("choice_display_invalid");
+      expect(codesOf(withDisplay({ searchableOther: 1 }))).toContain("choice_display_invalid");
+      expect(codesOf(withDisplay({ otherGroupLabel: 42 }))).toContain("choice_display_invalid");
+    });
+
+    it("rejects choiceDisplay on non-answer nodes (static / macro / token)", () => {
+      const cases: LeadgenPayloadNode[] = [
+        { path: "a", name: "a", type: "string", source: "static", value: "x", choiceDisplay: {} },
+        { path: "b", name: "b", type: "string", source: "macro", macro: "ip", choiceDisplay: {} },
+        { path: "auth.t", name: "t", type: "string", source: "token", choiceDisplay: {} },
+      ];
+      for (const node of cases) {
+        const codes = validatePayloadSchema(schemaWith([node])).errors.map((e) => e.code);
+        expect(codes, `${node.source} node must reject choiceDisplay`).toContain("choice_display_invalid");
+      }
+    });
+  });
+
+  // --- B7 blocking vs warning classification (fix-contract v2.4 05 §5.5) ----
+
+  describe("blocking vs warning classification (B7 05 §5.5)", () => {
+    it("the two exported lists are disjoint; the warning class is exactly the two advisory codes", () => {
+      expect([...LEADGEN_PAYLOAD_WARNING_ERROR_CODES]).toEqual([
+        "enum_value_violation",
+        "choice_display_invalid",
+      ]);
+      for (const code of LEADGEN_PAYLOAD_WARNING_ERROR_CODES) {
+        expect(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES).not.toContain(code);
+        expect(isBlockingPayloadSchemaError(code)).toBe(false);
+      }
+      for (const code of LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES) {
+        expect(isBlockingPayloadSchemaError(code)).toBe(true);
+      }
+      // (compile-time exhaustiveness in payload.ts guarantees no code is
+      // missing from BOTH lists — a new code that isn't classified fails tsc)
+    });
+
+    it("splitPayloadSchemaErrors routes every error to its bucket", () => {
+      const errors = [
+        { code: "path_duplicate" as const, message: "dup" },
+        { code: "enum_value_violation" as const, path: "e", message: "warn" },
+        { code: "choice_display_invalid" as const, path: "c", message: "warn2" },
+        { code: "computed_unknown_key" as const, path: "k", message: "block" },
+      ];
+      const { blocking, warnings } = splitPayloadSchemaErrors(errors);
+      expect(blocking.map((e) => e.code)).toEqual(["path_duplicate", "computed_unknown_key"]);
+      expect(warnings.map((e) => e.code)).toEqual(["enum_value_violation", "choice_display_invalid"]);
+    });
+
+    it("ok means NO BLOCKING ERROR: warning-only schemas validate ok:true with errors[] carried", () => {
+      const warningOnly = schemaWith([
+        {
+          path: "tier",
+          name: "tier",
+          type: "enum",
+          source: "answer",
+          internal_field: "tier",
+          valid_values: ["gold", "silver"],
+          default: "zzz", // enum_value_violation — warning class
+          choiceDisplay: { mainValues: ["ghost"] }, // choice_display_invalid — warning class
+        },
+      ]);
+      const result = validatePayloadSchema(warningOnly);
+      expect(result.ok).toBe(true);
+      expect(result.errors.map((e) => e.code).sort()).toEqual([
+        "choice_display_invalid",
+        "enum_value_violation",
+      ]);
+    });
+
+    it("any blocking error keeps ok:false (warnings alongside change nothing)", () => {
+      const mixed = schemaWith([
+        {
+          path: "tier",
+          name: "tier",
+          type: "enum",
+          source: "answer",
+          internal_field: "tier",
+          valid_values: ["gold"],
+          default: "zzz",
+        },
+        { path: "tier", name: "tier", type: "string", source: "static", value: "x" }, // path_duplicate
+      ]);
+      const result = validatePayloadSchema(mixed);
+      expect(result.ok).toBe(false);
+      const { blocking, warnings } = splitPayloadSchemaErrors(result.errors);
+      expect(blocking.map((e) => e.code)).toContain("path_duplicate");
+      expect(warnings.map((e) => e.code)).toContain("enum_value_violation");
+    });
+  });
+
   it("validates conditionals (op set, range bounds, in values)", () => {
     const bad = schemaWith([
       {
@@ -286,6 +535,219 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       },
     ]);
     expect(validatePayloadSchema(bad).errors.filter((e) => e.code === "conditional_invalid")).toHaveLength(4);
+  });
+
+  // --- §6.5 free-text optional constraints (B12 completion) — validation ----
+
+  describe("free-text constraints (§6.5 B12) — validation matrix", () => {
+    const freeTextNode = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+      path: "first_name",
+      name: "first_name",
+      type: "string",
+      source: "answer",
+      internal_field: "first_name",
+      ...extra,
+    });
+    const codesOf = (schema: LeadgenPayloadSchema): string[] =>
+      validatePayloadSchema(schema).errors.map((e) => e.code);
+
+    it("accepts max length + every pattern preset (+ a sane custom regex) on a free-text node", () => {
+      expect(codesOf(schemaWith([freeTextNode({ free_text_max_length: 40 })]))).toEqual([]);
+      for (const pattern of ["none", "letters", "digits"] as const) {
+        expect(codesOf(schemaWith([freeTextNode({ free_text_pattern: pattern })])), pattern).toEqual([]);
+      }
+      expect(
+        codesOf(
+          schemaWith([
+            freeTextNode({
+              free_text_max_length: 10,
+              free_text_pattern: "custom",
+              free_text_pattern_custom: "^[A-Z]{2}[0-9]{4}$",
+            }),
+          ]),
+        ),
+      ).toEqual([]);
+    });
+
+    it("free_text_constraint_invalid is BLOCKING (exported list + classifier + ok:false)", () => {
+      expect(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES).toContain("free_text_constraint_invalid");
+      expect(LEADGEN_PAYLOAD_WARNING_ERROR_CODES).not.toContain("free_text_constraint_invalid");
+      expect(isBlockingPayloadSchemaError("free_text_constraint_invalid")).toBe(true);
+      expect(validatePayloadSchema(schemaWith([freeTextNode({ free_text_max_length: 0 })])).ok).toBe(false);
+    });
+
+    it("rejects non-positive / non-integer / non-number max lengths", () => {
+      for (const bad of [0, -3, 2.5, "40", true, null]) {
+        expect(
+          codesOf(schemaWith([freeTextNode({ free_text_max_length: bad as never })])),
+          `max_length ${JSON.stringify(bad)}`,
+        ).toContain("free_text_constraint_invalid");
+      }
+    });
+
+    it("rejects an unknown pattern preset", () => {
+      expect(codesOf(schemaWith([freeTextNode({ free_text_pattern: "words" as never })]))).toContain(
+        "free_text_constraint_invalid",
+      );
+    });
+
+    it("custom pattern: required with 'custom', forbidden with other presets, must compile", () => {
+      expect(codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom" })]))).toContain(
+        "free_text_constraint_invalid",
+      );
+      expect(
+        codesOf(
+          schemaWith([freeTextNode({ free_text_pattern: "digits", free_text_pattern_custom: "^\\d+$" })]),
+        ),
+      ).toContain("free_text_constraint_invalid");
+      expect(codesOf(schemaWith([freeTextNode({ free_text_pattern_custom: "^\\d+$" })]))).toContain(
+        "free_text_constraint_invalid",
+      );
+      expect(
+        codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: "([" })])),
+      ).toContain("free_text_constraint_invalid");
+    });
+
+    it("custom pattern is length-capped and regex bombs (nested quantifiers) are rejected", () => {
+      expect(
+        codesOf(
+          schemaWith([
+            freeTextNode({
+              free_text_pattern: "custom",
+              free_text_pattern_custom: "^" + "a".repeat(FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) + "$",
+            }),
+          ]),
+        ),
+      ).toContain("free_text_constraint_invalid");
+      // Exponential ReDoS shapes are refused at SAVE (no input cap bounds
+      // exponential blowup). The paren-depth-aware screen closes the ENTIRE
+      // family — incl. the NESTED-group evasions ((a)+)+ / (([a-z])+)+ that the
+      // old flat regex missed (adversarial re-review of c18bf8e) — and the
+      // quantified-alternation class (a|a)+ / (a|ab)*.
+      for (const bomb of [
+        "(a+)+$", "^(\\d*)*$", "(ab|a+){3,}", // nested quantifier / alternation-with-inner-quant
+        "(a|a)+$", "^(a|ab)*$", "(x|x|x)+$",   // quantified alternation
+        "((a)+)+$", "(([a-z])+)+$", "((a+))+$", "^((ab)*)*$", // NESTED-group evasions
+      ]) {
+        expect(
+          codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: bomb })])),
+          bomb,
+        ).toContain("free_text_constraint_invalid");
+      }
+      // Linear/deterministic shapes stay accepted: a quantified group with
+      // NEITHER an inner quantifier NOR an alternation; a bounded {n,m} nest;
+      // and plain anchored classes.
+      for (const safe of ["^(abc)+$", "^[A-Za-z ]+$", "^\\d{5}$", "^(ab){1,3}$", "^[A-Z]{2}[0-9]{4}$"]) {
+        expect(
+          codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: safe })])),
+          safe,
+        ).toEqual([]);
+      }
+    });
+
+    it("sanitizeFreeText strips C0 control chars + DEL, then trims", () => {
+      expect(sanitizeFreeText("  Alice\u0000 Smith\u0007 ")).toBe("Alice Smith");
+      expect(sanitizeFreeText("a\tb\r\nc\u007Fd")).toBe("abcd");
+      expect(sanitizeFreeText("   ")).toBe("");
+      expect(sanitizeFreeText("plain")).toBe("plain");
+    });
+
+    it("constraints ride ONLY free-text string answer nodes (typed, path-scoped)", () => {
+      const cases: Array<[string, LeadgenPayloadNode]> = [
+        ["mapped node", freeTextNode({ value_map: { a: "A" }, free_text_max_length: 5 })],
+        ["valid-values node", freeTextNode({ valid_values: ["a"], free_text_max_length: 5 })],
+        [
+          "static node",
+          { path: "x", name: "x", type: "string", source: "static", value: "v", free_text_max_length: 5 },
+        ],
+        ["number node", freeTextNode({ type: "number", free_text_max_length: 5 })],
+        ["macro node", { path: "m", name: "m", type: "string", source: "macro", macro: "ip", free_text_pattern: "digits" }],
+      ];
+      for (const [label, node] of cases) {
+        const errors = validatePayloadSchema(schemaWith([node])).errors;
+        const err = errors.find((e) => e.code === "free_text_constraint_invalid");
+        expect(err, label).toBeDefined();
+        expect(err?.path, label).toBe(node.path);
+      }
+    });
+  });
+
+  // --- §6.9 computed default/fallback references — validation ---------------
+
+  describe("computed default/fallback references (§6.9) — validation", () => {
+    const answerNode = (extra: Partial<LeadgenPayloadNode>): LeadgenPayloadNode => ({
+      path: "sent_at",
+      name: "sent_at",
+      type: "string",
+      source: "answer",
+      internal_field: "sent_at",
+      ...extra,
+    });
+    const codesOf = (schema: LeadgenPayloadSchema): string[] =>
+      validatePayloadSchema(schema).errors.map((e) => e.code);
+
+    it("accepts {source:'computed', key:<registry key>} in BOTH slots", () => {
+      expect(
+        codesOf(
+          schemaWith([
+            answerNode({
+              default: { source: "computed", key: "today_date_utc" },
+              fallback: { source: "computed", key: "iso_timestamp" },
+            }),
+          ]),
+        ),
+      ).toEqual([]);
+    });
+
+    it("unknown key → the existing computed_unknown_key, path-scoped, slot named", () => {
+      for (const slot of ["default", "fallback"] as const) {
+        const result = validatePayloadSchema(
+          schemaWith([answerNode({ [slot]: { source: "computed", key: "ghost_key" } })]),
+        );
+        expect(result.ok).toBe(false);
+        const err = result.errors.find((e) => e.code === "computed_unknown_key");
+        expect(err, slot).toBeDefined();
+        expect(err?.path, slot).toBe("sent_at");
+        expect(err?.message, slot).toContain(slot);
+        expect(err?.message, slot).toContain("ghost_key");
+      }
+    });
+
+    it("a ref-shaped object with a missing/blank key → computed_missing_key (never a silent literal)", () => {
+      for (const badRef of [{ source: "computed" }, { source: "computed", key: "" }, { source: "computed", key: 7 }]) {
+        const codes = codesOf(schemaWith([answerNode({ default: badRef })]));
+        expect(codes, JSON.stringify(badRef)).toContain("computed_missing_key");
+      }
+    });
+
+    it("enum nodes SKIP the static domain check for computed refs (dynamic value)", () => {
+      const schema = schemaWith([
+        answerNode({
+          type: "enum",
+          valid_values: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+          default: { source: "computed", key: "current_day_of_week_utc" },
+        }),
+      ]);
+      expect(codesOf(schema)).toEqual([]);
+    });
+
+    it("literal defaults stay literals: non-ref objects and looseJson strings raise no computed errors", () => {
+      const literalObject = schemaWith([
+        { path: "o", name: "o", type: "object", source: "answer", internal_field: "o", default: { a: 1 } },
+      ]);
+      expect(codesOf(literalObject)).toEqual([]);
+      const looseString = schemaWith([answerNode({ default: "18" })]);
+      expect(codesOf(looseString)).toEqual([]);
+    });
+
+    it("isComputedValueRef discriminates exactly", () => {
+      expect(isComputedValueRef({ source: "computed", key: "today_date_utc" })).toBe(true);
+      expect(isComputedValueRef({ source: "computed", key: "anything" })).toBe(true); // shape, not registry
+      expect(isComputedValueRef({ source: "computed" })).toBe(false);
+      expect(isComputedValueRef({ source: "macro", key: "ip" })).toBe(false);
+      expect(isComputedValueRef("computed")).toBe(false);
+      expect(isComputedValueRef(null)).toBe(false);
+    });
   });
 });
 

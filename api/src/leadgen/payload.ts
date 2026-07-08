@@ -57,6 +57,29 @@ export const LEADGEN_PAYLOAD_SOURCES = [
 ] as const;
 export type LeadgenPayloadSource = (typeof LEADGEN_PAYLOAD_SOURCES)[number];
 
+// §6.5 free-text pattern presets (B12) — the optional-constraint enum for
+// free-text string answer nodes. "none" = sanitize only (no pattern check);
+// "custom" requires free_text_pattern_custom.
+export const LEADGEN_FREE_TEXT_PATTERNS = ["none", "letters", "digits", "custom"] as const;
+export type LeadgenFreeTextPattern = (typeof LEADGEN_FREE_TEXT_PATTERNS)[number];
+
+// B9 Other-group display metadata (fix-contract v2.4 06 §6.4) — ADDITIVE,
+// stored on `source:"answer"` nodes only. buildPayload NEVER consumes it
+// (payload bytes are unaffected); the render leg is Phase 1's
+// `readChoiceDisplay` (public/leadgen/components/presets.ts), which also
+// applies the contract defaults (otherGroupLabel → "Other",
+// booleans → false) — so every field here is OPTIONAL in storage and an
+// existing schema without choiceDisplay re-saves byte-equivalent (§6.14).
+export interface LeadgenPayloadChoiceDisplay {
+  // Values shown as normal choices; everything else folds into "Other".
+  // Members must live inside the node's declared value domain:
+  // value_map internal keys ∪ valid_values (validated, §6.4).
+  mainValues?: string[];
+  otherGroupEnabled?: boolean;
+  otherGroupLabel?: string; // default "Other" (applied at render, not stored)
+  searchableOther?: boolean;
+}
+
 // Conditional show/hide (04 §11.1 / §11.5 "drop unmet conditional"). Same
 // `{when, op, value}` family the question builder stores inline (05 §12.3),
 // with ops from the 07 §21.4 typed-conditions set (db-types union). `when`
@@ -103,6 +126,18 @@ export interface LeadgenPayloadNode {
   internal_field?: string;
   value_map?: Record<string, unknown>;
   transform?: LeadgenTransformStep[];
+  // source:"answer" — B9 §6.4 Other-group display metadata (see interface).
+  choiceDisplay?: LeadgenPayloadChoiceDisplay;
+  // §6.5 free-text optional constraints (B12) — ADDITIVE, valid ONLY on
+  // free-text string answer nodes (source:"answer" + type:"string" + no
+  // value_map + no valid_values). At runtime the resolved value is
+  // sanitized (control chars stripped + trimmed) and checked; too long /
+  // pattern mismatch = INVALID → the standard fallback machinery. Nodes
+  // without these fields skip the leg entirely (§1.4 byte-compatibility).
+  free_text_max_length?: number;
+  free_text_pattern?: LeadgenFreeTextPattern;
+  // pattern:"custom" only — a length-capped, bomb-screened RegExp source.
+  free_text_pattern_custom?: string;
   // source:"static" — the authored literal value.
   value?: unknown;
   // source:"computed" — a COMPUTED_REGISTRY key (computed.ts) resolved into
@@ -118,6 +153,29 @@ export interface LeadgenPayloadNode {
 export interface LeadgenPayloadSchema {
   version: number;
   root: { type: "object"; children: LeadgenPayloadNode[] };
+}
+
+// §6.9: `default` / `fallback` may be this TYPED object instead of a
+// literal — resolved at build time from ctx.computed[key]. Discriminator:
+// ANY record whose `source` property is "computed" is ref INTENT (the key
+// is then validated at save); every other value stays a literal and keeps
+// behaving byte-identically (§1.4 + §6.14 — legacy looseJson included).
+export interface LeadgenComputedValueRef {
+  source: "computed";
+  key: string;
+}
+
+export function isComputedValueRef(value: unknown): value is LeadgenComputedValueRef {
+  return (
+    isRecord(value) && value["source"] === "computed" && typeof value["key"] === "string"
+  );
+}
+
+// Ref INTENT (see above): also matches malformed refs (missing/non-string
+// key) so validation can reject them instead of silently treating a typo'd
+// ref as a literal object default.
+function isComputedRefIntent(value: unknown): boolean {
+  return isRecord(value) && value["source"] === "computed";
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +207,9 @@ export type LeadgenPayloadSchemaErrorCode =
   | "macro_unknown"
   | "token_node_invalid"
   | "token_node_duplicate"
-  | "conditional_invalid";
+  | "conditional_invalid"
+  | "choice_display_invalid"
+  | "free_text_constraint_invalid";
 
 export interface LeadgenPayloadSchemaError {
   code: LeadgenPayloadSchemaErrorCode;
@@ -158,7 +218,121 @@ export interface LeadgenPayloadSchemaError {
   message: string;
 }
 
+// ---------------------------------------------------------------------------
+// B7 blocking vs warning classification (fix-contract v2.4 05 §5.5 + 06 §6.11)
+// ---------------------------------------------------------------------------
+//
+// P0/P1-class (BLOCKING) codes reject a schema SAVE and stop a Test run;
+// warning-class codes are advisory: the save proceeds (response carries
+// `warnings[]`) and Test runs. The exported list is the single source of
+// truth the §6.11 validation-panel footer documents.
+//
+// One-line classification per code:
+//   schema_not_object            BLOCKING structural — not a JSON object; nothing can read it
+//   version_invalid              BLOCKING structural — version counter must be a positive integer
+//   root_invalid                 BLOCKING structural — no root.children node list to build from
+//   node_not_object              BLOCKING structural — a child that is not an object cannot be a node
+//   path_invalid                 BLOCKING structural — unaddressable/prototype-chain path
+//   path_duplicate               BLOCKING path-conflict — two nodes claim one payload path
+//   path_prefix_conflict         BLOCKING path-conflict — scalar path shadows a nested path
+//   name_invalid                 BLOCKING structural — the leaf JSON key is missing
+//   name_path_mismatch           BLOCKING structural — builder UI and payload would disagree on identity
+//   type_invalid                 BLOCKING type — unknown output type; coercion undefined
+//   source_invalid               BLOCKING unknown-source — no resolver exists for the source
+//   enum_valid_values_required   BLOCKING type — an enum without a domain can never validate
+//   valid_values_invalid         BLOCKING type — the declared domain is not a list
+//   enum_value_violation         WARNING advisory — authored default/fallback/value escapes the declared
+//                                domain; the schema still builds (runtime domain check governs)
+//   answer_missing_internal_field BLOCKING structural — an answer node without its pivot cannot resolve
+//   value_map_invalid            BLOCKING type — value_map must be an object to look up
+//   transform_invalid            BLOCKING unknown-key — unknown/malformed transform step in the pipeline
+//   static_missing_value         BLOCKING structural — a static node without a value resolves to nothing
+//   computed_missing_key         BLOCKING structural — a computed node without its registry key
+//   computed_unknown_key         BLOCKING unknown-key — key outside COMPUTED_REGISTRY (04 §4.4)
+//   macro_missing_name           BLOCKING structural — a macro node without its macro name
+//   macro_unknown                BLOCKING unknown-source — not one of the 32 canonical macros
+//   token_node_invalid           BLOCKING type — token node must be a bare string leaf
+//   token_node_duplicate         BLOCKING path-conflict — an Offer has exactly one token placement
+//   conditional_invalid          BLOCKING type — malformed conditional would mis-drop the node
+//   choice_display_invalid       WARNING advisory — §6.4 display-only metadata; payload bytes and the
+//                                defensive render leg (readChoiceDisplay) are unaffected
+//   free_text_constraint_invalid BLOCKING type — §6.5 free-text constraints (max length / pattern /
+//                                custom regex) are malformed or ride a non-free-text node; a bad
+//                                config must never reach the runtime enforcement leg
+
+export const LEADGEN_PAYLOAD_WARNING_ERROR_CODES = [
+  "enum_value_violation",
+  "choice_display_invalid",
+] as const satisfies readonly LeadgenPayloadSchemaErrorCode[];
+
+export const LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES = [
+  "schema_not_object",
+  "version_invalid",
+  "root_invalid",
+  "node_not_object",
+  "path_invalid",
+  "path_duplicate",
+  "path_prefix_conflict",
+  "name_invalid",
+  "name_path_mismatch",
+  "type_invalid",
+  "source_invalid",
+  "enum_valid_values_required",
+  "valid_values_invalid",
+  "answer_missing_internal_field",
+  "value_map_invalid",
+  "transform_invalid",
+  "static_missing_value",
+  "computed_missing_key",
+  "computed_unknown_key",
+  "macro_missing_name",
+  "macro_unknown",
+  "token_node_invalid",
+  "token_node_duplicate",
+  "conditional_invalid",
+  "free_text_constraint_invalid",
+] as const satisfies readonly LeadgenPayloadSchemaErrorCode[];
+
+// Compile-time exhaustiveness: adding a LeadgenPayloadSchemaErrorCode without
+// classifying it blocking-or-warning breaks this line (never both/neither).
+type UnclassifiedPayloadSchemaErrorCode = Exclude<
+  LeadgenPayloadSchemaErrorCode,
+  | (typeof LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES)[number]
+  | (typeof LEADGEN_PAYLOAD_WARNING_ERROR_CODES)[number]
+>;
+const _everyPayloadSchemaErrorCodeClassified: UnclassifiedPayloadSchemaErrorCode extends never
+  ? true
+  : never = true;
+void _everyPayloadSchemaErrorCodeClassified;
+
+const BLOCKING_ERROR_CODE_SET: ReadonlySet<string> = new Set(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES);
+
+export function isBlockingPayloadSchemaError(code: LeadgenPayloadSchemaErrorCode): boolean {
+  return BLOCKING_ERROR_CODE_SET.has(code);
+}
+
+// The B7 split gate consumers use: SAVE rejects on `blocking.length > 0`
+// (same 400 shape as before) and persists with `warnings` otherwise; the
+// Test tool blocks on blocking only (05 §5.5 "warning-class errors don't
+// block").
+export function splitPayloadSchemaErrors(errors: readonly LeadgenPayloadSchemaError[]): {
+  blocking: LeadgenPayloadSchemaError[];
+  warnings: LeadgenPayloadSchemaError[];
+} {
+  const blocking: LeadgenPayloadSchemaError[] = [];
+  const warnings: LeadgenPayloadSchemaError[] = [];
+  for (const error of errors) {
+    (isBlockingPayloadSchemaError(error.code) ? blocking : warnings).push(error);
+  }
+  return { blocking, warnings };
+}
+
 export interface LeadgenPayloadSchemaValidation {
+  // B7 (05 §5.5): `ok` means "no BLOCKING-class error" — a schema whose only
+  // findings are warning-class is VALID (saveable, testable, and — via
+  // validation.ts dynamicAuctionEligibility, which keys on this flag —
+  // auction-eligible). Warning-class findings still ride `errors[]`; split
+  // them with splitPayloadSchemaErrors.
   ok: boolean;
   errors: LeadgenPayloadSchemaError[];
 }
@@ -239,6 +413,223 @@ function validateTransformSteps(
     ) {
       errors.push({ code: "transform_invalid", path, message: "formatDate requires a format string" });
     }
+  }
+}
+
+// B9 (06 §6.4): typed choiceDisplay validation. Every finding is the
+// warning-class `choice_display_invalid` (display-only metadata — see the
+// classification table). The value domain mainValues must live inside is
+// value_map internal keys ∪ valid_values (stringified — the render leg
+// matches String(choice.value)); a node declaring NO domain cannot mark
+// main values (the Section's choice list is the answer-map layer's concern,
+// not the pure schema's).
+const CHOICE_DISPLAY_KEYS = [
+  "mainValues",
+  "otherGroupEnabled",
+  "otherGroupLabel",
+  "searchableOther",
+] as const;
+const CHOICE_DISPLAY_KEY_SET: ReadonlySet<string> = new Set(CHOICE_DISPLAY_KEYS);
+
+function validateChoiceDisplay(
+  raw: unknown,
+  node: Record<string, unknown>,
+  nodeSource: LeadgenPayloadSource | null,
+  path: string,
+  errors: LeadgenPayloadSchemaError[],
+): void {
+  const push = (message: string): void => {
+    errors.push({ code: "choice_display_invalid", path, message });
+  };
+  if (nodeSource !== "answer") {
+    push("choiceDisplay is only valid on source 'answer' nodes");
+    return;
+  }
+  if (!isRecord(raw)) {
+    push("choiceDisplay must be an object");
+    return;
+  }
+  for (const key of Object.keys(raw)) {
+    if (!CHOICE_DISPLAY_KEY_SET.has(key)) {
+      push(`unknown choiceDisplay key '${key}' (allowed: ${CHOICE_DISPLAY_KEYS.join(", ")})`);
+    }
+  }
+  const mainValues = raw["mainValues"];
+  if (mainValues !== undefined) {
+    if (!Array.isArray(mainValues)) {
+      push("choiceDisplay.mainValues must be an array of strings");
+    } else {
+      const nonStrings = mainValues.filter((v) => typeof v !== "string");
+      if (nonStrings.length > 0) {
+        push(
+          `choiceDisplay.mainValues must be strings (offenders: ${nonStrings
+            .map((v) => JSON.stringify(v))
+            .join(", ")})`,
+        );
+      }
+      // Allowed domain = value_map internal keys ∪ valid_values (§6.4).
+      const domain = new Set<string>();
+      const valueMap = node["value_map"];
+      if (isRecord(valueMap)) for (const key of Object.keys(valueMap)) domain.add(key);
+      const validValues = node["valid_values"];
+      if (Array.isArray(validValues)) for (const v of validValues) domain.add(String(v));
+      const offenders = mainValues.filter(
+        (v): v is string => typeof v === "string" && !domain.has(v),
+      );
+      if (offenders.length > 0) {
+        push(
+          `choiceDisplay.mainValues outside the node's value domain (value_map keys ∪ valid_values): ${offenders.join(", ")}`,
+        );
+      }
+    }
+  }
+  for (const key of ["otherGroupEnabled", "searchableOther"] as const) {
+    if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
+      push(`choiceDisplay.${key} must be a boolean`);
+    }
+  }
+  if (raw["otherGroupLabel"] !== undefined && typeof raw["otherGroupLabel"] !== "string") {
+    push("choiceDisplay.otherGroupLabel must be a string");
+  }
+}
+
+// §6.5 (B12): free-text constraint validation. The three fields are valid
+// ONLY on a free-text string answer node (source:"answer" + type:"string" +
+// no value_map + no valid_values — exactly the mode the UI toggle
+// expresses). Every defect is the BLOCKING `free_text_constraint_invalid`:
+// a bad config must never reach the runtime enforcement leg.
+const FREE_TEXT_PATTERN_SET: ReadonlySet<string> = new Set(LEADGEN_FREE_TEXT_PATTERNS);
+export const FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH = 200;
+// Runtime input ceiling. This bounds POLYNOMIAL cost only (a linear/quadratic
+// regex over ≤4096 chars stays cheap). It does NOT and CANNOT bound EXPONENTIAL
+// backtracking — that blows up at ~30 chars, far under any useful cap — so the
+// exponential class is closed at SAVE time by isCatastrophicRegexShape below,
+// not here. Applied unconditionally (even when free_text_max_length is unset)
+// so a linear custom pattern can never `.test()` an unbounded visitor answer.
+export const FREE_TEXT_RUNTIME_INPUT_HARD_CAP = 4096;
+
+// Save-time catastrophic-backtracking screen. Exponential ReDoS comes from a
+// quantifier governing a subexpression that itself can match ambiguously —
+// classically a nested quantifier ("(a+)+", "((a)+)+", "(([a-z])+)+") or a
+// quantified alternation ("(a|a)+", "(cat|dog)+"). A flat regex screen misses
+// nesting (its char class can't cross parens — the c18bf8e evasion), so this
+// walks the pattern paren-depth-aware: it rejects any unbounded quantifier
+// (+ * {n,}) applied to a GROUP whose body — at ANY depth — contains another
+// quantifier or a top-level-of-that-group alternation. SOUND (never admits an
+// exponential shape); conservatively over-rejects some safe quantified
+// alternations like "(cat|dog)+" (author those as valid_values or via the
+// Advanced drawer) — a safe-side usability trade-off, DEV-38.
+function isCatastrophicRegexShape(pattern: string): boolean {
+  interface Frame { hasQuantifier: boolean; hasAlternation: boolean; }
+  const stack: Frame[] = [{ hasQuantifier: false, hasAlternation: false }];
+  let justClosed: Frame | null = null; // the group closed by the most recent ')'
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === "\\") { i++; justClosed = null; continue; } // skip escaped char
+    if (ch === "[") { // skip a char class wholesale (its contents are literal)
+      i++;
+      while (i < pattern.length && pattern[i] !== "]") { if (pattern[i] === "\\") i++; i++; }
+      justClosed = null;
+      continue;
+    }
+    if (ch === "(") { stack.push({ hasQuantifier: false, hasAlternation: false }); justClosed = null; continue; }
+    if (ch === "|") { stack[stack.length - 1]!.hasAlternation = true; justClosed = null; continue; }
+    if (ch === ")") {
+      justClosed = stack.length > 1 ? stack.pop()! : null;
+      // Propagate the closed group's flags UP: its body's quantifier/alternation
+      // is now "contained at some depth" by the parent — so a quantifier that
+      // later governs the parent is caught (closes the "((a+))+" nested evasion).
+      if (justClosed !== null) {
+        const parent = stack[stack.length - 1]!;
+        if (justClosed.hasQuantifier) parent.hasQuantifier = true;
+        if (justClosed.hasAlternation) parent.hasAlternation = true;
+      }
+      continue;
+    }
+    if (ch === "+" || ch === "*" || (ch === "{" && isUnboundedBrace(pattern, i))) {
+      if (justClosed !== null) {
+        // this quantifier governs the just-closed group
+        if (justClosed.hasQuantifier || justClosed.hasAlternation) return true; // exponential shape
+        stack[stack.length - 1]!.hasQuantifier = true; // the group (now quantified) is a quantifier in its parent
+      } else {
+        stack[stack.length - 1]!.hasQuantifier = true; // quantifier on a bare atom
+      }
+      justClosed = null;
+      continue;
+    }
+    justClosed = null;
+  }
+  return false;
+}
+// A "{...}" quantifier is unbounded-ish (exponential-capable) when it has no
+// upper bound: {n,} . Bounded {n} / {n,m} can't drive exponential blowup.
+function isUnboundedBrace(pattern: string, openIdx: number): boolean {
+  const close = pattern.indexOf("}", openIdx);
+  if (close === -1) return false; // a literal "{"
+  const body = pattern.slice(openIdx + 1, close);
+  return /^\d*,$/.test(body); // {n,} or {,}
+}
+
+const FREE_TEXT_CONSTRAINT_KEYS = [
+  "free_text_max_length",
+  "free_text_pattern",
+  "free_text_pattern_custom",
+] as const;
+
+function validateFreeTextConstraints(
+  node: Record<string, unknown>,
+  nodeType: LeadgenPayloadNodeType | null,
+  nodeSource: LeadgenPayloadSource | null,
+  path: string,
+  errors: LeadgenPayloadSchemaError[],
+): void {
+  const present = FREE_TEXT_CONSTRAINT_KEYS.filter((k) => node[k] !== undefined);
+  if (present.length === 0) return;
+  const push = (message: string): void => {
+    errors.push({ code: "free_text_constraint_invalid", path, message });
+  };
+  const isFreeTextNode =
+    nodeSource === "answer" &&
+    nodeType === "string" &&
+    node["value_map"] === undefined &&
+    node["valid_values"] === undefined;
+  if (!isFreeTextNode) {
+    push(
+      `${present.join(", ")} require a free-text string answer node (source 'answer', type 'string', no value_map / valid_values)`,
+    );
+    return;
+  }
+  const maxLength = node["free_text_max_length"];
+  if (
+    maxLength !== undefined &&
+    (typeof maxLength !== "number" || !Number.isInteger(maxLength) || maxLength < 1)
+  ) {
+    push("free_text_max_length must be a positive integer");
+  }
+  const pattern = node["free_text_pattern"];
+  if (pattern !== undefined && (typeof pattern !== "string" || !FREE_TEXT_PATTERN_SET.has(pattern))) {
+    push(`free_text_pattern must be one of ${LEADGEN_FREE_TEXT_PATTERNS.join("|")}`);
+  }
+  const custom = node["free_text_pattern_custom"];
+  if (pattern === "custom") {
+    if (typeof custom !== "string" || custom.trim() === "") {
+      push("free_text_pattern 'custom' requires free_text_pattern_custom");
+    } else if (custom.length > FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) {
+      push(
+        `free_text_pattern_custom must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
+      );
+    } else if (isCatastrophicRegexShape(custom)) {
+      push("free_text_pattern_custom has a catastrophic-backtracking shape (quantified nested-quantifier or alternation group)");
+    } else {
+      try {
+        // Compile check only — the runtime compiles its own instance.
+        void new RegExp(custom);
+      } catch {
+        push("free_text_pattern_custom is not a valid regular expression");
+      }
+    }
+  } else if (custom !== undefined) {
+    push("free_text_pattern_custom is only valid with free_text_pattern 'custom'");
   }
 }
 
@@ -377,9 +768,14 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
         });
       } else {
         // default / fallback / static value must live inside the domain.
+        // §6.9 computed references are SKIPPED — their runtime value is
+        // dynamic and cannot be checked statically (the key itself is
+        // validated below).
         for (const key of ["default", "fallback", "value"] as const) {
           const v = node[key];
-          if (v !== undefined && !inValidValues(v, validValues)) {
+          if (v === undefined) continue;
+          if ((key === "default" || key === "fallback") && isComputedRefIntent(v)) continue;
+          if (!inValidValues(v, validValues)) {
             errors.push({
               code: "enum_value_violation",
               path,
@@ -457,9 +853,41 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
       }
     }
 
+    // §6.9: default/fallback may be the typed computed reference
+    // {source:"computed", key} — the key must exist in COMPUTED_REGISTRY.
+    // Errors reuse the existing computed_* codes, path-scoped to the node
+    // with the offending SLOT named in the message.
+    for (const slot of ["default", "fallback"] as const) {
+      const slotValue = node[slot];
+      if (!isComputedRefIntent(slotValue)) continue;
+      const key = (slotValue as Record<string, unknown>)["key"];
+      if (typeof key !== "string" || key.trim() === "") {
+        errors.push({
+          code: "computed_missing_key",
+          path,
+          message: `${slot}: a computed value reference requires a key`,
+        });
+      } else if (!isLeadgenComputedKey(key)) {
+        errors.push({
+          code: "computed_unknown_key",
+          path,
+          message: `${slot}: '${key}' is not a computed variable (valid keys: ${LEADGEN_COMPUTED_KEYS.join(", ")})`,
+        });
+      }
+    }
+
     if (node["conditional"] !== undefined) {
       validateConditional(node["conditional"], path, errors);
     }
+
+    // B9 (06 §6.4): optional Other-group display metadata, answer nodes only.
+    if (node["choiceDisplay"] !== undefined) {
+      validateChoiceDisplay(node["choiceDisplay"], node, nodeSource, path, errors);
+    }
+
+    // §6.5 (B12): optional free-text constraints, free-text string answer
+    // nodes only.
+    validateFreeTextConstraints(node, nodeType, nodeSource, path, errors);
   }
 
   // Placement conflicts: a SCALAR node's path may not be the prefix of
@@ -480,7 +908,9 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  // B7 (05 §5.5): `ok` = no BLOCKING-class error. Warning-class findings
+  // (see the classification table) ride errors[] without failing the schema.
+  return { ok: errors.every((e) => !isBlockingPayloadSchemaError(e.code)), errors };
 }
 
 // ---------------------------------------------------------------------------
@@ -715,6 +1145,79 @@ function coerceToType(value: unknown, type: LeadgenPayloadNodeType): unknown {
   }
 }
 
+// ---------------------------------------------------------------------------
+// §6.5 free-text sanitize + constraint enforcement (B12)
+// ---------------------------------------------------------------------------
+
+// C0 control characters + DEL — the §6.5 "strip control chars" set. (The
+// Section-level trim landed in answers.ts normalizeAnswerValue; THIS is the
+// payload-resolution choke point both the runtime funnel and the Test tool
+// share, so constraint enforcement lives here.)
+const FREE_TEXT_CONTROL_CHARS_RE = /[\u0000-\u001F\u007F]/g;
+
+// §6.5 sanitize: strip control characters, then trim. Exported so previews
+// and tests can mirror the runtime byte-for-byte.
+export function sanitizeFreeText(value: string): string {
+  return value.replace(FREE_TEXT_CONTROL_CHARS_RE, "").trim();
+}
+
+// Preset pattern semantics (anchored full-match): letters = A–Z/a–z plus
+// plain spaces (post-sanitize the only whitespace left IS the space);
+// digits = 0–9 only. "custom" tests the operator RegExp as authored — the
+// operator anchors it when a full match is wanted. "none" = sanitize only.
+const FREE_TEXT_PRESET_RES: Readonly<Record<string, RegExp>> = {
+  letters: /^[A-Za-z ]+$/,
+  digits: /^[0-9]+$/,
+};
+
+function nodeHasFreeTextConstraints(node: LeadgenPayloadNode): boolean {
+  return (
+    node.free_text_max_length !== undefined ||
+    node.free_text_pattern !== undefined ||
+    node.free_text_pattern_custom !== undefined
+  );
+}
+
+// Sanitize + enforce the §6.5 constraints on one resolved free-text value.
+// Returns the SANITIZED string, or undefined = INVALID → the caller's
+// standard fallback machinery (never a throw, never silent acceptance): a
+// non-string-coercible value, an over-long value, a pattern mismatch and a
+// non-compiling custom pattern (save-blocked, but defended here) are all
+// plain `undefined` invalids.
+function applyFreeTextConstraints(value: unknown, node: LeadgenPayloadNode): unknown {
+  const str = coerceToType(value, "string");
+  if (typeof str !== "string") return undefined;
+  const sanitized = sanitizeFreeText(str);
+  // ReDoS defense, money path (answers are unbounded visitor input, NOT in the
+  // signed tuple). TWO layers: (1) this input bound caps POLYNOMIAL cost — a
+  // linear/quadratic pattern over ≤ceiling chars is cheap; it fires even when
+  // free_text_max_length is unset. (2) EXPONENTIAL patterns are refused at SAVE
+  // (isCatastrophicRegexShape) because no input cap bounds exponential blowup.
+  // Over-ceiling → invalid → the caller's fallback (regex never runs, never throws).
+  const effectiveMax = node.free_text_max_length ?? FREE_TEXT_RUNTIME_INPUT_HARD_CAP;
+  if (sanitized.length > effectiveMax) {
+    return undefined; // too long → invalid (regex never runs)
+  }
+  const pattern = node.free_text_pattern;
+  if (pattern === "letters" || pattern === "digits") {
+    const preset = FREE_TEXT_PRESET_RES[pattern];
+    if (preset !== undefined && !preset.test(sanitized)) return undefined;
+  } else if (pattern === "custom") {
+    if (typeof node.free_text_pattern_custom !== "string") return undefined;
+    // Belt-and-suspenders: refuse a catastrophic pattern AT RUNTIME too, not
+    // only at save — a bomb could reach here via legacy/pre-fix stored data or
+    // a direct DB edit that never passed validatePayloadSchema. Cheap (pattern
+    // ≤200 chars) and makes the money path self-defending. Invalid → fallback.
+    if (isCatastrophicRegexShape(node.free_text_pattern_custom)) return undefined;
+    try {
+      if (!new RegExp(node.free_text_pattern_custom).test(sanitized)) return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return sanitized;
+}
+
 // Write `value` at a dotted path. Numeric segments create/index arrays
 // (`drivers.0.age` ⇒ { drivers: [ { age } ] }).
 function setAtPath(target: Record<string, unknown>, path: string, value: unknown): void {
@@ -798,8 +1301,9 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
     }
   }
 
-  // ABSENT source value → default (a FINAL value, not re-piped).
-  if (raw === undefined || raw === null) return node.default;
+  // ABSENT source value → default (a FINAL value, not re-piped). §6.9: a
+  // typed computed reference resolves via ctx.computed[key] here.
+  if (raw === undefined || raw === null) return resolveDefaultOrFallback(node.default, ctx);
 
   let value: unknown = raw;
   if (node.source === "answer") {
@@ -811,6 +1315,14 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
     }
     if (value !== undefined && node.transform !== undefined) {
       value = applyTransformPipeline(value, node.transform);
+    }
+    // §6.5 free-text constraints (B12): ONLY nodes carrying the additive
+    // free_text_* fields take this leg — sanitize (strip control chars +
+    // trim) then enforce max length / pattern; a violation is INVALID →
+    // the standard fallback below. Plain nodes without the fields skip it
+    // entirely (§1.4 byte-compatibility).
+    if (value !== undefined && nodeHasFreeTextConstraints(node)) {
+      value = applyFreeTextConstraints(value, node);
     }
   }
   if (value !== undefined) {
@@ -825,9 +1337,25 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
     value = undefined;
   }
 
-  // INVALID (map miss / transform reject / coercion failure / enum
-  // violation) → fallback (a FINAL value).
-  return value === undefined ? node.fallback : value;
+  // INVALID (map miss / transform reject / free-text violation / coercion
+  // failure / enum violation) → fallback (a FINAL value). §6.9: a typed
+  // computed reference resolves via ctx.computed[key] here.
+  return value === undefined ? resolveDefaultOrFallback(node.fallback, ctx) : value;
+}
+
+// §6.9: a default/fallback slot value is either a LITERAL (returned
+// verbatim — byte-identical to the pre-§6.9 behavior, legacy looseJson
+// strings included) or the typed computed reference {source:"computed",
+// key}, resolved from ctx.computed. A computed value that is ABSENT or
+// undefined (key not populated in this build's context — e.g. a caller
+// passing no ctx.computed) is treated as NO default/fallback: the node
+// takes the existing absent path and cleans away. Malformed refs
+// (save-blocked) defend the same way — never a throw.
+function resolveDefaultOrFallback(slotValue: unknown, ctx: LeadgenPayloadBuildContext): unknown {
+  if (!isComputedRefIntent(slotValue)) return slotValue;
+  const key = (slotValue as Record<string, unknown>)["key"];
+  if (typeof key !== "string") return undefined;
+  return ctx.computed?.[key];
 }
 
 // Build the provider payload for one Offer (04 §11.5 runtime build). Pure

@@ -771,6 +771,126 @@ describeDb("POST /offers/:id/test — failure modes", () => {
   });
 });
 
+// --- B7 pre-test validity gate (fix-contract v2.4 05 §5.5) ---------------------------
+
+// Point the offer at a DIRECTLY-INSERTED schema row (bypassing the save gate,
+// exactly how a legacy/hand-written row would sit in production D1).
+function activateRawSchemaRow(h: Harness, schemaJson: string): void {
+  const next = h.sdb
+    .prepare("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM leadgen_offer_payload_schemas WHERE offer_id = ?")
+    .get(h.offerId) as { v: number };
+  h.sdb
+    .prepare(
+      "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, source) VALUES (?, ?, ?, ?, ?, 'manual')",
+    )
+    .run(
+      `lgp_b7gate${Math.random().toString(36).slice(2, 10)}`,
+      h.offerId,
+      next.v,
+      schemaJson,
+      JSON.stringify(CARRIER_PARSE),
+    );
+  const row = h.sdb
+    .prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE offer_id = ? ORDER BY id DESC LIMIT 1")
+    .get(h.offerId) as { id: number };
+  h.sdb.prepare("UPDATE leadgen_offers SET active_payload_schema_id = ? WHERE id = ?").run(row.id, h.offerId);
+}
+
+describeDb("POST /offers/:id/test — B7 pre-test validity gate (05 §5.5)", () => {
+  it("BLOCKING-class schema errors → typed 400 {error, schema_errors[{code,path,message}]}, no fetch, no log", async () => {
+    const h = await setupOffer();
+    activateRawSchemaRow(
+      h,
+      JSON.stringify({
+        version: 1,
+        root: {
+          type: "object",
+          children: [
+            { path: "dup", name: "dup", type: "string", source: "static", value: "a" },
+            { path: "dup", name: "dup", type: "string", source: "static", value: "b" },
+          ],
+        },
+      }),
+    );
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const res = await admin.request(
+      `${API}/offers/${h.offerId}/test`,
+      jsonInit("POST", { environment: "staging", sample_answers: {} }),
+      h.env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: string;
+      schema_errors: Array<{ code: string; path?: string; message: string }>;
+    };
+    expect(body.error).toBe("schema_validation_errors");
+    expect(body.schema_errors.some((e) => e.code === "path_duplicate" && e.path === "dup")).toBe(true);
+    expect(body.schema_errors.every((e) => typeof e.message === "string" && e.message !== "")).toBe(true);
+    expect(calls).toHaveLength(0); // gate fires BEFORE any provider call
+    expect(lastLogRow(h.sdb)).toBeNull();
+  });
+
+  it("an UNREADABLE stored schema (not JSON / not the §11.5 shape) is a typed 400 — never a bare 500", async () => {
+    const h = await setupOffer();
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+
+    activateRawSchemaRow(h, "this is not json at all {{{");
+    const notJson = await admin.request(
+      `${API}/offers/${h.offerId}/test`,
+      jsonInit("POST", { environment: "staging", sample_answers: {} }),
+      h.env,
+    );
+    expect(notJson.status).toBe(400);
+    const notJsonBody = (await notJson.json()) as { error: string; schema_errors: Array<{ code: string }> };
+    expect(notJsonBody.error).toBe("schema_validation_errors");
+    expect(notJsonBody.schema_errors[0]?.code).toBe("schema_not_object");
+
+    activateRawSchemaRow(h, JSON.stringify({ version: 1 })); // no root
+    const noRoot = await admin.request(
+      `${API}/offers/${h.offerId}/test`,
+      jsonInit("POST", { environment: "staging", sample_answers: {} }),
+      h.env,
+    );
+    expect(noRoot.status).toBe(400);
+    expect(
+      ((await noRoot.json()) as { schema_errors: Array<{ code: string }> }).schema_errors.some(
+        (e) => e.code === "root_invalid",
+      ),
+    ).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(lastLogRow(h.sdb)).toBeNull();
+  });
+
+  it("WARNING-class-only findings (enum_value_violation) do NOT block the test (05 §5.5)", async () => {
+    const h = await setupOffer();
+    activateRawSchemaRow(
+      h,
+      JSON.stringify({
+        version: 1,
+        root: {
+          type: "object",
+          children: [
+            {
+              path: "tier",
+              name: "tier",
+              type: "enum",
+              source: "answer",
+              internal_field: "tier",
+              valid_values: ["basic", "premium"],
+              default: "zzz", // OUTSIDE the domain → warning-class only
+            },
+          ],
+        },
+      }),
+    );
+    const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: { tier: "basic" } });
+    expect(status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(body.request.payload).toEqual({ tier: "basic" });
+  });
+});
+
 // --- encrypted debug blob -------------------------------------------------------------
 
 async function decryptDebugBlob(secret: string, stored: string): Promise<string> {

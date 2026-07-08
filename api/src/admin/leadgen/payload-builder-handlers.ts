@@ -37,15 +37,29 @@
 import { readEnvSecret } from "../../env";
 import { ulid } from "../../leadgen/ids";
 import { resolveMacros } from "../../leadgen/macros";
-import { buildPayload, inferSchemaFromExample, type LeadgenPayloadSchema } from "../../leadgen/payload";
+import {
+  buildPayload,
+  inferSchemaFromExample,
+  validatePayloadSchema,
+  type LeadgenPayloadNode,
+  type LeadgenPayloadSchema,
+} from "../../leadgen/payload";
 import {
   buildLeadgenRuntimeContext,
   type LeadgenRuntimeContextOverrides,
 } from "../../leadgen/runtime-context";
 import { REDACTED_VALUE, maskPaths, maskSecretHeaders, redactPii } from "../../leadgen/redact";
 import { parseProviderResponse } from "../../public/leadgen/auction/parse";
-import type { LeadgenOfferPayloadSchemaRow } from "./db-types";
-import { readOfferHeaders, readJsonBody, resolveOfferRow, parseJsonColumn, type AdminContext } from "./offers-handlers";
+import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";
+import {
+  readOfferHeaders,
+  readJsonBody,
+  readLinkedSectionFields,
+  resolveOfferRow,
+  parseJsonColumn,
+  type AdminContext,
+  type LeadgenLinkedSectionField,
+} from "./offers-handlers";
 
 // Bounded outbound timeout for the ADMIN test request (larger than the
 // auction's timeout_ms budget on purpose — a human is diagnosing, not a
@@ -239,17 +253,22 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     );
   }
 
-  let schema: LeadgenPayloadSchema;
+  // --- B7 pre-test validity gate (fix-contract v2.4 05 §5.5) ----------------
+  // BEFORE any build/fetch the ACTIVE schema runs validatePayloadSchema:
+  // BLOCKING-class errors → typed 400 with the §6.11 panel's schema_errors
+  // shape (warning-class findings don't block — 05 §5.5). This also retires
+  // the old unreadable-schema 500: a stored value that is not JSON / not the
+  // §11.5 shape simply validates to schema_not_object / root_invalid.
   const parsedSchema = parseJsonColumn(schemaRow.schema_json);
-  if (
-    isRecord(parsedSchema) &&
-    isRecord(parsedSchema["root"]) &&
-    Array.isArray((parsedSchema["root"] as Record<string, unknown>)["children"])
-  ) {
-    schema = parsedSchema as unknown as LeadgenPayloadSchema;
-  } else {
-    return c.json({ error: "active payload schema is unreadable" }, 500);
+  const schemaValidation = validatePayloadSchema(parsedSchema);
+  if (!schemaValidation.ok) {
+    return c.json(
+      { error: "schema_validation_errors", schema_errors: schemaValidation.errors },
+      400,
+    );
   }
+  // ok ⇒ no blocking error ⇒ the §11.5 structural invariants hold.
+  const schema = parsedSchema as unknown as LeadgenPayloadSchema;
 
   const notes: LeadgenTestNote[] = [];
 
@@ -604,4 +623,301 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     debug_ref: debugRef,
     context_used: contextUsed,
   });
+}
+
+// ---------------------------------------------------------------------------
+// B4 — sample-answer generation (fix-contract v2.4 06 §6.12.1)
+// POST /offers/:id/payload/sample-answers  → generate (draft-merged)
+// PUT  /offers/:id/payload/sample-answers  → persist the operator's edits
+// ---------------------------------------------------------------------------
+//
+// Generation reads the ACTIVE schema's `source:"answer"` nodes + the linked-
+// Section component inventory (readLinkedSectionFields — the same loader the
+// offer GET's builder_context projects) and emits one form field per
+// internal_field with a §6.12.1-heuristic sample:
+//   enums    → the FIRST valid value (options from the Section's choices,
+//              else the node's value_map internal keys, else valid_values)
+//   booleans → true
+//   dates    → today−30y for DOB-like names (dob/birth), today otherwise
+//   zip      → "90210"            address → a sample street string
+//   numbers  → the component's numeric props.min when present, else 30
+//   text     → a placeholder-ish sample (email/phone-shaped when the field
+//              is email/phone-like so provider-side format checks pass)
+//
+// Draft persistence (per Offer): KV key `lg-testdraft:<lgo_…>` (env.CACHE,
+// no TTL — one bounded key per Offer, overwritten on every PUT). The PUT
+// body is `{answers: Record<internal_field, value>}`; the POST response
+// merges a persisted draft OVER the generated samples BY KNOWN FIELD (a
+// draft key whose field no longer exists in the ACTIVE schema is dropped —
+// stale edits never resurrect removed fields). `answers[f]` and the matching
+// `fields[].sample` always agree.
+//
+// RESPONSE SHAPE (PINNED — the §6.12 Test-tab form codes against exactly
+// this):
+//   { answers: Record<internal_field, sample_value>,
+//     fields: [{ internal_field, label,
+//                kind: "enum"|"boolean"|"date"|"zip"|"address"|"text"|"number",
+//                options?: [{value, label}], sample, required: boolean,
+//                source_path: string }] }
+
+export const TEST_DRAFT_KV_PREFIX = "lg-testdraft:";
+// MINOR-4: sample-answer draft bounds — a 64 KB serialized ceiling (typed 400
+// over it) and a TTL so abandoned per-offer drafts expire (mirrors the
+// §30.3 debug-blob KV-TTL discipline).
+export const TEST_DRAFT_MAX_BYTES = 65_536;
+export const TEST_DRAFT_TTL_SECONDS = 259_200; // 72 h
+
+export type LeadgenSampleAnswerKind =
+  | "enum"
+  | "boolean"
+  | "date"
+  | "zip"
+  | "address"
+  | "text"
+  | "number";
+
+export interface LeadgenSampleAnswerOption {
+  value: string | number | boolean;
+  label: string;
+}
+
+export interface LeadgenSampleAnswerField {
+  internal_field: string;
+  label: string;
+  kind: LeadgenSampleAnswerKind;
+  options?: LeadgenSampleAnswerOption[];
+  sample: unknown;
+  required: boolean;
+  source_path: string;
+}
+
+// Name heuristics (§6.12.1). DOB is a subset of the date-kind name test:
+// "birthday"/"dob_date" are date-kind AND −30y; "policy_start_date" is
+// date-kind at today.
+const DOB_NAME_RE = /dob|birth/i;
+const DATE_NAME_RE = /dob|birth|date/i;
+const ZIP_NAME_RE = /zip|postal/i;
+const ADDRESS_NAME_RE = /address|street/i;
+const EMAIL_NAME_RE = /email/i;
+const PHONE_NAME_RE = /phone/i;
+
+function isoDateUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function isoDateUtcMinusYears(ms: number, years: number): string {
+  const d = new Date(ms);
+  return new Date(Date.UTC(d.getUTCFullYear() - years, d.getUTCMonth(), d.getUTCDate()))
+    .toISOString()
+    .slice(0, 10);
+}
+
+// The §6.2 answer-input option list for one field, in domain priority order:
+// the Section component's authored choices (display labels included) → the
+// node's value_map internal KEYS (the input domain the admin declared) → the
+// node's valid_values (the domain when no map re-writes values).
+function sampleOptionsFor(
+  node: LeadgenPayloadNode,
+  field: LeadgenLinkedSectionField | undefined,
+): LeadgenSampleAnswerOption[] {
+  if (field !== undefined && field.choices.length > 0) return field.choices;
+  if (node.value_map !== undefined) {
+    const keys = Object.keys(node.value_map);
+    if (keys.length > 0) return keys.map((key) => ({ value: key, label: key }));
+  }
+  if (Array.isArray(node.valid_values) && node.valid_values.length > 0) {
+    return node.valid_values
+      .filter(
+        (v): v is string | number | boolean =>
+          typeof v === "string" || typeof v === "number" || typeof v === "boolean",
+      )
+      .map((v) => ({ value: v, label: String(v) }));
+  }
+  return [];
+}
+
+// Classify one answer field + generate its sample (heuristics table above).
+// Precedence: boolean → enum → date → zip → address → number → text.
+function classifySampleField(
+  node: LeadgenPayloadNode,
+  field: LeadgenLinkedSectionField | undefined,
+  now: number,
+): { kind: LeadgenSampleAnswerKind; options?: LeadgenSampleAnswerOption[]; sample: unknown } {
+  const name = node.internal_field ?? "";
+  if (
+    node.type === "boolean" ||
+    field?.answer_type === "boolean" ||
+    field?.component_type === "TwoButtonYesNo"
+  ) {
+    return { kind: "boolean", sample: true };
+  }
+  const options = sampleOptionsFor(node, field);
+  if (node.type === "enum" || options.length > 0) {
+    return { kind: "enum", options, sample: options[0]?.value ?? "" };
+  }
+  const hasFormatDate = node.transform?.some((step) => step.kind === "formatDate") === true;
+  if (field?.component_type === "DateQuestion" || hasFormatDate || DATE_NAME_RE.test(name)) {
+    return {
+      kind: "date",
+      sample: DOB_NAME_RE.test(name) ? isoDateUtcMinusYears(now, 30) : isoDateUtc(now),
+    };
+  }
+  if (field?.component_type === "ZIPInputQuestion" || ZIP_NAME_RE.test(name)) {
+    return { kind: "zip", sample: "90210" };
+  }
+  if (field?.component_type === "AddressAutocompleteQuestion" || ADDRESS_NAME_RE.test(name)) {
+    return { kind: "address", sample: "123 Main St" };
+  }
+  if (
+    node.type === "number" ||
+    field?.answer_type === "number" ||
+    field?.answer_type === "currency"
+  ) {
+    const min = field?.props["min"];
+    return { kind: "number", sample: typeof min === "number" && Number.isFinite(min) ? min : 30 };
+  }
+  if (field?.component_type === "EmailInputQuestion" || EMAIL_NAME_RE.test(name)) {
+    return { kind: "text", sample: "sample@example.com" };
+  }
+  if (field?.component_type === "PhoneInputQuestion" || PHONE_NAME_RE.test(name)) {
+    return { kind: "text", sample: "5551234567" };
+  }
+  return { kind: "text", sample: "Sample text" };
+}
+
+// Shared entry guard for both methods: the Offer must exist AND have an
+// ACTIVE payload schema (404 otherwise — there is no form to generate or
+// draft against), and generation additionally requires the schema readable
+// with no BLOCKING-class errors (the same B7 gate as Test — typed 400,
+// never a 500).
+async function resolveSampleAnswerOffer(
+  c: AdminContext,
+): Promise<
+  { response: Response } | { offer: LeadgenOfferRow; schemaRow: LeadgenOfferPayloadSchemaRow }
+> {
+  const offer = await resolveOfferRow(c.env.DB, c.req.param("id") ?? "");
+  if (offer === null) return { response: c.json({ error: "Not Found" }, 404) };
+  if (offer.active_payload_schema_id === null) {
+    return { response: c.json({ error: "offer has no active payload schema" }, 404) };
+  }
+  const schemaRow = await c.env.DB.prepare(
+    "SELECT * FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
+  )
+    .bind(offer.active_payload_schema_id)
+    .first<LeadgenOfferPayloadSchemaRow>();
+  if (!schemaRow) {
+    return { response: c.json({ error: "offer has no active payload schema" }, 404) };
+  }
+  return { offer, schemaRow };
+}
+
+// POST /offers/:id/payload/sample-answers — generate (draft merged over).
+export async function generateSampleAnswersHandler(c: AdminContext): Promise<Response> {
+  const resolved = await resolveSampleAnswerOffer(c);
+  if ("response" in resolved) return resolved.response;
+  const { offer, schemaRow } = resolved;
+
+  const parsedSchema = parseJsonColumn(schemaRow.schema_json);
+  const schemaValidation = validatePayloadSchema(parsedSchema);
+  if (!schemaValidation.ok) {
+    return c.json(
+      { error: "schema_validation_errors", schema_errors: schemaValidation.errors },
+      400,
+    );
+  }
+  const schema = parsedSchema as unknown as LeadgenPayloadSchema;
+
+  const linkedFields = await readLinkedSectionFields(c.env.DB, offer.id);
+  const fieldByInternal = new Map<string, LeadgenLinkedSectionField>();
+  for (const field of linkedFields) {
+    if (!fieldByInternal.has(field.internal_field)) fieldByInternal.set(field.internal_field, field);
+  }
+
+  // One form field per internal_field, in SCHEMA order (mirrors the tree).
+  // The first node carrying the field provides label/kind/source_path;
+  // `required` ORs across every node the field feeds.
+  const now = Date.now();
+  const fields: LeadgenSampleAnswerField[] = [];
+  const byInternal = new Map<string, LeadgenSampleAnswerField>();
+  for (const node of schema.root.children) {
+    if (node.source !== "answer") continue;
+    const internalField = node.internal_field;
+    if (typeof internalField !== "string" || internalField === "") continue;
+    const existing = byInternal.get(internalField);
+    if (existing !== undefined) {
+      if (node.required === true) existing.required = true;
+      continue;
+    }
+    const linked = fieldByInternal.get(internalField);
+    const classified = classifySampleField(node, linked, now);
+    const entry: LeadgenSampleAnswerField = {
+      internal_field: internalField,
+      label:
+        typeof node.label === "string" && node.label.trim() !== "" ? node.label : internalField,
+      kind: classified.kind,
+      ...(classified.options !== undefined ? { options: classified.options } : {}),
+      sample: classified.sample,
+      required: node.required === true,
+      source_path: node.path,
+    };
+    byInternal.set(internalField, entry);
+    fields.push(entry);
+  }
+
+  // Draft merge (BY KNOWN FIELD — see module note).
+  const draftRaw = await c.env.CACHE.get(`${TEST_DRAFT_KV_PREFIX}${offer.public_id}`);
+  if (draftRaw !== null) {
+    try {
+      const draft = JSON.parse(draftRaw) as unknown;
+      if (isRecord(draft) && isRecord(draft["answers"])) {
+        const draftAnswers = draft["answers"];
+        for (const entry of fields) {
+          if (Object.prototype.hasOwnProperty.call(draftAnswers, entry.internal_field)) {
+            entry.sample = draftAnswers[entry.internal_field];
+          }
+        }
+      }
+    } catch {
+      /* corrupt draft ⇒ generation stands alone (D1-rule idiom: fall through
+         to source, never fail the read) */
+    }
+  }
+
+  const answers: Record<string, unknown> = {};
+  for (const entry of fields) answers[entry.internal_field] = entry.sample;
+  return c.json({ answers, fields });
+}
+
+// PUT /offers/:id/payload/sample-answers — persist the operator's edited
+// answers as THE per-Offer draft. Accepts any record (Advanced raw-JSON
+// edits may carry keys beyond the generated set — the POST merge simply
+// ignores unknown keys).
+export async function putSampleAnswersDraftHandler(c: AdminContext): Promise<Response> {
+  const resolved = await resolveSampleAnswerOffer(c);
+  if ("response" in resolved) return resolved.response;
+  const { offer } = resolved;
+
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+  const answers = body["answers"];
+  if (!isRecord(answers)) {
+    return c.json(
+      { error: "Validation failed", fields: { answers: "answers must be an object" } },
+      400,
+    );
+  }
+  // MINOR-4: bound the draft — it is operator-editable and KV-persisted. Cap
+  // the serialized size (typed 400) and set a TTL so abandoned drafts expire
+  // (mirrors the debug-blob discipline) rather than living forever.
+  const serialized = JSON.stringify({ answers });
+  if (serialized.length > TEST_DRAFT_MAX_BYTES) {
+    return c.json(
+      { error: "Validation failed", fields: { answers: `draft exceeds ${TEST_DRAFT_MAX_BYTES} bytes` } },
+      400,
+    );
+  }
+  await c.env.CACHE.put(`${TEST_DRAFT_KV_PREFIX}${offer.public_id}`, serialized, {
+    expirationTtl: TEST_DRAFT_TTL_SECONDS,
+  });
+  return c.json({ answers });
 }
