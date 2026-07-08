@@ -637,3 +637,32 @@ describeDb("CP4 — funnel → auction → banner href /lg/lc/… (faid) → GET
     expect(cap?.click_count).toBe(1);
   });
 });
+
+// --- GET /lg/runtime/:version.js — the committed hydration bundle (v2.4 03 §3.2) ---
+
+describeDb("GET /lg/runtime/:version.js — committed bundle route (03 §3.2)", () => {
+  it("serves the exact committed bundle at the CURRENT template version, immutable-cacheable", async () => {
+    const { env } = newHarness();
+    const { LEADGEN_TEMPLATE_VERSION } = await import("../src/cache/cache-keys");
+    const { LEADGEN_RUNTIME_JS, LEADGEN_RUNTIME_JS_BYTES } = await import(
+      "../src/public/leadgen/runtime/engine-bundle.generated"
+    );
+    const res = await reqTenant(env, `/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/javascript; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    const body = await res.text();
+    expect(body).toBe(LEADGEN_RUNTIME_JS);
+    expect(new TextEncoder().encode(body).byteLength).toBe(LEADGEN_RUNTIME_JS_BYTES);
+  });
+
+  it("404 no-store for any other version and for non-.js paths (never a stale engine)", async () => {
+    const { env } = newHarness();
+    for (const path of ["/lg/runtime/999.js", "/lg/runtime/0.js", "/lg/runtime/1.mjs", "/lg/runtime/1"]) {
+      const res = await reqTenant(env, path);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get("Cache-Control"), path).toBe("no-store");
+    }
+  });
+});

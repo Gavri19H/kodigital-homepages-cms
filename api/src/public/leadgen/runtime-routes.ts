@@ -35,6 +35,8 @@ import { mintFunnelAttempt } from "./attempt";
 import { resolveActivatedFunnelByVariant } from "./resolver";
 import { readCookie } from "../listicle/experiment-pick";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
+import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
+import { LEADGEN_RUNTIME_JS } from "./runtime/engine-bundle.generated";
 import type { LeadgenCapOffer } from "../../leadgen/caps";
 import type { LeadgenParsedCarrier } from "./auction/parse";
 import type { LeadgenEvent } from "../../analytics/leadgen-events";
@@ -499,6 +501,31 @@ async function serveLeadgenPixel(c: PublicContext): Promise<Response> {
 // catch. /lg/auction (P10 §19) + /lg/track (P11 §22) + /lg/pb (P13 §25) are POST
 // + no-store; /lg/lc (P11 §19.16) + /lg/px (P13 §27) are GET.
 leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttemptV2(c));
+// GET /lg/runtime/:version.js — the committed hydration bundle (03 §3.2).
+// Immutable-cacheable ONLY at the CURRENT template version (the shell embeds
+// /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js, so a version bump changes the URL
+// and can never serve a stale engine); any other version → 404 no-store.
+leadgenPublicRouter.get("/lg/runtime/:version_js", (c) => {
+  const raw = c.req.param("version_js") ?? "";
+  if (!raw.endsWith(".js") || raw.slice(0, -3) !== String(LEADGEN_TEMPLATE_VERSION)) {
+    return new Response(JSON.stringify({ error: "Not Found" }), {
+      status: 404,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+  return new Response(LEADGEN_RUNTIME_JS, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+});
 leadgenPublicRouter.get("/lg/config/:funnel_variant_id", (c) => serveLeadgenConfig(c));
 leadgenPublicRouter.post("/lg/auction", (c) => serveLeadgenAuctionGuarded(c));
 leadgenPublicRouter.post("/lg/track", (c) => serveLeadgenTrack(c));
