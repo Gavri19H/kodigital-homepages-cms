@@ -22,6 +22,7 @@ import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
+import { readEnvSecret } from "../../env";
 import { buildPayload } from "../../leadgen/payload";
 import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
@@ -1682,6 +1683,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     const rows = await c.env.DB.prepare(
       `SELECT o.public_id AS offer_public_id, o.offer_name AS offer_name,
               o.api_token_placement AS api_token_placement, o.request_execution_mode AS request_execution_mode,
+              o.api_token_secret_ref AS api_token_secret_ref,
               s.public_id AS parser_id, s.schema_json,
               s.carrier_parse_json, s.carrier_parse_version, pl.placement_id AS ext_placement
        FROM leadgen_offers o
@@ -1696,6 +1698,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
         offer_name: string | null;
         api_token_placement: string | null;
         request_execution_mode: string | null;
+        api_token_secret_ref: string | null;
         parser_id: string | null;
         schema_json: string | null;
         carrier_parse_json: string | null;
@@ -1719,13 +1722,21 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
             { req: { raw: c.req.raw } },
             { ...baseCtxOpts, offer: { offer_id: r.offer_public_id, offer_name: r.offer_name ?? "", placement_id: externalPlacement } },
           );
+          // §7.6 "masked": a source:"token" node renders present-but-MASKED, but
+          // ONLY when the engine would actually inject it — payload placement +
+          // server mode AND a secret that RESOLVES in this env (fetch.ts + the
+          // Test-tool peer gate identically). We use readEnvSecret purely as a
+          // boolean presence gate; the REAL secret value NEVER enters the preview
+          // — the masked sentinel does. An offer with a missing/undeployed secret
+          // therefore shows NO token field, exactly as the live payload would.
+          const secretRef =
+            typeof r.api_token_secret_ref === "string" && r.api_token_secret_ref.trim() !== ""
+              ? r.api_token_secret_ref.trim()
+              : null;
+          const tokenResolvable = secretRef !== null && readEnvSecret(c.env, secretRef) !== undefined;
           // EXACT payload: answers + this offer's macros/computed + its
-          // provider-facing placement (source:"placement"). §7.6 "masked": a
-          // source:"token" node renders present-but-MASKED — we inject the
-          // REDACTED sentinel as the token value (the REAL secret is NEVER read
-          // in an admin dry-run), and the node only appears when the offer would
-          // actually inject it (payload placement + server mode). redactPii masks
-          // any PII in the resolved fields before return.
+          // provider-facing placement (source:"placement"). redactPii masks any
+          // PII in the resolved fields before return.
           payloadPreview = redactPii(
             buildPayload(parsedSchema, {
               answers: sampleAnswers,
@@ -1733,7 +1744,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
               computed: offerCtx.computed,
               offer: { offer_id: r.offer_public_id, placement_id: externalPlacement },
               token: {
-                value: REDACTED_VALUE,
+                ...(tokenResolvable ? { value: REDACTED_VALUE } : {}),
                 api_token_placement: r.api_token_placement as LeadgenApiTokenPlacement | null,
                 request_execution_mode: (r.request_execution_mode ?? "server") as LeadgenRequestExecutionMode,
               },

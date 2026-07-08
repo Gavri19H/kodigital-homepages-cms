@@ -258,16 +258,19 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
 
   it("S1 MAJOR fix: the preview is the EXACT payload — request macro, OFFER-scoped macros, placement + masked token all resolve (not answers-only)", async () => {
     const { sdb, env } = harness();
+    // env resolves the offer's token secret ref → the token node is injectable
+    // (masked). readEnvSecret reads env[name]; the real value never enters the preview.
+    const envWithSecret = { ...env, PROVIDER_TOKEN: "super-secret-never-shown" } as typeof env;
     const auction = seedAuction(sdb);
     // an offer whose ACTIVE schema pulls EVERY non-answer source class: a
     // request-scoped macro (utm_source), the three OFFER-scoped macros
     // (offer_id / offer_name / placement — derived from ctx.offer, the residual
-    // MAJOR), a source=placement node, and a source=token node — proving the
-    // preview threads the FULL runtime context, not just answers.
+    // MAJOR), a source=computed node, a source=placement node, and a
+    // source=token node — proving the preview threads the FULL runtime context.
     const offerPublic = mintPublicId("offer");
     sdb.prepare(
-      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, endpoint_production, endpoint_staging, status)
-       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'https://p.example/q', 'https://s.example/q', 'active')`,
+      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, api_token_secret_ref, endpoint_production, endpoint_staging, status)
+       VALUES (?, 'MacroOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'PROVIDER_TOKEN', 'https://p.example/q', 'https://s.example/q', 'active')`,
     ).run(offerPublic);
     const offerId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublic) as { id: number }).id;
     const schemaJson = JSON.stringify({
@@ -277,6 +280,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
         { path: "oid", name: "oid", type: "string", source: "macro", macro: "offer_id" },
         { path: "onm", name: "onm", type: "string", source: "macro", macro: "offer_name" },
         { path: "plcm", name: "plcm", type: "string", source: "macro", macro: "placement" },
+        { path: "cmp", name: "cmp", type: "string", source: "computed", computed: "request_timestamp" },
         { path: "plc", name: "plc", type: "string", source: "placement" },
         { path: "tok", name: "tok", type: "string", source: "token" },
       ] },
@@ -297,7 +301,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const res = await admin.request(
       `${API}/auctions/${auction.public_id}/simulate`,
       jsonInit("POST", { sample_answers: {}, context: { utm_source: "fbk-sim" } }),
-      env,
+      envWithSecret,
     );
     expect(res.status).toBe(200);
     const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: Record<string, unknown> | null }> };
@@ -310,11 +314,58 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(pv["oid"]).toBe(offerPublic);
     expect(pv["onm"]).toBe("MacroOffer");
     expect(pv["plcm"]).toBe("plc-macro-1"); // macro:"placement" == the offer's external id, NOT traffic
+    // …source=computed resolves from offerCtx.computed (epoch-seconds string)…
+    expect(typeof pv["cmp"]).toBe("string");
+    expect(pv["cmp"] as string).toMatch(/^\d+$/);
     // …source=placement resolves to the provider-facing external id…
     expect(pv["plc"]).toBe("plc-macro-1");
     // …and the source=token node renders PRESENT-but-MASKED ([REDACTED]); the
-    // real secret is NEVER resolved in an admin dry-run (§7.6 "masked").
+    // real secret value NEVER appears (env holds it, only its presence is gated).
     expect(pv["tok"]).toBe("[REDACTED]");
+    expect(JSON.stringify(pv)).not.toContain("super-secret-never-shown");
+  });
+
+  it("S1 token gate: a payload+server offer whose secret does NOT resolve shows NO token field (matches the engine, never a spurious mask)", async () => {
+    const { sdb, env } = harness(); // env has NO PROVIDER_TOKEN → secret unresolvable
+    const auction = seedAuction(sdb);
+    const offerPublic = mintPublicId("offer");
+    // payload placement + server mode (the token WOULD inject) BUT api_token_secret_ref
+    // is NULL → the live engine drops the token node; the preview must too.
+    sdb.prepare(
+      `INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, calls_provider_api, bid_source, request_execution_mode, request_method, api_token_placement, endpoint_production, endpoint_staging, status)
+       VALUES (?, 'NoSecretOffer', 'P', 'quote_funnel', 'life', 's2s_postback', 'cpc', 1, 'response', 'server', 'POST', 'payload', 'https://p.example/q', 'https://s.example/q', 'active')`,
+    ).run(offerPublic);
+    const offerId = (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(offerPublic) as { id: number }).id;
+    const schemaJson = JSON.stringify({
+      version: 1,
+      root: { type: "object", children: [
+        { path: "keep", name: "keep", type: "string", source: "macro", macro: "offer_id" },
+        { path: "tok", name: "tok", type: "string", source: "token" },
+      ] },
+    });
+    const schemaPublic = mintPublicId("payload_schema_version");
+    sdb.prepare(
+      "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source) VALUES (?, ?, 1, ?, ?, 1, 'manual')",
+    ).run(schemaPublic, offerId, schemaJson, CARRIER_PARSE);
+    const schemaId = (sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?").get(schemaPublic) as { id: number }).id;
+    sdb.prepare("UPDATE leadgen_offers SET active_payload_schema_id = ? WHERE id = ?").run(schemaId, offerId);
+    const plPublic = mintPublicId("offer_placement");
+    sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-nosec-1', 1)").run(plPublic, offerId);
+    const placementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(plPublic) as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(offerPublic);
+    sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placementRowId, offerId);
+    stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
+
+    const res = await admin.request(
+      `${API}/auctions/${auction.public_id}/simulate`,
+      jsonInit("POST", { sample_answers: {} }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: Record<string, unknown> | null }> };
+    const pv = j.offers_payload_explain.find((e) => e.offer_id === offerPublic)!.payload_preview as Record<string, unknown>;
+    expect(pv["keep"]).toBe(offerPublic); // the offer still previews normally…
+    expect("tok" in pv).toBe(false); // …but the unresolvable token node is ABSENT, not a spurious [REDACTED].
   });
 
   it("an offer-level exclude rule surfaces in offers_excluded with a typed reason", async () => {
