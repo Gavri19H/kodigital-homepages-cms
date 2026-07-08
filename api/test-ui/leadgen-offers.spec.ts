@@ -207,8 +207,11 @@ test.describe.serial('LeadGen Offers — CP2 click-through', () => {
     const row = page.locator(`tr[data-entity-name="${seed.staticOfferName}"]`);
     await expect(row.locator('.badge-published')).toHaveText('active');
 
+    // §7.1: row actions now live behind a kebab menu — open it, then pick the
+    // Archive menuitem (scoped to this offer's row).
+    await row.getByRole('button', { name: /More actions/i }).click();
     page.once('dialog', (dialog) => void dialog.accept());
-    await row.getByRole('button', { name: 'Archive' }).click();
+    await row.locator('[data-offer-archive]').click();
     await expect(page.locator('.toast')).toContainText('Offer archived');
 
     // The archive flow reloads the list (§9.6 reversible status flip — the

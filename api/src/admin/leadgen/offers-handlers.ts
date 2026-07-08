@@ -1373,68 +1373,443 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
 export async function deleteOfferHandler(c: AdminContext): Promise<Response> {
   const row = await resolveOfferRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
-  await c.env.DB.prepare(
-    "UPDATE leadgen_offers SET status = 'archived', updated_at = unixepoch() WHERE id = ?",
-  )
-    .bind(row.id)
-    .run();
-  return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
+
+  // A1 (07 §7.2): default DELETE stays ARCHIVE (contract-safe). `?mode=hard`
+  // is the guarded permanent delete — allowed ONLY at zero references across
+  // the full §7.4 inventory (explicit-query guard; D1 FKs are not enforced).
+  const mode = c.req.query("mode") ?? "";
+  if (mode !== "hard") {
+    await c.env.DB.prepare(
+      "UPDATE leadgen_offers SET status = 'archived', updated_at = unixepoch() WHERE id = ?",
+    )
+      .bind(row.id)
+      .run();
+    return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
+  }
+
+  const usage = await buildOfferUsageReport(c.env.DB, row.id);
+  if (!usage.delete_eligibility.eligible) {
+    // Referenced somewhere → 409 + the usage report (07 §7.2). The UI renders
+    // it as the "in use" modal with per-kind links + "Archive instead".
+    return c.json({ error: "offer_in_use", usage }, 409);
+  }
+
+  // Clean → cascade the offer's OWN children only, in one batch. Logs/analytics
+  // are never deleted (their ABSENCE is what made the offer deletable).
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM leadgen_offer_region_rules WHERE offer_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_offer_headers WHERE offer_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_offer_cap_counters WHERE offer_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_offer_payload_schemas WHERE offer_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_offer_placements WHERE offer_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM leadgen_offers WHERE id = ?").bind(row.id),
+  ]);
+  return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: "hard" });
 }
 
 // ---------------------------------------------------------------------------
-// GET /offers/:id/usage — Sections mapping to it + Auctions it joins
+// A2 duplicate — POST /offers/:id/duplicate (07 §7.3; Q3 copy-set)
 // ---------------------------------------------------------------------------
+
+export async function duplicateOfferHandler(c: AdminContext): Promise<Response> {
+  const src = await resolveOfferRow(c.env.DB, c.req.param("id") ?? "");
+  if (src === null) return c.json({ error: "Not Found" }, 404);
+
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  const rawName = typeof body["name"] === "string" ? (body["name"] as string).trim() : "";
+  const name = rawName !== "" ? rawName : `${src.offer_name} (copy)`;
+  const newDefaultPlacementId =
+    typeof body["default_placement_id"] === "string" ? (body["default_placement_id"] as string).trim() : "";
+  if (newDefaultPlacementId === "") {
+    // §7.3: source placement ids are NEVER copied verbatim — a fresh default
+    // placement id is required input (two offers must never serve the same
+    // provider feed id by accident).
+    return c.json(
+      { error: "Validation failed", fields: { default_placement_id: "a new default placement id is required" } },
+      400,
+    );
+  }
+  // Copy toggles (§7.3 defaults): region rules ON, endpoint/request config ON
+  // (refs only — secrets never move), cap settings OFF (copied disabled).
+  const copyRegionRules = body["copy_region_rules"] !== false;
+  const copyEndpointConfig = body["copy_endpoint_config"] !== false;
+  const copyCapSettings = body["copy_cap_settings"] === true;
+
+  const newPublic = mintPublicId("offer");
+  // The offer clone: status paused (the enum's inactive value — there is no
+  // 'draft'; the untested new-v1 schema keeps it out of live auctions via the
+  // R4 gate regardless). Endpoint/token refs copied only when the box is checked.
+  const endpointProd = copyEndpointConfig ? src.endpoint_production : null;
+  const endpointStaging = copyEndpointConfig ? src.endpoint_staging : null;
+  const tokenRef = copyEndpointConfig ? src.api_token_secret_ref : null;
+  const tokenPlacement = copyEndpointConfig ? src.api_token_placement : null;
+  const tokenParam = copyEndpointConfig ? src.api_token_param_name : null;
+  const requestMethod = copyEndpointConfig ? src.request_method : null;
+
+  await c.env.DB.prepare(
+    `INSERT INTO leadgen_offers
+       (public_id, offer_name, provider, activity, vertical, tag,
+        conversion_tracking_method, offer_type, calls_provider_api, bid_source,
+        request_execution_mode, static_bid_value, static_bid_currency, static_order,
+        banner_url_template, static_fallback_banner_url, request_method,
+        endpoint_production, endpoint_staging, api_token_secret_ref,
+        api_token_placement, api_token_param_name,
+        cap_enabled, cap_amount, cap_timezone, cap_count_by, cap_fallback_url,
+        status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')`,
+  )
+    .bind(
+      newPublic, name, src.provider, src.activity, src.vertical, src.tag,
+      src.conversion_tracking_method, src.offer_type, src.calls_provider_api, src.bid_source,
+      src.request_execution_mode, src.static_bid_value, src.static_bid_currency, src.static_order,
+      // §7.3: banner template + response-macro fallbacks copy; caps disabled unless checked.
+      src.banner_url_template, src.static_fallback_banner_url, requestMethod,
+      endpointProd, endpointStaging, tokenRef, tokenPlacement, tokenParam,
+      copyCapSettings ? 0 : 0, // caps ALWAYS copied disabled (§7.3) even when settings copied
+      copyCapSettings ? src.cap_amount : null,
+      copyCapSettings ? src.cap_timezone : null,
+      copyCapSettings ? src.cap_count_by : null,
+      copyCapSettings ? src.cap_fallback_url : null,
+    )
+    .run();
+
+  const dup = await c.env.DB.prepare("SELECT * FROM leadgen_offers WHERE public_id = ?")
+    .bind(newPublic)
+    .first<LeadgenOfferRow>();
+  if (dup === null) return c.json({ error: "duplicate failed" }, 500);
+
+  const stmts: D1PreparedStatement[] = [];
+
+  // Placements: the required new default; additional source placements cloned
+  // with BLANK placement ids flagged "needs value" (never the source id).
+  const defaultPlPublic = mintPublicId("offer_placement");
+  stmts.push(
+    c.env.DB.prepare(
+      `INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, label, is_default)
+       VALUES (?, ?, ?, ?, 1)`,
+    ).bind(defaultPlPublic, dup.id, newDefaultPlacementId, null),
+  );
+  const srcPlacements = await c.env.DB.prepare(
+    "SELECT placement_id, label, is_default FROM leadgen_offer_placements WHERE offer_id = ? ORDER BY is_default DESC, id ASC",
+  )
+    .bind(src.id)
+    .all<{ placement_id: string; label: string | null; is_default: number }>();
+  let extraPlacements = 0;
+  for (const p of srcPlacements.results ?? []) {
+    if (p.is_default === 1) continue; // its slot is the new required default
+    extraPlacements += 1;
+    // blank placement id (NOT NULL column → a unique needs-value sentinel per row)
+    stmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, label, is_default)
+         VALUES (?, ?, ?, ?, 0)`,
+      ).bind(mintPublicId("offer_placement"), dup.id, `__needs_value__${extraPlacements}`, p.label),
+    );
+  }
+
+  // ACTIVE payload schema → new v1 (fresh lgp_, no history); parser copied.
+  let schemaCopied = false;
+  if (src.active_payload_schema_id !== null && src.active_payload_schema_id !== undefined) {
+    const active = await c.env.DB.prepare(
+      "SELECT schema_json, carrier_parse_json, carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ?",
+    )
+      .bind(src.active_payload_schema_id)
+      .first<{ schema_json: string; carrier_parse_json: string | null; carrier_parse_version: number }>();
+    if (active !== null) {
+      const schemaPublic = mintPublicId("payload_schema_version");
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO leadgen_offer_payload_schemas
+             (public_id, offer_id, version, schema_json, sample_response_json, carrier_parse_json, carrier_parse_version)
+           VALUES (?, ?, 1, ?, NULL, ?, ?)`,
+        ).bind(schemaPublic, dup.id, active.schema_json, active.carrier_parse_json, active.carrier_parse_version),
+        // point the clone's active pointer at its new v1 (Test status stays
+        // untested — sample_response_json is NULL → R4 blocks live auction).
+        c.env.DB.prepare(
+          "UPDATE leadgen_offers SET active_payload_schema_id = (SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?) WHERE id = ?",
+        ).bind(schemaPublic, dup.id),
+      );
+      schemaCopied = true;
+    }
+  }
+
+  // Headers (part of request config) copied only with the endpoint box.
+  if (copyEndpointConfig) {
+    const headers = await c.env.DB.prepare(
+      "SELECT header_name, value_kind, value_text FROM leadgen_offer_headers WHERE offer_id = ?",
+    )
+      .bind(src.id)
+      .all<{ header_name: string; value_kind: string; value_text: string | null }>();
+    for (const h of headers.results ?? []) {
+      stmts.push(
+        c.env.DB.prepare(
+          "INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, ?, ?, ?)",
+        ).bind(dup.id, h.header_name, h.value_kind, h.value_text),
+      );
+    }
+  }
+
+  // Region rules (default ON).
+  let regionRulesCopied = 0;
+  if (copyRegionRules) {
+    const rules = await c.env.DB.prepare(
+      "SELECT dimension, action, values_json, priority, enabled FROM leadgen_offer_region_rules WHERE offer_id = ?",
+    )
+      .bind(src.id)
+      .all<{ dimension: string; action: string; values_json: string; priority: number; enabled: number }>();
+    for (const r of rules.results ?? []) {
+      regionRulesCopied += 1;
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO leadgen_offer_region_rules (public_id, offer_id, dimension, action, values_json, priority, enabled)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(mintPublicId("offer_region_rule"), dup.id, r.dimension, r.action, r.values_json, r.priority, r.enabled),
+      );
+    }
+  }
+
+  // Atomicity (§7.3 "one transaction"): the children (incl. the REQUIRED
+  // default placement) go in one batch. If it fails, compensate by removing the
+  // just-inserted offer so a placement-less paused clone never persists.
+  if (stmts.length > 0) {
+    try {
+      await c.env.DB.batch(stmts);
+    } catch (err) {
+      await c.env.DB.prepare("DELETE FROM leadgen_offers WHERE public_id = ?").bind(newPublic).run();
+      throw err;
+    }
+  }
+
+  // NEVER copied: analytics, cap counters, provider logs, Test results, revenue.
+  return c.json(
+    {
+      offer: offerRowToApi(dup),
+      duplicated_from: { id: src.id, public_id: src.public_id, name: src.offer_name },
+      copied: {
+        active_schema_as_v1: schemaCopied,
+        region_rules: regionRulesCopied,
+        endpoint_config: copyEndpointConfig,
+        cap_settings_copied_disabled: copyCapSettings,
+        extra_placements_blanked: extraPlacements,
+      },
+      not_copied: ["analytics", "cap_counters", "provider_logs", "test_results", "revenue"],
+      test_status: "untested",
+    },
+    201,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A3 usage inventory (07 §7.4) — the FULL reference set. ONE query set drives
+// both GET /offers/:id/usage and the A1 delete guard.
+// ---------------------------------------------------------------------------
+
+interface OfferUsageKind {
+  kind: string;
+  count: number;
+  items: Array<{ id: number; public_id: string; name: string; link: string }>;
+  warning_only?: boolean;
+}
+export interface OfferUsageReport {
+  kinds: OfferUsageKind[];
+  delete_eligibility: { eligible: boolean; blocking_kinds: string[] };
+}
+
+async function countRefs(
+  db: D1Database,
+  sql: string,
+  offerId: number,
+): Promise<Array<{ id: number; public_id: string; name: string; link: string }>> {
+  const res = await db
+    .prepare(sql)
+    .bind(offerId)
+    .all<{ id: number; public_id: string; name: string; link: string }>();
+  return res.results ?? [];
+}
+
+async function countScalar(db: D1Database, sql: string, offerId: number): Promise<number> {
+  const row = await db.prepare(sql).bind(offerId).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function buildOfferUsageReport(db: D1Database, offerId: number): Promise<OfferUsageReport> {
+  // Blocking reference kinds (any → hard-delete refused). Provider logs,
+  // revenue, and analytics mirrors are WARNING-ONLY (historical rows; their
+  // presence does not block a delete — 07 §7.4).
+  const kinds: OfferUsageKind[] = [];
+  const blocking: string[] = [];
+  const add = (kind: string, items: OfferUsageKind["items"], warningOnly = false): void => {
+    kinds.push({ kind, count: items.length, items, ...(warningOnly ? { warning_only: true } : {}) });
+    if (!warningOnly && items.length > 0) blocking.push(kind);
+  };
+
+  add(
+    "sections_available",
+    await countRefs(
+      db,
+      `SELECT s.id, s.public_id, s.section_name AS name, '/admin/leadgen/sections/' || s.public_id || '/edit' AS link
+       FROM leadgen_section_available_offers sao JOIN leadgen_sections s ON s.id = sao.section_id
+       WHERE sao.offer_id = ? GROUP BY s.id ORDER BY s.section_name`,
+      offerId,
+    ),
+  );
+  add(
+    "answer_maps",
+    await countRefs(
+      db,
+      `SELECT s.id, s.public_id, s.section_name || ' (' || COUNT(*) || ' fields)' AS name,
+              '/admin/leadgen/sections/' || s.public_id || '/edit#mapping' AS link
+       FROM leadgen_section_answer_maps m JOIN leadgen_sections s ON s.id = m.section_id
+       WHERE m.offer_id = ? GROUP BY s.id ORDER BY s.section_name`,
+      offerId,
+    ),
+  );
+  add(
+    "auctions_participating",
+    await countRefs(
+      db,
+      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit' AS link
+       FROM leadgen_auction_offers ao JOIN leadgen_auctions a ON a.id = ao.auction_id
+       WHERE ao.offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
+      offerId,
+    ),
+  );
+  add(
+    "auction_rules_targeting",
+    await countRefs(
+      db,
+      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit#rules' AS link
+       FROM leadgen_auction_rules r JOIN leadgen_auctions a ON a.id = r.auction_id
+       WHERE r.target_offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
+      offerId,
+    ),
+  );
+  add(
+    "cap_fallback_referenced_by",
+    await countRefs(
+      db,
+      `SELECT o.id, o.public_id, o.offer_name AS name, '/admin/leadgen/offers/' || o.public_id || '/edit' AS link
+       FROM leadgen_offers o WHERE o.cap_fallback_offer_id = ? ORDER BY o.offer_name`,
+      offerId,
+    ),
+  );
+  // BLOCKER (adversarial): a funnel redirect rule that targets this Offer
+  // (§11 direct_offer_redirect) is a live wired reference — deleting the Offer
+  // would break the redirect. Blocking.
+  add(
+    "funnel_rules_targeting",
+    await countRefs(
+      db,
+      `SELECT r.id, r.public_id, COALESCE(f.funnel_name, 'funnel rule') AS name,
+              '/admin/leadgen/quotes' AS link
+       FROM leadgen_funnel_rules r
+       LEFT JOIN leadgen_funnel_variants v ON v.id = r.variant_id
+       LEFT JOIN leadgen_funnels f ON f.id = v.funnel_id
+       WHERE r.target_offer_id = ? ORDER BY r.id`,
+      offerId,
+    ),
+  );
+  // BLOCKER (adversarial): an Auction using this Offer as its backfill source
+  // (leadgen_auctions.backfill_source_offer_id — write-enforced FK) would be
+  // left dangling + un-saveable. Blocking.
+  add(
+    "auction_backfill_source",
+    await countRefs(
+      db,
+      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit' AS link
+       FROM leadgen_auctions a WHERE a.backfill_source_offer_id = ? ORDER BY a.auction_name`,
+      offerId,
+    ),
+  );
+  // MAJOR (adversarial): the §7.4-named kinds that were missing. quotes_indirect
+  // (Quotes whose Sections select this Offer) is blocking; region_rules (own —
+  // cascade-deleted on clean delete) is INFORMATIONAL (warning-only, never
+  // blocks — the cascade handles it); revenue_attribution is warning-only.
+  add(
+    "quotes_indirect",
+    await countRefs(
+      db,
+      `SELECT DISTINCT q.id, q.public_id, q.quote_name AS name, '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
+       FROM leadgen_section_available_offers sao
+       JOIN leadgen_funnel_variant_sections fvs ON fvs.section_id = sao.section_id
+       JOIN leadgen_funnel_variants fv ON fv.id = fvs.variant_id
+       JOIN leadgen_funnels f ON f.id = fv.funnel_id
+       JOIN leadgen_quotes q ON q.id = f.quote_id
+       WHERE sao.offer_id = ? ORDER BY q.quote_name`,
+      offerId,
+    ),
+  );
+  add(
+    "region_rules",
+    await countRefs(
+      db,
+      `SELECT id, public_id, dimension AS name, '' AS link
+       FROM leadgen_offer_region_rules WHERE offer_id = ? ORDER BY id`,
+      offerId,
+    ),
+    true, // own children — cascade-deleted; informational, never blocks
+  );
+  add(
+    "cap_counters_active",
+    await countRefs(
+      db,
+      `SELECT ROW_NUMBER() OVER (ORDER BY cap_date) AS id, cap_date AS public_id, cap_date AS name, '' AS link
+       FROM leadgen_offer_cap_counters WHERE offer_id = ? AND (click_count > 0 OR conversion_count > 0)`,
+      offerId,
+    ),
+  );
+  // Warning-only historical rows — keyed on offer_public_id. A single synthetic
+  // item carrying the row count when > 0 (never blocks a delete).
+  const providerLog = await db
+    .prepare(
+      `SELECT COUNT(*) AS n, MAX(created_at) AS latest FROM leadgen_provider_request_log
+       WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
+    )
+    .bind(offerId)
+    .first<{ n: number; latest: number | null }>();
+  const providerLogCount = providerLog?.n ?? 0;
+  add(
+    "provider_request_logs",
+    providerLogCount > 0
+      ? [{ id: providerLog?.latest ?? 1, public_id: String(providerLogCount), name: `${providerLogCount} provider requests (latest ts ${providerLog?.latest ?? "?"})`, link: "" }]
+      : [],
+    true,
+  );
+  const analyticsCount = await countScalar(
+    db,
+    `SELECT COUNT(*) AS n FROM leadgen_analytics_offer
+     WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
+    offerId,
+  );
+  add(
+    "analytics_mirror_rows",
+    analyticsCount > 0 ? [{ id: 1, public_id: String(analyticsCount), name: `${analyticsCount} analytics rows`, link: "" }] : [],
+    true,
+  );
+  // revenue_attribution — warning-only (§7.4); revenue_raw rows keyed by
+  // offer_public_id (historical attribution, never blocks a delete).
+  const revenueCount = await countScalar(
+    db,
+    `SELECT COUNT(*) AS n FROM leadgen_revenue_raw
+     WHERE offer_public_id = (SELECT public_id FROM leadgen_offers WHERE id = ?)`,
+    offerId,
+  );
+  add(
+    "revenue_attribution",
+    revenueCount > 0 ? [{ id: 1, public_id: String(revenueCount), name: `${revenueCount} revenue rows`, link: "" }] : [],
+    true,
+  );
+
+  return { kinds, delete_eligibility: { eligible: blocking.length === 0, blocking_kinds: blocking } };
+}
 
 export async function offerUsageHandler(c: AdminContext): Promise<Response> {
   const row = await resolveOfferRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
-
-  const sections = await c.env.DB.prepare(
-    `SELECT s.id, s.public_id, s.section_name, s.status, sao.selected, sao.mapping_state
-     FROM leadgen_section_available_offers sao
-     JOIN leadgen_sections s ON s.id = sao.section_id
-     WHERE sao.offer_id = ?
-     ORDER BY s.section_name ASC, s.id ASC`,
-  )
-    .bind(row.id)
-    .all<{
-      id: number;
-      public_id: string;
-      section_name: string;
-      status: string;
-      selected: number;
-      mapping_state: string;
-    }>();
-
-  // Auctions join a CONCRETE placement (§7.4 issue 18) — surfaced per row so
-  // the usage panel can name which placement participates.
-  const auctions = await c.env.DB.prepare(
-    `SELECT a.id, a.public_id, a.auction_name, a.auction_type, a.status,
-            p.public_id AS placement_public_id, p.placement_id, ao.enabled
-     FROM leadgen_auction_offers ao
-     JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
-     JOIN leadgen_auctions a ON a.id = ao.auction_id
-     WHERE ao.offer_id = ?
-     ORDER BY a.auction_name ASC, a.id ASC`,
-  )
-    .bind(row.id)
-    .all<{
-      id: number;
-      public_id: string;
-      auction_name: string;
-      auction_type: string;
-      status: string;
-      placement_public_id: string;
-      placement_id: string;
-      enabled: number;
-    }>();
-
-  return c.json({
-    usage: {
-      sections: (sections.results ?? []).map((s) => ({ ...s, selected: s.selected !== 0 })),
-      auctions: (auctions.results ?? []).map((a) => ({ ...a, enabled: a.enabled !== 0 })),
-    },
-  });
+  const usage = await buildOfferUsageReport(c.env.DB, row.id);
+  return c.json({ offer: { id: row.id, public_id: row.public_id, name: row.offer_name }, usage });
 }
 
 // ---------------------------------------------------------------------------

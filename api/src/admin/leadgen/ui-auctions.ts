@@ -107,6 +107,15 @@ const LG_AUCTIONS_STYLES = `
 .lg-fieldmap-row .lg-fieldmap-key{min-width:140px;font-weight:600}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .lg-sim-note{color:var(--c-muted);font-size:14px;margin:8px 0}
+.lg-sim-summary{font-weight:600;margin:10px 0 4px}
+.lg-sim-offer{border:1px solid var(--c-border);border-radius:6px;padding:10px 12px;margin:8px 0}
+.lg-sim-offer-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.lg-sim-eligible{font-size:12px;padding:2px 10px;border-radius:9999px;background:var(--c-success-bg,#e8f7ee);color:var(--c-success,#186a3b);border:1px solid var(--c-success,#7dcb9a)}
+.lg-sim-excluded{font-size:12px;padding:2px 10px;border-radius:9999px;background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border:1px solid var(--c-danger,#e5a49a)}
+.lg-sim-reason{color:var(--c-danger,#8a1f11);font-size:13px;margin:2px 0}
+.lg-sim-fields{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0}
+.lg-sim-chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:2px 8px;border:1px solid var(--c-border);border-radius:9999px;background:var(--c-bg-alt)}
+.lg-sim-payload{background:var(--c-bg-alt,#f5f6f8);border:1px solid var(--c-border);border-radius:6px;padding:10px;font-size:12px;overflow-x:auto;white-space:pre;max-height:280px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -690,12 +699,28 @@ function renderBannerPanel(banner: BannerConfig): string {
 </div>`;
 }
 
+// §7.6 (S1) simulate trace — a DRY-RUN readout. POSTs sample answers/context
+// to /auctions/:id/simulate and renders, per considered offer, the additive
+// fields: redacted payload_preview (pretty), parser id + carrier parse
+// version, expected response fields, placement id used, and the eligibility
+// verdict + exclusion reason (via the reused eligibilityLabel). No provider
+// call is made in dry-run; nothing is written.
 function renderSimulatorPanel(): string {
   return `<div class="lg-apanel" data-panel="simulator">
   <div class="card">
-    <h3>Simulator (§19)</h3>
-    <p class="lg-sim-note" data-simulator-p10>Auction simulation (dry-run against sample answers with the full §19 explainability trace) <strong>ships in Phase 10 (P10)</strong>. This editor (Phase 9) configures the auction; P10 executes it.</p>
-    <button type="button" class="btn btn-secondary" id="lg-a-simulate" disabled aria-disabled="true" title="Ships in P10">Run simulation (P10)</button>
+    <h3>Simulator (§19.2 dry-run)</h3>
+    <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No provider call is made and nothing is written (no logs, revenue or cap increments).</p>
+    <div class="form-group">
+      <label class="form-label" for="lg-sim-answers">Sample answers (JSON, optional)</label>
+      <textarea id="lg-sim-answers" class="form-textarea" rows="4" data-sim-answers placeholder='{"zip":"90210"}' aria-label="Sample answers JSON"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="lg-sim-context">Request context (JSON, optional)</label>
+      <textarea id="lg-sim-context" class="form-textarea" rows="2" data-sim-context placeholder='{"state":"CA"}' aria-label="Request context JSON"></textarea>
+    </div>
+    <button type="button" class="btn btn-primary" id="lg-a-simulate">Run simulation (dry-run)</button>
+    <p id="lg-sim-msg" class="form-help" hidden></p>
+    <div id="lg-sim-results" data-simulate-results hidden></div>
   </div>
 </div>`;
 }
@@ -1291,6 +1316,133 @@ const AUCTION_EDITOR_SCRIPT = `
         body.appendChild(tr);
       });
   }
+
+  // --- §7.6 simulate (S1) — dry-run explainability trace --------------------
+  function parseSimJson(id) {
+    var raw = val(id).replace(/^\\s+|\\s+$/g, '');
+    if (raw === '') { return {}; }
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+  function prettyJson(v) { try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); } }
+  function simChips(parent, values) {
+    var i;
+    for (i = 0; i < values.length; i++) {
+      var c = makeEl('span', 'lg-sim-chip');
+      c.appendChild(document.createTextNode(String(values[i])));
+      parent.appendChild(c);
+    }
+  }
+  // Per considered Offer: verdict + reason(s), parser id + version, expected
+  // response fields, and the redacted payload preview (server-masked).
+  function renderSimOffer(host, offer) {
+    var card = makeEl('div', 'lg-sim-offer');
+    card.setAttribute('data-sim-offer', offer.offer_id || '');
+    var head = makeEl('div', 'lg-sim-offer-head');
+    var title = makeEl('strong');
+    title.appendChild(document.createTextNode(offer.offer_id || '(offer)'));
+    head.appendChild(title);
+    if (offer.placement_id) {
+      var pl = makeEl('span', 'form-help');
+      pl.appendChild(document.createTextNode('placement ' + offer.placement_id));
+      head.appendChild(pl);
+    }
+    var elig = offer.eligibility;
+    var excluded = !!offer.excluded_reason || (elig && elig.eligible === false);
+    var verdict = makeEl('span', excluded ? 'lg-sim-excluded' : 'lg-sim-eligible');
+    verdict.setAttribute('data-sim-verdict', excluded ? 'excluded' : 'eligible');
+    verdict.appendChild(document.createTextNode(excluded ? 'Excluded' : 'Eligible'));
+    head.appendChild(verdict);
+    card.appendChild(head);
+
+    var reasons = [];
+    if (offer.excluded_reason) { reasons.push(offer.excluded_reason); }
+    if (elig && elig.reasons && elig.reasons.length) { reasons = reasons.concat(elig.reasons); }
+    if (reasons.length) {
+      var rp = makeEl('p', 'lg-sim-reason');
+      var rt = [], ri;
+      for (ri = 0; ri < reasons.length; ri++) { rt.push(eligibilityLabel(reasons[ri])); }
+      rp.appendChild(document.createTextNode('Reason: ' + rt.join(' \\u00b7 ')));
+      card.appendChild(rp);
+    }
+    if (offer.parser_id || offer.carrier_parse_version) {
+      var pp = makeEl('p', 'form-help');
+      pp.appendChild(document.createTextNode('Parser: ' + (offer.parser_id || '\\u2014') + (offer.carrier_parse_version ? ' (v' + offer.carrier_parse_version + ')' : '')));
+      card.appendChild(pp);
+    }
+    if (offer.expected_response_fields && offer.expected_response_fields.length) {
+      var ef = makeEl('div', 'lg-sim-fields');
+      var lbl = makeEl('span', 'form-help');
+      lbl.appendChild(document.createTextNode('Expected response fields: '));
+      ef.appendChild(lbl);
+      simChips(ef, offer.expected_response_fields);
+      card.appendChild(ef);
+    }
+    if (offer.payload_preview !== undefined && offer.payload_preview !== null) {
+      var plabel = makeEl('p', 'form-help');
+      plabel.appendChild(document.createTextNode('Payload preview (redacted):'));
+      card.appendChild(plabel);
+      var pre = makeEl('pre', 'lg-sim-payload');
+      pre.setAttribute('data-sim-payload', '');
+      pre.appendChild(document.createTextNode(typeof offer.payload_preview === 'string' ? offer.payload_preview : prettyJson(offer.payload_preview)));
+      card.appendChild(pre);
+    }
+    host.appendChild(card);
+  }
+  function renderSimulate(body) {
+    var host = byId('lg-sim-results');
+    if (!host) { return; }
+    while (host.firstChild) { host.removeChild(host.firstChild); }
+    host.hidden = false;
+    var summary = makeEl('p', 'lg-sim-summary');
+    summary.appendChild(document.createTextNode('Status: ' + (body.status || '\\u2014') +
+      (body.winner && body.winner.offer_id ? ' \\u00b7 winner ' + body.winner.offer_id : '') +
+      (body.unfilled_reason ? ' \\u00b7 unfilled: ' + body.unfilled_reason : '')));
+    host.appendChild(summary);
+    var note = makeEl('p', 'form-help');
+    note.setAttribute('data-sim-dryrun-note', '');
+    note.appendChild(document.createTextNode('Dry-run \\u2014 no provider calls, nothing written.'));
+    host.appendChild(note);
+    // S1 (07 §7.6): the per-offer explainability (redacted payload_preview,
+    // parser id/version, expected fields, exclusion reason) rides the additive
+    // offers_payload_explain array — NOT offers_considered (which is only
+    // offer_id + placement_id). Read the explain array; fall back to the bare
+    // considered list only when the server omits it.
+    var considered = (body.offers_payload_explain && body.offers_payload_explain.length)
+      ? body.offers_payload_explain
+      : (body.offers_considered || []);
+    if (!considered.length) {
+      var none = makeEl('p', 'form-help');
+      none.appendChild(document.createTextNode('No offers considered.'));
+      host.appendChild(none);
+      return;
+    }
+    var i;
+    for (i = 0; i < considered.length; i++) { renderSimOffer(host, considered[i]); }
+  }
+  function runSimulate() {
+    var answers = parseSimJson('lg-sim-answers');
+    var context = parseSimJson('lg-sim-context');
+    if (answers === null) { showMsg('lg-sim-msg', 'Sample answers must be valid JSON.', false); return; }
+    if (context === null) { showMsg('lg-sim-msg', 'Request context must be valid JSON.', false); return; }
+    hide('lg-sim-msg');
+    var btn = byId('lg-a-simulate');
+    if (btn) { btn.disabled = true; }
+    fetch(apiBase + '/simulate', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ sample_answers: answers, context: context })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
+      .then(function (res) {
+        if (btn) { btn.disabled = false; }
+        if (!res.ok) { showMsg('lg-sim-msg', (res.body && res.body.error) ? res.body.error : ('Error ' + res.status), false); return; }
+        renderSimulate(res.body || {});
+      }).catch(function () {
+        if (btn) { btn.disabled = false; }
+        showMsg('lg-sim-msg', 'Simulation failed.', false);
+      });
+  }
+  var simBtn = byId('lg-a-simulate');
+  if (simBtn) { simBtn.addEventListener('click', runSimulate); }
 
   // --- unsaved-changes guard ------------------------------------------------
   window.addEventListener('beforeunload', function (ev) {

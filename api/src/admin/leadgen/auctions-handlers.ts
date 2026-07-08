@@ -22,6 +22,10 @@ import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
+import { readEnvSecret } from "../../env";
+import { buildPayload } from "../../leadgen/payload";
+import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
+import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
@@ -54,8 +58,10 @@ import type {
   LeadgenQuoteRow,
   LeadgenSiteQuoteRow,
   LeadgenMultiOfferMode,
+  LeadgenApiTokenPlacement,
   LeadgenRenderMode,
   LeadgenRemovalScope,
+  LeadgenRequestExecutionMode,
   LeadgenRuleAction,
   LeadgenRuleConditionGroup,
   LeadgenRuleConditions,
@@ -1635,6 +1641,142 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     { dryRun: true },
   );
 
+  // S1 (07 §7.6): per-considered-offer explainability — the EXACT generated
+  // payload (redacted via redactPii), the parser id + version, the expected
+  // response fields, and the placement used. Re-derived here with the SAME
+  // buildPayload + sample answers (simulate is dry + admin-side; nothing is
+  // sent). Excluded offers carry their exclusion reason (already in
+  // offers_excluded). Never a throw — a bad schema yields a null preview.
+  const consideredWithPlacements = [
+    ...result.explain.offers_considered,
+    ...result.explain.offers_excluded.map((e) => ({ offer_id: e.offer_id, placement_id: "" })),
+  ];
+  const excludedReasonByOffer = new Map(result.explain.offers_excluded.map((e) => [e.offer_id, e.reason]));
+  const offerPublicIds = [...new Set(consideredWithPlacements.map((o) => o.offer_id))].filter((x) => x !== "");
+  const placementByOffer = new Map(
+    consideredWithPlacements.filter((o) => o.placement_id !== "").map((o) => [o.offer_id, o.placement_id]),
+  );
+  // MAJOR (adversarial §7.6): the preview must be the EXACT generated payload —
+  // built with the SAME macros/computed/placement the engine threads, not
+  // answers alone. The offer slice (offer_id/offer_name/placement) varies per
+  // offer AND feeds three macros (`contextToMacros` derives offer_id/offer_name/
+  // placement from ctx.offer), so the runtime context is rebuilt PER OFFER inside
+  // the loop with that offer's slice — request/traffic/computed are identical
+  // each time; only the offer slice differs. These base opts are the invariant part.
+  const baseCtxOpts = {
+    session_id: "",
+    page_view_id: "",
+    funnel_attempt_id: "",
+    quote: resolved.quote,
+    funnel: resolved.funnel,
+    variant: resolved.variant,
+    overrides: context as never, // simulated-context bag (B5 — admin dry-run only)
+  } as const;
+  const payloadExplain: Array<Record<string, unknown>> = [];
+  for (const ids of chunk(offerPublicIds)) {
+    if (ids.length === 0) continue;
+    const marks = ids.map(() => "?").join(",");
+    // The provider-facing EXTERNAL placement_id (not the lgpl_ public id) is
+    // what source:"placement" resolves to at runtime (04 §4.5) — join the
+    // offer's participating placement in THIS auction so the preview matches
+    // what the engine actually sends.
+    const rows = await c.env.DB.prepare(
+      `SELECT o.public_id AS offer_public_id, o.offer_name AS offer_name,
+              o.api_token_placement AS api_token_placement, o.request_execution_mode AS request_execution_mode,
+              o.api_token_secret_ref AS api_token_secret_ref,
+              s.public_id AS parser_id, s.schema_json,
+              s.carrier_parse_json, s.carrier_parse_version, pl.placement_id AS ext_placement
+       FROM leadgen_offers o
+       LEFT JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
+       LEFT JOIN leadgen_auction_offers ao ON ao.offer_id = o.id AND ao.auction_id = ?
+       LEFT JOIN leadgen_offer_placements pl ON pl.id = ao.offer_placement_id
+       WHERE o.public_id IN (${marks})`,
+    )
+      .bind(auction.id, ...ids)
+      .all<{
+        offer_public_id: string;
+        offer_name: string | null;
+        api_token_placement: string | null;
+        request_execution_mode: string | null;
+        api_token_secret_ref: string | null;
+        parser_id: string | null;
+        schema_json: string | null;
+        carrier_parse_json: string | null;
+        carrier_parse_version: number | null;
+        ext_placement: string | null;
+      }>();
+    for (const r of rows.results ?? []) {
+      const placementForOffer = placementByOffer.get(r.offer_public_id) ?? "";
+      // PROVIDER-FACING external placement id (04 §4.5) — never the lgpl_ public id.
+      const externalPlacement = r.ext_placement ?? placementForOffer;
+      let payloadPreview: unknown = null;
+      if (r.schema_json !== null) {
+        try {
+          const parsedSchema = JSON.parse(r.schema_json) as Parameters<typeof buildPayload>[0];
+          // Rebuild the runtime context WITH this offer's slice so the three
+          // offer-scoped macros (`offer_id`/`offer_name`/`placement`) resolve
+          // exactly as the engine threads them — not empty (as they would be
+          // from an offer-less context). Mirrors the Test-tool peer in
+          // payload-builder-handlers.ts.
+          const offerCtx = buildLeadgenRuntimeContext(
+            { req: { raw: c.req.raw } },
+            { ...baseCtxOpts, offer: { offer_id: r.offer_public_id, offer_name: r.offer_name ?? "", placement_id: externalPlacement } },
+          );
+          // §7.6 "masked": a source:"token" node renders present-but-MASKED, but
+          // ONLY when the engine would actually inject it — payload placement +
+          // server mode AND a secret that RESOLVES in this env (fetch.ts + the
+          // Test-tool peer gate identically). We use readEnvSecret purely as a
+          // boolean presence gate; the REAL secret value NEVER enters the preview
+          // — the masked sentinel does. An offer with a missing/undeployed secret
+          // therefore shows NO token field, exactly as the live payload would.
+          const secretRef =
+            typeof r.api_token_secret_ref === "string" && r.api_token_secret_ref.trim() !== ""
+              ? r.api_token_secret_ref.trim()
+              : null;
+          const tokenResolvable = secretRef !== null && readEnvSecret(c.env, secretRef) !== undefined;
+          // EXACT payload: answers + this offer's macros/computed + its
+          // provider-facing placement (source:"placement"). redactPii masks any
+          // PII in the resolved fields before return.
+          payloadPreview = redactPii(
+            buildPayload(parsedSchema, {
+              answers: sampleAnswers,
+              macros: offerCtx.macros,
+              computed: offerCtx.computed,
+              offer: { offer_id: r.offer_public_id, placement_id: externalPlacement },
+              token: {
+                ...(tokenResolvable ? { value: REDACTED_VALUE } : {}),
+                api_token_placement: r.api_token_placement as LeadgenApiTokenPlacement | null,
+                request_execution_mode: (r.request_execution_mode ?? "server") as LeadgenRequestExecutionMode,
+              },
+            }),
+          );
+        } catch {
+          payloadPreview = null; // malformed stored schema → null preview, never throw
+        }
+      }
+      let expectedResponseFields: string[] = [];
+      if (r.carrier_parse_json !== null) {
+        try {
+          const parsed = JSON.parse(r.carrier_parse_json) as unknown;
+          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+            expectedResponseFields = Object.keys(parsed as Record<string, unknown>);
+          }
+        } catch {
+          /* leave empty */
+        }
+      }
+      payloadExplain.push({
+        offer_id: r.offer_public_id,
+        placement_id: placementForOffer,
+        parser_id: r.parser_id,
+        carrier_parse_version: r.carrier_parse_version,
+        expected_response_fields: expectedResponseFields,
+        payload_preview: payloadPreview,
+        excluded_reason: excludedReasonByOffer.get(r.offer_public_id) ?? null,
+      });
+    }
+  }
+
   // The full §19.2 trace. WRITES NOTHING (dryRun) — persistAuctionResult is
   // never called. Provider requested/responded + carriers filtered are the
   // §19.2 join-surfaced extras (not result-log columns).
@@ -1645,6 +1787,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     winner: result.explain.winner,
     unfilled_reason: result.explain.unfilled_reason,
     offers_considered: result.explain.offers_considered,
+    offers_payload_explain: payloadExplain, // S1 (07 §7.6)
     offers_excluded: result.explain.offers_excluded,
     providers_requested: result.explain.providers_requested,
     providers_responded: result.explain.providers_responded,

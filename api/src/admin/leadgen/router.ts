@@ -21,6 +21,7 @@ import {
   deleteOfferHandler,
   getOfferHandler,
   listActivitiesHandler,
+  duplicateOfferHandler,
   listOffersHandler,
   listPayloadSchemasHandler,
   listVerticalsHandler,
@@ -127,6 +128,7 @@ routes.get("/offers/search", searchOffersHandler); // static BEFORE /offers/:id 
 routes.get("/offers/:id", getOfferHandler);
 routes.patch("/offers/:id", patchOfferHandler);
 routes.delete("/offers/:id", deleteOfferHandler);
+routes.post("/offers/:id/duplicate", duplicateOfferHandler); // A2 (07 §7.3)
 routes.get("/offers/:id/usage", offerUsageHandler);
 routes.get("/offers/:id/analytics", offerAnalyticsHandler);
 routes.get("/offers/:id/cap", offerCapHandler);

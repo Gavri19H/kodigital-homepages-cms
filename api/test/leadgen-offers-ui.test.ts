@@ -33,7 +33,10 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
-import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "../src/admin/leadgen/ui-offers";
+import {
+  LEADGEN_ELIGIBILITY_REASON_LABELS,
+  LEADGEN_OFFER_USAGE_KINDS,
+} from "../src/admin/leadgen/ui-offers";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -1121,5 +1124,229 @@ describeDb("leadgen offers list eligibility badge column (05 §5.1)", () => {
     // every existing column/action stays (the §9.2 walker above also holds)
     expect(html).toContain("data-offer-archive=");
     expect(html).toContain("data-offer-usage=");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 (fix-contract v2.4 · 07) — offer management UI
+// ---------------------------------------------------------------------------
+
+// The open tag around a marker (a module-level twin of the create-modal helper).
+function tagAround(html: string, marker: string): string {
+  const start = html.indexOf(marker);
+  expect(start, `element ${marker} present`).toBeGreaterThan(-1);
+  const open = html.lastIndexOf("<", start);
+  const close = html.indexOf(">", start);
+  return html.slice(open, close + 1);
+}
+
+describeDb("leadgen offers list — §7.1 row actions (kebab)", () => {
+  it("every row exposes a kebab with Edit·Duplicate·Archive·Delete·Usage (Delete always visible)", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Row Actions Offer" });
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    // kebab toggle + menu
+    expect(html).toContain(`data-offer-kebab-toggle="${offer.public_id}"`);
+    expect(html).toContain("data-offer-kebab-menu");
+    // all five actions keyed to the offer (Delete always present — guarded, never hidden)
+    expect(html).toContain(`data-offer-duplicate="${offer.public_id}"`);
+    expect(html).toContain(`data-offer-archive="${offer.public_id}"`);
+    expect(html).toContain(`data-offer-delete="${offer.public_id}"`);
+    expect(html).toContain(`data-offer-usage="${offer.public_id}"`);
+    // inline Edit link preserved (additive)
+    expect(html).toContain(
+      `href="/admin/leadgen/offers/${offer.public_id}/edit" class="btn btn-sm btn-secondary">Edit</a>`,
+    );
+    // the eligibility badge column is preserved
+    expect(html).toContain("data-eligibility-cell");
+  });
+});
+
+describeDb("leadgen offers — §7.3 duplicate modal", () => {
+  it("renders the modal: REQUIRED default placement id + the three copy toggles at their defaults", async () => {
+    const { env } = newHarness();
+    await createOffer(env, "request_dynamic_bid", { offer_name: "Dup Source" });
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    expect(html).toContain('id="lg-offer-duplicate-modal"');
+    expect(html).toContain('id="lg-dup-name"');
+    const placement = tagAround(html, 'id="lg-dup-placement"');
+    expect(placement, "default placement id required").toContain("required");
+    expect(placement).toContain('aria-required="true"');
+    // §7.3 defaults: region ON, endpoint ON, cap OFF ("copied disabled")
+    expect(tagAround(html, 'id="lg-dup-copy-region"')).toContain("checked");
+    expect(tagAround(html, 'id="lg-dup-copy-endpoint"')).toContain("checked");
+    expect(tagAround(html, 'id="lg-dup-copy-cap"')).not.toContain("checked");
+    expect(html).toContain("copied disabled");
+    expect(html).toContain(">Create draft</button>");
+  });
+
+  it("the island blocks submit when the placement id is empty, prefills '<name> (copy)', and POSTs the pinned body", async () => {
+    const { env } = newHarness();
+    await createOffer(env, "static_no_request", { offer_name: "Dup Source 2" });
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    // client-side required-placement block (submit blocked when empty)
+    expect(html).toContain("placementVal === ''");
+    expect(html).toContain("A new default placement ID is required");
+    // prefill "<name> (copy)"
+    expect(html).toContain("(name || 'Offer') + ' (copy)'");
+    // POSTs to the pinned duplicate endpoint with the pinned body fields
+    expect(html).toContain("'/duplicate'");
+    expect(html).toContain("default_placement_id: placementVal");
+    expect(html).toContain("copy_region_rules: copyRegion");
+    expect(html).toContain("copy_cap_settings: copyCap");
+    expect(html).toContain("copy_endpoint_config: copyEndpoint");
+  });
+
+  it("the editor renders the 'Duplicated from <name>' banner from the navigation query params", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Dup Target" });
+    const html = await getHtml(
+      env,
+      `/admin/leadgen/offers/${offer.public_id}/edit?duplicated_from=Source%20Offer&copied=copy_region_rules,copy_endpoint_config&skipped=copy_cap_settings&pending=2`,
+    );
+    expect(html).toContain("data-dup-banner");
+    expect(html).toContain("Duplicated from Source Offer");
+    expect(html).toContain('data-dup-copied="copy_region_rules"');
+    expect(html).toContain('data-dup-copied="copy_endpoint_config"');
+    expect(html).toContain('data-dup-skipped="copy_cap_settings"');
+    expect(html).toContain("Region rules: copied");
+    expect(html).toContain("Cap settings (copied disabled): not copied");
+    expect(html).toContain('data-dup-pending="2"');
+  });
+
+  it("no banner without the duplicated_from param", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Plain Editor" });
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(html).not.toContain("data-dup-banner");
+  });
+});
+
+describeDb("leadgen offers — §7.2 delete + §7.4 usage panel", () => {
+  it("renders the type-to-confirm delete modal (submit disabled) + the 409/mode=hard island wiring", async () => {
+    const { env } = newHarness();
+    await createOffer(env, "static_no_request", { offer_name: "Del Offer" });
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    expect(html).toContain('id="lg-offer-delete-modal"');
+    expect(html).toContain("data-delete-offer-name");
+    expect(tagAround(html, 'id="lg-del-submit"')).toContain("disabled");
+    // hard-delete path + type-to-confirm gate
+    expect(html).toContain("'?mode=hard'");
+    expect(html).toContain("delTarget.name");
+    // 409 offer_in_use → the usage report as the "in use" (blocked) modal + Archive instead
+    expect(html).toContain("res.status === 409");
+    expect(html).toContain("'blocked'");
+    expect(html).toContain("data-usage-archive");
+    expect(html).toContain("Archive instead");
+  });
+
+  it("the usage-kinds bootstrap island round-trips ALL §7.4 kinds; the panel renders them data-driven", async () => {
+    const { env } = newHarness();
+    await createOffer(env, "static_no_request", { offer_name: "Usage Offer" });
+    const html = await getHtml(env, "/admin/leadgen/offers");
+    const m = html.match(/<script type="application\/json" id="lg-offer-usage-kinds">([\s\S]*?)<\/script>/);
+    expect(m, "usage-kinds bootstrap island present").not.toBeNull();
+    const parsed = JSON.parse(m![1]!) as Array<{ kind: string; label: string; warning_only: boolean }>;
+    const kinds = parsed.map((k) => k.kind);
+    for (const meta of LEADGEN_OFFER_USAGE_KINDS) {
+      expect(kinds, `kind ${meta.kind} in island`).toContain(meta.kind);
+    }
+    // warning-only kinds (logs/revenue/analytics) are flagged as non-blocking
+    expect(kinds).toContain("provider_request_logs");
+    expect(parsed.find((k) => k.kind === "provider_request_logs")!.warning_only).toBe(true);
+    // island renders each kind + the delete_eligibility verdict; links are XSS-guarded
+    expect(html).toContain("data-usage-kind");
+    expect(html).toContain("delete_eligibility");
+    expect(html).toContain("data-usage-verdict");
+    expect(html).toContain("function safeLink");
+  });
+});
+
+describeDb("leadgen offers — §7.5 region rules UX (D1/D2/D3)", () => {
+  async function regionEditorHtml(): Promise<string> {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Region Offer" });
+    return getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+  }
+
+  it("D1: the action select shows the two frozen behaviors, never the raw enum aliases", async () => {
+    const html = await regionEditorHtml();
+    expect(html).toContain(">Allow only these regions</option>");
+    expect(html).toContain(">Block these regions</option>");
+    expect(html).toContain('value="include_only"');
+    expect(html).toContain('value="exclude"');
+    // storage enum unchanged, but the aliases are never OFFERED as options
+    expect(html).not.toContain('<option value="allow_list"');
+    expect(html).not.toContain('<option value="block_list"');
+  });
+
+  it("D1: a legacy allow_list rule displays as 'Allow only these regions' (include_only selected)", async () => {
+    const { env, sdb } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Legacy Region Offer" });
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_offer_region_rules (public_id, offer_id, dimension, action, values_json, priority, enabled) VALUES (?,?,?,?,?,?,1)",
+      )
+      .run(mintPublicId("offer_region_rule"), offer.id, "country", "allow_list", JSON.stringify(["US"]), 50);
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(html).toContain('<option value="include_only" selected>Allow only these regions</option>');
+  });
+
+  it("D2: the priority field is labeled 'Evaluation order' with the ordering help", async () => {
+    const html = await regionEditorHtml();
+    expect(html).toContain("Evaluation order");
+    expect(html).toContain('aria-label="Evaluation order"');
+    expect(html).toContain("Rules run lowest number first; the first blocking rule wins. Default 100.");
+  });
+
+  it("D3: the section header help separates provider region-blocks from Auction participation", async () => {
+    const html = await regionEditorHtml();
+    expect(html).toContain(
+      "These are provider region-block rules only. Answer-based Offer participation rules are configured in Auction.",
+    );
+  });
+
+  it("D3: Country (ISO alpha-2) + State (filtered) dropdowns + City/ZIP text entry + paste-multiple", async () => {
+    const html = await regionEditorHtml();
+    expect(html).toContain('data-region-input="country"');
+    expect(html).toContain('data-region-input="state"');
+    expect(html).toContain('data-region-input="text"');
+    expect(html).toContain("data-region-state-country");
+    // ISO alpha-2 country option + a US state SSR'd in the state select
+    expect(html).toContain('<option value="US">United States (US)</option>');
+    expect(html).toContain(">California (CA)</option>");
+    // paste-multiple affordance
+    expect(html).toContain("Paste multiple");
+    expect(html).toContain("data-region-paste");
+    // the geo bootstrap island (states-by-country) round-trips; CA provinces baseline present
+    const gm = html.match(/<script type="application\/json" id="lg-region-geo">([\s\S]*?)<\/script>/);
+    expect(gm, "region-geo island present").not.toBeNull();
+    const geo = JSON.parse(gm![1]!) as { states: Record<string, Array<[string, string]>> };
+    expect(geo.states.US!.length).toBeGreaterThan(40);
+    expect(geo.states.CA!.some(([code]) => code === "AB")).toBe(true);
+  });
+
+  it("D3: island client ZIP validation + comma/newline paste split + inline region_value_invalid", async () => {
+    const html = await regionEditorHtml();
+    // ZIP client validation /^\d{5}$/
+    expect(html).toContain("/^\\d{5}$/");
+    // paste-multiple split on comma/newline
+    expect(html).toContain("/[,\\n\\r]+/");
+    // typed server region_value_invalid surfaced inline (dimension + token)
+    expect(html).toContain("region_value_invalid");
+    expect(html).toContain("data-region-invalid");
+    expect(html).toContain("window.lgRegionErrors");
+  });
+
+  it("keeps the canonical comma-joined values field (collectRegionRules contract) for a stored rule", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Region Values Offer" });
+    await patchOffer(env, offer.public_id, {
+      region_rules: [{ dimension: "state", action: "exclude", values: ["CA", "NY"], priority: 10, enabled: true }],
+    });
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    // hidden canonical values field (the replace-set the editor Save collects)
+    expect(html).toMatch(/data-rule-field="values"[^>]*value="CA, NY"/);
+    expect(html).toMatch(/data-rule-public-id="lgrr_[0-9A-HJKMNP-TV-Z]{26}"/);
   });
 });
