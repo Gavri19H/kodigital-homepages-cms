@@ -131,20 +131,26 @@ function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
   return sdb;
 }
 
-function recordingKv(): { kv: KVNamespace; store: Map<string, string> } {
+function recordingKv(): {
+  kv: KVNamespace;
+  store: Map<string, string>;
+  putOpts: Map<string, { expirationTtl?: number } | undefined>;
+} {
   const store = new Map<string, string>();
+  const putOpts = new Map<string, { expirationTtl?: number } | undefined>();
   const kv = {
     async get(key: string) {
       return store.get(key) ?? null;
     },
-    async put(key: string, value: string) {
+    async put(key: string, value: string, opts?: { expirationTtl?: number }) {
       store.set(key, value);
+      putOpts.set(key, opts);
     },
     async delete(key: string) {
       store.delete(key);
     },
   } as unknown as KVNamespace;
-  return { kv, store };
+  return { kv, store, putOpts };
 }
 
 function buildEnv(db: D1Database, kv: KVNamespace): Env {
@@ -179,6 +185,7 @@ interface Harness {
   sdb: SqliteDb;
   env: Env;
   store: Map<string, string>;
+  putOpts: Map<string, { expirationTtl?: number } | undefined>;
   offerId: number;
   offerPublicId: string;
 }
@@ -206,9 +213,9 @@ async function createDynamicOffer(env: Env): Promise<{ id: number; public_id: st
 function newHarness(): Harness {
   const ctor = DatabaseSync as DatabaseSyncCtor;
   const sdb = createLeadgenDb(ctor);
-  const { kv, store } = recordingKv();
+  const { kv, store, putOpts } = recordingKv();
   const env = buildEnv(d1FromSqlite(sdb), kv);
-  return { sdb, env, store, offerId: 0, offerPublicId: "" };
+  return { sdb, env, store, putOpts, offerId: 0, offerPublicId: "" };
 }
 
 async function harnessWithOffer(): Promise<Harness> {
@@ -573,6 +580,33 @@ describeDb("PUT + POST /offers/:id/payload/sample-answers — per-Offer KV draft
       h.env,
     );
     expect(noSchema.status).toBe(404);
+  });
+
+  // MINOR-4 (adversarial): the draft is operator-editable + KV-persisted — cap
+  // its serialized size (typed 400) and set a TTL so abandoned drafts expire.
+  it("MINOR-4: oversized draft → typed 400; a normal draft persists WITH a TTL", async () => {
+    const h = await harnessWithOffer();
+    await activateSchema(h, sampleFixtureSchema());
+
+    // > 64 KB serialized → typed 400, not persisted.
+    const huge = { blob: "x".repeat(70_000) };
+    const over = await admin.request(
+      `${API}/offers/${h.offerId}/payload/sample-answers`,
+      jsonInit("PUT", { answers: huge }),
+      h.env,
+    );
+    expect(over.status).toBe(400);
+    expect(h.store.get(`${TEST_DRAFT_KV_PREFIX}${h.offerPublicId}`)).toBeUndefined();
+
+    // a normal draft persists AND carries a positive TTL (abandoned drafts expire).
+    const ok = await admin.request(
+      `${API}/offers/${h.offerId}/payload/sample-answers`,
+      jsonInit("PUT", { answers: { zip: "90210" } }),
+      h.env,
+    );
+    expect(ok.status).toBe(200);
+    const opts = h.putOpts.get(`${TEST_DRAFT_KV_PREFIX}${h.offerPublicId}`);
+    expect(opts?.expirationTtl).toBeGreaterThan(0);
   });
 });
 

@@ -661,6 +661,11 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
 //                source_path: string }] }
 
 export const TEST_DRAFT_KV_PREFIX = "lg-testdraft:";
+// MINOR-4: sample-answer draft bounds — a 64 KB serialized ceiling (typed 400
+// over it) and a TTL so abandoned per-offer drafts expire (mirrors the
+// §30.3 debug-blob KV-TTL discipline).
+export const TEST_DRAFT_MAX_BYTES = 65_536;
+export const TEST_DRAFT_TTL_SECONDS = 259_200; // 72 h
 
 export type LeadgenSampleAnswerKind =
   | "enum"
@@ -901,9 +906,18 @@ export async function putSampleAnswersDraftHandler(c: AdminContext): Promise<Res
       400,
     );
   }
-  await c.env.CACHE.put(
-    `${TEST_DRAFT_KV_PREFIX}${offer.public_id}`,
-    JSON.stringify({ answers }),
-  );
+  // MINOR-4: bound the draft — it is operator-editable and KV-persisted. Cap
+  // the serialized size (typed 400) and set a TTL so abandoned drafts expire
+  // (mirrors the debug-blob discipline) rather than living forever.
+  const serialized = JSON.stringify({ answers });
+  if (serialized.length > TEST_DRAFT_MAX_BYTES) {
+    return c.json(
+      { error: "Validation failed", fields: { answers: `draft exceeds ${TEST_DRAFT_MAX_BYTES} bytes` } },
+      400,
+    );
+  }
+  await c.env.CACHE.put(`${TEST_DRAFT_KV_PREFIX}${offer.public_id}`, serialized, {
+    expirationTtl: TEST_DRAFT_TTL_SECONDS,
+  });
   return c.json({ answers });
 }

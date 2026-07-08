@@ -619,13 +619,17 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           ]),
         ),
       ).toContain("free_text_constraint_invalid");
-      for (const bomb of ["(a+)+$", "^(\\d*)*$", "(ab|a+){3,}"]) {
+      // nested-quantifier bombs AND the exponential alternation class
+      // (a|a)+ / (a|ab)* — both rejected save-time (defense-in-depth; the
+      // load-bearing guard is the runtime input cap, tested in the formats suite).
+      for (const bomb of ["(a+)+$", "^(\\d*)*$", "(ab|a+){3,}", "(a|a)+$", "^(a|ab)*$", "(x|x|x)+$"]) {
         expect(
           codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: bomb })])),
           bomb,
         ).toContain("free_text_constraint_invalid");
       }
-      // a quantified group WITHOUT an inner quantifier is safe and accepted
+      // a quantified group with NEITHER an inner quantifier NOR an alternation
+      // is linear/deterministic → safe and accepted
       expect(
         codesOf(schemaWith([freeTextNode({ free_text_pattern: "custom", free_text_pattern_custom: "^(abc)+$" })])),
       ).toEqual([]);

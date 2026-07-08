@@ -360,6 +360,35 @@ describe("§6.5 free-text constraint matrix — runtime", () => {
     expect(build(custom, "CA12345")).toEqual({ first_name: "FALLBACK" });
   });
 
+  // MAJOR-1 (adversarial): the money-path ReDoS guard. A stored exponential
+  // custom pattern (the class the save-time heuristic can be edited past) MUST
+  // NOT be `.test()`ed against unbounded visitor input — the runtime caps the
+  // input BEFORE the regex, so over-cap input → fallback in ~O(cap), never a hang.
+  it("ReDoS: exponential custom pattern + huge input returns instantly via fallback (no hang)", () => {
+    const bomb = { free_text_pattern: "custom" as const, free_text_pattern_custom: "(a|a)+$" };
+    const hugeMatch = "a".repeat(5000) + "X"; // pre-fix: ~12s hang; post-fix: capped → fallback
+    const started = performance.now();
+    const out = build(bomb, hugeMatch);
+    const elapsedMs = performance.now() - started;
+    expect(out).toEqual({ first_name: "FALLBACK" }); // over the 4096 hard cap → invalid → fallback
+    expect(elapsedMs).toBeLessThan(250); // linear cap check, never the exponential `.test()`
+  });
+
+  it("ReDoS: input cap fires even when free_text_max_length is UNSET (custom pattern, no explicit max)", () => {
+    // A short in-bounds input still runs the regex normally (custom matches).
+    expect(build({ free_text_pattern: "custom", free_text_pattern_custom: "^a+$" }, "aaa")).toEqual({
+      first_name: "aaa",
+    });
+    // >4096 chars with no max_length set → invalid before `.test()` → fallback.
+    const started = performance.now();
+    const out = build(
+      { free_text_pattern: "custom", free_text_pattern_custom: "(a|ab)*$" },
+      "a".repeat(6000),
+    );
+    expect(out).toEqual({ first_name: "FALLBACK" });
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
   it("violation with NO fallback → the node cleans away (standard invalid machinery, never a throw)", () => {
     const schema = schemaWith([
       {

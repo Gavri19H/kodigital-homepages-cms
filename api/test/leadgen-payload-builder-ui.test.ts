@@ -716,6 +716,36 @@ describeDb("payload builder §6.3/§6.4 — value-map table + choiceDisplay", ()
     expect(html).toContain("more than 9 gets crowded");
     expect(html).toContain('placeholder="Other"');
   });
+
+  // MINOR-6 (adversarial): a `"` only opens a quoted cell when the cell buffer
+  // is EMPTY, so a mid-cell quote is literal and a comma still splits.
+  it("MINOR-6: CSV parser only quotes at cell start — a mid-cell quote does not swallow the comma", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function parseCsv("));
+    expect(script, "parseCsv island present").toBeDefined();
+    const source = ["trimStr", "parseCsv"].map((n) => sliceIslandFunction(script!, n)).join("\n");
+    const { parseCsv } = runInNewContext(`${source}\n({ parseCsv: parseCsv })`, {}) as {
+      parseCsv: (t: string) => string[][];
+    };
+    // mid-cell quote is literal; the comma still delimits (pre-fix: one merged cell).
+    expect(parseCsv('ab"cd,ef"g\n')).toEqual([['ab"cd', 'ef"g']]);
+    // a genuinely quoted cell (quote at cell start) still protects its comma.
+    expect(parseCsv('"a,b",c\n')).toEqual([["a,b", "c"]]);
+    // escaped quote inside a quoted cell still collapses.
+    expect(parseCsv('"a""b",c\n')).toEqual([['a"b', "c"]]);
+  });
+
+  // nano-7 (adversarial): a reserved-name internal value (__proto__ etc.) would
+  // be a silent no-op on a plain-object map (the row would vanish). The apply
+  // path skips it EXPLICITLY and surfaces a notice, rather than swallowing it.
+  it("nano-7: value-map apply guards reserved internal keys explicitly (not a silent no-op)", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("data-vm-apply"));
+    expect(script, "value-map apply island present").toBeDefined();
+    // the FORBIDDEN_SEGMENTS guard + the operator notice live in the apply path
+    expect(script).toContain("FORBIDDEN_SEGMENTS.indexOf(internalKey)");
+    expect(script).toContain("reserved-name row(s) skipped");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1175,11 +1205,13 @@ describeDb("payload builder §6.10 — condition builder", () => {
     expect(valueInput, "the typed value input appears on picking =").not.toBeNull();
     // homeowner is a boolean linked field → the true/false dropdown renders.
     expect(valueInput!.tagName).toBe("SELECT");
-    // While the value is still empty the STORED shape stays the sugar shape.
+    // MINOR-2: the boolean dropdown shows "false" by default, so the STORED
+    // value is written to match the SHOWN value immediately — an operator who
+    // leaves it saves "= false", never a silent is-empty masquerade.
     expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
       when: "homeowner",
       op: "eq",
-      value: "",
+      value: false,
     });
 
     // Picking true emits the evaluator-exact boolean + the §6.10 sentence.
@@ -1217,14 +1249,17 @@ describeDb("payload builder §6.10 — condition builder", () => {
     });
     expect(bodyEl.querySelector("[data-pb-cond-op]")!.value).toBe("eq");
 
-    // Typing the literal string true into the TEXT input emits a boolean too
-    // (the non-boolean-field path of the same emission).
+    // MINOR-3: carrier is an ENUM/string field (text input, not the boolean
+    // select), so typing the literal "true" keeps the STRING "true" — coercing
+    // it to boolean would make it never === the string answer at runtime and
+    // silently drop the conditional payload field. Only boolean fields (the
+    // SELECT branch) emit a boolean.
     bodyEl.querySelector("[data-pb-cond-value]")!.value = "true";
     island10.readConditionFromRow(bodyEl, node);
     expect(JSON.parse(JSON.stringify(node["conditional"]))).toEqual({
       when: "carrier",
       op: "eq",
-      value: true,
+      value: "true",
     });
 
     // Explicitly re-picking the sugar still emits evaluator-exact eq + "".

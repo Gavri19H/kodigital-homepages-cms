@@ -2799,6 +2799,11 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       var fOpt = el('option', null, 'false'); fOpt.value = 'false';
       boolSel.appendChild(tOpt); boolSel.appendChild(fOpt);
       boolSel.value = cond.value === true ? 'true' : 'false';
+      // MINOR-2: under a live eq/neq pick a boolean field shows "false" for a
+      // stored is-empty ('' / undefined) value; write the SHOWN value into the
+      // model NOW so an operator who leaves the select can't silently save
+      // is-empty when they meant "= false". A genuine stored boolean is kept.
+      if (typeof cond.value !== 'boolean') { cond.value = boolSel.value === 'true'; }
       valueBox.appendChild(boolSel);
     } else {
       var valIn = document.createElement('input');
@@ -2846,7 +2851,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       var raw = valIn ? valIn.value : '';
       if (valIn && valIn.tagName === 'SELECT') { cond.value = raw === 'true'; }
       else if (valIn && valIn.type === 'number') { cond.value = trimStr(raw) === '' ? undefined : Number(raw); }
-      else if (raw === 'true' || raw === 'false') { cond.value = raw === 'true'; }
+      // MINOR-3: do NOT coerce a string field's literal "true"/"false" to a
+      // boolean. A boolean field uses the SELECT branch above; here the field
+      // is string/other, and conditionalMet compares with ===, so coercing
+      // would make the string answer "true" never match and the conditional
+      // payload field would silently drop. Keep the raw string. Numeric
+      // ordering ops still coerce (a numeric comparison needs a number).
       else if (trimStr(raw) !== '' && !isNaN(Number(raw)) && ['gt', 'lt', 'gte', 'lte'].indexOf(cond.op) !== -1) { cond.value = Number(raw); }
       else { cond.value = raw; }
     }
@@ -3758,7 +3768,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           if (text.charAt(i + 1) === '"') { cur += '"'; i += 1; }
           else { inQuotes = false; }
         } else { cur += ch; }
-      } else if (ch === '"') { inQuotes = true; }
+      } else if (ch === '"' && cur === '') { inQuotes = true; }
       else if (ch === ',') { row.push(cur); cur = ''; }
       else if (ch === '\\n' || ch === '\\r') {
         if (ch === '\\r' && text.charAt(i + 1) === '\\n') { i += 1; }
@@ -3898,12 +3908,20 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         var node = vmState.item.node;
         var map = {};
         var mains2 = [];
+        var skippedForbidden = 0;
         for (i = 0; i < vmState.rows.length; i++) {
           r2 = vmState.rows[i];
           var internalKey = trimStr(r2.internal);
           if (internalKey === '') { continue; }
+          // nano-7: a reserved-name internal key (proto/constructor/prototype)
+          // would be a silent no-op on a plain-object map (the row would just
+          // vanish); skip it EXPLICITLY and tell the operator, not swallow it.
+          if (FORBIDDEN_SEGMENTS.indexOf(internalKey) !== -1) { skippedForbidden += 1; continue; }
           map[internalKey] = r2.output;
           if (r2.main) { mains2.push(internalKey); }
+        }
+        if (skippedForbidden > 0 && window.showToast) {
+          window.showToast(skippedForbidden + ' reserved-name row(s) skipped (__proto__/constructor/prototype are not valid values)', 'warning');
         }
         node.value_map = map;
         var cd = isRecordVal(node.choiceDisplay) ? node.choiceDisplay : {};

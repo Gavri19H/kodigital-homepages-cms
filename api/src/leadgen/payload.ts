@@ -500,12 +500,26 @@ function validateChoiceDisplay(
 // a bad config must never reach the runtime enforcement leg.
 const FREE_TEXT_PATTERN_SET: ReadonlySet<string> = new Set(LEADGEN_FREE_TEXT_PATTERNS);
 export const FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH = 200;
+// Hard ceiling on the free-text input a custom/preset RegExp may `.test()` at
+// runtime when the operator set no explicit free_text_max_length. Bounds the
+// ReDoS blast radius unconditionally (a linear regex over ≤4096 chars is cheap;
+// an exponential one over ≤4096 still can't reach the CF CPU limit).
+export const FREE_TEXT_RUNTIME_INPUT_HARD_CAP = 4096;
 
-// Catastrophic-backtracking screen (simple heuristic): a quantifier applied
-// directly to a group whose body itself carries a quantifier — the classic
-// "(a+)+" / "(a*)*" / "(a|b+){2,}" nested-quantifier bombs. Length is
-// additionally capped at FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH.
+// Catastrophic-backtracking screens (save-time defense-in-depth; the
+// load-bearing guard is the unconditional runtime input cap in
+// applyFreeTextConstraints — an operator can always edit a pattern into danger
+// after any heuristic, so the input bound, not the screen, closes the hole).
+// (1) a quantifier applied directly to a group whose body itself carries a
+// quantifier — "(a+)+" / "(a*)*" / "(a|b+){2,}". (2) a quantifier applied to a
+// group that contains an alternation — the exponential "(a|a)+" / "(a|ab)*"
+// class the nested screen alone misses. Length is additionally capped at
+// FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH.
 const NESTED_QUANTIFIER_BOMB_RE = /\([^()]*[+*{][^()]*\)\s*[+*{]/;
+const ALTERNATION_BOMB_RE = /\([^()]*\|[^()]*\)\s*[+*{]/;
+function isCatastrophicRegexShape(pattern: string): boolean {
+  return NESTED_QUANTIFIER_BOMB_RE.test(pattern) || ALTERNATION_BOMB_RE.test(pattern);
+}
 
 const FREE_TEXT_CONSTRAINT_KEYS = [
   "free_text_max_length",
@@ -555,8 +569,8 @@ function validateFreeTextConstraints(
       push(
         `free_text_pattern_custom must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
       );
-    } else if (NESTED_QUANTIFIER_BOMB_RE.test(custom)) {
-      push("free_text_pattern_custom contains a nested quantifier (catastrophic backtracking risk)");
+    } else if (isCatastrophicRegexShape(custom)) {
+      push("free_text_pattern_custom has a catastrophic-backtracking shape (quantified nested-quantifier or alternation group)");
     } else {
       try {
         // Compile check only — the runtime compiles its own instance.
@@ -1125,8 +1139,15 @@ function applyFreeTextConstraints(value: unknown, node: LeadgenPayloadNode): unk
   const str = coerceToType(value, "string");
   if (typeof str !== "string") return undefined;
   const sanitized = sanitizeFreeText(str);
-  if (node.free_text_max_length !== undefined && sanitized.length > node.free_text_max_length) {
-    return undefined; // too long → invalid
+  // ReDoS defense (money path): answers are unbounded visitor input and are
+  // NOT in the signed tuple, so the regex INPUT must be bounded BEFORE any
+  // `.test()`. The effective ceiling is the operator's max_length when set,
+  // else a hard cap — this fires even when free_text_max_length is undefined,
+  // so a custom pattern with no explicit max can never `.test()` a huge input.
+  // Over-ceiling → invalid → the caller's fallback (never `.test()`, never throw).
+  const effectiveMax = node.free_text_max_length ?? FREE_TEXT_RUNTIME_INPUT_HARD_CAP;
+  if (sanitized.length > effectiveMax) {
+    return undefined; // too long → invalid (regex never runs)
   }
   const pattern = node.free_text_pattern;
   if (pattern === "letters" || pattern === "digits") {
