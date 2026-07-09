@@ -1333,7 +1333,7 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     expect(ratio, 'desktop → mobile → desktop restores the first state').toBeLessThanOrEqual(0.001);
   });
 
-  test('§8.1/E6 studio layout hygiene: preview events must not stretch the studio past the viewport (known-defect pin)', async ({ page }) => {
+  test('§8.1/E6 studio layout hygiene: preview events must not stretch the studio past the viewport (regression guard — DEV-46 CSS containment)', async ({ page }) => {
     test.setTimeout(120_000);
     // The §8.9 events panel renders each would-fire event as ONE compact-JSON
     // line (~840 chars, no spaces). WITHOUT wrap opportunities its min-content
