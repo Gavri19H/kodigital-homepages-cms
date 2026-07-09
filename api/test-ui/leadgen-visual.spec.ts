@@ -1,48 +1,80 @@
 // LeadGen Phase 5 Stage C — contract 05 §14.10 VISUAL + COMPUTED-STYLE
-// acceptance suite. Mirrors the Listicles visual suite discipline
-// (listicles-visual.spec.ts): computed-style EXACT assertions keyed on the
-// authoritative Stage-A tokens (designs/default-funnel/tokens.ts) + the
-// MEASURED reference JSON, a full-page screenshot SELF-baseline with an
-// in-browser canvas pixel diff (no new deps), gated on document.fonts.ready.
+// acceptance suite, RE-POINTED to the REAL public runtime per fix-contract
+// v2.4 11 §11.2/§11.6.
 //
-// RENDER SURFACE (reported as a deviation-free choice): the REAL Stage-B
-// server-render endpoint POST /api/admin/leadgen/sections/preview
-// (previewSectionHandler → renderSectionComponents + funnelChromeCss). Its
-// JSON { preview: { css, desktop, mobile } } is composed into a top-level
-// document EXACTLY as the editor's sandboxed preview iframe does
-// (`<style>${css}</style>${html}` — ui-question-builder.ts), then loaded via
-// page.setContent. This exercises the true server render + the true editor
-// composition, is fully deterministic (no web-font network — the same as the
-// editor iframe, which loads no fonts), and needs NO new route (P7 owns the
-// public runtime). The default funnel design uses system-fallback fonts here
-// exactly as the CMS preview does; the font-family COMPUTED value is still the
-// declared 'Literata'/'Sora' stack (asserted), and fonts.ready is a no-op gate
-// that keeps the screenshot discipline identical to listicles.
+// RENDER SURFACE (11 §11.2 / §11.6 mandate — "visual screenshot suite runs
+// against /lg (NOT a static-injection harness) desktop+mobile"): every
+// computed-style / screenshot / capability assertion runs against a REAL
+// activated funnel served at the tenant `/lg/:slug`, driven by `page.goto`
+// over the live worker (wrangler dev on :8787, host resolved via
+// --host-resolver-rules). The funnel is seeded through the REAL admin HTTP
+// APIs only (seedActiveSite + the quote/section/variant/activation chain, the
+// leadgen-fix-p1-seed / leadgen-p14-seed convention) with a single rich
+// Section whose content is buildVisualSectionContent() — the §14.10 component
+// set (header/logo/progress/category/headline/subheadline · IconCardAnswerGrid
+// · TwoButtonYesNo · CurrencyRangeQuestion · MultiChoiceCardGroup · Dropdown ·
+// FreeText/Email/Phone/Name/ZIP PII · Continue · ReassuranceBadge · Helper).
+// This proves the LIVE runtime (server render + funnelChromeCss + engine
+// hydration) applies the design tokens — not merely the admin preview
+// endpoint. The prior static-injection preview harness (the §11.6
+// false-comfort — a green "visual" suite while `/lg` was blank) is GONE; a
+// permanent static tripwire in leadgen-live-funnel.spec.ts (11 §11.6, leg 5)
+// asserts this suite navigates to `/lg/…` and never re-introduces it.
 //
-// KEY GUARANTEE proven by this suite: the §14.4/§14.6 interaction STATE colours
-// (icon-card + answer-button SELECTED navy border+wash, answer-button :hover wash
-// NOT navy fill, Continue :hover darken) APPLY at the element level. The
-// per-instance inline `border`/`background` that used to outrank the scoped chrome
-// state rules (styles.ts, no !important) has been removed from every stateful
-// preset (presets.ts) — including the §13.2 answer buttons; the base border/
-// background now lives ONLY in the scoped chrome CSS, so the state rules win by
-// cascade. This suite proves it with real computed style: the seeded SELECTED
-// icon card AND the seeded SELECTED TwoButtonYesNo button both compute to navy
-// #1B3A5C border + #E8EEF4 wash (was defeated to #D2D9E5 / #FFFFFF before the
-// fix), an answer-button :hover settles to the #F2F6FA wash (never the navy fill
-// #0F2440), the real Continue :hover darkens to #0F2440, and a bare CONTROL
-// element agrees. NO banned legacy identifiers anywhere.
+// FOCUS NORMALISATION: the engine AUTOFOCUSES the first text input on
+// hydration, so that input's :focus border reads navy #1B3A5C. gotoRuntime()
+// blurs the active element after ready so the base-state tokens (e.g. the
+// input's #D2D9E5 border) are what the computed-style table reads — the
+// design-token truth, not a transient focus state.
+//
+// KEY GUARANTEE proven by this suite (unchanged from the token intent): the
+// §14.4/§14.6 interaction STATE colours (icon-card + answer-button SELECTED
+// navy border+wash, answer-button :hover wash NOT navy fill, Continue :hover
+// darken) APPLY at the element level on the LIVE runtime. The per-instance
+// inline border/background that used to outrank the scoped chrome state rules
+// has been removed from every stateful preset (presets.ts), so the base
+// border/background lives ONLY in the scoped chrome CSS and the state rules win
+// by cascade. This suite proves it with real computed style against `/lg`: the
+// SELECTED icon card AND the SELECTED TwoButtonYesNo button both compute to
+// navy #1B3A5C border + #E8EEF4 wash, an answer-button :hover settles to the
+// #F2F6FA wash (never the navy fill #0F2440), the Continue :hover darkens to
+// #0F2440, and a bare CONTROL element agrees. NO banned legacy identifiers.
+//
+// LEGS (documented per the fix-contract "document which legs exist and why"):
+//   (b)  computed-style EXACT table (desktop+mobile) — real /lg runtime.
+//   (b') interaction states (selected/hover/disabled) — real /lg runtime.
+//   (§11.2) real /lg screenshot desktop+mobile + no-horizontal-overflow (E6)
+//           + self-baseline pixel-diff regression guard.
+//   (c)  no-arbitrary-CSS-escape — a SAVE-TIME + render-path sanitisation leg
+//        (admin POST validation + preview-render escaping). It does not claim
+//        to be a runtime-render proof and drives no page navigation; it is the
+//        curated-token-only guarantee for design_overrides_json.
+//   (d)  capability checklist + discarded-palette negative — asserted against
+//        the REAL served /lg bytes.
 
 import { test, expect, request as playwrightRequest, type Page, type APIRequestContext } from "@playwright/test";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { seedVisualSection, buildVisualSectionContent, type SeededVisualSection } from "./leadgen-p5-seed";
+import { seedActiveSite } from "./listicles-p6-seed";
+import { buildVisualSectionContent } from "./leadgen-p5-seed";
 
 const SPEC_DIR = dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "http://127.0.0.1:8787";
+const LG_API = "/api/admin/leadgen";
 const BASELINE_DIR = join(SPEC_DIR, "__screenshots__");
 const EVIDENCE_DIR = "test-artifacts/leadgen-visual";
+
+// Realistic desktop Chrome UA — the tenant host resolves via
+// --host-resolver-rules, and a realistic UA keeps /lg's runtimeRequestGuard
+// bot arm from tripping (the leadgen-live-funnel DEV-GUARD note).
+const REAL_CHROME_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+test.use({
+  launchOptions: { args: ["--host-resolver-rules=MAP *.e2e.test 127.0.0.1"] },
+  userAgent: REAL_CHROME_UA,
+});
 
 function hexToRgb(hex: string): string {
   const h = hex.replace("#", "");
@@ -59,15 +91,98 @@ async function computed(page: Page, selector: string, prop: string): Promise<str
   );
 }
 
-// The seeded Section's server-rendered preview (css + both viewport fragments).
+async function jsonOk<T>(
+  res: { ok(): boolean; status(): number; json(): Promise<unknown>; text(): Promise<string> },
+  label: string,
+): Promise<T> {
+  if (!res.ok()) throw new Error(`${label} HTTP ${res.status()}: ${await res.text()}`);
+  return (await res.json()) as T;
+}
+
+// The seeded live funnel + its server-rendered bytes (palette + checklist).
+let host: string;
+let slug: string;
+let servedHtml: string;
+
+// Seed an ACTIVATED funnel whose single Section is the §14.10 visual component
+// set, through the REAL admin APIs (no direct DB writes). The Section maps NO
+// answers to Offers (a pure VISUAL section), so activation is a clean 200 with
+// no auction/offer graph required — the leadgen-p14-seed activation shape.
+async function seedActivatedVisualFunnel(ctx: APIRequestContext): Promise<{ host: string; slug: string }> {
+  const uniq = `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
+  const h = `lg-visual-${uniq}.e2e.test`;
+  const s = "visual";
+  const siteId = await seedActiveSite(ctx, h, `LG Visual ${uniq}`);
+
+  const quote = await jsonOk<{
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  }>(
+    await ctx.post(`${LG_API}/quotes`, {
+      data: { quote_name: `Visual Quote ${uniq}`, activity: "quote_funnel", verticals: ["business_loan"] },
+    }),
+    "quote create",
+  );
+  const variantId = quote.funnels[0]!.variants[0]!.public_id;
+
+  const section = await jsonOk<{ id: number; public_id: string }>(
+    await ctx.post(`${LG_API}/sections`, {
+      data: {
+        section_name: `Visual Section ${uniq}`,
+        activity: "quote_funnel",
+        vertical: "business_loan",
+        headline_text: "How much do you need?",
+        subheadline_text: "Choose an amount to see your matched offers.",
+        content_json: buildVisualSectionContent(),
+        continue_mode: "button",
+        status: "active",
+      },
+    }),
+    "section create",
+  );
+
+  await jsonOk(
+    await ctx.put(`${LG_API}/variants/${variantId}`, { data: { sections: [{ section_id: section.id }] } }),
+    "variant sections",
+  );
+
+  const activation = await ctx.put(`${LG_API}/quotes/${quote.public_id}/activation/${siteId}`, {
+    data: { enabled: true, slug: s },
+  });
+  if (!activation.ok()) {
+    throw new Error(`activation blocked HTTP ${activation.status()} — ${await activation.text()}`);
+  }
+  return { host: h, slug: s };
+}
+
+function runtimeUrl(): string {
+  return `http://${host}:8787/lg/${slug}`;
+}
+
+// Navigate to the REAL /lg runtime at a viewport, wait for the engine to mark
+// hydration (data-lg-ready="1"), settle fonts, and NORMALISE focus (the engine
+// autofocuses the first input → :focus border; blur so base-state design
+// tokens are read). Replaces the old static-injection render harness.
+async function gotoRuntime(page: Page, size: { width: number; height: number }): Promise<void> {
+  await page.setViewportSize(size);
+  await page.goto(runtimeUrl(), { waitUntil: "load" });
+  await expect(page.locator('#lg-funnel-root[data-lg-ready="1"]')).toHaveCount(1, { timeout: 10_000 });
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    (document.body as HTMLElement | null)?.focus?.();
+  });
+}
+
+// Kept ONLY for the §14.10(c) save-time/render-path sanitisation leg (below):
+// the admin preview endpoint runs the same renderSectionComponents path, so an
+// injection attempt proves the render escapes author content. This leg drives
+// NO page navigation and makes NO runtime-visual claim.
 interface Preview {
   css: string;
   desktop: string;
   mobile: string;
 }
-let seeded: SeededVisualSection;
-let preview: Preview;
-
 async function fetchPreview(ctx: APIRequestContext, content: unknown): Promise<Preview> {
   const res = await ctx.post("/api/admin/leadgen/sections/preview", { data: { content_json: content } });
   if (!res.ok()) throw new Error(`preview HTTP ${res.status()}: ${await res.text()}`);
@@ -75,36 +190,18 @@ async function fetchPreview(ctx: APIRequestContext, content: unknown): Promise<P
   return body.preview;
 }
 
-// Compose the EXACT editor-iframe document: <style>${css}</style> + fragment.
-function buildDoc(css: string, fragment: string): string {
-  return (
-    `<!doctype html><html><head><meta charset="utf-8">` +
-    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
-    `<style>${css}</style></head><body>${fragment}</body></html>`
-  );
-}
-
-async function renderViewport(
-  page: Page,
-  viewport: "desktop" | "mobile",
-  size: { width: number; height: number },
-): Promise<void> {
-  await page.setViewportSize(size);
-  await page.setContent(buildDoc(preview.css, viewport === "desktop" ? preview.desktop : preview.mobile), {
-    waitUntil: "domcontentloaded",
-  });
-  // Fonts.ready gate (discipline parity with listicles; no-op here since the
-  // CMS preview declares no web fonts — the font-family COMPUTED value is the
-  // declared stack regardless).
-  await page.evaluate(() => document.fonts.ready);
-}
-
 test.beforeAll(async () => {
   mkdirSync(BASELINE_DIR, { recursive: true });
   mkdirSync(EVIDENCE_DIR, { recursive: true });
   const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
-  seeded = await seedVisualSection(ctx, Date.now());
-  preview = await fetchPreview(ctx, seeded.content);
+  const seeded = await seedActivatedVisualFunnel(ctx);
+  host = seeded.host;
+  slug = seeded.slug;
+  // Node-side served bytes (explicit Host header) — the palette-negative and
+  // capability-checklist legs assert on the REAL server-rendered /lg output.
+  const served = await ctx.get(`${ORIGIN}/lg/${slug}`, { headers: { Host: `${host}:8787` } });
+  if (!served.ok()) throw new Error(`served /lg HTTP ${served.status()}: ${await served.text()}`);
+  servedHtml = await served.text();
   await ctx.dispose();
 });
 
@@ -193,8 +290,10 @@ function sharedRows(): StyleRow[] {
     [".lg-badge", "border-radius", "10px", "tokens.reassuranceBadge.borderRadius 10px (§14.7)"],
     [".lg-badge", "color", hexToRgb("#0E7C3A"), "tokens.reassuranceBadge.textColor #0E7C3A (§14.7)"],
     [".lg-badge-icon", "color", hexToRgb("#0E7C3A"), "tokens.reassuranceBadge.iconColor #0E7C3A (§14.7)"],
-    // Free-text PII input (§14.2 input tokens).
-    ['[data-component-type="FreeTextQuestion"]', "border-top-color", hexToRgb("#D2D9E5"), "tokens.input.border #D2D9E5 / ref-JSON input.border"],
+    // Free-text PII input (§14.2 input tokens). Read AFTER gotoRuntime()'s blur
+    // (the engine autofocuses the first input; :focus border is navy #1B3A5C —
+    // the base #D2D9E5 token is what applies once focus is normalised).
+    ['[data-component-type="FreeTextQuestion"]', "border-top-color", hexToRgb("#D2D9E5"), "tokens.input.border #D2D9E5 / ref-JSON input.border (base state, post-blur)"],
     ['[data-component-type="FreeTextQuestion"]', "border-radius", "10px", "tokens.input.borderRadius / ref-JSON input.borderRadius 10px"],
     ['[data-component-type="FreeTextQuestion"]', "font-size", "16px", "tokens.input.fontSize 1rem / ref-JSON input.fontSize 16px"],
   ];
@@ -224,9 +323,9 @@ async function assertContainsAndGradient(page: Page): Promise<void> {
   expect(headerShadow, "header carries the navy shadow-sm").toContain("rgba(27, 58, 92, 0.06)");
 }
 
-test.describe("§14.10(b) computed-style EXACT assertions (tokens.ts + measured reference JSON)", () => {
+test.describe("§14.10(b) computed-style EXACT assertions on the REAL /lg runtime (tokens.ts + measured reference JSON)", () => {
   test("desktop ≥640 (1280×900)", async ({ page }) => {
-    await renderViewport(page, "desktop", { width: 1280, height: 900 });
+    await gotoRuntime(page, { width: 1280, height: 900 });
 
     await assertRows(page, [
       ...sharedRows(),
@@ -259,7 +358,7 @@ test.describe("§14.10(b) computed-style EXACT assertions (tokens.ts + measured 
   });
 
   test("mobile ≤480 (375×800)", async ({ page }) => {
-    await renderViewport(page, "mobile", { width: 375, height: 800 });
+    await gotoRuntime(page, { width: 375, height: 800 });
 
     await assertRows(page, [
       ...sharedRows(),
@@ -305,7 +404,8 @@ async function readRuleLength(page: Page, selectorSubstr: string, prop: string):
 }
 
 // ---------------------------------------------------------------------------
-// §14.10(b) interaction states — selected / hover / disabled.
+// §14.10(b) interaction states — selected / hover / disabled — on the REAL
+// /lg runtime.
 //
 // Proves the fix: the §14.4/§14.6 state rules APPLY on the SEEDED elements —
 // the selected icon card computes to navy border #1B3A5C + wash bg #E8EEF4 (+
@@ -315,9 +415,9 @@ async function readRuleLength(page: Page, selectorSubstr: string, prop: string):
 // confirming the design tokens themselves are correct.
 // ---------------------------------------------------------------------------
 
-test.describe("§14.10(b) interaction states (selected / hover / disabled)", () => {
+test.describe("§14.10(b) interaction states (selected / hover / disabled) on the REAL /lg runtime", () => {
   test("seeded elements + bare control elements", async ({ page }) => {
-    await renderViewport(page, "desktop", { width: 1280, height: 900 });
+    await gotoRuntime(page, { width: 1280, height: 900 });
 
     // (1a) SELECTED on the seeded first icon card now computes to the §14.4
     // navy border #1B3A5C + wash bg #E8EEF4 (+ weight 700) — the per-instance
@@ -390,7 +490,7 @@ test.describe("§14.10(b) interaction states (selected / hover / disabled)", () 
   });
 
   test("answer buttons: selected → navy border + wash bg; hover ≠ navy fill (§14.6/§13.2)", async ({ page }) => {
-    await renderViewport(page, "desktop", { width: 1280, height: 900 });
+    await gotoRuntime(page, { width: 1280, height: 900 });
 
     // The seeded §13.2 TwoButtonYesNo renders two .lg-btn.lg-btn-answer buttons
     // ("Yes"/"No"). SELECT the first: the chrome [aria-checked] state rule now
@@ -478,11 +578,16 @@ async function readRuleValue(page: Page, selectorSubstr: string, prop: string): 
 }
 
 // ---------------------------------------------------------------------------
-// (b') full-page screenshot SELF-baseline (§14.10 / listicles §31.1 thresholds)
-// — in-browser canvas pixel diff, no external deps. First run writes baseline.
-// Content is fully static run-stable literals (no dates/counts/random ids reach
-// the render), so no masking is required — the render is byte-identical across
-// runs (the listicles run-stable discipline).
+// §11.2 / §11.6 / E6 — REAL /lg screenshot suite (desktop + mobile) +
+// no-horizontal-overflow + a self-baseline pixel-diff regression guard.
+//
+// The mandated visual proof: navigate to the LIVE runtime, capture desktop
+// 1280 + mobile 375 screenshots (evidence every run), assert no horizontal
+// overflow (scrollWidth ≤ innerWidth — E6), and pixel-diff against a
+// self-baseline. Focus is normalised (gotoRuntime blur) and animations are
+// disabled so the capture is stable; the first run writes the baseline. The
+// static content-bearing render is run-stable (no dates/counts/random ids
+// reach the visible render).
 // ---------------------------------------------------------------------------
 
 async function pixelDiffRatio(page: Page, aPng: Buffer, bPng: Buffer): Promise<number> {
@@ -526,15 +631,25 @@ async function pixelDiffRatio(page: Page, aPng: Buffer, bPng: Buffer): Promise<n
   );
 }
 
-async function selfBaseline(
+async function runtimeScreenshotAndOverflow(
   page: Page,
   name: string,
-  viewport: "desktop" | "mobile",
   size: { width: number; height: number },
   maxRatio: number,
 ): Promise<void> {
-  await renderViewport(page, viewport, size);
-  await page.waitForTimeout(200); // settle
+  await gotoRuntime(page, size);
+  await page.waitForTimeout(300); // settle post-blur
+
+  // E6: no horizontal overflow at the real width (scrollWidth ≤ innerWidth).
+  const noOverflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  expect(
+    noOverflow.scrollWidth,
+    `E6 no horizontal overflow at ${size.width}px (scrollWidth ${noOverflow.scrollWidth} ≤ innerWidth ${noOverflow.innerWidth})`,
+  ).toBeLessThanOrEqual(noOverflow.innerWidth);
+
   const shot = await page.screenshot({ fullPage: true, animations: "disabled" });
   writeFileSync(join(EVIDENCE_DIR, `${name}.png`), shot); // evidence copy every run
   const baselinePath = join(BASELINE_DIR, `${name}.png`);
@@ -549,18 +664,19 @@ async function selfBaseline(
   expect(ratio, `${name} changed-pixel ratio ${ratio} exceeds ${maxRatio}`).toBeLessThanOrEqual(maxRatio);
 }
 
-test.describe("§14.10 screenshot self-baseline (masking N/A — static render)", () => {
-  test("desktop full-page ≤0.10% changed pixels", async ({ page }) => {
-    await selfBaseline(page, "leadgen-fixture-desktop", "desktop", { width: 1280, height: 900 }, 0.001);
+test.describe("§11.2/§11.6/E6 real /lg screenshot suite (desktop+mobile, no overflow)", () => {
+  test("desktop 1280 full-page: no overflow + ≤0.20% changed pixels", async ({ page }) => {
+    await runtimeScreenshotAndOverflow(page, "leadgen-runtime-desktop", { width: 1280, height: 900 }, 0.002);
   });
 
-  test("mobile full-page ≤0.15% changed pixels", async ({ page }) => {
-    await selfBaseline(page, "leadgen-fixture-mobile", "mobile", { width: 375, height: 800 }, 0.0015);
+  test("mobile 375 full-page: no overflow + ≤0.25% changed pixels", async ({ page }) => {
+    await runtimeScreenshotAndOverflow(page, "leadgen-runtime-mobile", { width: 375, height: 800 }, 0.0025);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §14.10(c) NO arbitrary-CSS escapes.
+// §14.10(c) NO arbitrary-CSS escapes — a SAVE-TIME + render-path SANITISATION
+// leg (not a runtime-visual claim). Drives no page navigation.
 //   (i)  rendered markup carries no author-supplied <style> block;
 //   (ii) author content never flows into a style="…" attribute;
 //   (iii) design_overrides_json accepts ONLY curated token keys — arbitrary
@@ -568,7 +684,7 @@ test.describe("§14.10 screenshot self-baseline (masking N/A — static render)"
 //         validateSectionContent).
 // ---------------------------------------------------------------------------
 
-test.describe("§14.10(c) no arbitrary-CSS escapes", () => {
+test.describe("§14.10(c) no arbitrary-CSS escapes (save-time + render-path sanitisation)", () => {
   test("(i)+(ii) rendered markup has no author <style>; author text never enters a style attr", async () => {
     const ctx = await playwrightRequest.newContext({ baseURL: ORIGIN });
     try {
@@ -678,12 +794,13 @@ test.describe("§14.10(c) no arbitrary-CSS escapes", () => {
 
 // ---------------------------------------------------------------------------
 // §14.10 blue/green NEGATIVE — the discarded exploration palette (blue pill
-// #2a6fdb + green #1f9d57 and their variants) appears NOWHERE in the rendered
-// default funnel (CSS + both viewport fragments). The default is navy/orange.
+// #2a6fdb + green #1f9d57 and their variants) appears NOWHERE in the REAL
+// served /lg funnel (inline chrome CSS + rendered markup). The default is
+// navy/orange.
 // ---------------------------------------------------------------------------
 
-test("§14.10 discarded blue/green palette appears nowhere in the default funnel", async () => {
-  const haystack = `${preview.css}\n${preview.desktop}\n${preview.mobile}`.toLowerCase();
+test("§14.10 discarded blue/green palette appears nowhere in the served /lg funnel", () => {
+  const haystack = servedHtml.toLowerCase();
   // NOTE: #0E7C3A (success green, KEPT for the badge) is DELIBERATELY not here —
   // the discarded green is #1f9d57 and its variants only.
   const discarded: Array<[string, string]> = [
@@ -697,17 +814,17 @@ test("§14.10 discarded blue/green palette appears nowhere in the default funnel
     ["#f2fbf6", "discarded green selected-card wash"],
   ];
   const found = discarded.filter(([hex]) => haystack.includes(hex.toLowerCase())).map(([hex, why]) => `${hex} (${why})`);
-  expect(found, `discarded palette leaked into the default funnel render:\n${found.join("\n")}`).toEqual([]);
+  expect(found, `discarded palette leaked into the served /lg funnel:\n${found.join("\n")}`).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------
 // §14.10(d) capability checklist — every operator-screenshot component pattern
-// is expressible through CMS presets and PRESENT in the seeded rendered
-// Section. Each row asserts the pattern's rendered signature.
+// is expressible through CMS presets and PRESENT in the REAL served /lg
+// markup. Each row asserts the pattern's rendered signature.
 // ---------------------------------------------------------------------------
 
-test("§14.10(d) operator-screenshot capability checklist — every pattern present", () => {
-  const markup = seeded.content ? preview.desktop : "";
+test("§14.10(d) operator-screenshot capability checklist — every pattern present in served /lg", () => {
+  const markup = servedHtml;
   const has = (needle: string): boolean => markup.includes(needle);
 
   const checklist: Array<[string, boolean]> = [
@@ -735,5 +852,5 @@ test("§14.10(d) operator-screenshot capability checklist — every pattern pres
   ];
 
   const missing = checklist.filter(([, ok]) => !ok).map(([name]) => name);
-  expect(missing, `§14.10(d) patterns NOT expressible/present in the seeded Section:\n${missing.join("\n")}`).toEqual([]);
+  expect(missing, `§14.10(d) patterns NOT expressible/present in the served /lg markup:\n${missing.join("\n")}`).toEqual([]);
 });
