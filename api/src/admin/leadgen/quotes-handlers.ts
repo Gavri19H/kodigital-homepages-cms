@@ -51,7 +51,7 @@ import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen
 import { getFunnelDesign, FUNNEL_DESIGNS } from "../../public/leadgen/designs/registry";
 import { funnelChromeCss } from "../../public/leadgen/designs/default-funnel/styles";
 import { renderSectionComponents } from "../../public/leadgen/components/presets";
-import type { LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
+import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
 import { buildPublicConfig, type LeadgenPublicConfig } from "../../public/leadgen/config-dto";
 import {
   invalidateOnQuoteActivation,
@@ -1698,10 +1698,19 @@ async function computeVariantPreflightBlocks(
   const componentsBySection = new Map<number, Record<string, unknown>[]>();
   for (const [sectionId, row] of contentRows) {
     const parsed = parseJsonColumn(row.content_json);
-    const components =
-      isRecord(parsed) && Array.isArray(parsed["components"])
-        ? (parsed["components"] as unknown[]).filter(isRecord)
-        : [];
+    const topLevel =
+      isRecord(parsed) && Array.isArray(parsed["components"]) ? (parsed["components"] as unknown[]) : [];
+    // §8.5: the dependency universe is the canonical FLATTENED projection.
+    // An internal_field declared on a question NESTED inside a layout
+    // container (Stack/CardPanel/…), and a `conditional` on a nested node, are
+    // BOTH reached — flattenComponents is THE shared consumer path
+    // (content-schema.ts §8.5). Flat legacy content flattens to itself, so
+    // knownFields + the per-node conditional walk below are byte-unchanged for
+    // container-free Sections; the stored per-section list stays the same
+    // Record<string, unknown>[] shape (now the flattened leaves).
+    const components = (
+      flattenComponents(topLevel as unknown as LeadgenComponentNode[]) as unknown[]
+    ).filter(isRecord);
     componentsBySection.set(sectionId, components);
     for (const node of components) {
       if (typeof node["internal_field"] === "string" && node["internal_field"] !== "") {

@@ -1046,6 +1046,121 @@ describeDb("GET /offers/:id/usage — sections + auctions joins", () => {
   });
 });
 
+// --- builder_context.linked_fields (§8.5 flatten — Phase-4 audit FINDING 2) --------------
+
+// readLinkedSectionFields feeds the §6.2 Section-field picker, the condition
+// `when` source list, and the sample-answer enum metadata. It MUST walk the
+// canonical flattenComponents projection so a question nested inside a §8.5
+// layout container still surfaces. Exercised end-to-end through GET /offers/:id
+// → builder_context.linked_fields (the real producer→projection→response path).
+describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested questions", () => {
+  interface LinkedField {
+    internal_field: string;
+    answer_type: string;
+    choice_count: number;
+    section_public_id: string;
+  }
+
+  function seedSectionLinked(sdb: SqliteDb, offerId: number, name: string, components: unknown[]): void {
+    const publicId = mintPublicId("section");
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, ?, 'quote_funnel', 'life', 'H', ?)",
+      )
+      .run(publicId, name, JSON.stringify({ components }));
+    const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number })
+      .id;
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state) VALUES (?, ?, 1, 'complete')",
+      )
+      .run(sectionId, offerId);
+  }
+
+  async function linkedFields(env: Env, offerId: number): Promise<LinkedField[]> {
+    const res = await admin.request(`${API}/offers/${offerId}`, {}, env);
+    expect(res.status, `GET offer: ${await res.clone().text()}`).toBe(200);
+    const body = (await res.json()) as { builder_context: { linked_fields: LinkedField[] } };
+    return body.builder_context.linked_fields;
+  }
+
+  it("a question NESTED inside a layout container surfaces in linked_fields (pre-fix: dropped)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    // a flat top-level sibling + a question nested one level inside a Stack.
+    seedSectionLinked(sdb, offer.id, "Nested Sec", [
+      { type: "FreeTextQuestion", question_id: "q_flat", internal_field: "flat_top", answer_type: "string" },
+      {
+        type: "Stack",
+        question_id: "c_stack",
+        props: { direction: "vertical" },
+        children: [
+          { type: "FreeTextQuestion", question_id: "q_deep", internal_field: "nested_in_stack", answer_type: "string" },
+        ],
+      },
+    ]);
+    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    // the nested field IS present (pre-fix it was absent — the top-level-only
+    // walk never descended into the Stack) AND the flatten is depth-first.
+    expect(names, "nested field must surface").toContain("nested_in_stack");
+    expect(names).toEqual(["flat_top", "nested_in_stack"]);
+  });
+
+  it("a DEEPLY nested question (CardPanel ⊃ Stack ⊃ question) surfaces with its enum metadata", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Deep Sec", [
+      {
+        type: "CardPanel",
+        question_id: "c_card",
+        props: {},
+        children: [
+          {
+            type: "Stack",
+            question_id: "c_stack",
+            props: {},
+            children: [
+              {
+                type: "DropdownQuestion",
+                question_id: "q_deep",
+                internal_field: "deep_choice",
+                answer_type: "enum",
+                choices: [
+                  { value: "a", label: "A" },
+                  { value: "b", label: "B" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["deep_choice"]);
+    expect(fields[0]!.answer_type).toBe("enum");
+    expect(fields[0]!.choice_count).toBe(2);
+  });
+
+  it("a FLAT Section's projection is unchanged — same fields, same order, same metadata", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Flat Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
+      {
+        type: "DropdownQuestion",
+        question_id: "q_b",
+        internal_field: "field_b",
+        answer_type: "enum",
+        choices: [{ value: "x", label: "X" }],
+      },
+    ]);
+    const fields = await linkedFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["field_a", "field_b"]);
+    expect(fields.map((f) => f.answer_type)).toEqual(["string", "enum"]);
+    expect(fields.map((f) => f.choice_count)).toEqual([0, 1]);
+  });
+});
+
 // --- analytics ---------------------------------------------------------------------------
 
 describeDb("GET /offers/:id/analytics — §10.7 NULLIF-guarded ratios", () => {
