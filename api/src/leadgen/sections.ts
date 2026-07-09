@@ -63,7 +63,10 @@ function asToggle(value: unknown): boolean | null {
   return null;
 }
 
-const CSS_ESCAPE_RE = /[;{}<>()\\]|url\(|expression|@import|\/\*/i;
+// Rejects CSS-injection punctuation AND the HTML-attribute breakout quotes
+// (" ' `) — §14.10 no-arbitrary-CSS. MUST stay byte-identical to the copy in
+// src/public/leadgen/components/content-schema.ts.
+const CSS_ESCAPE_RE = /[;{}<>()"'`\\]|url\(|expression|@import|\/\*/i;
 const CURATED_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
 
 export const LEADGEN_CONTINUE_MODES = ["button", "auto_advance"] as const satisfies readonly LeadgenContinueMode[];

@@ -60,10 +60,17 @@ function attr(name: string, value: unknown): string {
 }
 
 // A `style="…"` string built from token values only (no author content).
+// Belt-and-suspenders §14.10: every value is HTML-escaped (esc) so a value
+// carrying a `"` can never terminate this double-quoted attribute and inject
+// sibling attributes — even if a hostile design_overrides token slipped past
+// the CSS_ESCAPE_RE validator. Curated token values are colors/px/rem/shadows/
+// gradients (no escapable chars) EXCEPT the font-family tokens, whose single
+// quotes render as `&#39;` — a browser-equivalent entity (identical computed
+// style); it is the only legitimate token value this escape rewrites.
 function style(pairs: Record<string, string | undefined>): string {
   const body = Object.entries(pairs)
     .filter((e): e is [string, string] => typeof e[1] === "string" && e[1] !== "")
-    .map(([k, v]) => `${k}:${v}`)
+    .map(([k, v]) => `${k}:${esc(v)}`)
     .join(";");
   return body === "" ? "" : ` style="${body}"`;
 }

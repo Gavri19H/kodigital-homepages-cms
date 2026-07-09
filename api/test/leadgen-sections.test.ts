@@ -118,6 +118,17 @@ describe("validateSection — §12.1 fields + content", () => {
     expect(errors["design_overrides.iconColor"]).toBeTruthy();
   });
 
+  it("MAJOR-1: rejects HTML-attribute breakout quotes in a Section-level override (\" ' `)", () => {
+    // The CSS_ESCAPE_RE here MUST stay byte-identical to content-schema.ts and
+    // catch the proven stored-XSS payload + its `'`/backtick variants — pre-fix
+    // this override validated clean and reached the funnel renderer.
+    for (const value of ['red" autofocus onfocus="alert`1`', "x' onmouseover='y", "a`b`c"]) {
+      const { value: v, errors } = validateSection(baseBody({ design_overrides: { buttonText: value } }));
+      expect(v, value).toBeNull();
+      expect(errors["design_overrides.buttonText"], value).toBeTruthy();
+    }
+  });
+
   it("rejects an invalid continue_mode", () => {
     const { value, errors } = validateSection(baseBody({ continue_mode: "teleport" }));
     expect(value).toBeNull();

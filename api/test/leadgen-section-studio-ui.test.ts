@@ -1746,7 +1746,7 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
     // shell's /lg/runtime/{version}.js serves, inlined (the admin host has no
     // tenant site context, so /lg/* — including the bundle URL — 404s there;
     // LEADGEN_RUNTIME_JS is exactly that route's response body).
-    expect(doc).toContain(`<script data-lg-runtime-version="1">`);
+    expect(doc).toContain(`<script data-lg-runtime-version="2">`);
     expect(doc).toContain(LEADGEN_RUNTIME_JS);
     // honest preview identity — never faked live ids
     expect(doc).toContain('data-funnel-variant-id="lgn_preview"');
@@ -1798,7 +1798,7 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
     }
   });
 
-  it("EXECUTED island: onPreviewMessage appends ONLY lg-preview-event batches to the panel list; clearEventsList resets it", async () => {
+  it("EXECUTED island: onPreviewMessage appends ONLY lg-preview-event batches from the island's OWN iframes (MINOR-3 origin gate); clearEventsList resets it", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -1835,10 +1835,27 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
       },
     });
     const list = el();
+    // MINOR-3: onPreviewMessage now gates on event.source — it must be one of
+    // the island's OWN iframes' contentWindow. Stub getElementById to return
+    // the two frame elements, each with a distinct contentWindow sentinel, and
+    // a foreign window that is NOT either frame.
+    const previewWin = { __frame: "preview" };
+    const probeWin = { __frame: "probe" };
+    const foreignWin = { __frame: "foreign" };
+    const frames: Record<string, { contentWindow: unknown }> = {
+      "lg-preview-frame": { contentWindow: previewWin },
+      "lg-events-probe-frame": { contentWindow: probeWin },
+    };
     const sandbox = {
+      previewWin,
+      probeWin,
+      foreignWin,
       document: {
         querySelector(sel: string) {
           return sel === "[data-studio-events-list]" ? list : null;
+        },
+        getElementById(id: string) {
+          return frames[id] ?? null;
         },
         createElement() {
           return el();
@@ -1855,15 +1872,23 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
       sliceIslandFunction(island, "appendPreviewEvents"),
       sliceIslandFunction(island, "onPreviewMessage"),
       // the REAL engine message shape ({type:'lg-preview-event', events:[...]},
-      // engine.ts previewSender) + two decoys that must be IGNORED
-      "onPreviewMessage({ data: { type: 'lg-preview-event', events: [" +
+      // engine.ts previewSender) posted BY the preview iframe (event.source ===
+      // the preview frame's contentWindow) — ACCEPTED.
+      "onPreviewMessage({ source: previewWin, data: { type: 'lg-preview-event', events: [" +
         "{ event_type: 'section_view', section_public_id: 'lgs_x', section_index: 0 }," +
         "{ event_type: 'answer_click', question_key: 'insured_q' } ] } });",
-      "onPreviewMessage({ data: { type: 'other-message' } });",
-      "onPreviewMessage({ data: 'not-an-object' });",
+      // MINOR-3 decoys that must be IGNORED: a FOREIGN window forging the right
+      // type; the island's own frame but the WRONG type; a non-object payload.
+      "onPreviewMessage({ source: foreignWin, data: { type: 'lg-preview-event', events: [ { event_type: 'spoofed' } ] } });",
+      "onPreviewMessage({ source: previewWin, data: { type: 'other-message' } });",
+      "onPreviewMessage({ source: previewWin, data: 'not-an-object' });",
+      // a batch from the hidden events-probe iframe is ALSO accepted.
+      "onPreviewMessage({ source: probeWin, data: { type: 'lg-preview-event', events: [ { event_type: 'answer_change', question_key: 'insurer_q' } ] } });",
     ].join("\n");
     runInNewContext(source, sandbox);
-    expect(list.children).toHaveLength(2);
+    // preview batch (2) + probe batch (1) = 3; foreign-source, wrong-type and
+    // non-object messages contributed nothing.
+    expect(list.children).toHaveLength(3);
     const first = list.children[0] as FakeNode;
     expect(first.attrs.get("data-event-type")).toBe("section_view");
     // flatten one nesting level: li > [span.studio-event-type > text, text]
@@ -1877,6 +1902,12 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
     expect(firstText).toContain("lgs_x");
     const second = list.children[1] as FakeNode;
     expect(second.attrs.get("data-event-type")).toBe("answer_click");
+    // the events-probe iframe's batch was accepted (its contentWindow matched)
+    const third = list.children[2] as FakeNode;
+    expect(third.attrs.get("data-event-type")).toBe("answer_change");
+    // the foreign-window message never injected a row
+    const types = list.children.map((c) => (c as FakeNode).attrs.get("data-event-type"));
+    expect(types).not.toContain("spoofed");
     // clear resets the panel (runPreview calls this on every refresh)
     runInNewContext("clearEventsList();", sandbox);
     expect(list.children).toHaveLength(0);

@@ -173,8 +173,17 @@ function asStringArray(value: unknown, fallback: readonly string[]): string[] {
 function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   const catalog = COMPONENT_CATALOG[node.type];
   const produces = catalog?.produces ?? null;
+  // Non-producing nodes (ValidationError, HelperText, chrome, affordances)
+  // REFERENCE a question's internal_field — e.g. a ValidationError carries it
+  // as its error-slot binding (data-lg-error-for) — but never CLAIM an answer
+  // name. They contribute NO field to the answer space, matching the F2
+  // validator model (content-schema.ts:~758-764 scopes the internal_field
+  // uniqueness universe to `catalog.produces !== null`). Skipping them stops a
+  // later ValidationError{internal_field:"x"} from re-coercing the producer's
+  // already-normalized value (e.g. a boolean back to the string "yes").
+  if (produces === null) return [];
   const answerType: LeadgenAnswerType =
-    node.answer_type ?? (produces === null ? "string" : (produces as LeadgenAnswerType));
+    node.answer_type ?? (produces as LeadgenAnswerType);
 
   if (isNonEmptyString(node.internal_field)) {
     return [

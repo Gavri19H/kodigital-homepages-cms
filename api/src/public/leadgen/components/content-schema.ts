@@ -565,8 +565,11 @@ function isChoicePrimitive(value: unknown): value is string | number | boolean {
 }
 
 // A design-override VALUE must be a fixed token/scalar, never a CSS string.
-// Reject anything carrying CSS-injection punctuation (§14.10 no-arbitrary-CSS).
-const CSS_ESCAPE_RE = /[;{}<>()\\]|url\(|expression|@import|\/\*/i;
+// Reject anything carrying CSS-injection punctuation OR the HTML-attribute
+// breakout quotes (" ' `) so a value can never escape an inline style="…"
+// attribute even if it reaches a renderer (§14.10 no-arbitrary-CSS). This
+// regex MUST stay byte-identical to the copy in src/leadgen/sections.ts.
+const CSS_ESCAPE_RE = /[;{}<>()"'`\\]|url\(|expression|@import|\/\*/i;
 function looksLikeArbitraryCss(value: unknown): boolean {
   return typeof value === "string" && CSS_ESCAPE_RE.test(value);
 }

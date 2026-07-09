@@ -245,6 +245,21 @@ describe("validateSectionContent — per-node rejects", () => {
     expect(codes(c)).toContain("arbitrary_css_override");
   });
 
+  it("MAJOR-1: rejects HTML-attribute breakout quotes in a curated override (\" ' ` §14.10 no-CSS-escape)", () => {
+    // The proven stored-XSS payload: a `"` that terminates the inline style="…"
+    // attribute + a paren-free tagged-template onfocus handler. Pre-fix this
+    // validated ok:true and rendered a real `autofocus onfocus` on the funnel.
+    const proven = 'red" autofocus onfocus="alert`1`';
+    for (const value of [proven, "x' onmouseover='y", "a`b`c"]) {
+      const c = {
+        components: [
+          { type: "ContinueButton", question_id: "c1", design_overrides: { buttonText: value } },
+        ],
+      };
+      expect(codes(c), value).toContain("arbitrary_css_override");
+    }
+  });
+
   it("accepts every curated override key with token values", () => {
     const overrides: Record<string, string | number> = {};
     for (const k of CURATED_DESIGN_OVERRIDE_KEYS) overrides[k] = k === "columns" ? 3 : "#1B3A5C";
@@ -475,6 +490,26 @@ describe("renderComponent — escapes all hostile author content", () => {
       DESIGN,
     );
     expect(html).not.toContain("position:fixed");
+  });
+
+  it("MAJOR-1 render-hardening: a hostile design_overrides value FORCED past validation cannot break out of the style attribute", () => {
+    // Construct the node directly (bypassing validateSectionContent) so the
+    // renderer alone is the defense. Pre-fix `style()` emitted the raw `"`,
+    // closing style="…" and producing a live `autofocus onfocus="alert`…`"`.
+    const html = renderComponent(
+      { type: "ContinueButton", question_id: "c1", design_overrides: { buttonText: 'red" autofocus onfocus="alert`1`' } },
+      DESIGN,
+    );
+    // the hostile `"` is entity-escaped, so it stays INSIDE the style value
+    expect(html).toContain("&quot;");
+    // and the style attribute is intact — its whole value is the escaped token
+    expect(html).toMatch(/style="color:red&quot;[^"]*"/);
+    // NO real breakout attribute is emitted (the `onfocus=`/`autofocus` text
+    // survives only as inert characters inside the escaped style value)
+    expect(html).not.toContain('onfocus="');
+    const outsideStyle = html.replace(/style="[^"]*"/g, "");
+    expect(outsideStyle).not.toContain("autofocus");
+    expect(outsideStyle).not.toContain("onfocus");
   });
 });
 

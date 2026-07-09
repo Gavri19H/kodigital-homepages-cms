@@ -3081,8 +3081,19 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   function onPreviewMessage(ev) {
-    var data = ev ? ev.data : null;
+    if (!ev) { return; }
+    var data = ev.data;
     if (!data || typeof data !== 'object' || data.type !== 'lg-preview-event') { return; }
+    // §9.1 origin gate: accept ONLY messages posted by the two runtime
+    // documents that live in THIS island — the visible preview iframe or the
+    // hidden events-probe iframe. A message from any other window (a sibling
+    // tab, an embedded frame, an opener) is IGNORED even if it forges
+    // data.type, so a foreign page can never inject rows into the events panel.
+    var previewFrame = document.getElementById('lg-preview-frame');
+    var probeFrame = document.getElementById('lg-events-probe-frame');
+    var fromPreview = !!previewFrame && ev.source === previewFrame.contentWindow;
+    var fromProbe = !!probeFrame && ev.source === probeFrame.contentWindow;
+    if (!fromPreview && !fromProbe) { return; }
     appendPreviewEvents(data.events || []);
   }
   window.addEventListener('message', onPreviewMessage);

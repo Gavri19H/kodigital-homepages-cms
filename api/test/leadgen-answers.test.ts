@@ -82,6 +82,23 @@ describe("normalizeAnswers — §12.7 pivot + §12.6 answer_source", () => {
     expect(sources["currently_insured"]).toBeUndefined();
   });
 
+  it("MINOR-2: a non-producing node's internal_field never re-coerces a producer's answer (ValidationError referencing homeowner)", () => {
+    // A ValidationError (catalog produces===null) REFERENCES the boolean
+    // question's internal_field as its error-slot binding. Pre-fix fieldsOf
+    // returned a string FieldSpec for it, so its second pass re-coerced the
+    // already-normalized boolean `true` back to the string "yes".
+    const content: LeadgenSectionContent = {
+      components: [
+        { type: "TwoButtonYesNo", question_id: "q1", internal_field: "homeowner", answer_type: "boolean" },
+        { type: "ValidationError", question_id: "e1", internal_field: "homeowner" },
+      ],
+    };
+    const { answers, sources } = normalizeAnswers(content, { homeowner: "yes" });
+    expect(answers["homeowner"]).toBe(true); // stays boolean, not "yes"
+    expect(typeof answers["homeowner"]).toBe("boolean");
+    expect(sources["homeowner"]).toBe("user_selected");
+  });
+
   it("expands NameFieldsGroup + AddressAutocomplete sub-fields (§12.8)", () => {
     const content: LeadgenSectionContent = {
       components: [
