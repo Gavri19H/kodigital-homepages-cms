@@ -462,21 +462,28 @@ function liveSubtree(node: LeadgenComponentNode): El {
 }
 
 // The preview-path render — through previewSectionHandler via admin.request;
-// the desktop preview.html is parsed and its component subtree extracted.
-async function previewSubtree(node: LeadgenComponentNode): Promise<El> {
+// the preview.html for the requested viewport is parsed and its component
+// subtree extracted. §9.3: the component markup is viewport-INVARIANT (only the
+// preview iframe FRAME above the component root carries the viewport — chrome
+// stripped by findComponentRoot), so BOTH viewports must match the one live
+// render.
+async function previewSubtree(
+  node: LeadgenComponentNode,
+  viewport: "desktop" | "mobile" = "desktop",
+): Promise<El> {
   const res = await admin.request(
     `${API}/sections/preview`,
-    jsonInit("POST", { content_json: JSON.stringify({ components: [node] }), viewport: "desktop" }),
+    jsonInit("POST", { content_json: JSON.stringify({ components: [node] }), viewport }),
     ENV!,
   );
-  expect(res.status, `preview status for ${node.type}`).toBe(200);
+  expect(res.status, `preview status for ${node.type} (${viewport})`).toBe(200);
   const body = (await res.json()) as { preview: { html: string; design_id: string } };
   // design_id echo proves the preview resolved the SAME default design the live
   // path uses (getFunnelDesign(null) === defaultFunnelDesign), so token
   // application is comparable.
-  expect(body.preview.design_id, `preview design echo for ${node.type}`).toBe(DESIGN.id);
+  expect(body.preview.design_id, `preview design echo for ${node.type} (${viewport})`).toBe(DESIGN.id);
   const root = findComponentRoot(parseFragment(body.preview.html));
-  expect(root, `preview [data-component-type] root for ${node.type}`).not.toBeNull();
+  expect(root, `preview [data-component-type] root for ${node.type} (${viewport})`).not.toBeNull();
   return root!;
 }
 
@@ -555,6 +562,59 @@ describeDb("§9.3 parity matrix — every catalog type × default design (deskto
     // class-hook token: the icon grid's column count rides --lg-cols:3 (fixture).
     const iconLive = collectStyles(liveSubtree(NODE_SPECS.IconCardAnswerGrid)).join(" | ");
     expect(iconLive).toContain("--lg-cols:3");
+  });
+});
+
+// The §9.3 "× desktop/mobile" matrix cell (literal contract close): the
+// server-rendered component subtree is VIEWPORT-INVARIANT — the viewport only
+// sizes the preview iframe FRAME (chrome above the component root, stripped by
+// findComponentRoot), never the component markup. So the MOBILE preview subtree
+// must equal the SAME single live renderSectionComponents([node], design)
+// subtree the desktop cell already pins. Reuses the desktop cell's
+// normalization + subtree-extraction helpers verbatim.
+describeDb("§9.3 parity matrix — every catalog type × default design (mobile)", () => {
+  for (const type of ALL_TYPES) {
+    it(`${type}: mobile preview subtree ≡ live renderSectionComponents subtree`, async () => {
+      const node = NODE_SPECS[type];
+      const [live, preview] = [liveSubtree(node), await previewSubtree(node, "mobile")];
+
+      // MASTER: deep DOM structure + attributes + classes + inline tokens + text.
+      assertNodeEqual(live, preview, `${type} (mobile)`);
+
+      // §9.3 bullets, each independently legible (derived from the SAME trees):
+      const liveTypes = collectComponentTypes(live);
+      expect(collectComponentTypes(preview), `${type}: component types present (mobile)`).toEqual(liveTypes);
+      expect(liveTypes, `${type}: anchoring component type present (mobile)`).toContain(type);
+      expect(collectClasses(preview), `${type}: DOM CSS classes (mobile)`).toEqual(collectClasses(live));
+      expect(collectDataLg(preview), `${type}: data-lg-* hydration attrs (mobile)`).toEqual(collectDataLg(live));
+      expect(collectStyles(preview), `${type}: design-token inline styles (mobile)`).toEqual(collectStyles(live));
+    });
+  }
+
+  it("nested containers: Stack ⊃ CardPanel ⊃ ButtonAnswerGroup recursion parity (mobile)", async () => {
+    const node: LeadgenComponentNode = {
+      type: "Stack",
+      question_id: "st",
+      props: { direction: "vertical", gap: "m", align: "stretch" },
+      children: [
+        {
+          type: "CardPanel",
+          question_id: "cp",
+          props: { width: "m", background: "card", shadow: "md", radius: "lg", padding: "m" },
+          children: [{ type: "ButtonAnswerGroup", question_id: "bag", internal_field: "pick", choices: CHOICES }],
+        },
+      ],
+    };
+    expect(validateSectionContent({ components: [node] }).errors, "nested fixture valid").toEqual([]);
+
+    const [live, preview] = [liveSubtree(node), await previewSubtree(node, "mobile")];
+    assertNodeEqual(live, preview, "nested (mobile)");
+
+    // recursion parity: all three component roots present, in depth-first order.
+    expect(collectComponentTypes(preview)).toEqual(["Stack", "CardPanel", "ButtonAnswerGroup"]);
+    // the deeply-nested choice hydration hooks survive recursion identically.
+    expect(collectDataLg(preview)).toEqual(collectDataLg(live));
+    expect(collectDataLg(live)).toContain("data-lg-choice=sole_prop");
   });
 });
 

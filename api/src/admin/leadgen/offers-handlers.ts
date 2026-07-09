@@ -40,6 +40,7 @@ import {
   type LeadgenPayloadNode,
 } from "../../leadgen/payload";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
+import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
 import {
   LEADGEN_BID_SOURCES,
   LEADGEN_CAP_COUNT_BY,
@@ -362,7 +363,15 @@ export async function readLinkedSectionFields(
     const parsed = parseJsonColumn(section.content_json);
     if (!isRecord(parsed) || !Array.isArray(parsed["components"])) continue;
     const seen = new Set<string>();
-    for (const raw of parsed["components"]) {
+    // §8.5: iterate the canonical FLATTENED projection so a question nested
+    // inside a layout container (Stack/CardPanel/…) still contributes its
+    // internal_field to the §6.2 Section-field picker, the condition `when`
+    // source list, and the sample-answer enum metadata. flattenComponents is
+    // THE shared consumer path (content-schema.ts §8.5); flat legacy content
+    // flattens to itself so a container-free Section's projection (order +
+    // fields) is unchanged. The per-node isRecord guard + `seen` dedupe below
+    // are preserved unchanged.
+    for (const raw of flattenComponents(parsed["components"] as unknown as LeadgenComponentNode[]) as unknown[]) {
       if (!isRecord(raw)) continue;
       const internalField = raw["internal_field"];
       if (typeof internalField !== "string" || internalField.trim() === "") continue;

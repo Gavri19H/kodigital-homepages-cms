@@ -194,13 +194,15 @@ async function setPreviewViewport(page: Page, viewport: 'desktop' | 'mobile'): P
 
 // The preview boot posts its would-fire view events (quote_view +
 // section_view) to the §8.9 events panel a beat AFTER hydration (beacon batch
-// → postMessage). The panel's unbreakable compact-JSON lines currently
-// STRETCH the whole admin layout (~3034px at a 1280 viewport; the width:100%
-// preview iframe stretches with it, by a per-boot-varying amount) — the red
-// '§8.1/E6 studio layout hygiene' pin at the bottom of this file owns that
-// defect. Every preview measurement/screenshot therefore first WAITS for the
-// events to land (deterministic sequencing of the async side effect) and then
-// removes the known noise source, so the § under test gets a clean signal.
+// → postMessage). The panel's unbreakable compact-JSON lines USED TO stretch
+// the whole admin layout past the viewport; the §8.1/E6 studio layout-hygiene
+// fix (ui-section-studio.ts: .studio-events-list li overflow-wrap:anywhere +
+// word-break, and .admin-main{min-width:0}) has since landed and contains them
+// — the pin at the bottom of this file now GUARDS that fix. The panel's
+// compact-JSON content still varies a few chars per boot (per-boot ids), so
+// every preview measurement/screenshot first WAITS for the events to land
+// (deterministic sequencing of the async side effect) and then removes that
+// per-boot-varying content, so the § under test gets a clean, stable signal.
 // Idempotent per preview document (marker on the srcdoc root).
 async function waitForStudioEvents(page: Page): Promise<void> {
   await expect
@@ -879,18 +881,18 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
     await shootPreview(page, 'flow-dependent-dropdown-met.png');
   });
 
-  test('§9.2/§14.9 dependency-satisfied reveal stays VISIBLE after runtime hydration (known-defect pin)', async ({ page }) => {
+  test('§9.2/§14.9 dependency-satisfied reveal stays VISIBLE to the operator (regression guard — DEV-46/F2 static sims)', async ({ page }) => {
     test.setTimeout(120_000);
     // 09 §9.2: "All sims are SERVER-rendered into the srcdoc (… dependency-
-    // satisfied reveals)". The server DOES render the satisfied dropdown into
-    // the sim document (proven by the previous test's toHaveCount(1)) — but
-    // the §9.1 runtime bundle then hydrates with an EMPTY answer store and
-    // re-applies dependency visibility (engine.ts enterSection →
-    // applyComponentVisibility), setting `hidden` on the very component the
-    // sim revealed. The operator therefore never SEES the satisfied reveal.
-    // This test pins the operator-visible contract; it FAILS until the
-    // preview leg seeds the sim answers into the preview engine state (or
-    // skips the boot visibility pass under an active server sim).
+    // satisfied reveals)". The server renders the satisfied dropdown into the
+    // sim document (proven by the previous test's toHaveCount(1)). This was a
+    // real defect once: the §9.1 runtime bundle hydrated with an EMPTY answer
+    // store and re-applied visibility (engine.ts enterSection →
+    // applyComponentVisibility), re-`hidden`-ing the very component the sim
+    // revealed. FIXED in Fix-P4 slice F2 (DEV-46): non-default sims now render
+    // as STATIC, script-free documents — no engine hydrates, so nothing can
+    // re-hide the server-revealed node. This test GUARDS that: it fails again
+    // the moment a non-default sim regains a hydrating runtime.
     await ensureFeederOffer(page.request);
     const section = await createSection(page.request, `Reveal Pin ${uniq}`, {
       components: [
@@ -926,8 +928,8 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
     await waitFreshPreview(page, 'desktop');
     // server-rendered into the sim document (green — the §9.2 server leg)
     await expect(f.locator('[data-component-type="DropdownQuestion"]')).toHaveCount(1);
-    // …and VISIBLE to the operator after hydration (the defect: engine.ts
-    // re-hides it from its empty answer store → `hidden` attribute)
+    // …and VISIBLE to the operator: the static sim doc has no engine to
+    // re-hide it (DEV-46/F2). Regresses the instant a non-default sim rehydrates.
     await expect(f.locator('[data-component-type="DropdownQuestion"]')).toBeVisible();
   });
 
@@ -1243,10 +1245,11 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
   // §9.4 measures the VIEWPORT TOGGLE's own geometry, so each measurement
   // first settles the events-panel noise (see the file-scope helper — the
-  // stretch amount varies a few px per boot, which would otherwise leak into
-  // the desktop-width restoration comparison). The defect itself stays
-  // pinned by its own failing test below + the slice report — this is
-  // isolation of an orthogonal defect, not masking.
+  // panel's compact-JSON content varies a few chars per boot, which would
+  // otherwise leak into the desktop-width restoration comparison). The E6
+  // layout-hygiene fix (guarded by the test below) now contains that content
+  // within the viewport; the settle step remains as deterministic sequencing
+  // of the async event side effect, not masking.
   const ROUNDTRIP_CONTENT = {
     components: [
       {
@@ -1333,18 +1336,16 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
   test('§8.1/E6 studio layout hygiene: preview events must not stretch the studio past the viewport (known-defect pin)', async ({ page }) => {
     test.setTimeout(120_000);
     // The §8.9 events panel renders each would-fire event as ONE compact-JSON
-    // line (~840 chars, no spaces). Its min-content width propagates up the
-    // admin shell's flex chain (.admin-layout → .admin-main carries no
-    // min-width:0), so the whole studio layout stretches to ~3034px at a
-    // 1280 viewport the moment the boot events arrive — proven by
-    // remove-and-measure: deleting the events <li> nodes shrinks .admin-main
-    // 3034 → 1030. The document does NOT gain a scrollbar (the overflow is
-    // clipped), so the stretched right side — including the width:100%
-    // preview iframe (~2960px) — is simply UNREACHABLE, and the stretch
-    // varies a few px per boot (per-boot ids shift line-break points),
-    // destabilizing §9.4 geometry. E6-class violation; the fix belongs to
-    // the studio styles (.studio-events-list li needs
-    // overflow-wrap:anywhere/word-break + width containment), not to tests.
+    // line (~840 chars, no spaces). WITHOUT wrap opportunities its min-content
+    // width would propagate up the admin shell's flex chain and stretch the
+    // whole studio layout past the viewport the moment the boot events arrive
+    // (historically ~3034px at a 1280 viewport, proven by remove-and-measure:
+    // deleting the events <li> nodes shrank .admin-main 3034 → 1030). The
+    // §8.1/E6 layout-hygiene fix has since landed in the studio styles
+    // (ui-section-studio.ts: .studio-events-list li overflow-wrap:anywhere +
+    // word-break, and .admin-main{min-width:0} so the flex item may shrink
+    // below its content's intrinsic width). This test now GUARDS that fix:
+    // once the boot events land, .admin-main must stay within the viewport.
     await ensureFeederOffer(page.request);
     const section = await createSection(page.request, `Overflow Pin ${uniq}`, ROUNDTRIP_CONTENT);
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });

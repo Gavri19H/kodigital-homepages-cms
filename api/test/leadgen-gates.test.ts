@@ -311,6 +311,20 @@ function seedSection(sdb: SqliteDb): { id: number; public_id: string } {
   return { id: row.id, public_id: publicId };
 }
 
+// A Section with caller-supplied components (raw INSERT — bypasses content
+// validation so §8.5 container trees can be exercised against the preflight).
+function seedSectionWithComponents(sdb: SqliteDb, components: unknown[]): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({ components });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, address_validation_enabled, status) VALUES (?, ?, 'quote_funnel', 'life', 'Headline', ?, 'button', 0, 'active')",
+    )
+    .run(publicId, `Section ${publicId.slice(-4)}`, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
 async function seedActivatedFunnel(env: Env, sdb: SqliteDb, slug: string): Promise<{ variantId: string; funnelId: string; quoteId: string; sectionId: number }> {
   const createRes = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: `Q ${slug}`, activity: "quote_funnel", verticals: ["life"] }), env);
   expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
@@ -1164,6 +1178,91 @@ describeDb("R5 — quote activation preflight", () => {
     const stored = store.get(`lg-preflight:${variantId}`);
     expect(stored, "stored verdict in KV").toBeDefined();
     expect((JSON.parse(stored!) as { ok: boolean }).ok).toBe(true);
+  });
+
+  // §8.5 (Phase-4 audit FINDING 1): the dependency preflight MUST walk the
+  // canonical flattenComponents projection. Two legs, both EXECUTED on nested
+  // content through the real activation PUT: (a) a cross-container dependency
+  // must NOT false-positive block; (b) a genuinely-broken NESTED dependency
+  // must still block (the gate stays sound). Pre-fix the walk was top-level.
+  it("§8.5 preflight is RECURSIVE: a cross-container dependency (target nested in a sibling container) does NOT false-block", async () => {
+    const { sdb, env } = newHarness();
+    const createRes = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: "Nested OK Q", activity: "quote_funnel", verticals: ["life"] }), env);
+    const quote = (await createRes.json()) as { public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> };
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    // CardPanel ⊃ TwoButtonYesNo{internal_field:"homeowner"} + a SIBLING
+    // top-level DropdownQuestion whose conditional.when points at "homeowner".
+    const section = seedSectionWithComponents(sdb, [
+      {
+        type: "CardPanel",
+        question_id: "cp1",
+        props: {},
+        children: [
+          { type: "TwoButtonYesNo", question_id: "q_home", question_key: "kh", internal_field: "homeowner", answer_type: "boolean" },
+        ],
+      },
+      {
+        type: "DropdownQuestion",
+        question_id: "q_ins",
+        question_key: "ki",
+        internal_field: "insurer",
+        answer_type: "enum",
+        choices: [{ value: "acme", label: "Acme" }],
+        conditional: { when: "homeowner", op: "eq", value: true },
+      },
+    ]);
+    const putRes = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env);
+    expect(putRes.status, `put: ${await putRes.clone().text()}`).toBe(200);
+    const actRes = await admin.request(`${API}/quotes/${quote.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "nestedok" }), env);
+    // FIX: "homeowner" is discovered INSIDE the CardPanel → the sibling
+    // dependency resolves → the quote ACTIVATES. Pre-fix: knownFields was built
+    // from TOP-LEVEL internal_fields only, so "homeowner" (nested) was unknown
+    // → a false-positive dependency_missing_field block → 409.
+    expect(actRes.status, `activation: ${await actRes.clone().text()}`).toBe(200);
+    const j = (await actRes.json()) as { activation_preflight: { ok: boolean; blocks: Array<{ code: string }> } };
+    expect(j.activation_preflight.ok, JSON.stringify(j.activation_preflight.blocks)).toBe(true);
+    expect(j.activation_preflight.blocks.find((b) => b.code === "dependency_missing_field")).toBeUndefined();
+  });
+
+  it("§8.5 preflight is RECURSIVE: a NESTED conditional on a truly-absent field IS still blocked (gate stays sound)", async () => {
+    const { sdb, env } = newHarness();
+    const createRes = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: "Nested Broken Q", activity: "quote_funnel", verticals: ["life"] }), env);
+    const quote = (await createRes.json()) as { public_id: string; funnels: Array<{ variants: Array<{ public_id: string }> }> };
+    const variantId = quote.funnels[0]!.variants[0]!.public_id;
+    // A DropdownQuestion NESTED inside a CardPanel whose conditional.when
+    // references a field defined NOWHERE in the section.
+    const section = seedSectionWithComponents(sdb, [
+      {
+        type: "CardPanel",
+        question_id: "cp1",
+        props: {},
+        children: [
+          {
+            type: "DropdownQuestion",
+            question_id: "q_ins",
+            question_key: "ki",
+            internal_field: "insurer",
+            answer_type: "enum",
+            choices: [{ value: "acme", label: "Acme" }],
+            conditional: { when: "ghost_field", op: "eq", value: true },
+          },
+        ],
+      },
+    ]);
+    const putRes = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: section.id }] }), env);
+    expect(putRes.status, `put: ${await putRes.clone().text()}`).toBe(200);
+    const actRes = await admin.request(`${API}/quotes/${quote.public_id}/activation/site-1`, jsonInit("PUT", { enabled: true, slug: "nestedbroken" }), env);
+    // FIX: the nested conditional IS now walked → "ghost_field" resolves to no
+    // known field → the P0 gate blocks activation. Pre-fix: nested conditionals
+    // were NEVER checked → a genuinely-broken nested dependency passed the gate
+    // (false NEGATIVE), activating a broken quote.
+    expect(actRes.status, `activation: ${await actRes.clone().text()}`).toBe(409);
+    const j = (await actRes.json()) as { error: string; blocks: Array<{ code: string; fields: string[]; section_id: string }> };
+    expect(j.error).toBe("quote_activation_blocked");
+    const block = j.blocks.find((b) => b.code === "dependency_missing_field");
+    expect(block, JSON.stringify(j.blocks)).toBeDefined();
+    expect(block!.fields).toEqual(["ghost_field"]);
+    expect(block!.section_id).toBe(section.public_id);
   });
 });
 
