@@ -783,7 +783,7 @@ function sliceIslandFunction(script: string, name: string): string {
 }
 
 // Minimal element stand-in implementing exactly the DOM surface the preview
-// slice touches (value/hidden/className, get/setAttribute, text children).
+// slice touches (value/hidden/className, get/set/removeAttribute, text children).
 interface ProbeEl {
   hidden: boolean;
   value: string;
@@ -794,6 +794,7 @@ interface ProbeEl {
   readonly firstChild: unknown;
   setAttribute(k: string, v: string): void;
   getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
   appendChild(c: unknown): unknown;
   removeChild(c: unknown): unknown;
 }
@@ -817,6 +818,9 @@ function probeEl(): ProbeEl {
     getAttribute(k) {
       return attrs.has(k) ? attrs.get(k)! : null;
     },
+    removeAttribute(k) {
+      attrs.delete(k);
+    },
     appendChild(c) {
       children.push(c);
       return c;
@@ -833,6 +837,7 @@ interface PreviewProbeOut {
   requestBody: Record<string, unknown>;
   url: string;
   frame: ProbeEl;
+  probeFrame: ProbeEl;
   errEl: ProbeEl;
   statusEl: ProbeEl;
 }
@@ -851,6 +856,7 @@ async function runPreviewProbe(opts: {
 }): Promise<PreviewProbeOut> {
   const frame = probeEl();
   frame.className = "lg-preview-frame";
+  const probeFrame = probeEl(); // the hidden §8.9 events probe (§14.9 fix)
   const errEl = probeEl();
   errEl.hidden = true;
   const statusEl = probeEl();
@@ -863,6 +869,7 @@ async function runPreviewProbe(opts: {
     document: {
       getElementById(id: string): ProbeEl | null {
         if (id === "lg-preview-frame") return frame;
+        if (id === "lg-events-probe-frame") return probeFrame;
         if (id === "lg-preview-error") return errEl;
         if (id === "lg-dependency-answers") return answersEl;
         if (id === "lg-preview-design") return designEl;
@@ -901,6 +908,7 @@ async function runPreviewProbe(opts: {
     url,
     requestBody: JSON.parse(String(init.body)) as Record<string, unknown>,
     frame,
+    probeFrame,
     errEl,
     statusEl,
   };
@@ -937,23 +945,27 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     // --- the island CONSUMED the live server JSON ---------------------------
     expect(out.errEl.hidden).toBe(true);
     const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
-    // D2 (§9.1): the srcdoc is the runtime-hydrated events DOCUMENT — the
-    // shell-shaped root in preview mode embedding the generated bundle INLINE
-    // (the admin host has no tenant site context, so /lg/* can't be
-    // script-src'd there; the studio suite asserts byte-identity).
+    // P4 §9.2/§14.9: a NON-default sim loads the STATIC server still — a
+    // shell-shaped document carrying NO scripts (a runtime boot would re-apply
+    // dependency visibility from an EMPTY answer store and re-hide the sim's
+    // reveal). Ready by construction.
     expect(srcdoc.startsWith("<!doctype html>")).toBe(true);
     expect(srcdoc).toContain("<style>");
     expect(srcdoc).toContain('data-lg-preview="1"');
-    expect(srcdoc).toContain('id="lg-config"');
-    expect(srcdoc).toContain('<script data-lg-runtime-version="');
-    // the MOBILE wrapper (the requested viewport), not desktop — scoped to
-    // the MARKUP portion (the inlined bundle JS carries class-name literals)
-    const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
-    expect(markup).toContain("lg-preview-mobile");
-    expect(markup).not.toContain("lg-preview-desktop");
+    expect(srcdoc).toContain('data-lg-ready="1"');
+    expect(srcdoc).not.toContain("<script");
+    // the MOBILE wrapper (the requested viewport), not desktop — the whole
+    // static document IS markup (no bundle literals to scope away)
+    expect(srcdoc).toContain("lg-preview-mobile");
+    expect(srcdoc).not.toContain("lg-preview-desktop");
     // both dependency-visible questions rendered by the live handler
     expect(srcdoc).toContain('data-lg-question="q1"');
     expect(srcdoc).toContain('data-lg-question="q2"');
+    // …while the hidden probe frame carries the RUNTIME events document, so
+    // the §8.9 panel keeps its stream during static sims (§9.1)
+    const probeDoc = out.probeFrame.attrs.get("srcdoc") ?? "";
+    expect(probeDoc).toContain('id="lg-config"');
+    expect(probeDoc).toContain('<script data-lg-runtime-version="');
     // mobile sizing = plain class swap on re-render; srcdoc is the ONLY
     // attribute the island writes on the iframe (hacks deleted)
     expect(out.frame.className).toBe("lg-preview-frame lg-preview-frame-mobile");
@@ -981,15 +993,16 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     expect((out.requestBody["sim"] as Record<string, unknown>)["state"]).toBe("selected");
 
     const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
-    // markup-scoped (the inlined runtime bundle carries class-name literals)
-    const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
-    expect(markup).toContain("lg-preview-desktop");
-    expect(markup).toContain('data-funnel-design="default-funnel"');
+    // P4 §9.2: the selected sim is a STATIC still — the whole document IS
+    // markup (no config/runtime scripts on non-default sims)
+    expect(srcdoc).not.toContain("<script");
+    expect(srcdoc).toContain("lg-preview-desktop");
+    expect(srcdoc).toContain('data-funnel-design="default-funnel"');
     // the SERVER rendered the selection into the markup — the client painted
     // nothing (E5: never attributes for the client to interpret)
-    expect(markup).toContain('aria-checked="true"');
-    expect(markup).toContain("lg-selected");
-    expect(markup).toContain('aria-pressed="true"');
+    expect(srcdoc).toContain('aria-checked="true"');
+    expect(srcdoc).toContain("lg-selected");
+    expect(srcdoc).toContain('aria-pressed="true"');
     expect(out.frame.className).toBe("lg-preview-frame");
   });
 
@@ -1006,9 +1019,15 @@ describeDb("§9.2 executed island — runPreview against the REAL preview handle
     });
     expect(out.requestBody["sim"]).toEqual({ state: "default" });
     const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
-    // markup-scoped (the inlined runtime bundle carries the class literal)
+    // the DEFAULT state keeps FULL hydration: the runtime events document
+    // (§9.1) with config + inlined bundle — markup-scoped assertions (the
+    // bundle JS carries the class literal)
+    expect(srcdoc).toContain('id="lg-config"');
+    expect(srcdoc).toContain('<script data-lg-runtime-version="');
     const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
     expect(markup).toContain("lg-preview-desktop");
     expect(markup).not.toContain("lg-selected");
+    // …and the probe frame is PARKED (only ONE runtime document at a time)
+    expect(out.probeFrame.attrs.has("srcdoc")).toBe(false);
   });
 });

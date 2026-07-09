@@ -1172,12 +1172,15 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     };
     const configJson = JSON.stringify(previewConfig).replace(/</g, "\\u003c");
     const screenLabel = `01 · ${headline}`;
-    preview["events_html"] =
+    // One shell-shaped srcdoc builder for BOTH preview documents. With
+    // extraRootAttrs="" and the config+runtime scripts the output is
+    // byte-identical to the pre-§14.9-fix events_html (regression-pinned).
+    const shellDoc = (extraRootAttrs: string, scripts: string): string =>
       "<!doctype html>" +
       '<html lang="en"><head><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width, initial-scale=1">' +
       `<style>${preview["css"] as string}</style></head><body>` +
-      `<div id="lg-funnel-root" data-lg-preview="1" ${FUNNEL_DESIGN_SCOPE_ATTR}="${escapeHtml(design.id)}"` +
+      `<div id="lg-funnel-root" data-lg-preview="1"${extraRootAttrs} ${FUNNEL_DESIGN_SCOPE_ATTR}="${escapeHtml(design.id)}"` +
       ` data-funnel-id="lgf_preview" data-funnel-variant-id="lgn_preview" data-quote-id="lgq_preview"` +
       ` data-content-version="0" data-viewport="${viewport === "mobile" ? "mobile" : "desktop"}"` +
       ` class="lg-preview lg-preview-${viewport === "mobile" ? "mobile" : "desktop"}"` +
@@ -1188,16 +1191,32 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       "</section>" +
       '<div class="lg-banners" data-lg-banners hidden></div>' +
       "</main></div>" +
-      `<script type="application/json" id="lg-config">${configJson}</script>` +
-      // The BYTE-IDENTICAL bundle /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js
-      // serves, inlined (see the import note: /lg/* is site-scoped and 404s on
-      // the admin host, so the srcdoc cannot script-src it there). The version
-      // rides as a data attribute for observability; the `</script` escape is
-      // a defensive no-op today (the generated bundle contains none — any
-      // future occurrence must sit inside a JS string/regex where `<\/` is
-      // byte-equivalent).
-      `<script data-lg-runtime-version="${LEADGEN_TEMPLATE_VERSION}">${LEADGEN_RUNTIME_JS.replace(/<\/script/gi, "<\\/script")}</script>` +
+      scripts +
       "</body></html>";
+    preview["events_html"] = shellDoc(
+      "",
+      `<script type="application/json" id="lg-config">${configJson}</script>` +
+        // The BYTE-IDENTICAL bundle /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js
+        // serves, inlined (see the import note: /lg/* is site-scoped and 404s on
+        // the admin host, so the srcdoc cannot script-src it there). The version
+        // rides as a data attribute for observability; the `</script` escape is
+        // a defensive no-op today (the generated bundle contains none — any
+        // future occurrence must sit inside a JS string/regex where `<\/` is
+        // byte-equivalent).
+        `<script data-lg-runtime-version="${LEADGEN_TEMPLATE_VERSION}">${LEADGEN_RUNTIME_JS.replace(/<\/script/gi, "<\\/script")}</script>`,
+    );
+    // §9.2/§14.9: a NON-default sim is a server-rendered STILL. The MAIN
+    // preview document must NOT hydrate — engine boot re-applies dependency
+    // visibility from an EMPTY answer store (preview skips snapshot restore,
+    // engine.ts §3.5.1) and re-hides the very reveal the sim rendered. A
+    // static document has nothing to hydrate, so it carries data-lg-ready="1"
+    // by construction. The events panel keeps its §8.9 stream from
+    // events_html above — the SEPARATE runtime-bearing document the island
+    // loads into its hidden probe frame. Default state keeps full hydration
+    // (events_html IS the main document there — unchanged).
+    if (sim.state !== "default") {
+      preview["static_html"] = shellDoc(' data-lg-ready="1"', "");
+    }
   }
   const responseBody: Record<string, unknown> = { preview };
   if (dependencies !== null) {

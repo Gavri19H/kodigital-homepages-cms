@@ -753,10 +753,15 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       validateContainerProps(type, props, base, push);
     }
 
-    // internal_field: unique across the whole tree when present (§8.5
-    // "question components must remain unique by internal_field").
+    // internal_field: unique across the whole tree when present — scoped to
+    // ANSWER-PRODUCING components only (§8.5 "QUESTION components must remain
+    // unique by internal_field"). Non-producing nodes (ValidationError,
+    // HelperText, …) legitimately REFERENCE a question's internal_field —
+    // e.g. a ValidationError carries it as the error-slot binding
+    // (data-lg-error-for) — without claiming the answer name, so they never
+    // join (or collide with) the uniqueness universe.
     const internalField = raw["internal_field"];
-    if (isNonEmptyString(internalField)) {
+    if (isNonEmptyString(internalField) && catalog.produces !== null) {
       if (seenInternalFields.has(internalField)) {
         push(
           "duplicate_internal_field",

@@ -2175,3 +2175,475 @@ describeDb("section studio — §8.8 field-level Maps config (E6, browser Places
     expect(renderComponent(addrNode!, defaultFunnelDesign)).toContain('data-lg-maps="{}"');
   });
 });
+
+// ===========================================================================
+// P4 defect fixes — §9.2/§14.9 static sim documents · B9 §6.4 choiceDisplay
+// order-independence · §8.1/E6 events-panel layout hygiene · §8.5/§8.6
+// TrustBar/LogoStrip/StepIndicator authoring (the §8.11 gaps)
+// ===========================================================================
+
+const STATIC_SIM_DEP_CONTENT = {
+  components: [
+    { type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" },
+    {
+      type: "DropdownQuestion",
+      question_id: "q2",
+      internal_field: "insurer",
+      answer_type: "enum",
+      choices: [{ label: "Acme", value: "acme", analytics_id: "i_acme" }],
+      conditional: { when: "currently_insured", op: "eq", value: true },
+    },
+  ],
+};
+
+describeDb("P4 fix — §9.2/§14.9 NON-default sims are STATIC documents (no runtime re-hide)", () => {
+  it("sim≠default + runtime:true → preview.static_html: the shell-shaped srcdoc WITHOUT any script (data-lg-ready preset; the satisfied reveal STAYS); events_html keeps the runtime", async () => {
+    const { env } = newHarness();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(STATIC_SIM_DEP_CONTENT),
+        viewport: "desktop",
+        runtime: true,
+        sim: { state: "dependency", answers: { currently_insured: true } },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { preview: Record<string, unknown> };
+
+    const staticDoc = String(body.preview["static_html"]);
+    // a COMPLETE shell-shaped document…
+    expect(staticDoc.startsWith("<!doctype html>")).toBe(true);
+    expect(staticDoc).toContain('id="lg-funnel-root"');
+    expect(staticDoc).toContain("data-lg-mount");
+    expect(staticDoc).toContain("data-lg-section");
+    // …that is READY by construction (nothing hydrates a static still)…
+    expect(staticDoc).toContain('data-lg-ready="1"');
+    // …and carries NO script whatsoever — no runtime boot can re-apply
+    // dependency visibility over an empty answer store (§14.9 reveal defect)
+    expect(staticDoc).not.toContain("<script");
+    // the SERVER-revealed dependency target is IN the static markup
+    expect(staticDoc).toContain('data-lg-question="q2"');
+
+    // the events panel document is SEPARATE and keeps its runtime (§9.1)
+    const eventsDoc = String(body.preview["events_html"]);
+    expect(eventsDoc).toContain('id="lg-config"');
+    expect(eventsDoc).toContain('<script data-lg-runtime-version="');
+    expect(eventsDoc).toContain(LEADGEN_RUNTIME_JS);
+    // events_html root does NOT pre-claim readiness — the engine sets it
+    // (markup-scoped: the inlined bundle text carries the attribute name)
+    const eventsMarkup = eventsDoc.slice(0, eventsDoc.indexOf('id="lg-config"'));
+    expect(eventsMarkup).not.toContain('data-lg-ready="1"');
+
+    // unmet answers → the dependent leaf is NOT in the static markup
+    const unmet = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(STATIC_SIM_DEP_CONTENT),
+        viewport: "desktop",
+        runtime: true,
+        sim: { state: "dependency", answers: { currently_insured: false } },
+      }),
+      env,
+    );
+    const unmetBody = (await unmet.json()) as { preview: Record<string, unknown> };
+    expect(String(unmetBody.preview["static_html"])).not.toContain('data-lg-question="q2"');
+  });
+
+  it("default sim keeps FULL hydration (no static_html; events_html IS the main document); non-runtime bodies gain nothing", async () => {
+    const { env } = newHarness();
+    const dflt = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(STATIC_SIM_DEP_CONTENT),
+        viewport: "desktop",
+        runtime: true,
+        sim: { state: "default" },
+      }),
+      env,
+    );
+    const dfltBody = (await dflt.json()) as { preview: Record<string, unknown> };
+    expect("static_html" in dfltBody.preview).toBe(false);
+    expect(String(dfltBody.preview["events_html"])).toContain('<script data-lg-runtime-version="');
+
+    // a sim WITHOUT the runtime flag stays the legacy shape (no new keys)
+    const plain = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(STATIC_SIM_DEP_CONTENT),
+        sim: { state: "dependency", answers: { currently_insured: true } },
+      }),
+      env,
+    );
+    const plainBody = (await plain.json()) as { preview: Record<string, unknown> };
+    expect("static_html" in plainBody.preview).toBe(false);
+    expect("events_html" in plainBody.preview).toBe(false);
+  });
+
+  it("the island routes the documents: static_html → main frame, events_html → the hidden probe frame (SSR probe iframe + wiring present)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the SSR probe frame next to the main preview frame (sandboxed, hidden)
+    expect(html).toContain('id="lg-events-probe-frame"');
+    expect(html).toMatch(/<iframe id="lg-events-probe-frame"[^>]*sandbox="allow-scripts"[^>]*aria-hidden="true"/);
+    expect(html).toContain(".lg-events-probe-frame{position:absolute");
+    const island = studioIsland(html);
+    // the srcdoc routing: static doc wins the main frame; the probe frame
+    // carries the runtime events document; default parks the probe
+    expect(island).toContain("res.body.preview.static_html");
+    expect(island).toContain("getElementById('lg-events-probe-frame')");
+    expect(island).toContain("probe.setAttribute('srcdoc', eventsDoc)");
+    expect(island).toContain("probe.removeAttribute('srcdoc')");
+  });
+});
+
+describeDb("P4 fix — B9 §6.4 choiceDisplay-only edits persist (EXECUTED wiring probe)", () => {
+  interface ListenerEl {
+    checked?: boolean;
+    value?: string;
+    type?: string;
+    listeners: Record<string, () => void>;
+    addEventListener(ev: string, fn: () => void): void;
+    getAttribute?(k: string): string | null;
+  }
+  function listenerEl(init: Partial<ListenerEl>): ListenerEl {
+    return {
+      listeners: {},
+      addEventListener(ev, fn) {
+        this.listeners[ev] = fn;
+      },
+      ...init,
+    } as ListenerEl;
+  }
+
+  it("the ONLY edit being the Other-group toggle/label still lands in the model (the registered listener runs the SAME collectChoices path)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the island WIRES the three [data-choicedisplay] controls at boot
+    expect(island).toContain("function wireChoiceDisplayControls(");
+    expect(island).toContain("wireChoiceDisplayControls();");
+
+    const CHOICES_MODEL = {
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_make",
+          internal_field: "car_make",
+          answer_type: "enum",
+          choices: [
+            { label: "Toyota", value: "toyota", analytics_id: "c_toyota" },
+            { label: "Honda", value: "honda", analytics_id: "c_honda" },
+          ],
+        },
+      ],
+    };
+    // DOM stubs mirroring the served inspector: two choice ROWS (untouched by
+    // the operator) + the three group controls
+    const rowEl = (fields: Record<string, string>) => ({
+      querySelectorAll(sel: string) {
+        return sel === "[data-choice-field]"
+          ? Object.entries(fields).map(([f, v]) => ({ getAttribute: () => f, value: v }))
+          : [];
+      },
+      querySelector(sel: string) {
+        return sel === "[data-choice-main]" ? { checked: false } : null;
+      },
+    });
+    const rows = [
+      rowEl({ label: "Toyota", value: "toyota", analytics_id: "c_toyota" }),
+      rowEl({ label: "Honda", value: "honda", analytics_id: "c_honda" }),
+    ];
+    const container = {
+      querySelectorAll(sel: string) {
+        return sel === "[data-choice-row]" ? rows : [];
+      },
+    };
+    const enabledCb = listenerEl({ checked: false, type: "checkbox" });
+    const labelInput = listenerEl({ value: "", type: "text" });
+    const searchCb = listenerEl({ checked: false, type: "checkbox" });
+    const docStub = {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        if (sel === "[data-inspector-choices]") return container;
+        if (sel === '[data-choicedisplay="otherGroupEnabled"]') return enabledCb;
+        if (sel === '[data-choicedisplay="otherGroupLabel"]') return labelInput;
+        if (sel === '[data-choicedisplay="searchableOther"]') return searchCb;
+        return null;
+      },
+      querySelectorAll(sel: string) {
+        return sel === "[data-choicedisplay]" ? [enabledCb, labelInput, searchCb] : [];
+      },
+    };
+    const probe = studioProbe(html, CHOICES_MODEL, docStub as unknown as Record<string, unknown>);
+    // add the DOM-side collectors the model core doesn't slice by default
+    probe.run(
+      [
+        sliceIslandFunction(island, "choiceContainer"),
+        sliceIslandFunction(island, "collectChoiceDisplay"),
+        sliceIslandFunction(island, "collectChoices"),
+        sliceIslandFunction(island, "wireChoiceDisplayControls"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "q_make";
+    probe.run("wireChoiceDisplayControls()");
+    // all three controls got BOTH events, bound to collectChoices
+    for (const el of [enabledCb, labelInput, searchCb]) {
+      expect(typeof el.listeners["change"]).toBe("function");
+      expect(typeof el.listeners["input"]).toBe("function");
+    }
+
+    // the operator's ONLY action: tick "Enable Other group" → change event
+    enabledCb.checked = true;
+    (enabledCb.listeners["change"] as () => void)();
+    let node = probe.run("findRef('q_make').node") as Record<string, unknown>;
+    expect(node["choiceDisplay"], "the toggle alone reached the model").toEqual({ otherGroupEnabled: true });
+    // the untouched rows survived the collect (read from the DOM rows)
+    expect((node["choices"] as Array<Record<string, unknown>>).map((c) => c["value"])).toEqual([
+      "toyota",
+      "honda",
+    ]);
+
+    // a label-only follow-up edit rides the input event the same way
+    labelInput.value = "Other brands";
+    (labelInput.listeners["input"] as () => void)();
+    node = probe.run("findRef('q_make').node") as Record<string, unknown>;
+    expect(node["choiceDisplay"]).toEqual({ otherGroupEnabled: true, otherGroupLabel: "Other brands" });
+
+    // the mutated model is server-valid (choiceDisplay mirror rules)
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+  });
+});
+
+describeDb("P4 fix — §8.1/E6 events-panel layout hygiene (CSS containment pins)", () => {
+  it("the studio styles break compact-JSON event lines and let .admin-main shrink (no min-content stretch past the viewport)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the unbreakable-line fix on the event list items
+    expect(html).toContain(".studio-events-list li{padding:1px 0;overflow-wrap:anywhere;word-break:break-word}");
+    // the flex chain: layout.ts .admin-main{flex:1} needs min-width:0 to stop
+    // the intrinsic min-content width of the JSON lines propagating up
+    expect(html).toContain(".admin-main{min-width:0}");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4 authoring gaps — §8.5/§8.6 TrustBar items+layout · LogoStrip logos ·
+// StepIndicator steps/current (SSR controls + EXECUTED collect + save seam)
+// ---------------------------------------------------------------------------
+
+const P4_GAPS_CONTENT = {
+  components: [
+    { type: "TrustBar", question_id: "q_trust" },
+    { type: "LogoStrip", question_id: "q_logos" },
+    { type: "StepIndicator", question_id: "q_steps" },
+  ],
+};
+
+// A host-side container-prop input stub collectContainerProp can consume.
+function propInput(prop: string, kind: string, value: string, type = "text"): Record<string, unknown> {
+  return {
+    type,
+    value,
+    getAttribute(k: string): string | null {
+      if (k === "data-container-prop") return prop;
+      if (k === "data-container-kind") return kind;
+      return null;
+    },
+  };
+}
+
+describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", () => {
+  it("SSR: the three inspector groups render with the §8.5-idiom controls; the meta blob + availableTabsFor expose the Layout tab for them", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+
+    // TrustBar: items line-editor (icon|text) + layout enum (horizontal|stacked)
+    const trustGroup = html.slice(
+      html.indexOf('data-container-group="TrustBar"'),
+      html.indexOf('data-container-group="LogoStrip"'),
+    );
+    expect(trustGroup).toContain('data-container-prop="items"');
+    expect(trustGroup).toContain('data-container-kind="lines"');
+    expect(trustGroup).toContain('data-container-prop="layout"');
+    expect(trustGroup).toContain('<option value="horizontal">');
+    expect(trustGroup).toContain('<option value="stacked">');
+    // LogoStrip: logos line-editor (mediaId|alt)
+    const logoGroup = html.slice(
+      html.indexOf('data-container-group="LogoStrip"'),
+      html.indexOf('data-container-group="StepIndicator"'),
+    );
+    expect(logoGroup).toContain('data-container-prop="logos"');
+    expect(logoGroup).toContain('data-container-kind="lines"');
+    // StepIndicator: steps + current NUMERIC inputs, min 1
+    const stepGroup = html.slice(html.indexOf('data-container-group="StepIndicator"'));
+    expect(stepGroup).toMatch(/<input[^>]*type="number"[^>]*min="1"[^>]*data-container-prop="steps"/);
+    expect(stepGroup).toMatch(/<input[^>]*type="number"[^>]*min="1"[^>]*data-container-prop="current"/);
+
+    // the meta blob flags the three types (and only prop-bearing types)
+    const meta = extractJsonBlob(html, "lg-studio-meta")["types"] as Record<string, Record<string, unknown>>;
+    for (const type of ["TrustBar", "LogoStrip", "StepIndicator", "Stack", "FooterBar"]) {
+      expect(meta[type]!["layout_props"], `${type}.layout_props`).toBe(true);
+    }
+    expect(meta["ReassuranceBadge"]!["layout_props"]).toBe(false);
+
+    // the SLICED availableTabsFor exposes the Layout tab for the affordances
+    const island = studioIsland(html);
+    const probe = studioProbe(html, P4_GAPS_CONTENT);
+    probe.run(sliceIslandFunction(island, "availableTabsFor"));
+    expect(probe.run("availableTabsFor({ type: 'StepIndicator' })")).toContain("layout");
+    expect(probe.run("availableTabsFor({ type: 'TrustBar' })")).toContain("layout");
+    expect(probe.run("availableTabsFor({ type: 'ReassuranceBadge' })")).not.toContain("layout");
+  });
+
+  it("EXECUTED: TrustBar items (icon|text lines) + layout collect into the model, render via the REAL preset, and round-trip the populate leg", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, P4_GAPS_CONTENT);
+    probe.run(sliceIslandFunction(island, "linesValue")); // populate leg
+    probe.sandbox.selectedQuestionId = "q_trust";
+
+    probe.sandbox["__items"] = propInput("items", "lines", "🔒|SSL secured\n★|4.8 rating\nNo spam ever", "textarea");
+    probe.run("collectContainerProp(__items)");
+    probe.sandbox["__layout"] = propInput("layout", "enum", "stacked", "select-one");
+    probe.run("collectContainerProp(__layout)");
+
+    const node = probe.run("findRef('q_trust').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["items"]).toEqual([
+      { icon: "🔒", text: "SSL secured" },
+      { icon: "★", text: "4.8 rating" },
+      { text: "No spam ever" }, // bare line → text-only item (icon optional)
+    ]);
+    expect(node.props?.["layout"]).toBe("stacked");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // the REAL preset renders the authored pairs (the §8.5 shape the render reads)
+    const rendered = renderComponent(node as unknown as LeadgenComponentNode, defaultFunnelDesign);
+    expect(rendered).toContain("lg-trustbar-stacked");
+    expect(rendered).toContain("SSL secured");
+    expect(rendered).toContain("4.8 rating");
+    expect((rendered.match(/lg-trustbar-item/g) ?? []).length).toBe(3);
+
+    // populate leg: linesValue reproduces the authored lines exactly
+    expect(probe.run("linesValue('items', findRef('q_trust').node.props.items)")).toBe(
+      "🔒|SSL secured\n★|4.8 rating\nNo spam ever",
+    );
+  });
+
+  it("EXECUTED: LogoStrip logos (mediaId|alt lines) collect, render as <img>, and round-trip", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, P4_GAPS_CONTENT);
+    probe.run(sliceIslandFunction(island, "linesValue"));
+    probe.sandbox.selectedQuestionId = "q_logos";
+
+    probe.sandbox["__logos"] = propInput("logos", "lines", "media_1|Acme\nmedia_2", "textarea");
+    probe.run("collectContainerProp(__logos)");
+    const node = probe.run("findRef('q_logos').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["logos"]).toEqual([{ mediaId: "media_1", alt: "Acme" }, { mediaId: "media_2" }]);
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    const rendered = renderComponent(node as unknown as LeadgenComponentNode, defaultFunnelDesign);
+    expect(rendered).toContain('src="media_1" alt="Acme"');
+    expect(rendered).toContain('src="media_2" alt=""');
+    expect(probe.run("linesValue('logos', findRef('q_logos').node.props.logos)")).toBe("media_1|Acme\nmedia_2");
+    // an alt-less line without mediaId is dropped (mediaId required)
+    probe.sandbox["__badLogos"] = propInput("logos", "lines", "|orphan alt", "textarea");
+    probe.run("collectContainerProp(__badLogos)");
+    const cleared = probe.run("findRef('q_logos').node") as { props?: Record<string, unknown> };
+    expect(cleared.props?.["logos"]).toBeUndefined();
+  });
+
+  it("EXECUTED: StepIndicator steps/current numeric collect with the ≥1 + current≤steps clamps; the REAL preset renders the authored dots", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, P4_GAPS_CONTENT);
+    probe.sandbox.selectedQuestionId = "q_steps";
+
+    probe.sandbox["__steps"] = propInput("steps", "int", "4", "number");
+    probe.run("collectContainerProp(__steps)");
+    probe.sandbox["__current"] = propInput("current", "int", "2", "number");
+    probe.run("collectContainerProp(__current)");
+    let node = probe.run("findRef('q_steps').node") as { props?: Record<string, unknown> };
+    expect(node.props).toEqual({ steps: 4, current: 2 });
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // the REAL preset renders 4 dots with the 2nd active + a11y mirrors
+    const rendered = renderComponent(node as unknown as LeadgenComponentNode, defaultFunnelDesign);
+    expect(rendered).toContain('aria-valuemax="4"');
+    expect(rendered).toContain('aria-valuenow="2"');
+    expect((rendered.match(/class="lg-step"/g) ?? []).length).toBe(4);
+    expect((rendered.match(/data-active="true"/g) ?? []).length).toBe(1);
+
+    // current > steps clamps to steps (and reflects into the input)
+    const over = propInput("current", "int", "9", "number");
+    probe.sandbox["__over"] = over;
+    probe.run("collectContainerProp(__over)");
+    node = probe.run("findRef('q_steps').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["current"]).toBe(4);
+    expect(over["value"]).toBe("4");
+
+    // steps below 1 clamps to 1 and drags current down with it
+    probe.sandbox["__zero"] = propInput("steps", "int", "0", "number");
+    probe.run("collectContainerProp(__zero)");
+    node = probe.run("findRef('q_steps').node") as { props?: Record<string, unknown> };
+    expect(node.props).toEqual({ steps: 1, current: 1 });
+
+    // clearing the input deletes the prop (back to the preset default)
+    probe.sandbox["__empty"] = propInput("current", "int", "", "number");
+    probe.run("collectContainerProp(__empty)");
+    node = probe.run("findRef('q_steps').node") as { props?: Record<string, unknown> };
+    expect(node.props).toEqual({ steps: 1 });
+  });
+
+  it("save seam: the probe-authored props PATCH through the real router and read back intact (edit → model → saved props)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, P4_GAPS_CONTENT);
+
+    probe.sandbox.selectedQuestionId = "q_trust";
+    probe.sandbox["__items"] = propInput("items", "lines", "🔒|SSL secured", "textarea");
+    probe.run("collectContainerProp(__items)");
+    probe.sandbox["__layout"] = propInput("layout", "enum", "stacked", "select-one");
+    probe.run("collectContainerProp(__layout)");
+    probe.sandbox.selectedQuestionId = "q_logos";
+    probe.sandbox["__logos"] = propInput("logos", "lines", "media_1|Acme", "textarea");
+    probe.run("collectContainerProp(__logos)");
+    probe.sandbox.selectedQuestionId = "q_steps";
+    probe.sandbox["__steps"] = propInput("steps", "int", "4", "number");
+    probe.run("collectContainerProp(__steps)");
+    probe.sandbox["__current"] = propInput("current", "int", "2", "number");
+    probe.run("collectContainerProp(__current)");
+
+    // the island save path serializes state.content — PATCH it for real
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probe.sandbox.state.content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as {
+      content_json: { components: Array<Record<string, unknown>> };
+    };
+    const byId = new Map(saved.content_json.components.map((n) => [n["question_id"], n]));
+    expect(byId.get("q_trust")!["props"]).toEqual({
+      items: [{ icon: "🔒", text: "SSL secured" }],
+      layout: "stacked",
+    });
+    expect(byId.get("q_logos")!["props"]).toEqual({ logos: [{ mediaId: "media_1", alt: "Acme" }] });
+    expect(byId.get("q_steps")!["props"]).toEqual({ steps: 4, current: 2 });
+  });
+});

@@ -1262,6 +1262,48 @@ describe("validateSectionContent — §8.5 layout containers", () => {
     );
   });
 
+  it("scopes internal_field uniqueness to ANSWER-PRODUCING types: a ValidationError/HelperText may REFERENCE a question's field (§8.13 error-slot binding)", () => {
+    // The P1-seed idiom (leadgen-fix-p1-seed.ts): a required ZIP question +
+    // a ValidationError affordance carrying the SAME internal_field as its
+    // data-lg-error-for binding. produces===null nodes never claim the
+    // answer name — this section must validate clean and stay re-savable.
+    const referencing = {
+      components: [
+        {
+          type: "ZIPInputQuestion",
+          question_id: "q_zip",
+          internal_field: "zip",
+          answer_type: "string",
+          required: true,
+          props: { placeholder: "ZIP code" },
+        },
+        { type: "ValidationError", question_id: "zip_err", internal_field: "zip" },
+        { type: "HelperText", question_id: "zip_help", internal_field: "zip", props: { text: "5 digits" } },
+      ],
+    };
+    const result = validateSectionContent(referencing);
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+
+    // two ANSWER-PRODUCING components sharing one internal_field still reject
+    const twoQuestions = {
+      components: [q("q1", "zip"), q("q2", "zip")],
+    };
+    const errs = validateSectionContent(twoQuestions).errors;
+    const dup = errs.find((e) => e.code === "duplicate_internal_field");
+    expect(dup?.path).toBe("components[1].internal_field");
+
+    // and a non-producing node's reference does NOT reserve the name for a
+    // LATER question either (order independence of the reference exemption)
+    const referenceFirst = {
+      components: [
+        { type: "ValidationError", question_id: "err_first", internal_field: "zip" },
+        q("q_real", "zip"),
+      ],
+    };
+    expect(validateSectionContent(referenceFirst).errors).toEqual([]);
+  });
+
   it("a nested conditional resolves a field defined in a SIBLING container", () => {
     const content = {
       components: [

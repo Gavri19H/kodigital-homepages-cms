@@ -429,6 +429,10 @@ export interface StudioTypeMetaBlob {
   label: string;
   container: boolean;
   layout: boolean;
+  // The type has a Layout-tab structured-prop group (data-container-group):
+  // the §8.5 containers/leaves plus the structured-prop affordance/chrome
+  // leaves (TrustBar/LogoStrip/StepIndicator). Drives island tab visibility.
+  layout_props: boolean;
   produces: string | null;
   choice: boolean;
   maps: "address" | "zip" | null;
@@ -452,6 +456,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       label: STUDIO_TYPE_META[type].label,
       container: isLayoutContainerType(type),
       layout: COMPONENT_CATALOG[type].category === "layout",
+      layout_props: STRUCTURED_PROP_TYPES.has(type),
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
       maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
@@ -852,17 +857,61 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
       { key: "links", label: "Links (label|href per line)", kind: "lines" },
     ],
   },
+  // §8.5/§8.6 structured-prop AFFORDANCE/CHROME leaves: the catalog lists
+  // these props as authorable; the controls ride the same
+  // data-container-prop collect path as the layout groups above.
+  {
+    type: "TrustBar",
+    controls: [
+      // renderTrustBar reads props.items [{icon,text}] — the FooterBar links
+      // "label|href" line idiom, here "icon|text" (icon optional).
+      { key: "items", label: "Items (icon|text per line)", kind: "lines" },
+      // renderTrustBar: layout === "stacked" stacks; anything else horizontal.
+      { key: "layout", label: "Layout", kind: "enum", values: ["horizontal", "stacked"] },
+    ],
+  },
+  {
+    type: "LogoStrip",
+    controls: [
+      // renderLogoStrip reads props.logos [{mediaId,alt}] — "mediaId|alt".
+      { key: "logos", label: "Logos (mediaId|alt per line)", kind: "lines" },
+    ],
+  },
+  {
+    type: "StepIndicator",
+    controls: [
+      // renderStepIndicator reads numeric props.steps/current (>=1; current
+      // clamped to steps — the island collect mirrors the preset's clamp).
+      { key: "steps", label: "Steps (total, ≥1)", kind: "int" },
+      { key: "current", label: "Current step (1…steps)", kind: "int" },
+    ],
+  },
 ];
+
+// Types whose structured props get an inspector Layout-tab group (the §8.5
+// containers/leaves above + the structured-prop affordance/chrome leaves).
+// The island shows the Layout tab for any type in this set.
+const STRUCTURED_PROP_TYPES: ReadonlySet<string> = new Set(
+  CONTAINER_PROP_CONTROLS.map((group) => group.type),
+);
 
 function renderContainerControl(type: string, control: ContainerControl): string {
   const id = `lg-container-${type}-${control.key}`;
   if (control.kind === "bool") {
     return `<div class="form-group lg-inspector-field"><label class="lg-check"><input type="checkbox" id="${escapeHtml(id)}" data-container-prop="${escapeHtml(control.key)}" /> ${escapeHtml(control.label)}</label></div>`;
   }
-  if (control.kind === "enum" || control.kind === "int") {
+  if (control.kind === "enum" || (control.kind === "int" && control.values !== undefined)) {
     return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="${escapeHtml(id)}">${escapeHtml(control.label)}</label>
   <select id="${escapeHtml(id)}" class="form-input" data-container-prop="${escapeHtml(control.key)}" data-container-kind="${control.kind}"><option value="">default</option>${options(control.values ?? [])}</select>
+</div>`;
+  }
+  if (control.kind === "int") {
+    // Open-ended numeric prop (StepIndicator steps/current): a real number
+    // input, ≥1 — the island collect clamps and keeps current ≤ steps.
+    return `<div class="form-group lg-inspector-field">
+  <label class="form-label" for="${escapeHtml(id)}">${escapeHtml(control.label)}</label>
+  <input id="${escapeHtml(id)}" class="form-input" type="number" min="1" step="1" data-container-prop="${escapeHtml(control.key)}" data-container-kind="int" />
 </div>`;
   }
   if (control.kind === "lines") {
@@ -1104,6 +1153,7 @@ function renderPreviewPanel(): string {
   </div>
   <p id="lg-preview-error" class="alert alert-error" hidden role="alert"></p>
   <iframe id="lg-preview-frame" class="lg-preview-frame" title="Section preview" sandbox="allow-scripts"></iframe>
+  <iframe id="lg-events-probe-frame" class="lg-events-probe-frame" title="Events probe (runtime preview document)" sandbox="allow-scripts" aria-hidden="true" tabindex="-1"></iframe>
 </div>`;
 }
 
@@ -1322,8 +1372,19 @@ export const SECTION_STUDIO_STYLES = `
 .studio-events{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .studio-events-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .studio-events-list{margin:6px 0 0;padding-left:18px;max-height:160px;overflow:auto;font-size:11px;font-family:var(--font-mono,monospace)}
-.studio-events-list li{padding:1px 0}
+/* §8.1/E6 layout hygiene: a compact-JSON event line is one unbreakable token —
+   without wrap opportunities its min-content width propagates up the admin
+   shell's flex chain and stretches the whole studio past the viewport. */
+.studio-events-list li{padding:1px 0;overflow-wrap:anywhere;word-break:break-word}
 .studio-events-list .studio-event-type{font-weight:600}
+/* …and the flex item above the studio must be allowed to shrink below its
+   content's intrinsic width (layout.ts .admin-main has flex:1 without a
+   min-width — min-width:auto would keep the stretch). Scoped to the pages
+   that inject the studio styles. */
+.admin-main{min-width:0}
+/* §9.2/§14.9 events probe: the hidden runtime document that keeps the §8.9
+   stream alive while a NON-default sim shows a static main preview. */
+.lg-events-probe-frame{position:absolute;left:-9999px;top:0;width:1px;height:1px;border:0}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1887,6 +1948,9 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     tabs.push('content');
     if (meta.choice) { tabs.push('choices'); }
+    // Structured-prop affordance/chrome leaves (TrustBar/LogoStrip/
+    // StepIndicator) author their catalog props on the Layout tab too.
+    if (meta.layout_props) { tabs.push('layout'); }
     tabs.push('design');
     if (meta.produces) { tabs.push('validation'); }
     if (meta.maps) { tabs.push('maps'); }
@@ -2193,26 +2257,69 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- §8.5 container prop collectors -------------------------------------------
+  // Line-based PAIR props ("left|right" per line → [{leftKey, rightKey}]):
+  // FooterBar links label|href, TrustBar items icon|text, LogoStrip logos
+  // mediaId|alt. A line without '|' fills only the single-required side
+  // (items: text-only row; logos: mediaId-only row); links REQUIRE both.
+  // The spec table lives INSIDE each function so the vm-probe slices stay
+  // self-contained (MODEL_FUNCS slicing contract).
   function setLinesProp(props, key, raw) {
+    var pairSpecs = {
+      links: { left: 'label', right: 'href', bare: null },
+      items: { left: 'icon', right: 'text', bare: 'text' },
+      logos: { left: 'mediaId', right: 'alt', bare: 'mediaId' }
+    };
+    var pair = pairSpecs[key] || null;
     var lines = String(raw || '').split('\\n');
-    var out = [], i, t, at;
+    var out = [], i, t, at, left, right, row;
     for (i = 0; i < lines.length; i++) {
       t = trimStr(lines[i]);
       if (t === '') { continue; }
-      if (key === 'links') {
+      if (pair) {
         at = t.indexOf('|');
-        if (at === -1) { continue; }
-        out.push({ label: trimStr(t.slice(0, at)), href: trimStr(t.slice(at + 1)) });
+        if (at === -1) {
+          if (!pair.bare) { continue; } // links: both sides required
+          row = {};
+          row[pair.bare] = t;
+          out.push(row);
+          continue;
+        }
+        left = trimStr(t.slice(0, at));
+        right = trimStr(t.slice(at + 1));
+        if (left === '' && pair.bare === pair.right) {
+          // items "|text": icon omitted → text-only trust item
+          if (right === '') { continue; }
+          row = {};
+          row[pair.right] = right;
+          out.push(row);
+          continue;
+        }
+        if (left === '' && pair.bare === pair.left) { continue; } // logos: mediaId required
+        row = {};
+        row[pair.left] = left;
+        row[pair.right] = right;
+        out.push(row);
       } else { out.push(t); }
     }
     if (out.length > 0) { props[key] = out; } else { delete props[key]; }
   }
   function linesValue(key, v) {
+    var pairSpecs = {
+      links: { left: 'label', right: 'href', bare: null },
+      items: { left: 'icon', right: 'text', bare: 'text' },
+      logos: { left: 'mediaId', right: 'alt', bare: 'mediaId' }
+    };
+    var pair = pairSpecs[key] || null;
     if (!v || !v.length) { return ''; }
-    var out = [], i;
+    var out = [], i, left, right;
     for (i = 0; i < v.length; i++) {
-      if (key === 'links') { out.push(String(v[i].label || '') + '|' + String(v[i].href || '')); }
-      else { out.push(String(v[i])); }
+      if (pair) {
+        left = v[i] && v[i][pair.left] !== undefined && v[i][pair.left] !== null ? String(v[i][pair.left]) : '';
+        right = v[i] && v[i][pair.right] !== undefined && v[i][pair.right] !== null ? String(v[i][pair.right]) : '';
+        if (pair.bare === pair.right && left === '') { out.push(right); }
+        else if (pair.bare === pair.left && right === '') { out.push(left); }
+        else { out.push(left + '|' + right); }
+      } else { out.push(String(v[i])); }
     }
     return out.join('\\n');
   }
@@ -2226,7 +2333,20 @@ export const SECTION_STUDIO_SCRIPT = `
     if (input.type === 'checkbox') {
       if (input.checked) { props[key] = true; } else { delete props[key]; }
     } else if (kind === 'int') {
-      if (input.value === '') { delete props[key]; } else { props[key] = Number(input.value); }
+      var n = Number(input.value);
+      if (input.value === '' || isNaN(n)) { delete props[key]; }
+      else {
+        // StepIndicator numeric contract (§8.6): steps/current are integers
+        // >= 1 and current never exceeds steps — the island mirrors the
+        // preset's defensive clamp so the SAVED model is already valid.
+        if (node.type === 'StepIndicator') {
+          n = Math.max(1, Math.round(n));
+          if (key === 'current' && typeof props.steps === 'number' && n > props.steps) { n = props.steps; }
+          if (key === 'steps' && typeof props.current === 'number' && props.current > n) { props.current = n; }
+          if (String(n) !== String(input.value)) { input.value = String(n); }
+        }
+        props[key] = n;
+      }
     } else if (kind === 'lines') {
       setLinesProp(props, key, input.value);
     } else {
@@ -2791,6 +2911,19 @@ export const SECTION_STUDIO_SCRIPT = `
       if (c) { c.appendChild(buildChoiceRow({}, false)); }
     });
   }
+  // B9 §6.4 grouping controls: the three [data-choicedisplay] inputs fold into
+  // the model through the SAME collect path the choice rows use — an operator
+  // whose LAST edit is the Other-group toggle/label must not lose it on save
+  // (order independence; collectChoices reads rows + group controls together).
+  function wireChoiceDisplayControls() {
+    var els = document.querySelectorAll('[data-choicedisplay]');
+    var i;
+    for (i = 0; i < els.length; i++) {
+      els[i].addEventListener('change', collectChoices);
+      els[i].addEventListener('input', collectChoices);
+    }
+  }
+  wireChoiceDisplayControls();
   var bulkApply = document.getElementById('lg-choice-bulk-apply');
   if (bulkApply) { bulkApply.addEventListener('click', applyBulkPaste); }
   var jsonApply = document.getElementById('lg-node-json-apply');
@@ -2856,10 +2989,25 @@ export const SECTION_STUDIO_SCRIPT = `
       if (frame) {
         frame.className = previewViewport === 'mobile' ? 'lg-preview-frame lg-preview-frame-mobile' : 'lg-preview-frame';
         var html = res.body.preview.html || (previewViewport === 'mobile' ? res.body.preview.mobile : res.body.preview.desktop);
-        // The runtime events document when the server returned one (§9.1);
-        // the plain css+markup srcdoc stays the fallback (byte-compatible).
-        var doc = res.body.preview.events_html || ('<style>' + res.body.preview.css + '</style>' + html);
-        frame.setAttribute('srcdoc', doc);
+        var eventsDoc = res.body.preview.events_html || '';
+        var staticDoc = res.body.preview.static_html || '';
+        var probe = document.getElementById('lg-events-probe-frame');
+        if (staticDoc !== '') {
+          // §9.2/§14.9: a NON-default sim is a server-rendered STILL — the
+          // main document carries NO runtime script (hydration would re-apply
+          // dependency visibility from an empty answer store and re-hide the
+          // sim's reveal). The §8.9 events stream keeps flowing from the
+          // SEPARATE runtime document in the hidden probe frame.
+          frame.setAttribute('srcdoc', staticDoc);
+          if (probe && eventsDoc !== '') { probe.setAttribute('srcdoc', eventsDoc); }
+        } else {
+          // Default state keeps hydration: the runtime events document when
+          // the server returned one (§9.1); the plain css+markup srcdoc stays
+          // the fallback (byte-compatible). The probe frame is parked so only
+          // ONE runtime document streams events at a time.
+          frame.setAttribute('srcdoc', eventsDoc !== '' ? eventsDoc : ('<style>' + res.body.preview.css + '</style>' + html));
+          if (probe) { probe.removeAttribute('srcdoc'); }
+        }
       }
       renderDependencyStatus(res.body.dependencies || null);
     }).catch(function () {
