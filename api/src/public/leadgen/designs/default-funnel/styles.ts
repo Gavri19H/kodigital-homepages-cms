@@ -58,6 +58,11 @@ export function funnelChromeCss(
     rangeQuestion,
     primaryButton,
     reassuranceBadge,
+    secureFormBadge,
+    successState,
+    trustBar,
+    logoStrip,
+    stepIndicator,
     iconCardGrid,
     iconCard,
     input,
@@ -66,6 +71,11 @@ export function funnelChromeCss(
     transitions,
     breakpoints,
     banner,
+    columns,
+    cardPanel,
+    backgroundPanel,
+    headerBar,
+    footerBar,
   } = design;
 
   // ---- root: page group + design tokens exposed as custom properties -------
@@ -428,6 +438,113 @@ export function funnelChromeCss(
     rule(`${scope} .lg-badge-icon`, { color: reassuranceBadge.iconColor, "line-height": "1" }),
   );
 
+  // ---- secure form badge (08 §8.3 SecureFormBadge) -------------------------
+  out.push(
+    rule(`${scope} .lg-secure-badge`, {
+      display: "inline-flex",
+      "align-items": "center",
+      gap: secureFormBadge.gap,
+      border: secureFormBadge.border,
+      background: secureFormBadge.background,
+      "border-radius": secureFormBadge.borderRadius,
+      padding: `${secureFormBadge.paddingY} ${secureFormBadge.paddingX}`,
+      color: secureFormBadge.textColor,
+      "font-size": secureFormBadge.fontSize,
+    }),
+    rule(`${scope} .lg-secure-badge-icon`, { color: secureFormBadge.iconColor, "line-height": "1" }),
+  );
+
+  // ---- success state (08 §8.10 SuccessState) -------------------------------
+  out.push(
+    rule(`${scope} .lg-success`, {
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      gap: spacing.sm,
+      border: successState.border,
+      background: successState.background,
+      "border-radius": successState.borderRadius,
+      padding: successState.padding,
+      "text-align": "center",
+    }),
+    rule(`${scope} .lg-success-icon`, {
+      color: successState.iconColor,
+      "font-size": successState.iconSize,
+      "line-height": "1",
+    }),
+    rule(`${scope} .lg-success-heading`, {
+      "font-family": successState.headingFontFamily,
+      "font-size": successState.headingFontSize,
+      "font-weight": "700",
+      color: successState.headingColor,
+    }),
+    rule(`${scope} .lg-success-message`, {
+      color: successState.messageColor,
+      "font-size": successState.messageFontSize,
+      margin: "0",
+    }),
+  );
+
+  // ---- trust bar (08 §8.3 TrustBar; stacked via modifier class) ------------
+  out.push(
+    rule(`${scope} .lg-trustbar`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: trustBar.gap,
+      margin: `${trustBar.marginY} 0`,
+    }),
+    rule(`${scope} .lg-trustbar-stacked`, {
+      "flex-direction": "column",
+      "align-items": "flex-start",
+    }),
+    rule(`${scope} .lg-trustbar-item`, {
+      display: "inline-flex",
+      "align-items": "center",
+      gap: trustBar.itemGap,
+      color: trustBar.textColor,
+      "font-size": trustBar.fontSize,
+    }),
+    rule(`${scope} .lg-trustbar-icon`, { color: trustBar.iconColor, "line-height": "1" }),
+  );
+
+  // ---- logo strip (08 §8.3 LogoStrip) --------------------------------------
+  out.push(
+    rule(`${scope} .lg-logo-strip`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: logoStrip.gap,
+      margin: `${logoStrip.marginY} 0`,
+    }),
+    rule(`${scope} .lg-logo-strip-img`, {
+      "max-height": logoStrip.logoMaxHeight,
+      width: "auto",
+      "object-fit": "contain",
+      opacity: logoStrip.logoOpacity,
+    }),
+  );
+
+  // ---- step indicator (08 §8.3 StepIndicator) ------------------------------
+  out.push(
+    rule(`${scope} .lg-steps`, {
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "center",
+      gap: stepIndicator.gap,
+      "margin-bottom": stepIndicator.marginBottom,
+    }),
+    rule(`${scope} .lg-step`, {
+      width: stepIndicator.dotSize,
+      height: stepIndicator.dotSize,
+      "border-radius": radius.full,
+      background: stepIndicator.dotColor,
+    }),
+    rule(`${scope} .lg-step[data-active="true"]`, { background: stepIndicator.activeColor }),
+  );
+
   // ---- icon/answer card grid + card + states (§14.2 iconCardGrid/iconCard) -
   out.push(
     rule(`${scope} .lg-card-grid`, {
@@ -539,6 +656,21 @@ export function funnelChromeCss(
       "background-position": "right 16px center",
       "padding-right": "40px",
     }),
+    // searchable dropdown (08 §8.3): the search input sits above the <select>.
+    rule(`${scope} .lg-dropdown-search`, { "margin-bottom": spacing.sm }),
+    // currency input (08 §8.10): prefix symbol aligned inside the input box;
+    // the input clears it with token-derived left padding.
+    rule(`${scope} .lg-currency`, { position: "relative" }),
+    rule(`${scope} .lg-currency-prefix`, {
+      position: "absolute",
+      left: input.padding,
+      top: "50%",
+      transform: "translateY(-50%)",
+      color: page.textSecondaryColor,
+      "font-size": input.fontSize,
+      "pointer-events": "none",
+    }),
+    rule(`${scope} .lg-currency-input`, { "padding-left": spacing.xl }),
   );
 
   // ---- validation: error / helper / legal (§14.2 validation) --------------
@@ -587,6 +719,190 @@ export function funnelChromeCss(
       padding: `${primaryButton.paddingY} ${primaryButton.paddingX}`,
       "text-decoration": "none",
       display: "inline-block",
+    }),
+  );
+
+  // ---- §8.5 layout containers (08 E4) --------------------------------------
+  // Stack: flex column/row via data-direction; align via data-align. The
+  // per-instance GAP token value arrives inline from the preset (the
+  // --lg-cols idiom) — everything else is class-driven.
+  out.push(
+    rule(`${scope} .lg-stack`, { display: "flex", "flex-direction": "column" }),
+    rule(`${scope} .lg-stack[data-direction="horizontal"]`, {
+      "flex-direction": "row",
+      "flex-wrap": "wrap",
+    }),
+    rule(`${scope} .lg-stack[data-align="start"]`, { "align-items": "flex-start" }),
+    rule(`${scope} .lg-stack[data-align="center"]`, { "align-items": "center" }),
+    rule(`${scope} .lg-stack[data-align="end"]`, { "align-items": "flex-end" }),
+    rule(`${scope} .lg-stack[data-align="stretch"]`, { "align-items": "stretch" }),
+  );
+  // Horizontal stacks collapse to a column on mobile (the §8.11 stacked-
+  // buttons behavior) — vertical stacks are unaffected.
+  mobile.push(
+    rule(`${scope} .lg-stack[data-direction="horizontal"]`, { "flex-direction": "column" }),
+  );
+
+  // GridContainer: per-breakpoint columns via the --lg-gc-cols-* custom
+  // properties the preset emits inline (desktop at base, mobile inside the
+  // mobile media-query array — the iconCardGrid responsive idiom; the tablet
+  // count is emitted as --lg-gc-cols-t for the Studio canvas/preview, which
+  // renders desktop/mobile viewports only, §8.9). Sizing equal|auto.
+  out.push(
+    rule(`${scope} .lg-grid-container`, {
+      display: "grid",
+      "grid-template-columns": "repeat(var(--lg-gc-cols-d, 3), minmax(0, 1fr))",
+      "margin-bottom": design.gridContainer.marginBottom,
+    }),
+    rule(`${scope} .lg-grid-container[data-sizing="auto"]`, {
+      "grid-template-columns": "repeat(var(--lg-gc-cols-d, 3), auto)",
+      "justify-content": "center",
+    }),
+  );
+  mobile.push(
+    rule(`${scope} .lg-grid-container`, {
+      "grid-template-columns": "repeat(var(--lg-gc-cols-m, 1), minmax(0, 1fr))",
+    }),
+    rule(`${scope} .lg-grid-container[data-sizing="auto"]`, {
+      "grid-template-columns": "repeat(var(--lg-gc-cols-m, 1), auto)",
+    }),
+  );
+
+  // Columns: the four §8.5 ratio presets as data-ratio variants; mobile
+  // stacking per data-mobile (stack collapses to one column inside the mobile
+  // media query; keep preserves the ratio).
+  out.push(
+    rule(`${scope} .lg-columns`, {
+      display: "grid",
+      gap: columns.gap,
+      "margin-bottom": columns.marginBottom,
+    }),
+    rule(`${scope} .lg-columns[data-ratio="50/50"]`, { "grid-template-columns": "1fr 1fr" }),
+    rule(`${scope} .lg-columns[data-ratio="60/40"]`, { "grid-template-columns": "3fr 2fr" }),
+    rule(`${scope} .lg-columns[data-ratio="40/60"]`, { "grid-template-columns": "2fr 3fr" }),
+    rule(`${scope} .lg-columns[data-ratio="70/30"]`, { "grid-template-columns": "7fr 3fr" }),
+  );
+  mobile.push(
+    rule(`${scope} .lg-columns[data-mobile="stack"]`, { "grid-template-columns": "1fr" }),
+  );
+
+  // CardPanel: centered card shell; the per-instance §8.5 token values
+  // (max-width/background/shadow/radius/padding) arrive inline from the
+  // preset — the class carries the structural bits + the hairline border.
+  out.push(
+    rule(`${scope} .lg-card-panel`, {
+      width: "100%",
+      "margin-left": "auto",
+      "margin-right": "auto",
+      "box-sizing": "border-box",
+      border: cardPanel.border,
+    }),
+  );
+
+  // BackgroundPanel: token background/gradient inline from the preset; a
+  // mediaId image renders as a decorative cover layer behind the content.
+  out.push(
+    rule(`${scope} .lg-bg-panel`, {
+      position: "relative",
+      overflow: "hidden",
+      padding: backgroundPanel.padding,
+      "border-radius": backgroundPanel.radius,
+    }),
+    rule(`${scope} .lg-bg-panel-img`, {
+      position: "absolute",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      "object-fit": "cover",
+    }),
+    rule(`${scope} .lg-bg-panel-inner`, { position: "relative" }),
+  );
+
+  // Spacer: block gap; its height token value is inline from the preset.
+  out.push(rule(`${scope} .lg-spacer`, { display: "block" }));
+
+  // HeaderBar: placeable header slot (logo / back / secure / CTA) — fully
+  // class-driven from the headerBar token group.
+  out.push(
+    rule(`${scope} .lg-headerbar`, {
+      display: "flex",
+      "align-items": "center",
+      "justify-content": "space-between",
+      gap: headerBar.gap,
+      "max-width": headerBar.contentMaxWidth,
+      "margin-left": "auto",
+      "margin-right": "auto",
+      background: headerBar.background,
+      padding: `${headerBar.paddingY} ${headerBar.paddingX}`,
+      "box-shadow": headerBar.boxShadow,
+      "box-sizing": "border-box",
+    }),
+    rule(`${scope} .lg-headerbar-left, ${scope} .lg-headerbar-right`, {
+      display: "inline-flex",
+      "align-items": "center",
+      gap: headerBar.gap,
+    }),
+    rule(`${scope} .lg-headerbar-logo`, { "max-height": headerBar.logoMaxHeight, width: "auto" }),
+    rule(`${scope} .lg-headerbar-secure`, {
+      display: "inline-flex",
+      "align-items": "center",
+      gap: spacing.xs,
+      color: headerBar.secureColor,
+      "font-size": headerBar.secureFontSize,
+    }),
+    rule(`${scope} .lg-headerbar-secure-icon`, {
+      color: headerBar.secureIconColor,
+      "line-height": "1",
+    }),
+    rule(`${scope} .lg-headerbar-cta`, {
+      display: "inline-block",
+      background: headerBar.ctaBackground,
+      color: headerBar.ctaColor,
+      "border-radius": headerBar.ctaRadius,
+      "font-size": headerBar.ctaFontSize,
+      padding: headerBar.ctaPadding,
+      "text-decoration": "none",
+      "font-weight": primaryButton.fontWeight,
+    }),
+  );
+
+  // FooterBar: trust messages / links / legal — fully class-driven from the
+  // footerBar token group.
+  out.push(
+    rule(`${scope} .lg-footerbar`, {
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      gap: footerBar.gap,
+      background: footerBar.background,
+      "border-top": footerBar.borderTop,
+      padding: footerBar.padding,
+      "margin-top": footerBar.marginTop,
+      "text-align": "center",
+    }),
+    rule(`${scope} .lg-footerbar-trust`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      "justify-content": "center",
+      gap: spacing.md,
+      color: footerBar.trustColor,
+      "font-size": footerBar.trustFontSize,
+    }),
+    rule(`${scope} .lg-footerbar-links`, {
+      display: "flex",
+      "flex-wrap": "wrap",
+      "justify-content": "center",
+      gap: spacing.md,
+    }),
+    rule(`${scope} .lg-footerbar-link`, {
+      color: footerBar.linkColor,
+      "font-size": footerBar.fontSize,
+      "text-decoration": "underline",
+    }),
+    rule(`${scope} .lg-footerbar-legal`, {
+      color: footerBar.textColor,
+      "font-size": footerBar.fontSize,
+      "line-height": "1.4",
     }),
   );
 

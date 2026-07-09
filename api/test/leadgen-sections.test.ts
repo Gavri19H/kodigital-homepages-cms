@@ -118,6 +118,17 @@ describe("validateSection — §12.1 fields + content", () => {
     expect(errors["design_overrides.iconColor"]).toBeTruthy();
   });
 
+  it("MAJOR-1: rejects HTML-attribute breakout quotes in a Section-level override (\" ' `)", () => {
+    // The CSS_ESCAPE_RE here MUST stay byte-identical to content-schema.ts and
+    // catch the proven stored-XSS payload + its `'`/backtick variants — pre-fix
+    // this override validated clean and reached the funnel renderer.
+    for (const value of ['red" autofocus onfocus="alert`1`', "x' onmouseover='y", "a`b`c"]) {
+      const { value: v, errors } = validateSection(baseBody({ design_overrides: { buttonText: value } }));
+      expect(v, value).toBeNull();
+      expect(errors["design_overrides.buttonText"], value).toBeTruthy();
+    }
+  });
+
   it("rejects an invalid continue_mode", () => {
     const { value, errors } = validateSection(baseBody({ continue_mode: "teleport" }));
     expect(value).toBeNull();
@@ -321,5 +332,55 @@ describe("sectionValidationStatus — §12.11 publish gate", () => {
     const verdict = sectionValidationStatus(rebuilt);
     expect(verdict.status).toBe("ok");
     expect(verdict.publishable).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers — the rebuild's mappable-question universe is the
+// canonical flattened projection: an edge bound to a question NESTED inside a
+// container survives; a container's own question_id is NOT mappable.
+// ---------------------------------------------------------------------------
+
+describe("rebuildDerivedIndexes — §8.5 nested content", () => {
+  const offerSchemas = new Map([[1, offerSchema()]]);
+  const NESTED_CONTENT: LeadgenSectionContent = {
+    components: [
+      {
+        type: "CardPanel",
+        question_id: "panel",
+        children: [
+          {
+            type: "Stack",
+            question_id: "stk",
+            children: [
+              {
+                type: "TwoButtonYesNo",
+                question_id: "q1",
+                question_key: "insured_q",
+                internal_field: "currently_insured",
+                answer_type: "boolean",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  } as LeadgenSectionContent;
+
+  it("keeps an edge bound to a question nested inside containers (flat-equivalent rebuild)", () => {
+    const nested = rebuildDerivedIndexes({ content: NESTED_CONTENT, answerMaps: [edge()], offerSchemas });
+    const flat = rebuildDerivedIndexes({ content: CONTENT, answerMaps: [edge()], offerSchemas });
+    expect(nested.answerMaps).toHaveLength(1);
+    expect(nested.answerMaps[0]?.mapping_completeness).toBe("complete");
+    expect(nested).toEqual(flat);
+  });
+
+  it("a container's own question_id is NOT a mappable question (edge dropped)", () => {
+    const result = rebuildDerivedIndexes({
+      content: NESTED_CONTENT,
+      answerMaps: [edge({ question_id: "panel" })],
+      offerSchemas,
+    });
+    expect(result.answerMaps).toHaveLength(0);
   });
 });

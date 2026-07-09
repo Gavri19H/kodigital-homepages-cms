@@ -31,6 +31,12 @@ import { sha256Hex } from "./auction/parse";
 // normalizing choiceDisplay reader so /lg/config metadata and the rendered
 // Other-group markup can never disagree (09 §9.1 parity by construction).
 import { readChoiceDisplay, type LeadgenChoiceDisplay } from "./components/presets";
+// §8.5 layout containers: the config projects the canonical FLATTENED
+// component list — containers are a server-side rendering concern and never
+// appear in /lg/config (the client engine keeps consuming a flat list; the
+// server-rendered shell HTML carries the nested DOM and the engine toggles
+// [data-question-id] leaves wherever they sit).
+import { flattenComponents } from "./components/content-schema";
 import type {
   LeadgenComponentNode,
   LeadgenComponentConditional,
@@ -167,7 +173,11 @@ function buildClientValidation(node: LeadgenComponentNode): Record<string, unkno
 // Project a capability node to its client-safe config. Only whitelisted,
 // public authoring fields are copied; there is no server-only field on the node
 // to strip, but the projection is explicit so a future node field is opt-in.
-function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
+// EXPORTED (fix-contract v2.4 09 §9.1, Phase 4 Slice D2): the Studio preview's
+// runtime-hydrated events document builds its #lg-config section through THIS
+// projection — one component-config producer, preview and live can never
+// disagree on the client component shape.
+export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
     question_id: node.question_id,
@@ -272,7 +282,13 @@ export function buildPublicConfig(
   const quote_id = toQuoteId(resolved.quote.public_id);
 
   const sections: PublicSectionConfig[] = resolved.sections.map((rs, index) => {
-    const components = parseSectionComponents(rs.section.content_json).map(toPublicComponent);
+    // §8.5: flatten-then-project. For flat legacy content flattenComponents is
+    // the identity, so the projected shape is byte-identical to pre-§8.5; for
+    // nested content the config lists every LEAF (questions/chrome/affordances
+    // in depth-first render order) and no container node.
+    const components = flattenComponents(parseSectionComponents(rs.section.content_json)).map(
+      toPublicComponent,
+    );
     const config: PublicSectionConfig = {
       section_public_id: rs.section.public_id,
       section_index: index,

@@ -17,6 +17,14 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { isPublicId, mintPublicId } from "../src/leadgen/ids";
+// §9.2 preview-parameterization pins: the byte-identical legacy pin rebuilds
+// the expected output from the SAME canonical primitives the handler composes
+// (shared renderer §9.1 — never hand-written expected markup), and the
+// design_id test registers a throwaway design in the REAL registry.
+import { FUNNEL_DESIGNS, getFunnelDesign, type FunnelDesign } from "../src/public/leadgen/designs/registry";
+import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -743,6 +751,336 @@ describeDb("POST /sections/preview — §12.3/§14.9 conditional dependency prev
     // q2 is visible + required + unanswered → §12.3 continue gate closes on it.
     expect(body.dependencies?.continue_blocked).toBe(true);
     expect(body.dependencies?.blocking_question_ids).toContain("q2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §9.2 (E5) preview parameterization — design_id / viewport / sim
+// ---------------------------------------------------------------------------
+
+// Choice-bearing content for the selected-state sims.
+const CHOICES_CONTENT = {
+  components: [
+    {
+      type: "ButtonAnswerGroup",
+      question_id: "qc",
+      question_key: "carrier_q",
+      internal_field: "carrier",
+      answer_type: "string",
+      choices: [
+        { value: "geico", label: "GEICO" },
+        { value: "allstate", label: "Allstate" },
+      ],
+    },
+  ],
+};
+
+const DROPDOWN_CONTENT = {
+  components: [
+    {
+      type: "DropdownQuestion",
+      question_id: "qd",
+      question_key: "state_q",
+      internal_field: "us_state",
+      answer_type: "string",
+      choices: [
+        { value: "ca", label: "California" },
+        { value: "ny", label: "New York" },
+      ],
+    },
+  ],
+};
+
+// §8.5 container tree: the dependency sim must drop the hidden LEAF while the
+// container WRAPPER survives (renderSectionComponentsVisible semantics).
+const STACK_DEP_CONTENT = {
+  components: [
+    {
+      type: "Stack",
+      container_id: "c1",
+      props: {},
+      children: [
+        { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "insured", answer_type: "boolean" },
+        {
+          type: "FreeTextQuestion",
+          question_id: "q2",
+          question_key: "insurer_q",
+          internal_field: "insurer",
+          answer_type: "string",
+          required: true,
+          conditional: { when: "insured", op: "eq", value: true },
+        },
+      ],
+    },
+  ],
+};
+
+interface ParamPreviewBody {
+  preview: {
+    css: string;
+    desktop: string;
+    mobile: string;
+    component_count: number;
+    design_id: string;
+    sim_state: string;
+    html?: string;
+  };
+  dependencies?: DepPreviewBody["dependencies"];
+  error?: string;
+  fields?: Record<string, string>;
+}
+
+async function postPreview(
+  env: Env,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: ParamPreviewBody }> {
+  const res = await admin.request(`${API}/sections/preview`, jsonInit("POST", body), env);
+  return { status: res.status, body: (await res.json()) as ParamPreviewBody };
+}
+
+// The opening tag of the choice element carrying data-lg-choice="value".
+function choiceTag(html: string, value: string): string {
+  const m = html.match(new RegExp(`<(?:button|option)[^>]*data-lg-choice="${value}"[^>]*>`));
+  expect(m, `choice tag for ${value} present`).not.toBeNull();
+  return m![0];
+}
+
+describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
+  it("legacy body (no new params) → byte-identical preview.{css,desktop,mobile,component_count} (regression pin)", async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, { content_json: JSON.stringify(YESNO_CONTENT) });
+    expect(status).toBe(200);
+
+    // Rebuild the EXACT pre-§9.2 composition from the canonical primitives:
+    // getFunnelDesign(null) + renderSectionComponents + funnelChromeCss with
+    // its DEFAULT scope (no scope arg — the pre-change call shape).
+    const design = getFunnelDesign(null);
+    const nodes = YESNO_CONTENT.components as unknown as LeadgenComponentNode[];
+    const rendered = renderSectionComponents(nodes, design);
+    const wrap = (viewport: string, maxWidth: string): string =>
+      `<div data-funnel-design="${design.id}" data-viewport="${viewport}" class="lg-preview lg-preview-${viewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
+
+    expect(body.preview.css).toBe(funnelChromeCss(design));
+    expect(body.preview.desktop).toBe(wrap("desktop", design.header.contentMaxWidth));
+    expect(body.preview.mobile).toBe(wrap("mobile", design.breakpoints.mobileMax));
+    expect(body.preview.component_count).toBe(1);
+    // additive §9.2 echoes only — no viewport param ⇒ no preview.html
+    expect(body.preview.design_id).toBe(design.id);
+    expect(body.preview.sim_state).toBe("default");
+    expect("html" in body.preview).toBe(false);
+    expect(body.dependencies).toBeUndefined();
+  });
+
+  it("design_id resolves through the REAL registry: wrapper attr + CSS scope carry the RESOLVED id", async () => {
+    const { env } = newHarness();
+    // The token type pins `id` to the measured design's literal — widen it for
+    // the throwaway registry entry (runtime shape is identical).
+    const skin = { ...getFunnelDesign(null), id: "test-skin" } as unknown as FunnelDesign;
+    FUNNEL_DESIGNS["test-skin"] = skin;
+    try {
+      const { status, body } = await postPreview(env, {
+        content_json: JSON.stringify(YESNO_CONTENT),
+        design_id: "test-skin",
+      });
+      expect(status).toBe(200);
+      expect(body.preview.design_id).toBe("test-skin");
+      expect(body.preview.desktop).toContain('<div data-funnel-design="test-skin"');
+      expect(body.preview.mobile).toContain('<div data-funnel-design="test-skin"');
+      // the chrome CSS is scoped to THAT design id (the serve.ts shell pattern)
+      expect(body.preview.css).toBe(funnelChromeCss(skin, '[data-funnel-design="test-skin"]'));
+      expect(body.preview.css).toContain('[data-funnel-design="test-skin"]');
+      expect(body.preview.css).not.toContain('[data-funnel-design="default-funnel"]');
+    } finally {
+      delete FUNNEL_DESIGNS["test-skin"];
+    }
+  });
+
+  it("unknown design_id → the default design (§14.1), resolved id echoed", async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(YESNO_CONTENT),
+      design_id: "no-such-skin",
+    });
+    expect(status).toBe(200);
+    expect(body.preview.design_id).toBe("default-funnel");
+    expect(body.preview.desktop).toContain('<div data-funnel-design="default-funnel"');
+    expect(body.preview.css).toContain('[data-funnel-design="default-funnel"]');
+  });
+
+  it("viewport param → preview.html carries exactly that viewport's markup", async () => {
+    const { env } = newHarness();
+    const mobile = await postPreview(env, { content_json: JSON.stringify(YESNO_CONTENT), viewport: "mobile" });
+    expect(mobile.status).toBe(200);
+    expect(mobile.body.preview.html).toBe(mobile.body.preview.mobile);
+    expect(mobile.body.preview.html).not.toBe(mobile.body.preview.desktop);
+    expect(mobile.body.preview.html).toContain("lg-preview-mobile");
+
+    const desktop = await postPreview(env, { content_json: JSON.stringify(YESNO_CONTENT), viewport: "desktop" });
+    expect(desktop.status).toBe(200);
+    expect(desktop.body.preview.html).toBe(desktop.body.preview.desktop);
+    expect(desktop.body.preview.html).toContain("lg-preview-desktop");
+  });
+
+  it('sim "selected" server-renders the runtime selection markup (aria-checked/aria-pressed/lg-selected) into buttons', async () => {
+    const { env } = newHarness();
+    const dflt = await postPreview(env, { content_json: JSON.stringify(CHOICES_CONTENT) });
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(CHOICES_CONTENT),
+      sim: { state: "selected", answers: { carrier: "allstate" } },
+    });
+    expect(status).toBe(200);
+    expect(body.preview.sim_state).toBe("selected");
+    // visibly different from the default render
+    expect(body.preview.desktop).not.toBe(dflt.body.preview.desktop);
+
+    // the matching choice: the preset's aria-checked flips true + the runtime's
+    // applySelectionClasses conventions (lg-selected + aria-pressed="true")
+    const on = choiceTag(body.preview.desktop, "allstate");
+    expect(on).toContain('aria-checked="true"');
+    expect(on).toContain('aria-pressed="true"');
+    expect(on).toContain("lg-selected");
+    // its sibling: aria-pressed="false" (applySelectionClasses), initial
+    // aria-checked="false" untouched, NO selected class
+    const off = choiceTag(body.preview.desktop, "geico");
+    expect(off).toContain('aria-pressed="false"');
+    expect(off).toContain('aria-checked="false"');
+    expect(off).not.toContain("lg-selected");
+    // both viewports carry the same server-rendered state
+    expect(choiceTag(body.preview.mobile, "allstate")).toContain('aria-checked="true"');
+  });
+
+  it('sim "selected" on a dropdown selects the REAL <option> and deselects the placeholder', async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(DROPDOWN_CONTENT),
+      sim: { state: "selected", answers: { us_state: "ny" } },
+    });
+    expect(status).toBe(200);
+    const on = choiceTag(body.preview.desktop, "ny");
+    expect(on).toMatch(/ selected>$/);
+    expect(choiceTag(body.preview.desktop, "ca")).not.toContain("selected");
+    // the disabled placeholder loses `selected` so exactly one option is selected
+    expect(body.preview.desktop).toContain('<option value="" disabled>');
+    expect(body.preview.desktop).not.toContain('<option value="" disabled selected>');
+  });
+
+  it('sim "error" server-renders setFieldError markup (lg-error + aria-invalid + visible required message)', async () => {
+    const { env } = newHarness();
+    // insured=true reveals q2 (required, unanswered) → q2 carries the error state
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(DEP_CONTENT),
+      sim: { state: "error", answers: { insured: true } },
+    });
+    expect(status).toBe(200);
+    expect(body.preview.sim_state).toBe("error");
+    const input = body.preview.desktop.match(/<input[^>]*data-lg-field="insurer"[^>]*>/);
+    expect(input).not.toBeNull();
+    expect(input![0]).toContain('aria-invalid="true"');
+    expect(input![0]).toContain("lg-error");
+    // the message is VISIBLE in the markup (runtime/validation.ts copy, verbatim)
+    expect(body.preview.desktop).toContain('data-lg-error-for="insurer"');
+    expect(body.preview.desktop).toContain("This field is required.");
+    // the answered boolean question is NOT error-marked
+    expect(body.preview.desktop).not.toMatch(/<div[^>]*data-lg-field="insured"[^>]*aria-invalid/);
+  });
+
+  it('sim "validation_success" / "validation_error" mark answered fields with the success/error conventions', async () => {
+    const { env } = newHarness();
+    const ok = await postPreview(env, {
+      content_json: JSON.stringify(DEP_CONTENT),
+      sim: { state: "validation_success", answers: { insured: true, insurer: "Acme Mutual" } },
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.preview.sim_state).toBe("validation_success");
+    const okInput = ok.body.preview.desktop.match(/<input[^>]*data-lg-field="insurer"[^>]*>/);
+    expect(okInput).not.toBeNull();
+    expect(okInput![0]).toContain("lg-valid");
+    expect(okInput![0]).not.toContain("aria-invalid");
+
+    const bad = await postPreview(env, {
+      content_json: JSON.stringify(DEP_CONTENT),
+      sim: { state: "validation_error", answers: { insured: true, insurer: "Acme Mutual" } },
+    });
+    expect(bad.status).toBe(200);
+    expect(bad.body.preview.sim_state).toBe("validation_error");
+    const badInput = bad.body.preview.desktop.match(/<input[^>]*data-lg-field="insurer"[^>]*>/);
+    expect(badInput).not.toBeNull();
+    expect(badInput![0]).toContain('aria-invalid="true"');
+    expect(badInput![0]).toContain("lg-error");
+    expect(bad.body.preview.desktop).toContain("The value has an invalid format.");
+    // the two states are visibly different markup
+    expect(bad.body.preview.desktop).not.toBe(ok.body.preview.desktop);
+  });
+
+  it('sim "dependency" via sim.answers drops the hidden LEAF while the container WRAPPER survives', async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(STACK_DEP_CONTENT),
+      sim: { state: "dependency", answers: { insured: false } },
+    });
+    expect(status).toBe(200);
+    expect(body.preview.sim_state).toBe("dependency");
+    // container wrapper present, hidden leaf ABSENT from the markup
+    expect(body.preview.desktop).toContain('class="lg-stack"');
+    expect(body.preview.desktop).toContain('data-lg-question="q1"');
+    expect(body.preview.desktop).not.toContain('data-lg-question="q2"');
+    expect(body.preview.component_count).toBe(1);
+    // the dependencies verdict block rides along (§12.3 response contract)
+    expect(body.dependencies?.visible_question_ids).toEqual(["q1"]);
+    expect(body.dependencies?.continue_blocked).toBe(false);
+  });
+
+  it("sim.answers OVERRIDE legacy sample_answers (overlay order: sample_answers < sim.answers < flow)", async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(DEP_CONTENT),
+      sample_answers: { insured: true },
+      sim: { state: "dependency", answers: { insured: false } },
+    });
+    expect(status).toBe(200);
+    // sim.answers wins → q2 hidden
+    expect(body.preview.component_count).toBe(1);
+    expect(body.dependencies?.visible_question_ids).toEqual(["q1"]);
+  });
+
+  it("sim.flow reduces later-entries-win and drives the selected basis (even without state=selected)", async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(CHOICES_CONTENT),
+      sim: {
+        flow: [
+          { internal_field: "carrier", value: "geico" },
+          { internal_field: "carrier", value: "allstate" },
+        ],
+      },
+    });
+    expect(status).toBe(200);
+    // no explicit state ⇒ resolved sim_state stays "default"…
+    expect(body.preview.sim_state).toBe("default");
+    // …but the flow record IS the selected basis: LATER entry wins
+    const on = choiceTag(body.preview.desktop, "allstate");
+    expect(on).toContain('aria-checked="true"');
+    expect(on).toContain("lg-selected");
+    const off = choiceTag(body.preview.desktop, "geico");
+    expect(off).toContain('aria-pressed="false"');
+    expect(off).not.toContain("lg-selected");
+  });
+
+  it("malformed §9.2 params → 400 with the offending field named", async () => {
+    const { env } = newHarness();
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ content_json: JSON.stringify(YESNO_CONTENT), viewport: "tablet" }, "viewport"],
+      [{ content_json: JSON.stringify(YESNO_CONTENT), design_id: 42 }, "design_id"],
+      [{ content_json: JSON.stringify(YESNO_CONTENT), sim: "selected" }, "sim"],
+      [{ content_json: JSON.stringify(YESNO_CONTENT), sim: { state: "blink" } }, "sim.state"],
+      [{ content_json: JSON.stringify(YESNO_CONTENT), sim: { answers: [] } }, "sim.answers"],
+      [{ content_json: JSON.stringify(YESNO_CONTENT), sim: { flow: {} } }, "sim.flow"],
+    ];
+    for (const [reqBody, field] of cases) {
+      const { status, body } = await postPreview(env, reqBody);
+      expect(status, `${field} rejected`).toBe(400);
+      expect(body.fields?.[field], `${field} named in fields`).toBeDefined();
+    }
   });
 });
 

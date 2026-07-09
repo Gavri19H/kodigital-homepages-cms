@@ -663,7 +663,7 @@ describeDb("GET /lg/runtime/:version.js — committed bundle route (03 §3.2)", 
 
   it("404 no-store for any other version and for non-.js paths (never a stale engine)", async () => {
     const { env } = newHarness();
-    for (const path of ["/lg/runtime/999.js", "/lg/runtime/0.js", "/lg/runtime/1.mjs", "/lg/runtime/1"]) {
+    for (const path of ["/lg/runtime/999.js", "/lg/runtime/1.js", "/lg/runtime/2.mjs", "/lg/runtime/2"]) {
       const res = await reqTenant(env, path);
       expect(res.status, path).toBe(404);
       expect(res.headers.get("Cache-Control"), path).toBe("no-store");

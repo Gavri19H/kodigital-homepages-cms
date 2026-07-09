@@ -103,6 +103,17 @@ export type LeadgenDesignOverrides = Partial<
 >;
 
 // One component node in a Section's `content_json`.
+//
+// LAYOUT CONTAINERS (fix-contract v2.4 08 §8.5, issue E4): a node whose type
+// is one of the 5 children-bearing container types (LEADGEN_CONTAINER_TYPES)
+// may additionally carry `children` — an ordered sub-tree of nodes — plus an
+// optional stable `container_id`. Both fields live on the SHARED node
+// interface (pragmatic: one parse type for the whole tree); the VALIDATOR
+// enforces "children only on container types", the depth-4 cap, and that
+// containers never carry answer fields. A flat array (zero containers) is the
+// degenerate tree and validates + renders byte-identically to pre-§8.5
+// content (§8.13 legacy compat: "flat legacy arrays render as an implicit
+// root Stack" — i.e. the root list itself).
 export interface LeadgenComponentNode {
   type: ComponentType;
   question_id: string;
@@ -120,10 +131,76 @@ export interface LeadgenComponentNode {
   // Per-type authorable extras (min/max/step/labels/placeholder/text/html/
   // logoMediaId/columns/…). Preset-specific; presets read them defensively.
   props?: Record<string, unknown>;
+  // §8.5 container extension — VALID ONLY on the 5 container types (validator-
+  // enforced); a leaf carrying children is a typed error.
+  children?: LeadgenComponentNode[];
+  container_id?: string;
 }
 
 export interface LeadgenSectionContent {
   components: LeadgenComponentNode[];
+}
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers — the container-type vocabulary + the ONE canonical
+// flatten helper every answer/dependency/config consumer shares.
+// ---------------------------------------------------------------------------
+
+// The 5 children-BEARING container types (§8.5). The 3 prop-driven layout
+// leaves (Spacer / HeaderBar / FooterBar) are NOT here — they carry no
+// children and flow through flattenComponents like any other leaf.
+export const LEADGEN_CONTAINER_TYPES = [
+  "Stack",
+  "GridContainer",
+  "Columns",
+  "CardPanel",
+  "BackgroundPanel",
+] as const;
+
+export type LeadgenContainerType = (typeof LEADGEN_CONTAINER_TYPES)[number];
+
+const CONTAINER_TYPE_SET: ReadonlySet<string> = new Set(LEADGEN_CONTAINER_TYPES);
+
+// §8.5 "max depth 4": container nesting is capped at 4 container levels. The
+// cap doubles as the circularity guard — neither the validator nor the
+// flatten walk ever descends past it, so a (non-JSON) cyclic object
+// terminates instead of recursing forever.
+export const LEADGEN_MAX_CONTAINER_DEPTH = 4;
+
+// True when `type` names a children-bearing §8.5 layout container.
+export function isLayoutContainerType(type: unknown): type is LeadgenContainerType {
+  return typeof type === "string" && CONTAINER_TYPE_SET.has(type);
+}
+
+// THE canonical flatten: every non-container node of the tree in depth-first
+// render order. Containers are a SERVER-side rendering concern — every
+// consumer that iterates a Section's components for questions / answers /
+// dependencies / config projection consumes THIS list; ONLY the validator and
+// the preset renderer recurse the tree. For flat legacy content (zero
+// containers) the result is the input list unchanged (same nodes, same
+// order — §8.13). Defensive: non-object junk entries pass through exactly as
+// they always did in the flat world (callers keep their own isRecord guards);
+// a container nested beyond the depth cap is not descended into (the
+// validator is the gate; this walk just refuses to blow the stack).
+export function flattenComponents(
+  components: readonly LeadgenComponentNode[],
+): LeadgenComponentNode[] {
+  const out: LeadgenComponentNode[] = [];
+  const walk = (nodes: readonly LeadgenComponentNode[], depth: number): void => {
+    for (const node of nodes) {
+      const type =
+        typeof node === "object" && node !== null ? (node as { type?: unknown }).type : undefined;
+      if (isLayoutContainerType(type)) {
+        if (depth >= LEADGEN_MAX_CONTAINER_DEPTH + 1) continue; // corrupt over-deep data
+        const children = (node as { children?: unknown }).children;
+        if (Array.isArray(children)) walk(children as LeadgenComponentNode[], depth + 1);
+      } else {
+        out.push(node);
+      }
+    }
+  };
+  walk(components, 1);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +216,7 @@ export type SectionContentErrorCode =
   | "missing_question_id"
   | "duplicate_question_id"
   | "duplicate_question_key"
+  | "duplicate_internal_field"
   | "missing_required_field"
   | "invalid_choice"
   | "invalid_valid_values"
@@ -147,7 +225,12 @@ export type SectionContentErrorCode =
   | "conditional_unknown_field"
   | "non_curated_override_key"
   | "arbitrary_css_override"
-  | "choice_display_invalid";
+  | "choice_display_invalid"
+  // §8.5 layout-container errors
+  | "container_depth_exceeded"
+  | "children_not_allowed"
+  | "container_answer_field_forbidden"
+  | "container_prop_invalid";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -169,7 +252,11 @@ export interface SectionContentValidation {
 // content contract and the capability catalog in lockstep.
 // ---------------------------------------------------------------------------
 
-interface RequiredSpec {
+// Exported (read-only) so the Section Studio (admin/leadgen/ui-section-studio)
+// can PROJECT the same required-field truth into its island bootstrap for the
+// live in-editor validation chip — one table, no drift. The server-side
+// validateSectionContent below stays the authoritative gate on save.
+export interface RequiredSpec {
   internalField?: boolean; // catalog props include "internal_field"
   choices?: boolean; // catalog props include a "choices…" token
   choiceIcon?: boolean; // §14.4: each choice needs an icon
@@ -178,12 +265,14 @@ interface RequiredSpec {
   numericProps?: readonly string[]; // required numeric props (in node.props)
 }
 
-const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
+export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   // chrome
   ProgressBar: {},
   HeaderLogo: { textProps: ["logoMediaId"] },
   BackButton: {},
   DisclosureLink: { textProps: ["panelHtml"] },
+  StepIndicator: {}, // props (steps/current) read defensively by the preset
+
   // affordances (copy)
   CategoryLabel: { textProps: ["text"] },
   QuestionHeadline: { textProps: ["text"] },
@@ -199,8 +288,12 @@ const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   ImageCardAnswerGrid: { internalField: true, choices: true, choiceImage: true },
   MultiChoiceCardGroup: { internalField: true, choices: true },
   DropdownQuestion: { internalField: true, choices: true },
+  SearchableDropdownQuestion: { internalField: true, choices: true },
+  OtherGroupSelector: { internalField: true, choices: true },
   // free-form + PII inputs
   FreeTextQuestion: { internalField: true },
+  NumberInputQuestion: { internalField: true },
+  CurrencyInputQuestion: { internalField: true },
   EmailInputQuestion: { internalField: true },
   PhoneInputQuestion: { internalField: true },
   NameFieldsGroup: {}, // uses `fields(first,last)` — no single internal_field
@@ -211,9 +304,24 @@ const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   ContinueButton: {},
   AutoAdvanceButton: {},
   ReassuranceBadge: { textProps: ["text"] },
+  SuccessState: {}, // heading/message/icon all optional; preset reads defensively
+  SecureFormBadge: {}, // text/icon optional (token exampleCopy fallback)
+  TrustBar: {}, // props.items read defensively by the preset
+  LogoStrip: {}, // props.logos read defensively by the preset
   HelperText: { textProps: ["text"] },
   ValidationError: {},
   LegalNote: { textProps: ["html"] },
+  // §8.5 layout containers + layout leaves: every prop is OPTIONAL (presets
+  // apply token defaults); when PRESENT it must pass the §8.5 token-enum
+  // check (validateContainerProps) — not this generic required-field table.
+  Stack: {},
+  GridContainer: {},
+  Columns: {},
+  CardPanel: {},
+  BackgroundPanel: {},
+  Spacer: {},
+  HeaderBar: {},
+  FooterBar: {},
 };
 
 const CONDITION_OPS: ReadonlySet<string> = new Set<LeadgenConditionOp>([
@@ -227,6 +335,218 @@ const CONDITION_OPS: ReadonlySet<string> = new Set<LeadgenConditionOp>([
   "in",
   "not_in",
 ]);
+
+// ---------------------------------------------------------------------------
+// §8.5 container prop token enums — TOKEN-VALUED only, no raw CSS. These are
+// the AUTHORING vocabulary; each design maps them to measured CSS values in
+// its token file (default-funnel/tokens.ts stack/gridContainer/columns/
+// cardPanel/backgroundPanel/spacer/headerBar/footerBar groups) and the preset
+// resolves the enum → token value at render (components/presets.ts).
+// ---------------------------------------------------------------------------
+
+// Shared gap / spacer size scale (xs..xl → the design spacing tokens).
+export const LEADGEN_GAP_TOKENS = ["xs", "s", "m", "l", "xl"] as const;
+export type LeadgenGapToken = (typeof LEADGEN_GAP_TOKENS)[number];
+
+export const LEADGEN_STACK_DIRECTIONS = ["vertical", "horizontal"] as const;
+export const LEADGEN_STACK_ALIGNS = ["start", "center", "end", "stretch"] as const;
+export const LEADGEN_GRID_SIZINGS = ["auto", "equal"] as const;
+export const LEADGEN_COLUMN_RATIOS = ["50/50", "60/40", "40/60", "70/30"] as const;
+export const LEADGEN_COLUMN_MOBILE_MODES = ["stack", "keep"] as const;
+export const LEADGEN_PANEL_WIDTHS = ["s", "m", "l", "full"] as const;
+export const LEADGEN_PANEL_BACKGROUNDS = ["card", "wash", "ghost", "transparent"] as const;
+export const LEADGEN_PANEL_SHADOWS = ["none", "sm", "md", "lg", "xl"] as const;
+export const LEADGEN_PANEL_RADII = ["sm", "md", "lg", "xl"] as const;
+export const LEADGEN_PANEL_PADDINGS = ["s", "m", "l"] as const;
+export const LEADGEN_BG_PANEL_BACKGROUNDS = ["card", "wash", "ghost", "page", "primary"] as const;
+export const LEADGEN_BG_PANEL_GRADIENTS = ["primary", "accent", "wash"] as const;
+
+const GAP_SET: ReadonlySet<string> = new Set(LEADGEN_GAP_TOKENS);
+
+// A safe, non-executable link target for HeaderBar cta / FooterBar links:
+// absolute http(s), site-relative path (NOT protocol-relative //), fragment,
+// tel: or mailto:. Anything else (javascript:, data:, //host) is rejected.
+const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
+
+interface EnumPropSpec {
+  kind: "enum";
+  values: readonly string[];
+}
+interface IntPropSpec {
+  kind: "int";
+  min: number;
+  max: number;
+}
+interface StringPropSpec {
+  kind: "string";
+}
+interface BooleanPropSpec {
+  kind: "boolean";
+}
+type ContainerPropSpec = EnumPropSpec | IntPropSpec | StringPropSpec | BooleanPropSpec;
+
+const enumSpec = (values: readonly string[]): EnumPropSpec => ({ kind: "enum", values });
+const intSpec = (min: number, max: number): IntPropSpec => ({ kind: "int", min, max });
+
+// The per-type §8.5 prop tables (containers + the 3 layout leaves). cta /
+// trustMessages / links have structured shapes checked by dedicated logic in
+// validateContainerProps (not expressible as a scalar spec).
+const CONTAINER_PROP_SPECS: Record<string, Record<string, ContainerPropSpec>> = {
+  Stack: {
+    direction: enumSpec(LEADGEN_STACK_DIRECTIONS),
+    gap: enumSpec(LEADGEN_GAP_TOKENS),
+    align: enumSpec(LEADGEN_STACK_ALIGNS),
+  },
+  GridContainer: {
+    columnsDesktop: intSpec(2, 5),
+    columnsTablet: intSpec(1, 4),
+    columnsMobile: intSpec(1, 2),
+    gap: enumSpec(LEADGEN_GAP_TOKENS),
+    sizing: enumSpec(LEADGEN_GRID_SIZINGS),
+  },
+  Columns: {
+    ratio: enumSpec(LEADGEN_COLUMN_RATIOS),
+    mobile: enumSpec(LEADGEN_COLUMN_MOBILE_MODES),
+  },
+  CardPanel: {
+    width: enumSpec(LEADGEN_PANEL_WIDTHS),
+    background: enumSpec(LEADGEN_PANEL_BACKGROUNDS),
+    shadow: enumSpec(LEADGEN_PANEL_SHADOWS),
+    radius: enumSpec(LEADGEN_PANEL_RADII),
+    padding: enumSpec(LEADGEN_PANEL_PADDINGS),
+  },
+  BackgroundPanel: {
+    background: enumSpec(LEADGEN_BG_PANEL_BACKGROUNDS),
+    gradient: enumSpec(LEADGEN_BG_PANEL_GRADIENTS),
+    imageMediaId: { kind: "string" },
+  },
+  Spacer: {
+    size: enumSpec(LEADGEN_GAP_TOKENS),
+  },
+  HeaderBar: {
+    logoMediaId: { kind: "string" },
+    logoAlt: { kind: "string" },
+    back: { kind: "boolean" },
+    backLabel: { kind: "string" },
+    secure: { kind: "boolean" },
+    secureText: { kind: "string" },
+    // cta: structured — dedicated check below.
+  },
+  FooterBar: {
+    legalHtml: { kind: "string" },
+    // trustMessages / links: structured — dedicated checks below.
+  },
+};
+
+// §8.5 token-enum validation for a container/layout-leaf node's props. Every
+// prop is optional; a PRESENT prop must satisfy its spec — a violation is the
+// typed `container_prop_invalid` (path components[i].props.<key>).
+function validateContainerProps(
+  type: string,
+  props: Record<string, unknown>,
+  base: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  const specs = CONTAINER_PROP_SPECS[type] ?? {};
+  for (const [key, spec] of Object.entries(specs)) {
+    const value = props[key];
+    if (value === undefined) continue;
+    const path = `${base}.props.${key}`;
+    if (spec.kind === "enum") {
+      if (typeof value !== "string" || !spec.values.includes(value)) {
+        push(
+          "container_prop_invalid",
+          path,
+          `${type} props.${key} must be one of ${spec.values.join("|")} (§8.5 token enum)`,
+        );
+      }
+    } else if (spec.kind === "int") {
+      if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < spec.min ||
+        value > spec.max
+      ) {
+        push(
+          "container_prop_invalid",
+          path,
+          `${type} props.${key} must be an integer between ${spec.min} and ${spec.max} (§8.5)`,
+        );
+      }
+    } else if (spec.kind === "string") {
+      if (typeof value !== "string" || value.trim() === "") {
+        push("container_prop_invalid", path, `${type} props.${key} must be a non-empty string`);
+      }
+    } else if (spec.kind === "boolean") {
+      if (typeof value !== "boolean") {
+        push("container_prop_invalid", path, `${type} props.${key} must be a boolean`);
+      }
+    }
+  }
+
+  // HeaderBar cta {label, href|tel} (§8.5 "optional CTA (label + tel/href)").
+  if (type === "HeaderBar" && props["cta"] !== undefined) {
+    const path = `${base}.props.cta`;
+    const cta = props["cta"];
+    if (!isRecord(cta)) {
+      push("container_prop_invalid", path, "HeaderBar props.cta must be an object {label, href|tel}");
+    } else {
+      if (!isNonEmptyString(cta["label"])) {
+        push("container_prop_invalid", `${path}.label`, "HeaderBar cta.label is required");
+      }
+      const href = cta["href"];
+      const tel = cta["tel"];
+      if (!isNonEmptyString(href) && !isNonEmptyString(tel)) {
+        push("container_prop_invalid", path, "HeaderBar cta requires href or tel");
+      }
+      if (isNonEmptyString(href) && !SAFE_HREF_RE.test(href.trim())) {
+        push(
+          "container_prop_invalid",
+          `${path}.href`,
+          "HeaderBar cta.href must be http(s)/relative/#/tel:/mailto:",
+        );
+      }
+    }
+  }
+
+  // FooterBar trustMessages[] (strings) + links[{label, href}] (§8.5).
+  if (type === "FooterBar") {
+    if (props["trustMessages"] !== undefined) {
+      const path = `${base}.props.trustMessages`;
+      const raw = props["trustMessages"];
+      if (!Array.isArray(raw) || !raw.every((m) => typeof m === "string")) {
+        push("container_prop_invalid", path, "FooterBar props.trustMessages must be an array of strings");
+      }
+    }
+    if (props["links"] !== undefined) {
+      const raw = props["links"];
+      if (!Array.isArray(raw)) {
+        push("container_prop_invalid", `${base}.props.links`, "FooterBar props.links must be an array");
+      } else {
+        raw.forEach((link, li) => {
+          const path = `${base}.props.links[${li}]`;
+          if (!isRecord(link)) {
+            push("container_prop_invalid", path, "each FooterBar link must be an object {label, href}");
+            return;
+          }
+          if (!isNonEmptyString(link["label"])) {
+            push("container_prop_invalid", `${path}.label`, "FooterBar link.label is required");
+          }
+          const href = link["href"];
+          if (!isNonEmptyString(href)) {
+            push("container_prop_invalid", `${path}.href`, "FooterBar link.href is required");
+          } else if (!SAFE_HREF_RE.test(href.trim())) {
+            push(
+              "container_prop_invalid",
+              `${path}.href`,
+              "FooterBar link.href must be http(s)/relative/#/tel:/mailto:",
+            );
+          }
+        });
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // helpers (listicles validation idiom)
@@ -245,8 +565,11 @@ function isChoicePrimitive(value: unknown): value is string | number | boolean {
 }
 
 // A design-override VALUE must be a fixed token/scalar, never a CSS string.
-// Reject anything carrying CSS-injection punctuation (§14.10 no-arbitrary-CSS).
-const CSS_ESCAPE_RE = /[;{}<>()\\]|url\(|expression|@import|\/\*/i;
+// Reject anything carrying CSS-injection punctuation OR the HTML-attribute
+// breakout quotes (" ' `) so a value can never escape an inline style="…"
+// attribute even if it reaches a renderer (§14.10 no-arbitrary-CSS). This
+// regex MUST stay byte-identical to the copy in src/leadgen/sections.ts.
+const CSS_ESCAPE_RE = /[;{}<>()"'`\\]|url\(|expression|@import|\/\*/i;
 function looksLikeArbitraryCss(value: unknown): boolean {
   return typeof value === "string" && CSS_ESCAPE_RE.test(value);
 }
@@ -261,6 +584,13 @@ function isKnownComponentType(type: unknown): type is ComponentType {
 
 // Validate a Section's parsed `content_json`. Pure; returns every problem
 // found (never throws). `ok` is true iff `errors` is empty.
+//
+// §8.5 tree shape: the walk is RECURSIVE over container children with the
+// SAME per-node checks at every level; nested paths follow the
+// `components[i].children[j].…` convention. Uniqueness (question_id /
+// question_key / internal_field) and the conditional known-field universe
+// span the WHOLE tree (containers' own question_ids included). A flat array
+// (zero containers) takes exactly the pre-§8.5 code path node-for-node.
 export function validateSectionContent(content: unknown): SectionContentValidation {
   const errors: SectionContentError[] = [];
   const push = (code: SectionContentErrorCode, path: string, message: string): void => {
@@ -282,26 +612,38 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   }
 
   // Pass 1: collect the known-field universe (internal_field / question_key /
-  // question_id) so conditionals can be checked against it order-independently.
+  // question_id) ACROSS THE WHOLE TREE so conditionals can be checked against
+  // it order- and level-independently (§8.5: a conditional may reference a
+  // field defined inside a sibling container). Depth-capped like every other
+  // walk (terminates on cyclic non-JSON input).
   const knownFields = new Set<string>();
-  for (const raw of rawComponents) {
-    if (!isRecord(raw)) continue;
-    for (const key of ["internal_field", "question_key", "question_id"] as const) {
-      const v = raw[key];
-      if (isNonEmptyString(v)) knownFields.add(v);
+  const collectKnownFields = (nodes: readonly unknown[], depth: number): void => {
+    for (const raw of nodes) {
+      if (!isRecord(raw)) continue;
+      for (const key of ["internal_field", "question_key", "question_id"] as const) {
+        const v = raw[key];
+        if (isNonEmptyString(v)) knownFields.add(v);
+      }
+      if (
+        isLayoutContainerType(raw["type"]) &&
+        depth <= LEADGEN_MAX_CONTAINER_DEPTH &&
+        Array.isArray(raw["children"])
+      ) {
+        collectKnownFields(raw["children"], depth + 1);
+      }
     }
-  }
+  };
+  collectKnownFields(rawComponents, 1);
 
   const seenQuestionIds = new Set<string>();
   const seenQuestionKeys = new Set<string>();
+  const seenInternalFields = new Set<string>();
 
-  // Pass 2: per-node validation.
-  for (let i = 0; i < rawComponents.length; i++) {
-    const base = `components[${i}]`;
-    const raw = rawComponents[i];
+  // Pass 2: per-node validation, recursive over container children.
+  const validateNode = (raw: unknown, base: string, depth: number): void => {
     if (!isRecord(raw)) {
       push("node_not_object", base, "each component must be a JSON object");
-      continue;
+      return;
     }
 
     // type ∈ catalog (registry closing contract: a component NOT in the
@@ -313,12 +655,13 @@ export function validateSectionContent(content: unknown): SectionContentValidati
         `${base}.type`,
         `unknown component type ${JSON.stringify(type)} — not in the component catalog`,
       );
-      continue; // no further per-type checks possible without a known type
+      return; // no further per-type checks possible without a known type
     }
     const spec = REQUIRED_FIELDS[type];
     const catalog = COMPONENT_CATALOG[type];
+    const isContainer = isLayoutContainerType(type);
 
-    // question_id: required + unique.
+    // question_id: required + unique across the whole tree.
     const questionId = raw["question_id"];
     if (!isNonEmptyString(questionId)) {
       push("missing_question_id", `${base}.question_id`, "question_id is required (stable id)");
@@ -328,7 +671,7 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       seenQuestionIds.add(questionId);
     }
 
-    // question_key: unique when present.
+    // question_key: unique when present (whole tree).
     const questionKey = raw["question_key"];
     if (questionKey !== undefined) {
       if (!isNonEmptyString(questionKey)) {
@@ -340,6 +683,99 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       }
     }
 
+    const props = isRecord(raw["props"]) ? raw["props"] : {};
+
+    if (isContainer) {
+      // §8.5 container node: depth cap, no answer fields, token-enum props,
+      // recursive children. Depth counts CONTAINER nesting levels (root = 1);
+      // past the cap we stop descending — which also terminates any cyclic
+      // (non-JSON) object graph ("containers cannot contain themselves").
+      if (depth > LEADGEN_MAX_CONTAINER_DEPTH) {
+        push(
+          "container_depth_exceeded",
+          base,
+          `container nesting exceeds the §8.5 maximum depth of ${LEADGEN_MAX_CONTAINER_DEPTH}`,
+        );
+        return;
+      }
+
+      // Containers carry NO answer fields (§8.5): they produce nothing.
+      for (const key of ["internal_field", "choices", "answer_type"] as const) {
+        if (raw[key] !== undefined) {
+          push(
+            "container_answer_field_forbidden",
+            `${base}.${key}`,
+            `${type} is a layout container — ${key} is not allowed on it (§8.5)`,
+          );
+        }
+      }
+
+      // Token-enum props (§8.5 table) — typed container_prop_invalid.
+      validateContainerProps(type, props, base, push);
+
+      // conditional on a container: validated for SHAPE + known field like
+      // any node (harmless if authored; visibility logic runs on the
+      // flattened leaves, so it has no runtime effect today).
+      if (raw["conditional"] !== undefined) {
+        validateConditional(raw["conditional"], `${base}.conditional`, knownFields, push);
+      }
+
+      // children: optional; when present must be an array; each child is
+      // validated with the SAME rules at depth + 1 under the
+      // `components[i].children[j]` path convention.
+      const children = raw["children"];
+      if (children !== undefined) {
+        if (!Array.isArray(children)) {
+          push(
+            "container_prop_invalid",
+            `${base}.children`,
+            `${type} children must be an array of component nodes`,
+          );
+        } else {
+          for (let j = 0; j < children.length; j++) {
+            validateNode(children[j], `${base}.children[${j}]`, depth + 1);
+          }
+        }
+      }
+      return;
+    }
+
+    // Non-container node: children are forbidden (§8.5 "children only on the
+    // 5 container types").
+    if (raw["children"] !== undefined) {
+      push(
+        "children_not_allowed",
+        `${base}.children`,
+        `${type} is not a layout container — children are not allowed on it (§8.5)`,
+      );
+    }
+
+    // §8.5 layout LEAVES (Spacer / HeaderBar / FooterBar): their structured
+    // props are token-enum validated exactly like container props.
+    if (Object.prototype.hasOwnProperty.call(CONTAINER_PROP_SPECS, type)) {
+      validateContainerProps(type, props, base, push);
+    }
+
+    // internal_field: unique across the whole tree when present — scoped to
+    // ANSWER-PRODUCING components only (§8.5 "QUESTION components must remain
+    // unique by internal_field"). Non-producing nodes (ValidationError,
+    // HelperText, …) legitimately REFERENCE a question's internal_field —
+    // e.g. a ValidationError carries it as the error-slot binding
+    // (data-lg-error-for) — without claiming the answer name, so they never
+    // join (or collide with) the uniqueness universe.
+    const internalField = raw["internal_field"];
+    if (isNonEmptyString(internalField) && catalog.produces !== null) {
+      if (seenInternalFields.has(internalField)) {
+        push(
+          "duplicate_internal_field",
+          `${base}.internal_field`,
+          `duplicate internal_field '${internalField}' (§8.5 unique across the Section)`,
+        );
+      } else {
+        seenInternalFields.add(internalField);
+      }
+    }
+
     // required authorable fields per the catalog entry.
     if (spec.internalField === true && !isNonEmptyString(raw["internal_field"])) {
       push(
@@ -348,7 +784,6 @@ export function validateSectionContent(content: unknown): SectionContentValidati
         `${type} requires internal_field (normalized answer name)`,
       );
     }
-    const props = isRecord(raw["props"]) ? raw["props"] : {};
     for (const key of spec.textProps ?? []) {
       if (!isNonEmptyString(props[key])) {
         push("missing_required_field", `${base}.props.${key}`, `${type} requires props.${key}`);
@@ -454,6 +889,10 @@ export function validateSectionContent(content: unknown): SectionContentValidati
         }
       }
     }
+  };
+
+  for (let i = 0; i < rawComponents.length; i++) {
+    validateNode(rawComponents[i], `components[${i}]`, 1);
   }
 
   return { ok: errors.length === 0, errors };

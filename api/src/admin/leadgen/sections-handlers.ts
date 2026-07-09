@@ -18,7 +18,13 @@
 // the listicles §5.4 discipline).
 
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
-import { renderSectionComponents } from "../../public/leadgen/components/presets";
+import {
+  renderSectionComponents,
+  renderSectionComponentsVisible,
+} from "../../public/leadgen/components/presets";
+// §8.5 layout containers: question/mapping/ZIP walks consume the canonical
+// flattened projection; ONLY the renderer receives the full tree (it recurses).
+import { flattenComponents } from "../../public/leadgen/components/content-schema";
 import type {
   LeadgenComponentNode,
   LeadgenSectionContent,
@@ -34,6 +40,20 @@ import {
 // dependency evaluator (admin preview + P7 runtime share it) and the §12.8
 // server-side ZIP validator (`/^\d{5}$/`).
 import { evaluateDependencies, type LeadgenDependencyState } from "../../leadgen/dependencies";
+// §9.2 (E5) preview sims: typed `sim` parse + the pure post-render markup
+// transform (preview-only — the shared preset renderer stays untouched, §9.1).
+import { applyPreviewSimMarkup, parsePreviewSim } from "./preview-sim";
+// §9.1 (Slice D2) events document: the Studio preview iframe runs the SAME
+// generated runtime bundle the live shell's /lg/runtime/{version}.js serves
+// (LEADGEN_RUNTIME_JS is exactly that route's body) with the SAME
+// toPublicComponent config projection — parity by construction. The bundle is
+// INLINED because the admin host has no tenant site context: every /lg/*
+// path (including the bundle URL) rides publicSiteContextMiddleware and 404s
+// on ADMIN_HOST, so a script-src from the studio srcdoc cannot load there.
+import { toPublicComponent } from "../../public/leadgen/config-dto";
+import { LEADGEN_RUNTIME_JS } from "../../public/leadgen/runtime/engine-bundle.generated";
+import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
+import { escapeHtml } from "../templates/layout";
 import { validateZip } from "../../leadgen/maps";
 import {
   mappingCompleteness,
@@ -166,8 +186,10 @@ function parseComponents(contentJson: string): LeadgenSectionContent {
 
 function countQuestions(content: LeadgenSectionContent): number {
   // A "question" is any component that carries an internal_field or is a
-  // multi-field question (name/address) — i.e. it collects an answer.
-  return content.components.filter(
+  // multi-field question (name/address) — i.e. it collects an answer. §8.5:
+  // counted over the flattened projection so nested questions count too
+  // (containers carry no internal_field and are excluded by construction).
+  return flattenComponents(content.components).filter(
     (n) =>
       isRecord(n) &&
       (typeof (n as { internal_field?: unknown }).internal_field === "string" ||
@@ -320,7 +342,10 @@ async function parseAnswerMaps(
   const errors: FieldErrors = {};
   const rawMaps = body["answer_maps"];
   const nodesByQuestionId = new Map<string, Record<string, unknown>>();
-  for (const node of content.components) {
+  // §8.5: mappable questions come from the flattened projection — an edge may
+  // bind to a question nested inside a layout container; container nodes
+  // themselves are not mappable (they never appear in the flattened list).
+  for (const node of flattenComponents(content.components)) {
     if (isRecord(node) && typeof node["question_id"] === "string") {
       nodesByQuestionId.set(node["question_id"], node);
     }
@@ -925,9 +950,22 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 // §14.9: render a (possibly mid-edit) Section from a DRAFT content_json — no
-// persist. Structural parse only (malformed JSON is the only rejection; a
-// mapping-less draft still previews). Returns BOTH viewports' HTML + the
-// scoped chrome CSS; the editor's preview iframe injects the CSS.
+// persist. Structural parse only (malformed JSON — or a malformed §9.2
+// parameter — is the only rejection; a mapping-less draft still previews).
+// Returns BOTH viewports' HTML + the scoped chrome CSS; the editor's preview
+// iframe injects the CSS.
+//
+// §9.2 (E5) parameterization — ADDITIVE body params over the legacy shape:
+//   design_id?  → getFunnelDesign(design_id) (absent/unknown → default,
+//                 §14.1); the wrapper's data-funnel-design + the chrome-CSS
+//                 scope carry the RESOLVED id (the :962 hardcode is gone).
+//   viewport?   → "desktop"|"mobile"; when present the response ALSO carries
+//                 preview.html = that viewport's markup.
+//   sim?        → { state?, answers?, auto_advance?, flow? } — every sim is
+//                 SERVER-rendered into the markup (preview-sim.ts), never a
+//                 cosmetic attribute for the client to interpret.
+// A legacy body (none of the new params) produces byte-identical
+// preview.{css,desktop,mobile,component_count} — regression-pinned.
 export async function previewSectionHandler(c: AdminContext): Promise<Response> {
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
@@ -952,47 +990,235 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", fields: { content_json: "content_json is required" } }, 400);
   }
 
-  // §12.3/§14.9 conditional-dependency preview: when the caller supplies
-  // `sample_answers`, normalize them (answers.ts §12.7) and run the Stage-A
-  // evaluateDependencies over the draft component nodes. The preview then
-  // renders with hidden components ACTUALLY hidden (the editor's "dependency"
-  // simulator state shows the real show/hide), and the response carries the
-  // per-component {visible, required_now} + the section-level continue gate.
-  // No sample_answers ⇒ the classic full-render preview (unchanged).
-  const design = getFunnelDesign(null);
-  const nodes = content.components as LeadgenComponentNode[];
-  const rawSample = body["sample_answers"] ?? body["answers"];
-  let dependencies: LeadgenDependencyState | null = null;
-  let renderNodes: LeadgenComponentNode[] = nodes;
-  if (isRecord(rawSample)) {
-    const normalized = normalizeAnswers(content, rawSample as LeadgenRawAnswers);
-    dependencies = evaluateDependencies(nodes, normalized.answers);
-    const visible = new Set(
-      dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
-    );
-    // Filter the render to the visible components only — a component whose
-    // inline conditional is unmet (or fail-closed on an unanswered `when`) is
-    // dropped from the previewed HTML, exactly as the P7 runtime will hide it.
-    renderNodes = nodes.filter(
-      (n) => isRecord(n) && typeof n.question_id === "string" && visible.has(n.question_id),
+  // --- §9.2 parameter parse (design_id / viewport / sim) --------------------
+  const rawDesignId = body["design_id"];
+  if (rawDesignId !== undefined && rawDesignId !== null && typeof rawDesignId !== "string") {
+    return c.json(
+      { error: "Validation failed", fields: { design_id: "design_id must be a string" } },
+      400,
     );
   }
+  // Absent/unknown → the default design (§14.1 registry rule). The RESOLVED
+  // design drives the wrapper attribute, the CSS scope, and the echo below —
+  // this replaces the previous getFunnelDesign(null) hardcode.
+  const design = getFunnelDesign(typeof rawDesignId === "string" ? rawDesignId : null);
 
-  const rendered = renderSectionComponents(renderNodes, design);
-  const wrap = (viewport: "desktop" | "mobile", maxWidth: string): string =>
-    `<div data-funnel-design="${design.id}" data-viewport="${viewport}" class="lg-preview lg-preview-${viewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
+  const rawViewport = body["viewport"];
+  if (rawViewport !== undefined && rawViewport !== null && rawViewport !== "desktop" && rawViewport !== "mobile") {
+    return c.json(
+      { error: "Validation failed", fields: { viewport: 'viewport must be "desktop" or "mobile"' } },
+      400,
+    );
+  }
+  const viewport = rawViewport === "desktop" || rawViewport === "mobile" ? rawViewport : undefined;
+
+  const simParse = parsePreviewSim(body["sim"]);
+  if (simParse.error !== null) {
+    return c.json({ error: "Validation failed", fields: simParse.error }, 400);
+  }
+  const sim = simParse.sim;
+
+  // §12.3/§14.9 conditional-dependency preview: the answers BASIS is the
+  // legacy `sample_answers` record overlaid by `sim.answers` overlaid by the
+  // §9.2 flow reduction (later entries win). Any basis — or the explicit
+  // "dependency" sim — normalizes (answers.ts §12.7) and runs the Stage-A
+  // evaluateDependencies over the draft component nodes, so hidden components
+  // are ACTUALLY hidden in the markup, exactly as the P7 runtime hides them.
+  // No basis ⇒ the classic full-render preview (unchanged, byte-compatible).
+  const nodes = content.components as LeadgenComponentNode[];
+  const rawSample = body["sample_answers"] ?? body["answers"];
+  const flowAnswers: Record<string, unknown> = {};
+  for (const step of sim.flow) flowAnswers[step.internal_field] = step.value;
+  const hasAnswerBasis = isRecord(rawSample) || sim.answers !== null || sim.flow.length > 0;
+  const mergedRawAnswers: Record<string, unknown> = {
+    ...(isRecord(rawSample) ? (rawSample as Record<string, unknown>) : {}),
+    ...(sim.answers ?? {}),
+    ...flowAnswers,
+  };
+
+  let dependencies: LeadgenDependencyState | null = null;
+  let normalizedAnswers: Record<string, unknown> = {};
+  let visible: Set<string> | null = null;
+  let rendered: string;
+  let componentCount: number;
+  if (hasAnswerBasis || sim.state === "dependency") {
+    const normalized = normalizeAnswers(content, mergedRawAnswers as LeadgenRawAnswers);
+    normalizedAnswers = normalized.answers;
+    // evaluateDependencies runs over the §8.5 flattened LEAF projection (its
+    // own canonical flatten) — nested questions participate like top-level.
+    dependencies = evaluateDependencies(nodes, normalized.answers);
+    visible = new Set(
+      dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
+    );
+    // Filter the render to the visible LEAVES only — a component whose inline
+    // conditional is unmet (or fail-closed on an unanswered `when`) is dropped
+    // from the previewed HTML, exactly as the P7 runtime will hide it. §8.5:
+    // container WRAPPERS are kept (layout chrome) while hidden leaf nodes
+    // inside them drop — renderSectionComponentsVisible walks the full tree.
+    // For flat content this equals the classic filter-then-render, byte for
+    // byte.
+    rendered = renderSectionComponentsVisible(nodes, design, visible);
+    // The count mirrors what renders: visible LEAF nodes (flat content: the
+    // exact pre-§8.5 filtered-list length — flatten is the identity there).
+    componentCount = flattenComponents(nodes).filter(
+      (n) => isRecord(n) && typeof n.question_id === "string" && visible!.has(n.question_id),
+    ).length;
+  } else {
+    // No basis ⇒ the classic full-render preview (unchanged); the renderer
+    // receives the FULL tree (container presets recurse).
+    rendered = renderSectionComponents(nodes, design);
+    componentCount = nodes.length;
+  }
+
+  // §9.2: every sim is SERVER-rendered INTO the markup (selected classes,
+  // error markup, success markup) — the outer-iframe attribute hacks are
+  // gone. Selection also rides a provided flow (its record is the
+  // dependency+selected basis).
+  const markSelection = sim.state === "selected" || sim.flow.length > 0;
+  if (
+    markSelection ||
+    sim.state === "error" ||
+    sim.state === "validation_success" ||
+    sim.state === "validation_error"
+  ) {
+    rendered = applyPreviewSimMarkup(rendered, nodes, design, {
+      state: sim.state,
+      markSelection,
+      answers: normalizedAnswers,
+      visibleIds: visible,
+      requiredNow:
+        dependencies === null
+          ? null
+          : new Map(dependencies.components.map((cc) => [cc.question_id, cc.required_now])),
+    });
+  }
+
+  const wrap = (wrapViewport: "desktop" | "mobile", maxWidth: string): string =>
+    `<div data-funnel-design="${design.id}" data-viewport="${wrapViewport}" class="lg-preview lg-preview-${wrapViewport}" style="max-width:${maxWidth};margin:0 auto"><div class="lg-content">${rendered}</div></div>`;
 
   // The scoped chrome CSS is imported lazily so this handler stays free of the
-  // styles module unless a preview is requested.
-  const { funnelChromeCss } = await import("../../public/leadgen/designs/default-funnel/styles");
-  const responseBody: Record<string, unknown> = {
-    preview: {
-      css: funnelChromeCss(design),
-      desktop: wrap("desktop", design.header.contentMaxWidth),
-      mobile: wrap("mobile", design.breakpoints.mobileMax),
-      component_count: renderNodes.length,
-    },
+  // styles module unless a preview is requested. The scope attribute value is
+  // the RESOLVED design id (the serve.ts funnel-shell pattern) — for the
+  // default design this equals the module's DEFAULT_FUNNEL_SCOPE, so legacy
+  // bodies stay byte-identical.
+  const { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } = await import(
+    "../../public/leadgen/designs/default-funnel/styles"
+  );
+  const desktopHtml = wrap("desktop", design.header.contentMaxWidth);
+  const mobileHtml = wrap("mobile", design.breakpoints.mobileMax);
+  const preview: Record<string, unknown> = {
+    css: funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`),
+    desktop: desktopHtml,
+    mobile: mobileHtml,
+    component_count: componentCount,
+    // §9.2 additive echoes: the RESOLVED design id + the RESOLVED sim state
+    // ("default" when the caller sent none).
+    design_id: design.id,
+    sim_state: sim.state,
   };
+  // When the caller names a viewport, ALSO return that viewport's markup as
+  // preview.html (the Studio srcdoc consumes it directly).
+  if (viewport !== undefined) preview["html"] = viewport === "mobile" ? mobileHtml : desktopHtml;
+
+  // --- §9.1 / §8.9 (Slice D2) runtime-hydrated events document -------------
+  // ADDITIVE `runtime: true` body flag: the response gains
+  // preview.events_html — a COMPLETE srcdoc document that mirrors the live
+  // funnel shell's structural contract (03 §3.2): #lg-funnel-root +
+  // data-lg-mount + ONE [data-lg-section] block wrapping the SAME rendered
+  // markup, the #lg-config LeadgenPublicConfig-shaped blob (components through
+  // the REAL toPublicComponent projection), and the SAME versioned runtime
+  // script URL the shell embeds. The root carries data-lg-preview="1", so the
+  // engine (engine.ts §9.1 contract) suppresses real beacons and postMessages
+  // would-fire events to the parent — the Studio's "events that would fire"
+  // panel. The auction call is disabled by the same flag. Identity fields are
+  // HONEST preview placeholders (lg?_preview) — never faked live ids.
+  if (body["runtime"] === true) {
+    const sectionPublicId =
+      typeof body["section_public_id"] === "string" && body["section_public_id"] !== ""
+        ? (body["section_public_id"] as string)
+        : "lgs_preview";
+    const headline = typeof body["headline"] === "string" ? (body["headline"] as string) : "";
+    const continueMode = body["continue_mode"] === "auto_advance" ? "auto_advance" : "button";
+    const addressValidation = body["address_validation_enabled"] === true;
+    const previewConfig = {
+      quote_id: "lgq_preview",
+      funnel_id: "lgf_preview",
+      funnel_variant_id: "lgn_preview",
+      funnel_name: "Studio preview",
+      content_version: 0,
+      funnel_design_id: design.id,
+      design_tokens: design as unknown as Record<string, unknown>,
+      section_order_hash: "preview",
+      ga4_measurement_id: null,
+      funnel_ab_test_id: "",
+      funnel_ab_test_revision: 0,
+      variant_label: "preview",
+      traffic_allocation_bp: 10000,
+      assignment_reason: "single_control",
+      sections: [
+        {
+          section_public_id: sectionPublicId,
+          section_index: 0,
+          headline,
+          continue_mode: continueMode,
+          address_validation_enabled: addressValidation,
+          section_mapping_version: 0,
+          answer_mapping_version: "",
+          // The FULL flattened component list (the engine applies dependency
+          // visibility itself, exactly as on the live shell).
+          components: flattenComponents(nodes).map(toPublicComponent),
+        },
+      ],
+    };
+    const configJson = JSON.stringify(previewConfig).replace(/</g, "\\u003c");
+    const screenLabel = `01 · ${headline}`;
+    // One shell-shaped srcdoc builder for BOTH preview documents. With
+    // extraRootAttrs="" and the config+runtime scripts the output is
+    // byte-identical to the pre-§14.9-fix events_html (regression-pinned).
+    const shellDoc = (extraRootAttrs: string, scripts: string): string =>
+      "<!doctype html>" +
+      '<html lang="en"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      `<style>${preview["css"] as string}</style></head><body>` +
+      `<div id="lg-funnel-root" data-lg-preview="1"${extraRootAttrs} ${FUNNEL_DESIGN_SCOPE_ATTR}="${escapeHtml(design.id)}"` +
+      ` data-funnel-id="lgf_preview" data-funnel-variant-id="lgn_preview" data-quote-id="lgq_preview"` +
+      ` data-content-version="0" data-viewport="${viewport === "mobile" ? "mobile" : "desktop"}"` +
+      ` class="lg-preview lg-preview-${viewport === "mobile" ? "mobile" : "desktop"}"` +
+      ` style="max-width:${viewport === "mobile" ? design.breakpoints.mobileMax : design.header.contentMaxWidth};margin:0 auto">` +
+      '<main class="lg-content" data-lg-mount>' +
+      `<section data-lg-section data-lg-section-id="${escapeHtml(sectionPublicId)}" data-lg-index="0" data-screen-label="${escapeHtml(screenLabel)}">` +
+      rendered +
+      "</section>" +
+      '<div class="lg-banners" data-lg-banners hidden></div>' +
+      "</main></div>" +
+      scripts +
+      "</body></html>";
+    preview["events_html"] = shellDoc(
+      "",
+      `<script type="application/json" id="lg-config">${configJson}</script>` +
+        // The BYTE-IDENTICAL bundle /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js
+        // serves, inlined (see the import note: /lg/* is site-scoped and 404s on
+        // the admin host, so the srcdoc cannot script-src it there). The version
+        // rides as a data attribute for observability; the `</script` escape is
+        // a defensive no-op today (the generated bundle contains none — any
+        // future occurrence must sit inside a JS string/regex where `<\/` is
+        // byte-equivalent).
+        `<script data-lg-runtime-version="${LEADGEN_TEMPLATE_VERSION}">${LEADGEN_RUNTIME_JS.replace(/<\/script/gi, "<\\/script")}</script>`,
+    );
+    // §9.2/§14.9: a NON-default sim is a server-rendered STILL. The MAIN
+    // preview document must NOT hydrate — engine boot re-applies dependency
+    // visibility from an EMPTY answer store (preview skips snapshot restore,
+    // engine.ts §3.5.1) and re-hides the very reveal the sim rendered. A
+    // static document has nothing to hydrate, so it carries data-lg-ready="1"
+    // by construction. The events panel keeps its §8.9 stream from
+    // events_html above — the SEPARATE runtime-bearing document the island
+    // loads into its hidden probe frame. Default state keeps full hydration
+    // (events_html IS the main document there — unchanged).
+    if (sim.state !== "default") {
+      preview["static_html"] = shellDoc(' data-lg-ready="1"', "");
+    }
+  }
+  const responseBody: Record<string, unknown> = { preview };
   if (dependencies !== null) {
     responseBody["dependencies"] = {
       components: dependencies.components,
@@ -1037,16 +1263,71 @@ export async function sectionUsageHandler(c: AdminContext): Promise<Response> {
 // GET /sections/:id/offers — available Offers for activity+vertical + mappings
 // ---------------------------------------------------------------------------
 
+// §8.7 (E2): one ANSWER-source field of an Offer's ACTIVE payload schema —
+// the mapping panel's grid rows. Projected from the §11.5 flat-node shape;
+// only `source:"answer"` nodes are mappable (macro/token/computed nodes are
+// server-side concerns and never appear here).
+export interface SectionOfferAnswerField {
+  path: string;
+  type: string;
+  required: boolean;
+  internal_field: string | null;
+  label: string | null;
+  valid_values: Array<string | number | boolean> | null;
+}
+
+// Parse a schema_json blob into its answer-source field list. Defensive
+// against corrupt stored JSON (D1 rule) — a bad blob yields [].
+function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswerField[] {
+  const out: SectionOfferAnswerField[] = [];
+  const parsed = parseJsonColumn(schemaJson);
+  if (!isRecord(parsed) || !isRecord(parsed["root"]) || !Array.isArray(parsed["root"]["children"])) {
+    return out;
+  }
+  for (const node of parsed["root"]["children"]) {
+    if (!isRecord(node)) continue;
+    if (node["source"] !== "answer") continue;
+    const path = node["path"];
+    const type = node["type"];
+    if (typeof path !== "string" || path === "" || typeof type !== "string" || !PAYLOAD_NODE_TYPES.has(type)) {
+      continue;
+    }
+    const validValues = Array.isArray(node["valid_values"])
+      ? (node["valid_values"] as unknown[]).filter(
+          (v): v is string | number | boolean =>
+            typeof v === "string" || typeof v === "number" || typeof v === "boolean",
+        )
+      : null;
+    out.push({
+      path,
+      type,
+      required: node["required"] === true,
+      internal_field: trimmedString(node["internal_field"]),
+      label: trimmedString(node["label"]),
+      valid_values: validValues !== null && validValues.length > 0 ? validValues : null,
+    });
+  }
+  return out;
+}
+
 export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
 
   // §12.4: only Offers matching the Section's activity AND vertical are shown.
+  // §8.7 additive columns: the ACTIVE schema's version/public_id/schema_json
+  // (for the answer_fields projection) + the Offer's DEFAULT placement id —
+  // the mapping table's Placement/Payload-schema-version cells.
   const offers = await c.env.DB.prepare(
     `SELECT o.id, o.public_id, o.offer_name, o.provider, o.activity, o.vertical, o.offer_type,
             o.status, o.active_payload_schema_id,
+            ps.version AS payload_schema_version, ps.public_id AS payload_schema_public_id,
+            ps.schema_json AS active_schema_json,
+            pl.placement_id AS default_placement_id,
             sao.selected, sao.mapping_state, sao.required_fields_total, sao.required_fields_mapped
      FROM leadgen_offers o
+     LEFT JOIN leadgen_offer_payload_schemas ps ON ps.id = o.active_payload_schema_id
+     LEFT JOIN leadgen_offer_placements pl ON pl.offer_id = o.id AND pl.is_default = 1
      LEFT JOIN leadgen_section_available_offers sao ON sao.offer_id = o.id AND sao.section_id = ?
      WHERE o.activity = ? AND o.vertical = ? AND o.status = 'active'
      ORDER BY o.offer_name ASC, o.id ASC`,
@@ -1062,6 +1343,10 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
       offer_type: string;
       status: string;
       active_payload_schema_id: number | null;
+      payload_schema_version: number | null;
+      payload_schema_public_id: string | null;
+      active_schema_json: string | null;
+      default_placement_id: string | null;
       selected: number | null;
       mapping_state: string | null;
       required_fields_total: number | null;
@@ -1070,6 +1355,10 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
 
   const maps = await readAnswerMaps(c.env.DB, row.id);
   return c.json({
+    // §8.2: echo the SAVED pair the derivation used — the E9 empty state names
+    // exactly these values.
+    activity: row.activity,
+    vertical: row.vertical,
     offers: (offers.results ?? []).map((o) => ({
       id: o.id,
       public_id: o.public_id,
@@ -1080,6 +1369,11 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
       offer_type: o.offer_type,
       status: o.status,
       has_active_schema: o.active_payload_schema_id !== null,
+      // §8.7 additive fields (the E2 mapping panel):
+      payload_schema_version: o.payload_schema_version,
+      payload_schema_public_id: o.payload_schema_public_id,
+      default_placement_id: o.default_placement_id,
+      answer_fields: schemaAnswerSourceFields(o.active_schema_json),
       selected: o.selected !== null && o.selected !== 0,
       mapping_state: o.mapping_state,
       required_fields_total: o.required_fields_total ?? 0,
@@ -1363,7 +1657,9 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
 // street/city/state/zip). Then keeps only the zip-ish fields.
 function zipFieldsOfContent(content: LeadgenSectionContent): string[] {
   const out: string[] = [];
-  for (const node of content.components) {
+  // §8.5: probe the flattened projection — the SAME leaf universe
+  // normalizeAnswers walks — so a nested ZIP/Address component is found.
+  for (const node of flattenComponents(content.components)) {
     if (!isRecord(node)) continue;
     const type = node["type"];
     const topField = trimmedString(node["internal_field"]);

@@ -2237,16 +2237,45 @@ const SHARED_ACTIVITIES_SQL = `SELECT DISTINCT v FROM (
   UNION SELECT activity AS v FROM leadgen_quotes
 ) WHERE v IS NOT NULL AND v <> '' ORDER BY v ASC LIMIT 200`;
 
+// §8.2 (E1, fix-contract v2.4 08): the OPTIONAL `?activity=` filter — each
+// UNION leg filters by ITS OWN activity column (quotes: scalar activity column
+// + json_each over the verticals array). Same fixed-literal discipline as the
+// global statement; the activity value rides .bind() three times.
+const SHARED_VERTICALS_BY_ACTIVITY_SQL = `SELECT DISTINCT v FROM (
+  SELECT vertical AS v FROM leadgen_offers WHERE activity = ?
+  UNION SELECT vertical AS v FROM leadgen_sections WHERE activity = ?
+  UNION SELECT je.value AS v
+    FROM (SELECT verticals_json FROM leadgen_quotes
+          WHERE activity = ? AND verticals_json IS NOT NULL AND json_valid(verticals_json)) q,
+         json_each(q.verticals_json) AS je
+) WHERE v IS NOT NULL AND v <> '' ORDER BY v ASC LIMIT 200`;
+
 // Non-string union members (a number in a quote's verticals array) are
 // dropped here, mirroring the defensive filter the toolbar helper used.
-async function distinctSharedValues(db: D1Database, sql: string): Promise<string[]> {
-  const result = await db.prepare(sql).all<{ v: unknown }>();
+async function distinctSharedValues(
+  db: D1Database,
+  sql: string,
+  binds: readonly string[] = [],
+): Promise<string[]> {
+  const result = await db.prepare(sql).bind(...binds).all<{ v: unknown }>();
   return (result.results ?? [])
     .map((r) => r.v)
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 }
 
 export async function listVerticalsHandler(c: AdminContext): Promise<Response> {
+  // §8.2: additive `?activity=` — absent/empty keeps the global DISTINCT union
+  // (byte-compatible with the pre-D2 response).
+  const activity = c.req.query("activity")?.trim() ?? "";
+  if (activity !== "") {
+    return c.json({
+      items: await distinctSharedValues(c.env.DB, SHARED_VERTICALS_BY_ACTIVITY_SQL, [
+        activity,
+        activity,
+        activity,
+      ]),
+    });
+  }
   return c.json({ items: await distinctSharedValues(c.env.DB, SHARED_VERTICALS_SQL) });
 }
 

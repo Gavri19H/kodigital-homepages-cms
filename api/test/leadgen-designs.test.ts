@@ -132,6 +132,11 @@ describe("funnelChromeCss — every §14.2 token group is represented", () => {
     ["rangeQuestion", ".lg-range-fill{"],
     ["primaryButton", ".lg-btn{"],
     ["reassuranceBadge", ".lg-badge{"],
+    ["secureFormBadge", ".lg-secure-badge{"],
+    ["successState", ".lg-success{"],
+    ["trustBar", ".lg-trustbar{"],
+    ["logoStrip", ".lg-logo-strip{"],
+    ["stepIndicator", ".lg-step{"],
     ["iconCardGrid", ".lg-card-grid{"],
     ["iconCard", ".lg-card{"],
     ["input", ".lg-input{"],
@@ -140,6 +145,15 @@ describe("funnelChromeCss — every §14.2 token group is represented", () => {
     ["transitions", "--lg-transition-btn:"],
     ["breakpoints", "--lg-bp-mobile-max:"],
     ["banner", ".lg-banner{"],
+    // §8.5 layout containers (08 E4)
+    ["stack", ".lg-stack{"],
+    ["gridContainer", ".lg-grid-container{"],
+    ["columns", ".lg-columns{"],
+    ["cardPanel", ".lg-card-panel{"],
+    ["backgroundPanel", ".lg-bg-panel{"],
+    ["spacer", ".lg-spacer{"],
+    ["headerBar", ".lg-headerbar{"],
+    ["footerBar", ".lg-footerbar{"],
   ];
 
   for (const [group, sig] of signatures) {
@@ -163,6 +177,23 @@ describe("funnelChromeCss — every §14.2 token group is represented", () => {
   it("emits the continue-button loading/spinner states (§14.6)", () => {
     expect(css).toContain('.lg-btn[data-loading="true"] .lg-btn-spinner');
     expect(css).toContain("@keyframes lg-spin");
+  });
+
+  it("emits the §8.5 container responsive legs (Columns mobile stacking, GridContainer per-breakpoint cols, Stack collapse)", () => {
+    // the four Columns ratio presets at base…
+    expect(css).toContain('.lg-columns[data-ratio="50/50"]{grid-template-columns:1fr 1fr}');
+    expect(css).toContain('.lg-columns[data-ratio="60/40"]{grid-template-columns:3fr 2fr}');
+    expect(css).toContain('.lg-columns[data-ratio="40/60"]{grid-template-columns:2fr 3fr}');
+    expect(css).toContain('.lg-columns[data-ratio="70/30"]{grid-template-columns:7fr 3fr}');
+    // …and the responsive legs INSIDE the mobile media query
+    const mobileBlock = css.slice(css.indexOf("@media (max-width:"));
+    expect(mobileBlock).toContain('.lg-columns[data-mobile="stack"]{grid-template-columns:1fr}');
+    expect(mobileBlock).toContain("var(--lg-gc-cols-m, 1)");
+    expect(mobileBlock).toContain('.lg-stack[data-direction="horizontal"]{flex-direction:column}');
+    // desktop grid reads the desktop custom property at base
+    expect(css).toContain("var(--lg-gc-cols-d, 3)");
+    // Stack alignment variants
+    expect(css).toContain('.lg-stack[data-align="center"]');
   });
 });
 

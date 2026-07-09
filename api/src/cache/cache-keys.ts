@@ -172,7 +172,11 @@ export function listicleCandidateKey(
 // axis), exactly as TEMPLATE_VERSION does for CMS/Listicles HTML. It is a CODE
 // DEFAULT CONSTANT (mirroring TEMPLATE_VERSION above) — NOT a wrangler.toml
 // [vars] key — so no Env-interface change and no verify:worker-config impact.
-export const LEADGEN_TEMPLATE_VERSION = 1 as const;
+// v2 (Fix-P4): preset output changed — container/leaf components added and
+// style() now HTML-escapes values (font-family tokens render as &#39;-encoded
+// entities, computed-style identical). Bumping rolls all cached shells/configs
+// forward so no mixed pre/post-P4 markup lingers (the axis's whole purpose).
+export const LEADGEN_TEMPLATE_VERSION = 2 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

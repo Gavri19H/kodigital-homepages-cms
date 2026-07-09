@@ -33,6 +33,7 @@ import {
   type LeadgenTransformStep,
 } from "./payload";
 import { COMPONENT_CATALOG } from "../public/leadgen/components/registry";
+import { flattenComponents } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenAnswerType,
   LeadgenComponentNode,
@@ -172,8 +173,17 @@ function asStringArray(value: unknown, fallback: readonly string[]): string[] {
 function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   const catalog = COMPONENT_CATALOG[node.type];
   const produces = catalog?.produces ?? null;
+  // Non-producing nodes (ValidationError, HelperText, chrome, affordances)
+  // REFERENCE a question's internal_field — e.g. a ValidationError carries it
+  // as its error-slot binding (data-lg-error-for) — but never CLAIM an answer
+  // name. They contribute NO field to the answer space, matching the F2
+  // validator model (content-schema.ts:~758-764 scopes the internal_field
+  // uniqueness universe to `catalog.produces !== null`). Skipping them stops a
+  // later ValidationError{internal_field:"x"} from re-coercing the producer's
+  // already-normalized value (e.g. a boolean back to the string "yes").
+  if (produces === null) return [];
   const answerType: LeadgenAnswerType =
-    node.answer_type ?? (produces === null ? "string" : (produces as LeadgenAnswerType));
+    node.answer_type ?? (produces as LeadgenAnswerType);
 
   if (isNonEmptyString(node.internal_field)) {
     return [
@@ -218,7 +228,13 @@ export function normalizeAnswers(
 ): LeadgenNormalizedAnswers {
   const answers: Record<string, unknown> = {};
   const sources: Record<string, LeadgenAnswerSource> = {};
-  const components = Array.isArray(content.components) ? content.components : [];
+  // §8.5 layout containers: walk the canonical flattened projection so a
+  // question nested inside a container contributes its internal field exactly
+  // like a top-level one (containers produce nothing and are skipped). Flat
+  // legacy content flattens to itself.
+  const components = flattenComponents(
+    Array.isArray(content.components) ? content.components : [],
+  );
 
   for (const node of components) {
     if (!isRecord(node)) continue;

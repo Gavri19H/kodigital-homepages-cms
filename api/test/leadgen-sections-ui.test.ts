@@ -18,10 +18,13 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
-import { renderMappingGrid, type AnswerMapView, type MappingSummary } from "../src/admin/leadgen/ui-question-builder";
+// D2: ui-question-builder.ts is DELETED — its §12.11 mapping-grid cell-state
+// assertions are ported to test/leadgen-section-studio-ui.test.ts (the studio
+// island's edgeMapState/mapStateNote decode, executed from the served page).
 import {
   mappingSummaryOf,
   type AnswerMapApiRow,
@@ -284,7 +287,7 @@ describeDb("leadgen sections list page (03 §9.3)", () => {
 // ---------------------------------------------------------------------------
 
 describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
-  it("renders the builder canvas, capability palette, inspector tokens + the mapping grid", async () => {
+  it("renders the studio library, canvas, inspector token dropdowns + the mapping drawer summary", async () => {
     const { env } = newHarness();
     const offer = await createMappableOffer(env, { offer_name: "MapMe" });
     const section = await createSection(env, {
@@ -292,29 +295,35 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     });
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
 
-    // LEFT: canvas + palette (add from the capability catalog)
-    expect(html).toContain("data-lg-canvas");
-    expect(html).toContain('id="lg-canvas-list"');
+    // LEFT: the §8.3 component library (drag + click-to-add from the catalog)
+    expect(html).toContain("data-studio-library");
     expect(html).toContain('data-add-component="TwoButtonYesNo"');
     expect(html).toContain('data-add-component="IconCardAnswerGrid"');
-    // the seeded component renders as a canvas card
+    // CENTER: the §8.4 canvas — the seeded component is preset-rendered with
+    // its selection hit-target attribute
+    expect(html).toContain("data-studio-canvas");
     expect(html).toContain('data-question-id="q1"');
 
-    // RIGHT: inspector tokens (§14.8 curated) + the mapping grid (§12.4/§12.11)
-    expect(html).toContain("data-inspector-tokens");
-    expect(html).toContain("data-inspector-mapping");
-    expect(html).toContain('id="lg-mapping-grid"');
-    for (const col of ["Internal field", "Mapped Offer", "Offer field path", "Expected type", "Value transform", "Completeness", "Test payload"]) {
-      expect(html, `mapping column ${col}`).toContain(`>${col}</th>`);
-    }
-    // the curated token controls (never arbitrary CSS)
+    // RIGHT: the §8.6 Design tab — curated token DROPDOWNS only (§14.8; the
+    // free-text token inputs are gone, values come from the design's slots)
     for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap", "mobileBehavior"]) {
       expect(html, `token control ${key}`).toContain(`data-inspector-override="${key}"`);
+      expect(html, `token control ${key} is a select`).toContain(`<select id="lg-inspector-${key}"`);
     }
-    // the mapping row for the seeded Offer
-    expect(html).toContain(`data-mapping-offer="${offer.id}"`);
-    expect(html).toContain('data-mapping-status="complete"');
-    expect(html).toContain("MapMe");
+    // BOTTOM drawer: the D2 §8.7 mapping panel skeleton + the summary derived
+    // from the seeded (complete) mapping — data preserved untouched.
+    expect(html).toContain('data-studio-drawer-tab="mapping"');
+    expect(html).toContain("data-mapping-summary");
+    expect(html).toContain('data-publishable="true"');
+    expect(html).toContain("1 mapping edge on this Section");
+    expect(html).toContain("data-studio-mapping-table");
+    expect(html).toContain("data-studio-offers-empty"); // the E9 slot
+    expect(html).toContain("data-studio-map-grid");
+    // the mapping edges ride the state blob (pass-through to save)
+    const data = extractJsonBlob(html, "lg-section-data");
+    const maps = data["answer_maps"] as Array<Record<string, unknown>>;
+    expect(maps).toHaveLength(1);
+    expect(maps[0]).toMatchObject({ offer_id: offer.id, offer_payload_field_path: "data.insured", mapping_status: "complete" });
   });
 
   it("renders the Desktop/Mobile preview toggle + the §14.9 states simulator + §12.8 Maps toggle + continue-mode", async () => {
@@ -326,11 +335,24 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain('data-preview-viewport="desktop"');
     expect(html).toContain('data-preview-viewport="mobile"');
     expect(html).toContain('id="lg-preview-frame"');
-    expect(html).toContain('sandbox=""'); // sandboxed preview iframe (no innerHTML)
-    // §14.9 states simulator
-    for (const sim of ["default", "selected", "error", "dependency"]) {
+    // §9.1 (D2): the srcdoc runs the REAL runtime bundle in preview mode —
+    // scripts allowed, same-origin still withheld (opaque origin).
+    expect(html).toContain('sandbox="allow-scripts"');
+    // §8.9 design picker (preview under any registered design; "" = server default)
+    expect(html).toContain('id="lg-preview-design"');
+    expect(html).toContain('<option value="default-funnel">');
+    // §14.9/§9.2 states simulator — ALL sims server-rendered via preview params
+    for (const sim of ["default", "selected", "error", "dependency", "validation_success", "validation_error"]) {
       expect(html, `sim state ${sim}`).toContain(`data-sim-state="${sim}"`);
     }
+    // §9.2: the outer-iframe attribute hacks are GONE — the iframe element
+    // carries no data-viewport, and mobile sizing is a plain width class the
+    // island swaps on re-render (server wrapper does the real sizing).
+    const iframeTag = html.match(/<iframe[^>]*id="lg-preview-frame"[^>]*>/);
+    expect(iframeTag).not.toBeNull();
+    expect(iframeTag![0]).not.toContain("data-viewport");
+    expect(html).not.toContain(".lg-preview-frame[data-viewport");
+    expect(html).toContain(".lg-preview-frame-mobile{max-width:375px}");
     // §12.8 Google-Maps toggle (key is a secret — the note says so, no key embedded)
     expect(html).toContain('id="lg-address-validation"');
     expect(html).toContain("GOOGLE_MAPS_BROWSER_KEY");
@@ -353,9 +375,12 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain("New Section");
     expect(html).toContain('id="lg-section-save"');
     expect(html).toMatch(/id="lg-section-archive"[^>]*disabled/);
-    // empty canvas + empty mapping grid
+    // empty canvas + the D2 §8.7 panel skeleton (the island notes that a NEW
+    // Section must save before the Available Offers derivation exists)
     expect(html).toContain("No components yet.");
-    expect(html).toContain("No answer→Offer mappings yet.");
+    expect(html).toContain("data-studio-offers-note");
+    expect(html).toContain("data-studio-offers-empty");
+    expect(html).toContain("data-studio-mapping-table");
   });
 
   it("unknown / foreign-kind / malformed section ids → the in-shell 404", async () => {
@@ -415,18 +440,27 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(seeds["ProgressBar"]).toEqual({});
   });
 
-  it("the inspector renders the §13.1 authoring controls (not just style tokens)", async () => {
+  it("the inspector renders the §8.6 authoring controls (content/choices/validation/dependencies/advanced)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
-    expect(html).toContain("data-inspector-authoring");
+    // tabs (§8.6 per-selection panels)
+    for (const tab of ["content", "choices", "layout", "design", "validation", "dependencies", "mapping", "advanced"]) {
+      expect(html, `inspector tab ${tab}`).toContain(`data-studio-inspector-tab="${tab}"`);
+      expect(html, `inspector panel ${tab}`).toContain(`data-studio-panel="${tab}"`);
+    }
+    // Advanced owns internal_field/question_key (+ the ONLY raw-JSON surface);
+    // Validation owns the required toggle; Dependencies the typed IF builder.
     expect(html).toContain('data-inspector-field="internal_field"');
+    expect(html).toContain('data-inspector-field="question_key"');
     expect(html).toContain('data-inspector-field="required"');
-    expect(html).toContain('data-inspector-field="valid_values"');
+    expect(html).toContain("data-studio-node-json");
     expect(html).toContain('data-inspector-cond="when"');
     expect(html).toContain('data-inspector-cond="op"');
     expect(html).toContain("data-inspector-choices");
     expect(html).toContain('id="lg-choice-add"');
+    expect(html).toContain("data-choice-bulk"); // §8.6 bulk paste
+    expect(html).toContain('data-choicedisplay="otherGroupEnabled"'); // B9 main/Other grouping
   });
 
   it("the ES5 builder COLLECTS inspector edits back into the selected node (not just markDirty)", async () => {
@@ -450,7 +484,7 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     expect(html).toContain("componentSeeds[type]");
   });
 
-  it("the mapping grid has a working add-row control + collects data-map-field into state.answer_maps", async () => {
+  it("the studio preserves answer_maps through the save body (D2 owns the §8.7 editing panel)", async () => {
     const { env } = newHarness();
     const offer = await createMappableOffer(env);
     const section = await createSection(env, {
@@ -458,21 +492,18 @@ describeDb("leadgen section editor — M1 authoring wired", () => {
     });
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
 
-    expect(html).toContain('id="lg-mapping-add"');
-    // "+ Add mapping" appends an edge into state.answer_maps
-    expect(html).toContain("state.answer_maps.push(");
-    // per-row edit/remove/collect wiring reads data-map-field back into state
-    expect(html).toContain("function collectMappings(");
-    expect(html).toContain("function readMapRow(");
-    expect(html).toContain("function removeMapping(");
-    expect(html).toContain("getAttribute('data-map-field')");
-    expect(html).toContain("data-map-field");
-    // per-row Test hits the §12.11 validate-payload endpoint
-    expect(html).toContain("function testMapping(");
-    expect(html).toContain("/validate-payload");
+    // the raw §12.4 grid inputs are GONE from this surface (§8.7: no raw
+    // numeric offer ids / free-text paths outside the Advanced drawer)…
+    expect(html).not.toContain("data-map-field");
+    expect(html).not.toContain('id="lg-mapping-add"');
+    // …but the mapping edges still ride the state blob and the save body
+    // (pass-through until the D2 picker panel).
+    expect(html).toContain('data-studio-tab-mapping');
     // collectSection serializes BOTH the content nodes and the answer_maps
     expect(html).toContain("content_json: JSON.stringify(state.content)");
     expect(html).toContain("answer_maps: state.answer_maps");
+    const data = extractJsonBlob(html, "lg-section-data");
+    expect((data["answer_maps"] as unknown[]).length).toBe(1);
   });
 });
 
@@ -585,92 +616,15 @@ describeDb("leadgen sections pages — ES5-only inline scripts", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §12.11 field-level mapping-completeness cell states (pure render — no DB)
+// §12.11 field-level mapping-completeness cell states — PORTED (D2): the old
+// builder's renderMappingGrid is deleted with ui-question-builder.ts; the
+// studio's live decode (edgeMapState/mapStateNote/offerLiveState, executed
+// from the SERVED island) carries these assertions in
+// test/leadgen-section-studio-ui.test.ts ("§8.7 mapping panel — ported §12.11
+// cell states"). The SSR summary attrs (data-mapping-summary /
+// data-publishable / data-required-missing) stay asserted in the editor
+// describe above.
 // ---------------------------------------------------------------------------
-
-function mapView(mappingStatus: string, over: Partial<AnswerMapView> = {}): AnswerMapView {
-  return {
-    question_id: "q1",
-    question_key: "insured_q",
-    internal_field: "insured",
-    answer_type: "boolean",
-    offer_id: 7,
-    offer_payload_field_path: "data.insured",
-    provider_expected_type: "boolean",
-    output_value_map: null,
-    value_transform: null,
-    required_for_offer: true,
-    default_value: null,
-    fallback_value: null,
-    mapping_status: mappingStatus,
-    ...over,
-  };
-}
-
-describe("§12.11 mapping grid — the four field-level cell states + publish summary", () => {
-  const summary: MappingSummary = { publishable: false, status: "error", required_missing_total: 2 };
-  // one row per §12.11 state: complete→ok, incomplete→missing_required,
-  // type_mismatch, orphaned. The type_mismatch row names a coercion (string→boolean).
-  const html = renderMappingGrid(
-    [
-      mapView("complete"),
-      mapView("incomplete"),
-      mapView("type_mismatch", { answer_type: "string" }),
-      mapView("orphaned"),
-    ],
-    new Map<number, string>([[7, "OfferX"]]),
-    summary,
-  );
-
-  it("renders each of the four §12.11 semantic cell states with the exact copy", () => {
-    // the semantic state attribute for each cell
-    expect(html).toContain('data-mapping-cell="ok"');
-    expect(html).toContain('data-mapping-cell="missing_required"');
-    expect(html).toContain('data-mapping-cell="type_mismatch"');
-    expect(html).toContain('data-mapping-cell="orphaned"');
-    // the §12.11 exact per-state copy
-    expect(html).toContain("map required field"); // missing_required (red)
-    expect(html).toContain("answer type string not coercible to boolean"); // type_mismatch (amber)
-    expect(html).toContain("Offer field no longer exists in schema"); // orphaned (gray)
-    // the DB mapping_status attribute is preserved (back-compat)
-    expect(html).toContain('data-mapping-status="complete"');
-  });
-
-  it("colours each cell (green ok / red missing / amber mismatch / gray orphaned)", () => {
-    expect(html).toContain("lg-cell-ok");
-    expect(html).toContain("lg-cell-missing");
-    expect(html).toContain("lg-cell-mismatch");
-    expect(html).toContain("lg-cell-orphaned");
-  });
-
-  it("renders the section-level publish verdict + 'N required mappings missing' summary (§12.11 gate)", () => {
-    expect(html).toContain("data-mapping-summary");
-    expect(html).toContain('data-publishable="false"'); // §12.11 publish gate blocked
-    expect(html).toContain("Blocked from publish");
-    expect(html).toContain('data-required-missing="2"');
-    expect(html).toContain("2 required mappings missing");
-  });
-
-  it("a fully-mapped, publishable section shows the publishable verdict", () => {
-    const ok = renderMappingGrid(
-      [mapView("complete")],
-      new Map<number, string>([[7, "OfferX"]]),
-      { publishable: true, status: "ok", required_missing_total: 0 },
-    );
-    expect(ok).toContain('data-publishable="true"');
-    expect(ok).toContain("Publishable");
-    expect(ok).toContain('data-required-missing="0"');
-  });
-
-  it("the orphaned cell names the pinned schema by its public_id (§12.11 'vN')", () => {
-    const withSchema = renderMappingGrid(
-      [mapView("orphaned", { payload_schema_public_id: "lgp_00000000000000000000000001" })],
-      new Map<number, string>([[7, "OfferX"]]),
-      { publishable: false, status: "error", required_missing_total: 0 },
-    );
-    expect(withSchema).toContain("no longer exists in schema lgp_00000000000000000000000001");
-  });
-});
 
 // MAJOR-#1 regression: mappingSummaryOf (the REAL editor derivation, not a
 // hand-built MappingSummary) must agree with sectionValidationStatus — a
@@ -726,7 +680,7 @@ describe("mappingSummaryOf — edge-level errors block publish (sectionValidatio
 // ---------------------------------------------------------------------------
 
 describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key state", () => {
-  it("renders the §12.3 dependency simulator control + wires it to /sections/preview with sample_answers", async () => {
+  it("renders the §12.3 dependency simulator control + wires it to /sections/preview via §9.2 sim params", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
@@ -735,14 +689,36 @@ describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key s
     expect(html).toContain("data-dependency-answers");
     expect(html).toContain('id="lg-dependency-apply"');
     expect(html).toContain("data-dependency-status");
-    // the P5 "dependency" sim button now drives the state variable
+    // the sim buttons drive the state variable
     expect(html).toContain('data-sim-state="dependency"');
     expect(html).toContain("simState = stateName");
-    // runPreview sends sample_answers ONLY in dependency mode + reflects the verdict
+    // §9.2: runPreview sends the parameterized body — viewport + sim {state,
+    // answers} (answers on every non-default sim) — and consumes preview.html
     expect(html).toContain("function sampleAnswers(");
     expect(html).toContain("function renderDependencyStatus(");
-    expect(html).toContain("requestBody.sample_answers = sampleAnswers()");
-    expect(html).toContain("simState === 'dependency'");
+    expect(html).toContain("viewport: previewViewport");
+    expect(html).toContain("sim: { state: simState }");
+    expect(html).toContain("requestBody.sim.answers = sampleAnswers()");
+    expect(html).toContain("simState !== 'default'");
+    expect(html).toContain("res.body.preview.html");
+    // the legacy body key is gone from the island
+    expect(html).not.toContain("requestBody.sample_answers");
+  });
+
+  it("§9.2: the outer-iframe attribute hacks are DELETED from the island source", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await getHtml(env, `/admin/leadgen/sections/${section.public_id}/edit`);
+    const island = extractScripts(html).find((s) => s.includes("runPreview"));
+    expect(island, "builder island present").toBeDefined();
+    // the sim-state + viewport writes onto the iframe element are gone —
+    // every sim/viewport is SERVER-rendered into the srcdoc markup
+    expect(island!).not.toContain("setAttribute('data-sim-state'");
+    expect(island!).not.toContain("setAttribute('data-viewport'");
+    // the only frame attribute the island writes is the srcdoc itself
+    expect(island!).toContain("setAttribute('srcdoc'");
+    // mobile sizing = plain class swap on re-render (not an attribute selector)
+    expect(island!).toContain("'lg-preview-frame lg-preview-frame-mobile'");
   });
 
   it("surfaces the §30.2 Maps-key ABSENT state when no browser key is configured", async () => {
@@ -763,5 +739,295 @@ describeDb("leadgen section editor — P6 dependency preview + §30.2 Maps-key s
     const html = await res.text();
     expect(html).toContain('data-maps-key="configured"');
     expect(html).not.toContain("browser-abc"); // §30.2 — the key VALUE is never embedded
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §9.2 EXECUTED island probe — the REAL runPreview sliced from the served page
+// runs in a vm whose fetch is the REAL admin router (client-vs-server-JSON
+// seam: the request body the island BUILDS is served by the live handler and
+// the island CONSUMES the live response — preview.html → srcdoc, class swap).
+// ---------------------------------------------------------------------------
+
+// Two-component content whose second question depends on the first (drives a
+// real dependencies verdict through the executed round-trip).
+const UI_DEP_CONTENT = {
+  components: [
+    { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+    {
+      type: "FreeTextQuestion",
+      question_id: "q2",
+      question_key: "insurer_q",
+      internal_field: "insurer",
+      answer_type: "string",
+      required: true,
+      conditional: { when: "currently_insured", op: "eq", value: true },
+    },
+  ],
+};
+
+function sliceIslandFunction(script: string, name: string): string {
+  const marker = `function ${name}(`;
+  const start = script.indexOf(marker);
+  expect(start, `island function ${name} present`).toBeGreaterThan(-1);
+  const open = script.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return script.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces while slicing island function ${name}`);
+}
+
+// Minimal element stand-in implementing exactly the DOM surface the preview
+// slice touches (value/hidden/className, get/set/removeAttribute, text children).
+interface ProbeEl {
+  hidden: boolean;
+  value: string;
+  className: string;
+  textContent: string;
+  attrs: Map<string, string>;
+  children: unknown[];
+  readonly firstChild: unknown;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
+  appendChild(c: unknown): unknown;
+  removeChild(c: unknown): unknown;
+}
+
+function probeEl(): ProbeEl {
+  const attrs = new Map<string, string>();
+  const children: unknown[] = [];
+  return {
+    hidden: false,
+    value: "",
+    className: "",
+    textContent: "",
+    attrs,
+    children,
+    get firstChild() {
+      return children.length > 0 ? children[0]! : null;
+    },
+    setAttribute(k, v) {
+      attrs.set(k, String(v));
+    },
+    getAttribute(k) {
+      return attrs.has(k) ? attrs.get(k)! : null;
+    },
+    removeAttribute(k) {
+      attrs.delete(k);
+    },
+    appendChild(c) {
+      children.push(c);
+      return c;
+    },
+    removeChild(c) {
+      const i = children.indexOf(c);
+      if (i !== -1) children.splice(i, 1);
+      return c;
+    },
+  };
+}
+
+interface PreviewProbeOut {
+  requestBody: Record<string, unknown>;
+  url: string;
+  frame: ProbeEl;
+  probeFrame: ProbeEl;
+  errEl: ProbeEl;
+  statusEl: ProbeEl;
+}
+
+// Slice trimStr/sampleAnswers/renderDependencyStatus/runPreview out of the
+// SERVED island, execute runPreview() in a vm, and route its fetch through
+// the REAL admin router. Waits for the async chain to land (srcdoc or error).
+async function runPreviewProbe(opts: {
+  env: Env;
+  island: string;
+  content: unknown;
+  simState: string;
+  viewport: string;
+  answersJson?: string;
+  designValue?: string;
+}): Promise<PreviewProbeOut> {
+  const frame = probeEl();
+  frame.className = "lg-preview-frame";
+  const probeFrame = probeEl(); // the hidden §8.9 events probe (§14.9 fix)
+  const errEl = probeEl();
+  errEl.hidden = true;
+  const statusEl = probeEl();
+  const answersEl = probeEl();
+  answersEl.value = opts.answersJson ?? "";
+  const designEl = probeEl();
+  designEl.value = opts.designValue ?? "";
+  let captured: { url: string; init: RequestInit } | null = null;
+  const sandbox = {
+    document: {
+      getElementById(id: string): ProbeEl | null {
+        if (id === "lg-preview-frame") return frame;
+        if (id === "lg-events-probe-frame") return probeFrame;
+        if (id === "lg-preview-error") return errEl;
+        if (id === "lg-dependency-answers") return answersEl;
+        if (id === "lg-preview-design") return designEl;
+        return null;
+      },
+      querySelector(sel: string): ProbeEl | null {
+        return sel === "[data-dependency-status]" ? statusEl : null;
+      },
+      createTextNode(t: string): unknown {
+        return { nodeType: 3, textContent: String(t) };
+      },
+    },
+    fetch(url: string, init: RequestInit): Promise<Response> {
+      captured = { url, init };
+      return Promise.resolve(admin.request(url, init, opts.env));
+    },
+  };
+  const source = [
+    `var state = { content: ${JSON.stringify(opts.content)} };`,
+    `var simState = ${JSON.stringify(opts.simState)};`,
+    `var previewViewport = ${JSON.stringify(opts.viewport)};`,
+    sliceIslandFunction(opts.island, "trimStr"),
+    sliceIslandFunction(opts.island, "sampleAnswers"),
+    sliceIslandFunction(opts.island, "renderDependencyStatus"),
+    sliceIslandFunction(opts.island, "clearEventsList"), // D2: runPreview resets the events panel
+    sliceIslandFunction(opts.island, "runPreview"),
+    "runPreview();",
+  ].join("\n");
+  runInNewContext(source, sandbox);
+  for (let i = 0; i < 200 && !frame.attrs.has("srcdoc") && errEl.hidden; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  expect(captured, "island fetch executed").not.toBeNull();
+  const { url, init } = captured!;
+  return {
+    url,
+    requestBody: JSON.parse(String(init.body)) as Record<string, unknown>,
+    frame,
+    probeFrame,
+    errEl,
+    statusEl,
+  };
+}
+
+describeDb("§9.2 executed island — runPreview against the REAL preview handler", () => {
+  async function editorIsland(env: Env): Promise<string> {
+    const html = await getHtml(env, "/admin/leadgen/sections/new");
+    const island = extractScripts(html).find((s) => s.includes("function runPreview("));
+    expect(island, "builder island present").toBeDefined();
+    return island!;
+  }
+
+  it("dependency sim @ mobile: body carries viewport+sim.answers; srcdoc consumes preview.html; class swap (no attribute hacks)", async () => {
+    const { env } = newHarness();
+    const island = await editorIsland(env);
+    const out = await runPreviewProbe({
+      env,
+      island,
+      content: UI_DEP_CONTENT,
+      simState: "dependency",
+      viewport: "mobile",
+      answersJson: '{"currently_insured": true}',
+    });
+
+    // --- the CLIENT-built request body (the §9.2 shape) ---------------------
+    expect(out.url).toBe("/api/admin/leadgen/sections/preview");
+    expect(out.requestBody["content_json"]).toBe(JSON.stringify(UI_DEP_CONTENT));
+    expect(out.requestBody["viewport"]).toBe("mobile");
+    expect(out.requestBody["sim"]).toEqual({ state: "dependency", answers: { currently_insured: true } });
+    expect("design_id" in out.requestBody).toBe(false); // picker empty ⇒ omitted
+    expect("sample_answers" in out.requestBody).toBe(false); // legacy key gone
+
+    // --- the island CONSUMED the live server JSON ---------------------------
+    expect(out.errEl.hidden).toBe(true);
+    const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
+    // P4 §9.2/§14.9: a NON-default sim loads the STATIC server still — a
+    // shell-shaped document carrying NO scripts (a runtime boot would re-apply
+    // dependency visibility from an EMPTY answer store and re-hide the sim's
+    // reveal). Ready by construction.
+    expect(srcdoc.startsWith("<!doctype html>")).toBe(true);
+    expect(srcdoc).toContain("<style>");
+    expect(srcdoc).toContain('data-lg-preview="1"');
+    expect(srcdoc).toContain('data-lg-ready="1"');
+    expect(srcdoc).not.toContain("<script");
+    // the MOBILE wrapper (the requested viewport), not desktop — the whole
+    // static document IS markup (no bundle literals to scope away)
+    expect(srcdoc).toContain("lg-preview-mobile");
+    expect(srcdoc).not.toContain("lg-preview-desktop");
+    // both dependency-visible questions rendered by the live handler
+    expect(srcdoc).toContain('data-lg-question="q1"');
+    expect(srcdoc).toContain('data-lg-question="q2"');
+    // …while the hidden probe frame carries the RUNTIME events document, so
+    // the §8.9 panel keeps its stream during static sims (§9.1)
+    const probeDoc = out.probeFrame.attrs.get("srcdoc") ?? "";
+    expect(probeDoc).toContain('id="lg-config"');
+    expect(probeDoc).toContain('<script data-lg-runtime-version="');
+    // mobile sizing = plain class swap on re-render; srcdoc is the ONLY
+    // attribute the island writes on the iframe (hacks deleted)
+    expect(out.frame.className).toBe("lg-preview-frame lg-preview-frame-mobile");
+    expect([...out.frame.attrs.keys()]).toEqual(["srcdoc"]);
+    // the live dependencies verdict landed in the status line (q2 visible +
+    // required + unanswered ⇒ continue blocked)
+    expect(out.statusEl.attrs.get("data-continue-blocked")).toBe("true");
+  });
+
+  it("selected sim @ desktop with the design picker: design_id rides; the srcdoc markup is SERVER-rendered selected state", async () => {
+    const { env } = newHarness();
+    const island = await editorIsland(env);
+    const out = await runPreviewProbe({
+      env,
+      island,
+      content: YESNO_CONTENT,
+      simState: "selected",
+      viewport: "desktop",
+      answersJson: '{"currently_insured": true}',
+      designValue: "default-funnel",
+    });
+
+    expect(out.requestBody["design_id"]).toBe("default-funnel");
+    expect(out.requestBody["viewport"]).toBe("desktop");
+    expect((out.requestBody["sim"] as Record<string, unknown>)["state"]).toBe("selected");
+
+    const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
+    // P4 §9.2: the selected sim is a STATIC still — the whole document IS
+    // markup (no config/runtime scripts on non-default sims)
+    expect(srcdoc).not.toContain("<script");
+    expect(srcdoc).toContain("lg-preview-desktop");
+    expect(srcdoc).toContain('data-funnel-design="default-funnel"');
+    // the SERVER rendered the selection into the markup — the client painted
+    // nothing (E5: never attributes for the client to interpret)
+    expect(srcdoc).toContain('aria-checked="true"');
+    expect(srcdoc).toContain("lg-selected");
+    expect(srcdoc).toContain('aria-pressed="true"');
+    expect(out.frame.className).toBe("lg-preview-frame");
+  });
+
+  it("default sim sends NO sim.answers (classic full render request)", async () => {
+    const { env } = newHarness();
+    const island = await editorIsland(env);
+    const out = await runPreviewProbe({
+      env,
+      island,
+      content: YESNO_CONTENT,
+      simState: "default",
+      viewport: "desktop",
+      answersJson: '{"currently_insured": true}', // affordance filled but state=default ⇒ ignored
+    });
+    expect(out.requestBody["sim"]).toEqual({ state: "default" });
+    const srcdoc = out.frame.attrs.get("srcdoc") ?? "";
+    // the DEFAULT state keeps FULL hydration: the runtime events document
+    // (§9.1) with config + inlined bundle — markup-scoped assertions (the
+    // bundle JS carries the class literal)
+    expect(srcdoc).toContain('id="lg-config"');
+    expect(srcdoc).toContain('<script data-lg-runtime-version="');
+    const markup = srcdoc.slice(0, srcdoc.indexOf('<script type="application/json" id="lg-config">'));
+    expect(markup).toContain("lg-preview-desktop");
+    expect(markup).not.toContain("lg-selected");
+    // …and the probe frame is PARKED (only ONE runtime document at a time)
+    expect(out.probeFrame.attrs.has("srcdoc")).toBe(false);
   });
 });

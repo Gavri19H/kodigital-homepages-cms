@@ -142,3 +142,53 @@ describe("evaluateDependencies — §12.6 defaults + chaining", () => {
     expect(s.components.find((c) => c.question_id === "insurer")?.visible).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §8.5 layout containers — evaluation runs over the canonical flattened
+// projection: a question nested inside a container behaves EXACTLY like its
+// flat equivalent (same visibility, same continue gate), and containers never
+// appear in the visibility output.
+// ---------------------------------------------------------------------------
+
+describe("evaluateDependencies — §8.5 nested equivalents match flat results", () => {
+  const flatComps: LeadgenComponentNode[] = [
+    node({ question_id: "q_ins", internal_field: "insured", required: true }),
+    node({ question_id: "insurer", conditional: { when: "insured", op: "eq", value: true } }),
+  ];
+  const nestedComps: LeadgenComponentNode[] = [
+    {
+      type: "CardPanel",
+      question_id: "panel",
+      children: [
+        node({ question_id: "q_ins", internal_field: "insured", required: true }),
+        {
+          type: "Stack",
+          question_id: "stk",
+          children: [node({ question_id: "insurer", conditional: { when: "insured", op: "eq", value: true } })],
+        } as LeadgenComponentNode,
+      ],
+    } as LeadgenComponentNode,
+  ];
+
+  it("show-when eq: nested tree yields the SAME per-leaf visibility as the flat list", () => {
+    for (const answers of [{ insured: true }, { insured: false }, {}]) {
+      const flat = evaluateDependencies(flatComps, answers);
+      const nested = evaluateDependencies(nestedComps, answers);
+      expect(nested.components).toEqual(flat.components);
+      expect(nested.continue_blocked).toBe(flat.continue_blocked);
+      expect(nested.blocking_question_ids).toEqual(flat.blocking_question_ids);
+    }
+  });
+
+  it("containers never appear in the visibility output (leaves only)", () => {
+    const state = evaluateDependencies(nestedComps, { insured: true });
+    expect(state.components.map((c) => c.question_id)).toEqual(["q_ins", "insurer"]);
+  });
+
+  it("visibleQuestionIds resolves nested leaves identically to flat", () => {
+    expect(visibleQuestionIds(nestedComps, { insured: true })).toEqual(
+      visibleQuestionIds(flatComps, { insured: true }),
+    );
+    expect(visibleQuestionIds(nestedComps, {})).toEqual(["q_ins"]);
+  });
+});
