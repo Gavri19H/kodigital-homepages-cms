@@ -1,13 +1,41 @@
-# Manual QA — LeadGen CMS (v2.3.7)
+# Manual QA — LeadGen CMS · Fix-P5 (contract v2.4 §11.7 · Testing & Manual QA)
 
-Browser-executed manual-QA scenarios for the LeadGen CMS. This is the
-operator sign-off deliverable for contract §32 (Manual QA checklist) and
-traceability row 49 / matrix row 32; a phase is not "done" until every
-scenario below passes with recorded evidence.
+Browser-executed manual-QA scenarios for the LeadGen CMS. This document is the
+operator sign-off deliverable for the **Fix-P5** phase of the LeadGen Fix
+Contract v2.4 (§11.7 Manual QA + §11.8 Acceptance). It **extends** — it does
+not discard — the v2.3.7 manual-QA set: the ten new **MQA-R** scenarios
+(Part A) catch the specific failure class this fix mission targets, and the
+original v2.3.7 checklist (Part B, including the runtime-critical **MQA-16**
+site activation and **MQA-22** click resolver) is preserved beneath them.
 
-Each scenario maps 1:1 to a §32 checklist item (MQA-N ↔ §32 item N). Tightly
-related sub-checks that belong to one §32 bullet are grouped inside that one
-scenario. Two surfaces are exercised:
+> ## ⚠️ A blank sign-off table is a FAIL state
+>
+> **A blank sign-off table is a FAIL state for Fix-P5 PASS (the v2.3.7 lesson,
+> contract §11.7).** These scenarios require a real activated tenant +
+> production/staging environment and a human tester — they are **operator-owned
+> and BLOCKED until executed**; the agent has prepared them and **will not
+> fabricate results**. No `Result` cell in the sign-off tables may be filled by
+> anyone but the human operator who actually ran the scenario on a live
+> environment. Until a row is executed, its `Result` stays blank and the row is
+> BLOCKED — never PASS.
+
+**The failure class under test (why Part A exists).** v2.3.7 shipped a runtime
+that passed its unit suite but was **non-operational end-to-end**: `/lg` did
+not render a live funnel, the client engine never mounted, macro/computed
+context came back empty, and the auction/quote gates were effectively dead. A
+green unit suite is **not** proof the product works. Every MQA-R scenario
+therefore demands a *runtime* observation on a *real activated tenant* — a
+rendered, answered, auctioned, clicked funnel — not an admin-only or in-process
+check.
+
+Each scenario carries a link to the automated test that proves the same
+behavior in CI, so the operator knows what is already machine-verified versus
+what still needs human eyes on a live environment. **CI-green ≠ live-PASS:**
+the automated test is the floor, the manual run on a live tenant is the ceiling.
+
+Each preserved v2.3.7 scenario (Part B) maps 1:1 to a §32 checklist item (MQA-N
+↔ §32 item N). Tightly related sub-checks that belong to one §32 bullet are
+grouped inside that one scenario. Two surfaces are exercised:
 
 - **Admin** — the CF-Access-gated CMS on `ADMIN_HOST`: the shell routes
   `/admin/leadgen*` and the JSON API `/api/admin/leadgen/*`.
@@ -59,7 +87,354 @@ authoring/validation legs are verifiable immediately):
   (MQA-23). A staging provider endpoint (+ that offer's token secret) is also
   needed for MQA-3's live Test round-trip.
 
-## Scenario index
+# Part A — Fix-P5 runtime-operational scenarios (MQA-R1 … MQA-R10)
+
+These ten scenarios are the §11.7 Fix-P5 gate. Each one is written to catch the
+v2.3.7 failure class: *shipped code that is not operational end-to-end.* An
+admin-only or in-process check does **not** satisfy an MQA-R row — the runtime
+leg must be observed on a real activated tenant. Where a scenario has an
+admin-side leg that is verifiable immediately, it is split into *Verifiable now*
+vs *Needs live input* so the operator can make partial progress, but the row
+does not reach PASS until its runtime leg is observed.
+
+## Part A scenario index
+
+| ID | Title | Surface | Live-leg status |
+|---|---|---|---|
+| MQA-R1 | Live `/lg` render + full funnel completion (desktop + real mobile device) | Runtime | [BLOCKED-until: activated quote on a live tenant + LEADGEN_CONFIG_SIGNING_KEY + a physical mobile device] |
+| MQA-R2 | Auction banners render; impressions visible in analytics next sync | Runtime + Admin | [BLOCKED-until: activated quote + signing key (banners) + CH ingest / mirror-sync (analytics)] |
+| MQA-R3 | Banner click → provider URL with resolved macros (inspect final URL) | Runtime | [BLOCKED-until: activated quote + signing key + a completed funnel that reached an auction] |
+| MQA-R4 | Payload carries real geo/ip/traffic + computed + placement (provider echo) | Admin + Runtime | [BLOCKED-until: reachable staging endpoint + the offer's token secret; runtime leg also needs activated quote + signing key] |
+| MQA-R5 | Invalid/untested Offer blocked from the auction (observe exclusion reason) | Admin (+ Runtime) | Admin Simulate verifiable now; live exclusion [BLOCKED-until: activated quote + signing key] |
+| MQA-R6 | Invalid Quote activation blocked with a readable report | Admin | Now |
+| MQA-R7 | Payload builder: author schema + run Test with zero raw JSON | Admin | Authoring now; live Test round-trip [BLOCKED-until: staging endpoint + token secret] |
+| MQA-R8 | Section Studio: build capability pattern `08` §8.11-(4) start-to-finish | Admin | Now |
+| MQA-R9 | Maps field-level config + missing-key fallback | Admin | Config + fallback now; live autofill [BLOCKED-until: GOOGLE_MAPS_BROWSER_KEY + GOOGLE_MAPS_SERVER_KEY] |
+| MQA-R10 | Desktop/mobile preview round-trip | Admin | Now |
+
+---
+
+### MQA-R1: Live `/lg` render + full funnel completion (desktop + real mobile device) — [BLOCKED-until: activated quote on a live tenant + LEADGEN_CONFIG_SIGNING_KEY]
+
+- **Objective:** Prove the public funnel renders and a human can complete it
+  end-to-end on a real activated site, on both desktop and a physical mobile
+  device — the exact behavior v2.3.7 shipped without.
+- **Steps:**
+  1. Confirm a Quote is activated on the test tenant site (the MQA-16 admin leg;
+     note the per-site slug).
+  2. On a **desktop** browser open `https://<tenant-host>/lg/<slug>` with
+     DevTools → Network open. In DevTools settings **disable JavaScript** and
+     reload; read the served HTML and confirm the first Section's question text
+     is present (server render, no client JS).
+  3. Re-enable JavaScript and reload. Answer each Section in turn: click a
+     choice (auto-advance Sections advance on the click; Continue-mode Sections
+     require the Continue pill). Click **Back** to a prior Section and confirm
+     your earlier answers + the progress bar are restored. Trigger a dependency
+     (an IF/THEN follow-up) and confirm the follow-up reveals, then hides when
+     you undo it.
+  4. Complete the final Section. In the Network tab confirm a `POST /lg/auction`
+     fires carrying the funnel binding + answers, and the auction/banner step
+     renders.
+  5. Repeat steps 2–4 on a **real mobile device** (a physical phone, not just
+     desktop responsive emulation) in portrait; confirm the funnel completes
+     and there is no horizontal scroll.
+- **Expected:** JS-disabled first question visible in the served HTML; every
+  Section renders its components; answers select and persist across Back;
+  auto-advance / Continue / dependency all behave; the final Section reaches
+  `POST /lg/auction`; the funnel completes on desktop **and** the physical
+  mobile device with no horizontal overflow and a clean console.
+- **Automated-test proof (CI):** `test-ui/leadgen-live-funnel.spec.ts` —
+  `Group 1 — server render without JS (11 §11.2 / 03 §3.11)`,
+  `Group 1 — answers, defaults, auto-advance`,
+  `Group 1 — validation, back-nav, dependencies`,
+  `Group 1 — auction → banners → impressions → click` (test *"full traversal
+  POSTs /lg/auction with binding+answers+versions; banners render; impressions
+  beacon once; /lg/lc 302 resolves macros"*), and `Group 1 — mobile 375` (test
+  *"mobile funnel renders, completes to banners; 375px screenshots; no
+  horizontal overflow"*). Permanent anti-false-PASS floor:
+  `§11.6 anti-false-PASS regression (permanent)` (test *"FAIL if: empty mount
+  after ready · zero questions · no answer_click beacon · /lg/auction never
+  called"*).
+- **Evidence:** desktop + mobile screenshots of the completed funnel; Network
+  showing `POST /lg/auction`; the JS-disabled HTML with the first question;
+  console clean.
+
+### MQA-R2: Auction banners render; impressions visible in analytics next sync — [BLOCKED-until: activated quote + LEADGEN_CONFIG_SIGNING_KEY (banners) + CH ingest / mirror-sync (analytics)]
+
+- **Objective:** Prove the auction step paints real banners and that the
+  impression beacons those banners fire land in the analytics surfaces after the
+  next ingest/sync.
+- **Steps:**
+  1. From MQA-R1, complete a funnel to the auction step. Confirm one or more
+     banners render (not an empty slot).
+  2. With DevTools → Network filtered to `/lg/track`, scroll each banner slot
+     into view once and confirm a `carrier_impression` / `offer_impression`
+     beacon fires **once** per slot (scroll it out and back — it must not
+     double-fire).
+  3. Note the timestamp. After the every-minute analytics cron / a manual
+     `POST /api/admin/leadgen/analytics/rebuild-range` for the window (once
+     ClickHouse is populated and the mirror sync has run), open the Offer /
+     Auction / carrier analytics columns in the admin.
+- **Expected:** banners render from the auction result; each impression beacon
+  is an actual HTTP `POST /lg/track` (E4 — a queue push is not receipt) that
+  fires exactly once per slot; after ingest + mirror sync the impression counts
+  appear in the `leadgen_analytics_*` D1 mirrors and the admin ratio cells
+  compute (an empty denominator renders "—", never `0`/`NaN`).
+- **Automated-test proof (CI):** `test-ui/leadgen-live-funnel.spec.ts` —
+  `Group 1 — auction → banners → impressions → click` (impression-fires-once
+  leg); `test/leadgen-events.test.ts` —
+  `emitLeadgenRecords — §22.1 no-op vs §22.5 fail-open dispatch`;
+  `test/leadgen-analytics-producers.test.ts` —
+  `§10.2 producer map — lockstep over the frozen LEADGEN_EVENT_TYPES`;
+  `test/leadgen-mirror-sync.test.ts` —
+  `MIRRORS spec set (contract 08 §23/§24 + migration 0037)`;
+  `test/leadgen-analytics-admin.test.ts` —
+  `POST /api/admin/leadgen/analytics/rebuild-range (§24 manual CH→D1 backfill)`.
+- **Evidence:** screenshot of rendered banners; Network `POST /lg/track`
+  impression beacons (one per slot); post-sync screenshot of the populated
+  analytics ratios + the D1 `SELECT` on `leadgen_analytics_offer_daily`.
+
+### MQA-R3: Banner click → provider URL with resolved macros (inspect the final URL) — [BLOCKED-until: activated quote + LEADGEN_CONFIG_SIGNING_KEY + a completed funnel that reached an auction]
+
+- **Objective:** Prove a real banner click resolves to the provider destination
+  with every macro (`{session_id}`, `{utm_source}`, `{response:slug}`,
+  `{click_id}`, …) substituted — never a raw `{token}` or a broken redirect.
+- **Steps:**
+  1. From a live funnel run that reached an auction (MQA-R1), use an Offer whose
+     banner template references a response macro such as `{response:slug}`.
+  2. With DevTools → Network (Preserve log on), click the banner. The request is
+     `GET /lg/lc/:offer_id?ck=…&aiid=…&brid=…&slot=…&faid=…`.
+  3. Inspect the 302 `Location` header on that request — read the **final URL**
+     end to end.
+- **Expected:** the click mints a `click_id`, counts the click, and 302s to a
+  safe `http(s)` `Location` in which every macro is resolved to a real value
+  (no literal `{…}` remains); a `{response:slug}` template resolves from the
+  persisted response. A required-missing / unsafe / no-target resolution returns
+  a safe **204** (the click still counted) — never a broken redirect.
+- **Automated-test proof (CI):** `test/leadgen-runtime-routes.test.ts` —
+  `GET /lg/lc/:offer_id — governed click resolver (§19.16 / §4.3)` (tests
+  *"mints an lgl_ click_id + resolves {response:*} from the persisted
+  (redacted) response into the 302"* and *"a required {response:*} missing at
+  click time → safe non-302 (204, no-store) but the click STILL counts"*);
+  `test/leadgen-click.test.ts` — `resolveLeadgenClick — URL resolution (§19
+  step 16 / §10.5)`; `test/leadgen-macros.test.ts` —
+  `resolveMacros — canonical runtime substitution` and
+  `validateBannerUrlTemplate — §10.5 guards`;
+  `test-ui/leadgen-live-funnel.spec.ts` — the `/lg/lc 302 resolves macros` leg.
+- **Evidence:** Network 302 with the fully-resolved `Location`; the
+  `{response:slug}`-resolved destination; D1
+  `SELECT click_id, offer_public_id FROM leadgen_clicks WHERE …`.
+
+### MQA-R4: Payload carries real geo/ip/traffic + computed + placement (staging provider echo) — [BLOCKED-until: reachable staging endpoint + the offer's token secret]
+
+- **Objective:** Prove the payload sent to a provider contains the real runtime
+  context (geo/ip/traffic slices), resolved computed keys, and placement values
+  — not empty strings, the empty-context bug of v2.3.7.
+- **Steps:**
+  1. On a dynamic Offer with a staging endpoint + token secret configured, open
+     the payload builder (`/admin/leadgen/offers/:id/edit`) and confirm the
+     schema maps macros (e.g. `{geo:state}`, `{ip}`, `{utm_source}`), computed
+     keys, and a `source:"placement"` value.
+  2. Open the **Test** tool and run against **staging**
+     (`POST /api/admin/leadgen/offers/:id/test`). Read the echoed request
+     payload the provider received.
+  3. (Runtime confirmation) After MQA-R1 reaches `/lg/auction` on a real
+     activated tenant, confirm the provider fetch carries the same real context
+     (via the simulate/echo or the provider's staging log).
+- **Expected:** the staging echo shows real geo/ip/traffic values, resolved
+  computed keys, and the correct placement value at their mapped schema paths;
+  the token is masked (`[REDACTED]`) everywhere in the echo while sent for real
+  outbound; the runtime `/lg/auction` payload carries the identical real context
+  (not empty).
+- **Automated-test proof (CI):** `test/leadgen-gates.test.ts` —
+  `G2 — the live /lg/auction provider payload carries the REAL runtime context`,
+  `§11.3 multi-placement matrix — one Offer, two placements, one auction (04
+  §4.5)`, and `Test tool — the SAME simulated context yields the SAME payload
+  as the runtime builder`; `test/leadgen-runtime-context.test.ts` —
+  `buildLeadgenRuntimeContext — slice construction (§4.1/§4.2)`,
+  `contextToMacros — the 32-macro projection table (§4.3)`, and
+  `payload source:"placement" (§4.5 storage extension)`;
+  `test/leadgen-computed.test.ts` — `COMPUTED_REGISTRY — the 12 keys (§4.4
+  table)`; `test/leadgen-test-tool.test.ts` —
+  `POST /offers/:id/test — §11.6 success cycle (mocked outbound fetch)`.
+- **Evidence:** the Test result echo showing real context values + `[REDACTED]`
+  token; Network `POST /api/admin/leadgen/offers/:id/test`; the provider staging
+  log of the received payload.
+
+### MQA-R5: Invalid/untested Offer blocked from the auction (attempt + observe the exclusion reason)
+
+- **Objective:** Prove an ineligible Offer (invalid schema / untested / failed /
+  missing parser / missing endpoint) is excluded from the auction with a typed,
+  visible reason — the EMPTY_SCHEMA silent-participation bug is gone.
+- **Steps:**
+  1. Attach an untested (or invalid-schema) dynamic Offer to an auction.
+  2. Run the auction **Simulate**
+     (`POST /api/admin/leadgen/auctions/:id/simulate`) with a matching context.
+     Read the `offers_excluded` trace.
+  3. (Live, when unblocked) complete a funnel to that auction on a real tenant
+     and confirm the Offer's provider is never called and it never surfaces.
+- **Expected:** Simulate lists the Offer in `offers_excluded` with a typed
+  `carrier_filtered_reason` (untested / invalid_schema / missing_endpoint /
+  missing_parser); the mock provider records **zero** calls for the ineligible
+  Offer; a clean, tested Offer in the same auction is included (bidirectional).
+- **Automated-test proof (CI):** `test/leadgen-gates.test.ts` —
+  `dynamicAuctionEligibility — 05 §5.1 extended codes`,
+  `fetchProvider — missing runtime context is a typed no-call exclusion`, and
+  `PUT /auctions/:id/offers — per-offer eligibility warnings, save accepted`;
+  `test/leadgen-auction-simulate.test.ts` — test *"an offer-level exclude rule
+  surfaces in offers_excluded with a typed reason"*;
+  `test-ui/leadgen-offers-mgmt.spec.ts` — test ⑥ (simulate trace: redacted
+  payload preview + parser id + dry-run note).
+- **Evidence:** simulate JSON `offers_excluded[]` with the typed reason; the
+  zero-provider-call proof; screenshot of the trace.
+
+### MQA-R6: Invalid Quote activation blocked with a readable report
+
+- **Objective:** Prove an incomplete Quote cannot be activated and the attempt
+  returns a human-readable per-Section / per-Offer report with fix links —
+  verifiable entirely on the admin surface (no live tenant required).
+- **Steps:**
+  1. Create a Quote whose Section has a provider-required field left unmapped
+     (so it is not activation-ready).
+  2. Attempt to activate it:
+     `PUT /api/admin/leadgen/quotes/:id/activation/:site_id` with
+     `enabled=true`. Read the response.
+  3. Fix the missing mapping (use the fix link) and re-attempt.
+- **Expected:** the activation attempt is **HARD-BLOCKED with HTTP 409** and a
+  normative report body listing each blocking `{section_id, section_name,
+  offer_id, offer_name, code, fields[], fix_links}`; the report is readable (not
+  a bare 500 or opaque error); after the mapping is fixed a clean Quote
+  activates (200).
+- **Automated-test proof (CI):** `test/leadgen-gates.test.ts` —
+  `R5 — quote activation preflight` (test *"activation PUT HARD-BLOCKS with the
+  EXACT normative 409 report (code + fields + fix_links)"*);
+  `test-ui/leadgen-section-studio.spec.ts` — test ⑤ *"R5: activation preflight
+  BLOCKS on the missing required mapping; the fix link opens THIS studio on the
+  mapping drawer"*; `test/leadgen-quotes-api.test.ts` — `§17 activation — one
+  enabled root per site, dup slug, preview URL, both sides`.
+- **Evidence:** Network `PUT …/activation/:site_id` → 409 with the report body;
+  screenshot of the readable report + fix links; the follow-up 200 after fixing.
+
+### MQA-R7: Payload builder — author a schema + run Test with zero raw JSON (as an operator, not an engineer)
+
+- **Objective:** Prove a non-engineer can build a complete provider payload
+  schema and Test it without ever hand-writing JSON.
+- **Steps:**
+  1. On a dynamic Offer open the payload builder
+     (`/admin/leadgen/offers/:id/edit`). Using **only** the visual controls
+     (pickers, Add-field, CSV paste, toggles — no raw JSON), build: a nested
+     object; an array-of-objects; a value map with a main choice + "Other" (via
+     CSV Add-many); a date field; a boolean preset; a condition; and a
+     default/fallback. Watch the live JSON preview update.
+  2. Save. Reopen and confirm the stored schema matches the visual edits.
+  3. Open the **Test** tab, generate sample answers, pick a placement, and run
+     against staging.
+- **Expected:** every construct is authorable through the visual UI with a live
+  JSON preview; raw JSON appears **only** inside collapsed "Advanced" drawers;
+  the saved schema round-trips; Test returns a masked result with the context
+  echo and a provider hit (on the mock in CI / staging live).
+- **Automated-test proof (CI):** `test-ui/leadgen-payload-builder.spec.ts` —
+  test ① *"zero-JSON authoring: nested object + array-of-objects + value map
+  (Add many + CSV + main/Other) + date + boolean preset + condition +
+  default/fallback → save → stored schema matches"*, test ④ *"§6.14: the
+  rendered page exposes raw JSON only inside collapsed Advanced drawers"*, and
+  test ⑤ *"Test tab: … staging run → masked result, context echo, provider hit
+  on the mock"*; `test/leadgen-test-tool.test.ts` —
+  `POST /offers/:id/test — §11.6 success cycle (mocked outbound fetch)`.
+- **Evidence:** screenshots of the builder (no raw JSON visible) + the live
+  preview + the Test result with masked headers.
+
+### MQA-R8: Section Studio — build capability pattern `08` §8.11-(4) start-to-finish
+
+- **Objective:** Prove an operator can author the fourth §8.11 capability
+  pattern (full-background design with a centered card, step indicator, answer
+  cards with title+subtext, Back, legal footer) entirely in Section Studio.
+- **Steps:**
+  1. Sections tab → New section (`/admin/leadgen/sections/new`). Select the
+     full-background funnel design.
+  2. Via the Studio library + inspectors build the pattern-4 layout: a centered
+     card; a step indicator; answer cards each with a title **and** subtext; a
+     Back control; a legal footer. Set headline + subheadline via the Content
+     tab.
+  3. Preview it, then save and reopen.
+- **Expected:** every pattern-4 element is authorable through the Studio UI (no
+  raw config editing); the preview renders the full-background centered-card
+  layout with title+subtext answer cards, step indicator, Back, and legal
+  footer; the section saves and reopens intact.
+- **Automated-test proof (CI):** `test-ui/leadgen-studio-patterns.spec.ts` —
+  `LeadGen Studio §8.11 — four capability patterns authored through the UI
+  (Slice F)` (test *"pattern 4 — full-background design with centered card, step
+  indicator, answer cards with title+subtext, Back, legal footer"*);
+  `test-ui/leadgen-section-studio.spec.ts` — the Studio build flows (tests ①–⑦).
+- **Evidence:** screenshots (desktop 1280px + mobile 375px) of the built
+  pattern-4 section; console clean.
+
+### MQA-R9: Maps field-level config + missing-key fallback — [BLOCKED-until: GOOGLE_MAPS_BROWSER_KEY + GOOGLE_MAPS_SERVER_KEY for the live autofill leg]
+
+- **Objective:** Prove the address/ZIP Maps config persists at field level and
+  that, with the key absent, the funnel degrades gracefully to manual entry
+  (never a broken field).
+- **Steps:**
+  1. In Section Studio add an address+ZIP question. Via the inspector configure
+     the field-level Maps mapping (autocomplete → street/city/state/ZIP internal
+     fields). Save and reload; confirm the exact runtime keys persist and the
+     linked-field chip + key banner show.
+  2. **Missing-key fallback:** with no `GOOGLE_MAPS_BROWSER_KEY` present, load
+     the field and confirm the studio shows the missing-key warning and manual
+     entry still works (no-op autocomplete, no console error).
+  3. (Live, when unblocked) with both keys set, confirm autocomplete autofills
+     street/city/state/ZIP and a valid ZIP validates/geocodes.
+- **Expected:** field-level Maps config persists through save/reload with the
+  correct internal-field mapping; with the key absent the field falls back to
+  manual entry + a Studio warning (graceful no-op, clean console); with the keys
+  present the live autofill + ZIP validate work.
+- **Automated-test proof (CI):** `test/leadgen-maps.test.ts` —
+  `validateZip — §12.8 /^\d{5}$/`,
+  `resolveBrowserMapsKey — §30.2 referrer-restricted browser key`, and
+  `validateAddress — §12.8 server validate/geocode + §30.2 no-op`;
+  `test-ui/leadgen-section-studio.spec.ts` — test ⑦ *"§8.8 ZIP Maps config via
+  the inspector: exact runtime keys persist through save/reload; linked-field
+  chip + key banner"*.
+- **Evidence:** screenshots of the persisted field-level config + the
+  missing-key warning + working manual entry; (live) autofill + ZIP validate.
+
+### MQA-R10: Desktop/mobile preview round-trip
+
+- **Objective:** Prove a Section previews faithfully at desktop and mobile and
+  round-trips between them without drift — the honored `design_id` renders on a
+  true 375px viewport, not a scaled desktop.
+- **Steps:**
+  1. In the Section editor open Preview. Switch desktop → mobile (real 375px, no
+     transform scale) → back to desktop.
+  2. Confirm the layout is faithful at each viewport and restores identically on
+     the return to desktop.
+- **Expected:** desktop and mobile previews each render the design faithfully at
+  their true viewport (mobile is a real 375px, not a scaled desktop); switching
+  back to desktop restores the layout pixel-identically; no horizontal overflow
+  at 375px.
+- **Automated-test proof (CI):** `test-ui/leadgen-studio-patterns.spec.ts` —
+  test *"§9.4 viewport round-trip: desktop → REAL-375px mobile (no transform
+  scale) → desktop restores pixel-identically"*; `test/leadgen-designs.test.ts`
+  — `token fidelity — measured reference values (§14.10 computed-style
+  contract)`; `test-ui/leadgen-visual.spec.ts` — the `/lg` visual/screenshot
+  suite (navigates to `/lg`, never `setContent`).
+- **Evidence:** screenshots at 375px + 1280px + the restored desktop; no
+  horizontal overflow (`scrollWidth ≤ innerWidth`) at 375px.
+
+---
+
+# Part B — Preserved v2.3.7 scenarios (MQA-1 … MQA-27)
+
+The original v2.3.7 manual-QA checklist is preserved verbatim below — it is
+still in force. **MQA-16** (site activation → live `/lg` render → deactivate →
+404) and **MQA-22** (click resolver mints `click_id` + `{response:slug}` + 302)
+are the runtime-critical survivors the contract calls out; the Part A scenarios
+MQA-R1 and MQA-R3 build directly on them (R1 completes the funnel that MQA-16
+first renders; R3 inspects the resolved final URL of the click MQA-22 mints).
+Each scenario below maps 1:1 to a v2.3.7 §32 checklist item (MQA-N ↔ §32 item
+N).
+
+## Scenario index (v2.3.7)
 
 | ID | §32 | Title | Surface | Live-leg status |
 |---|---|---|---|---|
@@ -489,36 +864,59 @@ authoring/validation legs are verifiable immediately):
 
 ## Sign-off
 
-Operator fills one row per scenario during the run. Status ∈ {PASS, FAIL,
-BLOCKED}. A BLOCKED row records what unblocks it (the operator input from
-Prerequisites); the mission is not done until every row is PASS.
+> **BLANK = FAIL (contract §11.7).** Every `Result` cell below is intentionally
+> blank: no manual scenario has been executed by this mission. The agent
+> prepared these scenarios and **did not** run them, because they require a real
+> activated tenant + production/staging environment + a human tester — they are
+> **operator-owned**. Each row is therefore **BLOCKED until executed**. Fix-P5
+> does not reach §11.8 PASS while any `Result` is blank. The operator fills
+> `Operator` / `Date` / `Result` (∈ {PASS, FAIL, BLOCKED}) during the live run;
+> a BLOCKED row records the unblocking input from Prerequisites. **Do not
+> fabricate a Result.**
 
-| Scenario | Status | Operator | Date | Evidence |
-|---|---|---|---|---|
-| MQA-1 |  |  |  |  |
-| MQA-2 |  |  |  |  |
-| MQA-3 |  |  |  |  |
-| MQA-4 |  |  |  |  |
-| MQA-5 |  |  |  |  |
-| MQA-6 |  |  |  |  |
-| MQA-7 |  |  |  |  |
-| MQA-8 |  |  |  |  |
-| MQA-9 |  |  |  |  |
-| MQA-10 |  |  |  |  |
-| MQA-11 |  |  |  |  |
-| MQA-12 |  |  |  |  |
-| MQA-13 |  |  |  |  |
-| MQA-14 |  |  |  |  |
-| MQA-15 |  |  |  |  |
-| MQA-16 |  |  |  |  |
-| MQA-17 |  |  |  |  |
-| MQA-18 |  |  |  |  |
-| MQA-19 |  |  |  |  |
-| MQA-20 |  |  |  |  |
-| MQA-21 |  |  |  |  |
-| MQA-22 |  |  |  |  |
-| MQA-23 |  |  |  |  |
-| MQA-24 |  |  |  |  |
-| MQA-25 |  |  |  |  |
-| MQA-26 |  |  |  |  |
-| MQA-27 |  |  |  |  |
+### Fix-P5 gate — MQA-R1 … MQA-R10 (contract §11.7 / §11.8)
+
+| Scenario | Objective | Automated-test proof (CI) | Operator | Date | Result |
+|---|---|---|---|---|---|
+| MQA-R1 | Live `/lg` renders + a human completes the funnel end-to-end on a real activated site (desktop + physical mobile) | `test-ui/leadgen-live-funnel.spec.ts` (Group 1 + §11.6 anti-false-PASS) |  |  |  |
+| MQA-R2 | Auction banners render on the live funnel; impressions appear in analytics next sync | `test-ui/leadgen-live-funnel.spec.ts`; `test/leadgen-events.test.ts`; `test/leadgen-analytics-producers.test.ts`; `test/leadgen-mirror-sync.test.ts`; `test/leadgen-analytics-admin.test.ts` |  |  |  |
+| MQA-R3 | Live banner click 302s to the provider URL with every macro resolved (final URL inspected) | `test/leadgen-runtime-routes.test.ts`; `test/leadgen-click.test.ts`; `test/leadgen-macros.test.ts`; `test-ui/leadgen-live-funnel.spec.ts` |  |  |  |
+| MQA-R4 | Live/staging provider payload carries real geo/ip/traffic + computed + placement (echo) | `test/leadgen-gates.test.ts` (G2); `test/leadgen-runtime-context.test.ts`; `test/leadgen-computed.test.ts`; `test/leadgen-test-tool.test.ts` |  |  |  |
+| MQA-R5 | Invalid/untested Offer excluded from the auction with a typed exclusion reason | `test/leadgen-gates.test.ts` (dynamicAuctionEligibility / fetchProvider); `test/leadgen-auction-simulate.test.ts`; `test-ui/leadgen-offers-mgmt.spec.ts` |  |  |  |
+| MQA-R6 | Incomplete Quote cannot activate — readable per-Section/per-Offer 409 report | `test/leadgen-gates.test.ts` (R5 — quote activation preflight); `test-ui/leadgen-section-studio.spec.ts` (test ⑤); `test/leadgen-quotes-api.test.ts` (§17) |  |  |  |
+| MQA-R7 | Operator authors a full payload schema + runs Test with zero raw JSON | `test-ui/leadgen-payload-builder.spec.ts` (tests ①/④/⑤); `test/leadgen-test-tool.test.ts` |  |  |  |
+| MQA-R8 | Operator builds Section-Studio capability pattern `08` §8.11-(4) start-to-finish | `test-ui/leadgen-studio-patterns.spec.ts` (pattern 4); `test-ui/leadgen-section-studio.spec.ts` |  |  |  |
+| MQA-R9 | Maps field-level config persists; key-absent → graceful manual-entry fallback | `test/leadgen-maps.test.ts`; `test-ui/leadgen-section-studio.spec.ts` (test ⑦) |  |  |  |
+| MQA-R10 | Section desktop⇄mobile preview round-trips pixel-faithfully | `test-ui/leadgen-studio-patterns.spec.ts` (§9.4 viewport round-trip); `test/leadgen-designs.test.ts`; `test-ui/leadgen-visual.spec.ts` |  |  |  |
+
+### Preserved v2.3.7 checklist — MQA-1 … MQA-27
+
+| Scenario | Objective | Automated-test proof (CI) | Operator | Date | Result |
+|---|---|---|---|---|---|
+| MQA-1 | LeadGen nav + four tabs + bare redirect | `test-ui/leadgen-nav.spec.ts` |  |  |  |
+| MQA-2 | Create an Offer (static) | `test/leadgen-offers-api.test.ts`; `test-ui/leadgen-offers.spec.ts` |  |  |  |
+| MQA-3 | Create an Offer (dynamic) + payload builder + Test | `test/leadgen-test-tool.test.ts`; `test-ui/leadgen-payload-builder.spec.ts` |  |  |  |
+| MQA-4 | Auto-from-example schema generation | `test/leadgen-sample-answers.test.ts`; `test-ui/leadgen-payload-builder.spec.ts` |  |  |  |
+| MQA-5 | Offer rules (region + answer) via simulate | `test/leadgen-auction-simulate.test.ts`; `test/leadgen-rules.test.ts` |  |  |  |
+| MQA-6 | Offer cap enforcement | `test/leadgen-caps.test.ts` |  |  |  |
+| MQA-7 | Create a Section — every answer component | `test/leadgen-components-render.test.ts`; `test/leadgen-sections-api.test.ts` |  |  |  |
+| MQA-8 | Desktop/mobile preview + simulation + payload-mapping | `test/leadgen-sections-api.test.ts`; `test-ui/leadgen-section-studio.spec.ts` |  |  |  |
+| MQA-9 | Dependency reveal (IF/THEN) | `test/leadgen-dependencies.test.ts` |  |  |  |
+| MQA-10 | Answer→Offer mapping + completeness | `test/leadgen-sections-api.test.ts`; `test-ui/leadgen-section-studio.spec.ts` |  |  |  |
+| MQA-11 | Continue behavior (button / auto-advance / no double-submit) | `test/leadgen-runtime-engine.test.ts`; `test/leadgen-answers.test.ts` |  |  |  |
+| MQA-12 | Default boolean → answer_source | `test/leadgen-runtime-engine.test.ts` (state: §3.4 answer-source transitions) |  |  |  |
+| MQA-13 | Create a Quote + funnel builder | `test/leadgen-quotes-api.test.ts`; `test/leadgen-quotes-ui.test.ts` |  |  |  |
+| MQA-14 | Funnel rules (redirect / disqualify / skip) | `test/leadgen-funnel.test.ts`; `test/leadgen-rules.test.ts` |  |  |  |
+| MQA-15 | Funnel A/B (Σ=100, sticky, in analytics) | `test/leadgen-ab-hash.test.ts`; `test/leadgen-quotes-api.test.ts` |  |  |  |
+| MQA-16 | Site activation (2 sites, slug, preview, deactivate→404) | `test/leadgen-quotes-api.test.ts` (§17 activation); `test/leadgen-runtime-routes.test.ts`; `test-ui/leadgen-live-funnel.spec.ts` |  |  |  |
+| MQA-17 | Create an Auction (static) | `test/leadgen-auctions-api.test.ts`; `test/leadgen-auction-core.test.ts` |  |  |  |
+| MQA-18 | Create an Auction (dynamic) — winner/multi-offer/backfill/timeout/floor | `test/leadgen-auction-runtime.test.ts`; `test/leadgen-auction-simulate.test.ts`; `test/leadgen-auction-core.test.ts` |  |  |  |
+| MQA-19 | Carrier rules (incl. strictly_override) | `test/leadgen-auction-rules.test.ts` |  |  |  |
+| MQA-20 | Banner builder (manual + automatic) | `test/leadgen-auction-banner.test.ts`; `test/leadgen-banner-design.test.ts` |  |  |  |
+| MQA-21 | Simulate — full explainability, writes nothing | `test/leadgen-auction-simulate.test.ts` (returns the full §19.2 trace and writes NOTHING) |  |  |  |
+| MQA-22 | Click resolver mints click_id + {response:slug} + 302 | `test/leadgen-runtime-routes.test.ts` (governed click resolver); `test/leadgen-click.test.ts` |  |  |  |
+| MQA-23 | Analytics populate from D1 mirrors + em-dash on 0 denominator | `test/leadgen-analytics-admin.test.ts`; `test/leadgen-mirror-sync.test.ts`; `test/leadgen-clickhouse.test.ts` |  |  |  |
+| MQA-24 | Revenue postback — book + dedupe no-op + unmatched queue | `test/leadgen-postback-route.test.ts`; `test/leadgen-revenue-ingest.test.ts` |  |  |  |
+| MQA-25 | S2S dispatch — enabled fires, disabled silent, no double-fire | `test/leadgen-s2s-dispatch.test.ts`; `test/leadgen-pixel-route.test.ts`; `test/leadgen-media-platforms-admin.test.ts` |  |  |  |
+| MQA-26 | GA4 pass-through keeps dataLayer/gtag working | `test-ui/leadgen-ga4.spec.ts` |  |  |  |
+| MQA-27 | Off-ADMIN_HOST → 404; unauth → 401/403 | `test/leadgen-admin-shell.test.ts`; `test/leadgen-runtime-guard.test.ts` |  |  |  |

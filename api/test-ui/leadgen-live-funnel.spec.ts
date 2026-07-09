@@ -37,7 +37,9 @@ import {
   request as playwrightRequest,
   type Page,
 } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   seedFixP1Funnel,
   MOCK_PROVIDER_ORIGIN,
@@ -801,5 +803,35 @@ test.describe("§11.6 anti-false-PASS regression (permanent)", () => {
       }),
       sectionAt(page, 1).locator("[data-lg-continue]").click(),
     ]);
+  });
+
+  // (5) §11.6 leg 5 — the VISUAL-SUITE static tripwire (may never be waived).
+  // The original false-comfort (01 §1 root-cause RC-6): a green "visual" suite
+  // rendered the admin PREVIEW endpoint into a blank page via a page.setContent
+  // static-injection harness — never `/lg` — so it stayed green while the live
+  // runtime was blank. This reads the sibling leadgen-visual.spec.ts SOURCE and
+  // fails CLOSED if that harness is ever re-introduced or the real-runtime
+  // navigation is removed. A STATIC assertion (no browser) by design.
+  test("§11.6 leg 5: the visual suite navigates to /lg and NEVER uses a setContent harness", () => {
+    const visualSpecPath = join(dirname(fileURLToPath(import.meta.url)), "leadgen-visual.spec.ts");
+    const src = readFileSync(visualSpecPath, "utf8");
+
+    // FAIL if the visual suite re-introduces a *.setContent(...) injection
+    // harness (the exact §11.6 false-comfort tripwire).
+    expect(
+      src.includes(".setContent("),
+      "§11.6: leadgen-visual.spec.ts must NOT use a .setContent(...) static-injection harness",
+    ).toBe(false);
+
+    // FAIL if the visual suite does not drive the REAL runtime: it must
+    // page.goto a tenant /lg/ URL.
+    expect(
+      src.includes("page.goto("),
+      "§11.6: leadgen-visual.spec.ts must drive the runtime via page.goto(...)",
+    ).toBe(true);
+    expect(
+      src.includes("/lg/"),
+      "§11.6: leadgen-visual.spec.ts must navigate to a tenant /lg/ URL (the real runtime)",
+    ).toBe(true);
   });
 });
