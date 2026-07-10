@@ -39,7 +39,12 @@ import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.
 // belongs to the DOM-lib runtime typecheck program (tsconfig.runtime.json);
 // importing runtime/maps.ts HERE would drag DOM types into the worker
 // program. Same suite-pairing the M5 progress-bar regressions use.
-import { renderComponent } from "../src/public/leadgen/components/presets";
+import { renderComponent, renderSectionComponents } from "../src/public/leadgen/components/presets";
+// review FIX 4a seam: the selected-state override consumer rides the
+// frameRegions sheet ONLY (the base sheet is the pinned legacy bytes).
+import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
+// wave-2 seam: equivalentFrameGroup output must pass the REAL frame PUT gate.
+import { validateFrameConfig } from "../src/public/leadgen/designs/frames";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
@@ -114,6 +119,10 @@ const LEADGEN_MIGRATIONS = [
   "0037_leadgen_analytics_mirror.sql",
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
+  // wave 2: the §5.4 move-to-frame PUT and the §5.3 frame_context preview
+  // read/write the 0040/0041 funnel frame/theme columns.
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -277,15 +286,17 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toContain('id="lg-preview-frame"'); // slice-C preview mounted
   });
 
-  it("the validation chip carries the server-computed issue count (0 for a valid section, 1 for /new)", async () => {
+  it("the validation chip carries the server-computed issue count (0 for a valid section AND for /new — §5.2 seeds bound nodes)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     expect(html).toContain('data-issue-count="0"');
+    // §5.2: /new seeds bound QuestionHeadline + Subheadline as nodes 1–2 —
+    // components are non-empty and validator-CLEAN (bound nodes waive text),
+    // so the chip is 0 and the canvas empty-state is hidden.
     const fresh = await getHtml(env, "/admin/leadgen/sections/new");
-    expect(fresh).toContain('data-issue-count="1"'); // components_empty
-    // the canvas empty state shows on /new only
-    expect(fresh).toMatch(/data-studio-canvas-empty[^>]*>/);
+    expect(fresh).toContain('data-issue-count="0"');
+    expect(fresh).toMatch(/data-studio-canvas-empty[^>]*hidden/);
     expect(html).toMatch(/data-studio-canvas-empty[^>]*hidden/);
   });
 
@@ -318,26 +329,101 @@ function libraryItemBlock(html: string, type: string): string {
 }
 
 describeDb("section studio SSR — §8.3 component library", () => {
-  it("groups by intent, covers EVERY catalog type exactly once (lockstep), searchable", async () => {
+  it("§8.3 six intent-first groups; palette = the catalog's unit∪both types exactly once; frame types NEVER placeable (lockstep), searchable", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
 
-    for (const group of ["questions", "choices", "inputs", "layout", "trust", "navigation"]) {
-      expect(html, `library group ${group}`).toContain(`data-library-group="${group}"`);
-    }
-    for (const label of ["Questions", "Answer choices", "Inputs", "Layout", "Trust &amp; affordance", "Navigation"]) {
+    // the EXACT six groups of the §8.3 table (last group renders "Navigation"
+    // — the table's "Slide navigation" heading loses "slide" per C6, which
+    // forbids the word anywhere in the Section Builder)
+    const expectedGroups: ReadonlyArray<[string, string]> = [
+      ["question-copy", "Question copy"],
+      ["choices", "Answer choices"],
+      ["inputs", "Inputs"],
+      ["layout", "Inside-card layout"],
+      ["trust", "Trust &amp; help — inside this question unit"],
+      ["navigation", "Navigation"],
+    ];
+    expect(STUDIO_LIBRARY_GROUPS.map((g) => g.key)).toEqual(expectedGroups.map(([k]) => k));
+    for (const [key, label] of expectedGroups) {
+      expect(html, `library group ${key}`).toContain(`data-library-group="${key}"`);
       expect(html, `group label ${label}`).toContain(label);
     }
-    // lockstep: the grouping map covers the catalog exactly
+    // §8.2 D5 lockstep: the palette is EXACTLY the catalog's unit ∪ both set…
+    const unitOrBoth = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope !== "frame");
+    const frameTypes = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope === "frame");
+    expect(frameTypes.length).toBeGreaterThanOrEqual(8); // the §8.2 frame row
     const grouped = STUDIO_LIBRARY_GROUPS.flatMap((g) => [...g.types]);
-    expect([...grouped].sort()).toEqual([...ALL_TYPES].sort());
-    // and the SERVED page places each type exactly once
-    for (const type of ALL_TYPES) {
+    expect([...grouped].sort()).toEqual([...unitOrBoth].sort());
+    // …each placeable exactly once on the SERVED page…
+    for (const type of unitOrBoth) {
       const hits = html.split(`data-add-component="${type}"`).length - 1;
       expect(hits, `${type} placed exactly once`).toBe(1);
     }
+    // …and every frame-scope type is GONE from the palette (§8.2 "Removed").
+    for (const type of frameTypes) {
+      expect(html, `${type} not placeable`).not.toContain(`data-add-component="${type}"`);
+    }
     expect(html).toContain("data-studio-library-search");
+  });
+
+  it("§8.3 exact item display names ride the palette (verbatim table names + 'use when' descriptions)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // display names from the §8.3 table (spot set across all six groups)
+    for (const name of [
+      "Category label",
+      "Question headline",
+      "Simple answer buttons",
+      "Yes / No",
+      "Icon answer cards",
+      "Image answer cards",
+      "Multi-select cards",
+      "Main + “Other” choices",
+      "Amount ($)",
+      "Amount slider",
+      "Question card",
+      "Answer grid",
+      "Two columns",
+      "Reassurance badge",
+      "Secure-form badge",
+      "Trust points",
+      "Logo row",
+      "Error message line",
+      "Continue button",
+      "Auto-advance",
+    ]) {
+      // none of these names carries an HTML-escaped ASCII char — the served
+      // bytes match the table names directly (typographic quotes unescaped)
+      expect(html, `item name ${name}`).toContain(name);
+    }
+    // the table's quoted one-line descriptions, verbatim
+    expect(html).toContain("One-tap answer choices.");
+    expect(html).toContain("Use when each answer has an icon.");
+    expect(html).toContain("Use when each answer has a logo or photo.");
+    expect(html).toContain("Reassurance line inside this question unit.");
+  });
+
+  it("§8.3 the dismissible Quote-Builder callout + the C7 trust scope note render with their exact copy", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the callout replaces the old Layout group's frame items
+    expect(html).toContain("data-studio-frame-callout");
+    expect(html).toContain("Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong>");
+    expect(html).toMatch(/data-studio-callout-open[^>]*>Open</);
+    expect(html).toMatch(/<a href="\/admin\/leadgen\/quotes"[^>]*data-studio-callout-open/);
+    expect(html).toContain("data-studio-callout-dismiss");
+    // the island persists the dismissal (localStorage key)
+    const island = studioIsland(html);
+    expect(island).toContain("lg-studio-frame-callout-dismissed");
+    // C7: the Trust & help scope note, verbatim
+    expect(html).toContain("data-trust-scope-note");
+    expect(html).toContain(
+      "These travel with this Section, inside the question unit. Funnel-wide trust strips, logo rows and the legal footer are configured in the Quote Builder.",
+    );
   });
 
   it("library items are role=button DIVS — preset thumbnails contain real <button>/<input> markup and nested interactive content inside a <button> is invalid HTML that shatters the page tree (D2 browser-exposure regression)", async () => {
@@ -366,14 +452,25 @@ describeDb("section studio SSR — §8.3 component library", () => {
       expect(block, `${type} thumb is preset-rendered`).toContain(`data-component-type="${type}"`);
       expect(block, `${type} has a scaled thumb`).toContain("studio-thumb-scale");
     }
-    // every placeable item carries a thumb
+    // every placeable item carries a thumb (§8.2: placeable = unit ∪ both —
+    // frame types left the palette)
+    const placeable = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope !== "frame");
     const thumbs = html.split("studio-thumb-scale").length - 1;
-    expect(thumbs).toBeGreaterThanOrEqual(ALL_TYPES.length);
-    // copy + metadata per §8.3
-    expect(html).toContain("Two-button yes/no");
+    expect(thumbs).toBeGreaterThanOrEqual(placeable.length);
+    // copy + metadata per §8.3 (v2.5 table display name)
+    expect(html).toContain("Yes / No");
     expect(html).toContain("Yes / No pair storing a boolean answer.");
+    // MINOR 11 (07 §7.4): the answer-type chip speaks PLAIN WORDS per the
+    // catalog produces — never the raw identifier.
     const yesno = libraryItemBlock(html, "TwoButtonYesNo");
-    expect(yesno).toContain('class="studio-item-type">boolean<');
+    expect(yesno).toContain('class="studio-item-type">stores one choice<');
+    expect(yesno).not.toContain('class="studio-item-type">boolean<');
+    expect(libraryItemBlock(html, "IconCardAnswerGrid")).toContain('class="studio-item-type">stores one choice<');
+    expect(libraryItemBlock(html, "MultiChoiceCardGroup")).toContain('class="studio-item-type">stores several choices<');
+    expect(libraryItemBlock(html, "RangeQuestion")).toContain('class="studio-item-type">stores a number<');
+    expect(libraryItemBlock(html, "FreeTextQuestion")).toContain('class="studio-item-type">stores text/number/date<');
+    // no raw produces identifier leaks into ANY chip
+    expect(html).not.toMatch(/class="studio-item-type">(enum|boolean|array|object|currency|string|number)</);
     expect(yesno).toContain("maps to Offer fields");
     // affordances produce no answer → no maps badge
     const badge = libraryItemBlock(html, "ReassuranceBadge");
@@ -455,24 +552,45 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     expect(html).toContain(`data-container-cta="tel"`);
   });
 
-  it("§8.6 Design tab: curated token DROPDOWNS sourced from the design's slots — no free-CSS input anywhere", async () => {
+  it("§8.6 Design tab: curated token DROPDOWNS sourced from the design's slots — no free-CSS input anywhere (§9.4: color keys are ROLE swatch rows)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap", "mobileBehavior"]) {
+    for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap"]) {
       expect(html).toContain(`<select id="lg-inspector-${key}"`);
     }
+    // FIX 4b: the mobileBehavior control is GONE (zero renderer consumers —
+    // a dead write); the schema key stays legal for stored legacy data.
+    expect(html).not.toContain('<select id="lg-inspector-mobileBehavior"');
+    expect(html).not.toContain('data-inspector-override="mobileBehavior"');
+    // FIX 4b: the structural rows carry the gating hook the island uses to
+    // hide dead-write rows per type (columns/gridGap → card grids only).
+    expect(html).toContain('data-override-row="columns"');
+    expect(html).toContain('data-override-row="gridGap"');
     // the override controls are selects ONLY (no <input data-inspector-override)
     expect(html).not.toMatch(/<input[^>]*data-inspector-override/);
-    // values projected from the default design's slots
+    // §9.4 (wave 2): COLOR-typed option VALUES are the 14 §9.1 ROLE NAMES —
+    // picking writes the role, never hex; NO hex option values remain.
     const icon = selectBlock(html, "lg-inspector-iconColor");
-    expect(icon).toContain("#1B3A5C"); // color.primary
-    expect(icon).toContain("#E85D26"); // color.accent
-    expect(icon).toContain('<option value="">inherit</option>');
+    expect(icon).toContain('<option value="brand_primary">Brand primary</option>');
+    expect(icon).toContain('<option value="accent">Accent</option>');
+    expect(icon).not.toContain('<option value="#');
+    // §7.4: the no-override state reads as an inherited value
+    expect(icon).toContain('<option value="">Inherited (design default)</option>');
+    // §9.4 inheritance/source + reset + legacy-convert affordances per row
+    expect(html).toContain('data-override-source="iconColor"');
+    expect(html).toContain('data-override-reset="buttonBackground"');
+    expect(html).toContain('data-override-convert="buttonText"');
+    expect(html).toContain("Custom color (legacy)");
+    // structural keys keep the design-slot vocabulary (NOT color-typed)
     const gap = selectBlock(html, "lg-inspector-gridGap");
     expect(gap).toContain("0.5rem"); // spacing.sm
     const columns = selectBlock(html, "lg-inspector-columns");
     for (const v of ["2", "3", "4", "5"]) expect(columns).toContain(`<option value="${v}">`);
+    // §6.6 (F3): the preset control is the saved-presets dropdown + "(none)"
+    expect(html).toContain("data-preset-select");
+    expect(html).toContain("<option value=\"\">(none)</option>");
+    expect(html).not.toMatch(/<input[^>]*data-inspector-field="design_preset"/);
   });
 
   it("bootstrap blobs: lg-section-data (unchanged shape), lg-component-seeds (legacy shape), lg-studio-meta (REQUIRED_FIELDS projection)", async () => {
@@ -536,8 +654,11 @@ describeDb("section studio — ES5-only island", () => {
     });
     expect(errors, errors.join("\n\n")).toEqual([]);
     // canvas re-render is debounced ~300ms through the REAL preview endpoint
+    // (wave 2: the debounce body also pauses while an inline edit is open)
     const island = studioIsland(html);
-    expect(island).toContain("setTimeout(function () { canvasTimer = null; renderCanvasNow(); }, 300)");
+    expect(island).toContain("canvasTimer = setTimeout(function () {");
+    expect(island).toContain("if (inlineEditing) { scheduleCanvasRender(); return; }");
+    expect(island).toContain("}, 300);");
     expect(island).toContain("'/api/admin/leadgen/sections/preview'");
   });
 });
@@ -589,6 +710,16 @@ const MODEL_FUNCS = [
   "newQuestionId",
   "typeMeta",
   "isContainerType",
+  "typeLabel",
+  // §5.2 canonical headline binding model core
+  "bindForType",
+  "bindNoun",
+  "bindNodeType",
+  "stripInputFor",
+  "findBoundNode",
+  "unboundCandidate",
+  "insertBoundNodeAtTop",
+  "linkBoundNode",
   "walkTree",
   "findRefIn",
   "findRef",
@@ -787,11 +918,11 @@ describeDb("section studio EXECUTED island — §8.4 model mutations (vm-probe o
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
   });
 
-  it("breadcrumb text walks the ancestor chain: CardPanel › Stack › ButtonAnswerGroup", async () => {
+  it("breadcrumb text walks the ancestor chain in OPERATOR WORDS (§7.4 — labels, never raw type ids)", async () => {
     const probe = await probeHarness(NESTED_CONTENT);
-    expect(probe.run(`breadcrumbText('bag1')`)).toBe("CardPanel › Stack › ButtonAnswerGroup");
-    expect(probe.run(`breadcrumbText('stack1')`)).toBe("CardPanel › Stack");
-    expect(probe.run(`breadcrumbText('panel1')`)).toBe("CardPanel");
+    expect(probe.run(`breadcrumbText('bag1')`)).toBe("Question card › Stack › Simple answer buttons");
+    expect(probe.run(`breadcrumbText('stack1')`)).toBe("Question card › Stack");
+    expect(probe.run(`breadcrumbText('panel1')`)).toBe("Question card");
   });
 
   it("reorder within parent (toolbar/keyboard ↑↓ share moveWithin) — bounded at the edges", async () => {
@@ -1013,6 +1144,7 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     let captured: { url: string; init: RequestInit } | null = null;
     const sandbox = {
       state: { content: JSON.parse(JSON.stringify(YESNO_CONTENT)) as unknown },
+      canvasViewport: "desktop", // wave-2 §6.1.4 island state the fn reads
       document: {
         getElementById(id: string) {
           return id === "lg-studio-canvas-render" ? region : null;
@@ -1087,15 +1219,16 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     runInNewContext(source, sandbox);
     const body = sandbox["body"] as Record<string, unknown>;
 
-    // the OLD island's exact body shape + the ONE D2 additive key
-    // (selected_offers — §8.7 explicit selection set; parseAnswerMaps already
-    // consumed it server-side, so the save-path contract is preserved).
+    // the OLD island's exact body shape + the D2 additive selected_offers key
+    // + the wave-2 §9.5 design_overrides key (null clears the column; the
+    // PATCH path already consumed both server-side).
     expect(Object.keys(body).sort()).toEqual(
-      ["section_name", "activity", "vertical", "headline_text", "subheadline_text", "continue_mode", "address_validation_enabled", "content_json", "answer_maps", "selected_offers"].sort(),
+      ["section_name", "activity", "vertical", "headline_text", "subheadline_text", "continue_mode", "address_validation_enabled", "content_json", "answer_maps", "selected_offers", "design_overrides"].sort(),
     );
     expect(body["section_name"]).toBe("Studio renamed");
     expect(body["continue_mode"]).toBe("button");
     expect(body["selected_offers"]).toEqual([]);
+    expect(body["design_overrides"]).toBeNull();
 
     // EXECUTED against the live router: the body the island built SAVES
     const patch = await admin.request(
@@ -2676,5 +2809,2807 @@ describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", 
     });
     expect(byId.get("q_logos")!["props"]).toEqual({ logos: [{ mediaId: "media_1", alt: "Acme" }] });
     expect(byId.get("q_steps")!["props"]).toEqual({ steps: 4, current: 2 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — §5.1 Question strip + §5.2 canonical headline binding UX
+// (contract-v2.5 05; the strip and the bound canvas nodes are ONE store)
+// ---------------------------------------------------------------------------
+
+// A tiny recording DOM-element stub for EXECUTED island legs that build DOM
+// (the legacy bind banner, the §5.4 frame badge). Only the members the island
+// touches exist; listeners are recorded and manually invokable.
+interface StubEl {
+  tag: string;
+  className: string;
+  hidden: boolean;
+  disabled: boolean;
+  title: string;
+  type: string;
+  value: string;
+  textContent: string;
+  attrs: Record<string, string>;
+  children: StubEl[];
+  listeners: Record<string, Array<() => void>>;
+  readonly firstChild: StubEl | null;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
+  appendChild(c: StubEl): StubEl;
+  removeChild(c: StubEl): StubEl;
+  insertBefore(c: StubEl, ref: StubEl | null): StubEl;
+  addEventListener(k: string, f: () => void): void;
+  click(): void;
+  allText(): string;
+}
+
+function stubEl(tag: string, text = ""): StubEl {
+  const el: StubEl = {
+    tag,
+    className: "",
+    hidden: false,
+    disabled: false,
+    title: "",
+    type: "",
+    value: "",
+    textContent: text,
+    attrs: {},
+    children: [],
+    listeners: {},
+    get firstChild(): StubEl | null {
+      return el.children[0] ?? null;
+    },
+    setAttribute(k: string, v: string): void {
+      el.attrs[k] = String(v);
+    },
+    getAttribute(k: string): string | null {
+      return Object.prototype.hasOwnProperty.call(el.attrs, k) ? el.attrs[k]! : null;
+    },
+    removeAttribute(k: string): void {
+      delete el.attrs[k];
+    },
+    appendChild(c: StubEl): StubEl {
+      el.children.push(c);
+      return c;
+    },
+    removeChild(c: StubEl): StubEl {
+      const i = el.children.indexOf(c);
+      if (i !== -1) el.children.splice(i, 1);
+      return c;
+    },
+    insertBefore(c: StubEl, ref: StubEl | null): StubEl {
+      const i = ref === null ? el.children.length : el.children.indexOf(ref);
+      el.children.splice(i === -1 ? el.children.length : i, 0, c);
+      return c;
+    },
+    addEventListener(k: string, f: () => void): void {
+      (el.listeners[k] = el.listeners[k] ?? []).push(f);
+    },
+    click(): void {
+      for (const f of el.listeners["click"] ?? []) f();
+    },
+    allText(): string {
+      return el.textContent + el.children.map((c) => c.allText()).join("");
+    },
+  };
+  return el;
+}
+
+const BOUND_SEED_CONTENT = {
+  components: [
+    { type: "QuestionHeadline", question_id: "q_bh", bind: "section_headline" },
+    { type: "Subheadline", question_id: "q_bs", bind: "section_subheadline" },
+    { type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" },
+  ],
+};
+
+describeDb("v2.5 §5.1 SSR — the Question strip", () => {
+  it("canonical editors + Continue-behavior radio (values unchanged) + the EXACT frame note + hidden chips + legacy Maps row", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // canonical editors, §5.1 labels (same element ids — save path unchanged)
+    expect(html).toContain(">Question headline *</label>");
+    expect(html).toContain('id="lg-section-headline"');
+    expect(html).toContain(">Subheadline</label>");
+    expect(html).toContain('id="lg-section-subheadline"');
+    // Continue behavior: values unchanged, §5.1 operator labels + the note
+    expect(html).toContain(">Continue behavior</legend>");
+    expect(html).toContain('name="continue_mode" value="button"');
+    expect(html).toContain('name="continue_mode" value="auto_advance"');
+    expect(html).toContain("Visitor taps Continue (validates first)");
+    expect(html).toContain("Advance automatically on answer");
+    // served bytes carry the typographic apostrophes as entities
+    expect(html).toContain(
+      "The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.",
+    );
+    // §5.2 hidden-in-unit chips (SSR'd hidden; island toggles)
+    expect(html).toMatch(/data-bound-chip="section_headline"[^>]*hidden/);
+    expect(html).toMatch(/data-bound-chip="section_subheadline"[^>]*hidden/);
+    expect(html).toContain("Hidden in this question unit");
+    expect(html).toMatch(/data-bound-show="section_headline"[^>]*>Show</);
+    // the legacy global Maps checkbox row stays (compat)
+    expect(html).toContain('id="lg-address-validation"');
+    expect(html).toContain("data-maps-legacy-note");
+    // the legacy-link banner slot ships hidden
+    expect(html).toMatch(/data-bind-banner[^>]*hidden/);
+  });
+
+  it("/new seeds BOUND QuestionHeadline + Subheadline as nodes 1–2 in BOTH the blob and the SSR canvas; palette bind items start disabled", async () => {
+    const { env } = newHarness();
+    const html = await getHtml(env, "/admin/leadgen/sections/new");
+    const data = extractJsonBlob(html, "lg-section-data");
+    const content = data["content"] as { components: Array<Record<string, unknown>> };
+    expect(content.components).toHaveLength(2);
+    expect(content.components[0]).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    expect(content.components[1]).toMatchObject({ type: "Subheadline", bind: "section_subheadline" });
+    expect(content.components[0]!["props"]).toBeUndefined(); // bound = NO props.text
+    // seeded content validates CLEAN against the REAL server validator
+    expect(validateSectionContent(content).errors).toEqual([]);
+    // the SSR canvas rendered the bound nodes (empty text until typed)
+    const start = html.indexOf('id="lg-studio-canvas-render"');
+    const region = html.slice(start, html.indexOf("data-studio-canvas-empty", start));
+    expect(region).toContain('data-component-type="QuestionHeadline"');
+    expect(region).toContain('data-component-type="Subheadline"');
+    // §5.2: while a bound node exists the palette items are disabled with the
+    // EXACT tooltip
+    expect(html).toMatch(
+      /data-add-component="QuestionHeadline"[^>]*data-bind-disabled="true"[^>]*title="This Section already shows its headline"/,
+    );
+    expect(html).toMatch(
+      /data-add-component="Subheadline"[^>]*data-bind-disabled="true"[^>]*title="This Section already shows its subheadline"/,
+    );
+  });
+
+  it("a legacy Section (no bound nodes) serves ENABLED palette bind items and an SSR canvas that resolves bound text when present", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env); // YESNO content — no headline nodes
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(/data-add-component="QuestionHeadline"[^>]*data-bind-disabled="false"/);
+    expect(html).toMatch(/data-add-component="Subheadline"[^>]*data-bind-disabled="false"/);
+
+    // a section WITH a bound node SSRs the canonical column text into the
+    // canvas (studioCanvasDocument threads sectionCtx)
+    const bound = await createSection(env, {
+      section_name: "Bound",
+      headline_text: "Are you currently insured?",
+      content_json: JSON.stringify(BOUND_SEED_CONTENT),
+    });
+    const boundHtml = await studioPage(env, bound.public_id);
+    const start = boundHtml.indexOf('id="lg-studio-canvas-render"');
+    const region = boundHtml.slice(start, boundHtml.indexOf("data-studio-canvas-empty", start));
+    expect(region).toContain('class="lg-headline"');
+    expect(region).toContain("Are you currently insured?");
+  });
+});
+
+describeDb("v2.5 §5.2 EXECUTED — binding model (vm-probe of the served code)", () => {
+  async function boundProbe(content: unknown, docStub?: Record<string, unknown>): Promise<StudioProbe> {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    return studioProbe(html, content, docStub);
+  }
+
+  it("palette insert creates a BOUND node (no props.text); a second insert is REFUSED with the exact tooltip copy", async () => {
+    const probe = await boundProbe({ components: [] });
+    const head = probe.run(`addComponentAt('QuestionHeadline', null, null)`) as Record<string, unknown>;
+    expect(head).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    expect(head["props"]).toBeUndefined();
+    const sub = probe.run(`addComponentAt('Subheadline', null, null)`) as Record<string, unknown>;
+    expect(sub).toMatchObject({ type: "Subheadline", bind: "section_subheadline" });
+    // the pair validates CLEAN against the REAL validator (bound waives text)
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // §5.2: one bound node per bind value — the second insert refuses
+    expect(probe.run(`addComponentAt('QuestionHeadline', null, null)`)).toBeNull();
+    expect(probe.sandbox.refusals).toContain("This Section already shows its headline");
+    expect(probe.run(`addComponentAt('Subheadline', null, null)`)).toBeNull();
+    expect(probe.sandbox.refusals).toContain("This Section already shows its subheadline");
+    expect((probe.sandbox.state.content.components as unknown[]).length).toBe(2);
+  });
+
+  it("delete bound node keeps the canonical store; [Show] re-inserts the bound node AT THE TOP (§5.2 chip semantics)", async () => {
+    const probe = await boundProbe(BOUND_SEED_CONTENT);
+    expect(probe.run(`findBoundNode('section_headline')`)).not.toBeNull();
+    probe.run(`removeNode('q_bh')`);
+    expect(probe.run(`findBoundNode('section_headline')`)).toBeNull();
+    // the strip store is a Section COLUMN — deleting the node never touches it
+    // (model-side: nothing in content carries the text at all)
+    const reinserted = probe.run(`insertBoundNodeAtTop('section_headline')`) as Record<string, unknown>;
+    expect(reinserted).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    const components = probe.sandbox.state.content.components as Array<Record<string, unknown>>;
+    expect(components[0]!["question_id"]).toBe(reinserted["question_id"]); // AT THE TOP
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // idempotent: a second Show is a no-op while the bound node exists
+    expect(probe.run(`insertBoundNodeAtTop('section_headline')`)).toBeNull();
+  });
+
+  it("duplicating the bound node directly is REFUSED; duplicating a container DETACHES the bound child into a text snapshot (no duplicate bind)", async () => {
+    const strip = { value: "Are you insured?" };
+    const docStub = {
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = await boundProbe(
+      {
+        components: [
+          {
+            type: "Stack",
+            question_id: "s1",
+            children: [{ type: "QuestionHeadline", question_id: "q_bh", bind: "section_headline" }],
+          },
+        ],
+      },
+      docStub,
+    );
+    // direct duplicate of the bound node → refusal
+    expect(probe.run(`duplicateNode('q_bh')`)).toBeNull();
+    expect(probe.sandbox.refusals.length).toBe(1);
+    expect(String(probe.sandbox.refusals[0])).toContain("This Section already shows its headline");
+    // container duplicate detaches the clone's bind into the CURRENT canonical text
+    const clone = probe.run(`duplicateNode('s1')`) as { children: Array<Record<string, unknown>> };
+    expect(clone).not.toBeNull();
+    expect(clone.children[0]!["bind"]).toBeUndefined();
+    expect((clone.children[0]!["props"] as Record<string, unknown>)["text"]).toBe("Are you insured?");
+    // still exactly ONE bound node — the whole tree validates CLEAN
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+  });
+
+  it("linkBoundNode: byte-equal one-click link sets bind + drops props.text; differing text lets the picked value WIN into the strip store", async () => {
+    const strip = { value: "Are you insured?" };
+    const docStub = {
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = await boundProbe(
+      { components: [{ type: "QuestionHeadline", question_id: "q_h", props: { text: "Are you insured?" } }] },
+      docStub,
+    );
+    // byte-equal case: winnerText null keeps the canonical value
+    expect(probe.run(`unboundCandidate('section_headline')`)).not.toBeNull();
+    expect(probe.run(`linkBoundNode('q_h', 'section_headline', null)`)).toBe(true);
+    const linked = probe.run(`findRef('q_h').node`) as Record<string, unknown>;
+    expect(linked["bind"]).toBe("section_headline");
+    expect(linked["props"]).toBeUndefined(); // props.text dropped + cleaned up
+    expect(strip.value).toBe("Are you insured?");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // differing case: the operator picked the COMPONENT's text — it wins into
+    // the strip store before binding
+    const strip2 = { value: "Old canonical" };
+    const probe2 = await boundProbe(
+      { components: [{ type: "QuestionHeadline", question_id: "q_h2", props: { text: "New from node" } }] },
+      {
+        getElementById(id: string) {
+          return id === "lg-section-headline" ? strip2 : null;
+        },
+        querySelector() {
+          return null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+      },
+    );
+    expect(probe2.run(`linkBoundNode('q_h2', 'section_headline', 'New from node')`)).toBe(true);
+    expect(strip2.value).toBe("New from node");
+    const linked2 = probe2.run(`findRef('q_h2').node`) as Record<string, unknown>;
+    expect(linked2["bind"]).toBe("section_headline");
+    expect(linked2["props"]).toBeUndefined();
+  });
+
+  it("computeIssues waives the text requirement for BOUND nodes only (unbound headline still flagged, in operator words)", async () => {
+    const probe = await boundProbe({
+      components: [
+        { type: "QuestionHeadline", question_id: "q_bound", bind: "section_headline" },
+        { type: "QuestionHeadline", question_id: "q_free" }, // missing props.text
+      ],
+    });
+    const issues = probe.run(`computeIssues()`) as Array<{ qid: string; message: string }>;
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.qid).toBe("q_free");
+    expect(issues[0]!.message).toContain("Question headline"); // label, not type id
+    expect(issues[0]!.message).not.toContain("QuestionHeadline");
+  });
+
+  it("the legacy link banner renders BOTH cases from the live model and its buttons run the real link handlers", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const banner = stubEl("div");
+    banner.attrs["data-bind-banner"] = "";
+    const strip = { value: "Are you insured?" };
+    const docStub = {
+      querySelector(sel: string) {
+        return sel === "[data-bind-banner]" ? banner : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+    };
+    // BYTE-EQUAL case → the one-click link button
+    const probe = studioProbe(
+      html,
+      { components: [{ type: "QuestionHeadline", question_id: "q_h", props: { text: "Are you insured?" } }] },
+      docStub,
+    );
+    probe.run(sliceIslandFunction(island, "clearChildren"));
+    probe.run(sliceIslandFunction(island, "bindBannerButton"));
+    probe.run(sliceIslandFunction(island, "bindBannerLinkHandler"));
+    probe.run(sliceIslandFunction(island, "renderBindBanner"));
+    probe.run("renderBindBanner()");
+    expect(banner.hidden).toBe(false);
+    expect(banner.children).toHaveLength(1);
+    const row = banner.children[0]!;
+    expect(row.getAttribute("data-bind-banner-case")).toBe("equal");
+    const linkBtn = row.children.find((c) => c.tag === "button")!;
+    expect(linkBtn.textContent).toBe("Link headline to the Section’s canonical headline");
+    linkBtn.click(); // the real handler → linkBoundNode
+    const node = probe.run("findRef('q_h').node") as Record<string, unknown>;
+    expect(node["bind"]).toBe("section_headline");
+    expect(node["props"]).toBeUndefined();
+    // linked → the banner re-render empties + hides itself
+    probe.run("renderBindBanner()");
+    expect(banner.hidden).toBe(true);
+    expect(banner.children).toHaveLength(0);
+
+    // DIFFERING case → both values shown; picking the component's text wins
+    const banner2 = stubEl("div");
+    const strip2 = { value: "Old canonical" };
+    const probe2 = studioProbe(
+      html,
+      { components: [{ type: "QuestionHeadline", question_id: "q_h2", props: { text: "New from node" } }] },
+      {
+        querySelector(sel: string) {
+          return sel === "[data-bind-banner]" ? banner2 : null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+        getElementById(id: string) {
+          return id === "lg-section-headline" ? strip2 : null;
+        },
+        createElement(tag: string) {
+          return stubEl(tag);
+        },
+        createTextNode(text: string) {
+          return stubEl("#text", text);
+        },
+      },
+    );
+    probe2.run(sliceIslandFunction(island, "clearChildren"));
+    probe2.run(sliceIslandFunction(island, "bindBannerButton"));
+    probe2.run(sliceIslandFunction(island, "bindBannerLinkHandler"));
+    probe2.run(sliceIslandFunction(island, "renderBindBanner"));
+    probe2.run("renderBindBanner()");
+    const row2 = banner2.children[0]!;
+    expect(row2.getAttribute("data-bind-banner-case")).toBe("differs");
+    // BOTH values are shown
+    expect(row2.allText()).toContain("“Old canonical”");
+    expect(row2.allText()).toContain("“New from node”");
+    const buttons = row2.children.filter((c) => c.tag === "button");
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "Keep the Section headline",
+      "Use this component’s text",
+    ]);
+    buttons[1]!.click();
+    expect(strip2.value).toBe("New from node");
+    expect((probe2.run("findRef('q_h2').node") as Record<string, unknown>)["bind"]).toBe("section_headline");
+  });
+
+  it("SAVE seam: bound content PATCHes through the REAL router and reads back with the bind markers intact", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const probeContent = JSON.parse(JSON.stringify(BOUND_SEED_CONTENT)) as Record<string, unknown>;
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probeContent), headline_text: "Are you currently insured?" }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as {
+      content_json: { components: Array<Record<string, unknown>> };
+    };
+    expect(saved.content_json.components[0]).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    expect(saved.content_json.components[1]).toMatchObject({ type: "Subheadline", bind: "section_subheadline" });
+  });
+});
+
+describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)", () => {
+  it("renderCanvasNow sends the LIVE strip values (headline/subheadline) and the server resolves them into the bound nodes' markup", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const region = { innerHTML: "" };
+    let captured: { url: string; init: RequestInit } | null = null;
+    const sandbox = {
+      state: { content: JSON.parse(JSON.stringify(BOUND_SEED_CONTENT)) as unknown },
+      canvasViewport: "desktop", // wave-2 §6.1.4 island state the fn reads
+      document: {
+        getElementById(id: string) {
+          if (id === "lg-studio-canvas-render") return region;
+          if (id === "lg-section-headline") return { value: "Live typed headline" };
+          if (id === "lg-section-subheadline") return { value: "Live sub copy" };
+          return null;
+        },
+      },
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        captured = { url, init };
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      "function applyCanvasDecoration() {}",
+      "function updateCanvasEmpty() {}",
+      sliceIslandFunction(island, "renderCanvasNow"),
+      "renderCanvasNow();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && region.innerHTML === ""; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(captured, "canvas fetch executed").not.toBeNull();
+    const body = JSON.parse(String(captured!.init.body)) as Record<string, unknown>;
+    // §5.2: the strip store rides the render request…
+    expect(body["headline"]).toBe("Live typed headline");
+    expect(body["subheadline"]).toBe("Live sub copy");
+    // …and the REAL preview handler resolved it into the BOUND nodes' markup
+    expect(region.innerHTML).toContain("Live typed headline");
+    expect(region.innerHTML).toContain("Live sub copy");
+    expect(region.innerHTML).toContain('data-component-type="QuestionHeadline"');
+  });
+
+  it("the island wires the one-store views: strip inputs re-render the canvas; the inspector shared field writes the strip (handler source)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // strip → canvas: both canonical inputs schedule the (bound-resolving) re-render
+    expect(island).toContain("stripHeadline.addEventListener('input', onStripInput)");
+    expect(island).toContain("stripSubheadline.addEventListener('input', onStripInput)");
+    expect(sliceIslandFunction(island, "onStripInput")).toContain("scheduleCanvasRender()");
+    // inspector shared field → strip store (ONE store, never a second field)
+    const collect = sliceIslandFunction(island, "collectBoundShared");
+    expect(collect).toContain("strip.value = inputEl.value");
+    expect(collect).toContain("scheduleCanvasRender()");
+    expect(island).toContain("boundSharedInput.addEventListener('input', collectBoundShared)");
+    // the §5.2 inspector label for the shared single field (headline + the
+    // subheadline variant, island-swapped)
+    expect(html).toContain("Question headline (shared with the Section header above)");
+    expect(island).toContain("Subheadline (shared with the Section header above)");
+    // selecting a bound node hides the generic props.text control (no second
+    // text field anywhere)
+    expect(island).toContain("!(isBound && k === 'text')");
+    // the chip [Show] wiring re-inserts at the top and selects it
+    expect(island).toContain("insertBoundNodeAtTop(this.getAttribute('data-bound-show'))");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — §5.4 canvas scope: Frame hint + the amber page-frame badge
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 §5.4 — unit-only canvas scope", () => {
+  it("SSR: the Frame hint toggle + the dimmed non-interactive skeleton (presentation-only) ship in the canvas region", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(/data-studio-frame-hint[^>]*aria-pressed="false"/);
+    expect(html).toContain(">Frame hint</button>");
+    // the two skeleton edges ship HIDDEN, aria-hidden, and the CSS keeps them
+    // dimmed + inert (never editable here)
+    expect(html).toMatch(/data-studio-frame-skeleton="top"[^>]*hidden/);
+    expect(html).toMatch(/data-studio-frame-skeleton="bottom"[^>]*hidden/);
+    expect(html).toContain(".studio-frame-skeleton{opacity:.35;pointer-events:none");
+    // the island toggle flips aria-pressed + unhides both skeletons
+    const island = studioIsland(html);
+    expect(island).toContain("data-studio-frame-hint");
+    expect(island).toContain("skels[i].hidden = !on");
+  });
+
+  it("the meta blob carries §8.2 scope for every type; buildFrameBadge emits the amber badge with a LIVE Move affordance + Keep + the C2 consequence", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // scope rides the served meta blob (the island's badge decision input)
+    const meta = extractJsonBlob(html, "lg-studio-meta")["types"] as Record<string, Record<string, unknown>>;
+    expect(meta["HeaderBar"]!["scope"]).toBe("frame");
+    expect(meta["ProgressBar"]!["scope"]).toBe("frame");
+    expect(meta["BackgroundPanel"]!["scope"]).toBe("frame");
+    expect(meta["TrustBar"]!["scope"]).toBe("both");
+    expect(meta["TwoButtonYesNo"]!["scope"]).toBe("unit");
+
+    // EXECUTED: the badge builder from the SERVED island
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT, {
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      getElementById() {
+        return null;
+      },
+    });
+    probe.run(sliceIslandFunction(island, "buildFrameBadge"));
+    const badge = probe.run("buildFrameBadge('q_hb', 'HeaderBar')") as unknown as StubEl;
+    expect(badge.className).toBe("studio-frame-badge");
+    expect(badge.getAttribute("data-frame-badge")).toBe("q_hb");
+    expect(badge.allText()).toContain("Page-frame element — belongs to the Quote frame ·");
+    const move = badge.children.find((c) => c.getAttribute("data-frame-move") !== null)!;
+    expect(move.allText()).toBe("Move to Quote frame");
+    // wave 2: the Move ACTION is LIVE — no disabled attribute anymore
+    expect(move.disabled, "the §5.4 Move action shipped — the button is enabled").not.toBe(true);
+    expect(move.title).toContain("Quote frame");
+    const keep = badge.children.find((c) => c.getAttribute("data-frame-keep") !== null)!;
+    expect(keep.allText()).toBe("Keep (legacy)");
+    // C2 (§5.4): the badge NAMES the activation consequence
+    expect(badge.allText()).toContain(
+      "While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel’s Advanced legacy override allows it.",
+    );
+    // the decoration pass gates on scope === 'frame' + the session Keep store,
+    // and the canvas click handler consumes [data-frame-keep] with NO model change
+    expect(island).toContain("typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true");
+    expect(island).toContain("keptLegacyFrameNodes[keepBtn.getAttribute('data-frame-keep')] = true");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — §7.1/§7.2/§7.3 scope-aware inspector
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
+  it("§7.1 SSR: the scope header is the inspector's FIRST element — Editing line, four pills (frame disabled here), Affects line, aria-live", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const inspectorStart = html.indexOf("data-studio-inspector");
+    const headerAt = html.indexOf("data-studio-scope-header", inspectorStart);
+    const tabsAt = html.indexOf('role="tablist"', inspectorStart);
+    expect(headerAt).toBeGreaterThan(-1);
+    expect(headerAt, "scope header precedes the tab strip").toBeLessThan(tabsAt);
+    expect(html).toMatch(/data-studio-scope-header[^>]*aria-live="polite"/);
+    expect(html).toContain('data-scope-editing-name>This Section (question unit)<');
+    for (const pill of ["frame", "section", "component", "choice"]) {
+      expect(html, `pill ${pill}`).toContain(`data-scope-pill="${pill}"`);
+    }
+    // §7.2: the frame is Quote-Builder-owned — its pill is inert here
+    expect(html).toMatch(/data-scope-pill="frame"[^>]*disabled[^>]*title="Page-frame elements are edited in the Quote Builder"/);
+    expect(html).toMatch(/data-scope-pill="section"[^>]*aria-pressed="true"/);
+    expect(html).toContain("data-scope-affects");
+    // the old id/type head is GONE (§7.4: no ids on a normal surface)
+    expect(html).not.toContain('id="lg-inspector-target"');
+    // the Section-scope helper note points at the strip
+    expect(html).toContain("data-studio-section-scope-note");
+    // the retarget is announced/animated + the §7.5 Advanced-open event exists
+    const island = studioIsland(html);
+    expect(island).toContain("studio-scope-flash");
+    expect(island).toContain("window.console.info('section_advanced_opened'");
+    // choice-row focus retargets the scope header (§7.5 — synchronous handler)
+    expect(island).toContain("choicesPanelWrap.addEventListener('focusin'");
+    expect(island).toContain("setScope('choice')");
+  });
+
+  it("§7.1 EXECUTED: the header copy patterns per scope (operator words; Section cites the usage count; choice = 'this card only')", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(sliceIslandFunction(island, "scopeEditingName"));
+    probe.run(sliceIslandFunction(island, "scopeAffectsText"));
+    probe.run("var scopeState = 'section'; var choiceScopeLabel = ''; var usageQuoteCount = null;");
+
+    // Section scope + live usage counts
+    expect(probe.run("scopeEditingName(null)")).toBe("This Section (question unit)");
+    expect(probe.run("scopeAffectsText(null)")).toBe("Affects: changes apply everywhere this Section is used.");
+    probe.run("usageQuoteCount = 0");
+    expect(probe.run("scopeAffectsText(null)")).toBe("Affects: not used in any quote yet.");
+    probe.run("usageQuoteCount = 2");
+    expect(probe.run("scopeAffectsText(null)")).toBe(
+      "Affects: used in 2 quotes; changes apply everywhere it’s used.",
+    );
+
+    // Component scope: the LABEL, never the type id (§7.4)
+    probe.run("scopeState = 'component'");
+    expect(probe.run("scopeEditingName({ type: 'ImageCardAnswerGrid' })")).toBe("Image answer cards");
+    expect(probe.run("scopeAffectsText({ type: 'ImageCardAnswerGrid' })")).toBe(
+      "Affects: this question unit — in every quote that uses this Section.",
+    );
+    // a legacy frame node names its real owner
+    expect(probe.run("scopeAffectsText({ type: 'HeaderBar' })")).toContain("edited in the Quote Builder");
+
+    // Choice scope: the §7.1 binding pattern
+    probe.run("scopeState = 'choice'; choiceScopeLabel = 'Sole Proprietor';");
+    expect(probe.run("scopeEditingName({ type: 'IconCardAnswerGrid' })")).toBe("Answer choice “Sole Proprietor”");
+    expect(probe.run("scopeAffectsText({ type: 'IconCardAnswerGrid' })")).toBe("Affects: this card only.");
+  });
+
+  it("§7.3 EXECUTED: tabs are DYNAMIC per selection — copy-bearing Content, frame nodes lose unit tabs, containers gain Design, no inapplicable tab", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(sliceIslandFunction(island, "availableTabsFor"));
+    const tabsOf = (expr: string): string[] => probe.run(`availableTabsFor(${expr})`) as string[];
+
+    // nothing selected → NO tabs (Section scope edits live in the strip)
+    expect(tabsOf("null")).toEqual([]);
+    // a BOUND node is copy-bearing (the shared field) — Content present
+    expect(tabsOf("{ type: 'QuestionHeadline', bind: 'section_headline' }")).toEqual([
+      "content",
+      "design",
+      "dependencies",
+      "advanced",
+    ]);
+    // answer-producing choice grid: the full §7.3 row
+    expect(tabsOf("{ type: 'ImageCardAnswerGrid' }")).toEqual([
+      "content",
+      "choices",
+      "design",
+      "validation",
+      "dependencies",
+      "mapping",
+      "advanced",
+    ]);
+    // ZIP input adds Maps; no Choices
+    expect(tabsOf("{ type: 'ZIPInputQuestion' }")).toEqual([
+      "content",
+      "design",
+      "validation",
+      "maps",
+      "dependencies",
+      "mapping",
+      "advanced",
+    ]);
+    // containers are a visual selection → Design joins their Layout tab
+    expect(tabsOf("{ type: 'Stack' }")).toEqual(["layout", "design", "dependencies", "advanced"]);
+    expect(tabsOf("{ type: 'Spacer' }")).toEqual(["layout", "design", "dependencies", "advanced"]);
+    // a legacy PAGE-FRAME element is NOT a unit component: no design/
+    // validation/dependencies/mapping — copy/structured props + Advanced only
+    expect(tabsOf("{ type: 'HeaderBar' }")).toEqual(["layout", "advanced"]);
+    expect(tabsOf("{ type: 'ProgressBar' }")).toEqual(["content", "advanced"]);
+    // affordances with copy stay lean
+    expect(tabsOf("{ type: 'ReassuranceBadge' }")).toEqual(["content", "design", "dependencies", "advanced"]);
+  });
+
+  it("§7.4: the rename consequence is inline and counted against the LIVE mapping model; Advanced owns the bind marker", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // consequence copy pattern ("will unlink N Offer mappings — they'll need
+    // remapping") counted from state.answer_maps
+    const warn = sliceIslandFunction(island, "showRenameWarning");
+    expect(warn).toContain("state.answer_maps[mi].internal_field === oldField");
+    expect(warn).toContain("will unlink ' + mapCount + ' Offer mapping");
+    expect(warn).toContain("need remapping");
+    // the Advanced tab carries the read-only bind marker slot
+    expect(html).toContain("data-studio-bind-marker");
+    expect(island).toContain("node.bind !== undefined ? node.bind : '\\u2014'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 C6 "slide" page lint — SUPERSEDED (slice C-verify): the lint
+// moved to the dedicated 15 §15.2 suite, test/leadgen-glossary-lint.test.ts,
+// EXTENDED without weakening — same full-page regex over edit + new + the
+// sections LIST page, plus the quote-side "Slide stays allowed" calibration
+// and the full §12.4/§7.4 forbidden-term matrix.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — A5 image_alt samples + A6 image_fit component prop
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 A5 — image-grid samples always carry image_alt", () => {
+  it("palette insert of ImageCardAnswerGrid is validator-CLEAN and SAVES through the real router (pre-fix: alt-less samples 400'd)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, { components: [] });
+    const node = probe.run(`addComponentAt('ImageCardAnswerGrid', null, null)`) as {
+      choices: Array<Record<string, unknown>>;
+    };
+    expect(node).not.toBeNull();
+    for (const choice of node.choices) {
+      expect(typeof choice["imageMediaId"]).toBe("string");
+      expect(typeof choice["image_alt"], "image_alt rides every sampled image choice").toBe("string");
+      expect(choice["image_alt"]).toBe(choice["label"]);
+    }
+    // the REAL validator accepts the palette-authored grid…
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // …and the REAL save path persists it (the A5 repro: this PATCH failed
+    // save validation while the samples lacked image_alt)
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probe.sandbox.state.content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+  });
+
+  it("bulk paste for an image grid carries image_alt per pasted choice; the choice-row editor PRESERVES image_alt through an edit", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, { components: [] });
+    const parsed = probe.run(`parseBulkChoices('Toyota|toyota\\nHonda', { choice_image: true })`) as Array<
+      Record<string, unknown>
+    >;
+    expect(parsed).toEqual([
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_toyota", image_alt: "Toyota" },
+      { label: "Honda", value: "honda", analytics_id: "honda", imageMediaId: "media_honda", image_alt: "Honda" },
+    ]);
+    const content = {
+      components: [{ type: "ImageCardAnswerGrid", question_id: "g1", internal_field: "make", choices: parsed }],
+    };
+    expect(validateSectionContent(content).errors).toEqual([]);
+    // the row editor lists image_alt so collectChoices (which rebuilds each
+    // choice from the row inputs) can never silently drop it
+    const island = studioIsland(html);
+    expect(island).toContain(
+      "var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'title', 'subtitle', 'badge', 'icon', 'emoji', 'imageMediaId', 'image_alt', 'aria_label', 'description']",
+    );
+    // the SSR thumbnail sample carries alt too (served page renders real alts)
+    expect(html).toContain('alt="Yes, currently"');
+  });
+});
+
+describeDb("v2.5 A6 — image_fit is a COMPONENT prop on ImageCardAnswerGrid", () => {
+  const gridWith = (props: Record<string, unknown> | undefined, choices?: Array<Record<string, unknown>>): Record<string, unknown> => ({
+    type: "ImageCardAnswerGrid",
+    question_id: "g1",
+    internal_field: "make",
+    choices: choices ?? [
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_t", image_alt: "Toyota" },
+    ],
+    ...(props === undefined ? {} : { props }),
+  });
+
+  it("schema: cover/contain validate; any other value is a typed enum violation at the precise path", () => {
+    expect(validateSectionContent({ components: [gridWith({ image_fit: "cover" })] }).errors).toEqual([]);
+    expect(validateSectionContent({ components: [gridWith({ image_fit: "contain" })] }).errors).toEqual([]);
+    expect(validateSectionContent({ components: [gridWith(undefined)] }).errors).toEqual([]);
+    const bad = validateSectionContent({ components: [gridWith({ image_fit: "stretch" })] });
+    expect(bad.errors).toHaveLength(1);
+    expect(bad.errors[0]).toMatchObject({
+      code: "container_prop_invalid",
+      path: "components[0].props.image_fit",
+    });
+    expect(bad.errors[0]!.message).toContain("cover|contain");
+  });
+
+  it("preset: the component prop drives object-fit for EVERY card; a legacy per-choice value stays the fallback; the component prop WINS", () => {
+    const choices = [
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_t", image_alt: "Toyota" },
+      { label: "Honda", value: "honda", analytics_id: "honda", imageMediaId: "media_h", image_alt: "Honda", image_fit: "contain" },
+    ];
+    // component prop → both cards carry it (per-choice legacy is overridden)
+    const withProp = renderComponent(
+      gridWith({ image_fit: "cover" }, choices) as unknown as LeadgenComponentNode,
+      defaultFunnelDesign,
+    );
+    expect((withProp.match(/object-fit:cover/g) ?? []).length).toBe(2);
+    expect(withProp).not.toContain("object-fit:contain");
+    // no component prop → the per-choice defensive read still applies
+    const legacyOnly = renderComponent(gridWith(undefined, choices) as unknown as LeadgenComponentNode, defaultFunnelDesign);
+    expect((legacyOnly.match(/object-fit:contain/g) ?? []).length).toBe(1);
+    expect(legacyOnly).not.toContain("object-fit:cover");
+    // neither → today's attribute-free <img> (byte-compat pin lives in
+    // leadgen-image-card-choice.test.ts)
+    const bare = renderComponent(
+      gridWith(undefined, [choices[0]!]) as unknown as LeadgenComponentNode,
+      defaultFunnelDesign,
+    );
+    expect(bare).not.toContain("object-fit");
+  });
+
+  it("studio: the Design-tab control writes props.image_fit through the standard collect path, gated to the image grid, and PATCHes for real", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // SSR: the control lives on the DESIGN panel (A6 placement decision),
+    // hidden until an image grid is selected
+    const designPanel = html.slice(
+      html.indexOf('data-studio-panel="design"'),
+      html.indexOf('data-studio-panel="validation"'),
+    );
+    expect(designPanel).toMatch(/data-image-fit-wrap[^>]*hidden/);
+    const fitSelect = selectBlock(html, "lg-inspector-image-fit");
+    expect(fitSelect).toContain('data-inspector-field="image_fit"');
+    expect(fitSelect).toContain('<option value="cover">');
+    expect(fitSelect).toContain('<option value="contain">');
+    const island = studioIsland(html);
+    expect(island).toContain("node.type !== 'ImageCardAnswerGrid'");
+
+    // EXECUTED: the sliced generic field collector stores/clears the prop
+    const probe = studioProbe(html, {
+      components: [gridWith(undefined)],
+    });
+    probe.run(sliceIslandFunction(island, "collectInspectorField"));
+    probe.sandbox.selectedQuestionId = "g1";
+    const fitInput = (value: string): Record<string, unknown> => ({
+      type: "select-one",
+      value,
+      getAttribute(k: string): string | null {
+        return k === "data-inspector-field" ? "image_fit" : null;
+      },
+    });
+    probe.sandbox["__fit"] = fitInput("cover");
+    probe.run("collectInspectorField(__fit)");
+    let node = probe.run("findRef('g1').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["image_fit"]).toBe("cover");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // …and the REAL router round-trips it
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probe.sandbox.state.content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as {
+      content_json: { components: Array<Record<string, unknown>> };
+    };
+    expect((saved.content_json.components[0]!["props"] as Record<string, unknown>)["image_fit"]).toBe("cover");
+
+    // clearing the select deletes the prop (back to the default fit)
+    probe.sandbox["__clear"] = fitInput("");
+    probe.run("collectInspectorField(__clear)");
+    node = probe.run("findRef('g1').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["image_fit"]).toBeUndefined();
+  });
+});
+
+describeDb("v2.5 §2.4 — 'Used in N quotes' from the REAL usage endpoint", () => {
+  it("loadUsage counts DISTINCT quotes (3 variant usages across 2 quotes → 2) through GET /sections/:id/usage", async () => {
+    const { sdb, env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // REAL P7 rows: two quotes; quote 1 has two variants using the Section
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, ?, ?, ?)").run("lgq_aaaaaaaaaaaa", "Quote A", "quote_funnel", '["life"]');
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, ?, ?, ?)").run("lgq_bbbbbbbbbbbb", "Quote B", "quote_funnel", '["life"]');
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, 1, ?)").run("lgf_aaaaaaaaaaaa", "Funnel A");
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, 2, ?)").run("lgf_bbbbbbbbbbbb", "Funnel B");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label) VALUES (?, 1, 'A')").run("lgn_aaaaaaaaaaaa");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label) VALUES (?, 1, 'B')").run("lgn_cccccccccccc");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label) VALUES (?, 2, 'A')").run("lgn_bbbbbbbbbbbb");
+    for (const variantId of [1, 2, 3]) {
+      sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 1)").run(variantId, section.id);
+    }
+    // EXECUTED: the island's loadUsage against the live router
+    const sandbox: Record<string, unknown> = {
+      state: { public_id: section.public_id },
+      usageQuoteCount: null,
+      encodeURIComponent,
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      "function renderScopeHeader() {}",
+      sliceIslandFunction(island, "loadUsage"),
+      "loadUsage();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && sandbox["usageQuoteCount"] === null; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(sandbox["usageQuoteCount"], "3 variant rows dedupe to 2 quotes").toBe(2);
+  });
+});
+
+// ===========================================================================
+// v2.5 WAVE 2 — §6 canvas toolbar (anatomy + matrix + undo/redo + viewport) ·
+// §6.6 named presets · §7.3 C1 provider chip (DEV-55) · §9.4/§9.5 ·
+// §5.3 mode 5 · §5.4 move-to-frame · §5.5 depth · §6.2 inline editing
+// ===========================================================================
+
+// In-memory KVNamespace stub — the presets endpoints ride the CACHE binding.
+function kvStub(): KVNamespace {
+  const store = new Map<string, string>();
+  return {
+    async get(key: string): Promise<string | null> {
+      return store.has(key) ? store.get(key)! : null;
+    },
+    async put(key: string, value: string): Promise<void> {
+      store.set(key, value);
+    },
+    async delete(key: string): Promise<void> {
+      store.delete(key);
+    },
+  } as unknown as KVNamespace;
+}
+
+// Slice a `var NAME = [...];` array-literal statement from the island (the
+// sliceIslandVar sibling for arrays — TEXT_ROLE_TYPES etc.).
+function sliceIslandArray(script: string, name: string): string {
+  const marker = `var ${name} = [`;
+  const start = script.indexOf(marker);
+  expect(start, `island array ${name} present`).toBeGreaterThan(-1);
+  const end = script.indexOf("];", start);
+  expect(end, `island array ${name} closes`).toBeGreaterThan(start);
+  return script.slice(start, end + 2);
+}
+
+describeDb("wave 2 — §6.1 toolbar SSR anatomy (1–9)", () => {
+  it("hosts breadcrumb, scope pills (ONE implementation with the inspector), undo/redo, viewport, structure/layout/text/component/choice/preset clusters — always visible", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the toolbar block itself is NOT hidden (matrix row 1 shows the base)
+    expect(html).toMatch(/<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar>/);
+    // 1. breadcrumb lives INSIDE the toolbar now
+    const toolbarAt = html.indexOf("data-studio-canvas-toolbar");
+    const crumbAt = html.indexOf("data-studio-breadcrumb");
+    expect(crumbAt).toBeGreaterThan(toolbarAt);
+    // 2. scope pills render TWICE (toolbar + inspector) from ONE helper
+    expect(html.split('data-scope-pill="section"').length - 1).toBe(2);
+    // 3. undo/redo (disabled at boot — empty stacks)
+    expect(html).toMatch(/data-studio-act="undo" disabled/);
+    expect(html).toMatch(/data-studio-act="redo" disabled/);
+    // 4. viewport toggle — Desktop 1280 / Mobile 375
+    expect(html).toContain('data-canvas-viewport="desktop"');
+    expect(html).toContain('data-canvas-viewport="mobile"');
+    expect(html).toContain("Desktop 1280");
+    expect(html).toContain("Mobile 375");
+    // 5. structure cluster incl. the NEW Group→Grid/Columns + Ungroup
+    for (const act of ["move-up", "move-down", "add-before", "add-after", "duplicate", "delete", "group-stack", "group-cardpanel", "group-grid", "group-columns", "ungroup"]) {
+      expect(html, `structure act ${act}`).toContain(`data-studio-act="${act}"`);
+    }
+    // 6. layout cluster: container groups over the SAME data-container-prop
+    // hooks (one collect/populate implementation, two hosts) + choice cols/gap
+    expect(html).toContain('id="lg-tb-Stack-direction"');
+    expect(html).toContain('id="lg-tb-CardPanel-width"');
+    expect(html).toContain("data-toolbar-choice-layout");
+    // 7. text cluster: type role + color role swatch
+    expect(html).toContain("data-text-role");
+    expect(html).toContain("data-toolbar-text-color");
+    // 8. component cluster quick controls
+    expect(html).toContain("data-toolbar-add-choice");
+    expect(html).toContain("data-toolbar-autoadvance");
+    expect(html).toContain("data-toolbar-open-validation");
+    expect(html).toContain("data-toolbar-searchable");
+    // choice cluster (§6.4)
+    for (const act of ["image", "label", "badge", "disabled", "duplicate", "left", "right", "delete"]) {
+      expect(html, `choice act ${act}`).toContain(`data-choice-act="${act}"`);
+    }
+    expect(html).toContain("data-choice-value-chip");
+    // 9. preset menu
+    expect(html).toContain("data-preset-save");
+    expect(html).toContain("data-preset-apply");
+    expect(html).toContain("Save selection as preset");
+    // §6.7 inline problems slot
+    expect(html).toContain("data-toolbar-problems");
+  });
+});
+
+describeDb("wave 2 — §6.5 context matrix (executed toolbarClustersFor)", () => {
+  it("visible clusters are a pure function of the selection class — the normative table row per row", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(
+      [
+        sliceIslandArray(island, "TEXT_ROLE_TYPES"),
+        sliceIslandFunction(island, "isCopyNode"),
+        sliceIslandFunction(island, "toolbarClustersFor"),
+      ].join("\n"),
+    );
+    const clusters = (node: unknown, choice: boolean): string[] =>
+      probe.run(`toolbarClustersFor(${JSON.stringify(node)}, ${choice})`) as string[];
+    const BASE = ["breadcrumb", "pills", "undo", "viewport"];
+    // Nothing selected → base row only
+    expect(clusters(null, false)).toEqual(BASE);
+    // Bound headline / copy node → + text · structure
+    expect(clusters({ type: "QuestionHeadline", question_id: "b", bind: "section_headline" }, false)).toEqual(
+      BASE.concat(["text", "structure", "preset"]),
+    );
+    expect(clusters({ type: "HelperText", question_id: "h" }, false)).toEqual(BASE.concat(["text", "structure", "preset"]));
+    // Choice component → + structure · layout(columns/gap) · component
+    expect(clusters({ type: "IconCardAnswerGrid", question_id: "g" }, false)).toEqual(
+      BASE.concat(["structure", "layout", "component", "preset"]),
+    );
+    // Single choice → + choice cluster only
+    expect(clusters({ type: "IconCardAnswerGrid", question_id: "g" }, true)).toEqual(BASE.concat(["choice"]));
+    // Input component → + structure · component
+    expect(clusters({ type: "FreeTextQuestion", question_id: "f", internal_field: "note" }, false)).toEqual(
+      BASE.concat(["structure", "component", "preset"]),
+    );
+    // Local container → + structure · layout
+    expect(clusters({ type: "Stack", question_id: "s" }, false)).toEqual(BASE.concat(["structure", "layout", "preset"]));
+    // Legacy frame node → structure only (frame data is Quote-Builder-owned)
+    expect(clusters({ type: "HeaderBar", question_id: "hb" }, false)).toEqual(BASE.concat(["structure"]));
+  });
+});
+
+describeDb("wave 2 — §6.1.3 undo/redo (executed island history)", () => {
+  it("≥30 steps retained (50 cap), covers add/delete/reorder/prop-edit, undo/redo round-trip, cleared on Save; ⌘Z wiring shipped", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the REAL afterModelChange pushes history as its second act, and the
+    // save-success handler clears it (§6.1.3 "cleared on Save")
+    expect(island).toContain("markDirty();\n    historyPush();");
+    expect(island).toContain("historyReset();");
+    expect(island).toContain("if (ev.shiftKey) { historyRedo(); } else { historyUndo(); }");
+    const probe = studioProbe(html, { components: [] });
+    probe.run(
+      [
+        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = [];",
+        "var lastSnapshot = JSON.stringify(state.content);",
+        "function updateHistoryButtons() {}",
+        "function refreshAfterHistory() {}",
+        sliceIslandFunction(island, "historyPush"),
+        sliceIslandFunction(island, "historyReset"),
+        sliceIslandFunction(island, "restoreSnapshot"),
+        sliceIslandFunction(island, "historyUndo"),
+        sliceIslandFunction(island, "historyRedo"),
+        // route the shipped call order: every model mutation pushes history
+        "function afterModelChange() { historyPush(); }",
+      ].join("\n"),
+    );
+    // 60 ADD mutations → the stack caps at 50 (≥30 required)
+    probe.run("for (var i = 0; i < 60; i++) { addComponentAt('HelperText', null, null); }");
+    expect(probe.run("undoStack.length")).toBe(50);
+    expect(probe.run("state.content.components.length")).toBe(60);
+    // prop-edit + reorder + delete all flow through the same history hook
+    probe.run("var first = state.content.components[0]; first.props = { text: 'edited' }; afterModelChange();");
+    probe.run("moveWithin(state.content.components[1].question_id, 1);");
+    probe.run("removeNode(state.content.components[0].question_id);");
+    expect(probe.run("state.content.components.length")).toBe(59);
+    // undo the delete → 60 components again, with the edited prop intact
+    expect(probe.run("historyUndo()")).toBe(true);
+    expect(probe.run("state.content.components.length")).toBe(60);
+    expect(probe.run("state.content.components[0].props.text")).toBe("edited");
+    // undo reorder + prop edit → the makeNode default text is back
+    probe.run("historyUndo(); historyUndo();");
+    expect(probe.run("state.content.components[0].props.text")).toBe("New HelperText text");
+    // redo replays the prop edit
+    expect(probe.run("historyRedo()")).toBe(true);
+    expect(probe.run("state.content.components[0].props.text")).toBe("edited");
+    // a NEW mutation invalidates the redo branch
+    probe.run("addComponentAt('HelperText', null, null);");
+    expect(probe.run("redoStack.length")).toBe(0);
+    // cleared on Save
+    probe.run("historyReset();");
+    expect(probe.run("undoStack.length")).toBe(0);
+    expect(probe.run("historyUndo()")).toBe(false);
+  });
+});
+
+describeDb("wave 2 — §6.6 named presets (KV lg-component-presets)", () => {
+  it("endpoint round-trip via the live router: POST validates (curated overrides + layout props ONLY), GET lists, DELETE removes; upsert by name", async () => {
+    const { env } = newHarness();
+    const kvEnv = { ...env, CACHE: kvStub() };
+    // invalid: unknown component type
+    let res = await admin.request(
+      `${API}/component-presets`,
+      jsonInit("POST", { name: "Bad", component_type: "NotAType" }),
+      kvEnv,
+    );
+    expect(res.status).toBe(400);
+    // invalid: a CONTENT key can never enter a preset (§6.6 never content/choices/mapping)
+    res = await admin.request(
+      `${API}/component-presets`,
+      jsonInit("POST", {
+        name: "Bad2",
+        component_type: "IconCardAnswerGrid",
+        overrides: { iconColor: "accent" },
+        props_subset: { text: "smuggled copy" },
+      }),
+      kvEnv,
+    );
+    expect(res.status).toBe(400);
+    const badBody = (await res.json()) as { fields: Record<string, string> };
+    expect(badBody.fields["props_subset.text"]).toContain("§6.6");
+    // invalid: a non-curated override key
+    res = await admin.request(
+      `${API}/component-presets`,
+      jsonInit("POST", { name: "Bad3", component_type: "IconCardAnswerGrid", overrides: { freeCss: "red" } }),
+      kvEnv,
+    );
+    expect(res.status).toBe(400);
+    // valid create
+    res = await admin.request(
+      `${API}/component-presets`,
+      jsonInit("POST", {
+        name: "Hero grid",
+        component_type: "IconCardAnswerGrid",
+        overrides: { iconColor: "accent", gridGap: "1rem" },
+        props_subset: { columnsDesktop: 3, image_fit: "cover" },
+      }),
+      kvEnv,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const created = (await res.json()) as { item: Record<string, unknown>; items: unknown[] };
+    expect(created.item).toMatchObject({
+      name: "Hero grid",
+      component_type: "IconCardAnswerGrid",
+      overrides: { iconColor: "accent", gridGap: "1rem" },
+      props_subset: { columnsDesktop: 3, image_fit: "cover" },
+      created_by: null, // no Access header in tests — honest null, never faked
+    });
+    expect(typeof created.item["created_at"]).toBe("number");
+    // list
+    res = await admin.request(`${API}/component-presets`, {}, kvEnv);
+    expect(res.status).toBe(200);
+    let listed = (await res.json()) as { items: Array<Record<string, unknown>> };
+    expect(listed.items).toHaveLength(1);
+    // upsert by name replaces in place
+    res = await admin.request(
+      `${API}/component-presets`,
+      jsonInit("POST", { name: "Hero grid", component_type: "IconCardAnswerGrid", overrides: { iconColor: "success" } }),
+      kvEnv,
+    );
+    expect(res.status).toBe(201);
+    res = await admin.request(`${API}/component-presets`, {}, kvEnv);
+    listed = (await res.json()) as { items: Array<Record<string, unknown>> };
+    expect(listed.items).toHaveLength(1);
+    expect((listed.items[0]!["overrides"] as Record<string, unknown>)["iconColor"]).toBe("success");
+    // delete + 404 on repeat
+    res = await admin.request(`${API}/component-presets/${encodeURIComponent("Hero grid")}`, { method: "DELETE" }, kvEnv);
+    expect(res.status).toBe(200);
+    res = await admin.request(`${API}/component-presets/${encodeURIComponent("Hero grid")}`, { method: "DELETE" }, kvEnv);
+    expect(res.status).toBe(404);
+  });
+
+  it("island: buildPresetPayload captures type + curated overrides + LAYOUT props only; applyPreset merges onto SAME-type nodes and stores the name as provenance", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const CONTENT = {
+      components: [
+        {
+          type: "IconCardAnswerGrid",
+          question_id: "g1",
+          internal_field: "biz",
+          choices: [{ label: "A", value: "a", analytics_id: "a", icon: "★" }],
+          props: { columns: 2, gap: "s", helper_text: "keep me out of presets" },
+          design_overrides: { iconColor: "accent" },
+        },
+        { type: "TwoButtonYesNo", question_id: "q2", internal_field: "insured" },
+      ],
+    };
+    const probe = studioProbe(html, CONTENT);
+    probe.run(
+      [
+        sliceIslandArray(island, "PRESET_PROP_KEYS"),
+        "var presetsData = [];",
+        sliceIslandFunction(island, "presetsForType"),
+        sliceIslandFunction(island, "presetByName"),
+        sliceIslandFunction(island, "buildPresetPayload"),
+        sliceIslandFunction(island, "applyPreset"),
+      ].join("\n"),
+    );
+    // capture: helper_text (content) is EXCLUDED; gap (layout) is captured
+    const payload = probe.run("buildPresetPayload(findRef('g1').node)") as Record<string, unknown>;
+    expect(payload).toEqual({
+      component_type: "IconCardAnswerGrid",
+      overrides: { iconColor: "accent" },
+      props_subset: { gap: "s" },
+    });
+    // apply merges onto a same-type node + provenance name
+    probe.run(
+      "presetsData = [{ name: 'Hero grid', component_type: 'IconCardAnswerGrid', overrides: { iconColor: 'success', gridGap: '1rem' }, props_subset: { columnsDesktop: 3 } }];",
+    );
+    expect(probe.run("applyPreset(findRef('g1').node, presetByName('Hero grid'))")).toBe(true);
+    const node = probe.run("findRef('g1').node") as Record<string, unknown>;
+    expect(node["design_preset"]).toBe("Hero grid");
+    expect(node["design_overrides"]).toEqual({ iconColor: "success", gridGap: "1rem" });
+    expect((node["props"] as Record<string, unknown>)["columnsDesktop"]).toBe(3);
+    // choices/content untouched by the merge
+    expect((node["choices"] as unknown[]).length).toBe(1);
+    expect((node["props"] as Record<string, unknown>)["helper_text"]).toBe("keep me out of presets");
+    // mismatched type → refused (§6.6 "mismatched type → disabled")
+    expect(probe.run("applyPreset(findRef('q2').node, presetByName('Hero grid'))")).toBe(false);
+    // the mutated model stays server-valid
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+  });
+});
+
+describeDb("wave 2 — §7.3 C1 provider chip over the DEV-55 projection", () => {
+  it("GET /sections/:id (and the SSR blob) carry offer_values: one row per SELECTED offer with per-field output_value_map", async () => {
+    const { env } = newHarness();
+    const offer = await createOfferWithSchema(env, "Ins Co A", [
+      { path: "applicant.insured", type: "boolean", required: true, internal_field: "currently_insured" },
+    ]);
+    const section = await createSection(env);
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", {
+        answer_maps: [
+          {
+            question_id: "q1",
+            offer_id: offer.id,
+            offer_payload_field_path: "applicant.insured",
+            provider_expected_type: "boolean",
+            output_value_map: { yes: "YES_PROVIDER_A" },
+            required_for_offer: true,
+          },
+        ],
+      }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const detail = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const projection = detail["offer_values"] as Array<Record<string, unknown>>;
+    expect(projection).toHaveLength(1);
+    expect(projection[0]).toMatchObject({
+      offer_id: offer.id,
+      offer_public_id: offer.public_id,
+      offer_name: "Ins Co A",
+    });
+    const fields = projection[0]!["fields"] as Record<string, { path: string; values: Record<string, unknown> | null }>;
+    expect(fields["currently_insured"]).toEqual({ path: "applicant.insured", values: { yes: "YES_PROVIDER_A" } });
+    // the studio SSR blob is the chip's data source (DEV-55)
+    const html = await studioPage(env, section.public_id);
+    const blob = extractJsonBlob(html, "lg-section-data");
+    expect((blob["offer_values"] as unknown[]).length).toBe(1);
+  });
+
+  it("C1: NO provider-value control exists on the Choices surface; the chip lists ONE ROW PER SELECTED OFFER (value or 'not set') with the value-map deep link", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the row grid's field list carries NO provider field of any spelling
+    expect(island).not.toContain("provider_value");
+    expect(island).not.toContain("'provider'");
+    // the C1 note names the Mapping tab as the only provider-value editor
+    expect(html).toContain("Provider values are set per Offer in the Mapping tab");
+    // executed: the chip projection — one row PER SELECTED OFFER
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(
+      "state.offer_values = [" +
+        "{ offer_id: 1, offer_public_id: 'lgo_aaa', offer_name: 'Ins Co A', fields: { currently_insured: { path: 'applicant.insured', values: { yes: 'YES_A' } } } }," +
+        "{ offer_id: 2, offer_public_id: 'lgo_bbb', offer_name: 'Ins Co B', fields: {} }" +
+        "];",
+    );
+    probe.run(
+      [
+        sliceIslandFunction(island, "providerChipRows"),
+        sliceIslandFunction(island, "providerChipLabel"),
+      ].join("\n"),
+    );
+    const rows = probe.run("providerChipRows('currently_insured', 'yes')") as Array<Record<string, unknown>>;
+    expect(rows).toEqual([
+      { offer_name: "Ins Co A", offer_public_id: "lgo_aaa", value: "YES_A", href: "/admin/leadgen/offers/lgo_aaa/edit#payload" },
+      { offer_name: "Ins Co B", offer_public_id: "lgo_bbb", value: null, href: "/admin/leadgen/offers/lgo_bbb/edit#payload" },
+    ]);
+    // k/n label: 1 of 2 Offers carries a value for this choice
+    expect(probe.run("providerChipLabel('currently_insured', 'yes')")).toBe("Provider values: 1/2 Offers");
+    // the same normalized answer maps to DIFFERENT provider values per Offer
+    // (§12.2) — the chip renders each offer's own value, never a universal one
+    const rowsNo = probe.run("providerChipRows('currently_insured', 'no')") as Array<Record<string, unknown>>;
+    expect(rowsNo.map((r) => r["value"])).toEqual([null, null]);
+  });
+});
+
+describeDb("wave 2 — §9.5 Section role-overrides drawer mode", () => {
+  it("SSR: the Design-overrides drawer tab hosts the §9.5 banner (verbatim), 14 role rows, columnsDefault + gapDefault", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain('data-studio-drawer-tab="design"');
+    expect(html).toContain('data-studio-drawer-panel="design"');
+    expect(html).toContain(
+      "These apply wherever this Section is used — prefer the Quote theme for funnel-wide changes.",
+    );
+    for (const role of ["brand_primary", "accent", "button_primary_bg", "text_muted"]) {
+      expect(html, `role row ${role}`).toContain(`data-section-role="${role}"`);
+    }
+    expect(html.split("data-section-role=").length - 1).toBe(14);
+    expect(html).toContain("data-section-columns-default");
+    expect(html).toContain("data-section-gap-default");
+  });
+
+  it("EXECUTED: buildSectionOverrides emits the sparse §9.5 shape; a real PATCH persists it; the canvas re-render carries it as layer 4 (live preview proof)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // DOM stub: brand_primary re-pointed to accent + columns 3 + gap l
+    const roleSel = (role: string, value: string) => ({
+      getAttribute: () => role,
+      value,
+    });
+    const docStub = {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        if (sel === "[data-section-columns-default]") return { value: "3" };
+        if (sel === "[data-section-gap-default]") return { value: "l" };
+        return null;
+      },
+      querySelectorAll(sel: string) {
+        if (sel === "[data-section-role]") {
+          return [roleSel("button_primary_bg", "accent"), roleSel("text_primary", "")];
+        }
+        return [];
+      },
+    };
+    const probe = studioProbe(html, YESNO_CONTENT, docStub as unknown as Record<string, unknown>);
+    probe.run(sliceIslandFunction(island, "buildSectionOverrides"));
+    const built = probe.run("buildSectionOverrides()") as Record<string, unknown>;
+    expect(built).toEqual({ palette: { button_primary_bg: "accent" }, columnsDefault: 3, gapDefault: "l" });
+    // the island save body + canvas re-render both carry the §9.5 store
+    expect(island).toContain("design_overrides: state.design_overrides || null");
+    expect(island).toContain("if (state.design_overrides) { canvasBody.design_overrides = state.design_overrides; }");
+    // real PATCH persists the shape (the wave-C-1 validator accepts it)
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { design_overrides: built }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    expect(saved["design_overrides_json"]).toEqual(built);
+    // layer-4 proof through the REAL preview endpoint the canvas calls: the
+    // re-pointed button role lands in the ContinueButton markup
+    const preview = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify({
+          components: [{ type: "ContinueButton", question_id: "c1", props: { label: "Continue" } }],
+        }),
+        viewport: "desktop",
+        design_overrides: built,
+      }),
+      env,
+    );
+    expect(preview.status).toBe(200);
+    const previewBody = (await preview.json()) as { preview: { html: string } };
+    expect(previewBody.preview.html).toContain("--lg-btn-bg:#E85D26"); // accent
+  });
+});
+
+describeDb("wave 2 — §9.4 Design-tab role decorations (executed)", () => {
+  it("source line speaks role LABELS (no hex text), Section re-points are named, legacy hex converts on exact match", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(
+      [
+        "var ROLE_VALUES = studioMeta.roles; var ROLE_LABELS = studioMeta.role_labels;",
+        sliceIslandArray(island, "COLOR_OVERRIDE_KEYS"),
+        sliceIslandVar(island, "OVERRIDE_BACKING_ROLE"),
+        sliceIslandFunction(island, "isHexColor"),
+        sliceIslandFunction(island, "roleLabelOf"),
+        sliceIslandFunction(island, "overrideSourceText"),
+        sliceIslandFunction(island, "resolvedOverrideColor"),
+        sliceIslandFunction(island, "legacyHexToRole"),
+      ].join("\n"),
+    );
+    // inherited buttonBackground names its backing role in operator words
+    expect(probe.run("overrideSourceText('buttonBackground', undefined)")).toBe(
+      "Inherited: Button — from the base design.",
+    );
+    // a Section §9.5 re-point is credited as the source
+    probe.run("state.design_overrides = { palette: { button_primary_bg: 'accent' } };");
+    expect(probe.run("overrideSourceText('buttonBackground', undefined)")).toBe(
+      "Inherited: Accent — from this Section’s Design overrides.",
+    );
+    // an overridden role names itself; a legacy hex is called out — NO hex TEXT
+    expect(probe.run("overrideSourceText('iconColor', 'accent')")).toBe("Accent — overridden for this component.");
+    expect(probe.run("overrideSourceText('iconColor', '#123456')")).toBe("Custom color (legacy) — not a theme role.");
+    expect(String(probe.run("overrideSourceText('iconColor', '#123456')"))).not.toMatch(/#[0-9a-f]{3,8}/i);
+    // convert: an EXACT default-design match maps hex → role; no match → null
+    const accentHex = (extractJsonBlob(html, "lg-studio-meta")["roles"] as Record<string, string>)["accent"];
+    expect(probe.run(`legacyHexToRole(${JSON.stringify(accentHex)})`)).toBe("accent");
+    expect(probe.run("legacyHexToRole('#00dead')")).toBe(null);
+  });
+
+  it("a role PICK repaints the decorations SAME-TICK through afterModelChange — source line + Reset + swatch, no re-selection (09 §9.4)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // decoration elements for ONE key (buttonBackground); every other lookup null
+    const srcEl = { textContent: "" };
+    const resetBtn = { hidden: true };
+    const legacyEl = { hidden: false };
+    const swatch = { style: { background: "" } };
+    const decorations: Record<string, unknown> = {
+      '[data-override-source="buttonBackground"]': srcEl,
+      '[data-override-reset="buttonBackground"]': resetBtn,
+      '[data-override-legacy="buttonBackground"]': legacyEl,
+      '[data-override-swatch="buttonBackground"]': swatch,
+    };
+    const probe = studioProbe(html, YESNO_CONTENT, {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        return decorations[sel] ?? null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    });
+    probe.run(
+      [
+        "var ROLE_VALUES = studioMeta.roles; var ROLE_LABELS = studioMeta.role_labels;",
+        sliceIslandArray(island, "COLOR_OVERRIDE_KEYS"),
+        sliceIslandVar(island, "OVERRIDE_BACKING_ROLE"),
+        sliceIslandFunction(island, "isHexColor"),
+        sliceIslandFunction(island, "roleLabelOf"),
+        sliceIslandFunction(island, "overrideSourceText"),
+        sliceIslandFunction(island, "resolvedOverrideColor"),
+        sliceIslandFunction(island, "ensureLegacyOption"),
+        sliceIslandFunction(island, "renderOverrideDecorations"),
+        sliceIslandFunction(island, "collectInspectorOverride"),
+        // the REAL served afterModelChange (overrides the harness no-op) + stubs
+        // for its non-§9.4 collaborators. populateInspector THROWS on purpose:
+        // repainting by re-selection is the defect — same-tick or fail.
+        sliceIslandFunction(island, "afterModelChange"),
+        "function markDirty() {} function historyPush() {} function renderIssues() {}",
+        "function renderBoundChips() {} function updatePaletteBindItems() {} function renderBindBanner() {}",
+        "function updateCanvasToolbar() {} function scheduleCanvasRender() {}",
+        "function populateInspector() { throw new Error('§9.4 repaint must not require re-selection'); }",
+      ].join("\n"),
+    );
+    // a node is selected; its decorations are still unpainted
+    probe.run("selectedQuestionId = 'q1';");
+    expect(srcEl.textContent).toBe("");
+    expect(resetBtn.hidden).toBe(true);
+    // the PICK rides the real inspector change path (collect → afterModelChange)
+    probe.sandbox["pickInput"] = {
+      value: "accent",
+      getAttribute: (k: string) => (k === "data-inspector-override" ? "buttonBackground" : null),
+    };
+    probe.run("collectInspectorOverride(pickInput)");
+    // same tick: the source line speaks the role LABEL, Reset appears, the
+    // swatch paints the role's resolved color — with NO re-selection.
+    expect(srcEl.textContent).toBe("Accent — overridden for this component.");
+    expect(resetBtn.hidden).toBe(false);
+    expect(legacyEl.hidden).toBe(true); // a role pick is not a legacy hex
+    const accentHex = (extractJsonBlob(html, "lg-studio-meta")["roles"] as Record<string, string>)["accent"];
+    expect(swatch.style.background).toBe(accentHex);
+    // and the model carries exactly the override the decorations describe
+    expect(probe.run("selectedNode().design_overrides.buttonBackground")).toBe("accent");
+  });
+});
+
+describeDb("wave 2 — §5.3 mode 5: Preview in Quote frame", () => {
+  it("SSR ships the frame picker + the EXACT empty-state copy; the island sends frame_context to the landed preview param", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    for (const hook of ["data-frame-pick-quote", "data-frame-pick-funnel", "data-frame-pick-variant", "data-frame-pick-site"]) {
+      expect(html, hook).toContain(hook);
+    }
+    // the §5.3 empty state, verbatim
+    expect(html).toContain("This Section isn’t used in any Quote yet — previewing in the default frame.");
+    const island = studioIsland(html);
+    expect(island).toContain("requestBody.frame_context = frameCtx;");
+    // executed: frameContextBody builds the §13.4 param shape
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(
+      [
+        "var framePick = { quote: 'lgq_q', funnel: '', variant: '', site: '' };",
+        sliceIslandFunction(island, "frameContextBody"),
+      ].join("\n"),
+    );
+    expect(probe.run("frameContextBody()")).toBe(null); // no funnel picked → unit only
+    probe.run("framePick.funnel = 'lgf_fun';");
+    expect(probe.run("frameContextBody()")).toEqual({ funnel_public_id: "lgf_fun" });
+    probe.run("framePick.variant = 'lgn_var'; framePick.site = 'site-1';");
+    expect(probe.run("frameContextBody()")).toEqual({
+      funnel_public_id: "lgf_fun",
+      variant_public_id: "lgn_var",
+      site_id: "site-1",
+    });
+  });
+
+  it("EXECUTED runPreview: a picked funnel rides frame_context through the REAL preview endpoint and renders the composed document", async () => {
+    const { env } = newHarness();
+    // a real quote (creates funnel + control variant atomically)
+    const quoteRes = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "Life Quote", activity: "quote_funnel", verticals: ["life"] }),
+      env,
+    );
+    expect(quoteRes.status, await quoteRes.clone().text()).toBe(201);
+    const quote = (await quoteRes.json()) as { public_id: string };
+    const funnels = (await (
+      await admin.request(`${API}/quotes/${quote.public_id}/funnels`, {}, env)
+    ).json()) as { items: Array<{ public_id: string }> };
+    const funnelId = funnels.items[0]!.public_id;
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const frame = stubEl("iframe");
+    const probeFrame = stubEl("iframe");
+    const errEl = stubEl("p");
+    errEl.hidden = true;
+    let captured: { url: string; init: RequestInit } | null = null;
+    const sandbox = {
+      state: { content: JSON.parse(JSON.stringify(YESNO_CONTENT)), public_id: section.public_id },
+      simState: "default",
+      previewViewport: "desktop",
+      framePick: { quote: quote.public_id, funnel: funnelId, variant: "", site: "" },
+      document: {
+        getElementById(id: string) {
+          if (id === "lg-preview-frame") return frame;
+          if (id === "lg-events-probe-frame") return probeFrame;
+          if (id === "lg-preview-error") return errEl;
+          return null;
+        },
+        querySelector() {
+          return null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+        createTextNode(t: string) {
+          return { nodeType: 3, textContent: String(t) };
+        },
+      },
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        captured = { url, init };
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      sliceIslandFunction(island, "trimStr"),
+      sliceIslandFunction(island, "frameContextBody"),
+      sliceIslandFunction(island, "sampleAnswers"),
+      sliceIslandFunction(island, "renderDependencyStatus"),
+      sliceIslandFunction(island, "clearEventsList"),
+      sliceIslandFunction(island, "runPreview"),
+      "runPreview();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && !frame.attrs["srcdoc"] && errEl.hidden; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(captured, "preview fetch executed").not.toBeNull();
+    const body = JSON.parse(String(captured!.init.body)) as Record<string, unknown>;
+    expect(body["frame_context"]).toEqual({ funnel_public_id: funnelId });
+    // the REAL handler composed the unit inside the funnel frame (NULL stored
+    // frame → the §13.1 legacy-shell fork — still a full funnel document)
+    expect(errEl.hidden, errEl.textContent).toBe(true);
+    const doc = frame.attrs["srcdoc"] ?? "";
+    expect(doc).toContain('data-funnel-id="' + funnelId + '"');
+    expect(doc).toContain("data-lg-section");
+  });
+});
+
+describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
+  const FRAME_NODE_CONTENT = {
+    components: [
+      { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+      { type: "HeaderBar", question_id: "q_hb", props: { logoMediaId: "media_logo", secure: true, secureText: "SSL secured" } },
+    ],
+  };
+
+  it("equivalentFrameGroup maps every legacy frame-scope type to a group the REAL frame validator accepts", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, { components: [] });
+    probe.run(sliceIslandFunction(island, "equivalentFrameGroup"));
+    const cases: Array<{ node: Record<string, unknown>; expectKey: string }> = [
+      { node: { type: "ProgressBar", question_id: "a", props: { mode: "percent" } }, expectKey: "progress" },
+      { node: { type: "StepIndicator", question_id: "b", props: { steps: 4, current: 2 } }, expectKey: "progress" },
+      { node: { type: "HeaderLogo", question_id: "c", props: { logoMediaId: "media_1" } }, expectKey: "header" },
+      { node: { type: "BackButton", question_id: "d", props: { label: "Back" } }, expectKey: "back" },
+      { node: { type: "DisclosureLink", question_id: "e", props: { panelHtml: "Disclosure" } }, expectKey: "disclosure" },
+      { node: { type: "HeaderBar", question_id: "f", props: { logoMediaId: "m", secure: true, cta: { label: "Call", tel: "+1 555 123 4567" } } }, expectKey: "header" },
+      { node: { type: "FooterBar", question_id: "g", props: { legalHtml: "Terms.", trustMessages: ["SSL"], links: [{ label: "Privacy", href: "/p" }] } }, expectKey: "footer" },
+      { node: { type: "BackgroundPanel", question_id: "h", props: { gradient: "primary" } }, expectKey: "background" },
+      // FIX 3: the REAL legacy step mode ('step', presets.ts enum) → numbered;
+      // a label carries as show_label. FIX 1b: a panel image moves WITH it.
+      { node: { type: "ProgressBar", question_id: "a2", props: { mode: "step", step: 2, totalSteps: 5, label: "Step 2 of 5" } }, expectKey: "progress" },
+      { node: { type: "BackgroundPanel", question_id: "h2", props: { imageMediaId: "media_bg_1" } }, expectKey: "background" },
+    ];
+    for (const c of cases) {
+      const group = probe.run(`equivalentFrameGroup(${JSON.stringify(c.node)})`) as Record<string, unknown>;
+      expect(group, `${c.node["type"]} maps`).not.toBeNull();
+      expect(Object.keys(group)).toContain(c.expectKey);
+      // the REAL server gate: no error-severity problems
+      const validation = validateFrameConfig(group);
+      const errors = validation.problems.filter((pr) => pr.severity === "error");
+      expect(errors, `${c.node["type"]} → ${JSON.stringify(errors)}`).toEqual([]);
+    }
+    // FIX 3 exact mapping: 'step' (the real stored value) → numbered + the
+    // label presence rides progress.show_label; 'percent' stays percent with
+    // NO show_label key (sparse group).
+    expect(
+      probe.run("equivalentFrameGroup({ type: 'ProgressBar', question_id: 'p', props: { mode: 'step', label: 'Step 1 of 3' } })"),
+    ).toEqual({ progress: { style: "numbered", show_label: true } });
+    expect(
+      probe.run("equivalentFrameGroup({ type: 'ProgressBar', question_id: 'p', props: { mode: 'percent', percent: 40 } })"),
+    ).toEqual({ progress: { style: "percent" } });
+    // the dead pre-fix comparison value maps like any non-step mode
+    expect(
+      probe.run("equivalentFrameGroup({ type: 'ProgressBar', question_id: 'p', props: { mode: 'steps' } })"),
+    ).toEqual({ progress: { style: "percent" } });
+    // FIX 1b exact mapping: imageMediaId → background.image_media_id
+    expect(
+      probe.run("equivalentFrameGroup({ type: 'BackgroundPanel', question_id: 'b', props: { gradient: 'primary', imageMediaId: 'media_bg_1' } })"),
+    ).toEqual({ background: { style: "brand_gradient", image_media_id: "media_bg_1" } });
+    // a unit component has no frame equivalent
+    expect(probe.run("equivalentFrameGroup({ type: 'TwoButtonYesNo', question_id: 'x' })")).toBe(null);
+    // group merge: our group's fields win; untouched stored fields survive
+    probe.run(sliceIslandFunction(island, "mergeFrameGroups"));
+    const merged = probe.run(
+      "mergeFrameGroups({ header: { tagline: 'Keep me' }, progress: { style: 'bar' } }, { header: { enabled: true } })",
+    ) as Record<string, Record<string, unknown>>;
+    expect(merged["header"]).toEqual({ tagline: "Keep me", enabled: true });
+    expect(merged["progress"]).toEqual({ style: "bar" });
+  });
+
+  it("single funnel: the confirm NAMES the funnel; the REAL PUT lands the group; the node is removed and PATCHed on the SAME action; cancel = no change", async () => {
+    const { env } = newHarness();
+    const quoteRes = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "Life Quote", activity: "quote_funnel", verticals: ["life"], funnel_name: "Main funnel" }),
+      env,
+    );
+    expect(quoteRes.status).toBe(201);
+    const quote = (await quoteRes.json()) as { public_id: string };
+    const funnels = (await (
+      await admin.request(`${API}/quotes/${quote.public_id}/funnels`, {}, env)
+    ).json()) as { items: Array<{ public_id: string; funnel_name: string }> };
+    const funnel = funnels.items[0]!;
+    const section = await createSection(env, { content_json: JSON.stringify(FRAME_NODE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+
+    const confirms: string[] = [];
+    let confirmAnswer = false;
+    const fetches: string[] = [];
+    const probe = studioProbe(html, FRAME_NODE_CONTENT);
+    probe.sandbox["window"] = {
+      confirm(msg: string) {
+        confirms.push(msg);
+        return confirmAnswer;
+      },
+    };
+    probe.sandbox["dirty"] = false;
+    (probe.sandbox.state as Record<string, unknown>)["public_id"] = section.public_id;
+    probe.sandbox["usageRows"] = [
+      { quote_public_id: quote.public_id, funnel_public_id: funnel.public_id, funnel_name: funnel.funnel_name, variant_public_id: "lgn_x" },
+    ];
+    probe.sandbox["fetch"] = (url: string, init?: RequestInit): Promise<Response> => {
+      fetches.push(`${init?.method ?? "GET"} ${url}`);
+      return Promise.resolve(admin.request(url, init ?? {}, env));
+    };
+    probe.run(
+      [
+        "function markDirty() { dirty = true; }",
+        "function selectComponent() {}",
+        "function showMoveNote() {}",
+        "var selectedQuestionId = null;",
+        sliceIslandFunction(island, "usageFunnelsOf"),
+        sliceIslandFunction(island, "moveConfirmMessage"),
+        sliceIslandFunction(island, "equivalentFrameGroup"),
+        sliceIslandFunction(island, "mergeFrameGroups"),
+        // FIX 1a: the child-preserving removal finishMoveToFrame delegates to.
+        sliceIslandFunction(island, "removeMovedFrameNode"),
+        sliceIslandFunction(island, "finishMoveToFrame"),
+        sliceIslandFunction(island, "doMoveToFrame"),
+        sliceIslandFunction(island, "renderFunnelPicker"),
+        sliceIslandFunction(island, "funnelPickBtn"),
+        sliceIslandFunction(island, "startMoveToFrame"),
+      ].join("\n"),
+    );
+
+    // CANCEL: the confirm precedes ANY write — nothing fetched, node kept
+    probe.run("startMoveToFrame('q_hb')");
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0]).toContain("Main funnel"); // the confirm NAMES the funnel
+    expect(confirms[0]).toContain("Header bar"); // operator words, not type ids
+    expect(fetches).toHaveLength(0);
+    expect(probe.run("findRef('q_hb') !== null")).toBe(true);
+
+    // CONFIRM: GET frame → PUT merged group → PATCH the section content
+    confirmAnswer = true;
+    probe.run("startMoveToFrame('q_hb')");
+    for (let i = 0; i < 200 && fetches.length < 3; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(probe.sandbox.refusals, "no refusal on the happy path").toEqual([]);
+    expect(fetches).toEqual([
+      `GET /api/admin/leadgen/funnels/${funnel.public_id}/frame`,
+      `PUT /api/admin/leadgen/funnels/${funnel.public_id}/frame`,
+      `PATCH /api/admin/leadgen/sections/${section.public_id}`,
+    ]);
+    // the node left the island model…
+    expect(probe.run("findRef('q_hb')")).toBe(null);
+    // …the frame group LANDED for real…
+    const frameRead = (await (
+      await admin.request(`${API}/funnels/${funnel.public_id}/frame`, {}, env)
+    ).json()) as { frame_config: Record<string, Record<string, unknown>> };
+    expect(frameRead.frame_config["header"]).toMatchObject({
+      enabled: true,
+      logo_source: "manual",
+      logo_media_id: "media_logo",
+      secure_badge: { enabled: true, text: "SSL secured" },
+    });
+    // …and the SAME action persisted the removal (real PATCH landed)
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const savedContent = saved["content_json"] as { components: Array<Record<string, unknown>> };
+    expect(savedContent.components.map((n) => n["type"])).toEqual(["TwoButtonYesNo"]);
+    // the pre-move clean state is restored (nothing else was unsaved)
+    expect(probe.sandbox["dirty"]).toBe(false);
+  });
+
+  it("FIX 1 (BLOCKER): moving a BackgroundPanel WITH children keeps the children in the Section (spliced in place, order preserved); the frame gains style+image; the confirm NAMES the contents' fate — API read-backs", async () => {
+    const { env } = newHarness();
+    const quoteRes = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "Panel Quote", activity: "quote_funnel", verticals: ["life"], funnel_name: "Panel funnel" }),
+      env,
+    );
+    expect(quoteRes.status).toBe(201);
+    const quote = (await quoteRes.json()) as { public_id: string };
+    const funnels = (await (
+      await admin.request(`${API}/quotes/${quote.public_id}/funnels`, {}, env)
+    ).json()) as { items: Array<{ public_id: string; funnel_name: string }> };
+    const funnel = funnels.items[0]!;
+    const PANEL_CONTENT = {
+      components: [
+        { type: "QuestionHeadline", question_id: "h1", props: { text: "Are you insured?" } },
+        {
+          type: "BackgroundPanel",
+          question_id: "bg1",
+          props: { gradient: "primary", imageMediaId: "media_bg_7" },
+          children: [
+            { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+            { type: "HelperText", question_id: "help1", props: { text: "Takes two minutes." } },
+          ],
+        },
+        { type: "ContinueButton", question_id: "c1", props: { label: "Continue" } },
+      ],
+    };
+    const section = await createSection(env, { content_json: JSON.stringify(PANEL_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const confirms: string[] = [];
+    const fetches: string[] = [];
+    const probe = studioProbe(html, PANEL_CONTENT);
+    probe.sandbox["window"] = {
+      confirm(msg: string) {
+        confirms.push(msg);
+        return true;
+      },
+    };
+    probe.sandbox["dirty"] = false;
+    (probe.sandbox.state as Record<string, unknown>)["public_id"] = section.public_id;
+    probe.sandbox["usageRows"] = [
+      { quote_public_id: quote.public_id, funnel_public_id: funnel.public_id, funnel_name: funnel.funnel_name, variant_public_id: "lgn_x" },
+    ];
+    probe.sandbox["fetch"] = (url: string, init?: RequestInit): Promise<Response> => {
+      fetches.push(`${init?.method ?? "GET"} ${url}`);
+      return Promise.resolve(admin.request(url, init ?? {}, env));
+    };
+    probe.run(
+      [
+        "function markDirty() { dirty = true; }",
+        "function selectComponent() {}",
+        "function showMoveNote() {}",
+        "var selectedQuestionId = null;",
+        sliceIslandFunction(island, "usageFunnelsOf"),
+        sliceIslandFunction(island, "moveConfirmMessage"),
+        sliceIslandFunction(island, "equivalentFrameGroup"),
+        sliceIslandFunction(island, "mergeFrameGroups"),
+        sliceIslandFunction(island, "removeMovedFrameNode"),
+        sliceIslandFunction(island, "finishMoveToFrame"),
+        sliceIslandFunction(island, "doMoveToFrame"),
+        sliceIslandFunction(island, "renderFunnelPicker"),
+        sliceIslandFunction(island, "funnelPickBtn"),
+        sliceIslandFunction(island, "startMoveToFrame"),
+      ].join("\n"),
+    );
+
+    probe.run("startMoveToFrame('bg1')");
+    for (let i = 0; i < 200 && fetches.length < 3; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(probe.sandbox.refusals, "no refusal on the happy path").toEqual([]);
+    // FIX 1c: the confirm NAMES the contents' fate
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0]).toContain("Panel funnel");
+    expect(confirms[0]).toContain("Its contents stay in this Section.");
+    expect(fetches).toEqual([
+      `GET /api/admin/leadgen/funnels/${funnel.public_id}/frame`,
+      `PUT /api/admin/leadgen/funnels/${funnel.public_id}/frame`,
+      `PATCH /api/admin/leadgen/sections/${section.public_id}`,
+    ]);
+    // FIX 1a: the container is GONE, its children SURVIVE at its index —
+    // order preserved (h1, q1, help1, c1).
+    expect(probe.run("findRef('bg1')")).toBe(null);
+    expect(
+      probe.run("state.content.components.map(function (n) { return n.question_id; })"),
+    ).toEqual(["h1", "q1", "help1", "c1"]);
+    // the mutated model still passes the REAL server validator
+    const mutated = probe.run("state.content") as Parameters<typeof validateSectionContent>[0];
+    expect(validateSectionContent(mutated).errors).toEqual([]);
+    // FIX 1b: the frame READ-BACK carries style + image_media_id
+    const frameRead = (await (
+      await admin.request(`${API}/funnels/${funnel.public_id}/frame`, {}, env)
+    ).json()) as { frame_config: Record<string, Record<string, unknown>> };
+    expect(frameRead.frame_config["background"]).toMatchObject({
+      style: "brand_gradient",
+      image_media_id: "media_bg_7",
+    });
+    // the SAME action persisted the child-preserving removal (real PATCH)
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const savedContent = saved["content_json"] as { components: Array<Record<string, unknown>> };
+    expect(savedContent.components.map((n) => n["question_id"])).toEqual(["h1", "q1", "help1", "c1"]);
+    expect(savedContent.components.map((n) => n["type"])).toEqual([
+      "QuestionHeadline",
+      "TwoButtonYesNo",
+      "HelperText",
+      "ContinueButton",
+    ]);
+    expect(probe.sandbox["dirty"]).toBe(false);
+  });
+
+  it("used-by-many: a funnel PICKER opens (no confirm yet); zero funnels: a refusal names the Quote Builder", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(FRAME_NODE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const confirms: string[] = [];
+    const badge = stubEl("div") as StubEl & { querySelector(sel: string): StubEl | null };
+    badge.querySelector = (sel: string): StubEl | null =>
+      sel === "[data-funnel-picker]" ? (badge.children.find((c) => c.getAttribute("data-funnel-picker") !== null) ?? null) : null;
+    const probe = studioProbe(html, FRAME_NODE_CONTENT, {
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+      querySelector(sel: string) {
+        return sel === '[data-frame-badge="q_hb"]' ? badge : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      getElementById() {
+        return null;
+      },
+    });
+    probe.sandbox["window"] = {
+      confirm(msg: string) {
+        confirms.push(msg);
+        return true;
+      },
+    };
+    probe.run(
+      [
+        "var usageRows = [" +
+          "{ funnel_public_id: 'lgf_one', funnel_name: 'Funnel One' }," +
+          "{ funnel_public_id: 'lgf_two', funnel_name: 'Funnel Two' }" +
+          "];",
+        sliceIslandFunction(island, "usageFunnelsOf"),
+        sliceIslandFunction(island, "moveConfirmMessage"),
+        "function doMoveToFrame(qid, funnel) { moved.push(funnel.public_id); }",
+        "var moved = [];",
+        sliceIslandFunction(island, "renderFunnelPicker"),
+        sliceIslandFunction(island, "funnelPickBtn"),
+        sliceIslandFunction(island, "startMoveToFrame"),
+      ].join("\n"),
+    );
+    probe.run("startMoveToFrame('q_hb')");
+    // no confirm — the PICKER renders instead, one button per funnel
+    expect(confirms).toHaveLength(0);
+    const picker = badge.children.find((c) => c.getAttribute("data-funnel-picker") !== null)!;
+    expect(picker).toBeDefined();
+    const picks = picker.children.filter((c) => c.getAttribute("data-funnel-pick") !== null);
+    expect(picks.map((c) => c.getAttribute("data-funnel-pick"))).toEqual(["lgf_one", "lgf_two"]);
+    // picking one routes into the confirm-gated move
+    picks[1]!.click();
+    expect(probe.run("moved")).toEqual(["lgf_two"]);
+    // zero funnels → refusal, Quote Builder named
+    probe.run("usageRows = [];");
+    probe.run("startMoveToFrame('q_hb')");
+    const refusals = probe.sandbox.refusals;
+    expect(refusals[refusals.length - 1]).toContain("Quote Builder");
+  });
+});
+
+describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSON", () => {
+  it("each §5.5 editor writes the model (title/subtitle/badge/emoji/aria_label/disabled) and persists via the REAL PATCH", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const GRID = {
+      components: [
+        {
+          type: "ImageCardAnswerGrid",
+          question_id: "g1",
+          internal_field: "carrier",
+          choices: [{ label: "Acme", value: "acme", analytics_id: "acme", imageMediaId: "media_a", image_alt: "Acme" }],
+        },
+      ],
+    };
+    // DOM stub: ONE row whose depth inputs carry every §5.5 field
+    const rowFields: Record<string, string> = {
+      label: "Acme",
+      value: "acme",
+      analytics_id: "acme_card",
+      title: "Acme Insurance",
+      subtitle: "Best rated",
+      badge: "Recommended",
+      emoji: "",
+      icon: "",
+      imageMediaId: "media_a",
+      image_alt: "Acme logo",
+      aria_label: "Choose Acme",
+      description: "",
+    };
+    const row = {
+      querySelectorAll(sel: string) {
+        return sel === "[data-choice-field]"
+          ? Object.entries(rowFields).map(([f, v]) => ({ getAttribute: () => f, value: v }))
+          : [];
+      },
+      querySelector(sel: string) {
+        if (sel === "[data-choice-main]") return { checked: false };
+        if (sel === "[data-choice-disabled]") return { checked: true };
+        return null;
+      },
+    };
+    const container = {
+      querySelectorAll(sel: string) {
+        return sel === "[data-choice-row]" ? [row] : [];
+      },
+    };
+    const docStub = {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        return sel === "[data-inspector-choices]" ? container : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = studioProbe(html, GRID, docStub as unknown as Record<string, unknown>);
+    probe.run(
+      [
+        sliceIslandFunction(island, "choiceContainer"),
+        sliceIslandFunction(island, "collectChoiceDisplay"),
+        sliceIslandFunction(island, "collectChoices"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "g1";
+    probe.run("collectChoices()");
+    const node = probe.run("findRef('g1').node") as { choices: Array<Record<string, unknown>> };
+    expect(node.choices[0]).toEqual({
+      label: "Acme",
+      value: "acme",
+      analytics_id: "acme_card",
+      title: "Acme Insurance",
+      subtitle: "Best rated",
+      badge: "Recommended",
+      imageMediaId: "media_a",
+      image_alt: "Acme logo",
+      aria_label: "Choose Acme",
+      disabled: true,
+    });
+    // the mutated model is server-valid AND PATCHes for real
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probe.sandbox.state.content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const savedChoice = (saved["content_json"] as { components: Array<{ choices: Array<Record<string, unknown>> }> }).components[0]!.choices[0]!;
+    expect(savedChoice).toMatchObject({ title: "Acme Insurance", subtitle: "Best rated", badge: "Recommended", disabled: true, aria_label: "Choose Acme" });
+    // the row grid ships the media PICKER cell + the §5.5 idiom markers
+    expect(island).toContain("data-choice-media-choose");
+    expect(island).toContain("openMediaPicker({ input: input, onpick: collectChoices });");
+  });
+
+  it("bulk paste accepts the §5.5 'label = value' idiom (legacy 'label|value' kept); the searchable toggle SWITCHES the dropdown type; the range note gates to sliders", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    expect(html).toContain("Bulk paste (one per line: label = value)");
+    const probe = studioProbe(html, {
+      components: [{ type: "DropdownQuestion", question_id: "d1", internal_field: "make", choices: [{ label: "A", value: "a", analytics_id: "a" }] }],
+    });
+    const parsed = probe.run(
+      "parseBulkChoices('Toyota = toyota\\nHonda|honda\\nMazda', {})",
+    ) as Array<Record<string, unknown>>;
+    expect(parsed).toEqual([
+      { label: "Toyota", value: "toyota", analytics_id: "toyota" },
+      { label: "Honda", value: "honda", analytics_id: "honda" },
+      { label: "Mazda", value: "mazda", analytics_id: "mazda" },
+    ]);
+    // §5.5: the searchable toggle is a pure TYPE swap (round-trip)
+    probe.run(["function updateCanvasToolbar() {}", sliceIslandFunction(island, "toggleSearchableDropdown")].join("\n"));
+    expect(probe.run("toggleSearchableDropdown(findRef('d1').node)")).toBe(true);
+    expect(probe.run("findRef('d1').node.type")).toBe("SearchableDropdownQuestion");
+    expect(probe.run("toggleSearchableDropdown(findRef('d1').node)")).toBe(true);
+    expect(probe.run("findRef('d1').node.type")).toBe("DropdownQuestion");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // §5.5 range provider-format note ships + gates island-side
+    expect(html).toContain("data-range-format-note");
+    expect(html).toContain("Provider output format is set per Offer in the Mapping tab");
+    expect(island).toContain("node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion'");
+  });
+
+  it("§6.2 inline editing: dblclick commit writes the BOUND strip store / props.text / choice labels; Advanced raw JSON is read-only until the Edit-raw confirm", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // SSR: the raw textarea ships readonly; Apply hides behind Edit raw…
+    expect(html).toMatch(/<textarea id="lg-node-json"[^>]*readonly>/);
+    expect(html).toMatch(/<button[^>]*id="lg-node-json-apply" hidden>/);
+    expect(html).toContain("data-node-json-edit");
+    // island: dblclick wiring + per-selection re-lock
+    expect(island).toContain("canvasSurface.addEventListener('dblclick', function (ev) {");
+    expect(island).toContain("el.setAttribute('contenteditable', 'true');");
+    expect(island).toContain("rawEditArmed = false;\n    syncRawJsonMode();");
+    const strip = { value: "Old headline" };
+    const mirror = { value: "" };
+    const docStub = {
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      querySelector(sel: string) {
+        return sel === "[data-bound-shared-input]" ? mirror : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = studioProbe(html, BOUND_SEED_CONTENT, docStub as unknown as Record<string, unknown>);
+    probe.run(
+      [
+        "var dirtyFlags = []; function markDirty() { dirtyFlags.push(1); }",
+        "function scheduleCanvasRender() {}",
+        sliceIslandFunction(island, "findChoice"),
+        sliceIslandFunction(island, "inlineEditKeyFor"),
+        sliceIslandFunction(island, "commitInlineText"),
+        sliceIslandFunction(island, "commitInlineChoiceLabel"),
+      ].join("\n"),
+    );
+    // the bound headline resolves to the STRIP store (one store, two views)
+    expect(probe.run("inlineEditKeyFor(findRef('q_bh').node)")).toBe("bind");
+    expect(probe.run("commitInlineText('q_bh', 'bind', 'Typed on canvas')")).toBe(true);
+    expect(strip.value).toBe("Typed on canvas");
+    expect(mirror.value).toBe("Typed on canvas"); // inspector mirror synced
+    // a plain copy node writes props.text through the model
+    probe.run("addComponentAt('HelperText', null, null)");
+    const helperQid = probe.run("state.content.components[state.content.components.length - 1].question_id") as string;
+    expect(probe.run(`inlineEditKeyFor(findRef(${JSON.stringify(helperQid)}).node)`)).toBe("text");
+    probe.run(`commitInlineText(${JSON.stringify(helperQid)}, 'text', 'Helper copy')`);
+    expect(probe.run(`findRef(${JSON.stringify(helperQid)}).node.props.text`)).toBe("Helper copy");
+    // a choice card edits ITS label
+    expect(probe.run("commitInlineChoiceLabel('q1', 'x', 'nope')")).toBe(false); // TwoButtonYesNo has no choices
+    probe.run("addComponentAt('IconCardAnswerGrid', null, null)");
+    const gridQid = probe.run("state.content.components[state.content.components.length - 1].question_id") as string;
+    const firstValue = probe.run(`findRef(${JSON.stringify(gridQid)}).node.choices[0].value`) as string;
+    expect(probe.run(`commitInlineChoiceLabel(${JSON.stringify(gridQid)}, ${JSON.stringify(firstValue)}, 'Renamed card')`)).toBe(true);
+    expect(probe.run(`findRef(${JSON.stringify(gridQid)}).node.choices[0].label`)).toBe("Renamed card");
+    // §6.2: width-preset snapping is pure and bounded
+    probe.run(sliceIslandArray(island, "WIDTH_PRESETS"));
+    probe.run(sliceIslandFunction(island, "snapWidthPreset"));
+    expect(probe.run("snapWidthPreset('m', 90)")).toBe("l");
+    expect(probe.run("snapWidthPreset('m', 200)")).toBe("full");
+    expect(probe.run("snapWidthPreset('m', -90)")).toBe("s");
+    expect(probe.run("snapWidthPreset('s', -400)")).toBe("s");
+    // raw-JSON arming: confirm gates the unlock; decline keeps it read-only
+    const ta = stubEl("textarea");
+    ta.setAttribute("readonly", "readonly");
+    const applyBtn = stubEl("button");
+    applyBtn.hidden = true;
+    const editBtn = stubEl("button");
+    let confirmAnswer = false;
+    const probe2 = studioProbe(html, YESNO_CONTENT, {
+      getElementById(id: string) {
+        if (id === "lg-node-json") return ta;
+        if (id === "lg-node-json-apply") return applyBtn;
+        if (id === "lg-node-json-edit") return editBtn;
+        return null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    } as unknown as Record<string, unknown>);
+    probe2.sandbox["window"] = { confirm: () => confirmAnswer };
+    probe2.run(
+      [
+        "var rawEditArmed = false;",
+        sliceIslandFunction(island, "syncRawJsonMode"),
+        sliceIslandFunction(island, "armRawEdit"),
+      ].join("\n"),
+    );
+    expect(probe2.run("armRawEdit()")).toBe(false); // declined confirm
+    expect(ta.getAttribute("readonly")).not.toBe(null);
+    expect(applyBtn.hidden).toBe(true);
+    confirmAnswer = true;
+    expect(probe2.run("armRawEdit()")).toBe(true);
+    expect(ta.getAttribute("readonly")).toBe(null);
+    expect(applyBtn.hidden).toBe(false);
+    expect(editBtn.hidden).toBe(true);
+  });
+});
+
+describeDb("wave 2 — MultiChoiceCardGroup choice depth (A6 flag d)", () => {
+  it("title/subtitle render with the iconCard token slots; a depth-less choice renders byte-identically (additive)", () => {
+    const design = defaultFunnelDesign;
+    const base: Record<string, unknown> = {
+      type: "MultiChoiceCardGroup",
+      question_id: "m1",
+      internal_field: "features",
+      choices: [{ label: "Alarm", value: "alarm", analytics_id: "alarm" }],
+      props: { min: 1, max: 2 },
+    };
+    const plain = renderComponent(base as never, design);
+    // §8.7 D/F: depth-less markup carries NO subtitle span and titles by label
+    expect(plain).toContain('<span class="lg-card-title">Alarm</span>');
+    expect(plain).not.toContain("lg-card-subtitle");
+    const deep = JSON.parse(JSON.stringify(base)) as Record<string, unknown>;
+    (deep["choices"] as Array<Record<string, unknown>>)[0] = {
+      label: "Alarm",
+      value: "alarm",
+      analytics_id: "alarm",
+      title: "Alarm system",
+      subtitle: "Monitored 24/7",
+    };
+    const rendered = renderComponent(deep as never, design);
+    expect(rendered).toContain('<span class="lg-card-title">Alarm system</span>');
+    expect(rendered).toContain('class="lg-card-desc lg-card-subtitle"');
+    expect(rendered).toContain("Monitored 24/7");
+    // additive: stripping the depth fields reproduces the plain bytes exactly
+    (deep["choices"] as Array<Record<string, unknown>>)[0] = { label: "Alarm", value: "alarm", analytics_id: "alarm" };
+    expect(renderComponent(deep as never, design)).toBe(plain);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Phase-C review fixes (v2.5.1) — FIX 2/4/5/7/8 + minors 9/15
+// ---------------------------------------------------------------------------
+
+describeDb("review FIX 2 — the §9.5 editor never clobbers the legacy curated bag", () => {
+  function drawerStub(roleValue: string, cols: string, gap: string): Record<string, unknown> {
+    const roleSel = (role: string, value: string) => ({ getAttribute: () => role, value });
+    return {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        if (sel === "[data-section-columns-default]") return { value: cols };
+        if (sel === "[data-section-gap-default]") return { value: gap };
+        return null;
+      },
+      querySelectorAll(sel: string) {
+        if (sel === "[data-section-role]") return [roleSel("button_primary_bg", roleValue)];
+        return [];
+      },
+    };
+  }
+
+  it("EXECUTED + real PATCH: a loaded {buttonBackground:'#123456'} bag survives editing ONE §9.5 role — the stored JSON carries BOTH; untouched controls round-trip the legacy bag byte-identically", async () => {
+    const { env } = newHarness();
+    const LEGACY_BAG = { buttonBackground: "#123456" };
+    const section = await createSection(env, { design_overrides: LEGACY_BAG });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+
+    // leg 1: ONE §9.5 role edited — the merge keeps the legacy key
+    const probe = studioProbe(html, YESNO_CONTENT, drawerStub("accent", "", ""));
+    probe.run("state.design_overrides = { buttonBackground: '#123456' };"); // the LOADED bag
+    probe.run(sliceIslandFunction(island, "buildSectionOverrides"));
+    const built = probe.run("buildSectionOverrides()") as Record<string, unknown>;
+    expect(built).toEqual({ buttonBackground: "#123456", palette: { button_primary_bg: "accent" } });
+
+    // leg 2: untouched §9.5 controls — the pure-legacy bag round-trips
+    // BYTE-identically (stored key order preserved)
+    const probe2 = studioProbe(html, YESNO_CONTENT, drawerStub("", "", ""));
+    probe2.run("state.design_overrides = { buttonBackground: '#123456' };");
+    probe2.run(sliceIslandFunction(island, "buildSectionOverrides"));
+    const untouched = probe2.run("buildSectionOverrides()") as Record<string, unknown>;
+    expect(JSON.stringify(untouched)).toBe(JSON.stringify(LEGACY_BAG));
+
+    // the REAL PATCH persists BOTH keys (§14.8 curated + §9.5 mixed is legal)
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { design_overrides: built }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    expect(saved["design_overrides_json"]).toEqual({
+      buttonBackground: "#123456",
+      palette: { button_primary_bg: "accent" },
+    });
+  });
+});
+
+describeDb("review FIX 4a — answer-group selected-state override renders back", () => {
+  const DESIGN = defaultFunnelDesign;
+  const NODES: Record<string, Record<string, unknown>> = {
+    ButtonAnswerGroup: {
+      type: "ButtonAnswerGroup",
+      question_id: "q",
+      internal_field: "pick",
+      choices: [{ label: "A", value: "a", analytics_id: "a" }],
+    },
+    TwoButtonYesNo: { type: "TwoButtonYesNo", question_id: "q", internal_field: "insured" },
+    OtherGroupSelector: {
+      type: "OtherGroupSelector",
+      question_id: "q",
+      internal_field: "carrier",
+      choices: [{ label: "A", value: "a", analytics_id: "a" }],
+    },
+  };
+
+  it("override → the group ROOT carries --lg-sel-bg (role resolved via ovColor); absent → byte-identical markup (all three types)", () => {
+    for (const [type, base] of Object.entries(NODES)) {
+      const plain = renderComponent(base as never, DESIGN);
+      expect(plain, `${type} absent override carries no var`).not.toContain("--lg-sel-bg");
+      expect(plain, `${type} absent override carries no style attr on the root`).not.toMatch(
+        /^<div class="lg-answer-group[^>]*style=/,
+      );
+      // a ROLE value resolves through the design (§9.4 role-or-hex)
+      const withRole = { ...base, design_overrides: { buttonBackground: "accent" } };
+      const rendered = renderComponent(withRole as never, DESIGN);
+      expect(rendered, `${type} role override`).toContain('style="--lg-sel-bg:#E85D26"'); // accent
+      // a legacy #hex is byte-preserved
+      const withHex = { ...base, design_overrides: { buttonBackground: "#123456" } };
+      expect(renderComponent(withHex as never, DESIGN), `${type} hex override`).toContain(
+        'style="--lg-sel-bg:#123456"',
+      );
+      // stripping the override reproduces the plain bytes exactly (ADDITIVE)
+      const stripped = { ...base };
+      delete (stripped as Record<string, unknown>)["design_overrides"];
+      expect(renderComponent(stripped as never, DESIGN)).toBe(plain);
+    }
+  });
+
+  it("a §9.5 Section palette re-point reaches the role through layer 4 (renderSectionComponents ctx)", () => {
+    const nodes = [{ ...NODES["ButtonAnswerGroup"], design_overrides: { buttonBackground: "button_primary_bg" } }];
+    const ctx = {
+      headline_text: "",
+      subheadline_text: null,
+      design_overrides: { palette: { button_primary_bg: "#0F2440" } },
+    };
+    const out = renderSectionComponents(nodes as never, DESIGN, ctx as never);
+    expect(out).toContain('style="--lg-sel-bg:#0F2440"');
+  });
+
+  it("the consuming CSS rule rides the frameRegions sheet ONLY — the base sheet (the pinned legacy bytes) is untouched", () => {
+    const base = funnelChromeCss(DESIGN);
+    const framed = funnelChromeCss(DESIGN, undefined, { frameRegions: true });
+    expect(base, "base sheet carries NO --lg-sel-bg consumer (pin-safe)").not.toContain("--lg-sel-bg");
+    expect(framed).toContain("var(--lg-sel-bg, ");
+    // the rule re-states the SAME selected selector so the fallback keeps the
+    // §14.6 token when no override rides the group
+    expect(framed).toMatch(
+      /\.lg-btn\.lg-btn-answer\[aria-checked="true"\][^{]*\.lg-btn\.lg-btn-answer\[data-selected="true"\]\{background:var\(--lg-sel-bg, #E8EEF4\)\}/,
+    );
+  });
+
+  it("FIX 8b: the dropdown presets consume props.default — the matching option is selected; absent/unmatched default renders byte-identically", () => {
+    const dropdown = {
+      type: "DropdownQuestion",
+      question_id: "q",
+      internal_field: "insurer",
+      choices: [
+        { label: "Acme", value: "acme", analytics_id: "a" },
+        { label: "Globex", value: "globex", analytics_id: "g" },
+      ],
+    };
+    const plain = renderComponent(dropdown as never, DESIGN);
+    expect(plain).toContain('<option value="" disabled selected>');
+    const withDefault = { ...dropdown, props: { default: "globex" } };
+    const rendered = renderComponent(withDefault as never, DESIGN);
+    expect(rendered).toContain('<option value="" disabled>');
+    expect(rendered).toMatch(/<option value="globex"[^>]* selected>Globex</);
+    expect(rendered).not.toMatch(/<option value="acme"[^>]* selected>/);
+    // the searchable twin shares the semantics
+    const searchable = { ...withDefault, type: "SearchableDropdownQuestion" };
+    expect(renderComponent(searchable as never, DESIGN)).toMatch(/<option value="globex"[^>]* selected>Globex</);
+    // an unmatched default is IGNORED (placeholder stays selected — defensive)
+    const unmatched = { ...dropdown, props: { default: "nope" } };
+    expect(renderComponent(unmatched as never, DESIGN)).toBe(plain);
+    // range presets already consume props.default (§5.5) — the slider starts there
+    const range = {
+      type: "RangeQuestion",
+      question_id: "q",
+      internal_field: "amount",
+      props: { min: 0, max: 100, step: 1, default: 40 },
+    };
+    expect(renderComponent(range as never, DESIGN)).toContain('value="40"');
+  });
+});
+
+describeDb("review FIX 4b — dead-write controls are gated per type (executed island gates)", () => {
+  it("isCardGridType/overrideRowHidden: columns+gridGap only for the card grids; iconColor hidden for MultiChoiceCardGroup; color rows untouched", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(
+      [sliceIslandFunction(island, "isCardGridType"), sliceIslandFunction(island, "overrideRowHidden")].join("\n"),
+    );
+    // the toolbar clusters key off isCardGridType (selIcon + choiceLayout)
+    expect(island).toContain("selIcon.hidden = !isCardGridType(node);");
+    expect(island).toContain("choiceLayout.hidden = !isCardGridType(node);");
+    for (const grid of ["IconCardAnswerGrid", "ImageCardAnswerGrid"]) {
+      expect(probe.run(`isCardGridType({ type: '${grid}' })`), grid).toBe(true);
+      expect(probe.run(`overrideRowHidden('columns', { type: '${grid}' })`), `${grid} columns`).toBe(false);
+      expect(probe.run(`overrideRowHidden('gridGap', { type: '${grid}' })`), `${grid} gridGap`).toBe(false);
+    }
+    // non-grid choice types: columns/gap are dead writes → hidden
+    for (const t of ["ButtonAnswerGroup", "TwoButtonYesNo", "DropdownQuestion", "SearchableDropdownQuestion", "MultiChoiceCardGroup", "OtherGroupSelector"]) {
+      expect(probe.run(`isCardGridType({ type: '${t}' })`), t).toBe(false);
+      expect(probe.run(`overrideRowHidden('columns', { type: '${t}' })`), `${t} columns hidden`).toBe(true);
+      expect(probe.run(`overrideRowHidden('gridGap', { type: '${t}' })`), `${t} gridGap hidden`).toBe(true);
+    }
+    // MCG has no icon slot → its iconColor row is gated off; the grids keep it
+    expect(probe.run("overrideRowHidden('iconColor', { type: 'MultiChoiceCardGroup' })")).toBe(true);
+    expect(probe.run("overrideRowHidden('iconColor', { type: 'IconCardAnswerGrid' })")).toBe(false);
+    // consumed color rows stay visible everywhere
+    for (const key of ["featureColor", "rangeColor", "buttonBackground", "buttonText"]) {
+      expect(probe.run(`overrideRowHidden('${key}', { type: 'ButtonAnswerGroup' })`), key).toBe(false);
+    }
+    // no selection → structural rows hidden (nothing to write to)
+    expect(probe.run("overrideRowHidden('columns', null)")).toBe(true);
+  });
+});
+
+describeDb("review FIX 5 — save-response problems[] + inline routing", () => {
+  const FRAME_WARN_CONTENT = {
+    components: [
+      { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+      { type: "HeaderBar", question_id: "hb1", props: { logoMediaId: "media_logo" } },
+    ],
+  };
+
+  it("PATCH success carries the frame_scope_component warning as a §3.6 problem (scope component, path-precise); POST too; a clean save carries []", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    // clean content → problems: []
+    const clean = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(YESNO_CONTENT) }),
+      env,
+    );
+    expect(clean.status).toBe(200);
+    expect(((await clean.json()) as { problems: unknown[] }).problems).toEqual([]);
+    // a legacy frame-scope node → the save SUCCEEDS and carries the warning
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(FRAME_WARN_CONTENT) }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { problems: Array<Record<string, unknown>> };
+    expect(body.problems).toHaveLength(1);
+    expect(body.problems[0]).toMatchObject({
+      scope: "component",
+      severity: "warning",
+      path: "components[1]",
+    });
+    expect(String(body.problems[0]!["message"])).toContain("Quote frame");
+    // POST leg: same shape on create (201)
+    const created = await admin.request(
+      `${API}/sections`,
+      jsonInit("POST", {
+        section_name: "Warned",
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Warned",
+        content_json: JSON.stringify(FRAME_WARN_CONTENT),
+      }),
+      env,
+    );
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { problems: Array<Record<string, unknown>> };
+    expect(createdBody.problems).toHaveLength(1);
+    expect(createdBody.problems[0]).toMatchObject({ scope: "component", severity: "warning" });
+  });
+
+  it("EXECUTED island seam: renderSaveProblems shows the summary + click-to-focus rows; routeSaveFieldErrors marks the matching control inline", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(FRAME_WARN_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const box = stubEl("div");
+    box.hidden = true;
+    const strip = stubEl("input");
+    const focused: string[] = [];
+    const probe = studioProbe(html, FRAME_WARN_CONTENT, {
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+      querySelector(sel: string) {
+        return sel === "[data-studio-save-problems]" ? box : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+    });
+    probe.run("function selectComponent(qid) { focusedQids.push(qid); }");
+    probe.sandbox["focusedQids"] = focused;
+    probe.run(
+      [
+        sliceIslandFunction(island, "clearChildren"),
+        sliceIslandFunction(island, "componentByProblemPath"),
+        sliceIslandFunction(island, "saveProblemFocusHandler"),
+        sliceIslandFunction(island, "renderSaveProblems"),
+        sliceIslandVar(island, "SAVE_FIELD_CONTROL_IDS"),
+        sliceIslandFunction(island, "markSaveFieldControl"),
+        sliceIslandFunction(island, "routeSaveFieldErrors"),
+      ].join("\n"),
+    );
+    // the save handler itself consumes both legs
+    expect(island).toContain("if (!isNew && problems.length > 0) {");
+    expect(island).toContain("routeSaveFieldErrors(res.body && res.body.fields);");
+    // problems[] → the summary + one row per problem
+    probe.run(
+      "renderSaveProblems([{ path: 'components[1]', scope: 'component', severity: 'warning', message: 'Header bar belongs to the Quote frame.' }]);",
+    );
+    expect(box.hidden).toBe(false);
+    const allDescendants = (el: StubEl): StubEl[] => [el, ...el.children.flatMap(allDescendants)];
+    const row = allDescendants(box).find((c) => c.getAttribute("data-save-problem-path") === "components[1]");
+    expect(row, "the problem row rides the box").toBeDefined();
+    // clicking the row focuses the offending component (§6.7 idiom)
+    row!.click();
+    expect(focused).toEqual(["hb1"]);
+    // empty problems reset the box
+    probe.run("renderSaveProblems([]);");
+    expect(box.hidden).toBe(true);
+    // 400 FIELD errors route inline where a control matches: a scalar strip
+    // field marks its input; a content path focuses the component
+    probe.run(
+      "routeSaveFieldErrors({ 'headline_text': 'headline_text is required', 'content.components[0].question_id': 'duplicate' });",
+    );
+    expect(strip.className).toContain("studio-control-invalid");
+    expect(focused).toEqual(["hb1", "q1"]);
+  });
+});
+
+describeDb("review FIX 7 — Require-this-component-IF (props.requiredWhen) + sentences", () => {
+  it("SSR: the Dependencies panel carries BOTH row types with sentence lines; requiredWhen round-trips via the REAL PATCH into the public config", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain("Show this component IF");
+    expect(html).toContain("Require this component IF");
+    expect(html).toContain("data-cond-sentence");
+    expect(html).toContain("data-reqcond-sentence");
+    expect(html).toContain('data-inspector-reqcond="when"');
+    // requiredWhen persists through the REAL PATCH…
+    const CONTENT = {
+      components: [
+        { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+        {
+          type: "DropdownQuestion",
+          question_id: "q2",
+          internal_field: "insurer",
+          answer_type: "enum",
+          choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+          props: { requiredWhen: { when: "currently_insured", op: "eq", value: true } },
+        },
+      ],
+    };
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(CONTENT) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const savedNodes = (saved["content_json"] as { components: Array<Record<string, unknown>> }).components;
+    expect((savedNodes[1]!["props"] as Record<string, unknown>)["requiredWhen"]).toEqual({
+      when: "currently_insured",
+      op: "eq",
+      value: true,
+    });
+    // …and rides the PUBLIC component config the runtime's requiredNow reads
+    const pub = toPublicComponent(savedNodes[1] as never);
+    expect((pub.props as Record<string, unknown>)["requiredWhen"]).toEqual({
+      when: "currently_insured",
+      op: "eq",
+      value: true,
+    });
+  });
+
+  it("EXECUTED: collectRequiredWhen writes props.requiredWhen from the pickers; the §7.3 sentences render both row types", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const CONTENT = {
+      components: [
+        { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+        {
+          type: "DropdownQuestion",
+          question_id: "q2",
+          internal_field: "insurer",
+          answer_type: "enum",
+          choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+        },
+      ],
+    };
+    const reqEls: Record<string, { value: string; hidden: boolean }> = {
+      when: { value: "currently_insured", hidden: false },
+      op: { value: "eq", hidden: false },
+      "value-bool": { value: "true", hidden: false },
+      value: { value: "", hidden: false },
+      from: { value: "", hidden: false },
+      to: { value: "", hidden: false },
+      values: { value: "", hidden: false },
+    };
+    const showSentence = stubEl("p");
+    const reqSentence = stubEl("p");
+    const probe = studioProbe(html, CONTENT, {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        const m = sel.match(/\[data-inspector-reqcond="([^"]+)"\]/);
+        if (m) return reqEls[m[1]!] ?? null;
+        if (sel === "[data-cond-sentence]") return showSentence;
+        if (sel === "[data-reqcond-sentence]") return reqSentence;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    });
+    probe.sandbox.selectedQuestionId = "q2";
+    probe.run(
+      [
+        sliceIslandFunction(island, "readReqCond"),
+        sliceIslandFunction(island, "reqCondPartValue"),
+        sliceIslandFunction(island, "nodeRequiredWhen"),
+        sliceIslandFunction(island, "updateReqCondValueInputs"),
+        sliceIslandFunction(island, "conditionSentence"),
+        sliceIslandFunction(island, "renderConditionSentences"),
+        sliceIslandFunction(island, "collectRequiredWhen"),
+      ].join("\n"),
+    );
+    probe.run("collectRequiredWhen();");
+    // the TYPED conditional landed on props.requiredWhen (boolean, not 'true')
+    expect(probe.run("selectedNode().props.requiredWhen")).toEqual({
+      when: "currently_insured",
+      op: "eq",
+      value: true,
+    });
+    // the §7.3 sentence pattern renders the readable text
+    expect(reqSentence.textContent).toBe("Require this question when currently_insured is true");
+    // the show-if sentence renders the pattern too
+    probe.run("selectedNode().conditional = { when: 'currently_insured', op: 'eq', value: true };");
+    probe.run("renderConditionSentences(selectedNode());");
+    expect(showSentence.textContent).toBe("Show this question when currently_insured is true");
+    // clearing the picker deletes the key (no empty-object residue)
+    reqEls["when"]!.value = "";
+    probe.run("collectRequiredWhen();");
+    expect(probe.run("selectedNode().props ? selectedNode().props.requiredWhen : undefined")).toBeUndefined();
+  });
+});
+
+describeDb("review FIX 8 — §5.5 defaults + the AI media-picker affordance", () => {
+  it("SSR + EXECUTED: the typed default controls write props.defaultValue (yes/no boolean) / props.default (range number, dropdown value); real PATCH round-trip + config-dto default_answer", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the three §5.5 default controls + the confirm-default note (§5.5 copy)
+    expect(html).toContain('data-default-wrap="yesno"');
+    expect(html).toContain('data-default-wrap="range"');
+    expect(html).toContain('data-default-wrap="dropdown"');
+    expect(html).toContain("the visitor must still confirm it before continuing");
+    const island = studioIsland(html);
+    const CONTENT = {
+      components: [
+        { type: "TwoButtonYesNo", question_id: "q1", question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" },
+        { type: "RangeQuestion", question_id: "q2", internal_field: "amount", answer_type: "number", props: { min: 0, max: 100, step: 1 } },
+        {
+          type: "DropdownQuestion",
+          question_id: "q3",
+          internal_field: "insurer",
+          answer_type: "enum",
+          choices: [{ label: "Acme", value: "acme", analytics_id: "a" }],
+        },
+      ],
+    };
+    const probe = studioProbe(html, CONTENT);
+    probe.run(
+      [
+        sliceIslandArray(island, "RANGE_DEFAULT_TYPES"),
+        sliceIslandArray(island, "DROPDOWN_DEFAULT_TYPES"),
+        sliceIslandFunction(island, "defaultKindOf"),
+        sliceIslandFunction(island, "collectDefaultControl"),
+      ].join("\n"),
+    );
+    const collect = (qid: string, kind: string, value: string): void => {
+      probe.sandbox.selectedQuestionId = qid;
+      probe.run(
+        `collectDefaultControl({ value: ${JSON.stringify(value)}, getAttribute: function () { return ${JSON.stringify(kind)}; } });`,
+      );
+    };
+    // yes/no → BOOLEAN defaultValue (the config-dto default_applied field)
+    collect("q1", "yesno", "true");
+    expect(probe.run("state.content.components[0].props.defaultValue")).toBe(true);
+    // range → NUMBER props.default (the preset's slider start)
+    collect("q2", "range", "40");
+    expect(probe.run("state.content.components[1].props.default")).toBe(40);
+    // dropdown → the choice VALUE
+    collect("q3", "dropdown", "acme");
+    expect(probe.run("state.content.components[2].props.default")).toBe("acme");
+    // a mismatched control kind never writes (type-gated)
+    collect("q1", "range", "7");
+    expect(probe.run("state.content.components[0].props.default")).toBeUndefined();
+    // clearing deletes
+    collect("q1", "yesno", "");
+    expect(probe.run("state.content.components[0].props ? state.content.components[0].props.defaultValue : undefined")).toBeUndefined();
+    collect("q1", "yesno", "true");
+
+    // the REAL PATCH persists all three defaults
+    const mutated = probe.run("state.content") as Record<string, unknown>;
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(mutated) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    const savedNodes = (saved["content_json"] as { components: Array<Record<string, unknown>> }).components;
+    expect((savedNodes[0]!["props"] as Record<string, unknown>)["defaultValue"]).toBe(true);
+    expect((savedNodes[1]!["props"] as Record<string, unknown>)["default"]).toBe(40);
+    expect((savedNodes[2]!["props"] as Record<string, unknown>)["default"]).toBe("acme");
+    // the runtime's default_applied path consumes the yes/no default via the
+    // REAL projection (config-dto default_answer)
+    const pub = toPublicComponent(savedNodes[0] as never);
+    expect(pub.default_answer).toEqual({ value: true, answer_source: "default_applied" });
+  });
+
+  it("the media picker's Generate-with-AI affordance: HIDDEN without the route (§8.4); present + wired when the key exists (both builders' shared idiom)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    // the harness env has NO OPENAI_API_KEY → the affordance ships hidden
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain("data-media-ai-generate");
+    expect(html).toMatch(/data-media-ai-generate[^>]*data-ai-image-available="false"[^>]*hidden/);
+    // availability flips the SAME markup on (the SSR stamps the signal)
+    const keyedEnv = { ...env, OPENAI_API_KEY: "test-key" } as Env;
+    const htmlKeyed = await getHtml(keyedEnv, `/admin/leadgen/sections/${section.public_id}/edit`);
+    expect(htmlKeyed).toMatch(/data-media-ai-generate[^>]*data-ai-image-available="true"/);
+    expect(htmlKeyed).not.toMatch(/data-media-ai-generate[^>]*data-ai-image-available="true"[^>]*hidden/);
+    expect(htmlKeyed).toContain('id="lg-media-ai-generate"');
+    expect(htmlKeyed).toContain("Generate with AI");
+    // the island posts to the EXISTING generation endpoint and applies the
+    // resulting storage_key through the SAME pick path an upload takes
+    const island = studioIsland(htmlKeyed);
+    expect(island).toContain("fetch('/api/admin/ai/image', {");
+    expect(island).toContain("applyMediaPick(res.body.storage_key);");
+  });
+});
+
+describeDb("review minors 9 + 15 — frame-pill deep link · default-frame empty state", () => {
+  it("MINOR 9: usageFunnelsOf carries the owning quote id; funnelQuoteUrl deep-links its Quote Builder; the pill enables only with usage", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run("var usageRows = [{ quote_public_id: 'lgq_q1', funnel_public_id: 'lgf_one', funnel_name: 'Funnel One', variant_public_id: 'lgn_x' }];");
+    probe.run([sliceIslandFunction(island, "usageFunnelsOf"), sliceIslandFunction(island, "funnelQuoteUrl")].join("\n"));
+    const funnels = probe.run("usageFunnelsOf()") as Array<Record<string, unknown>>;
+    expect(funnels).toEqual([{ public_id: "lgf_one", name: "Funnel One", quote_public_id: "lgq_q1" }]);
+    expect(probe.run("funnelQuoteUrl(usageFunnelsOf()[0])")).toBe("/admin/leadgen/quotes/lgq_q1/edit");
+    // a row without a quote id degrades to the Quotes list, never a broken URL
+    expect(probe.run("funnelQuoteUrl({ public_id: 'x', name: 'X', quote_public_id: null })")).toBe("/admin/leadgen/quotes");
+    // the pill is enabled ONLY when a using funnel exists; clicking with many
+    // opens the picker (island wiring), one navigates
+    expect(island).toContain("pills[i].disabled = usageFunnelsOf().length === 0;");
+    expect(island).toContain("if (funnels.length === 1) { window.location.href = funnelQuoteUrl(funnels[0]); return; }");
+    expect(island).toContain("renderFramePillPicker(this, funnels);");
+  });
+
+  it("MINOR 15: zero usage → frameContextBody sends {default:true}; the REAL preview endpoint composes the DEFAULT centered template frame (no funnel, no branding)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run("var framePick = { quote: '', funnel: '', variant: '', site: '' };");
+    probe.run(sliceIslandFunction(island, "frameContextBody"));
+    // usage UNKNOWN (not loaded) → unit-only, exactly as before
+    expect(probe.run("frameContextBody()")).toBe(null);
+    // usage loaded and ZERO → the default-frame context (the §5.3 empty-state
+    // copy promises "previewing in the default frame")
+    probe.run("var usageQuoteCount = 0;");
+    expect(probe.run("frameContextBody()")).toEqual({ default: true });
+    // any usage → back to unit-only until a funnel is picked
+    probe.run("usageQuoteCount = 2;");
+    expect(probe.run("frameContextBody()")).toBe(null);
+
+    // the LANDED endpoint leg: {default:true} composes the default template
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(YESNO_CONTENT),
+        viewport: "desktop",
+        frame_context: { default: true },
+      }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { preview: { html: string; css: string } };
+    // the composed document is a FRAMED funnel doc with the honest preview ids
+    expect(body.preview.html).toContain('data-funnel-id="lgf_preview"');
+    expect(body.preview.html).toContain('data-quote-id="lgq_preview"');
+    expect(body.preview.html).toContain("data-lg-section");
+    expect(body.preview.html).toContain("lg-frame-slot");
+    // template defaults only — no site branding rode in
+    expect(body.preview.css).toContain(".lg-frame-region");
+    // a default:true context never 404s and needs NO funnel_public_id
+    expect(body.preview.html).not.toContain("Not Found");
   });
 });

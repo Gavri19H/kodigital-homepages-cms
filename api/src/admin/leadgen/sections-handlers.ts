@@ -18,14 +18,33 @@
 // the listicles §5.4 discipline).
 
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
+import type { FunnelDesign } from "../../public/leadgen/designs/registry";
 import {
   renderSectionComponents,
   renderSectionComponentsVisible,
   type LeadgenSectionRenderCtx,
 } from "../../public/leadgen/components/presets";
+// v2.5 Phase C (13 §13.4): the frame_context preview branch composes through
+// the SAME serve-owned pieces as the live /lg frame path and the variant
+// preview (resolveFrameComposition + renderQuoteFrame + the §13.1 legacy-shell
+// fail-safe fork) — parity by construction, never a fork.
+import { resolveFrameComposition } from "../../public/leadgen/serve";
+import type { LeadgenFrameComposition } from "../../public/leadgen/serve";
+import {
+  LG_BANNERS_MOUNT_HTML,
+  renderLegacyShell,
+  renderQuoteFrame,
+} from "../../public/leadgen/designs/frame";
+import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 // §8.5 layout containers: question/mapping/ZIP walks consume the canonical
 // flattened projection; ONLY the renderer receives the full tree (it recurses).
-import { flattenComponents } from "../../public/leadgen/components/content-schema";
+// v2.5 06 §6.6: named component presets validate against the SAME curated
+// override-key set the content schema enforces (never a second list).
+import {
+  CURATED_DESIGN_OVERRIDE_KEYS,
+  flattenComponents,
+} from "../../public/leadgen/components/content-schema";
+import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import type {
   LeadgenComponentNode,
   LeadgenSectionContent,
@@ -81,6 +100,8 @@ import {
   type AdminContext,
 } from "./offers-handlers";
 import type {
+  LeadgenFunnelRow,
+  LeadgenFunnelVariantRow,
   LeadgenSectionAnswerMapApi,
   LeadgenSectionAnswerMapRow,
   LeadgenSectionApi,
@@ -682,19 +703,23 @@ interface SaveOutcome {
   rebuild: RebuildResult | null;
   value: ReturnType<typeof validateSection>["value"];
   contentHtml: string;
+  // FIX 5 (03 §3.6): the content validator's non-blocking warnings as
+  // Problem rows — threaded into the POST/PATCH SUCCESS response so a save
+  // never silently swallows a frame_scope_component / duplicate_continue.
+  problems: ReturnType<typeof validateSection>["problems"];
 }
 
 // Validate scalars + content, parse + resolve answer maps, block §12.4
 // archived/mismatched mappings, and rebuild the derived indexes. Pure of any
 // write — the caller commits the batch.
 async function prepareSave(c: AdminContext, body: Record<string, unknown>): Promise<SaveOutcome> {
-  const { errors, value } = validateSection(body);
-  if (value === null) return { errors, rebuild: null, value: null, contentHtml: "" };
+  const { errors, value, problems } = validateSection(body);
+  if (value === null) return { errors, rebuild: null, value: null, contentHtml: "", problems: [] };
 
   const parsed = await parseAnswerMaps(c.env.DB, body, value.content);
   const mergedErrors: FieldErrors = { ...parsed.errors };
   if (Object.keys(mergedErrors).length > 0) {
-    return { errors: mergedErrors, rebuild: null, value: null, contentHtml: "" };
+    return { errors: mergedErrors, rebuild: null, value: null, contentHtml: "", problems: [] };
   }
 
   const offerSchemas = await loadOfferSchemas(
@@ -721,7 +746,7 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     }
   }
   if (Object.keys(refErrors).length > 0) {
-    return { errors: refErrors, rebuild: null, value: null, contentHtml: "" };
+    return { errors: refErrors, rebuild: null, value: null, contentHtml: "", problems: [] };
   }
 
   const rebuild = rebuildDerivedIndexes({
@@ -730,7 +755,7 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     offerSchemas,
     selectedOfferIds: parsed.selectedOfferIds,
   });
-  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value) };
+  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value), problems };
 }
 
 // ---------------------------------------------------------------------------
@@ -778,7 +803,10 @@ export async function createSectionHandler(c: AdminContext): Promise<Response> {
     .bind(publicId)
     .first<LeadgenSectionRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
-  return c.json(await sectionDetailJson(c.env.DB, row), 201);
+  // FIX 5 (03 §3.6): the success response carries the save's non-blocking
+  // validation problems (frame_scope_component / duplicate_continue) so the
+  // editor can surface them inline — the save itself is unaffected.
+  return c.json({ ...(await sectionDetailJson(c.env.DB, row)), problems: prepared.problems }, 201);
 }
 
 // ---------------------------------------------------------------------------
@@ -801,6 +829,50 @@ async function readAnswerMaps(db: D1Database, sectionId: number): Promise<Leadge
   return rows.results ?? [];
 }
 
+// v2.5 07 §7.3 / 12 §12.2 (DEV-55 C1 data leg): the per-Offer provider-value
+// PROJECTION the Choices tab's read-only "Provider values: k/n Offers" chip
+// consumes. One row per SELECTED offer — offer identity (name + public id for
+// the deep link) + this Section's mapping edges for that offer keyed by
+// internal_field with the edge's parsed output_value_map. Derived ENTIRELY
+// from the existing mapping model (leadgen_section_answer_maps +
+// leadgen_section_available_offers) — no new storage; additive response key.
+async function offerValueProjection(
+  db: D1Database,
+  availableOffers: readonly LeadgenSectionAvailableOfferRow[],
+  answerMaps: readonly LeadgenSectionAnswerMapRow[],
+): Promise<Array<Record<string, unknown>>> {
+  const selectedIds = availableOffers.filter((o) => o.selected !== 0).map((o) => o.offer_id);
+  if (selectedIds.length === 0) return [];
+  const names = new Map<number, { public_id: string; offer_name: string }>();
+  for (const ids of chunk(selectedIds)) {
+    if (ids.length === 0) continue;
+    const rows = await db
+      .prepare(
+        `SELECT id, public_id, offer_name FROM leadgen_offers WHERE id IN (${ids.map(() => "?").join(",")})`,
+      )
+      .bind(...ids)
+      .all<{ id: number; public_id: string; offer_name: string }>();
+    for (const row of rows.results ?? []) names.set(row.id, { public_id: row.public_id, offer_name: row.offer_name });
+  }
+  return selectedIds.map((offerId) => {
+    const identity = names.get(offerId);
+    const fields: Record<string, unknown> = {};
+    for (const edge of answerMaps) {
+      if (edge.offer_id !== offerId || edge.internal_field === "") continue;
+      fields[edge.internal_field] = {
+        path: edge.offer_payload_field_path,
+        values: parseObjectColumn(edge.output_value_map_json),
+      };
+    }
+    return {
+      offer_id: offerId,
+      offer_public_id: identity?.public_id ?? null,
+      offer_name: identity?.offer_name ?? String(offerId),
+      fields,
+    };
+  });
+}
+
 async function sectionDetailJson(db: D1Database, row: LeadgenSectionRow): Promise<Record<string, unknown>> {
   const availableOffers = await readAvailableOffers(db, row.id);
   const answerMaps = await readAnswerMaps(db, row.id);
@@ -808,6 +880,8 @@ async function sectionDetailJson(db: D1Database, row: LeadgenSectionRow): Promis
     ...sectionRowToApi(row),
     available_offers: availableOffers.map(availableOfferRowToApi),
     answer_maps: answerMaps.map(answerMapRowToApi),
+    // DEV-55 (12 §12.2): the studio SSR blob's chip data source.
+    offer_values: await offerValueProjection(db, availableOffers, answerMaps),
   };
 }
 
@@ -923,7 +997,9 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     .bind(existing.id)
     .first<LeadgenSectionRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);
-  return c.json(await sectionDetailJson(c.env.DB, updated));
+  // FIX 5 (03 §3.6): non-blocking validation problems ride the PATCH success
+  // response (same shape as the POST leg — the island surfaces them inline).
+  return c.json({ ...(await sectionDetailJson(c.env.DB, updated)), problems: prepared.problems });
 }
 
 // The stored derived answer-map rows re-expressed as authored edge inputs, so a
@@ -982,6 +1058,178 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
 //                 cosmetic attribute for the client to interpret.
 // A legacy body (none of the new params) produces byte-identical
 // preview.{css,desktop,mobile,component_count} — regression-pinned.
+//
+// v2.5 Phase C (13 §13.4, ADDITIVE): `frame_context?: {funnel_public_id,
+// variant_public_id?, site_id?}` — when present the CURRENT unit renders
+// INSIDE that funnel's effective frame via the SAME renderQuoteFrame the
+// runtime shell embeds (05 §5.3 mode 5); absent → the unit-only path above,
+// byte-identical (pinned in leadgen-section-preview-frame.test.ts). The
+// existing design_id/viewport/sim params stay honored in-frame. Unknown
+// funnel/variant/site → 404; a NULL/invalid stored frame composes through the
+// byte-pinned legacy shell — the same §13.1 fail-safe fork serve.ts and the
+// variant preview take.
+
+// The resolved §13.4 frame context for one preview render. Identity fields
+// are ID-LEVEL (not rows) so the §5.3 mode-5 DEFAULT-frame leg — no funnel at
+// all — composes with the established honest lg?_preview placeholders.
+interface SectionPreviewFrame {
+  funnelPublicId: string;
+  variantPublicId: string | null;
+  variantContentVersion: number | null;
+  quotePublicId: string;
+  branding: SiteBranding | null;
+  // null = NULL/invalid stored frame → the legacy-shell fork.
+  composition: LeadgenFrameComposition | null;
+  // The BASE (layer-1) design the composition resolved over.
+  design: FunnelDesign;
+  // Progress/footer total: the variant's ordered-section count (§11.1), 1 when
+  // no variant participates (the unit previews as a single slide).
+  sectionCount: number;
+}
+
+type SectionPreviewFrameResult =
+  | { kind: "ok"; frame: SectionPreviewFrame }
+  | { kind: "invalid"; fields: FieldErrors }
+  | { kind: "not_found" };
+
+// Parse + resolve the §13.4 frame_context body param. `explicitDesignId` is
+// the request's own design_id (when sent it stays the layer-1 base in-frame —
+// "existing design_id honored"); otherwise the funnel's variant design drives
+// the composition exactly like the variant preview (getFunnelDesign registry
+// rule for the variant-less call).
+async function resolveSectionPreviewFrame(
+  db: D1Database,
+  raw: unknown,
+  explicitDesignId: string | null,
+): Promise<SectionPreviewFrameResult> {
+  if (!isRecord(raw)) {
+    return {
+      kind: "invalid",
+      fields: { frame_context: "frame_context must be a JSON object" },
+    };
+  }
+  // §5.3 mode-5 empty state (ADDITIVE): `frame_context: { default: true }` —
+  // no funnel exists (the Section is used by zero Quotes), so the unit
+  // composes inside the DEFAULT template frame (effectiveFrame("centered")
+  // via the same resolveFrameComposition path), template defaults only: no
+  // theme, no variant overrides, no site branding. Identity fields are the
+  // honest lg?_preview placeholders (the events-doc idiom — never faked live
+  // ids).
+  if (raw["default"] === true && raw["funnel_public_id"] === undefined) {
+    const defaultDesign = getFunnelDesign(explicitDesignId);
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: JSON.stringify({ version: 1, template: "centered" }),
+        theme_json: null,
+        frame_overrides_json: null,
+      },
+      defaultDesign,
+    );
+    return {
+      kind: "ok",
+      frame: {
+        funnelPublicId: "lgf_preview",
+        variantPublicId: null,
+        variantContentVersion: null,
+        quotePublicId: "lgq_preview",
+        branding: null,
+        composition,
+        design: defaultDesign,
+        sectionCount: 1,
+      },
+    };
+  }
+  const fields: FieldErrors = {};
+  const funnelPublicId = trimmedString(raw["funnel_public_id"]);
+  if (funnelPublicId === null) {
+    fields["frame_context.funnel_public_id"] = "frame_context.funnel_public_id is required";
+  }
+  let variantPublicId: string | null = null;
+  if (raw["variant_public_id"] !== undefined && raw["variant_public_id"] !== null) {
+    variantPublicId = trimmedString(raw["variant_public_id"]);
+    if (variantPublicId === null) {
+      fields["frame_context.variant_public_id"] =
+        "frame_context.variant_public_id must be a variant public id string";
+    }
+  }
+  let siteId: string | null = null;
+  if (raw["site_id"] !== undefined && raw["site_id"] !== null) {
+    siteId = trimmedString(raw["site_id"]);
+    if (siteId === null) {
+      fields["frame_context.site_id"] = "frame_context.site_id must be a site id string";
+    }
+  }
+  if (Object.keys(fields).length > 0) return { kind: "invalid", fields };
+
+  // Unknown funnel → 404 (§13.4).
+  const funnel = await db
+    .prepare("SELECT * FROM leadgen_funnels WHERE public_id = ? LIMIT 1")
+    .bind(funnelPublicId)
+    .first<LeadgenFunnelRow>();
+  if (funnel === null) return { kind: "not_found" };
+
+  // Optional variant — must belong to THIS funnel (layer-3 overrides + the
+  // §11.1 progress total ride the variant).
+  let variant: LeadgenFunnelVariantRow | null = null;
+  let sectionCount = 1;
+  if (variantPublicId !== null) {
+    variant = await db
+      .prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? AND funnel_id = ? LIMIT 1")
+      .bind(variantPublicId, funnel.id)
+      .first<LeadgenFunnelVariantRow>();
+    if (variant === null) return { kind: "not_found" };
+    const counted = await db
+      .prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_variant_sections WHERE variant_id = ?")
+      .bind(variant.id)
+      .first<{ n: number }>();
+    sectionCount = Math.max(1, Number(counted?.n ?? 0));
+  }
+
+  // The owning quote's public id (root identity attr — the funnel always has
+  // one; a broken FK degrades to Not Found rather than a corrupt render).
+  const quote = await db
+    .prepare("SELECT public_id FROM leadgen_quotes WHERE id = ? LIMIT 1")
+    .bind(funnel.quote_id)
+    .first<{ public_id: string }>();
+  if (quote === null) return { kind: "not_found" };
+
+  // site_id (C4): ANY CMS site is legal — branding preview needs no
+  // activation and creates none. Unknown site → 404 (the variant-preview rule).
+  let branding: SiteBranding | null = null;
+  if (siteId !== null) {
+    const site = await db
+      .prepare("SELECT id FROM sites WHERE id = ? LIMIT 1")
+      .bind(siteId)
+      .first<{ id: string }>();
+    if (site === null) return { kind: "not_found" };
+    branding = await resolveSiteBranding(db, siteId);
+  }
+
+  // Layer-1 base: the request's explicit design_id when sent (honored
+  // in-frame), else the variant's stored design, else the registry default.
+  const design = getFunnelDesign(explicitDesignId ?? variant?.funnel_design_id ?? null);
+  const composition = resolveFrameComposition(
+    {
+      frame_config_json: funnel.frame_config_json,
+      theme_json: funnel.theme_json,
+      frame_overrides_json: variant?.frame_overrides_json ?? null,
+    },
+    design,
+  );
+  return {
+    kind: "ok",
+    frame: {
+      funnelPublicId: funnel.public_id,
+      variantPublicId: variant?.public_id ?? null,
+      variantContentVersion: variant?.content_version ?? null,
+      quotePublicId: quote.public_id,
+      branding,
+      composition,
+      design,
+      sectionCount,
+    },
+  };
+}
 export async function previewSectionHandler(c: AdminContext): Promise<Response> {
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
@@ -1060,6 +1308,35 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     sectionCtx.continue_mode = ctxContinueRaw;
   }
 
+  // --- v2.5 13 §13.4 frame_context (ADDITIVE, Phase C) ----------------------
+  // Present → resolve (funnel ⊕ optional variant ⊕ optional site) into the
+  // effective composition; the unit below renders under the EFFECTIVE design
+  // and composes inside renderQuoteFrame. Absent → frame stays null and the
+  // unit-only path runs byte-identically (regression-pinned).
+  let frame: SectionPreviewFrame | null = null;
+  if (body["frame_context"] !== undefined && body["frame_context"] !== null) {
+    const resolvedFrame = await resolveSectionPreviewFrame(
+      c.env.DB,
+      body["frame_context"],
+      typeof rawDesignId === "string" ? rawDesignId : null,
+    );
+    if (resolvedFrame.kind === "invalid") {
+      return c.json({ error: "Validation failed", fields: resolvedFrame.fields }, 400);
+    }
+    if (resolvedFrame.kind === "not_found") return c.json({ error: "Not Found" }, 404);
+    frame = resolvedFrame.frame;
+    // 13 §13.1 bullet 4 / §11.5: a composed frame owns the Continue placement —
+    // thread the section_slot fields exactly like renderVariantSectionsHtml.
+    if (frame.composition !== null) {
+      sectionCtx.continue_placement = frame.composition.frame.section_slot.continue_placement;
+      sectionCtx.continue_style_role = frame.composition.frame.section_slot.continue_style_role;
+    }
+  }
+  // The design the UNIT renders under: the frame's effective (layers 1–3
+  // baked) design when composed; the resolved base otherwise. On the
+  // unit-only path this IS `design` — bytes unchanged.
+  const renderDesign = (frame?.composition?.effectiveTokens.design ?? design) as FunnelDesign;
+
   // §12.3/§14.9 conditional-dependency preview: the answers BASIS is the
   // legacy `sample_answers` record overlaid by `sim.answers` overlaid by the
   // §9.2 flow reduction (later entries win). Any basis — or the explicit
@@ -1098,8 +1375,11 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     // container WRAPPERS are kept (layout chrome) while hidden leaf nodes
     // inside them drop — renderSectionComponentsVisible walks the full tree.
     // For flat content this equals the classic filter-then-render, byte for
-    // byte.
-    rendered = renderSectionComponentsVisible(nodes, design, visible);
+    // byte. v2.5 Phase C (DEV-57): the §3.4 sectionCtx now threads through the
+    // Visible walk too — a legacy body's empty-default ctx renders
+    // byte-identically (pinned); a body naming headline/continue/overrides
+    // gets bound text + §11.5 + layer-4 in dependency sims as well.
+    rendered = renderSectionComponentsVisible(nodes, renderDesign, visible, sectionCtx);
     // The count mirrors what renders: visible LEAF nodes (flat content: the
     // exact pre-§8.5 filtered-list length — flatten is the identity there).
     componentCount = flattenComponents(nodes).filter(
@@ -1109,7 +1389,7 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     // No basis ⇒ the classic full-render preview; the renderer receives the
     // FULL tree (container presets recurse) + the §3.4 sectionCtx (legacy
     // bodies produce the empty-default ctx → byte-identical output).
-    rendered = renderSectionComponents(nodes, design, sectionCtx);
+    rendered = renderSectionComponents(nodes, renderDesign, sectionCtx);
     componentCount = nodes.length;
   }
 
@@ -1124,7 +1404,7 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     sim.state === "validation_success" ||
     sim.state === "validation_error"
   ) {
-    rendered = applyPreviewSimMarkup(rendered, nodes, design, {
+    rendered = applyPreviewSimMarkup(rendered, nodes, renderDesign, {
       state: sim.state,
       markSelection,
       answers: normalizedAnswers,
@@ -1134,6 +1414,88 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
           ? null
           : new Map(dependencies.components.map((cc) => [cc.question_id, cc.required_now])),
     });
+  }
+
+  // --- v2.5 13 §13.4 frame_context render (composed early-return) -----------
+  // The CURRENT unit — sim/dependency markup included — rides ONE §3.2 section
+  // wrapper (byte-exactly the renderVariantSectionsHtml shape, index 0
+  // visible) inside renderQuoteFrame; a NULL/invalid stored frame composes
+  // through the byte-pinned legacy shell (§13.1 fork). The response keeps the
+  // unit-only shape; the composed body is viewport-invariant (the builder
+  // iframes the real widths — the variant-preview §8.9 idiom), so desktop /
+  // mobile / html carry the same bytes. The unit-only tail below stays
+  // untouched — the legacy path is byte-identical by construction.
+  if (frame !== null) {
+    const sectionPublicId =
+      typeof body["section_public_id"] === "string" && body["section_public_id"] !== ""
+        ? (body["section_public_id"] as string)
+        : "lgs_preview";
+    const screenLabel = `01 · ${sectionCtx.headline_text}`;
+    const sectionsHtml =
+      `<section data-lg-section data-lg-section-id="${escapeHtml(sectionPublicId)}"` +
+      ` data-lg-index="0" data-screen-label="${escapeHtml(screenLabel)}">` +
+      rendered +
+      `</section>`;
+    // Root identity: real funnel/quote ids; the variant leg is honest — the
+    // resolved variant's id/content_version, or the preview placeholder when
+    // the caller pinned no variant (the events-doc idiom, never a faked id).
+    const composed =
+      frame.composition === null
+        ? renderLegacyShell({
+            designId: frame.design.id,
+            funnelId: frame.funnelPublicId,
+            funnelVariantId: frame.variantPublicId ?? "lgn_preview",
+            quoteId: frame.quotePublicId,
+            contentVersion: frame.variantContentVersion ?? 0,
+            sectionsHtml,
+            bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+          })
+        : renderQuoteFrame({
+            effectiveTokens: frame.composition.effectiveTokens,
+            frame: frame.composition.frame,
+            siteBranding: frame.branding,
+            sectionsHtml,
+            bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+            sectionCount: frame.sectionCount,
+            root: {
+              funnelId: frame.funnelPublicId,
+              funnelVariantId: frame.variantPublicId ?? "lgn_preview",
+              quoteId: frame.quotePublicId,
+              contentVersion: frame.variantContentVersion ?? 0,
+            },
+          });
+    const { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } = await import(
+      "../../public/leadgen/designs/default-funnel/styles"
+    );
+    const scope = `[${FUNNEL_DESIGN_SCOPE_ATTR}="${frame.design.id}"]`;
+    // The SAME css fork the runtime shell + variant preview take: effective
+    // tokens + frame-region rules when composed; the plain base sheet on the
+    // legacy-shell fork.
+    const css =
+      frame.composition === null
+        ? funnelChromeCss(frame.design, scope)
+        : funnelChromeCss(frame.composition.effectiveTokens.design, scope, { frameRegions: true });
+    const preview: Record<string, unknown> = {
+      css,
+      desktop: composed,
+      mobile: composed,
+      component_count: componentCount,
+      design_id: frame.design.id,
+      sim_state: sim.state,
+    };
+    if (viewport !== undefined) preview["html"] = composed;
+    const responseBody: Record<string, unknown> = { preview };
+    if (dependencies !== null) {
+      responseBody["dependencies"] = {
+        components: dependencies.components,
+        continue_blocked: dependencies.continue_blocked,
+        blocking_question_ids: dependencies.blocking_question_ids,
+        visible_question_ids: dependencies.components
+          .filter((cc) => cc.visible)
+          .map((cc) => cc.question_id),
+      };
+    }
+    return c.json(responseBody);
   }
 
   const wrap = (wrapViewport: "desktop" | "mobile", maxWidth: string): string =>
@@ -1761,4 +2123,168 @@ function parseObjectColumn(raw: string | null): Record<string, unknown> | null {
 function parseTransformColumn(raw: string | null): LeadgenTransformStep[] | null {
   const parsed = parseJsonColumn(raw);
   return Array.isArray(parsed) ? (parsed as LeadgenTransformStep[]) : null;
+}
+
+// ---------------------------------------------------------------------------
+// v2.5 06 §6.6 — named component presets (KV `lg-component-presets`)
+// ---------------------------------------------------------------------------
+//
+// GET/POST /component-presets + DELETE /component-presets/:name. Storage: ONE
+// admin-scoped KV list under the repo's existing CACHE binding — no migration
+// (§6.6 "admin-scoped, no migration"). Each entry:
+//   {name, component_type, overrides, props_subset, created_by, created_at}
+// A preset captures the node's TYPE + curated design_overrides + LAYOUT props
+// — NEVER content/choices/mapping: `overrides` keys are gated by the schema's
+// CURATED_DESIGN_OVERRIDE_KEYS; `props_subset` keys by the layout-prop
+// whitelist below (scalar token/enum values only). Apply-side merge is
+// island-owned (same-type nodes only); `design_preset` on the node holds the
+// NAME as provenance only.
+
+export const COMPONENT_PRESETS_KV_KEY = "lg-component-presets";
+const COMPONENT_PRESETS_MAX = 200;
+
+// The §6.6 "layout props" capture whitelist: the §8.5 container/grid token
+// props + the A6 image-fit component prop. Content/choices/mapping fields can
+// never enter a preset (unknown keys are rejected, the §14.8 discipline).
+export const PRESET_LAYOUT_PROP_KEYS = [
+  "direction",
+  "gap",
+  "align",
+  "columnsDesktop",
+  "columnsTablet",
+  "columnsMobile",
+  "sizing",
+  "ratio",
+  "mobile",
+  "width",
+  "background",
+  "shadow",
+  "radius",
+  "padding",
+  "size",
+  "gradient",
+  "layout",
+  "image_fit",
+] as const;
+
+const PRESET_PROP_KEY_SET: ReadonlySet<string> = new Set(PRESET_LAYOUT_PROP_KEYS);
+const PRESET_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
+
+interface ComponentPresetEntry {
+  name: string;
+  component_type: string;
+  overrides: Record<string, string | number | boolean>;
+  props_subset: Record<string, string | number | boolean>;
+  created_by: string | null;
+  created_at: number;
+}
+
+function isPresetEntry(value: unknown): value is ComponentPresetEntry {
+  return (
+    isRecord(value) &&
+    typeof value["name"] === "string" &&
+    typeof value["component_type"] === "string" &&
+    isRecord(value["overrides"]) &&
+    isRecord(value["props_subset"])
+  );
+}
+
+// Defensive KV read (the D1 JSON-parse rule applied to KV): a corrupt blob
+// yields [] and the next write repairs it.
+async function readComponentPresets(kv: KVNamespace): Promise<ComponentPresetEntry[]> {
+  const raw = await kv.get(COMPONENT_PRESETS_KV_KEY);
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter(isPresetEntry) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Validate one scalar map side of the preset body (overrides / props_subset):
+// keys ⊆ the given whitelist, values scalar token refs (string|number|boolean)
+// — never objects/arrays (no content smuggling), never raw CSS strings beyond
+// what the schema itself would accept on the node.
+function parsePresetScalarMap(
+  raw: unknown,
+  field: string,
+  allowed: ReadonlySet<string>,
+  errors: FieldErrors,
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) {
+    errors[field] = `${field} must be an object of token values`;
+    return out;
+  }
+  for (const [key, value] of Object.entries(raw)) {
+    if (!allowed.has(key)) {
+      errors[`${field}.${key}`] = `'${key}' is not a preset-capturable key (§6.6 — layout/design tokens only)`;
+      continue;
+    }
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      errors[`${field}.${key}`] = `${field}.${key} must be a scalar token value`;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+export async function listComponentPresetsHandler(c: AdminContext): Promise<Response> {
+  const items = await readComponentPresets(c.env.CACHE);
+  return c.json({ items });
+}
+
+export async function createComponentPresetHandler(c: AdminContext): Promise<Response> {
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  const errors: FieldErrors = {};
+  const name = trimmedString(body["name"]);
+  if (name === null) errors["name"] = "name is required";
+  else if (name.length > 64) errors["name"] = "name must be 64 characters or fewer";
+  const componentType = trimmedString(body["component_type"]);
+  if (componentType === null || !(componentType in COMPONENT_CATALOG)) {
+    errors["component_type"] = "component_type must be a known component type";
+  }
+  const overrides = parsePresetScalarMap(body["overrides"], "overrides", PRESET_OVERRIDE_KEY_SET, errors);
+  const propsSubset = parsePresetScalarMap(body["props_subset"], "props_subset", PRESET_PROP_KEY_SET, errors);
+  if (Object.keys(errors).length > 0) {
+    return c.json({ error: "Validation failed", fields: errors }, 400);
+  }
+
+  const entry: ComponentPresetEntry = {
+    name: name as string,
+    component_type: componentType as string,
+    overrides,
+    props_subset: propsSubset,
+    // Behind Cloudflare Access this header carries the operator identity;
+    // absent (tests / bypass) → null, never a fake value.
+    created_by: trimmedString(c.req.header("cf-access-authenticated-user-email")),
+    created_at: Math.floor(Date.now() / 1000),
+  };
+  const existing = await readComponentPresets(c.env.CACHE);
+  // Upsert by name (an operator re-saving a preset replaces it in place).
+  const others = existing.filter((p) => p.name !== entry.name);
+  if (others.length >= COMPONENT_PRESETS_MAX) {
+    return c.json(
+      { error: "Validation failed", fields: { name: `preset list is full (${COMPONENT_PRESETS_MAX} max) — delete one first` } },
+      400,
+    );
+  }
+  const items = [...others, entry];
+  await c.env.CACHE.put(COMPONENT_PRESETS_KV_KEY, JSON.stringify(items));
+  return c.json({ item: entry, items }, 201);
+}
+
+export async function deleteComponentPresetHandler(c: AdminContext): Promise<Response> {
+  const name = (c.req.param("name") ?? "").trim();
+  if (name === "") return c.json({ error: "Not Found" }, 404);
+  const existing = await readComponentPresets(c.env.CACHE);
+  const items = existing.filter((p) => p.name !== name);
+  if (items.length === existing.length) return c.json({ error: "Not Found" }, 404);
+  await c.env.CACHE.put(COMPONENT_PRESETS_KV_KEY, JSON.stringify(items));
+  return c.json({ ok: true, items });
 }

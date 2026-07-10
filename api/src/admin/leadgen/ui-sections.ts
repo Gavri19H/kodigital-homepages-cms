@@ -32,6 +32,7 @@ import {
   SECTION_STUDIO_SCRIPT,
   SECTION_STUDIO_STYLES,
   renderSectionStudio,
+  seededNewSectionContent,
   type StudioMappingSummary as MappingSummary,
   type StudioSectionView,
 } from "./ui-section-studio";
@@ -79,9 +80,20 @@ export interface AvailableOfferRow {
   required_fields_mapped: number;
 }
 
+// v2.5 07 §7.3 / 12 §12.2 (DEV-55): the per-Offer provider-value projection —
+// one row per SELECTED offer; `fields` keys are internal_fields, each carrying
+// that offer's mapping path + parsed output_value_map. Chip data ONLY.
+export interface OfferValueProjectionRow {
+  offer_id: number;
+  offer_public_id: string | null;
+  offer_name: string;
+  fields: Record<string, { path: string; values: Record<string, unknown> | null }>;
+}
+
 type SectionDetail = LeadgenSectionApi & {
   available_offers: AvailableOfferRow[];
   answer_maps: AnswerMapApiRow[];
+  offer_values?: OfferValueProjectionRow[];
 };
 
 // §12.11 / §35: derive the section-level publish verdict + missing-required
@@ -283,7 +295,7 @@ export async function leadgenSectionsListPage(c: UiContext): Promise<Response> {
   const paging: Paging = listed.ok ? listed.body.paging : EMPTY_PAGING;
   const rows =
     items.length === 0
-      ? `<tr><td colspan="${SECTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No sections yet.</p><p class="form-help">Create a Section to build a quote slide.</p></div></td></tr>`
+      ? `<tr><td colspan="${SECTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No sections yet.</p><p class="form-help">Create a Section to build a reusable question unit.</p></div></td></tr>`
       : items.map(renderSectionListRow).join("");
 
   const headerCells = SECTION_LIST_COLUMNS.map((col) => {
@@ -329,6 +341,9 @@ interface EditorData {
   // §30.2: whether the operator-owned browser Maps key is configured. false ⇒
   // the editor shows "Maps key not configured — autofill disabled".
   mapsKeyConfigured: boolean;
+  // FIX 8c (§8.4): whether the admin AI image route is usable — false hides
+  // the media picker's "Generate with AI" affordance.
+  aiImageAvailable: boolean;
 }
 
 // An empty summary for the /new editor (no offers, nothing to publish yet).
@@ -339,8 +354,16 @@ const EMPTY_SUMMARY: MappingSummary = { publishable: true, status: "ok", require
 // D2 (§8.7): `selected_offers` rides along — the island's save body persists
 // the SELECTED set explicitly (a selected-but-unmapped Offer survives a
 // studio save; the save path's parseAnswerMaps already consumed it).
+// v2.5 §5.2: a NEW Section (null) seeds the BOUND QuestionHeadline +
+// Subheadline pair — the blob and the SSR view use the SAME seed so the
+// island model matches the served canvas.
 function sectionDataBlob(section: SectionDetail | null): string {
-  const contentJson = section !== null && section.content_json !== null ? section.content_json : { components: [] };
+  const contentJson =
+    section === null
+      ? seededNewSectionContent()
+      : section.content_json !== null
+        ? section.content_json
+        : { components: [] };
   const data = {
     public_id: section?.public_id ?? null,
     content: contentJson,
@@ -348,6 +371,11 @@ function sectionDataBlob(section: SectionDetail | null): string {
     selected_offers: (section?.available_offers ?? []).filter((o) => o.selected).map((o) => o.offer_id),
     continue_mode: section?.continue_mode ?? "button",
     address_validation_enabled: section?.address_validation_enabled ?? false,
+    // v2.5 wave 2: DEV-55 per-Offer provider-value projection (07 §7.3 chip) +
+    // the §9.5 Section-level overrides (Design-overrides drawer mode) — both
+    // ADDITIVE keys; the island defaults them when absent (legacy blobs).
+    offer_values: section?.offer_values ?? [],
+    design_overrides: section?.design_overrides_json ?? null,
   };
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
@@ -355,12 +383,15 @@ function sectionDataBlob(section: SectionDetail | null): string {
 // Project the API SectionDetail into the studio's view model. The parsed
 // content_json (already an object from the API) is coerced defensively — a
 // corrupt/absent body renders the empty studio rather than crashing SSR.
+// v2.5 §5.2: NEW Sections seed the bound headline/subheadline nodes.
 function toStudioView(section: SectionDetail | null): StudioSectionView {
   const rawContent = section?.content_json;
   const components =
-    typeof rawContent === "object" && rawContent !== null && Array.isArray((rawContent as { components?: unknown }).components)
-      ? ((rawContent as { components: unknown[] }).components as StudioSectionView["content"]["components"])
-      : [];
+    section === null
+      ? seededNewSectionContent().components
+      : typeof rawContent === "object" && rawContent !== null && Array.isArray((rawContent as { components?: unknown }).components)
+        ? ((rawContent as { components: unknown[] }).components as StudioSectionView["content"]["components"])
+        : [];
   return {
     public_id: section?.public_id ?? null,
     section_name: section?.section_name ?? "",
@@ -379,15 +410,17 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
   const s = data.section;
   const isNew = s === null;
   const view = toStudioView(s);
-  const statusPillHtml = isNew
-    ? ""
-    : `<code class="lg-editor-pubid">${escapeHtml((s as SectionDetail).public_id)}</code>${statusBadge((s as SectionDetail).status)}`;
+  // §7.4 "Normal designers see NO ids": the top bar carries the status badge
+  // only — the public id lives on the Advanced surfaces (inspector Advanced
+  // tab / debug drawer), never in normal-mode chrome.
+  const statusPillHtml = isNew ? "" : statusBadge((s as SectionDetail).status);
 
   const content = `${renderLeadgenTabs("sections")}
 <div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>
   ${isNew ? `<span class="lg-editor-pubid">New Section</span>` : ""}
   <p id="lg-section-error" class="alert alert-error" hidden role="alert"></p>
-  ${renderSectionStudio(view, data.summary, statusPillHtml, data.mapsKeyConfigured, s !== null ? (s.answer_maps ?? []).length : 0)}
+  <div class="alert alert-warning" data-studio-save-problems hidden role="status" aria-live="polite"></div>
+  ${renderSectionStudio(view, data.summary, statusPillHtml, data.mapsKeyConfigured, s !== null ? (s.answer_maps ?? []).length : 0, data.aiImageAvailable)}
   <script type="application/json" id="lg-section-data">${sectionDataBlob(s)}</script>
 </div>`;
 
@@ -423,6 +456,7 @@ export async function leadgenSectionsNewPage(c: UiContext): Promise<Response> {
         section: null,
         summary: EMPTY_SUMMARY,
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
+        aiImageAvailable: typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
       },
       branding(c),
     ),
@@ -449,6 +483,7 @@ export async function leadgenSectionEditorPage(c: UiContext): Promise<Response> 
         section,
         summary: mappingSummaryOf(section.available_offers ?? [], section.answer_maps ?? []),
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
+        aiImageAvailable: typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
       },
       branding(c),
     ),

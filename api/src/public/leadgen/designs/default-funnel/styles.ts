@@ -632,6 +632,31 @@ export function funnelChromeCss(
       width: "auto",
       "object-fit": "contain",
     }),
+    // ---- v2.5 choice-depth base rules (08 §8.4, DEV-57 Phase-C move) --------
+    // .lg-card-subtitle / .lg-card-badge style ONLY the new-choice-field
+    // markup (no legacy content emits those classes), but the MARKUP is
+    // frame-independent — a frameless funnel can render badge/subtitle
+    // choices, so the rules belong in the BASE sheet. Moved here from the
+    // frameRegions-gated block (a coordinated legacy-pin re-pin carries the
+    // byte change; legacy rendering is pixel-identical).
+    // .lg-card-subtitle — structural complement of the inline
+    // iconCard.subtitle* tokens (font-size/color ride inline).
+    rule(`${scope} .lg-card-subtitle`, {
+      display: "block",
+      "margin-top": spacing.xs,
+      "line-height": "1.3",
+    }),
+    // .lg-card-badge positioning — top-right pill over the card corner
+    // (the badge colours/typography ride inline via iconCard.badge*);
+    // .lg-card{position:relative} is its positioning companion.
+    rule(`${scope} .lg-card`, { position: "relative" }),
+    rule(`${scope} .lg-card-badge`, {
+      position: "absolute",
+      top: spacing.xs,
+      right: spacing.xs,
+      "line-height": "1.2",
+      "white-space": "nowrap",
+    }),
   );
 
   // ---- inputs + fields + dropdown (§14.2 input / dropdown) ----------------
@@ -1134,35 +1159,34 @@ export function funnelChromeCss(
         "font-size": "0.875rem",
         "text-align": "left",
       }),
-      // ---- v2.5 A7: choice-depth + continue-slot base rules ------------------
-      // The three token-driven class rules for markup the presets emit
-      // inline-token-styled (08 §8.4 subtitle/badge; 11 §11.5 continue slot).
-      // They live in THIS frameRegions-gated block on purpose: the legacy
-      // shell pin embeds the base stylesheet byte-exactly, and a legacy
-      // funnel never renders `.lg-continue-slot` anyway (the slot exists only
-      // under a frame's `continue_placement:"below_unit"`).
-      // .lg-card-subtitle base — structural complement of the inline
-      // iconCard.subtitle* tokens (font-size/color ride inline).
-      rule(`${scope} .lg-card-subtitle`, {
-        display: "block",
-        "margin-top": spacing.xs,
-        "line-height": "1.3",
-      }),
-      // .lg-card-badge positioning — top-right pill over the card corner
-      // (the badge colours/typography ride inline via iconCard.badge*).
-      rule(`${scope} .lg-card`, { position: "relative" }),
-      rule(`${scope} .lg-card-badge`, {
-        position: "absolute",
-        top: spacing.xs,
-        right: spacing.xs,
-        "line-height": "1.2",
-        "white-space": "nowrap",
-      }),
+      // ---- v2.5 A7: continue-slot rule ----------------------------------------
       // .lg-continue-slot spacing — the §11.5 below_unit end-of-section slot.
+      // It stays in THIS frameRegions-gated block on purpose: the slot exists
+      // only under a frame's `continue_placement:"below_unit"`, so a legacy
+      // funnel never renders it. (The `.lg-card-subtitle`/`.lg-card-badge`
+      // choice-depth rules moved to the BASE sheet — DEV-57 Phase C: the
+      // subtitle/badge markup is frame-independent.)
       rule(`${scope} .lg-continue-slot`, {
         "margin-top": spacing.lg,
         "text-align": "center",
       }),
+      // ---- FIX 4a: answer-group selected-state override consumption -----------
+      // The curated §14.8 `buttonBackground` override on ButtonAnswerGroup /
+      // TwoButtonYesNo / OtherGroupSelector rides the GROUP root as the
+      // --lg-sel-bg custom property (presets.ts answerGroupSelectedVar —
+      // additive markup; absent override emits nothing). This rule re-states
+      // the §14.6 selected background THROUGH the var with the SAME iconCard
+      // token as the fallback: var unset ⇒ identical computed style; set ⇒
+      // the resolved role/hex wins (later source order at equal specificity
+      // beats the §14.6 base rule). It sits in THIS gated block — the
+      // moved-card-rules region story above — because a BASE-sheet emission
+      // changes the pinned legacy-CSS bytes; consumption on frame-null legacy
+      // rendering lands with a coordinated legacy-pin re-pin (REGISTER item:
+      // move this rule to the base choice-depth region + re-pin fixtures).
+      rule(
+        `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
+        { background: `var(--lg-sel-bg, ${iconCard.selectedBackground})` },
+      ),
     );
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.

@@ -59,8 +59,10 @@ import {
   THEME_SHADOW_STEPS,
   THEME_SIZE_SCALES,
   THEME_SPACING_SCALES,
+  resolveTokens,
 } from "../../public/leadgen/designs/theme";
 import type { Problem } from "../../public/leadgen/designs/theme";
+import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import { renderRulesBuilderPanel, RULES_BUILDER_SCRIPT } from "./ui-rules-builder";
 
 // ---------------------------------------------------------------------------
@@ -335,6 +337,23 @@ function roleLabel(role: string): string {
 // The §4.1 clickable frame regions → operator labels (data-frame-region
 // values stamped by renderQuoteFrame; `logo` clicks land on the Header
 // inspector — the logo is header config).
+// DEV-60 (a) — the curated benefit-bar icon vocabulary (04 §4.4 "icon
+// picker"). The runtime preset (renderTrustBar via renderBenefitRegion)
+// renders the icon STRING verbatim as a glyph — the design system's own
+// defaults are the "✓" and "🔒" glyphs (components/presets.ts), so the closed
+// list is a glyph set, not free text. Stored legacy values outside this list
+// are PRESERVED by the island (appended as a "(stored)" option on populate).
+export const BENEFIT_BAR_ICONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "✓", label: "Check" },
+  { value: "★", label: "Star" },
+  { value: "\u{1F512}", label: "Lock" },
+  { value: "\u{1F6E1}", label: "Shield" },
+  { value: "⏱", label: "Clock" },
+  { value: "\u{1F4B2}", label: "Dollar" },
+  { value: "❤", label: "Heart" },
+  { value: "☎", label: "Phone" },
+];
+
 export const FRAME_REGION_LABELS: Readonly<Record<string, string>> = {
   header: "Header",
   progress: "Progress",
@@ -467,12 +486,22 @@ const LG_QUOTES_STYLES = `
 .lg-theme-swatch{width:28px;height:28px;border-radius:6px;border:1px solid var(--c-border);flex:none}
 .lg-used-by{color:var(--c-muted);font-size:12px}
 .lg-inherit-tag{font-size:11px;border:1px solid var(--c-border);border-radius:999px;padding:0 8px;color:var(--c-muted)}
-.lg-theme-minipreview{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--c-border);border-radius:8px;padding:12px;margin:10px 0}
-.lg-mini-btn{border:0;border-radius:8px;padding:10px 18px;font-weight:600;cursor:default}
-.lg-mini-card{border:1px solid var(--c-border);border-radius:8px;padding:10px 14px}
-.lg-mini-input{border:1px solid var(--c-border);border-radius:6px;padding:8px 10px;min-width:120px}
-.lg-mini-progress{width:120px;height:8px;border-radius:4px;background:var(--c-border);overflow:hidden}
-.lg-mini-progress span{display:block;height:100%;width:60%}
+.lg-theme-minipreview{border:1px solid var(--c-border);border-radius:8px;padding:8px;margin:10px 0}
+.lg-minipreview-frame{display:block;width:100%;height:200px;border:0;border-radius:6px;background:#fff}
+.lg-harmony-row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.lg-harmony-step{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:6px;background:none;cursor:pointer;padding:4px 8px;font-size:12px;color:var(--c-text)}
+.lg-harmony-chip{width:14px;height:14px;border-radius:4px;border:1px solid var(--c-border);display:inline-block}
+.lg-media-field{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.lg-media-thumb{width:40px;height:30px;object-fit:contain;border:1px solid var(--c-border);border-radius:4px;background:#fff}
+.lg-media-picker-overlay{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(15,23,42,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
+.lg-media-picker-panel{background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:10px;max-width:720px;width:100%;max-height:80vh;overflow:auto;padding:16px}
+.lg-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:10px}
+.lg-media-item{border:1px solid var(--c-border);border-radius:8px;background:none;cursor:pointer;padding:6px;display:flex;flex-direction:column;gap:4px;align-items:center}
+.lg-media-item img{max-width:100%;height:64px;object-fit:contain}
+.lg-media-item span{font-size:11px;color:var(--c-muted);word-break:break-all}
+.lg-drag-handle{cursor:grab;color:var(--c-muted);font-size:13px;letter-spacing:-3px;flex:none;padding:0 2px;user-select:none}
+.lg-section-row.lg-drag-over{outline:2px dashed var(--c-primary,#2563eb);outline-offset:-2px}
+.lg-rename-editor{display:inline-flex;gap:6px;align-items:center}
 .lg-list-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .lg-list-row .form-input{flex:1;min-width:90px}
 .lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
@@ -843,6 +872,35 @@ function frameInput(label: string, key: string, placeholder = "", help?: string)
   return frameControl(label, `<input class="form-input" data-frame-key="${escapeHtml(key)}" placeholder="${escapeHtml(placeholder)}" />`, help);
 }
 
+// DEV-60 (a) — the reusable media-field affordance (04 §4.4 "media picker").
+// A HIDDEN input keeps the exact save key (data-frame-key / data-list-field);
+// "Choose…" opens the shared in-page Media-library chooser (#lg-media-picker,
+// list + upload via the EXISTING /api/admin/media endpoints); the island
+// paints the thumb + Clear from the input value. keyAttr is the carrier
+// attribute name so the same shape serves single frame keys AND list rows.
+function mediaFieldMarkup(keyAttr: "data-frame-key" | "data-list-field", key: string, label: string): string {
+  return `<span class="lg-media-field" data-media-field>
+    <input type="hidden" ${keyAttr}="${escapeHtml(key)}" aria-label="${escapeHtml(label)}" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose ${escapeHtml(label)} from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear ${escapeHtml(label)}">Clear</button>
+  </span>`;
+}
+
+function mediaPickerControl(label: string, key: string, help?: string): string {
+  return frameControl(label, mediaFieldMarkup("data-frame-key", key, label), help);
+}
+
+// DEV-60 (a) — the curated icon dropdown (closed list, no free text). A
+// disabled empty placeholder keeps "unset" representable; unknown STORED
+// values are appended by the island as "(stored)" options, never destroyed.
+function iconSelectMarkup(field: string, label: string): string {
+  const options = BENEFIT_BAR_ICONS.map(
+    (i) => `<option value="${escapeHtml(i.value)}">${escapeHtml(i.value)} ${escapeHtml(i.label)}</option>`,
+  ).join("");
+  return `<select class="form-select" data-list-field="${escapeHtml(field)}" aria-label="${escapeHtml(label)}"><option value="" disabled>Choose an icon</option>${options}</select>`;
+}
+
 // §4.5 — the per-group override switch (non-control arms only): "Same as
 // funnel (default) / Override for this variant"; writes route the group's
 // edits into the sparse frame_overrides_json instead of the funnel frame.
@@ -863,10 +921,20 @@ function scopeHead(regionLabel: string, funnelWide: boolean): string {
 
 // One editable list (footer links / trust logos / benefit items): the island
 // fills rows from config and collects rows → whole-array replacement (the
-// §13.2 arrays-replace-whole merge rule).
-function renderFrameList(key: string, addLabel: string, fields: Array<{ field: string; label: string; placeholder?: string }>): string {
+// §13.2 arrays-replace-whole merge rule). DEV-60 (a): a field may be a
+// "media" kind (hidden input + Choose… + thumb) or an "icon_select" kind
+// (curated closed dropdown) instead of a bare text input.
+function renderFrameList(
+  key: string,
+  addLabel: string,
+  fields: Array<{ field: string; label: string; placeholder?: string; kind?: "text" | "media" | "icon_select" }>,
+): string {
   const inputs = fields
-    .map((f) => `<input class="form-input" data-list-field="${escapeHtml(f.field)}" placeholder="${escapeHtml(f.placeholder ?? f.label)}" aria-label="${escapeHtml(f.label)}" />`)
+    .map((f) => {
+      if (f.kind === "media") return mediaFieldMarkup("data-list-field", f.field, f.label);
+      if (f.kind === "icon_select") return iconSelectMarkup(f.field, f.label);
+      return `<input class="form-input" data-list-field="${escapeHtml(f.field)}" placeholder="${escapeHtml(f.placeholder ?? f.label)}" aria-label="${escapeHtml(f.label)}" />`;
+    })
     .join("");
   return `<div data-frame-list="${escapeHtml(key)}"></div>
   <template data-frame-list-tpl="${escapeHtml(key)}"><div class="lg-list-row">${inputs}<button type="button" class="btn btn-sm btn-outline" data-remove-list-row aria-label="Remove">&#10005;</button></div></template>
@@ -895,7 +963,7 @@ function renderHeaderInspector(isControl: boolean): string {
   <details class="lg-advanced"><summary>Advanced</summary>
     <label class="lg-check"><input type="checkbox" data-manual-logo /> Use a manual logo instead of site branding</label>
     <p class="form-help">Manual logo overrides site branding.</p>
-    ${frameInput("Manual logo image (from the Media library)", "header.logo_media_id", "path of an uploaded image")}
+    ${mediaPickerControl("Manual logo image (from the Media library)", "header.logo_media_id")}
   </details>
 </div>`;
 }
@@ -965,7 +1033,7 @@ function renderTrustStripInspector(isControl: boolean): string {
   ${frameCheck("Show the trust strip", "trust_strip.enabled")}
   ${frameSelect("Source", "trust_strip.source", ["manual", "site_logo_set"], { manual: "Manual logos", site_logo_set: "Site logo set" })}
   ${frameControl("Logos", renderFrameList("trust_strip.logos", "+ Add logo", [
-    { field: "media_id", label: "Image (from the Media library)", placeholder: "path of an uploaded image" },
+    { field: "media_id", label: "Image (from the Media library)", kind: "media" },
     { field: "alt", label: "Alt text (required)", placeholder: "Alt text (required)" },
   ]))}
   ${frameSelect("Placement", "trust_strip.placement", FRAME_TRUST_PLACEMENTS, { below_unit: "Below the question unit", footer: "In the footer", between_progress_and_unit: "Between progress and the question unit" })}
@@ -979,7 +1047,7 @@ function renderBenefitBarInspector(isControl: boolean): string {
   ${renderOverrideSwitch("benefit_bar", isControl)}
   ${frameCheck("Show the benefit bar", "benefit_bar.enabled")}
   ${frameControl("Items", renderFrameList("benefit_bar.items", "+ Add item", [
-    { field: "icon", label: "Icon", placeholder: "Icon (e.g. check)" },
+    { field: "icon", label: "Icon", kind: "icon_select" },
     { field: "text", label: "Text" },
   ]))}
   ${frameSelect("Placement", "benefit_bar.placement", ["bottom", "below_unit"], { bottom: "Bottom of page", below_unit: "Below the question unit" })}
@@ -991,7 +1059,7 @@ function renderBackgroundInspector(isControl: boolean): string {
   ${scopeHead("Background", false)}
   ${renderOverrideSwitch("background", isControl)}
   ${frameControl("Color", renderRoleStrip("background.role"))}
-  ${frameInput("Background image (optional, from the Media library)", "background.image_media_id", "path of an uploaded image")}
+  ${mediaPickerControl("Background image (optional, from the Media library)", "background.image_media_id")}
   ${frameSelect("Style", "background.style", FRAME_BACKGROUND_STYLES, { flat: "Flat", brand: "Brand", brand_gradient: "Brand gradient" })}
 </div>`;
 }
@@ -1055,6 +1123,7 @@ function renderSectionRow(
     ? `<div class="lg-auction-entry-mark" data-auction-entry="1">Auction runs after this slide</div>`
     : "";
   return `<div class="lg-section-row lg-structure-row" data-section-id="${sectionId}" data-section-public-id="${escapeHtml(sectionPublicId)}">
+  <span class="lg-drag-handle" data-drag-handle draggable="true" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
   <span class="lg-pos" data-pos>${position}</span>
   <span class="lg-map-dot" data-mapping-status="unknown" title="Offer mapping status"></span>
   <span class="lg-grow"><button type="button" data-select-slide data-section-name>${escapeHtml(name)}</button></span>
@@ -1222,6 +1291,27 @@ function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOpt
 
 // --- theme editor (09 §9.3) ---------------------------------------------------
 
+// DEV-60 (d), 09 §9.3 — the curated harmony steps per role-edit control:
+// base value + wash / darker / lighter steps DERIVED from the base design's
+// value (island mix math paints the chips; labels only, never hex text).
+// "Base" writes the ROLE-VALUE alias; derived steps are custom values and
+// flow through the Advanced custom-color path (same storage + warning
+// semantics), never a silent bypass.
+const HARMONY_STEPS: ReadonlyArray<{ step: string; label: string }> = [
+  { step: "base", label: "Base" },
+  { step: "wash", label: "Soft wash" },
+  { step: "darker", label: "Darker" },
+  { step: "lighter", label: "Lighter" },
+];
+
+function renderHarmonyRow(role: string): string {
+  const buttons = HARMONY_STEPS.map(
+    (s) =>
+      `<button type="button" class="lg-harmony-step" data-harmony-role="${escapeHtml(role)}" data-harmony-step="${escapeHtml(s.step)}"><span class="lg-harmony-chip" data-harmony-chip aria-hidden="true"></span>${escapeHtml(s.label)}</button>`,
+  ).join("");
+  return `<div class="lg-harmony-row" data-harmony-row="${escapeHtml(role)}">${buttons}</div>`;
+}
+
 function renderThemeEditorPanel(isControl: boolean): string {
   const paletteRows = ROLE_META.map(
     (r) => `<div class="lg-theme-role-row" data-theme-role="${escapeHtml(r.role)}">
@@ -1229,7 +1319,9 @@ function renderThemeEditorPanel(isControl: boolean): string {
     <span class="lg-grow"><strong>${escapeHtml(r.label)}</strong><br /><span class="lg-used-by">Used by: ${escapeHtml(r.used_by)}</span></span>
     <span class="lg-inherit-tag" data-role-source>Base design</span>
     <details class="lg-theme-edit"><summary class="form-help">Edit</summary>
-      <p class="form-help">Pick a color from this design&#8217;s palette:</p>
+      <p class="form-help">Suggested from this design&#8217;s base value:</p>
+      ${renderHarmonyRow(r.role)}
+      <p class="form-help">Or pick a color from this design&#8217;s palette:</p>
       ${renderRoleStrip(`palette.${r.role}`)}
       <button type="button" class="btn btn-sm btn-outline" data-role-reset="${escapeHtml(r.role)}">Reset to inherited</button>
     </details>
@@ -1243,11 +1335,9 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <h3>Funnel theme</h3>
   <div class="lg-scope-head">Editing: <strong>Funnel theme</strong> · affects every slide and every component default of this funnel</div>
   ${renderOverrideSwitch("theme", isControl)}
-  <div class="lg-theme-minipreview" id="lg-theme-minipreview" aria-hidden="true">
-    <button type="button" class="lg-mini-btn" data-mini-button>Continue</button>
-    <span class="lg-mini-card" data-mini-card>Answer card</span>
-    <span class="lg-mini-input" data-mini-input>Your answer</span>
-    <span class="lg-mini-progress"><span data-mini-progress></span></span>
+  <div class="lg-theme-minipreview" id="lg-theme-minipreview" data-mini-preview-mode="frame">
+    <iframe id="lg-theme-minipreview-frame" class="lg-minipreview-frame" title="Theme mini preview" sandbox="allow-same-origin"></iframe>
+    <p class="form-help" id="lg-theme-minipreview-status" role="status"></p>
   </div>
   <h3>Colors</h3>
   <div id="lg-theme-palette">${paletteRows}</div>
@@ -1340,7 +1430,7 @@ function renderRuleRow(rule: RuleNode | null, index = -1): string {
   </div>
   <div class="lg-rule-grid">
     <div class="form-group"><label class="form-label">Raw redirect URL (allowlist-gated)</label><input class="form-input" data-rule-redirect-url value="${escapeHtml(rule?.redirect_url ?? "")}" /></div>
-    <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> redirect_url_allowlisted</label></div>
+    <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> Redirect URL is on the approved list</label></div>
     <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-enabled${rule === null || rule.enabled ? " checked" : ""} /> enabled</label></div>
   </div>
   <details class="lg-advanced"><summary>Advanced &#8212; raw conditions (visual builder pending)</summary>
@@ -1405,7 +1495,6 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
       data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
       min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
-    <code class="lg-editor-pubid">${escapeHtml(v.public_id)}</code>
     ${overridesLine}
   </div>`;
     })
@@ -1560,6 +1649,35 @@ function renderAnalyticsPanel(): string {
 // The #lg-quote-data JSON state blob. `<`-escaped so a hostile author value can
 // never break out of the <script type="application/json">. Carries the FULL
 // studio boot state — the island fetches nothing on boot except previews.
+// DEV-60 (a) — the shared in-page Media-library chooser. ONE dialog per page;
+// the island points it at the [data-media-field] that opened it. List +
+// upload both ride the EXISTING admin media endpoints (GET /api/admin/media,
+// POST /api/admin/media/upload) — no new API surface.
+// FIX 8c (§8.4): the SAME "Generate with AI" idiom the Section Studio picker
+// ships — the EXISTING POST /api/admin/ai/image endpoint (R2 + media row);
+// server-hidden when the route is unavailable (no key ⇒ 501).
+function renderMediaPickerModal(aiImageAvailable: boolean): string {
+  return `<div class="lg-media-picker-overlay lg-hidden" id="lg-media-picker" role="dialog" aria-modal="true" aria-label="Choose from the Media library">
+  <div class="lg-media-picker-panel">
+    <div class="lg-editor-head">
+      <h3>Media library</h3>
+      <span class="lg-editor-spacer"></span>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-media-picker-close">Close</button>
+    </div>
+    <div class="toolbar">
+      <input type="file" id="lg-media-upload-file" accept="image/*" aria-label="Upload a new image" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-upload-btn">Upload &amp; use</button>
+      <span class="form-help" id="lg-media-picker-status" role="status"></span>
+    </div>
+    <div class="toolbar" data-media-ai-generate data-ai-image-available="${aiImageAvailable ? "true" : "false"}"${aiImageAvailable ? "" : " hidden"}>
+      <input type="text" id="lg-media-ai-prompt" class="form-input" placeholder="Describe the image to generate&#8230;" aria-label="Describe the image to generate" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-ai-generate">Generate with AI</button>
+    </div>
+    <div class="lg-media-grid" id="lg-media-picker-grid"></div>
+  </div>
+</div>`;
+}
+
 function quoteDataBlob(
   structure: StructureBody,
   selected: VariantNode,
@@ -1580,6 +1698,11 @@ function quoteDataBlob(
     sections: selected.sections.map((s) => ({ public_id: s.section_public_id, name: s.section_name })),
     frame,
     theme,
+    // DEV-60 (d): the BASE design's role→value table (no theme applied) — the
+    // island derives the §9.3 harmony steps from these, so a funnel-level
+    // palette edit never shifts what "Base / Soft wash / Darker / Lighter"
+    // mean (09 §9.3: harmonies derive from the base design).
+    base_tokens: resolveTokens(getFunnelDesign(selected.funnel_design_id), null, null).roles,
     templates: templates.map((t) => ({ id: t.id, label: t.label, defaults: t.defaults })),
     sites,
     overrides: selected.frame_overrides_json,
@@ -1600,6 +1723,9 @@ function quoteEditorHtml(
   templates: FrameTemplateItem[],
   rulesBuilderData: RulesBuilderData,
   brand: { userEmail?: string },
+  // FIX 8c: whether POST /api/admin/ai/image is usable — false hides the
+  // picker's "Generate with AI" affordance (§8.4).
+  aiImageAvailable = false,
 ): string {
   const q = structure.quote;
   const sites = previewSiteOptions(activation);
@@ -1617,8 +1743,14 @@ function quoteEditorHtml(
   // gated activate lives).
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
-    <h2 class="lg-editor-title">${escapeHtml(q.quote_name)}</h2>
-    <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code>${statusBadge(q.status)}
+    <h2 class="lg-editor-title" id="lg-quote-title">${escapeHtml(q.quote_name)}</h2>
+    <button type="button" class="btn btn-sm btn-outline" id="lg-quote-rename" aria-label="Rename this quote" title="Rename">&#9998;</button>
+    <span class="lg-rename-editor lg-hidden" id="lg-quote-rename-editor">
+      <input class="form-input" id="lg-quote-rename-input" aria-label="Quote name" />
+      <button type="button" class="btn btn-sm btn-primary" id="lg-quote-rename-save">Save name</button>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-quote-rename-cancel">Cancel</button>
+    </span>
+    ${statusBadge(q.status)}
     <span class="lg-chip" data-quote-activity>Activity: <strong>${escapeHtml(q.activity)}</strong></span>
     ${verticalChips}
     ${renderPublishBadge(activation?.activation_preflight ?? null)}
@@ -1626,7 +1758,10 @@ function quoteEditorHtml(
     <span class="lg-chip" id="lg-site-chip">Preview site: ${renderSiteSelect("lg-site-select", sites)}</span>
     <button type="button" id="lg-variant-save" class="btn btn-primary">Save</button>
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
-  </div>`;
+  </div>
+  <details class="lg-advanced"><summary>Advanced</summary>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code></p>
+  </details>`;
 
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
   <button type="button" class="lg-qtab active" data-tab="builder">Funnel builder</button>
@@ -1653,6 +1788,7 @@ function quoteEditorHtml(
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}
+  ${renderMediaPickerModal(aiImageAvailable)}
   <script type="application/json" id="lg-quote-data">${quoteDataBlob(structure, selected, funnelPublicId, frame, theme, templates, sites, activation)}</script>
 </div>`;
 
@@ -1756,6 +1892,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       templatesRes.ok ? templatesRes.body.items : [],
       rulesBuilderData,
       branding(c),
+      typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
     ),
   );
 }
@@ -1900,6 +2037,62 @@ const QUOTE_EDITOR_SCRIPT = `
     });
   }
 
+  // --- 4.1 quote-name inline edit (DEV-60 b) --------------------------------
+  // Its OWN save path: PATCH /quotes/:id {quote_name} the moment the operator
+  // confirms — never part of the 4.7 Save chain, never arms beforeunload
+  // (the input is listed in NON_PERSISTED_IDS below).
+  (function () {
+    var renameBtn = byId('lg-quote-rename');
+    var editor = byId('lg-quote-rename-editor');
+    var input = byId('lg-quote-rename-input');
+    var title = byId('lg-quote-title');
+    if (!renameBtn || !editor || !input || !title) { return; }
+    function openRename() {
+      input.value = title.textContent || '';
+      editor.className = 'lg-rename-editor';
+      renameBtn.className = 'btn btn-sm btn-outline lg-hidden';
+      if (input.focus) { input.focus(); }
+    }
+    function closeRename() {
+      editor.className = 'lg-rename-editor lg-hidden';
+      renameBtn.className = 'btn btn-sm btn-outline';
+    }
+    function saveRename() {
+      var name = (input.value || '').trim();
+      if (name === '') { showMsg('lg-quote-error', 'Quote name cannot be empty.'); return; }
+      var saveEl = byId('lg-quote-rename-save');
+      if (saveEl) { saveEl.disabled = true; }
+      fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ quote_name: name })
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+        if (saveEl) { saveEl.disabled = false; }
+        if (!res.ok) {
+          showMsg('lg-quote-error', (res.body && res.body.fields && res.body.fields.quote_name) ? res.body.fields.quote_name : ((res.body && res.body.error) ? res.body.error : 'Rename failed'));
+          return;
+        }
+        hideMsg('lg-quote-error');
+        clearChildren(title);
+        title.appendChild(document.createTextNode((res.body && res.body.quote_name) ? res.body.quote_name : name));
+        closeRename();
+        showMsg('lg-quote-ok', 'Quote renamed.');
+      }).catch(function () {
+        if (saveEl) { saveEl.disabled = false; }
+        showMsg('lg-quote-error', 'Rename failed: network error');
+      });
+    }
+    renameBtn.addEventListener('click', openRename);
+    var saveBtnEl = byId('lg-quote-rename-save');
+    if (saveBtnEl) { saveBtnEl.addEventListener('click', saveRename); }
+    var cancelBtnEl = byId('lg-quote-rename-cancel');
+    if (cancelBtnEl) { cancelBtnEl.addEventListener('click', closeRename); }
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { if (ev.preventDefault) { ev.preventDefault(); } saveRename(); return; }
+      if (ev.key === 'Escape') { closeRename(); }
+    });
+  }());
+
   // --- sub-tab switching ----------------------------------------------------
   var tabs = root.querySelectorAll('.lg-qtab');
   var panels = root.querySelectorAll('.lg-qpanel');
@@ -2000,6 +2193,74 @@ const QUOTE_EDITOR_SCRIPT = `
         return;
       }
     });
+  }
+
+  // --- 4.1 drag-handle reorder (DEV-60 c) — the ui-payload-builder drag
+  // idiom; the drop funnels into the SAME DOM move + renumber() +
+  // markVariantDirty() the arrow buttons use (buttons stay: keyboard path).
+  if (sectionList) {
+    (function () {
+      var dragRowEl = null;
+      function rowOf(el) {
+        var row = el;
+        while (row && row.className !== undefined && String(row.className).indexOf('lg-section-row') < 0) { row = row.parentNode; }
+        return (row && row.className !== undefined) ? row : null;
+      }
+      function clearDragOver() {
+        var rows = sectionList.querySelectorAll('.lg-section-row');
+        var i;
+        for (i = 0; i < rows.length; i++) { rows[i].className = String(rows[i].className).replace(/\\s*lg-drag-over/g, ''); }
+      }
+      sectionList.addEventListener('dragstart', function (ev) {
+        var t = ev.target;
+        if (!t || !t.getAttribute || t.getAttribute('data-drag-handle') === null) { return; }
+        dragRowEl = rowOf(t);
+        if (!dragRowEl) { return; }
+        if (ev.dataTransfer) {
+          try { ev.dataTransfer.setData('text/plain', dragRowEl.getAttribute('data-section-id') || ''); ev.dataTransfer.effectAllowed = 'move'; } catch (dragErr) { /* engines without drag data */ }
+        }
+      });
+      sectionList.addEventListener('dragover', function (ev) {
+        if (dragRowEl === null) { return; }
+        var over = rowOf(ev.target);
+        if (!over || over === dragRowEl) { return; }
+        if (ev.preventDefault) { ev.preventDefault(); }
+        if (ev.dataTransfer) { ev.dataTransfer.dropEffect = 'move'; }
+        clearDragOver();
+        over.className = String(over.className).replace(/\\s*lg-drag-over/g, '') + ' lg-drag-over';
+      });
+      sectionList.addEventListener('dragleave', function (ev) {
+        var over = rowOf(ev.target);
+        if (over) { over.className = String(over.className).replace(/\\s*lg-drag-over/g, ''); }
+      });
+      sectionList.addEventListener('drop', function (ev) {
+        clearDragOver();
+        if (dragRowEl === null) { return; }
+        var target = rowOf(ev.target);
+        var moving = dragRowEl;
+        dragRowEl = null;
+        if (!target || target === moving) { return; }
+        if (ev.preventDefault) { ev.preventDefault(); }
+        var rows = sectionList.querySelectorAll('.lg-section-row');
+        var from = -1;
+        var to = -1;
+        var i;
+        for (i = 0; i < rows.length; i++) {
+          if (rows[i] === moving) { from = i; }
+          if (rows[i] === target) { to = i; }
+        }
+        if (from < 0 || to < 0) { return; }
+        if (from < to) {
+          if (target.nextSibling) { target.parentNode.insertBefore(moving, target.nextSibling); }
+          else { target.parentNode.appendChild(moving); }
+        } else {
+          target.parentNode.insertBefore(moving, target);
+        }
+        renumber();
+        markVariantDirty();
+      });
+      sectionList.addEventListener('dragend', function () { dragRowEl = null; clearDragOver(); });
+    }());
   }
 
   // --- rules ----------------------------------------------------------------
@@ -2356,6 +2617,25 @@ const QUOTE_EDITOR_SCRIPT = `
   // --- editable lists (arrays replace whole, §13.2) ---------------------------
   var LIST_FIELDS = { 'footer.links': ['label', 'href'], 'trust_strip.logos': ['media_id', 'alt'], 'benefit_bar.items': ['icon', 'text'] };
   function listContainer(key) { return root.querySelector('[data-frame-list="' + key + '"]'); }
+  // DEV-60 (a): a curated <select> field must never DESTROY a stored legacy
+  // value outside its closed list — populate appends it as a "(stored)"
+  // option so the populate→collect round-trip is loss-free.
+  function selectHasOption(sel, v) {
+    var i;
+    var opts = sel.options || [];
+    for (i = 0; i < opts.length; i++) { if (opts[i].value === v) { return true; } }
+    return false;
+  }
+  function setListFieldValue(input, val) {
+    var tag = String(input.tagName || '').toLowerCase();
+    if (tag === 'select' && val !== '' && !selectHasOption(input, val)) {
+      var opt = document.createElement('option');
+      opt.value = val;
+      opt.appendChild(document.createTextNode(val + ' (stored)'));
+      input.appendChild(opt);
+    }
+    input.value = val;
+  }
   function fillList(key, rows) {
     var box = listContainer(key);
     var tpl = root.querySelector('template[data-frame-list-tpl="' + key + '"]');
@@ -2369,10 +2649,12 @@ const QUOTE_EDITOR_SCRIPT = `
       var fields = LIST_FIELDS[key] || [];
       for (f = 0; f < fields.length; f++) {
         var input = row.querySelector('[data-list-field="' + fields[f] + '"]');
-        if (input) { input.value = rows[i] && rows[i][fields[f]] !== undefined && rows[i][fields[f]] !== null ? String(rows[i][fields[f]]) : ''; }
+        if (input) { setListFieldValue(input, rows[i] && rows[i][fields[f]] !== undefined && rows[i][fields[f]] !== null ? String(rows[i][fields[f]]) : ''); }
       }
       box.appendChild(row);
     }
+    var spans = box.querySelectorAll('[data-media-field]');
+    for (f = 0; f < spans.length; f++) { syncMediaField(spans[f]); }
   }
   function collectList(key) {
     var box = listContainer(key);
@@ -2423,6 +2705,184 @@ const QUOTE_EDITOR_SCRIPT = `
     if (box && box.getAttribute) { writeConfigValue(box.getAttribute('data-frame-list'), collectList(box.getAttribute('data-frame-list'))); }
   });
 
+  // --- 4.4 media pickers (DEV-60 a) — the shared Media-library chooser -------
+  // List + upload ride the EXISTING admin media API (GET /api/admin/media,
+  // POST /api/admin/media/upload); the picked storage_key lands in the hidden
+  // carrier input and flows through the SAME writeConfigValue path a typed
+  // value took before.
+  function mediaSrc(v) {
+    var s = String(v || '');
+    if (s === '') { return ''; }
+    if (s.charAt(0) === '/' || s.indexOf('http://') === 0 || s.indexOf('https://') === 0 || s.indexOf('data:') === 0) { return s; }
+    return '/media/' + s;
+  }
+  function syncMediaField(span) {
+    var input = span.querySelector('input');
+    var thumb = span.querySelector('[data-media-thumb]');
+    var clearBtn = span.querySelector('[data-media-clear]');
+    var v = input ? (input.value || '') : '';
+    if (thumb) {
+      if (v !== '') { thumb.setAttribute('src', mediaSrc(v)); thumb.className = 'lg-media-thumb'; }
+      else { thumb.removeAttribute('src'); thumb.className = 'lg-media-thumb lg-hidden'; }
+    }
+    if (clearBtn) { clearBtn.className = v !== '' ? 'btn btn-sm btn-outline' : 'btn btn-sm btn-outline lg-hidden'; }
+  }
+  function syncAllMediaFields() {
+    var spans = root.querySelectorAll('[data-media-field]');
+    var i;
+    for (i = 0; i < spans.length; i++) { syncMediaField(spans[i]); }
+  }
+  function writeMediaFieldValue(span, value) {
+    var input = span.querySelector('input');
+    if (!input) { return; }
+    input.value = value;
+    var frameKey = input.getAttribute('data-frame-key');
+    if (frameKey !== null) {
+      writeConfigValue(frameKey, value === '' ? null : value);
+    } else {
+      var box = input;
+      while (box && box.getAttribute && box.getAttribute('data-frame-list') === null) { box = box.parentNode; }
+      if (box && box.getAttribute) {
+        var listKey = box.getAttribute('data-frame-list');
+        writeConfigValue(listKey, collectList(listKey));
+      }
+    }
+    syncMediaField(span);
+  }
+  var mediaPickerTarget = null;
+  function mediaPickerStatus(text) {
+    var el = byId('lg-media-picker-status');
+    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
+  }
+  function closeMediaPicker() {
+    var overlay = byId('lg-media-picker');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay lg-hidden'; }
+    mediaPickerTarget = null;
+  }
+  function renderMediaGrid(items) {
+    var grid = byId('lg-media-picker-grid');
+    if (!grid) { return; }
+    clearChildren(grid);
+    if (!items || items.length === 0) {
+      var p = document.createElement('p');
+      p.className = 'form-help';
+      p.appendChild(document.createTextNode('No images in the Media library yet \\u2014 upload one above.'));
+      grid.appendChild(p);
+      return;
+    }
+    var i;
+    for (i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it || !it.storage_key) { continue; }
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lg-media-item';
+      btn.setAttribute('data-media-pick', it.storage_key);
+      btn.title = it.filename || it.storage_key;
+      var img = document.createElement('img');
+      img.setAttribute('src', mediaSrc(it.storage_key));
+      img.setAttribute('alt', it.alt_text || it.filename || '');
+      btn.appendChild(img);
+      var name = document.createElement('span');
+      name.appendChild(document.createTextNode(it.filename || it.storage_key));
+      btn.appendChild(name);
+      grid.appendChild(btn);
+    }
+  }
+  function loadMediaList() {
+    mediaPickerStatus('Loading\\u2026');
+    fetch('/api/admin/media', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { mediaPickerStatus('Could not load the Media library.'); return; }
+        mediaPickerStatus('');
+        renderMediaGrid((res.body && res.body.media) || []);
+      })
+      .catch(function () { mediaPickerStatus('Could not load the Media library.'); });
+  }
+  function openMediaPicker(fieldSpan) {
+    mediaPickerTarget = fieldSpan;
+    var overlay = byId('lg-media-picker');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay'; }
+    loadMediaList();
+  }
+  function applyMediaPick(storageKey) {
+    if (mediaPickerTarget) { writeMediaFieldValue(mediaPickerTarget, storageKey); }
+    closeMediaPicker();
+  }
+  function uploadMediaFile() {
+    var fileInput = byId('lg-media-upload-file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) { mediaPickerStatus('Choose an image file first.'); return; }
+    var fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    mediaPickerStatus('Uploading\\u2026');
+    fetch('/api/admin/media/upload', { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body || !res.body.item || !res.body.item.storage_key) {
+          mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Upload failed.');
+          return;
+        }
+        mediaPickerStatus('');
+        fileInput.value = '';
+        applyMediaPick(res.body.item.storage_key);
+      })
+      .catch(function () { mediaPickerStatus('Upload failed: network error.'); });
+  }
+  // FIX 8c (§8.4): "Generate with AI" — the EXISTING admin generation
+  // endpoint (POST /api/admin/ai/image writes R2 + the media row); the
+  // resulting storage_key flows through the SAME applyMediaPick path an
+  // upload takes. Server-hidden when the route is unavailable.
+  function generateMediaWithAi() {
+    var promptEl = byId('lg-media-ai-prompt');
+    var prompt = promptEl && promptEl.value ? String(promptEl.value).replace(/^\\s+|\\s+$/g, '') : '';
+    if (prompt === '') { mediaPickerStatus('Describe the image to generate first.'); return; }
+    mediaPickerStatus('Generating\\u2026');
+    fetch('/api/admin/ai/image', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ prompt: prompt })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.storage_key) {
+        mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Image generation failed.');
+        return;
+      }
+      mediaPickerStatus('');
+      if (promptEl) { promptEl.value = ''; }
+      applyMediaPick(res.body.storage_key);
+    }).catch(function () { mediaPickerStatus('Image generation failed: network error.'); });
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    if (el.hasAttribute && el.hasAttribute('data-media-choose')) {
+      var span = el;
+      while (span && span.getAttribute && span.getAttribute('data-media-field') === null) { span = span.parentNode; }
+      if (span && span.getAttribute) { openMediaPicker(span); }
+      return;
+    }
+    if (el.hasAttribute && el.hasAttribute('data-media-clear')) {
+      var clearSpan = el;
+      while (clearSpan && clearSpan.getAttribute && clearSpan.getAttribute('data-media-field') === null) { clearSpan = clearSpan.parentNode; }
+      if (clearSpan && clearSpan.getAttribute) { writeMediaFieldValue(clearSpan, ''); }
+      return;
+    }
+    var pickNode = el;
+    while (pickNode && pickNode.getAttribute && pickNode.getAttribute('data-media-pick') === null) { pickNode = pickNode.parentNode; }
+    if (pickNode && pickNode.getAttribute) { applyMediaPick(pickNode.getAttribute('data-media-pick')); }
+  });
+  (function () {
+    var closeBtn = byId('lg-media-picker-close');
+    if (closeBtn) { closeBtn.addEventListener('click', closeMediaPicker); }
+    var uploadBtn = byId('lg-media-upload-btn');
+    if (uploadBtn) { uploadBtn.addEventListener('click', uploadMediaFile); }
+    var aiBtn = byId('lg-media-ai-generate');
+    if (aiBtn) { aiBtn.addEventListener('click', generateMediaWithAi); }
+  }());
+
   // --- role swatches (frame keys + theme palette + theme role picks) ---------
   function resolveRoleValue(role) {
     var pal = workingTheme.palette || {};
@@ -2451,7 +2911,7 @@ const QUOTE_EDITOR_SCRIPT = `
         src.appendChild(document.createTextNode(owned ? 'This funnel' : 'Base design'));
       }
     }
-    paintMiniPreview();
+    paintHarmonyChips();
   }
   function markStripSelection() {
     var strips = root.querySelectorAll('[data-role-strip]');
@@ -2488,6 +2948,27 @@ const QUOTE_EDITOR_SCRIPT = `
     paintSwatches();
     markStripSelection();
     schedulePreview();
+    scheduleMiniPreview();
+  }
+  // ONE palette write path (role picks, harmony steps, Advanced custom
+  // colors): §4.5-aware — rides frame_overrides_json.theme when the theme
+  // override switch is ON for this arm, the funnel theme otherwise.
+  function applyPaletteValue(role, value) {
+    if (!isControl && overrideMode['theme'] === 'override') {
+      if (!isRecordVal(workingOverrides.theme)) { workingOverrides.theme = {}; }
+      if (!isRecordVal(workingOverrides.theme.palette)) { workingOverrides.theme.palette = {}; }
+      workingOverrides.theme.palette[role] = value;
+      overridesDirty = true;
+      markDirty();
+      paintSwatches();
+      markStripSelection();
+      updateOverrideBadge();
+      schedulePreview();
+      scheduleMiniPreview();
+    } else {
+      if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
+      writeThemeValue('palette.' + role, value);
+    }
   }
   root.addEventListener('click', function (ev) {
     var el = ev.target;
@@ -2496,23 +2977,7 @@ const QUOTE_EDITOR_SCRIPT = `
     if (pick === null) { return; }
     var pickFor = el.getAttribute('data-role-pick-for') || '';
     if (pickFor.indexOf('palette.') === 0) {
-      var role = pickFor.slice(8);
-      // §4.5: palette overrides ride frame_overrides_json.theme when the
-      // theme override switch is ON for this arm.
-      if (!isControl && overrideMode['theme'] === 'override') {
-        if (!isRecordVal(workingOverrides.theme)) { workingOverrides.theme = {}; }
-        if (!isRecordVal(workingOverrides.theme.palette)) { workingOverrides.theme.palette = {}; }
-        workingOverrides.theme.palette[role] = pick;
-        overridesDirty = true;
-        markDirty();
-        paintSwatches();
-        markStripSelection();
-        updateOverrideBadge();
-        schedulePreview();
-      } else {
-        if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
-        writeThemeValue('palette.' + role, pick);
-      }
+      applyPaletteValue(pickFor.slice(8), pick);
       return;
     }
     if (pickFor.indexOf('theme:') === 0) { writeThemeValue(pickFor.slice(6), pick); return; }
@@ -2527,7 +2992,7 @@ const QUOTE_EDITOR_SCRIPT = `
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
+      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview(); scheduleMiniPreview();
       return;
     }
     writeThemeValue('palette.' + resetRole, null);
@@ -2539,45 +3004,96 @@ const QUOTE_EDITOR_SCRIPT = `
     if (key === null) { return; }
     writeThemeValue(key, el.value === '' ? null : el.value);
   });
+  // The 09 §9.3 Advanced custom-color path — the ONLY hex entry point. The
+  // harmony DERIVED steps below route through this same function (populated
+  // Advanced controls + this apply), so a custom value never silently skips
+  // the warning semantics; the server re-warns on save (validateTheme).
+  function applyAdvancedHex() {
+    var roleSel = byId('lg-theme-hex-role');
+    var valueEl = byId('lg-theme-hex-value');
+    if (!roleSel || !valueEl) { return; }
+    var v = (valueEl.value || '').trim();
+    if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+      showMsg('lg-quote-error', 'Custom colors must be a color value like #1a2b3c.');
+      return;
+    }
+    hideMsg('lg-quote-error');
+    applyPaletteValue(roleSel.value, v);
+  }
   (function () {
     var apply = byId('lg-theme-hex-apply');
     if (!apply) { return; }
-    apply.addEventListener('click', function () {
-      var roleSel = byId('lg-theme-hex-role');
-      var valueEl = byId('lg-theme-hex-value');
-      if (!roleSel || !valueEl) { return; }
-      var v = (valueEl.value || '').trim();
-      if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) {
-        showMsg('lg-quote-error', 'Custom colors must be a color value like #1a2b3c.');
-        return;
-      }
-      hideMsg('lg-quote-error');
-      writeThemeValue('palette.' + roleSel.value, v);
-    });
+    apply.addEventListener('click', applyAdvancedHex);
   }());
-  function paintMiniPreview() {
-    var bd = workingTheme.button_defaults || {};
-    var cd = workingTheme.card_defaults || {};
-    var btn = root.querySelector('[data-mini-button]');
-    if (btn) {
-      btn.style.background = resolveRoleValue(bd.background_role || 'button_primary_bg');
-      btn.style.color = resolveRoleValue(bd.text_role || 'button_primary_text');
-      btn.style.textTransform = bd.casing === 'upper' ? 'uppercase' : 'none';
-    }
-    var card = root.querySelector('[data-mini-card]');
-    if (card) {
-      card.style.background = resolveRoleValue(cd.background_role || 'card_background');
-      card.style.borderColor = resolveRoleValue(cd.border_role || 'border');
-      card.style.color = resolveRoleValue('text_primary');
-    }
-    var input = root.querySelector('[data-mini-input]');
-    if (input) {
-      input.style.borderColor = resolveRoleValue('border');
-      input.style.color = resolveRoleValue('text_muted');
-    }
-    var prog = root.querySelector('[data-mini-progress]');
-    if (prog) { prog.style.background = resolveRoleValue('brand_primary'); }
+
+  // --- 09 §9.3 curated harmonies (DEV-60 d): base / wash / darker / lighter --
+  // Derived in the island from the BASE design's role value (base_tokens from
+  // the SSR blob) with simple channel-mix math; buttons carry LABELS, chips
+  // are painted client-side (no hex text on the normal surface).
+  var baseTokens = lgData.base_tokens || {};
+  function hexToRgb(hex) {
+    var h = String(hex || '').replace(/^#/, '');
+    if (h.length === 3) { h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2); }
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) { return null; }
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
+  function channelHex(n) {
+    var v = Math.max(0, Math.min(255, Math.round(n)));
+    var s = v.toString(16);
+    return s.length === 1 ? '0' + s : s;
+  }
+  function mixHex(hex, target, ratio) {
+    var rgb = hexToRgb(hex);
+    if (rgb === null) { return null; }
+    return '#' + channelHex(rgb[0] * (1 - ratio) + target[0] * ratio) +
+      channelHex(rgb[1] * (1 - ratio) + target[1] * ratio) +
+      channelHex(rgb[2] * (1 - ratio) + target[2] * ratio);
+  }
+  function harmonyValue(role, step) {
+    var base = baseTokens[role] || tokens[role] || '';
+    if (step === 'base') { return base; }
+    if (step === 'wash') { return mixHex(base, [255, 255, 255], 0.85); }
+    if (step === 'darker') { return mixHex(base, [0, 0, 0], 0.25); }
+    if (step === 'lighter') { return mixHex(base, [255, 255, 255], 0.3); }
+    return null;
+  }
+  function paintHarmonyChips() {
+    var steps = root.querySelectorAll('[data-harmony-step]');
+    var i;
+    for (i = 0; i < steps.length; i++) {
+      var chip = steps[i].querySelector('[data-harmony-chip]');
+      var hv = harmonyValue(steps[i].getAttribute('data-harmony-role'), steps[i].getAttribute('data-harmony-step'));
+      if (chip && hv) { chip.style.background = hv; }
+    }
+  }
+  root.addEventListener('click', function (ev) {
+    var node = ev.target;
+    while (node && node.getAttribute && node.getAttribute('data-harmony-step') === null) { node = node.parentNode; }
+    if (!node || !node.getAttribute) { return; }
+    var role = node.getAttribute('data-harmony-role');
+    var step = node.getAttribute('data-harmony-step');
+    if (step === 'base') {
+      // the ROLE-VALUE alias — the server resolves it to the base design's
+      // value (09 §9.2 alias rule), so the theme stays hex-free.
+      applyPaletteValue(role, role);
+      return;
+    }
+    var derived = harmonyValue(role, step);
+    if (derived === null) {
+      showMsg('lg-quote-error', 'This step cannot be derived \\u2014 the base value is not a simple color.');
+      return;
+    }
+    // §9.3: a derived step is a CUSTOM color — surface + route it through the
+    // Advanced token administration path (open panel, filled controls, same
+    // apply), never a silent bypass of its warning semantics.
+    var roleSel = byId('lg-theme-hex-role');
+    var valueEl = byId('lg-theme-hex-value');
+    var adv = byId('lg-theme-advanced');
+    if (roleSel) { roleSel.value = role; }
+    if (valueEl) { valueEl.value = derived; }
+    if (adv) { adv.open = true; }
+    applyAdvancedHex();
+  });
 
   // --- populate every inspector control from the effective config ------------
   function populateAllControls() {
@@ -2601,6 +3117,7 @@ const QUOTE_EDITOR_SCRIPT = `
       var tval = getPath(workingTheme, themeControls[i].getAttribute('data-theme-key'));
       themeControls[i].value = tval === null || tval === undefined ? '' : String(tval);
     }
+    syncAllMediaFields();
     paintSwatches();
     markStripSelection();
   }
@@ -2672,6 +3189,8 @@ const QUOTE_EDITOR_SCRIPT = `
     }
     return body;
   }
+  // ONE preview endpoint for the canvas AND the theme mini preview (13 §13.4).
+  function previewUrl() { return '/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview'; }
   // Monotonic render-request sequence: two overlapping preview POSTs can
   // resolve out of order, and a stale (older) response must never overwrite
   // the newer render. Every renderPreview call takes the next seq; a response
@@ -2680,7 +3199,7 @@ const QUOTE_EDITOR_SCRIPT = `
   function renderPreview(draftF) {
     previewSeq += 1;
     var seq = previewSeq;
-    fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview', {
+    fetch(previewUrl(), {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(previewBody(draftF))
@@ -2711,6 +3230,50 @@ const QUOTE_EDITOR_SCRIPT = `
   function schedulePreview() {
     if (previewTimer) { window.clearTimeout(previewTimer); }
     previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 300);
+  }
+
+  // --- 09 §9.3 mini preview (DEV-60 d): the REAL preview machinery ------------
+  // A tiny debounced draft_theme POST to the SAME endpoint in the cheap
+  // frame-only mode (button/card/progress chrome rendered by the REAL
+  // presets), replacing the old hand-rolled spans. Fetches only while the
+  // theme editor is OPEN.
+  var miniTimer = null;
+  var miniSeq = 0;
+  var themeMiniOpen = false;
+  function miniStatus(text) {
+    var el = byId('lg-theme-minipreview-status');
+    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
+  }
+  function renderMiniPreview() {
+    var mount = byId('lg-theme-minipreview');
+    var frame = byId('lg-theme-minipreview-frame');
+    if (!mount || !frame) { return; }
+    miniSeq += 1;
+    var seq = miniSeq;
+    fetch(previewUrl(), {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        mode: mount.getAttribute('data-mini-preview-mode') || 'frame',
+        viewport: 'desktop',
+        draft_frame_config: draftFrameConfig(),
+        draft_theme: draftTheme()
+      })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      if (seq !== miniSeq) { return; }
+      if (!res.ok) { miniStatus('Theme preview failed.'); return; }
+      miniStatus('');
+      var p = res.body.preview || {};
+      frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
+    }).catch(function () {
+      if (seq !== miniSeq) { return; }
+      miniStatus('Theme preview failed: network error');
+    });
+  }
+  function scheduleMiniPreview() {
+    if (!themeMiniOpen) { return; }
+    if (miniTimer) { window.clearTimeout(miniTimer); }
+    miniTimer = window.setTimeout(function () { miniTimer = null; renderMiniPreview(); }, 300);
   }
 
   // --- region click-select (same-origin contentDocument delegation) ----------
@@ -2867,9 +3430,15 @@ const QUOTE_EDITOR_SCRIPT = `
   }
   (function () {
     var btn = byId('lg-template-btn');
-    if (btn) { btn.addEventListener('click', function () { togglePanel('lg-template-picker', 'lg-theme-editor'); }); }
+    if (btn) { btn.addEventListener('click', function () { togglePanel('lg-template-picker', 'lg-theme-editor'); themeMiniOpen = false; }); }
     var themeBtn = byId('lg-theme-btn');
-    if (themeBtn) { themeBtn.addEventListener('click', function () { togglePanel('lg-theme-editor', 'lg-template-picker'); }); }
+    if (themeBtn) {
+      themeBtn.addEventListener('click', function () {
+        var open = togglePanel('lg-theme-editor', 'lg-template-picker');
+        themeMiniOpen = open;
+        if (open) { scheduleMiniPreview(); }
+      });
+    }
   }());
   function showTemplateConfirm(confirmations) {
     var box = byId('lg-template-confirm');
@@ -3173,7 +3742,10 @@ const QUOTE_EDITOR_SCRIPT = `
   // other persisted control (activation rows, frame/theme controls — whose
   // own handlers set their scoped flags) keeps the blanket flag.
   var VARIANT_FIELD_IDS = { 'lg-lander-enabled': 1, 'lg-lander-headline': 1, 'lg-lander-sub': 1, 'lg-lander-hero': 1, 'lg-funnel-design': 1, 'lg-auction-id': 1 };
-  var NON_PERSISTED_IDS = { 'lg-variant-select': 1, 'lg-canvas-variant-select': 1, 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1 };
+  // …plus the DEV-60 widgets with their OWN save paths: the quote-rename
+  // input PATCHes immediately via its Save-name button; the media-upload file
+  // input persists through the upload POST.
+  var NON_PERSISTED_IDS = { 'lg-variant-select': 1, 'lg-canvas-variant-select': 1, 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1 };
   function markDirtyFor(el) {
     if (!el || !el.getAttribute) { return; }
     var id = el.id || '';

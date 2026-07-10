@@ -1,0 +1,969 @@
+// LeadGen v2.5 Phase C — `POST /sections/preview` frame_context extension
+// (redesign-contract-v2.5 13 §13.4 sections/preview row + 05 §5.3 mode 5) and
+// the DEV-57 sectionCtx thread through renderSectionComponentsVisible.
+//
+//   §13.4: `{frame_context?: {funnel_public_id, variant_public_id?, site_id?}}`
+//   — when present the CURRENT unit renders INSIDE that funnel's effective
+//   frame via the SAME renderQuoteFrame composition the runtime shell and the
+//   variant preview use; absent → today's unit-only path BYTE-IDENTICAL
+//   (proven below against a PRE-CHANGE fixture capture); existing design_id /
+//   viewport / sim params stay honored in-frame; unknown funnel → 404; a
+//   NULL-frame funnel composes via the byte-pinned legacy shell (the same
+//   §13.1 fail-safe fork the variant preview takes).
+//
+// BYTE-PIN PROTOCOL (legacy unit-only capture): the two fixtures under
+// test/fixtures/leadgen-section-preview-frame/ were minted from the
+// PRE-CHANGE handler (before the frame_context branch and the sectionCtx
+// thread landed). Every response field must stay byte-identical, with ONE
+// documented exception: `preview.css` moved the `.lg-card-subtitle` /
+// `.lg-card{position:relative}` / `.lg-card-badge` rules from the
+// frameRegions-gated block into the base sheet (DEV-57 Phase-C item; the
+// coordinated legacy-pin re-pin covers the shell/variant surfaces) — so the
+// css assertion is: live css MINUS exactly those three rules == captured css,
+// plus producer equality with funnelChromeCss. Re-mint deliberately with
+//   LEADGEN_PIN_UPDATE=1 npx vitest run test/leadgen-section-preview-frame.test.ts
+// (an update run fails on purpose; rerun without the flag to verify).
+
+import { describe, expect, it } from "vitest";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import app from "../src/index";
+import admin from "../src/admin/router";
+import type { Env } from "../src/env";
+import { mintPublicId } from "../src/leadgen/ids";
+import {
+  renderVariantSectionsHtml,
+  resolveFrameComposition,
+} from "../src/public/leadgen/serve";
+import {
+  CMS_FALLBACK_LOGO_TEXT,
+  LG_BANNERS_MOUNT_HTML,
+  renderLegacyShell,
+} from "../src/public/leadgen/designs/frame";
+import { getFunnelDesign } from "../src/public/leadgen/designs/registry";
+import {
+  DEFAULT_FUNNEL_SCOPE,
+  FUNNEL_DESIGN_SCOPE_ATTR,
+  funnelChromeCss,
+} from "../src/public/leadgen/designs/default-funnel/styles";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import {
+  renderSectionComponents,
+  renderSectionComponentsVisible,
+} from "../src/public/leadgen/components/presets";
+import type { LeadgenSectionRenderCtx } from "../src/public/leadgen/components/presets";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
+import type { ResolvedFunnelSection } from "../src/public/leadgen/resolver";
+import type {
+  LeadgenFunnelRow,
+  LeadgenFunnelVariantRow,
+  LeadgenQuoteRow,
+  LeadgenSectionRow,
+} from "../src/admin/leadgen/db-types";
+
+// --- node:sqlite harness (repo pattern) --------------------------------------
+
+type SqliteStatement = {
+  run(...params: unknown[]): unknown;
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+};
+type SqliteDb = {
+  prepare(sql: string): SqliteStatement;
+  close(): void;
+  [method: string]: unknown;
+};
+type DatabaseSyncCtor = new (path: string) => SqliteDb;
+
+function loadDatabaseSync(): DatabaseSyncCtor | null {
+  try {
+    const { createRequire } = require("node:module") as typeof import("node:module");
+    const nodeRequire = createRequire(import.meta.url);
+    const mod = nodeRequire("node:sqlite") as { DatabaseSync: DatabaseSyncCtor };
+    return mod.DatabaseSync;
+  } catch {
+    try {
+      const getBuiltin = (process as unknown as {
+        getBuiltinModule?: (name: string) => unknown;
+      }).getBuiltinModule;
+      if (typeof getBuiltin === "function") {
+        const mod = getBuiltin("node:sqlite") as { DatabaseSync: DatabaseSyncCtor };
+        return mod.DatabaseSync;
+      }
+    } catch {
+      /* fall through */
+    }
+    return null;
+  }
+}
+
+function runSql(sdb: SqliteDb, sql: string): void {
+  (sdb["exec"] as (s: string) => void)(sql);
+}
+
+function d1FromSqlite(sdb: SqliteDb): D1Database {
+  const db = {
+    prepare(sql: string) {
+      let binds: unknown[] = [];
+      const stmt = {
+        bind(...a: unknown[]) {
+          binds = a;
+          return stmt;
+        },
+        async first<T = unknown>(): Promise<T | null> {
+          const r = sdb.prepare(sql).get(...binds);
+          return (r ?? null) as T | null;
+        },
+        async all<T = unknown>() {
+          const rows = sdb.prepare(sql).all(...binds);
+          return { results: rows as T[], success: true, meta: {} };
+        },
+        async run() {
+          const r = sdb.prepare(sql).run(...binds) as {
+            changes?: number;
+            lastInsertRowid?: number | bigint;
+          };
+          return {
+            success: true,
+            meta: { changes: Number(r?.changes ?? 0), last_row_id: Number(r?.lastInsertRowid ?? 0) },
+          };
+        },
+      };
+      return stmt;
+    },
+    async batch(statements: Array<{ run(): Promise<unknown> }>) {
+      runSql(sdb, "BEGIN");
+      const results: unknown[] = [];
+      try {
+        for (const statement of statements) {
+          results.push(await statement.run());
+        }
+        runSql(sdb, "COMMIT");
+      } catch (err) {
+        runSql(sdb, "ROLLBACK");
+        throw err;
+      }
+      return results;
+    },
+  } as unknown as D1Database;
+  return db;
+}
+
+function makeKvStub(): KVNamespace {
+  const store = new Map<string, { value: string; metadata: unknown }>();
+  return {
+    async get(key: string): Promise<string | null> {
+      return store.has(key) ? store.get(key)!.value : null;
+    },
+    async getWithMetadata(key: string): Promise<{ value: string | null; metadata: unknown }> {
+      const e = store.get(key);
+      return e ? { value: e.value, metadata: e.metadata ?? null } : { value: null, metadata: null };
+    },
+    async put(key: string, value: string, opts?: { metadata?: unknown }): Promise<void> {
+      store.set(key, { value, metadata: opts?.metadata ?? null });
+    },
+    async delete(key: string): Promise<void> {
+      store.delete(key);
+    },
+    async list(): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor: string }> {
+      return { keys: [...store.keys()].map((name) => ({ name })), list_complete: true, cursor: "" };
+    },
+  } as unknown as KVNamespace;
+}
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+
+const LEADGEN_MIGRATIONS = [
+  "0036_leadgen_core.sql",
+  "0037_leadgen_analytics_mirror.sql",
+  "0038_leadgen_revenue_infra.sql",
+  "0039_leadgen_conversion_dedupe.sql",
+  "0040_leadgen_runtime_context.sql",
+  "0041_leadgen_frame_theme.sql",
+] as const;
+
+const TENANT_ORIGIN = "http://one.example.com";
+const API = "/api/admin/leadgen";
+
+function createRuntimeDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
+  const sdb = new DatabaseSync(":memory:");
+  runSql(
+    sdb,
+    "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1);" +
+      "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
+      "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
+      "INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','one.example.com','insurance','active');" +
+      "INSERT INTO domains (site_id, hostname, status) VALUES ('site-1','one.example.com','active');",
+  );
+  for (const file of LEADGEN_MIGRATIONS) {
+    runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
+  }
+  return sdb;
+}
+
+function buildEnv(db: D1Database, kv: KVNamespace): Env {
+  return {
+    DB: db,
+    CACHE: kv,
+    MEDIA: {} as R2Bucket,
+    APP_ENV: "test",
+    ADMIN_HOST: "cms.kodigital.app",
+    ADMIN_BASE_URL: "https://cms.kodigital.app",
+    ADMIN_BASE_PATH: "/admin",
+    CACHE_API_ENABLED: "false",
+    HTML_CACHE_TTL_SECONDS: "300",
+    OPENAI_TEXT_MODEL: "gpt-test",
+    OPENAI_IMAGE_MODEL: "img-test",
+    SITE_PROVISIONING_DRY_RUN: "true",
+    SITE_PROVISIONING_ALLOW_ROUTE_MUTATION: "false",
+    DEV_BYPASS_AUTH: "true",
+    LEADGEN_CONFIG_SIGNING_KEY: "runtime-signing-key-test-only",
+  } as unknown as Env;
+}
+
+const DatabaseSync = loadDatabaseSync();
+const describeDb = DatabaseSync === null ? describe.skip : describe;
+
+function jsonInit(method: string, body: unknown): RequestInit {
+  return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+function newEnv(): { sdb: SqliteDb; env: Env; d1: D1Database } {
+  const sdb = createRuntimeDb(DatabaseSync as DatabaseSyncCtor);
+  const d1 = d1FromSqlite(sdb);
+  return { sdb, env: buildEnv(d1, makeKvStub()), d1 };
+}
+
+// --- fixtures -----------------------------------------------------------------
+
+// The parity-v25 composition fixture: header-footer template + funnel theme +
+// VARIANT overrides — every §13.2/§9.2 layer participates, so the in-frame
+// section preview is proven over the full merge (not a trivial frame).
+const FRAME_CONFIG = {
+  version: 1,
+  template: "header-footer",
+  progress: { style: "bar", show_label: true },
+  disclosure: { enabled: true, location: "footer", text: "Ad disclosure copy." },
+} as const;
+
+const THEME_JSON = {
+  version: 1,
+  palette: { brand_primary: "#0B5FFF", accent: "#AA3300" },
+  scales: { radius: "round" },
+  button_defaults: { background_role: "accent" },
+} as const;
+
+const FRAME_OVERRIDES = {
+  progress: { style: "numbered", position: "above_unit" },
+  theme: { palette: { accent: "#116611" } },
+} as const;
+
+function seedSection(sdb: SqliteDb, headline: string, qid: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({
+    components: [
+      { type: "QuestionHeadline", question_id: `${qid}_h`, bind: "section_headline", props: {} },
+      {
+        type: "TwoButtonYesNo",
+        question_id: qid,
+        question_key: `${qid}_key`,
+        internal_field: `${qid}_field`,
+        answer_type: "boolean",
+      },
+      { type: "ContinueButton", question_id: `${qid}_c`, props: { label: "Continue" } },
+    ],
+  });
+  sdb
+    .prepare(
+      "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, address_validation_enabled, status) VALUES (?, ?, 'quote_funnel', 'life', ?, ?, 'button', 0, 'active')",
+    )
+    .run(publicId, `Section ${qid}`, headline, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as {
+    id: number;
+  };
+  return { id: row.id, public_id: publicId };
+}
+
+interface Fixture {
+  sdb: SqliteDb;
+  env: Env;
+  d1: D1Database;
+  quote: LeadgenQuoteRow;
+  funnel: LeadgenFunnelRow;
+  variant: LeadgenFunnelVariantRow;
+  sections: LeadgenSectionRow[]; // ordered
+}
+
+// Seed one activated framed funnel (2 sections, frame+theme+variant overrides,
+// site-1). `withFrame:false` leaves the 0041 columns NULL (the legacy-shell leg).
+async function seedFixture(opts?: { withFrame?: boolean }): Promise<Fixture> {
+  const { sdb, env, d1 } = newEnv();
+
+  const createRes = await admin.request(
+    `${API}/quotes`,
+    jsonInit("POST", { quote_name: "Frame Quote", activity: "quote_funnel", verticals: ["life"] }),
+    env,
+  );
+  expect(createRes.status, `create quote: ${await createRes.clone().text()}`).toBe(201);
+  const created = (await createRes.json()) as {
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  };
+  const funnelPublicId = created.funnels[0]!.public_id;
+  const variantPublicId = created.funnels[0]!.variants[0]!.public_id;
+
+  const s1 = seedSection(sdb, "Are you insured?", "q1");
+  const s2 = seedSection(sdb, "What is your ZIP?", "q2");
+  const putRes = await admin.request(
+    `${API}/variants/${variantPublicId}`,
+    jsonInit("PUT", { sections: [{ section_id: s1.id }, { section_id: s2.id }] }),
+    env,
+  );
+  expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
+
+  if (opts?.withFrame !== false) {
+    sdb
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ?, theme_json = ? WHERE public_id = ?")
+      .run(JSON.stringify(FRAME_CONFIG), JSON.stringify(THEME_JSON), funnelPublicId);
+    sdb
+      .prepare("UPDATE leadgen_funnel_variants SET frame_overrides_json = ? WHERE public_id = ?")
+      .run(JSON.stringify(FRAME_OVERRIDES), variantPublicId);
+  }
+
+  const actRes = await admin.request(
+    `${API}/quotes/${created.public_id}/activation/site-1`,
+    jsonInit("PUT", { enabled: true, slug: "frame" }),
+    env,
+  );
+  expect(actRes.status, `activate: ${await actRes.clone().text()}`).toBe(200);
+
+  const quote = sdb
+    .prepare("SELECT * FROM leadgen_quotes WHERE public_id = ?")
+    .get(created.public_id) as unknown as LeadgenQuoteRow;
+  const funnel = sdb
+    .prepare("SELECT * FROM leadgen_funnels WHERE public_id = ?")
+    .get(funnelPublicId) as unknown as LeadgenFunnelRow;
+  const variant = sdb
+    .prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ?")
+    .get(variantPublicId) as unknown as LeadgenFunnelVariantRow;
+  const sections = (
+    sdb
+      .prepare(
+        `SELECT s.* FROM leadgen_funnel_variant_sections fvs
+         JOIN leadgen_sections s ON s.id = fvs.section_id
+         WHERE fvs.variant_id = ? ORDER BY fvs.position ASC`,
+      )
+      .all(variant.id) as unknown[]
+  ) as LeadgenSectionRow[];
+  return { sdb, env, d1, quote, funnel, variant, sections };
+}
+
+// The §13.4 preview body for one seeded Section row: the row's own canonical
+// fields (exactly what the Studio sends for the CURRENT unit) + frame_context.
+function previewBodyFor(
+  section: LeadgenSectionRow,
+  frameContext?: Record<string, unknown>,
+  extra?: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    content_json: section.content_json,
+    headline: section.headline_text,
+    subheadline: section.subheadline_text,
+    continue_mode: section.continue_mode,
+    design_overrides: section.design_overrides_json,
+    section_public_id: section.public_id,
+    ...(frameContext !== undefined ? { frame_context: frameContext } : {}),
+    ...(extra ?? {}),
+  };
+}
+
+interface PreviewResponse {
+  preview: {
+    css: string;
+    desktop: string;
+    mobile: string;
+    component_count: number;
+    design_id: string;
+    sim_state: string;
+    html?: string;
+  };
+  dependencies?: Record<string, unknown>;
+}
+
+// Served-document extraction boundaries (the parity-v25 idiom).
+function extractStyle(html: string): string {
+  const start = html.indexOf("<style>") + "<style>".length;
+  const end = html.indexOf("</style>", start);
+  expect(start).toBeGreaterThan("<style>".length - 1);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end);
+}
+
+function extractRootBody(html: string): string {
+  const start = html.indexOf('<div id="lg-funnel-root"');
+  const end = html.indexOf('<script type="application/json" id="lg-config">');
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end);
+}
+
+// First `<section data-lg-section …>…</section>` block of a sections list.
+function firstSectionBlock(sectionsHtml: string): string {
+  const end = sectionsHtml.indexOf("</section>");
+  expect(end).toBeGreaterThan(-1);
+  return sectionsHtml.slice(0, end + "</section>".length);
+}
+
+// ===========================================================================
+// 1. LEGACY BYTE-PIN — absent frame_context ≡ the pre-change capture
+// ===========================================================================
+
+const FIXTURE_DIR = join(TEST_DIR, "fixtures", "leadgen-section-preview-frame");
+const FIXTURE_PLAIN = join(FIXTURE_DIR, "unit-only-plain.json");
+const FIXTURE_DEP_SIM = join(FIXTURE_DIR, "unit-only-dependency-sim.json");
+const UPDATE_MODE = process.env["LEADGEN_PIN_UPDATE"] === "1";
+
+function readOrMintFixture(path: string, actual: string, label: string): string {
+  if (UPDATE_MODE || !existsSync(path)) {
+    mkdirSync(FIXTURE_DIR, { recursive: true });
+    writeFileSync(path, actual);
+    throw new Error(
+      `LEADGEN_PIN_UPDATE: minted ${label} fixture (${actual.length} chars) at ${path}. ` +
+        "Rerun without LEADGEN_PIN_UPDATE=1 to verify against the pin.",
+    );
+  }
+  return readFileSync(path, "utf8");
+}
+
+// The DEV-57 base-sheet move, byte-exact: the ONLY css delta legal against the
+// pre-change capture (kept in lockstep with styles.ts — a drift fails here).
+const MOVED_CARD_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card-subtitle{display:block;margin-top:${defaultFunnelDesign.spacing.xs};line-height:1.3}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card{position:relative}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-card-badge{position:absolute;top:${defaultFunnelDesign.spacing.xs};right:${defaultFunnelDesign.spacing.xs};line-height:1.2;white-space:nowrap}\n`;
+
+// Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
+// v2.4 body carrying NONE of the additive params.
+const LEGACY_PLAIN_CONTENT = {
+  components: [
+    { type: "QuestionHeadline", question_id: "h1", props: { text: "How much coverage?" } },
+    {
+      type: "IconCardAnswerGrid",
+      question_id: "g1",
+      question_key: "coverage_q",
+      internal_field: "coverage",
+      answer_type: "string",
+      choices: [
+        { label: "Up to $250k", value: "250k", analytics_id: "a_250", icon: "S" },
+        { label: "Up to $1m", value: "1m", analytics_id: "a_1m", icon: "L" },
+      ],
+    },
+    { type: "ContinueButton", question_id: "c1", props: { label: "Continue" } },
+  ],
+};
+
+// Legacy dependency body: conditional leaf + a BOUND headline node WITHOUT the
+// headline param (the trickiest identity case: the bound node must keep
+// rendering EMPTY text on a legacy body after the sectionCtx thread) + ONE
+// ContinueButton (single-control identity through the threaded state).
+const LEGACY_DEP_CONTENT = {
+  components: [
+    { type: "QuestionHeadline", question_id: "h1", bind: "section_headline", props: {} },
+    {
+      type: "TwoButtonYesNo",
+      question_id: "q1",
+      question_key: "insured_q",
+      internal_field: "insured",
+      answer_type: "boolean",
+    },
+    {
+      type: "FreeTextQuestion",
+      question_id: "q2",
+      question_key: "insurer_q",
+      internal_field: "insurer",
+      answer_type: "string",
+      required: true,
+      conditional: { when: "insured", op: "eq", value: true },
+    },
+    { type: "ContinueButton", question_id: "c1", props: { label: "Continue" } },
+  ],
+};
+
+// Field-level byte comparison against a pre-change capture: identical key sets
+// (no additive key may leak into a legacy response) + byte-equal values, css
+// compared modulo EXACTLY the moved card rules.
+function assertPinnedResponse(actualText: string, fixtureText: string): void {
+  const actual = JSON.parse(actualText) as Record<string, unknown>;
+  const expected = JSON.parse(fixtureText) as Record<string, unknown>;
+  expect(Object.keys(actual)).toEqual(Object.keys(expected));
+  const actualPreview = actual["preview"] as Record<string, unknown>;
+  const expectedPreview = expected["preview"] as Record<string, unknown>;
+  expect(Object.keys(actualPreview)).toEqual(Object.keys(expectedPreview));
+  for (const key of Object.keys(expectedPreview)) {
+    if (key === "css") continue;
+    expect(actualPreview[key], `preview.${key}`).toEqual(expectedPreview[key]);
+  }
+  // css: the ONLY legal delta is the three moved card rules (byte-exact).
+  const cssMinusMove = (actualPreview["css"] as string).split(MOVED_CARD_RULES).join("");
+  expect(cssMinusMove, "preview.css modulo the DEV-57 moved rules").toBe(expectedPreview["css"]);
+  // and the live producer still owns the string (the sections-api :863 idiom).
+  expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));
+  if (expected["dependencies"] !== undefined) {
+    expect(actual["dependencies"]).toEqual(expected["dependencies"]);
+  }
+}
+
+describeDb("POST /sections/preview — legacy unit-only byte-pin (13 §13.4 'absent → byte-identical')", () => {
+  it("plain legacy body: every response field byte-equals the pre-change capture", async () => {
+    const { env } = newEnv();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", { content_json: JSON.stringify(LEGACY_PLAIN_CONTENT), viewport: "desktop" }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const text = await res.text();
+    const fixture = readOrMintFixture(FIXTURE_PLAIN, text, "unit-only-plain");
+    assertPinnedResponse(text, fixture);
+  });
+
+  it("dependency-sim legacy body (bound node, no headline param): byte-equals the pre-change capture", async () => {
+    const { env } = newEnv();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(LEGACY_DEP_CONTENT),
+        sample_answers: { insured: false },
+      }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const text = await res.text();
+    const fixture = readOrMintFixture(FIXTURE_DEP_SIM, text, "unit-only-dependency-sim");
+    assertPinnedResponse(text, fixture);
+    // ground the capture itself: the conditional leaf IS hidden in the pinned markup.
+    const body = JSON.parse(text) as PreviewResponse;
+    expect(body.preview.component_count).toBe(3); // h1 + q1 + c1 visible, q2 hidden
+    expect(body.preview.desktop).not.toContain('data-question-id="q2"');
+  });
+});
+
+// ===========================================================================
+// 2. frame_context — the §13.4 composed render
+// ===========================================================================
+
+describeDb("POST /sections/preview — frame_context (13 §13.4 unit-in-frame)", () => {
+  it("renders the unit INSIDE the funnel's effective frame — 13 §13.5 leg 2 byte-parity with the runtime shell", async () => {
+    const fx = await seedFixture();
+
+    // The runtime shell for the same (funnel, variant, site) inputs.
+    const served = await app.request(`${TENANT_ORIGIN}/lg/frame`, {}, fx.env);
+    expect(served.status, await served.clone().text()).toBe(200);
+    const servedHtml = await served.text();
+    const servedRoot = extractRootBody(servedHtml);
+    const servedCss = extractStyle(servedHtml);
+
+    // The composed preview of section 0 under the same frame_context.
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: fx.variant.public_id,
+          site_id: "site-1",
+        }),
+      ),
+      fx.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+
+    // Expected body: the SERVED shell with its section list narrowed to the
+    // previewed unit — byte-level (same renderQuoteFrame, same effective
+    // tokens, same branding, same sectionCount ⇒ identical frame regions; the
+    // unit subtree is the shell's own section-0 block, bound headline included).
+    const design = getFunnelDesign(fx.variant.funnel_design_id);
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: fx.funnel.frame_config_json,
+        theme_json: fx.funnel.theme_json,
+        frame_overrides_json: fx.variant.frame_overrides_json,
+      },
+      design,
+    );
+    expect(composition).not.toBeNull();
+    const resolvedSections: ResolvedFunnelSection[] = fx.sections.map((section, index) => ({
+      position: index,
+      section,
+    }));
+    const servedSectionsHtml = renderVariantSectionsHtml(
+      resolvedSections,
+      composition!.effectiveTokens.design,
+      composition!.frame,
+    );
+    expect(servedRoot).toContain(servedSectionsHtml);
+    const expectedBody = servedRoot.replace(servedSectionsHtml, firstSectionBlock(servedSectionsHtml));
+    expect(body.preview.desktop).toBe(expectedBody);
+    expect(body.preview.mobile).toBe(expectedBody); // composed body is viewport-invariant
+
+    // Frame regions + unit are BOTH present.
+    expect(body.preview.desktop).toContain('data-frame-template="header-footer"');
+    expect(body.preview.desktop).toContain("<section data-lg-section");
+    expect(body.preview.desktop).toContain('data-question-id="q1"');
+    expect(body.preview.desktop).toContain(">Are you insured?</h1>"); // bound headline text
+    expect(body.preview.desktop).toContain(LG_BANNERS_MOUNT_HTML);
+
+    // css: the SAME resolveTokens+funnelChromeCss string the runtime embeds.
+    expect(body.preview.css).toBe(servedCss);
+    expect(body.preview.design_id).toBe(design.id);
+  });
+
+  it("variant leg: variant_public_id applies the variant frame_overrides; absent variant → funnel-level frame only", async () => {
+    const fx = await seedFixture();
+
+    const withVariant = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: fx.variant.public_id,
+        }),
+      ),
+      fx.env,
+    );
+    expect(withVariant.status).toBe(200);
+    const withVariantBody = (await withVariant.json()) as PreviewResponse;
+    // the variant override restyled progress to numbered/above_unit.
+    expect(withVariantBody.preview.desktop).toContain("lg-frame-progress--numbered");
+
+    const funnelOnly = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, { funnel_public_id: fx.funnel.public_id })),
+      fx.env,
+    );
+    expect(funnelOnly.status).toBe(200);
+    const funnelOnlyBody = (await funnelOnly.json()) as PreviewResponse;
+    // funnel config says bar — the variant's numbered restyle must NOT apply.
+    expect(funnelOnlyBody.preview.desktop).toContain('data-frame-template="header-footer"');
+    expect(funnelOnlyBody.preview.desktop).not.toContain("lg-frame-progress--numbered");
+  });
+
+  it("site leg: site_id bakes that site's branding; no site_id → ladder floor; unknown site → 404", async () => {
+    const fx = await seedFixture();
+    const frameContext = {
+      funnel_public_id: fx.funnel.public_id,
+      variant_public_id: fx.variant.public_id,
+    };
+
+    const withSite = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, { ...frameContext, site_id: "site-1" })),
+      fx.env,
+    );
+    expect(withSite.status).toBe(200);
+    const withSiteBody = (await withSite.json()) as PreviewResponse;
+    // §10 branding ladder with no site_settings rows → the site's canonical
+    // hostname renders as the logo text mark.
+    expect(withSiteBody.preview.desktop).toContain(">one.example.com</span>");
+    expect(withSiteBody.preview.desktop).not.toContain(CMS_FALLBACK_LOGO_TEXT);
+
+    const noSite = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, frameContext)),
+      fx.env,
+    );
+    expect(noSite.status).toBe(200);
+    const noSiteBody = (await noSite.json()) as PreviewResponse;
+    expect(noSiteBody.preview.desktop).toContain(CMS_FALLBACK_LOGO_TEXT); // §10.2 floor
+    expect(noSiteBody.preview.desktop).not.toContain("one.example.com");
+
+    const badSite = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, { ...frameContext, site_id: "nope" })),
+      fx.env,
+    );
+    expect(badSite.status).toBe(404);
+  });
+
+  it("sim + viewport honored in-frame: selected-state markup renders inside the frame; viewport names preview.html", async () => {
+    const fx = await seedFixture();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(
+          fx.sections[0]!,
+          {
+            funnel_public_id: fx.funnel.public_id,
+            variant_public_id: fx.variant.public_id,
+            site_id: "site-1",
+          },
+          { viewport: "mobile", sim: { state: "selected", answers: { q1_field: true } } },
+        ),
+      ),
+      fx.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+    expect(body.preview.sim_state).toBe("selected");
+    // the selected sim is server-rendered INTO the in-frame unit markup.
+    expect(body.preview.desktop).toContain('data-frame-template="header-footer"');
+    expect(body.preview.desktop).toContain('aria-checked="true"');
+    // viewport named → preview.html carries the composed (viewport-invariant) body.
+    expect(body.preview.html).toBe(body.preview.mobile);
+    expect(body.preview.html).toBe(body.preview.desktop);
+    // the answer basis also yields the §12.3 dependencies echo, frame or not.
+    expect(body.dependencies).toBeDefined();
+  });
+
+  it("dependency sim in-frame: hidden leaf dropped inside the frame; bound headline renders the canonical text (DEV-57 lifted)", async () => {
+    const fx = await seedFixture();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(LEGACY_DEP_CONTENT),
+        headline: "Are you insured?",
+        section_public_id: fx.sections[0]!.public_id,
+        sample_answers: { insured: false },
+        frame_context: {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: fx.variant.public_id,
+        },
+      }),
+      fx.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+    expect(body.preview.desktop).toContain('data-frame-template="header-footer"');
+    expect(body.preview.desktop).not.toContain('data-question-id="q2"'); // unmet conditional hidden
+    expect(body.preview.desktop).toContain(">Are you insured?</h1>"); // bound node renders ctx text
+  });
+
+  it("unit-only dependency sim now threads the sectionCtx: bound headline renders when the body names it (no frame)", async () => {
+    const { env } = newEnv();
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", {
+        content_json: JSON.stringify(LEGACY_DEP_CONTENT),
+        headline: "Are you insured?",
+        sample_answers: { insured: false },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+    expect(body.preview.desktop).toContain(">Are you insured?</h1>");
+    expect(body.preview.desktop).not.toContain('data-question-id="q2"');
+  });
+
+  it("unknown funnel → 404; unknown variant → 404; a variant of ANOTHER funnel → 404", async () => {
+    const fx = await seedFixture();
+
+    const badFunnel = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, { funnel_public_id: mintPublicId("funnel") })),
+      fx.env,
+    );
+    expect(badFunnel.status).toBe(404);
+
+    const badVariant = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: mintPublicId("funnel_variant"),
+        }),
+      ),
+      fx.env,
+    );
+    expect(badVariant.status).toBe(404);
+
+    // a real variant that belongs to a DIFFERENT funnel is not resolvable here.
+    const other = await seedFixture();
+    const crossVariant = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: other.variant.public_id,
+        }),
+      ),
+      fx.env,
+    );
+    expect(crossVariant.status).toBe(404);
+  });
+
+  it("a funnel with NULL frame composes via the byte-pinned legacy shell (the §13.1 fail-safe fork)", async () => {
+    const fx = await seedFixture({ withFrame: false });
+    const section = fx.sections[0]!;
+    const res = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(section, {
+          funnel_public_id: fx.funnel.public_id,
+          variant_public_id: fx.variant.public_id,
+        }),
+      ),
+      fx.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as PreviewResponse;
+
+    // byte-equal to renderLegacyShell over the same inputs: base design, the
+    // row identity attrs, and the ONE section wrapper (frame=null ctx).
+    const design = getFunnelDesign(fx.variant.funnel_design_id);
+    const sectionsHtml = renderVariantSectionsHtml([{ position: 0, section }], design, null);
+    const expected = renderLegacyShell({
+      designId: design.id,
+      funnelId: fx.funnel.public_id,
+      funnelVariantId: fx.variant.public_id,
+      quoteId: fx.quote.public_id,
+      contentVersion: fx.variant.content_version,
+      sectionsHtml,
+      bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+    });
+    expect(body.preview.desktop).toBe(expected);
+    expect(body.preview.desktop).not.toContain("lg-frame");
+    // css: the legacy sheet — NO frame-region rules.
+    expect(body.preview.css).toBe(funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`));
+    expect(body.preview.css).not.toContain(".lg-frame-");
+  });
+
+  it("frame_context shape validation: non-object / missing funnel_public_id → 400 path-precise", async () => {
+    const fx = await seedFixture();
+
+    const notObject = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, undefined, { frame_context: "nope" })),
+      fx.env,
+    );
+    expect(notObject.status).toBe(400);
+    const notObjectBody = (await notObject.json()) as { fields: Record<string, string> };
+    expect(notObjectBody.fields["frame_context"]).toBeDefined();
+
+    const noFunnel = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit("POST", previewBodyFor(fx.sections[0]!, {})),
+      fx.env,
+    );
+    expect(noFunnel.status).toBe(400);
+    const noFunnelBody = (await noFunnel.json()) as { fields: Record<string, string> };
+    expect(noFunnelBody.fields["frame_context.funnel_public_id"]).toBeDefined();
+
+    const badVariantType = await admin.request(
+      `${API}/sections/preview`,
+      jsonInit(
+        "POST",
+        previewBodyFor(fx.sections[0]!, { funnel_public_id: fx.funnel.public_id, variant_public_id: 7 }),
+      ),
+      fx.env,
+    );
+    expect(badVariantType.status).toBe(400);
+    const badVariantBody = (await badVariantType.json()) as { fields: Record<string, string> };
+    expect(badVariantBody.fields["frame_context.variant_public_id"]).toBeDefined();
+  });
+});
+
+// ===========================================================================
+// 3. renderSectionComponentsVisible sectionCtx thread (DEV-57) — renderer level
+// ===========================================================================
+
+const DESIGN = defaultFunnelDesign;
+
+const q = (id: string, field: string): LeadgenComponentNode => ({
+  type: "TwoButtonYesNo",
+  question_id: id,
+  question_key: `${id}_key`,
+  internal_field: field,
+  answer_type: "boolean",
+});
+
+describe("renderSectionComponentsVisible — sectionCtx thread (DEV-57, legacy identity)", () => {
+  const BOUND_TREE: LeadgenComponentNode[] = [
+    { type: "QuestionHeadline", question_id: "h1", bind: "section_headline", props: {} },
+    q("q1", "insured"),
+    { type: "ContinueButton", question_id: "c1", props: { label: "Go on" } },
+  ];
+  const ALL = new Set(["h1", "q1", "c1"]);
+  const CTX: LeadgenSectionRenderCtx = {
+    headline_text: "Bound headline",
+    subheadline_text: null,
+    design_overrides: { palette: { button_primary_text: "#00AA00" }, gapDefault: "1.25rem" },
+  };
+
+  it("no-ctx call renders byte-identically (3-arg ≡ explicit-undefined ≡ filter-then-render)", () => {
+    const threeArg = renderSectionComponentsVisible(BOUND_TREE, DESIGN, ALL);
+    expect(renderSectionComponentsVisible(BOUND_TREE, DESIGN, ALL, undefined)).toBe(threeArg);
+    // the bound node keeps rendering EMPTY text without a ctx (DEV-57 legacy).
+    expect(threeArg).toContain('class="lg-headline"');
+    expect(threeArg).not.toContain("Bound headline");
+  });
+
+  it("all-visible flat content WITH ctx ≡ renderSectionComponents with the same ctx (byte-for-byte)", () => {
+    const viaVisible = renderSectionComponentsVisible(BOUND_TREE, DESIGN, ALL, CTX);
+    const viaFull = renderSectionComponents(BOUND_TREE, DESIGN, CTX);
+    expect(viaVisible).toBe(viaFull);
+    expect(viaVisible).toContain(">Bound headline</h1>"); // bound text
+    expect(viaVisible).toContain("color:#00AA00"); // §9.5 layer-4 palette re-point
+  });
+
+  it("all-visible CONTAINER tree WITH ctx ≡ renderSectionComponents (state threads through wrappers)", () => {
+    const tree: LeadgenComponentNode[] = [
+      {
+        type: "Stack",
+        question_id: "s1",
+        props: {},
+        children: [
+          { type: "QuestionHeadline", question_id: "h1", bind: "section_headline", props: {} },
+          q("q1", "insured"),
+        ],
+      } as LeadgenComponentNode,
+      { type: "ContinueButton", question_id: "c1", props: { label: "Go on" } },
+    ];
+    const ids = new Set(["h1", "q1", "c1"]);
+    expect(renderSectionComponentsVisible(tree, DESIGN, ids, CTX)).toBe(
+      renderSectionComponents(tree, DESIGN, CTX),
+    );
+  });
+
+  it("continue semantics thread: auto_advance renders ZERO continue controls; below_unit defers to the single end slot", () => {
+    const auto = renderSectionComponentsVisible(BOUND_TREE, DESIGN, ALL, {
+      headline_text: "H",
+      subheadline_text: null,
+      continue_mode: "auto_advance",
+    });
+    expect(auto).not.toContain("data-lg-continue");
+
+    const below = renderSectionComponentsVisible(BOUND_TREE, DESIGN, ALL, {
+      headline_text: "H",
+      subheadline_text: null,
+      continue_placement: "below_unit",
+      continue_style_role: "button_primary",
+    });
+    expect(below).toContain('class="lg-continue-slot"');
+    expect(below).toContain('data-continue-style-role="button_primary"');
+    expect(below.split("data-lg-continue").length - 1).toBe(1); // exactly one control
+    expect(below).toContain("Go on"); // the node's props feed the slot control
+    // …and it byte-equals the full renderer under the same ctx.
+    expect(below).toBe(
+      renderSectionComponents(BOUND_TREE, DESIGN, {
+        headline_text: "H",
+        subheadline_text: null,
+        continue_placement: "below_unit",
+        continue_style_role: "button_primary",
+      }),
+    );
+  });
+
+  it("dependency filtering still drops hidden leaves under a ctx (wrapper-keeping semantics unchanged)", () => {
+    const partial = renderSectionComponentsVisible(BOUND_TREE, DESIGN, new Set(["h1", "c1"]), CTX);
+    expect(partial).not.toContain('data-question-id="q1"');
+    expect(partial).toContain(">Bound headline</h1>");
+  });
+});

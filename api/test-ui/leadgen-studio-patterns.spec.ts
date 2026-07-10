@@ -1,40 +1,51 @@
-// LeadGen fix-contract v2.4 Phase 4 Slice F — the ACCEPTANCE evidence pack for
-// the Section Studio:
+// LeadGen v2.5.1 Phase C (DEV-67 spec supersession) — the Studio ACCEPTANCE
+// evidence pack, REWRITTEN from the v2.4 Slice-F suite to the v2.5.1
+// frame/unit architecture (docs/leadgen/redesign-contract-v2.5/08 §8.2 scope
+// split; 01 §1.3):
 //
-//   §8.11  ALL FOUR capability patterns authored THROUGH THE UI (library
-//          click-to-add + "+ After" insertion points + tabbed inspectors —
-//          never seeded JSON, never the Advanced raw-JSON surface), under the
-//          DEFAULT design, screenshot-tested desktop + mobile
-//          (test-artifacts/fix-p4/pattern-N-{desktop,mobile}.png), with the
-//          saved content_json asserted to contain ONLY catalog types +
-//          tokenized props (the model has no custom-CSS field — asserted).
-//   §8.12  the browser flows NOT already covered by the studio spec's ①–⑦
-//          (leadgen-section-studio.spec.ts): create Yes/No slide · dependent
-//          dropdown via the Dependencies tab + the dependency SIM proof ·
-//          ZIP validation slide · personal-details slide · icon card grid ·
-//          range slider · main/Other values (choiceDisplay via the Choices
-//          tab) · dependency + validation-state sims VISIBLY differ ·
-//          desktop AND mobile previews at REAL widths (§9.4 test).
-//   §9.4   the viewport toggle round-trip regression: desktop screenshot →
-//          mobile (REAL 375px iframe, no transform scale — asserted) →
-//          desktop again; first/last pixel dimensions equal + changed-pixel
-//          ratio within the repo's visual-test budget (≤0.10% desktop,
-//          listicles-visual.spec.ts §31.1 thresholds + its in-browser canvas
-//          diff — no new deps).
-//   §8.13  legacy-lossless: a PRE-P4 flat content_json (fixture copied from
-//          test/leadgen-sample-answers.test.ts linkSectionWithComponents)
-//          seeded via the REAL admin API, opened in the Studio, saved with NO
-//          edits, re-fetched — SEMANTICALLY lossless (deep-equal) and
-//          byte-equal (the save path JSON.parse→JSON.stringify chain
-//          preserves key order; asserted).
+//   §8.11  the FOUR capability patterns (08 §8.7 A–D). v2.4 authored page
+//          chrome (HeaderBar/FooterBar/ProgressBar/StepIndicator/
+//          BackgroundPanel) THROUGH THE SECTION PALETTE — exactly the
+//          behavior v2.5.1 AMENDS away (§8.2: frame-scope types left the
+//          palette; leadgen-section-builder.spec.ts ⑧ pins their absence).
+//          Each pattern now authors:
+//            * the FRAME via the REAL PUT /funnels/:id/frame (seed-level —
+//              the Quote-Builder UI leg for template pick / region inspectors
+//              / one-save persistence is already proven by
+//              leadgen-quote-builder.spec.ts ②/④/⑤/⑧; re-driving it here
+//              would be redundant), and
+//            * the UNIT in the Section Builder through the real palette +
+//              tabbed inspector (bound headline/subheadline via the §5.2
+//              Question strip — the palette items insert BOUND nodes), then
+//          asserts the COMPOSED result through the studio's §5.3 mode-5
+//          "Preview in Quote frame" pickers (Quote → Funnel → Variant →
+//          Site): the SAME capabilities the v2.4 tests asserted — progress,
+//          branded header, trust/logo area, step dots, background, back
+//          affordance, legal footer — as rendered markup/roles, never SSR
+//          string theater. Saved units stay catalog-types + token props only.
+//   §8.12  the 8 unit flows, modernized to the v2.5.1 UI with the SAME
+//          behavioral assertions: §8.3 intent-first palette groups + operator
+//          labels ("Yes / No", "Icon answer cards", …), the §7.1 scope header
+//          ([data-scope-editing-name] replaced the old #lg-inspector-target
+//          line), the scope-aware dynamic inspector tabs, and the reworked
+//          Choices tab (12 §8.4 choice fields + the B9 §6.4 group controls).
+//   §9.4 + §8.13 + E6: unchanged assertions. NOTE (v2.5.1 §5.3 mode-5
+//          empty state): a Section used by ZERO quotes now previews inside
+//          the DEFAULT template frame ({default:true} → a STATIC composed
+//          document with no data-viewport/data-lg-ready markers), so every
+//          test that drives unit-mode preview swaps (sims, viewport
+//          round-trip) seeds its Section INTO a real Quote via
+//          attachToQuote() — the shared-seed change rule 3 anticipates. The
+//          assertions themselves are untouched.
 //
-// Determinism notes:
+// Determinism notes (unchanged from the v2.4 suite):
 //   * every preview document swap is detected by marking the CURRENT iframe
 //     root data-lg-stale="1" and waiting for an unmarked root — never by
-//     timeouts racing the POST /sections/preview round trip;
-//   * screenshots/DOM assertions wait for the runtime's hydration-complete
-//     marker (data-lg-ready="1", engine.ts §3.5.1) so the pixel state is the
-//     settled post-boot state.
+//     timeouts racing the POST /sections/preview round trip; composed frame
+//     documents are matched on their data-frame-template stamp instead of
+//     data-lg-ready (they are server-rendered stills — no runtime hydrates);
+//   * unit-mode screenshots/DOM assertions wait for the runtime's
+//     hydration-complete marker (data-lg-ready="1", engine.ts §3.5.1).
 //
 // Seeding rides the REAL admin HTTP APIs only. Runs against the
 // playwright.config.ts webServer (wrangler dev on :8787 with
@@ -45,6 +56,7 @@
 // Screenshots (1280×800 page viewport) land in test-artifacts/fix-p4/.
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { seedActiveSite, uploadPng } from './listicles-p6-seed';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -75,6 +87,7 @@ interface StudioNode {
   internal_field?: string;
   answer_type?: string;
   required?: boolean;
+  bind?: string;
   choices?: Array<Record<string, unknown>>;
   choiceDisplay?: Record<string, unknown>;
   conditional?: Record<string, unknown>;
@@ -87,6 +100,7 @@ interface SectionDetail {
   id: number;
   public_id: string;
   content_version: number;
+  headline_text: string;
   content_json: { components: StudioNode[] };
   [key: string]: unknown;
 }
@@ -147,6 +161,127 @@ async function fetchSection(request: APIRequestContext, publicId: string): Promi
 }
 
 // ---------------------------------------------------------------------------
+// v2.5.1 frame-side seed helpers (REAL admin APIs only)
+// ---------------------------------------------------------------------------
+
+interface QuoteScaffold {
+  quotePublicId: string;
+  funnelPublicId: string;
+  variantPublicId: string;
+}
+
+// Attach section(s) to a fresh Quote (auto-seeded funnel + control variant).
+// §5.3 mode-5: a Section used by ≥1 Quote keeps the HYDRATED unit-mode
+// default preview (zero-usage Sections now compose into the static default
+// frame — see the header note), and the frame preview pickers gain a real
+// Quote → Funnel → Variant chain to drive.
+async function attachToQuote(
+  request: APIRequestContext,
+  quoteName: string,
+  sectionIds: number[],
+  vertical: string,
+): Promise<QuoteScaffold> {
+  const quote = await json<{
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  }>(
+    await request.post(`${LG_API}/quotes`, {
+      data: { quote_name: quoteName, activity: ACT, verticals: [vertical] },
+    }),
+    `fixp4 quote create (${quoteName})`,
+  );
+  const funnelPublicId = quote.funnels[0]!.public_id;
+  const variantPublicId = quote.funnels[0]!.variants[0]!.public_id;
+  await json(
+    await request.put(`${LG_API}/variants/${variantPublicId}`, {
+      data: { sections: sectionIds.map((id, position) => ({ section_id: id, position })) },
+    }),
+    `fixp4 variant sections (${quoteName})`,
+  );
+  return { quotePublicId: quote.public_id, funnelPublicId, variantPublicId };
+}
+
+// The §8.11 frame leg: attach + store the pattern's frame config through the
+// REAL PUT /funnels/:id/frame (schema-legal §3.3 sparse groups — template
+// defaults supply the rest, exactly the Quote Builder's own storage model).
+async function createQuoteWithFrame(
+  request: APIRequestContext,
+  quoteName: string,
+  frameConfig: Record<string, unknown>,
+  sectionIds: number[],
+): Promise<QuoteScaffold> {
+  const sc = await attachToQuote(request, quoteName, sectionIds, VERT);
+  await json(
+    await request.put(`${LG_API}/funnels/${sc.funnelPublicId}/frame`, {
+      data: { frame_config_json: frameConfig },
+    }),
+    `fixp4 frame config (${quoteName})`,
+  );
+  return sc;
+}
+
+async function fetchFrame(
+  request: APIRequestContext,
+  funnelPublicId: string,
+): Promise<Record<string, unknown>> {
+  const body = await json<{ frame_config: Record<string, unknown> }>(
+    await request.get(`${LG_API}/funnels/${funnelPublicId}/frame`),
+    `fixp4 frame read (${funnelPublicId})`,
+  );
+  return body.frame_config;
+}
+
+// Two filler question units so pattern variants are REAL 3-step funnels —
+// the frame's automatic progress (11 §11.1: counted from the variant order)
+// then shows genuine multi-step values (bar "Step 1 of 3" / 3 step dots).
+let patternFillers: number[] | null = null;
+async function ensurePatternFillers(request: APIRequestContext): Promise<number[]> {
+  if (patternFillers) return patternFillers;
+  const ids: number[] = [];
+  for (let i = 0; i < 2; i += 1) {
+    const created = await createSection(
+      request,
+      `FixP4 filler ${i + 1} ${uniq}`,
+      {
+        components: [
+          {
+            type: 'TwoButtonYesNo',
+            question_id: `q_fill${i + 1}`,
+            internal_field: `filler_${i + 1}`,
+            answer_type: 'boolean',
+            props: { yesLabel: 'Yes', noLabel: 'No' },
+          },
+        ],
+      },
+      { vertical: VERT },
+    );
+    ids.push(created.id);
+  }
+  patternFillers = ids;
+  return ids;
+}
+
+// One branded CMS site (name + logo media) — the frame pickers' Site leg
+// previews ITS branding (C4: any CMS site is legal, no activation required).
+let brandedSite: { id: string; name: string; logoKey: string } | null = null;
+async function ensureBrandedSite(
+  request: APIRequestContext,
+): Promise<{ id: string; name: string; logoKey: string }> {
+  if (brandedSite) return brandedSite;
+  const name = `FixP4 Brand Site ${uniq}`;
+  const siteId = await seedActiveSite(request, `fixp4-${uniq}.e2e.test`, name);
+  const logo = await uploadPng(request, `fixp4-logo-${uniq}.png`);
+  await json(
+    await request.patch('/api/admin/settings', {
+      data: { site_id: siteId, updates: { site_name: name, logo_media_id: logo.storage_key } },
+    }),
+    'fixp4 site branding',
+  );
+  brandedSite = { id: siteId, name, logoKey: logo.storage_key };
+  return brandedSite;
+}
+
+// ---------------------------------------------------------------------------
 // Studio driving helpers (the operator's controls only — no raw JSON)
 // ---------------------------------------------------------------------------
 
@@ -168,7 +303,8 @@ async function waitFreshPreview(page: Page, viewport: 'desktop' | 'mobile'): Pro
   await expect(
     pFrame(page).locator(`#lg-funnel-root[data-viewport="${viewport}"]:not([data-lg-stale])`),
   ).toBeAttached({ timeout: 20_000 });
-  // …hydrated to completion (engine.ts sets data-lg-ready after enterSection)
+  // …hydrated to completion (engine.ts sets data-lg-ready after enterSection;
+  // non-default sims are server stills that carry the marker by construction)
   await expect(
     pFrame(page).locator('#lg-funnel-root[data-lg-ready="1"]:not([data-lg-stale])'),
   ).toBeAttached({ timeout: 20_000 });
@@ -192,6 +328,73 @@ async function setPreviewViewport(page: Page, viewport: 'desktop' | 'mobile'): P
   await waitFreshPreview(page, viewport);
 }
 
+// --- §5.3 mode-5 composed-preview helpers (frame pickers) --------------------
+
+// A composed frame document is a server-rendered STILL (renderQuoteFrame — no
+// runtime, no data-viewport/data-lg-ready markers); its root carries the
+// data-frame-template stamp, which is what detects the swap.
+async function waitComposedPreview(page: Page, template: string): Promise<void> {
+  await expect(
+    pFrame(page).locator(`#lg-funnel-root[data-frame-template="${template}"]:not([data-lg-stale])`),
+  ).toBeAttached({ timeout: 20_000 });
+}
+
+// Drive the §5.3 mode-5 "Preview in Quote frame" pickers: Quote → Funnel →
+// Variant (progress totals ride the variant) → Site branding. Each cascade
+// level's options load asynchronously — wait for the option, then select.
+async function pickFrameForPreview(
+  page: Page,
+  sc: QuoteScaffold & { siteId?: string },
+  template: string,
+): Promise<void> {
+  const quoteSel = page.locator('[data-frame-pick-quote]');
+  await expect(quoteSel.locator(`option[value="${sc.quotePublicId}"]`)).toHaveCount(1, {
+    timeout: 20_000,
+  });
+  // Picking the quote fires a unit-mode refresh (no funnel yet) AND the async
+  // funnel/site option loads. Let that refresh land BEFORE composing so an
+  // out-of-order fetch can never replace the composed document afterwards.
+  await markPreviewStale(page);
+  await quoteSel.selectOption(sc.quotePublicId);
+  await waitFreshPreview(page, 'desktop');
+
+  const funnelSel = page.locator('[data-frame-pick-funnel]');
+  await expect(funnelSel.locator(`option[value="${sc.funnelPublicId}"]`)).toHaveCount(1, {
+    timeout: 20_000,
+  });
+  await markPreviewStale(page);
+  await funnelSel.selectOption(sc.funnelPublicId);
+  await waitComposedPreview(page, template);
+
+  const variantSel = page.locator('[data-frame-pick-variant]');
+  await expect(variantSel.locator(`option[value="${sc.variantPublicId}"]`)).toHaveCount(1, {
+    timeout: 20_000,
+  });
+  await markPreviewStale(page);
+  await variantSel.selectOption(sc.variantPublicId);
+  await waitComposedPreview(page, template);
+
+  if (sc.siteId !== undefined) {
+    const siteSel = page.locator('[data-frame-pick-site]');
+    await expect(siteSel.locator(`option[value="${sc.siteId}"]`)).toHaveCount(1, {
+      timeout: 20_000,
+    });
+    await markPreviewStale(page);
+    await siteSel.selectOption(sc.siteId);
+    await waitComposedPreview(page, template);
+  }
+}
+
+async function setComposedViewport(
+  page: Page,
+  viewport: 'desktop' | 'mobile',
+  template: string,
+): Promise<void> {
+  await markPreviewStale(page);
+  await page.locator(`[data-preview-viewport="${viewport}"]`).click();
+  await waitComposedPreview(page, template);
+}
+
 // The preview boot posts its would-fire view events (quote_view +
 // section_view) to the §8.9 events panel a beat AFTER hydration (beacon batch
 // → postMessage). The panel's unbreakable compact-JSON lines USED TO stretch
@@ -200,10 +403,10 @@ async function setPreviewViewport(page: Page, viewport: 'desktop' | 'mobile'): P
 // word-break, and .admin-main{min-width:0}) has since landed and contains them
 // — the pin at the bottom of this file now GUARDS that fix. The panel's
 // compact-JSON content still varies a few chars per boot (per-boot ids), so
-// every preview measurement/screenshot first WAITS for the events to land
-// (deterministic sequencing of the async side effect) and then removes that
-// per-boot-varying content, so the § under test gets a clean, stable signal.
-// Idempotent per preview document (marker on the srcdoc root).
+// every unit-mode preview measurement/screenshot first WAITS for the events to
+// land (deterministic sequencing of the async side effect) and then removes
+// that per-boot-varying content, so the § under test gets a clean, stable
+// signal. Idempotent per preview document (marker on the srcdoc root).
 async function waitForStudioEvents(page: Page): Promise<void> {
   await expect
     .poll(async () => page.locator('[data-studio-events-list] li').count(), { timeout: 20_000 })
@@ -228,9 +431,21 @@ async function shootPreview(page: Page, file: string): Promise<Buffer> {
   return page.locator('#lg-preview-frame').screenshot({ path: `${SHOT_DIR}/${file}` });
 }
 
-// Open /sections/new with the feeder pair picked + name/headline filled and
-// the boot preview document hydrated (so later stale-marking is race-free).
-async function openNewStudio(page: Page, name: string): Promise<void> {
+// Composed frame documents are script-free stills — nothing posts events, so
+// no noise settle applies; only the paint settle.
+async function shootComposed(page: Page, file: string): Promise<Buffer> {
+  await page.waitForTimeout(200);
+  return page.locator('#lg-preview-frame').screenshot({ path: `${SHOT_DIR}/${file}` });
+}
+
+// Open /sections/new with the feeder pair picked + name/headline (+ optional
+// subheadline — the §5.2 canonical strip inputs) filled and the boot preview
+// document hydrated (so later stale-marking is race-free).
+async function openNewStudio(
+  page: Page,
+  name: string,
+  copy: { headline?: string; subheadline?: string } = {},
+): Promise<void> {
   await ensureFeederOffer(page.request);
   await page.goto('/admin/leadgen/sections/new', { waitUntil: 'domcontentloaded' });
   const activity = page.locator('#lg-section-activity');
@@ -240,20 +455,42 @@ async function openNewStudio(page: Page, name: string): Promise<void> {
   await expect(vertical.locator(`option[value="${VERT}"]`)).toHaveCount(1);
   await vertical.selectOption(VERT);
   await page.fill('#lg-section-name', name);
-  await page.fill('#lg-section-headline', name);
+  await page.fill('#lg-section-headline', copy.headline ?? name);
+  if (copy.subheadline !== undefined) {
+    await page.fill('#lg-section-subheadline', copy.subheadline);
+  }
   await waitBootPreview(page);
 }
 
+// §8.3 operator labels (STUDIO_TYPE_META) — the §7.1 scope header shows the
+// LABEL of the selected component (type ids never surface).
+const TYPE_LABELS: Record<string, string> = {
+  QuestionHeadline: 'Question headline',
+  Subheadline: 'Subheadline',
+  ButtonAnswerGroup: 'Simple answer buttons',
+  TwoButtonYesNo: 'Yes / No',
+  IconCardAnswerGrid: 'Icon answer cards',
+  DropdownQuestion: 'Dropdown',
+  ZIPInputQuestion: 'ZIP',
+  NameFieldsGroup: 'Name',
+  EmailInputQuestion: 'Email',
+  PhoneInputQuestion: 'Phone',
+  RangeQuestion: 'Slider',
+  ContinueButton: 'Continue button',
+  ReassuranceBadge: 'Reassurance badge',
+  Stack: 'Stack',
+};
+
 // Library click-to-add. addFromLibrary drops INTO the selected container (or
 // appends at root) and moves the selection to the new node — asserted via the
-// inspector target line ("Editing q_… (<Type>)").
+// §7.1 scope header (operator label) + the canvas node count (the server
+// re-render carries the new node).
 async function addComponent(page: Page, type: string): Promise<void> {
-  const target = page.locator('#lg-inspector-target');
-  const before = (await target.textContent()) ?? '';
+  const canvasNodes = page.locator('#lg-studio-canvas-render [data-component-type]');
+  const before = await canvasNodes.count();
   await page.locator(`[data-add-component="${type}"]`).click();
-  await expect(target).toContainText(`(${type})`);
-  const after = (await target.textContent()) ?? '';
-  expect(after, `selection moved to the newly added ${type}`).not.toBe(before);
+  await expect(page.locator('[data-scope-editing-name]')).toHaveText(TYPE_LABELS[type] ?? type);
+  await expect(canvasNodes).toHaveCount(before + 1, { timeout: 20_000 });
 }
 
 // Arm the "+ After" insertion point on the CURRENT selection, then add — the
@@ -264,32 +501,40 @@ async function addAfterSelected(page: Page, type: string): Promise<void> {
   await addComponent(page, type);
 }
 
+// §7.3: the tab strip is DYNAMIC per selection — a tab must be visible
+// (available for the selected type) before it can be opened.
 async function openInspectorTab(page: Page, key: string): Promise<void> {
-  await page.locator(`[data-studio-inspector-tab="${key}"]`).click();
+  const tab = page.locator(`[data-studio-inspector-tab="${key}"]`);
+  await expect(tab).toBeVisible();
+  await tab.click();
 }
 
-// §8.6 Content tab copy field (data-inspector-field hooks are key-unique).
+// Content tab copy field. Panel-scoped: the §6.5 canvas toolbar carries
+// sibling quick controls with the same data-inspector-field keys.
 async function setContentField(page: Page, key: string, value: string): Promise<void> {
   await openInspectorTab(page, 'content');
-  await page.locator(`input[data-inspector-field="${key}"]`).fill(value);
+  await page.locator(`[data-studio-panel="content"] input[data-inspector-field="${key}"]`).fill(value);
 }
 
-// §8.6 Advanced tab internal_field (the sanctioned rename surface).
+// Advanced tab internal_field (the sanctioned rename surface).
 async function setInternalField(page: Page, value: string): Promise<void> {
   await openInspectorTab(page, 'advanced');
-  await page.locator('input[data-inspector-field="internal_field"]').fill(value);
+  await page
+    .locator('[data-studio-panel="advanced"] input[data-inspector-field="internal_field"]')
+    .fill(value);
 }
 
-// §8.6 Validation tab rule input (min/max/step/maxLen).
+// Validation tab rule input (min/max/step/maxLen).
 async function setValidationProp(page: Page, key: string, value: string): Promise<void> {
   await openInspectorTab(page, 'validation');
   await page.locator(`[data-inspector-vprop="${key}"]`).fill(value);
 }
 
 // §8.5 Layout tab container prop (scoped by container group — keys repeat
-// across groups; only the selected type's group is visible).
+// across groups; only the selected type's group is visible). PANEL-scoped:
+// the §6.5 canvas toolbar mirrors the same data-container-prop quick controls.
 function containerGroup(page: Page, type: string) {
-  return page.locator(`[data-container-group="${type}"]`);
+  return page.locator(`[data-studio-panel="layout"] [data-container-group="${type}"]`);
 }
 
 function choiceRows(page: Page) {
@@ -316,6 +561,7 @@ function publicIdFromUrl(page: Page): string {
 // ---------------------------------------------------------------------------
 // §8.11 "no custom CSS anywhere" — the saved model carries ONLY catalog types
 // + the typed node keys; props are tokenized values, never stylesheet text.
+// `bind` is the §5.2 bound-node marker (section_headline/section_subheadline).
 // ---------------------------------------------------------------------------
 
 const NODE_KEYS = new Set([
@@ -326,6 +572,7 @@ const NODE_KEYS = new Set([
   'answer_type',
   'required',
   'valid_values',
+  'bind',
   'choices',
   'choiceDisplay',
   'conditional',
@@ -412,117 +659,146 @@ async function pixelDiffRatio(page: Page, aPng: Buffer, bPng: Buffer): Promise<n
 }
 
 // ---------------------------------------------------------------------------
-// §8.11 — the four capability patterns, authored through the UI
+// §8.11 — the four capability patterns (08 §8.7 A–D), frame + unit
 // ---------------------------------------------------------------------------
 
 // NOT .serial: every test seeds its own data (workers:1 keeps execution
 // sequential anyway), so a red product-finding test never masks the evidence
 // of the tests behind it.
-test.describe('LeadGen Studio §8.11 — four capability patterns authored through the UI (Slice F)', () => {
+test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) + unit(Section) (v2.5.1)', () => {
   test('pattern 1 — centered question card: progress, headline, subheadline, answer buttons, trust/logo area', async ({ page }) => {
-    test.setTimeout(150_000);
-    await openNewStudio(page, `P1 Centered Card ${uniq}`);
-
-    // progress chrome at root
-    await addComponent(page, 'ProgressBar');
-    // the centered card — token props only (§8.5 CardPanel enums)
-    await addComponent(page, 'CardPanel');
-    await openInspectorTab(page, 'layout');
-    const card = containerGroup(page, 'CardPanel');
-    await card.locator('select[data-container-prop="width"]').selectOption('m');
-    await card.locator('select[data-container-prop="shadow"]').selectOption('md');
-    await card.locator('select[data-container-prop="padding"]').selectOption('m');
-    // headline INTO the selected CardPanel
-    await addComponent(page, 'QuestionHeadline');
-    await setContentField(page, 'text', 'Are you currently insured?');
-    // subheadline as the next sibling inside the card ("+ After")
-    await addAfterSelected(page, 'Subheadline');
-    await setContentField(page, 'text', 'It takes under 2 minutes to compare quotes.');
-    // the answer buttons inside the card
-    await addAfterSelected(page, 'ButtonAnswerGroup');
+    test.setTimeout(240_000);
+    // UNIT authored through the real palette + inspector (§8.7 A unit column:
+    // bound headline+sub, button answer group, Continue; in-unit reassurance).
+    await openNewStudio(page, `P1 Centered Card ${uniq}`, {
+      headline: 'Are you currently insured?',
+      subheadline: 'It takes under 2 minutes to compare quotes.',
+    });
+    // §5.2: a NEW Section already carries the BOUND QuestionHeadline +
+    // Subheadline nodes (one store — the strip inputs above); their palette
+    // items are disabled while the bound nodes exist.
+    await expect(
+      page.locator('[data-add-component="QuestionHeadline"]'),
+    ).toHaveAttribute('data-bind-disabled', 'true');
+    await addComponent(page, 'ButtonAnswerGroup');
     await openInspectorTab(page, 'choices');
     await fillChoiceRow(page, 0, { label: 'Yes, I have coverage', value: 'yes', analytics_id: 'p1_yes' });
     await fillChoiceRow(page, 1, { label: 'Not yet', value: 'no', analytics_id: 'p1_no' });
     await setInternalField(page, 'currently_insured');
-    // trust/logo area at root (selection is a leaf → root append)
+    await addComponent(page, 'ContinueButton');
     await addComponent(page, 'ReassuranceBadge');
     await setContentField(page, 'text', 'Get your offers in 2 minutes or less.');
-    await addComponent(page, 'LogoStrip');
 
-    // the PREVIEW (§8.9 drawer, default design) shows the pattern's pieces
-    await refreshPreview(page);
-    const f = pFrame(page);
-    await expect(f.locator('[data-component-type="ProgressBar"]')).toBeVisible();
-    await expect(f.locator('.lg-card-panel [data-component-type="QuestionHeadline"]')).toHaveText(
-      'Are you currently insured?',
+    // the bound copy renders on the CANVAS from the ONE store (§5.2)
+    const canvas = page.locator('#lg-studio-canvas-render');
+    await expect(canvas.locator('h1.lg-headline')).toHaveText('Are you currently insured?');
+    await expect(canvas.locator('[data-component-type="Subheadline"]')).toHaveText(
+      'It takes under 2 minutes to compare quotes.',
     );
-    await expect(f.locator('.lg-card-panel [data-component-type="Subheadline"]')).toBeVisible();
-    await expect(f.locator('.lg-card-panel .lg-answer-group button[data-lg-choice="yes"]')).toHaveText(
+
+    await saveStudio(page);
+    const publicId = publicIdFromUrl(page);
+    const saved = await fetchSection(page.request, publicId);
+
+    // FRAME: §8.7 A `centered` — trust logo strip below unit + legal footer
+    // (progress bar under header + centered card slot are the template).
+    const fillers = await ensurePatternFillers(page.request);
+    const site = await ensureBrandedSite(page.request);
+    const sc = await createQuoteWithFrame(page.request, `P1 Quote ${uniq}`, {
+      version: 1,
+      template: 'centered',
+      trust_strip: {
+        enabled: true,
+        source: 'manual',
+        logos: [
+          { media_id: `logos/p1-trust-a-${uniq}.png`, alt: 'Trust brand A' },
+          { media_id: `logos/p1-trust-b-${uniq}.png`, alt: 'Trust brand B' },
+        ],
+        placement: 'below_unit',
+      },
+      footer: {
+        enabled: true,
+        links_source: 'manual',
+        links: [
+          { label: 'Privacy', href: '/privacy' },
+          { label: 'Terms', href: '/terms' },
+        ],
+        trust_text: 'Licensed advisor network',
+      },
+    }, [saved.id, ...fillers]);
+
+    // COMPOSED preview through the §5.3 mode-5 pickers
+    await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: 'domcontentloaded' });
+    await waitBootPreview(page);
+    await pickFrameForPreview(page, { ...sc, siteId: site.id }, 'centered');
+
+    const f = pFrame(page);
+    // progress chrome — REAL 3-step funnel values (variant order drives it)
+    const progress = f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]');
+    await expect(progress).toBeAttached();
+    await expect(progress).toHaveAttribute('aria-valuemax', '3');
+    // branded logo area (site branding rode the Site picker)
+    await expect(f.locator('[data-frame-region="logo"] img.lg-logo-img')).toBeVisible();
+    // the centered question card = the frame's section slot in card mode
+    await expect(f.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--card/);
+    // the unit inside it: bound headline text + subheadline slot + answers
+    await expect(f.locator('h1.lg-headline')).toHaveText('Are you currently insured?');
+    await expect(f.locator('[data-component-type="Subheadline"]')).toBeAttached();
+    await expect(f.locator('.lg-answer-group button[data-lg-choice="yes"]')).toHaveText(
       'Yes, I have coverage',
     );
-    await expect(f.locator('.lg-card-panel .lg-answer-group button[data-lg-choice="no"]')).toHaveText(
-      'Not yet',
-    );
+    await expect(f.locator('.lg-answer-group button[data-lg-choice="no"]')).toHaveText('Not yet');
+    await expect(f.locator('button.lg-continue')).toBeAttached();
     await expect(f.locator('[data-component-type="ReassuranceBadge"]')).toContainText(
       'Get your offers in 2 minutes or less.',
     );
-    // LogoStrip has no logos authoring surface (see the pattern-3 note) — the
-    // logo AREA is structurally present.
-    await expect(f.locator('[data-component-type="LogoStrip"]')).toHaveCount(1);
-    await shootPreview(page, 'pattern-1-desktop.png');
+    // trust/logo area below the unit + the legal footer
+    await expect(f.locator('[data-frame-region="trust_strip"] img.lg-logo-strip-img')).toHaveCount(2);
+    await expect(f.locator('[data-frame-region="footer"] .lg-footerbar-link')).toHaveCount(2);
+    await expect(f.locator('[data-frame-region="footer"] .lg-footerbar-trust-item')).toHaveCount(1);
+    await shootComposed(page, 'pattern-1-desktop.png');
 
-    await setPreviewViewport(page, 'mobile');
-    await expect(f.locator('.lg-card-panel [data-component-type="QuestionHeadline"]')).toBeVisible();
+    await setComposedViewport(page, 'mobile', 'centered');
     expect(Math.round((await page.locator('#lg-preview-frame').boundingBox())!.width)).toBeLessThanOrEqual(377);
-    await shootPreview(page, 'pattern-1-mobile.png');
+    await expect(f.locator('h1.lg-headline')).toBeVisible();
+    await shootComposed(page, 'pattern-1-mobile.png');
 
-    // save through the UI → the persisted model is catalog types + tokens only
-    await saveStudio(page);
-    const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const comps = detail.content_json.components;
-    expect(comps.map((c) => c.type)).toEqual(['ProgressBar', 'CardPanel', 'ReassuranceBadge', 'LogoStrip']);
-    const cardNode = comps[1]!;
-    expect((cardNode.children ?? []).map((c) => c.type)).toEqual([
+    // saved UNIT model: catalog types + tokens only; chrome lives in the frame
+    const comps = saved.content_json.components;
+    expect(comps.map((c) => c.type)).toEqual([
       'QuestionHeadline',
       'Subheadline',
       'ButtonAnswerGroup',
+      'ContinueButton',
+      'ReassuranceBadge',
     ]);
-    expect(cardNode.props, 'CardPanel props are exactly the picked §8.5 tokens').toEqual({
-      width: 'm',
-      shadow: 'md',
-      padding: 'm',
-    });
-    const group = (cardNode.children ?? [])[2]!;
+    expect(comps[0]!.bind, 'headline is the §5.2 bound node (one store)').toBe('section_headline');
+    expect(comps[0]!.props?.['text'], 'bound node never stores duplicate text').toBeUndefined();
+    expect(comps[1]!.bind).toBe('section_subheadline');
+    expect(saved.headline_text).toBe('Are you currently insured?');
+    const group = comps[2]!;
     expect(group.internal_field).toBe('currently_insured');
     expect((group.choices ?? []).map((c) => c['value'])).toEqual(['yes', 'no']);
-    assertTokenizedModel(detail.content_json, [
-      'ProgressBar',
-      'CardPanel',
+    assertTokenizedModel(saved.content_json, [
       'QuestionHeadline',
       'Subheadline',
       'ButtonAnswerGroup',
+      'ContinueButton',
       'ReassuranceBadge',
-      'LogoStrip',
     ]);
+    // the frame side persisted through the REAL frame API
+    const frame = await fetchFrame(page.request, sc.funnelPublicId);
+    expect(frame['template']).toBe('centered');
+    expect(((frame['trust_strip'] as Record<string, unknown>)['logos'] as unknown[]).length).toBe(2);
   });
 
-  test('pattern 2 — branded HeaderBar/FooterBar, stacked buttons, Back, secure/trust messaging', async ({ page }) => {
-    test.setTimeout(150_000);
-    await openNewStudio(page, `P2 Branded Frame ${uniq}`);
-
-    // branded top header (layout leaf — token/structured props only)
-    await addComponent(page, 'HeaderBar');
-    await openInspectorTab(page, 'layout');
-    const header = containerGroup(page, 'HeaderBar');
-    await header.locator('input[data-container-prop="logoMediaId"]').fill('media_brand_logo');
-    await header.locator('input[data-container-prop="logoAlt"]').fill('Acme Insurance');
-    await header.locator('input[data-container-prop="secure"]').check();
-    await header.locator('input[data-container-prop="secureText"]').fill('Your information is secure');
-
-    await addComponent(page, 'QuestionHeadline');
-    await setContentField(page, 'text', 'Which coverage do you want to compare?');
-
-    // stacked buttons: a vertical Stack (§8.5 token props) holding the group
+  test('pattern 2 — branded header/footer frame, stacked buttons, Back, secure/trust messaging', async ({ page }) => {
+    test.setTimeout(240_000);
+    // UNIT: headline + vertical Stack (token props) holding the answer group.
+    await openNewStudio(page, `P2 Branded Frame ${uniq}`, {
+      headline: 'Which coverage do you want to compare?',
+    });
+    // §5.2: the bound headline/subheadline nodes are pre-seeded on a NEW unit
     await addComponent(page, 'Stack');
     await openInspectorTab(page, 'layout');
     const stack = containerGroup(page, 'Stack');
@@ -537,259 +813,308 @@ test.describe('LeadGen Studio §8.11 — four capability patterns authored throu
     await fillChoiceRow(page, 2, { label: 'Life coverage', value: 'life', analytics_id: 'p2_life' });
     await setInternalField(page, 'coverage_type');
 
-    // Back + secure trust messaging + branded footer at root
-    await addComponent(page, 'BackButton');
-    await setContentField(page, 'label', 'Back');
-    await addComponent(page, 'SecureFormBadge');
-    await setContentField(page, 'text', '256-bit SSL encrypted');
-    await addComponent(page, 'FooterBar');
-    await openInspectorTab(page, 'layout');
-    const footer = containerGroup(page, 'FooterBar');
-    await footer.locator('input[data-container-prop="legalHtml"]').fill('© 2026 Acme Insurance. Terms apply.');
-    await footer.locator('textarea[data-container-prop="trustMessages"]').fill('SSL secured\nNo spam, ever');
-    await footer.locator('textarea[data-container-prop="links"]').fill('Privacy|/privacy\nTerms|/terms');
+    await saveStudio(page);
+    const publicId = publicIdFromUrl(page);
+    const saved = await fetchSection(page.request, publicId);
 
-    await refreshPreview(page);
+    // FRAME: §8.7 B `header-footer` — site logo + tagline + secure badge,
+    // LARGE site footer (logo + links + trust text + legal), back text link
+    // (template default position in_card).
+    const fillers = await ensurePatternFillers(page.request);
+    const site = await ensureBrandedSite(page.request);
+    const sc = await createQuoteWithFrame(page.request, `P2 Quote ${uniq}`, {
+      version: 1,
+      template: 'header-footer',
+      header: {
+        tagline: 'Coverage made simple',
+        secure_badge: { enabled: true, text: 'Your information is secure' },
+      },
+      footer: {
+        enabled: true,
+        links_source: 'manual',
+        links: [
+          { label: 'Privacy', href: '/privacy' },
+          { label: 'Terms', href: '/terms' },
+        ],
+        trust_text: 'No spam, ever',
+        description: '© 2026 Acme Insurance. Terms apply.',
+      },
+    }, [saved.id, ...fillers]);
+
+    await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: 'domcontentloaded' });
+    await waitBootPreview(page);
+    await pickFrameForPreview(page, { ...sc, siteId: site.id }, 'header-footer');
+
     const f = pFrame(page);
-    await expect(f.locator('.lg-headerbar img.lg-headerbar-logo')).toHaveAttribute('src', 'media_brand_logo');
-    await expect(f.locator('.lg-headerbar .lg-headerbar-secure')).toContainText('Your information is secure');
+    // branded site header: logo image + tagline + secure messaging
+    const header = f.locator('[data-frame-region="header"]');
+    await expect(header.locator('img.lg-logo-img')).toBeVisible();
+    await expect(header.locator('.lg-frame-tagline')).toHaveText('Coverage made simple');
+    await expect(header.locator('.lg-secure-badge')).toContainText('Your information is secure');
+    // progress present (template default bar under the header)
+    await expect(f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]')).toBeAttached();
+    // stacked (vertical) answer buttons inside the unit
     await expect(
       f.locator('[data-component-type="Stack"][data-direction="vertical"] .lg-answer-group button[data-lg-choice]'),
     ).toHaveCount(3);
-    await expect(f.locator('[data-component-type="BackButton"]')).toBeVisible();
-    await expect(f.locator('.lg-secure-badge')).toContainText('256-bit SSL encrypted');
-    await expect(f.locator('.lg-footerbar .lg-footerbar-legal')).toContainText('© 2026 Acme Insurance.');
-    await expect(f.locator('.lg-footerbar .lg-footerbar-link')).toHaveCount(2);
-    await expect(f.locator('.lg-footerbar .lg-footerbar-trust-item')).toHaveCount(2);
-    await shootPreview(page, 'pattern-2-desktop.png');
+    // Back affordance — frame-owned (§11.2), rendered at its in_card position
+    await expect(
+      f.locator('[data-frame-region="section_slot"] [data-frame-region="back"] button.lg-back'),
+    ).toBeAttached();
+    // the LARGE branded footer: site logo + links + trust + legal
+    const footer = f.locator('[data-frame-region="footer"]');
+    await expect(footer.locator('img.lg-frame-footer-logo')).toBeAttached();
+    await expect(footer.locator('.lg-footerbar-link')).toHaveCount(2);
+    await expect(footer.locator('.lg-footerbar-trust-item')).toHaveCount(1);
+    await expect(footer.locator('.lg-footerbar-legal')).toContainText('© 2026 Acme Insurance.');
+    await shootComposed(page, 'pattern-2-desktop.png');
 
-    await setPreviewViewport(page, 'mobile');
-    await expect(f.locator('.lg-headerbar')).toBeVisible();
-    await shootPreview(page, 'pattern-2-mobile.png');
+    await setComposedViewport(page, 'mobile', 'header-footer');
+    await expect(header).toBeVisible();
+    await shootComposed(page, 'pattern-2-mobile.png');
 
-    await saveStudio(page);
-    const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const comps = detail.content_json.components;
-    expect(comps.map((c) => c.type)).toEqual([
-      'HeaderBar',
-      'QuestionHeadline',
-      'Stack',
-      'BackButton',
-      'SecureFormBadge',
-      'FooterBar',
-    ]);
-    expect(comps[0]!.props).toEqual({
-      logoMediaId: 'media_brand_logo',
-      logoAlt: 'Acme Insurance',
-      secure: true,
-      secureText: 'Your information is secure',
-    });
+    // saved UNIT model — Stack props are exactly the picked §8.5 tokens
+    // (the two §5.2 bound nodes lead every new unit)
+    const comps = saved.content_json.components;
+    expect(comps.map((c) => c.type)).toEqual(['QuestionHeadline', 'Subheadline', 'Stack']);
     expect(comps[2]!.props).toEqual({ direction: 'vertical', gap: 's', align: 'stretch' });
     expect((comps[2]!.children ?? []).map((c) => c.type)).toEqual(['ButtonAnswerGroup']);
-    expect(comps[5]!.props).toEqual({
-      legalHtml: '© 2026 Acme Insurance. Terms apply.',
-      trustMessages: ['SSL secured', 'No spam, ever'],
-      links: [
-        { label: 'Privacy', href: '/privacy' },
-        { label: 'Terms', href: '/terms' },
-      ],
-    });
-    assertTokenizedModel(detail.content_json, [
-      'HeaderBar',
-      'QuestionHeadline',
-      'Stack',
-      'ButtonAnswerGroup',
-      'BackButton',
-      'SecureFormBadge',
-      'FooterBar',
-    ]);
+    const group = (comps[2]!.children ?? [])[0]!;
+    expect(group.internal_field).toBe('coverage_type');
+    expect((group.choices ?? []).map((c) => c['value'])).toEqual(['home', 'auto', 'life']);
+    assertTokenizedModel(saved.content_json, ['QuestionHeadline', 'Subheadline', 'Stack', 'ButtonAnswerGroup']);
+    // frame persistence: tagline + secure text stored on the funnel frame
+    const frame = await fetchFrame(page.request, sc.funnelPublicId);
+    expect(frame['template']).toBe('header-footer');
+    const storedHeader = frame['header'] as Record<string, unknown>;
+    expect(storedHeader['tagline']).toBe('Coverage made simple');
+    expect((storedHeader['secure_badge'] as Record<string, unknown>)['text']).toBe(
+      'Your information is secure',
+    );
   });
 
-  test('pattern 3 — header with logo + call CTA, large question, answer buttons, bottom trust bar', async ({ page }) => {
-    test.setTimeout(150_000);
-    await openNewStudio(page, `P3 Call CTA Header ${uniq}`);
-
-    await addComponent(page, 'HeaderBar');
-    await openInspectorTab(page, 'layout');
-    const header = containerGroup(page, 'HeaderBar');
-    await header.locator('input[data-container-prop="logoMediaId"]').fill('media_brand_logo');
-    await header.locator('input[data-container-prop="logoAlt"]').fill('Acme');
-    // the call CTA rides the §8.5 cta{label,tel} shape — pickers/inputs only
-    await header.locator('input[data-container-cta="label"]').fill('Call (800) 555-0199');
-    await header.locator('input[data-container-cta="tel"]').fill('+18005550199');
-
-    await addComponent(page, 'QuestionHeadline');
-    await setContentField(page, 'text', 'How much coverage do you need?');
-
-    await addComponent(page, 'ButtonAnswerGroup');
-    await openInspectorTab(page, 'choices');
-    await fillChoiceRow(page, 0, { label: 'Up to $250,000', value: 'lt_250k', analytics_id: 'p3_lt250' });
-    await fillChoiceRow(page, 1, { label: '$250,000 – $1M', value: '250k_1m', analytics_id: 'p3_250_1m' });
-    await page.locator('#lg-choice-add').click();
-    await fillChoiceRow(page, 2, { label: 'More than $1M', value: 'gt_1m', analytics_id: 'p3_gt1m' });
-    await setInternalField(page, 'coverage_band');
-
-    // bottom trust bar. NOTE (§8.5 vs studio surface): TrustBar's icon/text
-    // PAIRS have no inspector control (contract 08 §8.5 lists them as
-    // authorable props) — the component is placeable and renders its (empty)
-    // bar; the item-authoring gap is reported in the slice report.
-    await addComponent(page, 'TrustBar');
-
-    await refreshPreview(page);
-    const f = pFrame(page);
-    const cta = f.locator('.lg-headerbar .lg-headerbar-cta');
-    await expect(cta).toHaveText('Call (800) 555-0199');
-    expect(await cta.getAttribute('href')).toContain('8005550199');
-    await expect(f.locator('[data-component-type="QuestionHeadline"]')).toHaveText(
-      'How much coverage do you need?',
-    );
-    await expect(f.locator('.lg-answer-group button[data-lg-choice]')).toHaveCount(3);
-    await expect(f.locator('[data-component-type="TrustBar"]')).toHaveCount(1);
-    await shootPreview(page, 'pattern-3-desktop.png');
-
-    await setPreviewViewport(page, 'mobile');
-    await expect(f.locator('.lg-headerbar .lg-headerbar-cta')).toBeAttached();
-    await shootPreview(page, 'pattern-3-mobile.png');
+  test('pattern 3 — header with logo + call CTA, large question, ZIP + Next, disclosure + benefit bar', async ({ page }) => {
+    test.setTimeout(240_000);
+    // UNIT: §8.7 C — large headline/sub, ZIP input, Next button. (The §6.5
+    // input-icon quick control is a REGISTERED schema-bounded gap — DEV-64b —
+    // so the icon leg is not asserted.)
+    await openNewStudio(page, `P3 Call CTA Header ${uniq}`, {
+      headline: 'How much coverage do you need?',
+      subheadline: 'Compare rates in your area.',
+    });
+    // §5.2: the bound headline/subheadline nodes are pre-seeded on a NEW unit
+    await addComponent(page, 'ZIPInputQuestion');
+    await setContentField(page, 'placeholder', 'ZIP code');
+    await setInternalField(page, 'zip');
+    await addComponent(page, 'ContinueButton');
+    await setContentField(page, 'label', 'Next');
 
     await saveStudio(page);
-    const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const comps = detail.content_json.components;
-    expect(comps.map((c) => c.type)).toEqual(['HeaderBar', 'QuestionHeadline', 'ButtonAnswerGroup', 'TrustBar']);
-    expect(comps[0]!.props).toEqual({
-      logoMediaId: 'media_brand_logo',
-      logoAlt: 'Acme',
-      cta: { label: 'Call (800) 555-0199', tel: '+18005550199' },
-    });
-    assertTokenizedModel(detail.content_json, ['HeaderBar', 'QuestionHeadline', 'ButtonAnswerGroup', 'TrustBar']);
+    const publicId = publicIdFromUrl(page);
+    const saved = await fetchSection(page.request, publicId);
+
+    // FRAME: §8.7 C `header-cta` — disclosure top bar (template), call CTA,
+    // benefit bar below the unit, back link below the card (template).
+    const fillers = await ensurePatternFillers(page.request);
+    const site = await ensureBrandedSite(page.request);
+    const sc = await createQuoteWithFrame(page.request, `P3 Quote ${uniq}`, {
+      version: 1,
+      template: 'header-cta',
+      header: {
+        cta: { enabled: true, label: 'Call (800) 555-0199', tel: '+18005550199' },
+      },
+      disclosure: {
+        enabled: true,
+        location: 'top_bar',
+        link_label: 'Advertising Disclosure',
+        text: 'We may receive compensation from our partners.',
+      },
+      benefit_bar: {
+        enabled: true,
+        items: [
+          { icon: '✓', text: 'Free quotes' },
+          { icon: '⚡', text: '2-minute process' },
+        ],
+        placement: 'below_unit',
+      },
+    }, [saved.id, ...fillers]);
+
+    await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: 'domcontentloaded' });
+    await waitBootPreview(page);
+    await pickFrameForPreview(page, { ...sc, siteId: site.id }, 'header-cta');
+
+    const f = pFrame(page);
+    // disclosure top bar
+    await expect(f.locator('[data-frame-region="disclosure"] .lg-disclosure').first()).toHaveText(
+      'Advertising Disclosure',
+    );
+    // header: logo + the call CTA (tel: link derived from the config)
+    await expect(f.locator('[data-frame-region="header"] img.lg-logo-img')).toBeVisible();
+    const cta = f.locator('.lg-frame-header-cta');
+    await expect(cta).toHaveText('Call (800) 555-0199');
+    expect(await cta.getAttribute('href')).toContain('8005550199');
+    // progress present
+    await expect(f.locator('[data-frame-region="progress"] .lg-progress[role="progressbar"]')).toBeAttached();
+    // the unit: large question + ZIP + Next
+    await expect(f.locator('h1.lg-headline')).toHaveText('How much coverage do you need?');
+    // the ZIP preset IS the input element (hydration attrs ride the <input>)
+    const zipInput = f.locator('input[data-component-type="ZIPInputQuestion"]');
+    await expect(zipInput).toHaveAttribute('inputmode', 'numeric');
+    await expect(zipInput).toHaveAttribute('maxlength', '5');
+    await expect(f.locator('button.lg-continue')).toHaveText('Next');
+    // benefit bar below the unit (TrustBar preset over config items)
+    await expect(f.locator('[data-frame-region="benefit_bar"] .lg-trustbar-item')).toHaveCount(2);
+    // back link at the template's below-card position
+    await expect(
+      f.locator('[data-frame-region="back"].lg-frame-back--pos-below_card button.lg-back'),
+    ).toBeAttached();
+    await shootComposed(page, 'pattern-3-desktop.png');
+
+    await setComposedViewport(page, 'mobile', 'header-cta');
+    await expect(f.locator('.lg-frame-header-cta')).toBeAttached();
+    await shootComposed(page, 'pattern-3-mobile.png');
+
+    // saved UNIT model
+    const comps = saved.content_json.components;
+    expect(comps.map((c) => c.type)).toEqual([
+      'QuestionHeadline',
+      'Subheadline',
+      'ZIPInputQuestion',
+      'ContinueButton',
+    ]);
+    expect(comps[2]!.internal_field).toBe('zip');
+    expect(comps[2]!.props).toMatchObject({ placeholder: 'ZIP code' });
+    expect(comps[3]!.props).toMatchObject({ label: 'Next' });
+    assertTokenizedModel(saved.content_json, [
+      'QuestionHeadline',
+      'Subheadline',
+      'ZIPInputQuestion',
+      'ContinueButton',
+    ]);
+    // frame persistence: the call CTA config
+    const frame = await fetchFrame(page.request, sc.funnelPublicId);
+    expect(frame['template']).toBe('header-cta');
+    const storedCta = (frame['header'] as Record<string, unknown>)['cta'] as Record<string, unknown>;
+    expect(storedCta['label']).toBe('Call (800) 555-0199');
+    expect(storedCta['tel']).toBe('+18005550199');
   });
 
   test('pattern 4 — full-background design with centered card, step indicator, answer cards with title+subtext, Back, legal footer', async ({ page }) => {
-    test.setTimeout(150_000);
-    await openNewStudio(page, `P4 Background Card ${uniq}`);
-
-    // the full background (§8.5 BackgroundPanel — approved gradient token)
-    await addComponent(page, 'BackgroundPanel');
-    await openInspectorTab(page, 'layout');
-    await containerGroup(page, 'BackgroundPanel')
-      .locator('select[data-container-prop="gradient"]')
-      .selectOption('primary');
-    // the centered card INTO the background panel
-    await addComponent(page, 'CardPanel');
-    await openInspectorTab(page, 'layout');
-    const card = containerGroup(page, 'CardPanel');
-    await card.locator('select[data-container-prop="width"]').selectOption('m');
-    await card.locator('select[data-container-prop="padding"]').selectOption('m');
-    // multi-step progress INTO the card: steps/current authored through the
-    // §8.6 Layout-tab numeric inputs (the P4 fix closed the §8.11 "multi-step"
-    // authoring gap — a genuine steps=4/current=2 indicator, not the 1-dot
-    // default).
-    await addComponent(page, 'StepIndicator');
-    await openInspectorTab(page, 'layout');
-    const stepCtl = containerGroup(page, 'StepIndicator');
-    await stepCtl.locator('input[data-container-prop="steps"]').fill('4');
-    await stepCtl.locator('input[data-container-prop="current"]').fill('2');
-    await addAfterSelected(page, 'QuestionHeadline');
-    await setContentField(page, 'text', 'Who is the coverage for?');
-    // answer cards with title + subtext (icon card grid choices carry
-    // label + description — both edited via the Choices tab)
-    await addAfterSelected(page, 'IconCardAnswerGrid');
+    test.setTimeout(240_000);
+    // UNIT: §8.7 D — question + answer cards with title+subtitle (§8.4 choice
+    // depth via the Choices tab). The white card + step dots + background +
+    // legal footer are the FRAME (template `full-background`).
+    await openNewStudio(page, `P4 Background Card ${uniq}`, {
+      headline: 'Who is the coverage for?',
+    });
+    // §5.2: the bound headline/subheadline nodes are pre-seeded on a NEW unit
+    await addComponent(page, 'IconCardAnswerGrid');
     await openInspectorTab(page, 'choices');
     await fillChoiceRow(page, 0, {
       label: 'For me',
       value: 'self',
       analytics_id: 'p4_self',
       icon: '🙋',
-      description: 'Coverage for yourself',
+      title: 'For me',
+      subtitle: 'Coverage for yourself',
     });
     await fillChoiceRow(page, 1, {
       label: 'For my family',
       value: 'family',
       analytics_id: 'p4_family',
       icon: '👪',
-      description: 'Protect the whole household',
+      title: 'For my family',
+      subtitle: 'Protect the whole household',
     });
     await setInternalField(page, 'coverage_for');
-    // Back control inside the card
-    await addAfterSelected(page, 'BackButton');
-    // legal footer at root, after the background panel
-    await addComponent(page, 'FooterBar');
-    await openInspectorTab(page, 'layout');
-    await containerGroup(page, 'FooterBar')
-      .locator('input[data-container-prop="legalHtml"]')
-      .fill('Rates depend on underwriting. © 2026 Acme.');
-
-    await refreshPreview(page);
-    const f = pFrame(page);
-    const stepsEl = f.locator('.lg-bg-panel .lg-card-panel .lg-steps[role="progressbar"]');
-    await expect(stepsEl).toBeAttached();
-    // the AUTHORED multi-step state renders: 4 dots, the 2nd active, with the
-    // a11y value mirrors (renderStepIndicator contract)
-    await expect(stepsEl).toHaveAttribute('aria-valuemax', '4');
-    await expect(stepsEl).toHaveAttribute('aria-valuenow', '2');
-    await expect(stepsEl.locator('.lg-step')).toHaveCount(4);
-    await expect(stepsEl.locator('.lg-step[data-active="true"]')).toHaveCount(1);
-    await expect(stepsEl.locator('.lg-step').nth(1)).toHaveAttribute('data-active', 'true');
-    await expect(f.locator('.lg-bg-panel .lg-card-panel [data-component-type="QuestionHeadline"]')).toHaveText(
-      'Who is the coverage for?',
-    );
-    const cards = f.locator('.lg-bg-panel .lg-card-panel .lg-card-grid button.lg-card');
-    await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0).locator('.lg-card-title')).toHaveText('For me');
-    await expect(cards.nth(0).locator('.lg-card-desc')).toHaveText('Coverage for yourself');
-    await expect(cards.nth(1).locator('.lg-card-title')).toHaveText('For my family');
-    await expect(cards.nth(1).locator('.lg-card-desc')).toHaveText('Protect the whole household');
-    await expect(f.locator('.lg-card-panel [data-component-type="BackButton"]')).toBeVisible();
-    await expect(f.locator('.lg-footerbar .lg-footerbar-legal')).toContainText('Rates depend on underwriting.');
-    await shootPreview(page, 'pattern-4-desktop.png');
-
-    await setPreviewViewport(page, 'mobile');
-    await expect(f.locator('.lg-bg-panel .lg-card-panel')).toBeVisible();
-    await shootPreview(page, 'pattern-4-mobile.png');
 
     await saveStudio(page);
-    const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const comps = detail.content_json.components;
-    expect(comps.map((c) => c.type)).toEqual(['BackgroundPanel', 'FooterBar']);
-    expect(comps[0]!.props).toEqual({ gradient: 'primary' });
-    const cardNode = (comps[0]!.children ?? [])[0]!;
-    expect(cardNode.type).toBe('CardPanel');
-    expect(cardNode.props).toEqual({ width: 'm', padding: 'm' });
-    expect((cardNode.children ?? []).map((c) => c.type)).toEqual([
-      'StepIndicator',
-      'QuestionHeadline',
-      'IconCardAnswerGrid',
-      'BackButton',
+    const publicId = publicIdFromUrl(page);
+    const saved = await fetchSection(page.request, publicId);
+
+    // FRAME: `full-background` template = brand background + floating logo +
+    // step DOTS above the white card slot (progress counts the REAL 3-slide
+    // variant — the v2.5 model authors multi-step state by funnel length,
+    // not hand-typed numerals) + legal footer.
+    const fillers = await ensurePatternFillers(page.request);
+    const site = await ensureBrandedSite(page.request);
+    const sc = await createQuoteWithFrame(page.request, `P4 Quote ${uniq}`, {
+      version: 1,
+      template: 'full-background',
+      footer: {
+        enabled: true,
+        links_source: 'manual',
+        description: 'Rates depend on underwriting. © 2026 Acme.',
+      },
+    }, [saved.id, ...fillers]);
+
+    await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: 'domcontentloaded' });
+    await waitBootPreview(page);
+    await pickFrameForPreview(page, { ...sc, siteId: site.id }, 'full-background');
+
+    const f = pFrame(page);
+    // the brand background layer
+    await expect(f.locator('[data-frame-region="background"]')).toHaveClass(/lg-frame-bg-style-brand/);
+    // branded logo above the card
+    await expect(f.locator('[data-frame-region="logo"] img.lg-logo-img')).toBeVisible();
+    // step DOTS with the real multi-step values (3-slide variant, step 1)
+    const steps = f.locator('[data-frame-region="progress"] .lg-steps[role="progressbar"]');
+    await expect(steps).toBeAttached();
+    await expect(steps).toHaveAttribute('aria-valuemax', '3');
+    await expect(steps.locator('.lg-step')).toHaveCount(3);
+    await expect(steps.locator('.lg-step[data-active="true"]')).toHaveCount(1);
+    // the white centered card = the slot in card mode, holding the unit
+    await expect(f.locator('[data-frame-region="section_slot"]')).toHaveClass(/lg-frame-slot--card/);
+    await expect(f.locator('h1.lg-headline')).toHaveText('Who is the coverage for?');
+    // answer cards with title + subtext (§8.4 title/subtitle slots)
+    const cards = f.locator('.lg-card-grid button.lg-card');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0).locator('.lg-card-title')).toHaveText('For me');
+    await expect(cards.nth(0).locator('.lg-card-subtitle')).toHaveText('Coverage for yourself');
+    await expect(cards.nth(1).locator('.lg-card-title')).toHaveText('For my family');
+    await expect(cards.nth(1).locator('.lg-card-subtitle')).toHaveText('Protect the whole household');
+    // Back affordance at the template's in-card position
+    await expect(
+      f.locator('[data-frame-region="section_slot"] [data-frame-region="back"] button.lg-back'),
+    ).toBeAttached();
+    // legal footer
+    await expect(f.locator('[data-frame-region="footer"] .lg-footerbar-legal')).toContainText(
+      'Rates depend on underwriting.',
+    );
+    await shootComposed(page, 'pattern-4-desktop.png');
+
+    await setComposedViewport(page, 'mobile', 'full-background');
+    await expect(f.locator('[data-frame-region="section_slot"]')).toBeVisible();
+    await shootComposed(page, 'pattern-4-mobile.png');
+
+    // saved UNIT model — §8.4 choice depth persisted (bound pair leads)
+    const comps = saved.content_json.components;
+    expect(comps.map((c) => c.type)).toEqual(['QuestionHeadline', 'Subheadline', 'IconCardAnswerGrid']);
+    const grid = comps[2]!;
+    expect(grid.internal_field).toBe('coverage_for');
+    expect((grid.choices ?? []).map((c) => [c['value'], c['icon'], c['title'], c['subtitle']])).toEqual([
+      ['self', '🙋', 'For me', 'Coverage for yourself'],
+      ['family', '👪', 'For my family', 'Protect the whole household'],
     ]);
-    expect(
-      (cardNode.children ?? [])[0]!.props,
-      'StepIndicator persisted the authored steps/current numerics',
-    ).toEqual({ steps: 4, current: 2 });
-    const grid = (cardNode.children ?? [])[2]!;
-    expect((grid.choices ?? []).map((c) => [c['value'], c['icon'], c['description']])).toEqual([
-      ['self', '🙋', 'Coverage for yourself'],
-      ['family', '👪', 'Protect the whole household'],
-    ]);
-    assertTokenizedModel(detail.content_json, [
-      'BackgroundPanel',
-      'CardPanel',
-      'StepIndicator',
-      'QuestionHeadline',
-      'IconCardAnswerGrid',
-      'BackButton',
-      'FooterBar',
-    ]);
+    assertTokenizedModel(saved.content_json, ['QuestionHeadline', 'Subheadline', 'IconCardAnswerGrid']);
+    const frame = await fetchFrame(page.request, sc.funnelPublicId);
+    expect(frame['template']).toBe('full-background');
   });
 });
 
 // ---------------------------------------------------------------------------
-// §8.12 — the remaining browser flows (①–⑦ live in the studio spec)
+// §8.12 — the remaining browser flows, modernized to the v2.5.1 studio
 // ---------------------------------------------------------------------------
 
-test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
-  test('create a Yes/No slide: TwoButtonYesNo via the library, labels via the Content tab', async ({ page }) => {
+test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
+  test('create a Yes/No slide: "Yes / No" via the Answer-choices palette group, labels via the Content tab', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `YesNo Slide ${uniq}`);
 
+    // §8.3: the item lives in the intent-first "Answer choices" group under
+    // its operator label ("Yes / No" — type ids never surface).
+    const item = page.locator('[data-library-group="choices"] [data-add-component="TwoButtonYesNo"]');
+    await expect(item.locator('.studio-item-name')).toHaveText('Yes / No');
     await addComponent(page, 'TwoButtonYesNo');
     await setContentField(page, 'yesLabel', 'Yes, I am');
     await setContentField(page, 'noLabel', 'Not yet');
@@ -803,8 +1128,13 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const node = detail.content_json.components[0]!;
-    expect(node.type).toBe('TwoButtonYesNo');
+    // the §5.2 bound headline/subheadline pair leads every UI-authored unit
+    expect(detail.content_json.components.map((c) => c.type)).toEqual([
+      'QuestionHeadline',
+      'Subheadline',
+      'TwoButtonYesNo',
+    ]);
+    const node = detail.content_json.components[2]!;
     expect(node.internal_field).toBe('currently_insured');
     expect(node.props).toMatchObject({ yesLabel: 'Yes, I am', noLabel: 'Not yet' });
   });
@@ -834,13 +1164,16 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
         },
       ],
     });
+    // §5.3 mode-5: attached to a quote so the unit-mode sims keep hydrating
+    await attachToQuote(page.request, `Dep Dropdown Quote ${uniq}`, [section.id], `${VERT}-seeded`);
 
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
 
-    // author the §6.10 IF/THEN dependency through the visual builder ONLY
+    // author the §6.10 IF/THEN dependency through the visual builder ONLY —
+    // selection is announced by the §7.1 scope header (operator label)
     await page.locator('#lg-studio-canvas-render [data-component-type="DropdownQuestion"]').click();
-    await expect(page.locator('#lg-inspector-target')).toContainText('(DropdownQuestion)');
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Dropdown');
     await openInspectorTab(page, 'dependencies');
     await page.locator('[data-inspector-cond="when"]').selectOption('currently_insured');
     const boolValue = page.locator('[data-inspector-cond="value-bool"]');
@@ -916,6 +1249,8 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
         },
       ],
     });
+    // §5.3 mode-5: attached so unit-mode sims keep hydrating (see header)
+    await attachToQuote(page.request, `Reveal Pin Quote ${uniq}`, [section.id], `${VERT}-seeded`);
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
     const f = pFrame(page);
@@ -934,7 +1269,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
   });
 
   test('ZIP validation slide: required ZIP authored via inspectors; error + validation-error sims render the runtime messages', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(150_000);
     await openNewStudio(page, `ZIP Slide ${uniq}`);
 
     await addComponent(page, 'ZIPInputQuestion');
@@ -944,14 +1279,19 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
     await setInternalField(page, 'zip');
 
     await saveStudio(page);
-    const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const zip = detail.content_json.components[0]!;
+    const publicId = publicIdFromUrl(page);
+    const detail = await fetchSection(page.request, publicId);
+    const zip = detail.content_json.components[2]!; // after the §5.2 bound pair
     expect(zip.type).toBe('ZIPInputQuestion');
     expect(zip.required).toBe(true);
     expect(zip.props).toMatchObject({ placeholder: 'ZIP code' });
 
-    // §9.2 error sim (required-but-empty): runtime-verbatim message
+    // §5.3 mode-5: attach + reload so the unit-mode sims keep hydrating
+    await attachToQuote(page.request, `ZIP Quote ${uniq}`, [detail.id], VERT);
+    await page.goto(`/admin/leadgen/sections/${publicId}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
+
+    // §9.2 error sim (required-but-empty): runtime-verbatim message
     const f = pFrame(page);
     await markPreviewStale(page);
     await page.locator('[data-sim-state="error"]').click();
@@ -972,10 +1312,14 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
     await expect(f.locator('[data-lg-error-for="zip"]')).toHaveText('The value has an invalid format.');
   });
 
-  test('personal-details slide: NameFieldsGroup + Email + Phone via the library', async ({ page }) => {
+  test('personal-details slide: Name + Email + Phone via the Inputs palette group', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Personal Details ${uniq}`);
 
+    // §8.3: all three live in the intent-first "Inputs" group
+    for (const type of ['NameFieldsGroup', 'EmailInputQuestion', 'PhoneInputQuestion']) {
+      await expect(page.locator(`[data-library-group="inputs"] [data-add-component="${type}"]`)).toHaveCount(1);
+    }
     await addComponent(page, 'NameFieldsGroup');
     await addComponent(page, 'EmailInputQuestion');
     await setContentField(page, 'placeholder', 'you@example.com');
@@ -994,21 +1338,28 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
     expect(detail.content_json.components.map((c) => c.type)).toEqual([
+      'QuestionHeadline', // §5.2 bound pair leads every UI-authored unit
+      'Subheadline',
       'NameFieldsGroup',
       'EmailInputQuestion',
       'PhoneInputQuestion',
     ]);
     expect(detail.content_json.components.map((c) => c.internal_field ?? null)).toEqual([
       null,
+      null,
+      null,
       'email',
       'phone',
     ]);
   });
 
-  test('icon card grid: choices with icons edited via the Choices tab', async ({ page }) => {
+  test('icon card grid: "Icon answer cards" choices with icons edited via the Choices tab', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Icon Grid ${uniq}`);
 
+    await expect(
+      page.locator('[data-library-group="choices"] [data-add-component="IconCardAnswerGrid"] .studio-item-name'),
+    ).toHaveText('Icon answer cards');
     await addComponent(page, 'IconCardAnswerGrid');
     await openInspectorTab(page, 'choices');
     await fillChoiceRow(page, 0, { label: 'Sole proprietor', value: 'sole', analytics_id: 'b_sole', icon: '🏢' });
@@ -1028,7 +1379,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const grid = detail.content_json.components[0]!;
+    const grid = detail.content_json.components[2]!; // after the §5.2 bound pair
     expect(grid.type).toBe('IconCardAnswerGrid');
     expect((grid.choices ?? []).map((c) => [c['value'], c['icon']])).toEqual([
       ['sole', '🏢'],
@@ -1061,7 +1412,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const range = detail.content_json.components[0]!;
+    const range = detail.content_json.components[2]!; // after the §5.2 bound pair
     expect(range.type).toBe('RangeQuestion');
     expect(range.internal_field).toBe('coverage_amount');
     expect(range.props).toMatchObject({ min: 10, max: 500, step: 5, minLabel: 'Low', maxLabel: 'High' });
@@ -1106,7 +1457,8 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    const group = detail.content_json.components[0]!;
+    const group = detail.content_json.components[2]!; // after the §5.2 bound pair
+    expect(group.type).toBe('ButtonAnswerGroup');
     expect((group.choices ?? []).map((c) => c['value'])).toEqual(['toyota', 'honda', 'kia', 'tesla']);
     expect(group.choiceDisplay).toEqual({
       otherGroupEnabled: true,
@@ -1117,7 +1469,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 
   test('choiceDisplay-only edit persists: toggling ONLY "Enable Other group" then saving must not lose the setting', async ({ page }) => {
     test.setTimeout(120_000);
-    // The §8.6 Choices tab owns main/Other grouping (B9). An operator whose
+    // The Choices tab owns main/Other grouping (B9 §6.4). An operator whose
     // LAST edit is the group toggle itself (no subsequent choice-row edit)
     // must not silently lose it on save — order independence.
     await ensureFeederOffer(page.request);
@@ -1138,8 +1490,12 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
 
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
-    await page.locator('#lg-studio-canvas-render [data-component-type="ButtonAnswerGroup"]').click();
-    await expect(page.locator('#lg-inspector-target')).toContainText('(ButtonAnswerGroup)');
+    // §6.4: clicking a choice button focuses the CHOICE scope; the Component
+    // pill lifts back to the component whose Choices tab carries the toggle.
+    await page.locator('#lg-studio-canvas-render [data-lg-choice="toyota"]').click();
+    await expect(page.locator('[data-scope-editing-name]')).toContainText('Answer choice');
+    await page.locator('[data-scope-pill="component"]').first().click();
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Simple answer buttons');
     await openInspectorTab(page, 'choices');
     await page.locator('[data-choicedisplay="otherGroupEnabled"]').check();
 
@@ -1178,6 +1534,8 @@ test.describe('LeadGen Studio §8.12 — remaining flows (Slice F)', () => {
         },
       ],
     });
+    // §5.3 mode-5: attached so unit-mode sims keep hydrating (see header)
+    await attachToQuote(page.request, `Sim States Quote ${uniq}`, [section.id], `${VERT}-seeded`);
 
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);
@@ -1273,6 +1631,10 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     test.setTimeout(150_000);
     await ensureFeederOffer(page.request);
     const section = await createSection(page.request, `Viewport Roundtrip ${uniq}`, ROUNDTRIP_CONTENT);
+    // §5.3 mode-5: attached so the unit-mode viewport previews keep their
+    // data-viewport/data-lg-ready markers (zero-usage Sections now compose
+    // into the STATIC default frame — see the file header note)
+    await attachToQuote(page.request, `Roundtrip Quote ${uniq}`, [section.id], `${VERT}-seeded`);
 
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
     await waitBootPreview(page);

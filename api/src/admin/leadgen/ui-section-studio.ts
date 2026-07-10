@@ -21,6 +21,43 @@
 // would-fire events arrive by postMessage). §8.8 Maps field-level UI stays a
 // later slice.
 //
+// v2.5 redesign, Section Studio WAVE 1 of 2 (contract-v2.5 05/07/08/02):
+// §5.1 Question strip (canonical headline/subheadline editors + Continue
+// behavior + frame note + hidden-in-unit chips), §5.2 headline binding UX
+// (bound-node seeding for NEW Sections, strip⇄canvas⇄inspector ONE store,
+// palette bound inserts + disable tooltip, legacy link banner — both cases,
+// delete→chip→[Show] re-insert), §5.4 unit-only canvas scope (Frame hint
+// skeleton toggle + the amber page-frame badge with a DISABLED/pending Move
+// affordance), §8.3 intent-first palette groups + Quote-Builder callout + C7
+// trust scope note, §7.1–§7.4 scope-aware inspector (scope header + pills +
+// aria-live retarget, DYNAMIC per-selection tabs, operator-word relabeling,
+// consequence-inline rename copy, Advanced-only ids/bind marker + the §7.5
+// console-only section_advanced_opened event), A5 image_alt sample fixes and
+// the A6 image_fit component prop (Design-tab control).
+// WAVE 2 (this file, shipped): the §6 canvas-toolbar contract (§6.1 anatomy
+// 1–9: clickable breadcrumb crumbs, toolbar-hosted scope pills (ONE pill
+// implementation with the inspector, §6.1.2), REQUIRED undo/redo (≥30-step
+// in-memory history per open editor, cleared on Save, ⌘Z/⇧⌘Z), canvas
+// viewport toggle (server-rendered `viewport` param), structure cluster
+// (+ Group→Grid/Columns + Ungroup splice), layout/text/component clusters,
+// §6.6 named presets over KV `lg-component-presets` with the Design-tab
+// saved-presets dropdown), §6.5 context matrix (pure toolbarClustersFor),
+// §6.2 canvas interaction (dblclick inline text editing, per-choice
+// selection, inline choice ops, width-preset resize snap, Del/Esc keys),
+// §6.4 choice cluster, §5.4 Move-to-Quote-frame semantics (single-funnel
+// confirm naming the funnel → real PUT /funnels/:id/frame + node removal
+// persisted on the same action; used-by-many → funnel picker), §5.3 mode 5
+// Preview-in-Quote-frame (frame picker + site selector → the landed
+// sections/preview frame_context param; exact empty-state copy), §5.5 choice
+// depth (per-choice icon/emoji/image picker cells, title/subtitle/badge/
+// disabled/aria_label, bulk paste label = value, searchable-dropdown toggle),
+// §7.3 C1 Choices separation (NO provider-value control; the read-only
+// "Provider values: k/n Offers" chip over the DEV-55 per-offer projection),
+// §9.4 Design-tab role swatch rows (role-name values, inheritance source
+// line, Reset to inherited, legacy-hex Convert affordance), §9.5 Section
+// role-overrides drawer mode, and the Advanced raw-JSON read-only view with
+// the explicit "Edit raw…" confirm.
+//
 // House rules carried over from ui-question-builder: ONE strict-ES5 inline
 // island (no arrow/const/let/async/await/backtick — the layout.ts constraint,
 // asserted by the ES5 parse test); bootstrap data rides
@@ -40,6 +77,7 @@
 import { escapeHtml } from "../templates/layout";
 import { COMPONENT_CATALOG, type ComponentType } from "../../public/leadgen/components/registry";
 import {
+  COLOR_TYPED_OVERRIDE_KEYS,
   CURATED_DESIGN_OVERRIDE_KEYS,
   LEADGEN_BG_PANEL_BACKGROUNDS,
   LEADGEN_BG_PANEL_GRADIENTS,
@@ -63,6 +101,9 @@ import {
   type RequiredSpec,
 } from "../../public/leadgen/components/content-schema";
 import { renderComponent, renderSectionComponents } from "../../public/leadgen/components/presets";
+// v2.5 09 §9.1/§9.4/§9.5: the 14 semantic roles + the resolved role→value
+// table (swatch chips, legacy-hex Convert matching) ride the studio meta blob.
+import { FUNNEL_TOKEN_ROLES, resolveTokens } from "../../public/leadgen/designs/theme";
 import { FUNNEL_DESIGNS, getFunnelDesign, type FunnelDesign } from "../../public/leadgen/designs/registry";
 import {
   FUNNEL_DESIGN_SCOPE_ATTR,
@@ -79,11 +120,23 @@ interface StudioGroup {
   types: readonly ComponentType[];
 }
 
-// Every catalog type appears in EXACTLY ONE group (lockstep-guarded by the
-// studio test). HeaderLogo and DisclosureLink are not named in the §8.3 lists;
-// they stay placeable under Layout / Trust & affordance respectively.
+// v2.5 08 §8.3: the six intent-first Section palette groups. The palette
+// carries ONLY `unit`/`both` scope types (§8.2 D5) — every `frame` scope type
+// (ProgressBar, StepIndicator, HeaderLogo, BackButton, DisclosureLink,
+// HeaderBar, FooterBar, BackgroundPanel) is REMOVED from the palette; the
+// dismissible callout in renderStudioLibrary points to the Quote Builder for
+// them. Lockstep-guarded by the studio test: groups = the catalog's
+// unit ∪ both set exactly once; frame types placed ZERO times. Legacy
+// frame-scope nodes already stored in content keep rendering on the canvas
+// (with the §5.4 amber badge, island-side).
+//
+// C6 note (07 §7.4 / 02 §2.4): the §8.3 table names the last group "Slide
+// navigation", but "slide" is FORBIDDEN vocabulary inside the Section Builder
+// (C6 — Quote-Builder-only term); the C6 lint leg scans every emitted studio
+// string. The group renders as "Navigation" here — deviation documented in
+// the slice report.
 export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
-  { key: "questions", label: "Questions", types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText"] },
+  { key: "question-copy", label: "Question copy", types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText"] },
   {
     key: "choices",
     label: "Answer choices",
@@ -118,66 +171,74 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
   },
   {
     key: "layout",
-    label: "Layout",
-    types: ["CardPanel", "Stack", "GridContainer", "Columns", "Spacer", "HeaderBar", "FooterBar", "BackgroundPanel", "HeaderLogo"],
+    label: "Inside-card layout",
+    types: ["CardPanel", "Stack", "GridContainer", "Columns", "Spacer"],
   },
   {
     key: "trust",
-    label: "Trust & affordance",
-    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState", "DisclosureLink"],
+    label: "Trust & help — inside this question unit",
+    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState"],
   },
   {
     key: "navigation",
     label: "Navigation",
-    types: ["ContinueButton", "AutoAdvanceButton", "BackButton", "ProgressBar", "StepIndicator"],
+    types: ["ContinueButton", "AutoAdvanceButton"],
   },
 ];
 
-// §8.3 plain name + one-line description per placeable type.
+// §8.3 C7 scope note under the Trust & help group (verbatim).
+export const STUDIO_TRUST_SCOPE_NOTE =
+  "These travel with this Section, inside the question unit. Funnel-wide trust strips, logo rows and the legal footer are configured in the Quote Builder.";
+
+// §8.3 plain name + one-line "use when" description per type. Display names
+// and quoted descriptions follow the 08 §8.3 table VERBATIM where given;
+// frame-scope types keep operator labels (they are no longer placeable, but
+// legacy nodes still need operator words for the scope header / breadcrumb /
+// badge). C6: no "slide" anywhere on this surface.
 const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: string }> = {
   ProgressBar: { label: "Progress bar", description: "Step or percent progress across the funnel." },
   HeaderLogo: { label: "Header logo", description: "Brand logo slot for the funnel header." },
-  BackButton: { label: "Back / Previous", description: "Returns the visitor to the previous slide." },
+  BackButton: { label: "Back / Previous", description: "Returns the visitor to the previous question." },
   DisclosureLink: { label: "Disclosure link", description: "Expandable legal / advertiser disclosure." },
   StepIndicator: { label: "Step indicator", description: "Multi-step dot indicator with current step." },
   CategoryLabel: { label: "Category label", description: "Uppercase kicker above the question headline." },
-  QuestionHeadline: { label: "Question headline", description: "The main question copy of the slide." },
+  QuestionHeadline: { label: "Question headline", description: "The main question copy of this Section." },
   Subheadline: { label: "Subheadline", description: "Supporting copy under the headline." },
   HelperText: { label: "Helper text", description: "Small reassurance / hint line near a field." },
-  RangeQuestion: { label: "Range slider", description: "Numeric slider between min and max." },
-  CurrencyRangeQuestion: { label: "Currency range", description: "Currency-formatted slider (loan amounts)." },
-  NumberRangeQuestion: { label: "Number range", description: "Plain numeric slider variant." },
-  ButtonAnswerGroup: { label: "Button answer group", description: "One-tap answer buttons, one choice stored." },
-  TwoButtonYesNo: { label: "Two-button yes/no", description: "Yes / No pair storing a boolean answer." },
-  IconCardAnswerGrid: { label: "Icon card grid", description: "Icon cards in a responsive answer grid." },
-  ImageCardAnswerGrid: { label: "Image card grid", description: "Image cards (brand/carrier pickers)." },
-  MultiChoiceCardGroup: { label: "Multi-choice card group", description: "Select several cards (min/max bounded)." },
+  RangeQuestion: { label: "Slider", description: "Numeric slider between min and max." },
+  CurrencyRangeQuestion: { label: "Amount slider", description: "Currency-formatted slider (loan amounts)." },
+  NumberRangeQuestion: { label: "Slider", description: "Plain numeric slider variant." },
+  ButtonAnswerGroup: { label: "Simple answer buttons", description: "One-tap answer choices." },
+  TwoButtonYesNo: { label: "Yes / No", description: "Yes / No pair storing a boolean answer." },
+  IconCardAnswerGrid: { label: "Icon answer cards", description: "Use when each answer has an icon." },
+  ImageCardAnswerGrid: { label: "Image answer cards", description: "Use when each answer has a logo or photo." },
+  MultiChoiceCardGroup: { label: "Multi-select cards", description: "Select several cards (min/max bounded)." },
   DropdownQuestion: { label: "Dropdown", description: "Single-select dropdown of choices." },
   SearchableDropdownQuestion: { label: "Searchable dropdown", description: "Dropdown with a client-side search box." },
-  OtherGroupSelector: { label: "Other-group selector", description: "Main choices as buttons plus an Other panel." },
-  FreeTextQuestion: { label: "Free text", description: "Single-line free text input." },
-  NumberInputQuestion: { label: "Number input", description: "Plain numeric input (not a slider)." },
-  CurrencyInputQuestion: { label: "Currency input", description: "Currency-prefixed plain input." },
+  OtherGroupSelector: { label: "Main + “Other” choices", description: "Main choices as buttons plus an Other panel." },
+  FreeTextQuestion: { label: "Text", description: "Single-line free text input." },
+  NumberInputQuestion: { label: "Number", description: "Plain numeric input (not a slider)." },
+  CurrencyInputQuestion: { label: "Amount ($)", description: "Currency-prefixed plain input." },
   EmailInputQuestion: { label: "Email", description: "Email input with format validation." },
   PhoneInputQuestion: { label: "Phone", description: "Phone input with format validation." },
-  NameFieldsGroup: { label: "Name fields", description: "First + last name field pair." },
-  DateQuestion: { label: "Date input", description: "Date input with an allowed range." },
+  NameFieldsGroup: { label: "Name", description: "First + last name field pair." },
+  DateQuestion: { label: "Date", description: "Date input with an allowed range." },
   ZIPInputQuestion: { label: "ZIP", description: "5-digit ZIP input (Maps validation optional)." },
-  AddressAutocompleteQuestion: { label: "Address autocomplete", description: "Street address with Places autocomplete." },
-  ContinueButton: { label: "Continue button", description: "Validates the slide, then continues." },
+  AddressAutocompleteQuestion: { label: "Address", description: "Street address with Places autocomplete." },
+  ContinueButton: { label: "Continue button", description: "Validates the question unit, then continues." },
   AutoAdvanceButton: { label: "Auto-advance", description: "Advances immediately on answer click." },
-  ReassuranceBadge: { label: "Reassurance badge", description: "Icon + copy trust line under the answers." },
+  ReassuranceBadge: { label: "Reassurance badge", description: "Reassurance line inside this question unit." },
   SuccessState: { label: "Success state", description: "Completion panel with heading + message." },
-  SecureFormBadge: { label: "Secure form badge", description: "Lock badge naming the form security." },
-  TrustBar: { label: "Trust bar", description: "Icon/text trust pairs, horizontal or stacked." },
-  LogoStrip: { label: "Logo strip", description: "Carrier / partner logo row." },
-  ValidationError: { label: "Validation error", description: "Inline error slot for a field." },
+  SecureFormBadge: { label: "Secure-form badge", description: "Lock badge naming the form security." },
+  TrustBar: { label: "Trust points", description: "Icon/text trust pairs, horizontal or stacked." },
+  LogoStrip: { label: "Logo row", description: "Carrier / partner logo row." },
+  ValidationError: { label: "Error message line", description: "Inline error line for a field." },
   LegalNote: { label: "Legal note", description: "Small-print legal copy block." },
   Stack: { label: "Stack", description: "Vertical/horizontal token-gap grouping." },
-  GridContainer: { label: "Grid", description: "Per-breakpoint column grid container." },
-  Columns: { label: "Columns", description: "Two-column ratio preset with mobile stacking." },
-  CardPanel: { label: "Card panel", description: "The centered question card container." },
-  BackgroundPanel: { label: "Background panel", description: "Full-background section with token fill." },
+  GridContainer: { label: "Answer grid", description: "Per-breakpoint column grid container." },
+  Columns: { label: "Two columns", description: "Two-column ratio preset with mobile stacking." },
+  CardPanel: { label: "Question card", description: "The centered question card container." },
+  BackgroundPanel: { label: "Background panel", description: "Full-background panel with token fill." },
   Spacer: { label: "Spacer", description: "Token-sized vertical gap." },
   HeaderBar: { label: "Header bar", description: "Header slot: logo, back, secure, call CTA." },
   FooterBar: { label: "Footer bar", description: "Footer slot: legal, trust messages, links." },
@@ -194,7 +255,10 @@ const SAMPLE_CHOICES = [
   { label: "Not yet", value: "no", analytics_id: "smp_no" },
 ];
 const SAMPLE_ICON_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, icon: "★" }));
-const SAMPLE_IMAGE_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, imageMediaId: "media_sample" }));
+// A5: image-card sample choices ALWAYS carry image_alt next to imageMediaId —
+// §8.4 makes image_alt REQUIRED when imageMediaId is present on an
+// ImageCardAnswerGrid choice, so alt-less samples would fail save validation.
+const SAMPLE_IMAGE_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, imageMediaId: "media_sample", image_alt: c.label }));
 
 export const STUDIO_SAMPLE_NODES: Record<ComponentType, LeadgenComponentNode> = {
   ProgressBar: { type: "ProgressBar", question_id: "smp", props: { mode: "percent", percent: 60 } },
@@ -433,6 +497,9 @@ export interface StudioTypeMetaBlob {
   // the §8.5 containers/leaves plus the structured-prop affordance/chrome
   // leaves (TrustBar/LogoStrip/StepIndicator). Drives island tab visibility.
   layout_props: boolean;
+  // v2.5 08 §8.2 scope (frame|unit|both) — drives the §5.4 amber page-frame
+  // badge on legacy canvas nodes + the frame-node inspector tab gating.
+  scope: "frame" | "unit" | "both";
   produces: string | null;
   choice: boolean;
   maps: "address" | "zip" | null;
@@ -457,6 +524,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       container: isLayoutContainerType(type),
       layout: COMPONENT_CATALOG[type].category === "layout",
       layout_props: STRUCTURED_PROP_TYPES.has(type),
+      scope: COMPONENT_CATALOG[type].scope,
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
       maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
@@ -479,12 +547,39 @@ function jsonBlob(id: string, payload: unknown): string {
   return `<script type="application/json" id="${id}">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>`;
 }
 
+// §9.1 role → operator label (the UI Label column, verbatim). Locksteps with
+// FUNNEL_TOKEN_ROLES via the Record type — a new role fails the compile.
+export const STUDIO_ROLE_LABELS: Record<(typeof FUNNEL_TOKEN_ROLES)[number], string> = {
+  brand_primary: "Brand primary",
+  brand_secondary: "Brand secondary",
+  accent: "Accent",
+  success: "Success",
+  error: "Error",
+  page_background: "Page background",
+  card_background: "Card background",
+  surface_wash: "Soft fill",
+  border: "Border",
+  text_primary: "Text",
+  text_muted: "Muted text",
+  button_primary_bg: "Button",
+  button_primary_text: "Button text",
+  button_secondary_bg: "Secondary button",
+};
+
 // The two studio bootstrap blobs: the legacy-shaped seed templates + the new
 // studio metadata (max depth rides along so the island never hardcodes it).
+// Wave 2 additions: the 14 §9.1 roles with labels + the DEFAULT design's
+// resolved role values (swatch chips; exact-match Convert for legacy hex).
 export function renderStudioSeedData(): string {
+  const resolved = resolveTokens(getFunnelDesign(null), null, null);
   return (
     jsonBlob("lg-component-seeds", componentSeedTemplates()) +
-    jsonBlob("lg-studio-meta", { max_depth: LEADGEN_MAX_CONTAINER_DEPTH, types: studioTypeMeta() })
+    jsonBlob("lg-studio-meta", {
+      max_depth: LEADGEN_MAX_CONTAINER_DEPTH,
+      types: studioTypeMeta(),
+      roles: resolved.roles,
+      role_labels: STUDIO_ROLE_LABELS,
+    })
   );
 }
 
@@ -503,6 +598,20 @@ export interface StudioSectionView {
   continue_mode: string;
   address_validation_enabled: boolean;
   content: LeadgenSectionContent;
+}
+
+// §5.2 (D1/F1): NEW Sections seed content_json with a BOUND QuestionHeadline
+// + a BOUND Subheadline as nodes 1–2 — the strip inputs and these canvas
+// nodes are ONE store (headline_text / subheadline_text), two views. Consumed
+// by ui-sections.ts for BOTH the /new SSR view and the #lg-section-data blob
+// (so the island model matches the server render byte-for-byte).
+export function seededNewSectionContent(): LeadgenSectionContent {
+  return {
+    components: [
+      { type: "QuestionHeadline", question_id: "q_bound_headline", bind: "section_headline" },
+      { type: "Subheadline", question_id: "q_bound_subheadline", bind: "section_subheadline" },
+    ],
+  };
 }
 
 // Structural twin of ui-question-builder's MappingSummary (kept local so the
@@ -568,26 +677,38 @@ export function renderStudioTopBar(
 </div>`;
 }
 
-// The scalar fields the save path needs beyond the top bar (§12.5 continue
-// mode, §12.8/§30.2 Maps toggle, headline/subheadline columns). Same element
-// ids as the old editor so collectSection + the dirty watcher are unchanged.
+// §5.1 the "Question" strip (AMENDS v2.4 §8.1 settings form): the CANONICAL
+// editors for headline_text / subheadline_text, the Continue-behavior radio
+// (values unchanged: button/auto_advance) with the frame note, and the legacy
+// global Maps checkbox row (compat — per-field config wins, unchanged). Same
+// element ids as before so collectSection + the dirty watcher carry over.
+// Each canonical input carries its §5.2 "Hidden in this question unit ·
+// [Show]" chip (SSR'd hidden; the island shows it when the bound canvas node
+// for that bind is deleted; [Show] re-inserts the bound node at the top).
+// The strip never duplicates canvas content — the bound nodes and these
+// inputs are ONE store, two views (§5.2).
 export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured: boolean): string {
   const mapsKeyNote = mapsKeyConfigured
     ? `<span class="lg-maps-note" data-maps-key="configured">Maps key configured (operator-owned browser key) — autofill available.</span>`
     : `<span class="lg-maps-note" data-maps-key="absent">Maps key not configured — autofill disabled (§30.2 no-op).</span>`;
-  return `<form id="lg-section-form" class="studio-settings" data-studio-settings novalidate>
+  const hiddenChip = (bind: "section_headline" | "section_subheadline"): string =>
+    `<span class="studio-hidden-chip" data-bound-chip="${bind}" hidden>Hidden in this question unit &#183; <button type="button" class="studio-hidden-show" data-bound-show="${bind}">Show</button></span>`;
+  return `<form id="lg-section-form" class="studio-settings" data-studio-settings data-studio-question-strip novalidate>
   <div class="form-group">
-    <label class="form-label" for="lg-section-headline">Headline (the question) *</label>
+    <label class="form-label" for="lg-section-headline">Question headline *</label>
     <input id="lg-section-headline" name="headline_text" class="form-input" required aria-required="true" value="${escapeHtml(view.headline_text)}" />
+    ${hiddenChip("section_headline")}
   </div>
   <div class="form-group">
     <label class="form-label" for="lg-section-subheadline">Subheadline</label>
     <input id="lg-section-subheadline" name="subheadline_text" class="form-input" value="${escapeHtml(view.subheadline_text ?? "")}" />
+    ${hiddenChip("section_subheadline")}
   </div>
   <fieldset class="form-group">
-    <legend class="form-label">Continue mode (§12.5)</legend>
-    <label class="lg-check"><input type="radio" name="continue_mode" value="button"${view.continue_mode === "button" ? " checked" : ""} /> Button (validate, then Continue)</label>
-    <label class="lg-check"><input type="radio" name="continue_mode" value="auto_advance"${view.continue_mode === "auto_advance" ? " checked" : ""} /> Auto-advance (navigate on click)</label>
+    <legend class="form-label">Continue behavior</legend>
+    <label class="lg-check"><input type="radio" name="continue_mode" value="button"${view.continue_mode === "button" ? " checked" : ""} /> Visitor taps Continue (validates first)</label>
+    <label class="lg-check"><input type="radio" name="continue_mode" value="auto_advance"${view.continue_mode === "auto_advance" ? " checked" : ""} /> Advance automatically on answer</label>
+    <span class="form-help" data-continue-frame-note>The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.</span>
   </fieldset>
   <div class="form-group">
     <label class="lg-check"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${view.address_validation_enabled ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
@@ -595,14 +716,64 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
     <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key &#8658; the validation leg no-ops.</span>
     ${mapsKeyNote}
   </div>
-</form>`;
+</form>
+<div class="studio-bind-banner" data-bind-banner hidden role="status" aria-live="polite"></div>`;
 }
 
 // ---------------------------------------------------------------------------
 // §8.3 component library (left rail)
 // ---------------------------------------------------------------------------
 
-function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
+// §5.2: the two bindable palette items insert BOUND nodes; while a bound node
+// for their bind value exists they are disabled with the exact tooltip. The
+// island keeps this live (updatePaletteBindItems); SSR stamps the initial
+// state so the served page is already correct.
+const PALETTE_BIND_OF_TYPE: Partial<Record<ComponentType, "section_headline" | "section_subheadline">> = {
+  QuestionHeadline: "section_headline",
+  Subheadline: "section_subheadline",
+};
+
+function paletteBindTooltip(bind: "section_headline" | "section_subheadline"): string {
+  return bind === "section_subheadline"
+    ? "This Section already shows its subheadline"
+    : "This Section already shows its headline";
+}
+
+function collectExistingBinds(content: LeadgenSectionContent): ReadonlySet<string> {
+  const binds = new Set<string>();
+  const walk = (nodes: unknown, depth: number): void => {
+    if (!Array.isArray(nodes) || depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return;
+    for (const raw of nodes) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const node = raw as { bind?: unknown; children?: unknown };
+      if (typeof node.bind === "string") binds.add(node.bind);
+      walk(node.children, depth + 1);
+    }
+  };
+  walk(content.components, 1);
+  return binds;
+}
+
+// MINOR 11 (07 §7.4 operator words): the library answer-type chip speaks
+// PLAIN WORDS derived from the catalog `produces` — never the raw identifier
+// (enum/boolean/array/object are code vocabulary). One label per produces
+// value; an unknown future value falls back to a neutral phrase rather than
+// leaking the identifier.
+const PRODUCES_CHIP_LABELS: Record<string, string> = {
+  enum: "stores one choice",
+  boolean: "stores one choice",
+  array: "stores several choices",
+  number: "stores a number",
+  currency: "stores a number",
+  string: "stores text/number/date",
+  object: "stores grouped fields",
+};
+
+function producesChipLabel(produces: string): string {
+  return PRODUCES_CHIP_LABELS[produces] ?? "stores an answer";
+}
+
+function renderLibraryItem(type: ComponentType, design: FunnelDesign, existingBinds: ReadonlySet<string>): string {
   const meta = STUDIO_TYPE_META[type];
   const produces = COMPONENT_CATALOG[type].produces;
   // The thumbnail IS the component's own preset render with sample props,
@@ -617,9 +788,16 @@ function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
   // role="button" div keeps click-to-add + drag + a11y; the thumb itself is
   // pointer-events:none so the inner preset controls are inert.
   const thumbHtml = renderComponent(STUDIO_SAMPLE_NODES[type], design);
-  const answerType = produces === null ? "" : `<span class="studio-item-type">${escapeHtml(String(produces))}</span>`;
+  const answerType =
+    produces === null ? "" : `<span class="studio-item-type">${escapeHtml(producesChipLabel(String(produces)))}</span>`;
   const mapsBadge = produces === null ? "" : `<span class="studio-item-maps" data-maps-badge>maps to Offer fields</span>`;
-  return `<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(type)}" data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}" aria-label="Add ${escapeHtml(meta.label)}">
+  const bind = PALETTE_BIND_OF_TYPE[type];
+  const bindDisabled = bind !== undefined && existingBinds.has(bind);
+  const bindAttrs =
+    bind === undefined
+      ? ""
+      : ` data-bind-item="${bind}" data-bind-disabled="${bindDisabled ? "true" : "false"}" aria-disabled="${bindDisabled ? "true" : "false"}"${bindDisabled ? ` title="${escapeHtml(paletteBindTooltip(bind))}"` : ""}`;
+  return `<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(type)}"${bindAttrs} data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}" aria-label="Add ${escapeHtml(meta.label)}">
   <span class="studio-thumb" aria-hidden="true"><span class="studio-thumb-scale" data-funnel-design="${escapeHtml(design.id)}">${thumbHtml}</span></span>
   <span class="studio-item-body">
     <span class="studio-item-name">${escapeHtml(meta.label)}</span>
@@ -629,13 +807,32 @@ function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
 </div>`;
 }
 
-export function renderStudioLibrary(design: FunnelDesign): string {
+// §8.3: the dismissible callout that replaced the old Layout group's frame
+// items — page chrome lives in the Quote Builder. Dismissal persists in
+// localStorage (island); [Open] deep-links the Quotes tab.
+function renderFrameCallout(): string {
+  return `<div class="studio-frame-callout" data-studio-frame-callout role="note">
+  <span class="studio-frame-callout-copy">Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong> &#8594; <a href="/admin/leadgen/quotes" class="studio-frame-callout-open" data-studio-callout-open>Open</a></span>
+  <button type="button" class="studio-frame-callout-dismiss" data-studio-callout-dismiss aria-label="Dismiss">&#215;</button>
+</div>`;
+}
+
+export function renderStudioLibrary(design: FunnelDesign, content: LeadgenSectionContent): string {
+  const existingBinds = collectExistingBinds(content);
   const groups = STUDIO_LIBRARY_GROUPS.map((group) => {
-    const items = group.types.map((t) => renderLibraryItem(t, design)).join("");
+    const items = group.types.map((t) => renderLibraryItem(t, design, existingBinds)).join("");
+    // C7 (§8.3): the Trust & help group carries the scope note verbatim.
+    const scopeNote =
+      group.key === "trust"
+        ? `<p class="studio-scope-note" data-trust-scope-note>${escapeHtml(STUDIO_TRUST_SCOPE_NOTE)}</p>`
+        : "";
+    // The callout replaces the old Layout group's frame items — rendered at
+    // the old group's position (after the inside-unit layout group).
+    const callout = group.key === "layout" ? renderFrameCallout() : "";
     return `<div class="studio-library-group" data-library-group="${escapeHtml(group.key)}">
   <h4 class="studio-library-heading">${escapeHtml(group.label)}</h4>
-  <div class="studio-library-items">${items}</div>
-</div>`;
+  ${scopeNote}<div class="studio-library-items">${items}</div>
+</div>${callout}`;
   }).join("");
   return `<div class="studio-library" data-studio-library aria-label="Component library">
   <input type="search" class="form-input studio-library-search" data-studio-library-search placeholder="Search components…" aria-label="Search components" />
@@ -650,11 +847,21 @@ export function renderStudioLibrary(design: FunnelDesign): string {
 // The same wrapper construction the preview endpoint emits (parity by
 // construction): scoped chrome CSS + the desktop preview wrapper. The island
 // re-renders this region from POST /sections/preview on every mutation.
-export function studioCanvasDocument(content: LeadgenSectionContent, design: FunnelDesign): string {
+// §5.2: the OPTIONAL sectionCtx resolves BOUND QuestionHeadline/Subheadline
+// nodes to the Section's canonical columns (strip↔canvas one store) — the
+// island's re-render sends the live strip values the same way (body.headline/
+// body.subheadline → the preview handler's sectionCtx). continue_mode is NOT
+// threaded here on purpose: the Build canvas keeps every authored control
+// visible/selectable; the Preview drawer owns the §11.5 composition.
+export function studioCanvasDocument(
+  content: LeadgenSectionContent,
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
   const nodes = (Array.isArray(content.components) ? content.components : []).filter(
     (n): n is LeadgenComponentNode => typeof n === "object" && n !== null && typeof (n as { type?: unknown }).type === "string",
   );
-  const rendered = renderSectionComponents(nodes, design);
+  const rendered = renderSectionComponents(nodes, design, ctx);
   const css = funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`);
   return (
     `<style>${css}</style>` +
@@ -662,27 +869,171 @@ export function studioCanvasDocument(content: LeadgenSectionContent, design: Fun
   );
 }
 
-export function renderStudioCanvas(content: LeadgenSectionContent, design: FunnelDesign): string {
+// §5.4 "Frame hint": a dimmed, NON-interactive, GENERIC frame skeleton around
+// the unit for spatial context — presentation-only, never editable here (the
+// real frame is Quote-Builder-owned). Toggled by [data-studio-frame-hint].
+function renderFrameHintSkeleton(edge: "top" | "bottom"): string {
+  const inner =
+    edge === "top"
+      ? `<div class="studio-skel-header"><span class="studio-skel-logo"></span><span class="studio-skel-bar"></span></div><div class="studio-skel-progress"></div>`
+      : `<div class="studio-skel-footer"><span class="studio-skel-bar"></span><span class="studio-skel-bar studio-skel-bar-short"></span></div>`;
+  return `<div class="studio-frame-skeleton" data-studio-frame-skeleton="${edge}" hidden aria-hidden="true">${inner}</div>`;
+}
+
+// §6.1.2 / §7.1: ONE scope-pill implementation for BOTH hosts (toolbar +
+// inspector scope header). The island updates every [data-scope-pill]
+// instance document-wide, so the two hosts can never disagree.
+export function renderScopePillsMarkup(): string {
+  // MINOR 9: the "Funnel frame" pill DEEP-LINKS to the using funnel's Quote
+  // Builder (the island enables it once usage loads; many funnels → a picker;
+  // zero usage keeps it disabled). SSR ships it disabled — usage is not known
+  // at render time.
+  return `<div class="studio-scope-pills" role="group" aria-label="Editing scope">
+    <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
+    <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This Section</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>Component</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="choice" aria-pressed="false" disabled>Choice</button>
+  </div>`;
+}
+
+// §9.4 role swatch select — the ONLY color vocabulary on normal surfaces:
+// option VALUES are role names (writes land as roles, never hex); the empty
+// option is the inherited state. Shared by the Design tab, the toolbar
+// clusters and the §9.5 Section-overrides drawer.
+function roleSelectOptions(): string {
+  return FUNNEL_TOKEN_ROLES.map(
+    (role) => `<option value="${escapeHtml(role)}">${escapeHtml(STUDIO_ROLE_LABELS[role])}</option>`,
+  ).join("");
+}
+
+// §6.1.6 toolbar layout cluster: compact per-type control strips over the
+// SAME data-container-prop/data-container-group hooks the inspector Layout
+// tab uses — one populate/collect implementation, two hosts. Toolbar copies
+// carry lg-tb- ids (unique) + aria-labels instead of visible labels.
+const TOOLBAR_LAYOUT_TYPES: ReadonlyArray<{ type: string; keys: readonly string[] }> = [
+  { type: "Stack", keys: ["direction", "gap", "align"] },
+  { type: "GridContainer", keys: ["columnsDesktop", "columnsTablet", "columnsMobile", "gap"] },
+  { type: "Columns", keys: ["ratio", "mobile"] },
+  { type: "CardPanel", keys: ["width", "padding", "radius", "shadow", "background"] },
+];
+
+function renderToolbarLayoutCluster(design: FunnelDesign): string {
+  const groups = TOOLBAR_LAYOUT_TYPES.map((entry) => {
+    const spec = CONTAINER_PROP_CONTROLS.find((g) => g.type === entry.type);
+    const controls = (spec?.controls ?? [])
+      .filter((ctl) => entry.keys.includes(ctl.key))
+      .map(
+        (ctl) =>
+          `<select id="lg-tb-${escapeHtml(entry.type)}-${escapeHtml(ctl.key)}" class="form-input studio-tb-select" data-container-prop="${escapeHtml(ctl.key)}" data-container-kind="${ctl.kind}" aria-label="${escapeHtml(ctl.label)}" title="${escapeHtml(ctl.label)}"><option value="">${escapeHtml(ctl.label)}: default</option>${options(ctl.values ?? [])}</select>`,
+      )
+      .join("");
+    return `<span class="studio-tb-group" data-container-group="${escapeHtml(entry.type)}" hidden>${controls}</span>`;
+  }).join("");
+  // Choice-grid quick layout (§6.5 "layout(columns/gap)") — design_overrides
+  // keys through the SAME data-inspector-override hooks as the Design tab.
+  const gapOptions = (curatedTokenOptions(design)["gridGap"] ?? [])
+    .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+    .join("");
+  const choiceLayout = `<span class="studio-tb-group" data-toolbar-choice-layout hidden>
+    <select id="lg-tb-choice-columns" class="form-input studio-tb-select" data-inspector-override="columns" aria-label="Card columns" title="Card columns"><option value="">Columns: inherit</option>${options([2, 3, 4, 5])}</select>
+    <select id="lg-tb-choice-gap" class="form-input studio-tb-select" data-inspector-override="gridGap" aria-label="Answer-grid gap token" title="Answer-grid gap token"><option value="">Gap: inherit</option>${gapOptions}</select>
+  </span>`;
+  return `<span class="studio-tb-cluster" data-toolbar-cluster="layout" hidden>${groups}${choiceLayout}</span>`;
+}
+
+// §6.1 anatomy 1–9, left → right. The toolbar is ALWAYS visible (§6.5 row 1:
+// nothing selected still shows breadcrumb(root) · pills · undo/redo ·
+// viewport); the island toggles the per-selection clusters (pure
+// toolbarClustersFor — the §6.5 matrix).
+function renderCanvasToolbar(design: FunnelDesign): string {
+  const textRoles: ReadonlyArray<{ value: string; label: string }> = [
+    { value: "QuestionHeadline", label: "Headline" },
+    { value: "Subheadline", label: "Subheadline" },
+    { value: "CategoryLabel", label: "Kicker" },
+    { value: "HelperText", label: "Helper" },
+    { value: "LegalNote", label: "Legal" },
+  ];
+  const textRoleOptions = textRoles
+    .map((r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`)
+    .join("");
+  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar>
+    <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
+    ${renderScopePillsMarkup()}
+    <span class="studio-tb-cluster" data-toolbar-cluster="undo">
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="undo" disabled title="Undo (&#8984;Z)" aria-label="Undo">&#8630;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="redo" disabled title="Redo (&#8679;&#8984;Z)" aria-label="Redo">&#8631;</button>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="viewport" role="group" aria-label="Canvas viewport">
+      <button type="button" class="btn btn-sm btn-secondary active" data-canvas-viewport="desktop" aria-pressed="true">Desktop 1280</button>
+      <button type="button" class="btn btn-sm btn-secondary" data-canvas-viewport="mobile" aria-pressed="false">Mobile 375</button>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="structure" hidden>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-before" aria-pressed="false">+ Before</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-after" aria-pressed="false">+ After</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="duplicate">Duplicate</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-stack">Group &#8594; Stack</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-cardpanel">Group &#8594; Card panel</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-grid">Group &#8594; Grid</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-columns">Group &#8594; Columns</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="ungroup">Ungroup</button>
+      <button type="button" class="btn btn-sm btn-danger" data-studio-act="delete">Delete</button>
+    </span>
+    ${renderToolbarLayoutCluster(design)}
+    <span class="studio-tb-cluster" data-toolbar-cluster="text" hidden>
+      <select id="lg-tb-text-role" class="form-input studio-tb-select" data-text-role aria-label="Type role" title="Type role (maps to the design type slots)">${textRoleOptions}</select>
+      <span data-toolbar-text-color hidden><select id="lg-tb-text-color" class="form-input studio-tb-select" data-inspector-override="featureColor" aria-label="Text color role" title="Text color role"><option value="">Color: inherited</option>${roleSelectOptions()}</select></span>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="component" hidden>
+      <button type="button" class="btn btn-sm btn-outline" data-toolbar-add-choice hidden>+ Add choice</button>
+      <button type="button" class="studio-chip" data-toolbar-autoadvance hidden aria-pressed="false" title="Reflects the Section&#8217;s Continue behavior — click to toggle">Auto-advance: off</button>
+      <span data-tb-selected-role="button" hidden><select id="lg-tb-selected-button" class="form-input studio-tb-select" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
+      <span data-tb-selected-role="icon" hidden><select id="lg-tb-selected-icon" class="form-input studio-tb-select" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
+      <span data-toolbar-searchable-wrap hidden><button type="button" class="btn btn-sm btn-outline" data-toolbar-searchable aria-pressed="false" title="Searchable dropdown — switches the component type (§5.5)">Searchable: off</button></span>
+      <span data-toolbar-input-quick hidden>
+        <label class="lg-check studio-tb-check"><input type="checkbox" data-inspector-field="required" aria-label="Required" /> Required</label>
+        <input id="lg-tb-placeholder" class="form-input studio-tb-select" type="text" data-inspector-field="placeholder" placeholder="Placeholder" aria-label="Placeholder" />
+        <button type="button" class="btn btn-sm btn-outline" data-toolbar-open-validation title="Open the Validation tab">Validation&#8230;</button>
+      </span>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="choice" hidden>
+      <span class="studio-chip" data-choice-value-chip title="Internal value — opens its Choices row">value</span>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="image">Image / icon&#8230;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="label">Edit label</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="badge" aria-pressed="false">Badge</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="disabled" aria-pressed="false">Disabled</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="duplicate">Duplicate choice</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="left" aria-label="Move choice left">&#8592;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="right" aria-label="Move choice right">&#8594;</button>
+      <button type="button" class="btn btn-sm btn-danger" data-choice-act="delete">Delete choice</button>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="preset" hidden>
+      <select id="lg-tb-preset-apply" class="form-input studio-tb-select" data-preset-apply aria-label="Apply preset"><option value="">Apply preset&#8230;</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-preset-save>Save selection as preset&#8230;</button>
+    </span>
+    <span class="studio-toolbar-problems" data-toolbar-problems role="status" aria-live="polite" hidden></span>
+  </div>`;
+}
+
+export function renderStudioCanvas(
+  content: LeadgenSectionContent,
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
   const empty = !Array.isArray(content.components) || content.components.length === 0;
   return `<div class="studio-canvas" data-studio-canvas>
   <div class="studio-canvas-head">
     <h3 class="card-title">Canvas</h3>
-    <div class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite"></div>
+    <button type="button" class="btn btn-sm btn-outline" data-studio-frame-hint aria-pressed="false" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder">Frame hint</button>
   </div>
-  <div class="studio-toolbar" data-studio-selection-toolbar hidden>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-before" aria-pressed="false">+ Before</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-after" aria-pressed="false">+ After</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="duplicate">Duplicate</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-stack">Group &#8594; Stack</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-cardpanel">Group &#8594; CardPanel</button>
-    <button type="button" class="btn btn-sm btn-danger" data-studio-act="delete">Delete</button>
-  </div>
+  ${renderCanvasToolbar(design)}
   <p class="studio-pending-note" data-studio-pending-note hidden role="status" aria-live="polite"></p>
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
-  <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder">
-    <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design)}</div>
+  <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder; Delete removes; Escape selects the parent">
+    ${renderFrameHintSkeleton("top")}
+    <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div>
+    ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
   </div>
 </div>`;
@@ -741,13 +1092,13 @@ export function curatedTokenOptions(design: FunnelDesign): Record<string, TokenO
     buttonBackground: colorList,
     buttonText: colorList,
     gridGap: gapList,
-    mobileBehavior: [
-      { value: "stack", label: "stack" },
-      { value: "keep", label: "keep" },
-    ],
   };
 }
 
+// FIX 4b: `mobileBehavior` is NOT listed — no renderer consumes it, so its
+// Design-tab control was a dead write and is REMOVED. The schema key stays
+// legal (content-schema CURATED_DESIGN_OVERRIDE_KEYS unchanged) so stored
+// legacy data keeps validating.
 const TOKEN_CONTROL_LABELS: Record<string, string> = {
   iconColor: "Icon color token",
   columns: "Card columns (2–5)",
@@ -756,28 +1107,79 @@ const TOKEN_CONTROL_LABELS: Record<string, string> = {
   buttonBackground: "Button background token",
   buttonText: "Button text token",
   gridGap: "Answer-grid gap token",
-  mobileBehavior: "Mobile behavior",
+};
+
+// §9.4 operator labels for the COLOR-typed rows (role swatch rows — no
+// "token" vocabulary on this surface).
+const ROLE_CONTROL_LABELS: Record<string, string> = {
+  iconColor: "Icon color",
+  featureColor: "Feature color",
+  rangeColor: "Range fill",
+  buttonBackground: "Button color",
+  buttonText: "Button text color",
 };
 
 function renderDesignPanel(design: FunnelDesign): string {
   const tokenOptions = curatedTokenOptions(design);
   const curated: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
+  const colorTyped: ReadonlySet<string> = new Set(COLOR_TYPED_OVERRIDE_KEYS);
   const selects = Object.keys(TOKEN_CONTROL_LABELS)
     .filter((key) => curated.has(key))
     .map((key) => {
+      // §9.4 (wave 2): COLOR-typed keys are role swatch rows — option VALUES
+      // are the 14 §9.1 ROLE NAMES (picking writes the role, never hex), an
+      // inheritance tag + source line, "Reset to inherited" once overridden,
+      // and the legacy-hex "Custom color (legacy) — [Convert…]" affordance
+      // (island-populated from the stored value). NO hex text renders here.
+      if (colorTyped.has(key)) {
+        return `<div class="form-group lg-inspector-field studio-role-row" data-override-row="${escapeHtml(key)}">
+  <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(ROLE_CONTROL_LABELS[key] ?? key)}</label>
+  <div class="studio-role-line">
+    <span class="studio-role-swatch" data-override-swatch="${escapeHtml(key)}" aria-hidden="true"></span>
+    <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${roleSelectOptions()}</select>
+    <button type="button" class="btn btn-sm btn-outline" data-override-reset="${escapeHtml(key)}" hidden>Reset to inherited</button>
+  </div>
+  <p class="form-help studio-role-source" data-override-source="${escapeHtml(key)}"></p>
+  <p class="form-help studio-role-legacy" data-override-legacy="${escapeHtml(key)}" hidden>Custom color (legacy) &#8212; <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
+</div>`;
+      }
       const opts = (tokenOptions[key] ?? [])
         .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(`${o.label} (${o.value})`)}</option>`)
         .join("");
-      return `<div class="form-group lg-inspector-field">
+      // §7.4: the no-override state reads as an inherited value ("Inherited
+      // (design default)") — re-picking it IS the "Reset to inherited"
+      // affordance for the structural keys. The row wrapper carries
+      // data-override-row so the island can GATE dead-write rows per type
+      // (FIX 4b: columns/gridGap render only for the card grids).
+      return `<div class="form-group lg-inspector-field" data-override-row="${escapeHtml(key)}">
   <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(TOKEN_CONTROL_LABELS[key])}</label>
-  <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">inherit</option>${opts}</select>
+  <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${opts}</select>
 </div>`;
     })
     .join("");
+  // A6 (05 §5.5): image fit is a COMPONENT prop on ImageCardAnswerGrid — a
+  // Design-tab control (it is presentation, §7.3 "Design | any visual
+  // selection"), island-gated to the image grid only. Writes props.image_fit
+  // through the standard data-inspector-field collect path.
+  const imageFit = `<div class="form-group lg-inspector-field" data-image-fit-wrap hidden>
+  <label class="form-label" for="lg-inspector-image-fit">Image fit (how card photos fill their box)</label>
+  <select id="lg-inspector-image-fit" class="form-input" data-inspector-field="image_fit">
+    <option value="">Default (browser fit)</option>
+    <option value="cover">Cover — fill the card, may crop</option>
+    <option value="contain">Contain — show the whole image</option>
+  </select>
+</div>`;
+  // §6.6 (F3): the preset control is the SAVED-presets dropdown (island fills
+  // it from GET /component-presets, filtered to the selected node's type) +
+  // "(none)". Picking a preset MERGES its overrides/props onto the node and
+  // stores the NAME as provenance (`design_preset`); "(none)" clears the
+  // provenance only. The free-text input is GONE.
   return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="lg-inspector-preset">Component style preset</label>
-  <input id="lg-inspector-preset" class="form-input" type="text" data-inspector-field="design_preset" placeholder="preset name" />
+  <select id="lg-inspector-preset" class="form-input" data-preset-select><option value="">(none)</option></select>
+  <p class="form-help">Saved presets for this component type. Applying merges the preset&#8217;s design/layout values onto this component.</p>
 </div>
+${imageFit}
 ${selects}`;
 }
 
@@ -943,10 +1345,28 @@ function renderLayoutPanel(): string {
   return groups;
 }
 
+// §7.1 scope header — ALWAYS visible, the inspector's FIRST element (replaces
+// the static "Select a component" head). Operator words only (labels, never
+// type ids); the pills are the §7.2 scope switcher (Funnel frame is disabled
+// here — the frame is Quote-Builder-owned); the Affects line is the honest
+// blast-radius sentence (Section scope cites the live "Used in N quotes"
+// count from GET /sections/:id/usage). A scope change re-renders this region
+// and announces via aria-live (§7.2).
+function renderScopeHeaderShell(): string {
+  return `<div class="studio-scope-header" data-studio-scope-header aria-live="polite">
+  <p class="studio-scope-editing">Editing: <strong data-scope-editing-name>This Section (question unit)</strong></p>
+  ${renderScopePillsMarkup()}
+  <p class="studio-scope-affects" data-scope-affects>Affects: changes apply everywhere this Section is used.</p>
+</div>`;
+}
+
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
 // toggles tab/panel visibility per the selected node's type metadata and
 // populates/collects values (data-inspector-field / data-inspector-override /
 // data-inspector-cond / data-choice-field / data-container-prop hooks).
+// §7.3: the tab STRIP is dynamic per selection (availableTabsFor island-side)
+// — never a fixed strip; §7.4 relabeling keeps every visible string in
+// operator words.
 export function renderStudioInspector(design: FunnelDesign): string {
   const opOptions = options(CONDITION_OP_OPTIONS);
   const patternOptions = options(PATTERN_PRESETS);
@@ -976,11 +1396,35 @@ export function renderStudioInspector(design: FunnelDesign): string {
     .join("");
 
   return `<aside class="studio-inspector" id="lg-studio-inspector" data-studio-inspector aria-label="Component inspector">
-  <div class="lg-inspector-head"><h3 class="card-title">Inspector</h3><span class="form-help" id="lg-inspector-target">Select a component</span></div>
+  ${renderScopeHeaderShell()}
+  <p class="form-help studio-section-scope-note" data-studio-section-scope-note>Edit the question headline, subheadline and Continue behavior in the Question strip above. Select a component on the canvas to edit its content and design.</p>
   <div class="studio-tabs" role="tablist" aria-label="Inspector tabs">${tabButtons}</div>
 
   <div class="studio-panel" data-studio-panel="content" role="tabpanel">
+    <div class="form-group lg-inspector-field" data-bound-content hidden>
+      <label class="form-label" for="lg-bound-shared-text" data-bound-content-label>Question headline (shared with the Section header above)</label>
+      <input id="lg-bound-shared-text" class="form-input" type="text" data-bound-shared-input />
+    </div>
     ${contentInputs}
+    <div class="form-group lg-inspector-field" data-default-wrap="yesno" hidden>
+      <label class="form-label" for="lg-default-yesno">Default answer (§5.5)</label>
+      <select id="lg-default-yesno" class="form-input" data-default-control="yesno">
+        <option value="">No default — the visitor picks</option>
+        <option value="true">Yes (pre-selected)</option>
+        <option value="false">No (pre-selected)</option>
+      </select>
+      <p class="form-help">A default pre-selects the answer — the visitor must still confirm it before continuing (§5.5).</p>
+    </div>
+    <div class="form-group lg-inspector-field" data-default-wrap="range" hidden>
+      <label class="form-label" for="lg-default-range">Default value (§5.5)</label>
+      <input id="lg-default-range" class="form-input" type="number" data-default-control="range" placeholder="Starts at the minimum when empty" />
+      <p class="form-help">Where the slider starts. Leave empty to start at the minimum.</p>
+    </div>
+    <div class="form-group lg-inspector-field" data-default-wrap="dropdown" hidden>
+      <label class="form-label" for="lg-default-dropdown">Default choice (§5.5)</label>
+      <select id="lg-default-dropdown" class="form-input" data-default-control="dropdown"><option value="">No default — the visitor picks</option></select>
+      <p class="form-help">Pre-selects one of this component&#8217;s choices.</p>
+    </div>
     <p class="form-help" data-content-empty hidden>This component has no editable copy — see the Layout / Advanced tabs.</p>
   </div>
 
@@ -993,10 +1437,11 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <label class="lg-check"><input type="checkbox" data-choicedisplay="searchableOther" /> Searchable Other panel</label>
     </div>
     <div class="form-group lg-inspector-field">
-      <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label|value)</label>
-      <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota|toyota&#10;Honda|honda"></textarea>
+      <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label = value)</label>
+      <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota = toyota&#10;Honda = honda"></textarea>
       <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-bulk-apply">Apply bulk paste</button>
     </div>
+    <p class="form-help" data-choices-c1-note>Answer choices own display and normalization only. Provider values are set per Offer in the Mapping tab &#8212; each row&#8217;s chip shows them read-only.</p>
   </div>
 
   <div class="studio-panel" data-studio-panel="layout" role="tabpanel" hidden>
@@ -1035,6 +1480,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <label class="form-label" for="lg-vprop-error">Error text override</label>
       <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
     </div>
+    <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Mapping tab (value transform) &#8212; sliders store the plain number here (§5.5).</p>
   </div>
 
   <div class="studio-panel" data-studio-panel="maps" role="tabpanel" hidden>
@@ -1061,6 +1507,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
   <div class="studio-panel" data-studio-panel="dependencies" role="tabpanel" hidden>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional">
       <legend class="form-label">Show this component IF (§6.10)</legend>
+      <p class="form-help studio-cond-sentence" data-cond-sentence aria-live="polite"></p>
       <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
       <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
       <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
@@ -1070,10 +1517,23 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <input class="form-input" type="number" data-inspector-cond="to" placeholder="to" aria-label="Range to" hidden />
       <input class="form-input" type="text" data-inspector-cond="values" placeholder="values, comma-separated" aria-label="Condition values" hidden />
     </fieldset>
+    <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
+      <legend class="form-label">Require this component IF (§7.3)</legend>
+      <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
+      <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
+      <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
+      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-reqcond="value-enum" aria-label="Required-when choice value" hidden></select>
+      <input class="form-input" type="text" data-inspector-reqcond="value" placeholder="value" aria-label="Required-when value" />
+      <input class="form-input" type="number" data-inspector-reqcond="from" placeholder="from" aria-label="Required-when range from" hidden />
+      <input class="form-input" type="number" data-inspector-reqcond="to" placeholder="to" aria-label="Required-when range to" hidden />
+      <input class="form-input" type="text" data-inspector-reqcond="values" placeholder="values, comma-separated" aria-label="Required-when values" hidden />
+      <p class="form-help">An answer becomes required only while the condition holds. A component marked Required is always required.</p>
+    </fieldset>
   </div>
 
   <div class="studio-panel" data-studio-panel="mapping" role="tabpanel" hidden>
-    <p class="form-help">This component&#39;s <code>internal_field</code> mapping status per selected Offer (§8.6). Quick-map picks the Offer&#39;s schema field — never a typed path.</p>
+    <p class="form-help">How this component&#39;s answer maps to each selected Offer. Quick-map picks the Offer&#39;s field — never a typed path.</p>
     <div class="studio-inspector-mapping" data-studio-inspector-mapping></div>
     <button type="button" class="btn btn-sm btn-outline" data-studio-open-mapping-drawer>Open Offer mapping drawer</button>
   </div>
@@ -1092,10 +1552,15 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <span class="form-label">Debug ids (read-only)</span>
       <code class="studio-debug-id" data-studio-debug-id></code>
     </div>
+    <div class="form-group lg-inspector-field">
+      <span class="form-label">Bind marker (read-only, §5.2)</span>
+      <code class="studio-debug-id" data-studio-bind-marker></code>
+    </div>
     <details class="studio-advanced-json">
       <summary>Raw node JSON (Advanced — the only raw JSON surface, §6.14)</summary>
-      <textarea id="lg-node-json" class="form-input" rows="8" data-studio-node-json aria-label="Raw component node JSON"></textarea>
-      <button type="button" class="btn btn-sm btn-secondary" id="lg-node-json-apply">Apply JSON</button>
+      <textarea id="lg-node-json" class="form-input" rows="8" data-studio-node-json aria-label="Raw component node JSON" readonly></textarea>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-node-json-edit" data-node-json-edit>Edit raw&#8230;</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-node-json-apply" hidden>Apply JSON</button>
       <p class="alert alert-error" data-studio-node-json-error hidden role="alert"></p>
     </details>
   </div>
@@ -1118,6 +1583,14 @@ function designPickerOptions(): string {
 // probes and their assertions carry over unchanged.
 function renderPreviewPanel(): string {
   return `<div class="lg-preview-controls" data-lg-preview-controls>
+  <div class="studio-frame-preview" data-studio-frame-preview role="group" aria-label="Preview in Quote frame">
+    <span class="form-help">Preview in Quote frame:</span>
+    <select class="form-input lg-preview-design" data-frame-pick-quote aria-label="Quote"><option value="">&#8212; no frame (unit only) &#8212;</option></select>
+    <select class="form-input lg-preview-design" data-frame-pick-funnel aria-label="Funnel" disabled><option value="">Funnel&#8230;</option></select>
+    <select class="form-input lg-preview-design" data-frame-pick-variant aria-label="Variant" disabled><option value="">Variant&#8230;</option></select>
+    <select class="form-input lg-preview-design" data-frame-pick-site aria-label="Site branding" disabled><option value="">&#8212; no site branding &#8212;</option></select>
+    <p class="form-help studio-frame-empty" data-frame-preview-empty hidden>This Section isn’t used in any Quote yet — previewing in the default frame.</p>
+  </div>
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
     <button type="button" class="btn btn-sm btn-secondary" data-preview-viewport="mobile" aria-pressed="false">Mobile</button>
@@ -1157,6 +1630,36 @@ function renderPreviewPanel(): string {
 </div>`;
 }
 
+// §9.5 Section-level role overrides — the "Design overrides" drawer mode:
+// the same swatch UI vocabulary as the Design tab (role rows over the 14
+// §9.1 roles) writing the sparse {palette?, columnsDefault?, gapDefault?}
+// shape into `design_overrides_json` (applied as layer 4 between theme and
+// component overrides). The banner copy is §9.5-verbatim.
+export const SECTION_OVERRIDES_BANNER =
+  "These apply wherever this Section is used — prefer the Quote theme for funnel-wide changes.";
+
+function renderSectionOverridesPanel(): string {
+  const rows = FUNNEL_TOKEN_ROLES.map(
+    (role) => `<div class="studio-role-row studio-section-role-row" data-section-role-row="${escapeHtml(role)}">
+    <span class="studio-role-swatch" data-section-role-swatch="${escapeHtml(role)}" aria-hidden="true"></span>
+    <label class="form-label" for="lg-section-role-${escapeHtml(role)}">${escapeHtml(STUDIO_ROLE_LABELS[role])}</label>
+    <select id="lg-section-role-${escapeHtml(role)}" class="form-input" data-section-role="${escapeHtml(role)}"><option value="">Inherited</option>${roleSelectOptions()}</select>
+  </div>`,
+  ).join("");
+  return `<div class="studio-section-overrides" data-studio-section-overrides>
+  <p class="alert studio-overrides-banner" data-section-overrides-banner role="note">${escapeHtml(SECTION_OVERRIDES_BANNER)}</p>
+  <div class="studio-section-roles">${rows}</div>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-section-columns-default">Default answer columns</label>
+    <select id="lg-section-columns-default" class="form-input" data-section-columns-default><option value="">Inherited</option>${options([2, 3, 4, 5])}</select>
+  </div>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-section-gap-default">Default answer-grid gap</label>
+    <select id="lg-section-gap-default" class="form-input" data-section-gap-default><option value="">Inherited</option>${options(LEADGEN_GAP_TOKENS)}</select>
+  </div>
+</div>`;
+}
+
 // §8.7 (E2) mapping-panel table columns — the normative order.
 const MAPPING_TABLE_COLUMNS = [
   "Offer",
@@ -1187,6 +1690,7 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
   <div class="studio-tabs" role="tablist" aria-label="Studio drawer tabs">
     <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Offer mapping</button>
     <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
+    <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="design" aria-selected="false">Design overrides</button>
     <button type="button" class="studio-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview &amp; debug</button>
   </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="mapping" hidden>
@@ -1218,8 +1722,42 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <p class="form-help">Structural issues, live from the studio model — the server re-validates on save. Click an issue to focus its component.</p>
     <ul class="studio-issue-list" data-studio-validation-list></ul>
   </div>
+  <div class="studio-drawer-panel" data-studio-drawer-panel="design" hidden>
+    ${renderSectionOverridesPanel()}
+  </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="preview">
     ${renderPreviewPanel()}
+  </div>
+</div>`;
+}
+
+// §5.5 / §6.4 media picker — the SAME reusable affordance idiom the Quote
+// Builder ships (ui-quotes.ts DEV-60 a): one shared in-page Media-library
+// chooser (list + upload via the EXISTING /api/admin/media endpoints); the
+// picked storage_key lands in the requesting choice-row input and flows
+// through the SAME collectChoices path a typed value took.
+// FIX 8c (§8.4): the picker additionally offers "Generate with AI" — ONE
+// shared idiom with the Quote Builder's picker (ui-quotes.ts twin). It reuses
+// the EXISTING admin generation endpoint (POST /api/admin/ai/image — writes
+// R2 + a media row) and is HIDDEN when that route is unavailable (no key ⇒
+// the endpoint 501s; the server stamps availability at render time).
+function renderStudioMediaPicker(aiImageAvailable: boolean): string {
+  return `<div class="lg-media-picker-overlay lg-hidden" id="lg-media-picker" role="dialog" aria-modal="true" aria-label="Choose from the Media library">
+  <div class="lg-media-picker-panel">
+    <div class="studio-events-head">
+      <span class="form-label">Choose from the Media library</span>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-media-picker-close">Close</button>
+    </div>
+    <div class="studio-pair">
+      <input type="file" id="lg-media-upload-file" accept="image/*" aria-label="Upload an image" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-upload-btn">Upload</button>
+      <span class="form-help" id="lg-media-picker-status" role="status"></span>
+    </div>
+    <div class="studio-pair" data-media-ai-generate data-ai-image-available="${aiImageAvailable ? "true" : "false"}"${aiImageAvailable ? "" : " hidden"}>
+      <input type="text" id="lg-media-ai-prompt" class="form-input" placeholder="Describe the image to generate&#8230;" aria-label="Describe the image to generate" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-ai-generate">Generate with AI</button>
+    </div>
+    <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>`;
 }
@@ -1241,6 +1779,9 @@ export function renderSectionStudio(
   statusPillHtml: string,
   mapsKeyConfigured: boolean,
   answerMapCount: number,
+  // FIX 8c: whether POST /api/admin/ai/image is usable (OPENAI_API_KEY set).
+  // false hides the picker's "Generate with AI" affordance (§8.4).
+  aiImageAvailable = false,
 ): string {
   const design = getFunnelDesign(null);
   // §8.8 key-missing warning banner: SSR'd hidden; the island shows it ONLY
@@ -1252,11 +1793,12 @@ export function renderSectionStudio(
 ${renderStudioSettings(view, mapsKeyConfigured)}
 ${mapsBanner}
 <div class="lg-editor-grid studio-grid">
-  <div class="card studio-cell-library">${renderStudioLibrary(design)}</div>
-  <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design)}</div>
+  <div class="card studio-cell-library">${renderStudioLibrary(design, view.content)}</div>
+  <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design, { headline_text: view.headline_text, subheadline_text: view.subheadline_text })}</div>
   <div class="card studio-cell-inspector">${renderStudioInspector(design)}</div>
 </div>
 ${renderStudioDrawer(summary, answerMapCount)}
+${renderStudioMediaPicker(aiImageAvailable)}
 ${renderStudioSeedData()}`;
 }
 
@@ -1288,6 +1830,13 @@ export const SECTION_STUDIO_STYLES = `
 .studio-library-item:hover{border-color:var(--c-primary)}
 .studio-library-item:focus-visible{outline:2px solid var(--c-primary);outline-offset:2px}
 .studio-library-item[data-search-hidden="true"]{display:none}
+/* §5.2 bound palette items: disabled while their bound node exists */
+.studio-library-item[data-bind-disabled="true"]{opacity:.45;cursor:not-allowed}
+/* §8.3 frame callout + C7 scope note */
+.studio-frame-callout{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;font-size:12px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:8px;padding:8px 10px;margin:0 0 16px}
+.studio-frame-callout-dismiss{border:0;background:none;cursor:pointer;font-size:14px;line-height:1;color:inherit;padding:0 2px}
+.studio-frame-callout-open{font-weight:600}
+.studio-scope-note{font-size:11px;color:var(--c-muted);margin:0 0 6px}
 .studio-thumb{display:block;flex:0 0 84px;height:56px;overflow:hidden;border:1px solid var(--c-border);border-radius:6px;background:#fff;pointer-events:none;position:relative}
 .studio-thumb-scale{display:block;transform:scale(.38);transform-origin:top left;width:264%;pointer-events:none}
 .studio-item-body{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -1310,9 +1859,41 @@ export const SECTION_STUDIO_STYLES = `
 .studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
 .studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
+/* §5.4 frame-hint skeleton: dimmed, generic, NON-interactive (presentation only) */
+.studio-frame-skeleton{opacity:.35;pointer-events:none;user-select:none;margin:0 0 10px}
+.studio-frame-skeleton[data-studio-frame-skeleton="bottom"]{margin:10px 0 0}
+.studio-skel-header{display:flex;align-items:center;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
+.studio-skel-logo{width:28px;height:12px;border-radius:3px;background:var(--c-border);display:inline-block}
+.studio-skel-bar{flex:1;height:8px;border-radius:4px;background:var(--c-border);display:inline-block}
+.studio-skel-bar-short{flex:0 0 30%}
+.studio-skel-progress{height:4px;border-radius:2px;background:var(--c-border);margin-top:6px}
+.studio-skel-footer{display:flex;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
+/* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
+.studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.studio-frame-badge .btn{pointer-events:auto}
+.studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
+/* §5.1 hidden-in-unit chips next to the strip inputs */
+.studio-hidden-chip{display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px}
+.studio-hidden-show{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:11px;padding:0;text-decoration:underline}
+/* §5.2 legacy headline link banner */
+.studio-bind-banner{font-size:12px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:8px;padding:8px 10px;margin:0 0 12px}
+.studio-bind-banner-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 0}
+.studio-bind-banner-value{font-weight:600}
 /* §8.8 linked-field chips + key-missing banner */
 .studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
 .studio-maps-banner{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:6px 10px;margin:0 0 12px}
+/* §7.1 scope header + §7.2 pills */
+.studio-scope-header{border-bottom:1px solid var(--c-border);padding:0 0 8px;margin:0 0 8px;transition:background-color .3s ease}
+.studio-scope-header.studio-scope-flash{background:#fff3cd}
+.studio-scope-editing{font-size:13px;margin:0 0 6px}
+.studio-scope-affects{font-size:11px;color:var(--c-muted);margin:6px 0 0}
+.studio-scope-pills{display:flex;gap:4px;flex-wrap:wrap}
+.studio-scope-pill{font-size:11px;border-radius:999px;padding:2px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
+.studio-scope-pill.active{border-color:var(--c-primary);color:var(--c-primary);font-weight:600}
+.studio-scope-pill[disabled]{opacity:.5;cursor:not-allowed}
+.studio-frame-pill-picker{display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:6px}
+.studio-cond-sentence{font-weight:600;color:var(--c-text,#1a1f36)}
+.studio-section-scope-note{margin:0 0 8px}
 /* inspector + drawer */
 .studio-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--c-border);margin-bottom:10px}
 .studio-tab{border:0;background:none;padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;color:var(--c-muted)}
@@ -1385,6 +1966,54 @@ export const SECTION_STUDIO_STYLES = `
 /* §9.2/§14.9 events probe: the hidden runtime document that keeps the §8.9
    stream alive while a NON-default sim shows a static main preview. */
 .lg-events-probe-frame{position:absolute;left:-9999px;top:0;width:1px;height:1px;border:0}
+/* §6.1 canvas toolbar (wave 2): always-visible bar, per-selection clusters */
+.studio-toolbar{align-items:center}
+.studio-tb-cluster{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap;padding:0 6px;border-left:1px solid var(--c-border)}
+.studio-tb-cluster:first-of-type{border-left:0}
+.studio-tb-group{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
+.studio-tb-select{font-size:11px;padding:2px 4px;max-width:170px}
+.studio-tb-check{font-size:11px}
+.studio-breadcrumb button{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:12px;padding:0 2px;text-decoration:underline}
+.studio-breadcrumb .studio-crumb-current{color:inherit;text-decoration:none;font-weight:600;cursor:default}
+.studio-toolbar-problems{font-size:11px;color:#842029}
+.studio-control-invalid{outline:2px solid #dc3545;outline-offset:1px}
+/* §6.2 inline canvas editing + choice ops + resize */
+.studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
+.studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
+.studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
+.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
+.studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
+/* §9.4 role swatch rows + §9.5 section overrides */
+.studio-role-line{display:flex;gap:6px;align-items:center}
+.studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
+.studio-role-source{margin:2px 0 0}
+.studio-role-legacy{color:#664d03;margin:2px 0 0}
+.studio-link-btn{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline}
+.studio-overrides-banner{color:#055160;background:#cff4fc;border:1px solid #b6effb}
+.studio-section-roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px;margin-bottom:10px}
+.studio-section-role-row{display:flex;gap:6px;align-items:center}
+.studio-section-role-row .form-label{margin:0;flex:0 0 120px;font-size:12px}
+.studio-section-role-row .form-input{font-size:12px;padding:2px 4px}
+/* §5.3 mode 5 frame picker */
+.studio-frame-preview{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border:1px dashed var(--c-border);border-radius:6px;padding:6px 8px}
+.studio-frame-empty{flex-basis:100%;color:#664d03;margin:2px 0 0}
+/* §7.3 provider-values chip (C1) */
+.studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
+.studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
+.studio-provider-rows a{font-size:11px}
+/* §5.4 move-to-frame funnel picker */
+.studio-funnel-picker{flex-basis:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px}
+/* choice rows: depth fields wrap */
+.lg-choice-row{position:relative}
+.lg-choice-row .studio-choice-reorder{display:inline-flex;gap:2px}
+/* media picker (the ui-quotes idiom, studio-scoped) */
+.lg-hidden{display:none !important}
+.lg-media-picker-overlay{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(15,23,42,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
+.lg-media-picker-panel{background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:10px;max-width:720px;width:100%;max-height:80vh;overflow:auto;padding:16px}
+.lg-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:10px}
+.lg-media-item{border:1px solid var(--c-border);border-radius:8px;background:#fff;cursor:pointer;padding:4px;display:flex;flex-direction:column;gap:4px;align-items:center}
+.lg-media-item img{max-width:100%;height:64px;object-fit:contain}
+.lg-media-item span{font-size:10px;color:var(--c-muted);overflow-wrap:anywhere}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1405,6 +2034,8 @@ export const SECTION_STUDIO_SCRIPT = `
   if (!state.content || !state.content.components) { state.content = { components: [] }; }
   if (!state.answer_maps) { state.answer_maps = []; }
   if (!state.selected_offers) { state.selected_offers = []; }
+  if (!state.offer_values) { state.offer_values = []; }
+  if (state.design_overrides === undefined || typeof state.design_overrides !== 'object') { state.design_overrides = state.design_overrides || null; }
 
   var componentSeeds = {};
   var seedEl = document.getElementById('lg-component-seeds');
@@ -1414,11 +2045,44 @@ export const SECTION_STUDIO_SCRIPT = `
   if (metaEl) { try { studioMeta = JSON.parse(metaEl.textContent || '{}'); } catch (e3) { studioMeta = { max_depth: 4, types: {} }; } }
   if (!studioMeta.types) { studioMeta.types = {}; }
   var MAX_DEPTH = studioMeta.max_depth || 4;
+  // §9.1/§9.4: role → resolved default-design value (swatch chips + the
+  // legacy-hex Convert exact match) and role → operator label.
+  var ROLE_VALUES = studioMeta.roles || {};
+  var ROLE_LABELS = studioMeta.role_labels || {};
 
   var selectedQuestionId = null;
   var pendingInsert = null;
   var currentInspectorTab = 'content';
   var dirty = false;
+  // §7.1/§7.2 inspector scope: 'section' (no selection) | 'component' |
+  // 'choice' (a choice row focused / the Choice pill). 'frame' is never an
+  // ACTIVE scope in the Section Builder — the frame is Quote-Builder-owned.
+  var scopeState = 'section';
+  // The focused choice's label for the §7.1 choice header copy.
+  var choiceScopeLabel = '';
+  // "Used in N quotes" (§7.1/§2.4) — from GET /sections/:id/usage; null until
+  // loaded (or for a NEW Section).
+  var usageQuoteCount = null;
+  // §5.4/§5.3: the raw usage rows (funnels for Move-to-frame; empty state for
+  // the mode-5 frame preview).
+  var usageRows = [];
+  // §6.1.4 canvas viewport (server-rendered param — never CSS-scaled).
+  var canvasViewport = 'desktop';
+  // §6.2/§6.4 per-choice selection: the focused choice VALUE within the
+  // selected choice-bearing component (null = component scope).
+  var selectedChoiceValue = null;
+  // §6.6 loaded named presets (KV-backed via /component-presets).
+  var presetsData = [];
+  // §6.2 inline text editing pauses canvas re-renders until commit.
+  var inlineEditing = false;
+  // §6.1.3 undo/redo: bounded in-memory history of content-tree snapshots per
+  // open editor. ≥30 required; 50 kept. Cleared on Save.
+  var UNDO_LIMIT = 50;
+  var undoStack = [];
+  var redoStack = [];
+  var lastSnapshot = JSON.stringify(state.content);
+  // §7.3 Advanced raw JSON: read-only until the explicit "Edit raw…" confirm.
+  var rawEditArmed = false;
   var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into'];
   var SELECT_CLASS = 'studio-selected-node';
 
@@ -1431,6 +2095,712 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function typeMeta(type) { return studioMeta.types[type] || {}; }
   function isContainerType(type) { return typeMeta(type).container === true; }
+  // Operator words everywhere (07 §7.4): the label from the served meta blob,
+  // never a raw type id on a normal surface.
+  function typeLabel(type) { return typeMeta(type).label || type; }
+
+  // --- §6.1.3 undo/redo history (content-tree snapshots) -----------------------
+  function updateHistoryButtons() {
+    var u = document.querySelector('[data-studio-act="undo"]');
+    var r = document.querySelector('[data-studio-act="redo"]');
+    if (u) { u.disabled = undoStack.length === 0; }
+    if (r) { r.disabled = redoStack.length === 0; }
+  }
+  // Called AFTER every model mutation (afterModelChange): pushes the PREVIOUS
+  // snapshot, caps the stack, and invalidates the redo branch.
+  function historyPush() {
+    var now = JSON.stringify(state.content);
+    if (now === lastSnapshot) { return false; }
+    undoStack.push(lastSnapshot);
+    if (undoStack.length > UNDO_LIMIT) { undoStack.shift(); }
+    redoStack.length = 0;
+    lastSnapshot = now;
+    updateHistoryButtons();
+    return true;
+  }
+  // Cleared on Save (§6.1.3) — and re-based on the saved content.
+  function historyReset() {
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnapshot = JSON.stringify(state.content);
+    updateHistoryButtons();
+  }
+  function restoreSnapshot(snapshot) {
+    state.content = JSON.parse(snapshot);
+    lastSnapshot = snapshot;
+    if (selectedQuestionId !== null && findRef(selectedQuestionId) === null) { selectedQuestionId = null; }
+    refreshAfterHistory();
+  }
+  function historyUndo() {
+    if (undoStack.length === 0) { return false; }
+    redoStack.push(lastSnapshot);
+    restoreSnapshot(undoStack.pop());
+    return true;
+  }
+  function historyRedo() {
+    if (redoStack.length === 0) { return false; }
+    undoStack.push(lastSnapshot);
+    restoreSnapshot(redoStack.pop());
+    return true;
+  }
+  // The DOM refresh after a history restore — deliberately does NOT call
+  // afterModelChange (that would push a new history entry).
+  function refreshAfterHistory() {
+    markDirty();
+    clearRefusal();
+    renderIssues();
+    renderMapsBanner();
+    renderBoundChips();
+    updatePaletteBindItems();
+    renderBindBanner();
+    updateHistoryButtons();
+    scheduleCanvasRender();
+    selectComponent(selectedQuestionId);
+  }
+
+  // --- FIX 4b: pure per-type gates for the dead-write style controls -------------
+  // Only renderCardGrid consumes columns/gridGap (the two card grids); the
+  // multi-choice group renders NO icon slot, so its iconColor was a dead
+  // write. Pure of the DOM so the gating semantics are directly executable.
+  function isCardGridType(node) {
+    return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid');
+  }
+  function overrideRowHidden(rowKey, node) {
+    if (rowKey === 'columns' || rowKey === 'gridGap') { return !isCardGridType(node); }
+    if (rowKey === 'iconColor') { return !!node && node.type === 'MultiChoiceCardGroup'; }
+    return false;
+  }
+
+  // --- §6.5 context matrix (pure function of the selection) --------------------
+  var TEXT_ROLE_TYPES = ['QuestionHeadline', 'Subheadline', 'CategoryLabel', 'HelperText', 'LegalNote'];
+  function isCopyNode(node) {
+    if (!node) { return false; }
+    if (node.bind !== undefined) { return true; }
+    return TEXT_ROLE_TYPES.indexOf(node.type) !== -1;
+  }
+  // The §6.5 rows, EXACT: base (nothing) = breadcrumb(root) · pills ·
+  // undo/redo · viewport; each selection class ADDS its clusters. The preset
+  // menu (§6.1.9) rides every unit-component selection (§6.6 apply needs a
+  // same-type selection; the matrix table itself does not name it).
+  function toolbarClustersFor(node, choiceFocused) {
+    var base = ['breadcrumb', 'pills', 'undo', 'viewport'];
+    if (!node) { return base; }
+    if (choiceFocused) { return base.concat(['choice']); }
+    var meta = typeMeta(node.type);
+    if (meta.scope === 'frame') { return base.concat(['structure']); }
+    if (isCopyNode(node)) { return base.concat(['text', 'structure', 'preset']); }
+    if (meta.choice === true) { return base.concat(['structure', 'layout', 'component', 'preset']); }
+    if (meta.produces) { return base.concat(['structure', 'component', 'preset']); }
+    if (meta.container === true || meta.layout_props === true) { return base.concat(['structure', 'layout', 'preset']); }
+    return base.concat(['structure', 'preset']);
+  }
+
+  // --- choice model helpers (§6.2/§6.4) ----------------------------------------
+  function findChoice(node, value) {
+    if (!node || !node.choices) { return null; }
+    var i;
+    for (i = 0; i < node.choices.length; i++) {
+      if (String(node.choices[i].value) === String(value)) { return node.choices[i]; }
+    }
+    return null;
+  }
+  function choiceIndexOf(node, value) {
+    if (!node || !node.choices) { return -1; }
+    var i;
+    for (i = 0; i < node.choices.length; i++) {
+      if (String(node.choices[i].value) === String(value)) { return i; }
+    }
+    return -1;
+  }
+  function addChoiceToNode(node) {
+    if (!node || typeMeta(node.type).choice !== true) { return null; }
+    var req = typeMeta(node.type).required || {};
+    if (!node.choices) { node.choices = []; }
+    var n = node.choices.length + 1;
+    var c = sampleChoice(req, n);
+    while (findChoice(node, c.value) !== null) {
+      n += 1;
+      c = sampleChoice(req, n);
+    }
+    node.choices.push(c);
+    afterModelChange();
+    return c;
+  }
+  function removeChoiceFromNode(node, value) {
+    var idx = choiceIndexOf(node, value);
+    if (idx === -1) { return false; }
+    node.choices.splice(idx, 1);
+    if (String(selectedChoiceValue) === String(value)) { selectedChoiceValue = null; }
+    afterModelChange();
+    return true;
+  }
+  function moveChoice(node, value, delta) {
+    var idx = choiceIndexOf(node, value);
+    if (idx === -1) { return false; }
+    var to = idx + delta;
+    if (to < 0 || to >= node.choices.length) { return false; }
+    var tmp = node.choices[idx];
+    node.choices[idx] = node.choices[to];
+    node.choices[to] = tmp;
+    afterModelChange();
+    return true;
+  }
+  function reorderChoiceBefore(node, fromValue, targetValue) {
+    var from = choiceIndexOf(node, fromValue);
+    var to = choiceIndexOf(node, targetValue);
+    if (from === -1 || to === -1 || from === to) { return false; }
+    var moved = node.choices.splice(from, 1)[0];
+    if (from < to) { to -= 1; }
+    node.choices.splice(to, 0, moved);
+    afterModelChange();
+    return true;
+  }
+  function duplicateChoice(node, value) {
+    var idx = choiceIndexOf(node, value);
+    if (idx === -1) { return null; }
+    var clone = cloneJson(node.choices[idx]);
+    var base = String(clone.value || 'option') + '_copy';
+    var v = base, n = 2;
+    while (findChoice(node, v) !== null) { v = base + n; n += 1; }
+    clone.value = v;
+    if (clone.analytics_id !== undefined) { clone.analytics_id = v; }
+    node.choices.splice(idx + 1, 0, clone);
+    afterModelChange();
+    return clone;
+  }
+  function setChoiceField(node, value, field, v) {
+    var c = findChoice(node, value);
+    if (!c) { return false; }
+    if (v === undefined || v === null || v === '' || v === false) { delete c[field]; }
+    else { c[field] = v; }
+    afterModelChange();
+    return true;
+  }
+
+  // --- §6.1.5 Ungroup: dissolve a container, children splice into the parent ---
+  function ungroupSelection(qid) {
+    var ref = findRef(qid);
+    if (!ref) { return null; }
+    if (!isContainerType(ref.node.type) || !ref.node.children || ref.node.children.length === 0) {
+      showRefusal('Only a container with children can be ungrouped.');
+      return null;
+    }
+    var children = ref.node.children;
+    var args = [ref.index, 1];
+    var i;
+    for (i = 0; i < children.length; i++) { args.push(children[i]); }
+    Array.prototype.splice.apply(ref.list, args);
+    selectedQuestionId = children[0].question_id;
+    afterModelChange();
+    return children;
+  }
+
+  // --- §6.2 container resize: snapped to the CardPanel width presets ONLY ------
+  var WIDTH_PRESETS = ['s', 'm', 'l', 'full'];
+  function snapWidthPreset(current, deltaPx) {
+    var idx = WIDTH_PRESETS.indexOf(current || 'm');
+    if (idx === -1) { idx = 1; }
+    var next = idx + Math.round(deltaPx / 80);
+    if (next < 0) { next = 0; }
+    if (next > WIDTH_PRESETS.length - 1) { next = WIDTH_PRESETS.length - 1; }
+    return WIDTH_PRESETS[next];
+  }
+
+  // --- §9.4 role-override helpers ------------------------------------------------
+  var COLOR_OVERRIDE_KEYS = ['iconColor', 'featureColor', 'rangeColor', 'buttonBackground', 'buttonText'];
+  var OVERRIDE_BACKING_ROLE = { buttonBackground: 'button_primary_bg', buttonText: 'button_primary_text' };
+  function isHexColor(v) { return typeof v === 'string' && v.charAt(0) === '#'; }
+  function roleLabelOf(role) { return ROLE_LABELS[role] || role; }
+  // The §9.4 inheritance/source line — NO hex text on this surface (§9.6):
+  // roles speak in labels; unmapped slots say "design default".
+  function overrideSourceText(key, cur) {
+    if (cur !== undefined && cur !== null && cur !== '') {
+      if (isHexColor(cur)) { return 'Custom color (legacy) \\u2014 not a theme role.'; }
+      return roleLabelOf(cur) + ' \\u2014 overridden for this component.';
+    }
+    var backing = OVERRIDE_BACKING_ROLE[key] || null;
+    if (backing !== null) {
+      var repointed = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette[backing] : null;
+      if (repointed) {
+        return 'Inherited: ' + (isHexColor(repointed) ? 'Custom color (legacy)' : roleLabelOf(repointed)) + ' \\u2014 from this Section\\u2019s Design overrides.';
+      }
+      return 'Inherited: ' + roleLabelOf(backing) + ' \\u2014 from the base design.';
+    }
+    return 'Inherited: design default \\u2014 from the base design.';
+  }
+  function resolvedOverrideColor(key, cur) {
+    if (isHexColor(cur)) { return cur; }
+    if (cur && ROLE_VALUES[cur]) { return ROLE_VALUES[cur]; }
+    var backing = OVERRIDE_BACKING_ROLE[key] || null;
+    if (backing !== null) {
+      var rep = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette[backing] : null;
+      if (isHexColor(rep)) { return rep; }
+      if (rep && ROLE_VALUES[rep]) { return ROLE_VALUES[rep]; }
+      return ROLE_VALUES[backing] || '';
+    }
+    return '';
+  }
+  // Convert a stored legacy #hex to the role whose DEFAULT-design value is an
+  // exact (case-insensitive) match; no match → the operator picks (§9.4).
+  function legacyHexToRole(hex) {
+    if (!isHexColor(hex)) { return null; }
+    var lower = String(hex).toLowerCase();
+    var r;
+    for (r in ROLE_VALUES) {
+      if (Object.prototype.hasOwnProperty.call(ROLE_VALUES, r) && String(ROLE_VALUES[r]).toLowerCase() === lower) { return r; }
+    }
+    return null;
+  }
+
+  // --- §9.5 Section-level overrides (the Design-overrides drawer mode) ----------
+  // FIX 2: this editor owns ONLY the §9.5 keys (palette / columnsDefault /
+  // gapDefault). Every OTHER key on the LOADED design_overrides — the legacy
+  // curated Section-level bag (§14.8) and any stored key this editor does not
+  // model — is preserved VERBATIM (stored key order first), so a save with
+  // untouched §9.5 controls round-trips a pure-legacy bag byte-identically.
+  function buildSectionOverrides() {
+    var out = {};
+    var palette = {};
+    var any = false, pAny = false;
+    var loaded = (state.design_overrides && typeof state.design_overrides === 'object') ? state.design_overrides : null;
+    var k;
+    if (loaded) {
+      for (k in loaded) {
+        if (!Object.prototype.hasOwnProperty.call(loaded, k)) { continue; }
+        if (k === 'palette' || k === 'columnsDefault' || k === 'gapDefault') { continue; }
+        out[k] = loaded[k];
+        any = true;
+      }
+    }
+    var sels = document.querySelectorAll('[data-section-role]');
+    var i, role, v;
+    for (i = 0; i < sels.length; i++) {
+      role = sels[i].getAttribute('data-section-role');
+      v = trimStr(sels[i].value);
+      if (v !== '') { palette[role] = v; pAny = true; }
+    }
+    if (pAny) { out.palette = palette; any = true; }
+    var colsEl = document.querySelector('[data-section-columns-default]');
+    if (colsEl && trimStr(colsEl.value) !== '') {
+      var n = Number(colsEl.value);
+      if (!isNaN(n)) { out.columnsDefault = n; any = true; }
+    }
+    var gapEl = document.querySelector('[data-section-gap-default]');
+    if (gapEl && trimStr(gapEl.value) !== '') { out.gapDefault = gapEl.value; any = true; }
+    return any ? out : null;
+  }
+
+  // --- §6.6 preset model: capture + apply ---------------------------------------
+  // The layout-prop capture whitelist (mirrors the server's
+  // PRESET_LAYOUT_PROP_KEYS — the POST rejects anything else).
+  var PRESET_PROP_KEYS = ['direction', 'gap', 'align', 'columnsDesktop', 'columnsTablet', 'columnsMobile', 'sizing', 'ratio', 'mobile', 'width', 'background', 'shadow', 'radius', 'padding', 'size', 'gradient', 'layout', 'image_fit'];
+  function presetsForType(type) {
+    var out = [], i;
+    for (i = 0; i < presetsData.length; i++) {
+      if (presetsData[i] && presetsData[i].component_type === type) { out.push(presetsData[i]); }
+    }
+    return out;
+  }
+  function presetByName(name) {
+    var i;
+    for (i = 0; i < presetsData.length; i++) {
+      if (presetsData[i] && presetsData[i].name === name) { return presetsData[i]; }
+    }
+    return null;
+  }
+  // §6.6 capture: type + curated design_overrides + LAYOUT props — NEVER
+  // content/choices/mapping (scalar whitelist).
+  function buildPresetPayload(node) {
+    var overrides = {};
+    var propsSubset = {};
+    var k, v;
+    var ov = node.design_overrides || {};
+    for (k in ov) {
+      if (Object.prototype.hasOwnProperty.call(ov, k)) { overrides[k] = ov[k]; }
+    }
+    var props = node.props || {};
+    for (k in props) {
+      if (!Object.prototype.hasOwnProperty.call(props, k)) { continue; }
+      if (PRESET_PROP_KEYS.indexOf(k) === -1) { continue; }
+      v = props[k];
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') { propsSubset[k] = v; }
+    }
+    return { component_type: node.type, overrides: overrides, props_subset: propsSubset };
+  }
+  // §6.6 apply = MERGE onto the selected node of the SAME type; the stored
+  // design_preset field holds the preset NAME as provenance only.
+  function applyPreset(node, preset) {
+    if (!node || !preset || node.type !== preset.component_type) { return false; }
+    var k;
+    var ov = preset.overrides || {};
+    for (k in ov) {
+      if (Object.prototype.hasOwnProperty.call(ov, k)) { ensureObj(node, 'design_overrides')[k] = ov[k]; }
+    }
+    var ps = preset.props_subset || {};
+    for (k in ps) {
+      if (Object.prototype.hasOwnProperty.call(ps, k)) { ensureObj(node, 'props')[k] = ps[k]; }
+    }
+    node.design_preset = preset.name;
+    cleanupEmpty(node, 'design_overrides');
+    cleanupEmpty(node, 'props');
+    afterModelChange();
+    return true;
+  }
+
+  // --- §7.3 C1: the read-only per-Offer provider-values projection ---------------
+  // Rows = ONE PER SELECTED OFFER (state.offer_values — the DEV-55 SSR blob
+  // projection): the offer's provider value for this choice, or null ("not
+  // set"). No control on the Choices surface writes a provider value.
+  function providerChipRows(internalField, choiceValue) {
+    var rows = [], i, entry, fieldEntry, v;
+    var list = state.offer_values || [];
+    for (i = 0; i < list.length; i++) {
+      entry = list[i];
+      if (!entry) { continue; }
+      fieldEntry = (entry.fields && internalField) ? entry.fields[internalField] : null;
+      v = (fieldEntry && fieldEntry.values) ? fieldEntry.values[choiceValue] : undefined;
+      rows.push({
+        offer_name: String(entry.offer_name || entry.offer_id),
+        offer_public_id: entry.offer_public_id || null,
+        value: (v === undefined || v === null) ? null : String(v),
+        href: entry.offer_public_id ? ('/admin/leadgen/offers/' + encodeURIComponent(entry.offer_public_id) + '/edit#payload') : null
+      });
+    }
+    return rows;
+  }
+  function providerChipLabel(internalField, choiceValue) {
+    var rows = providerChipRows(internalField, choiceValue);
+    var set = 0, i;
+    for (i = 0; i < rows.length; i++) { if (rows[i].value !== null) { set += 1; } }
+    return 'Provider values: ' + set + '/' + rows.length + ' Offers';
+  }
+
+  // --- §5.4 Move to Quote frame: the equivalent frame_config_json group ---------
+  // Legacy frame-scope node → the sparse §3.3 group the funnel frame PUT
+  // accepts (closed enums; role colours; arrays replaced whole).
+  function equivalentFrameGroup(node) {
+    var t = node.type;
+    var p = node.props || {};
+    var i;
+    if (t === 'ProgressBar') {
+      // FIX 3: the REAL legacy mode value is 'step' (the preset's enum —
+      // props: mode(step|percent)); 'steps' never existed, so the numbered
+      // mapping was dead. A label on the legacy node carries as show_label.
+      var progress = { style: p.mode === 'step' ? 'numbered' : 'percent' };
+      if (typeof p.label === 'string' && p.label !== '') { progress.show_label = true; }
+      return { progress: progress };
+    }
+    if (t === 'StepIndicator') { return { progress: { style: 'dots' } }; }
+    if (t === 'HeaderLogo') {
+      if (typeof p.logoMediaId === 'string' && p.logoMediaId !== '') {
+        return { header: { enabled: true, logo_source: 'manual', logo_media_id: p.logoMediaId } };
+      }
+      return { header: { enabled: true, logo_source: 'site' } };
+    }
+    if (t === 'BackButton') {
+      return { back: { style: 'text', label: (typeof p.label === 'string' && p.label !== '') ? p.label : 'Back' } };
+    }
+    if (t === 'DisclosureLink') {
+      return { disclosure: { enabled: true, text: typeof p.panelHtml === 'string' ? p.panelHtml : '' } };
+    }
+    if (t === 'HeaderBar') {
+      var header = { enabled: true };
+      if (typeof p.logoMediaId === 'string' && p.logoMediaId !== '') {
+        header.logo_source = 'manual';
+        header.logo_media_id = p.logoMediaId;
+      }
+      if (p.secure === true) {
+        header.secure_badge = { enabled: true, text: (typeof p.secureText === 'string' && p.secureText !== '') ? p.secureText : null };
+      }
+      if (p.cta && typeof p.cta === 'object' && typeof p.cta.label === 'string' && p.cta.label !== '') {
+        header.cta = {
+          enabled: true,
+          label: p.cta.label,
+          href: typeof p.cta.href === 'string' ? p.cta.href : null,
+          tel: typeof p.cta.tel === 'string' ? p.cta.tel : null
+        };
+      }
+      var headerGroup = { header: header };
+      if (typeof p.backLabel === 'string' && p.backLabel !== '') { headerGroup.back = { label: p.backLabel }; }
+      return headerGroup;
+    }
+    if (t === 'FooterBar') {
+      var footer = { enabled: true };
+      if (p.links && p.links.length) {
+        var links = [], l;
+        for (i = 0; i < p.links.length; i++) {
+          l = p.links[i];
+          if (l && typeof l.label === 'string' && typeof l.href === 'string') { links.push({ label: l.label, href: l.href }); }
+        }
+        if (links.length > 0) { footer.links_source = 'manual'; footer.links = links; }
+      }
+      if (p.trustMessages && p.trustMessages.length) { footer.trust_text = p.trustMessages.join(' \\u00B7 '); }
+      if (typeof p.legalHtml === 'string' && p.legalHtml !== '') { footer.description = p.legalHtml; }
+      return { footer: footer };
+    }
+    if (t === 'BackgroundPanel') {
+      // FIX 1b: a background image on the legacy panel moves WITH it — the
+      // frame group carries image_media_id (frames.ts background.fields).
+      var background = { style: p.gradient ? 'brand_gradient' : 'brand' };
+      if (typeof p.imageMediaId === 'string' && p.imageMediaId !== '') { background.image_media_id = p.imageMediaId; }
+      return { background: background };
+    }
+    return null;
+  }
+  // Group-level merge over the STORED sparse config: our group's fields win;
+  // arrays replace whole (§13.2 discipline).
+  function mergeFrameGroups(stored, group) {
+    var out = (stored && typeof stored === 'object') ? cloneJson(stored) : {};
+    var k, gk, sub;
+    for (k in group) {
+      if (!Object.prototype.hasOwnProperty.call(group, k)) { continue; }
+      sub = (out[k] && typeof out[k] === 'object' && !(out[k] instanceof Array)) ? out[k] : {};
+      for (gk in group[k]) {
+        if (Object.prototype.hasOwnProperty.call(group[k], gk)) { sub[gk] = group[k][gk]; }
+      }
+      out[k] = sub;
+    }
+    return out;
+  }
+  // The distinct funnels using this Section (from the usage rows).
+  // quote_public_id rides along (ADDITIVE) — the MINOR-9 frame-pill deep link
+  // targets the owning Quote's builder page.
+  function usageFunnelsOf() {
+    var seen = {}, out = [], i, r;
+    for (i = 0; i < usageRows.length; i++) {
+      r = usageRows[i];
+      if (!r || !r.funnel_public_id || seen[r.funnel_public_id] === true) { continue; }
+      seen[r.funnel_public_id] = true;
+      out.push({ public_id: r.funnel_public_id, name: r.funnel_name || r.funnel_public_id, quote_public_id: r.quote_public_id || null });
+    }
+    return out;
+  }
+  // MINOR 9: the "Funnel frame" pill deep-links to the using funnel's Quote
+  // Builder page (frames are Quote-Builder-owned).
+  function funnelQuoteUrl(funnel) {
+    if (funnel && funnel.quote_public_id) { return '/admin/leadgen/quotes/' + encodeURIComponent(funnel.quote_public_id) + '/edit'; }
+    return '/admin/leadgen/quotes';
+  }
+  function framePillPickBtn(funnel) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-frame-pill-pick', funnel.public_id);
+    b.appendChild(document.createTextNode(funnel.name));
+    b.addEventListener('click', function () { window.location.href = funnelQuoteUrl(funnel); });
+    return b;
+  }
+  // Many using funnels → a picker next to the clicked pill (toggle on
+  // re-click); one → direct navigation; zero → the pill stays disabled.
+  function renderFramePillPicker(host, funnels) {
+    var parent = host.parentNode;
+    if (!parent) { return; }
+    var existing = parent.querySelector ? parent.querySelector('[data-frame-pill-picker]') : null;
+    if (existing) { parent.removeChild(existing); return; }
+    var wrap = document.createElement('span');
+    wrap.setAttribute('data-frame-pill-picker', '');
+    wrap.className = 'studio-frame-pill-picker';
+    var i;
+    for (i = 0; i < funnels.length; i++) {
+      wrap.appendChild(framePillPickBtn(funnels[i]));
+    }
+    parent.appendChild(wrap);
+  }
+  // §5.4: the explicit confirm NAMES the funnel — and, for a container with
+  // children, NAMES what happens to them (FIX 1c: the contents are NOT
+  // deleted; they splice into this Section where the container stood).
+  function moveConfirmMessage(node, funnelName) {
+    var contentsNote = '';
+    if (isContainerType(node.type) && node.children && node.children.length > 0) {
+      contentsNote = ' Its contents stay in this Section.';
+    }
+    return 'Move this ' + typeLabel(node.type) + ' into the Quote frame of funnel \\u201C' + funnelName + '\\u201D?\\nIt leaves this Section and becomes part of that funnel\\u2019s frame (edited in the Quote Builder).' + contentsNote + ' The Section change saves now.';
+  }
+
+  // --- §5.3 mode 5: Preview in Quote frame --------------------------------------
+  var framePick = { quote: '', funnel: '', variant: '', site: '' };
+  var framePickFunnels = [];
+  function frameContextBody() {
+    if (framePick.funnel === '') {
+      // §5.3 mode-5 empty state (MINOR 15): the Section is used by ZERO
+      // Quotes — the unit previews inside the DEFAULT template frame
+      // (frame_context {default:true} — template defaults, no branding),
+      // exactly what the empty-state copy promises. The typeof guard keeps
+      // the function pure of load order (usage may not be loaded yet).
+      if (typeof usageQuoteCount !== 'undefined' && usageQuoteCount === 0) { return { 'default': true }; }
+      return null;
+    }
+    var ctx = { funnel_public_id: framePick.funnel };
+    if (framePick.variant !== '') { ctx.variant_public_id = framePick.variant; }
+    if (framePick.site !== '') { ctx.site_id = framePick.site; }
+    return ctx;
+  }
+
+  // --- §6.7 inline validation problems at the control ---------------------------
+  function issueControlKeyOf(message) {
+    var m = message.match(/needs its ([A-Za-z_]+)$/);
+    if (m) { return m[1]; }
+    m = message.match(/needs a numeric ([A-Za-z_]+)$/);
+    if (m) { return m[1]; }
+    if (message.indexOf('needs an internal field') !== -1) { return 'internal_field'; }
+    if (message.indexOf('needs at least one choice') !== -1) { return 'choices'; }
+    return null;
+  }
+
+  // --- §6.1.7 text cluster: type-role conversion --------------------------------
+  // "Type role" maps to the design type slots = the catalog's copy types.
+  // Converting TO the headline/subheadline roles is refused (§5.2: free-text
+  // extra headlines are not insertable — the BOUND node is the one headline).
+  function convertTextRole(qid, newType) {
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    if (ref.node.bind !== undefined) { return false; }
+    if (TEXT_ROLE_TYPES.indexOf(ref.node.type) === -1 || TEXT_ROLE_TYPES.indexOf(newType) === -1) { return false; }
+    if (ref.node.type === newType) { return false; }
+    if (newType === 'QuestionHeadline' || newType === 'Subheadline') {
+      showRefusal('This Section already shows its ' + (newType === 'Subheadline' ? 'subheadline' : 'headline') + ' \\u2014 use the shared field instead.');
+      return false;
+    }
+    var props = ref.node.props || {};
+    var text = typeof props.text === 'string' ? props.text : (typeof props.html === 'string' ? props.html : '');
+    var key = newType === 'LegalNote' ? 'html' : 'text';
+    var replacement = { type: newType, question_id: ref.node.question_id, props: {} };
+    replacement.props[key] = text !== '' ? text : defaultTextFor(newType, key);
+    ref.list[ref.index] = replacement;
+    afterModelChange();
+    return true;
+  }
+
+  // §5.5: dropdown "searchable" toggle — a pure TYPE swap between the two
+  // dropdown components (same props/choices; the §8.3 searchable variant).
+  function toggleSearchableDropdown(node) {
+    if (!node) { return false; }
+    if (node.type === 'DropdownQuestion') { node.type = 'SearchableDropdownQuestion'; }
+    else if (node.type === 'SearchableDropdownQuestion') { node.type = 'DropdownQuestion'; }
+    else { return false; }
+    afterModelChange();
+    return true;
+  }
+
+  // --- §6.2 inline text editing (dblclick) commit core ---------------------------
+  // Bound nodes write the STRIP store (one store, two views); plain copy nodes
+  // write props.text/label; choice cards write that choice's label.
+  function inlineEditKeyFor(node) {
+    if (node.bind !== undefined) { return 'bind'; }
+    var cp = typeMeta(node.type).content_props || [];
+    if (cp.indexOf('text') !== -1) { return 'text'; }
+    if (cp.indexOf('label') !== -1) { return 'label'; }
+    return null;
+  }
+  function commitInlineText(qid, key, text) {
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    if (key === 'bind') {
+      var strip = stripInputFor(ref.node.bind);
+      if (strip) { strip.value = text; }
+      var mirror = document.querySelector('[data-bound-shared-input]');
+      if (mirror && strip) { mirror.value = strip.value; }
+      markDirty();
+      scheduleCanvasRender();
+      return true;
+    }
+    var props = ensureObj(ref.node, 'props');
+    if (trimStr(text) === '') { delete props[key]; } else { props[key] = text; }
+    cleanupEmpty(ref.node, 'props');
+    afterModelChange();
+    return true;
+  }
+  function commitInlineChoiceLabel(qid, value, text) {
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    var c = findChoice(ref.node, value);
+    if (!c) { return false; }
+    c.label = text;
+    afterModelChange();
+    return true;
+  }
+  // The contenteditable session: Enter/blur commits, Escape cancels; canvas
+  // re-renders are paused while editing (scheduleCanvasRender re-checks).
+  function startInlineEdit(el, committer) {
+    if (inlineEditing || !el) { return false; }
+    inlineEditing = true;
+    el.setAttribute('contenteditable', 'true');
+    if (el.focus) { el.focus(); }
+    function finish(apply) {
+      if (!inlineEditing) { return; }
+      inlineEditing = false;
+      el.removeAttribute('contenteditable');
+      el.removeEventListener('blur', onBlur);
+      el.removeEventListener('keydown', onKey);
+      if (apply) { committer(el.textContent || ''); } else { scheduleCanvasRender(); }
+    }
+    function onBlur() { finish(true); }
+    function onKey(keyEv) {
+      if (keyEv.key === 'Enter') { keyEv.preventDefault(); finish(true); }
+      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); finish(false); }
+    }
+    el.addEventListener('blur', onBlur);
+    el.addEventListener('keydown', onKey);
+    return true;
+  }
+
+  // --- §5.2 canonical headline binding model helpers ---------------------------
+  // ONE store, two views: headline_text/subheadline_text live in the strip
+  // inputs; a BOUND QuestionHeadline/Subheadline canvas node renders that
+  // store (server-side sectionCtx). These helpers are the island's bind core.
+  function bindForType(type) {
+    if (type === 'QuestionHeadline') { return 'section_headline'; }
+    if (type === 'Subheadline') { return 'section_subheadline'; }
+    return null;
+  }
+  function bindNoun(bindValue) { return bindValue === 'section_subheadline' ? 'subheadline' : 'headline'; }
+  function bindNodeType(bindValue) { return bindValue === 'section_subheadline' ? 'Subheadline' : 'QuestionHeadline'; }
+  function stripInputFor(bindValue) {
+    return document.getElementById(bindValue === 'section_subheadline' ? 'lg-section-subheadline' : 'lg-section-headline');
+  }
+  function findBoundNode(bindValue) {
+    var found = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (found === null && n.bind === bindValue) { found = n; }
+    });
+    return found;
+  }
+  // The FIRST (top-most) unbound node of the bind's type — the legacy-banner
+  // link candidate (§5.2: never auto-mutated; the operator clicks).
+  function unboundCandidate(bindValue) {
+    var type = bindNodeType(bindValue);
+    var found = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (found === null && n.type === type && n.bind === undefined) { found = n; }
+    });
+    return found;
+  }
+  // §5.2 "[Show]" chip action: re-insert the bound node AT THE TOP.
+  function insertBoundNodeAtTop(bindValue) {
+    if (findBoundNode(bindValue) !== null) { return null; }
+    var node = { type: bindNodeType(bindValue), question_id: newQuestionId(), bind: bindValue };
+    state.content.components.splice(0, 0, node);
+    afterModelChange();
+    return node;
+  }
+  // §5.2 legacy-banner action: link an unbound node to the canonical column.
+  // winnerText === null keeps the current strip value (byte-equal case);
+  // otherwise the operator-picked text WINS and is written into the strip
+  // store first. The node drops props.text and gains the bind marker — the
+  // model changes NOW (dirty), persistence happens on Save (never on load).
+  function linkBoundNode(qid, bindValue, winnerText) {
+    var ref = findRef(qid);
+    if (!ref || findBoundNode(bindValue) !== null) { return false; }
+    var strip = stripInputFor(bindValue);
+    if (winnerText !== null && strip) { strip.value = winnerText; }
+    ref.node.bind = bindValue;
+    if (ref.node.props) {
+      delete ref.node.props.text;
+      cleanupEmpty(ref.node, 'props');
+    }
+    afterModelChange();
+    return true;
+  }
 
   // --- model tree helpers ----------------------------------------------------
   function walkTree(list, depth, fn) {
@@ -1467,10 +2837,12 @@ export const SECTION_STUDIO_SCRIPT = `
     return ref ? ref.node : null;
   }
   function breadcrumbText(qid) {
+    // §7.4: the breadcrumb is a normal surface — operator labels, never raw
+    // type ids.
     var ref = findRef(qid);
     if (!ref) { return ''; }
     var parts = [], i;
-    for (i = 0; i < ref.trail.length; i++) { parts.push(ref.trail[i].type); }
+    for (i = 0; i < ref.trail.length; i++) { parts.push(typeLabel(ref.trail[i].type)); }
     return parts.join(' \\u203A ');
   }
   function isInSubtree(node, qid) {
@@ -1586,7 +2958,9 @@ export const SECTION_STUDIO_SCRIPT = `
   function sampleChoice(req, n) {
     var c = { label: 'Option ' + n, value: 'option_' + n, analytics_id: 'option_' + n };
     if (req.choice_icon) { c.icon = '\\u2605'; }
-    if (req.choice_image) { c.imageMediaId = 'media_option_' + n; }
+    // A5: image_alt ALWAYS rides imageMediaId — §8.4 requires it on an
+    // ImageCardAnswerGrid choice, so an alt-less sample would fail save.
+    if (req.choice_image) { c.imageMediaId = 'media_option_' + n; c.image_alt = c.label; }
     return c;
   }
   function defaultTextFor(type, key) {
@@ -1595,6 +2969,14 @@ export const SECTION_STUDIO_SCRIPT = `
     return 'New ' + type + ' text';
   }
   function makeNode(type) {
+    // §5.2: the palette's "Question headline" / "Subheadline" ALWAYS insert
+    // BOUND nodes (no props.text — the text IS the Section column). Free-text
+    // extra headlines are not insertable (CategoryLabel/HelperText cover
+    // kicker/support copy). addComponentAt refuses when a bound node exists.
+    var bindValue = bindForType(type);
+    if (bindValue !== null) {
+      return { type: type, question_id: newQuestionId(), bind: bindValue };
+    }
     var seed = componentSeeds[type];
     var node = seed ? cloneJson(seed) : {};
     var req = typeMeta(type).required || {};
@@ -1621,6 +3003,14 @@ export const SECTION_STUDIO_SCRIPT = `
 
   // --- structural mutations (§8.4) — every mutation flows through here --------
   function addComponentAt(type, parentQid, index) {
+    // §5.2: at most ONE bound node per bind value — a second insert is refused
+    // with the exact palette tooltip copy (the palette item is also disabled;
+    // this guard covers drag-drop and container drops too).
+    var bindValue = bindForType(type);
+    if (bindValue !== null && findBoundNode(bindValue) !== null) {
+      showRefusal('This Section already shows its ' + bindNoun(bindValue));
+      return null;
+    }
     var target = state.content.components;
     var depth = 1;
     var ref;
@@ -1632,7 +3022,7 @@ export const SECTION_STUDIO_SCRIPT = `
       depth = ref.depth + 1;
     }
     if (isContainerType(type) && depth > MAX_DEPTH) {
-      showRefusal('Cannot nest ' + type + ' deeper than ' + MAX_DEPTH + ' container levels — drop refused.');
+      showRefusal('Cannot nest a ' + typeLabel(type) + ' deeper than ' + MAX_DEPTH + ' container levels — drop refused.');
       return null;
     }
     var node = makeNode(type);
@@ -1698,12 +3088,29 @@ export const SECTION_STUDIO_SCRIPT = `
     node.question_id = newQuestionId();
     if (node.question_key !== undefined) { delete node.question_key; }
     if (node.internal_field) { node.internal_field = uniqueFieldName(node.internal_field); }
+    // §5.2/§3.4: at most one node per bind value — a duplicated subtree DETACHES
+    // any bound node into a plain text snapshot of the current canonical value
+    // (the legacy-link banner can re-offer binding if the operator deletes the
+    // original later).
+    if (node.bind !== undefined) {
+      var strip = stripInputFor(node.bind);
+      delete node.bind;
+      if (!node.props) { node.props = {}; }
+      node.props.text = strip ? strip.value : '';
+    }
     var i;
     if (node.children) { for (i = 0; i < node.children.length; i++) { regenerateIds(node.children[i]); } }
   }
   function duplicateNode(qid) {
     var ref = findRef(qid);
     if (!ref) { return null; }
+    // §5.2: the bound headline/subheadline is the Section's ONE canonical
+    // text — duplicating it directly is refused (a duplicate would be a
+    // second free-text headline, which is not insertable).
+    if (ref.node.bind !== undefined) {
+      showRefusal('This Section already shows its ' + bindNoun(ref.node.bind) + ' — the shared ' + bindNoun(ref.node.bind) + ' cannot be duplicated.');
+      return null;
+    }
     var clone = cloneJson(ref.node);
     regenerateIds(clone);
     ref.list.splice(ref.index + 1, 0, clone);
@@ -1735,8 +3142,9 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     walkTree(state.content.components, 1, function (node, depth) {
       var meta = studioMeta.types[node.type];
-      var label = node.type + (node.internal_field ? ' (' + node.internal_field + ')' : '');
       if (!meta) { issues.push({ qid: node.question_id, message: 'Unknown component type ' + node.type }); return; }
+      // §7.4 relabel: issues speak operator words (label), never raw type ids.
+      var label = typeLabel(node.type) + (node.internal_field ? ' (' + node.internal_field + ')' : '');
       var req = meta.required || {};
       if (meta.container && depth > MAX_DEPTH) {
         issues.push({ qid: node.question_id, message: label + ' exceeds the max container depth of ' + MAX_DEPTH });
@@ -1756,12 +3164,15 @@ export const SECTION_STUDIO_SCRIPT = `
       var tp = req.text_props || [];
       for (i = 0; i < tp.length; i++) {
         k = tp[i];
-        if (trimStr(props[k]) === '') { issues.push({ qid: node.question_id, message: label + ' needs props.' + k }); }
+        // §3.4/§5.2: a BOUND node's text IS the Section column — the required-
+        // text rule is waived exactly like the server validator waives it.
+        if (k === 'text' && node.bind !== undefined) { continue; }
+        if (trimStr(props[k]) === '') { issues.push({ qid: node.question_id, message: label + ' needs its ' + k }); }
       }
       var np = req.numeric_props || [];
       for (i = 0; i < np.length; i++) {
         k = np[i];
-        if (typeof props[k] !== 'number' || !isFinite(props[k])) { issues.push({ qid: node.question_id, message: label + ' needs numeric props.' + k }); }
+        if (typeof props[k] !== 'number' || !isFinite(props[k])) { issues.push({ qid: node.question_id, message: label + ' needs a numeric ' + k }); }
       }
     });
     return issues;
@@ -1812,11 +3223,108 @@ export const SECTION_STUDIO_SCRIPT = `
     el.hidden = !enabled;
   }
 
+  // --- §5.2 bind UI: hidden chips, palette disabling, the legacy link banner ---
+  // "Hidden in this question unit · [Show]" — chip visible while the bound
+  // node for its bind value is deleted from the unit (canonical text kept).
+  function renderBoundChips() {
+    var chips = document.querySelectorAll('[data-bound-chip]');
+    var i, b;
+    for (i = 0; i < chips.length; i++) {
+      b = chips[i].getAttribute('data-bound-chip');
+      chips[i].hidden = findBoundNode(b) !== null;
+    }
+  }
+  // Palette "Question headline"/"Subheadline": insert bound nodes while none
+  // exists, else disabled with the exact tooltip (§5.2).
+  function updatePaletteBindItems() {
+    var items = document.querySelectorAll('[data-bind-item]');
+    var i, b, exists;
+    for (i = 0; i < items.length; i++) {
+      b = items[i].getAttribute('data-bind-item');
+      exists = findBoundNode(b) !== null;
+      items[i].setAttribute('data-bind-disabled', exists ? 'true' : 'false');
+      items[i].setAttribute('aria-disabled', exists ? 'true' : 'false');
+      if (exists) { items[i].setAttribute('title', 'This Section already shows its ' + bindNoun(b)); }
+      else { items[i].removeAttribute('title'); }
+    }
+  }
+  function bindBannerButton(label, handler) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-secondary';
+    b.textContent = label;
+    b.addEventListener('click', handler);
+    return b;
+  }
+  function bindBannerLinkHandler(qid, bindValue, winnerText) {
+    return function () { linkBoundNode(qid, bindValue, winnerText); };
+  }
+  // §5.2 legacy Sections: an UNBOUND QuestionHeadline/Subheadline while no
+  // bound node exists gets the link banner — byte-equal text offers the
+  // one-click link; differing text shows BOTH values and the operator picks
+  // which wins. Load alone never mutates; the picked change lands in the
+  // model (dirty) and persists on Save.
+  function renderBindBanner() {
+    var banner = document.querySelector('[data-bind-banner]');
+    if (!banner) { return; }
+    clearChildren(banner);
+    var binds = ['section_headline', 'section_subheadline'];
+    var shown = false;
+    var i, bindValue, node, strip, canonical, nodeText, row, msg, val;
+    for (i = 0; i < binds.length; i++) {
+      bindValue = binds[i];
+      if (findBoundNode(bindValue) !== null) { continue; }
+      node = unboundCandidate(bindValue);
+      if (node === null) { continue; }
+      strip = stripInputFor(bindValue);
+      canonical = strip ? strip.value : '';
+      nodeText = (node.props && typeof node.props.text === 'string') ? node.props.text : '';
+      row = document.createElement('div');
+      row.className = 'studio-bind-banner-row';
+      row.setAttribute('data-bind-banner-row', bindValue);
+      msg = document.createElement('span');
+      if (nodeText === canonical) {
+        row.setAttribute('data-bind-banner-case', 'equal');
+        msg.appendChild(document.createTextNode('This ' + bindNoun(bindValue) + ' matches the Section\\u2019s canonical text.'));
+        row.appendChild(msg);
+        row.appendChild(bindBannerButton('Link ' + bindNoun(bindValue) + ' to the Section\\u2019s canonical ' + bindNoun(bindValue), bindBannerLinkHandler(node.question_id, bindValue, null)));
+      } else {
+        row.setAttribute('data-bind-banner-case', 'differs');
+        msg.appendChild(document.createTextNode('This ' + bindNoun(bindValue) + ' differs from the Section\\u2019s canonical text \\u2014 pick which wins:'));
+        row.appendChild(msg);
+        val = document.createElement('span');
+        val.className = 'studio-bind-banner-value';
+        val.setAttribute('data-bind-banner-canonical', '');
+        val.appendChild(document.createTextNode('\\u201C' + canonical + '\\u201D'));
+        row.appendChild(val);
+        row.appendChild(bindBannerButton('Keep the Section ' + bindNoun(bindValue), bindBannerLinkHandler(node.question_id, bindValue, null)));
+        val = document.createElement('span');
+        val.className = 'studio-bind-banner-value';
+        val.setAttribute('data-bind-banner-node', '');
+        val.appendChild(document.createTextNode('\\u201C' + nodeText + '\\u201D'));
+        row.appendChild(val);
+        row.appendChild(bindBannerButton('Use this component\\u2019s text', bindBannerLinkHandler(node.question_id, bindValue, nodeText)));
+      }
+      banner.appendChild(row);
+      shown = true;
+    }
+    banner.hidden = !shown;
+  }
+
   function afterModelChange() {
     markDirty();
+    historyPush();
     clearRefusal();
     renderIssues();
     renderMapsBanner();
+    renderBoundChips();
+    updatePaletteBindItems();
+    renderBindBanner();
+    // 09 §9.4 "appears once overridden": the inheritance-source line, the
+    // "Reset to inherited" affordance and the swatch repaint IMMEDIATELY on a
+    // pick — same tick, never deferred to a re-selection.
+    renderOverrideDecorations(selectedNode());
+    updateCanvasToolbar();
     scheduleCanvasRender();
   }
 
@@ -1849,16 +3357,36 @@ export const SECTION_STUDIO_SCRIPT = `
   var canvasTimer = null;
   function scheduleCanvasRender() {
     if (canvasTimer) { clearTimeout(canvasTimer); }
-    canvasTimer = setTimeout(function () { canvasTimer = null; renderCanvasNow(); }, 300);
+    canvasTimer = setTimeout(function () {
+      canvasTimer = null;
+      // §6.2: never stomp an in-progress inline edit — re-check after commit.
+      if (inlineEditing) { scheduleCanvasRender(); return; }
+      renderCanvasNow();
+    }, 300);
   }
   function renderCanvasNow() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
+    // §5.2 one store, two views: the strip values ride every canvas render so
+    // BOUND QuestionHeadline/Subheadline nodes show the live canonical text
+    // (the preview handler threads body.headline/body.subheadline into
+    // sectionCtx). Typing in the strip schedules this re-render.
+    var headEl = document.getElementById('lg-section-headline');
+    var subEl = document.getElementById('lg-section-subheadline');
+    // §6.1.4: the canvas viewport is SERVER-rendered (viewport param); §9.5:
+    // the Section overrides ride as layer 4 so the canvas shows them live.
+    var canvasBody = {
+      content_json: JSON.stringify(state.content),
+      viewport: canvasViewport,
+      headline: headEl ? headEl.value : '',
+      subheadline: subEl ? subEl.value : ''
+    };
+    if (state.design_overrides) { canvasBody.design_overrides = state.design_overrides; }
     fetch('/api/admin/leadgen/sections/preview', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ content_json: JSON.stringify(state.content), viewport: 'desktop' })
+      body: JSON.stringify(canvasBody)
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -1880,23 +3408,114 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return out.join(' ');
   }
+  // §5.4: session-local "Keep (legacy)" acknowledgements — badge stays hidden
+  // for these nodes until reload (Keep = no model change by contract).
+  var keptLegacyFrameNodes = {};
+  // §5.4 amber badge for a legacy PAGE-FRAME element found in content. Wave 2:
+  // the Move action is LIVE — used-by-one funnel → explicit confirm naming
+  // the funnel → real PUT /funnels/:id/frame + node removal persisted on the
+  // same action; used-by-many → funnel picker; the C2 consequence line stays.
+  function buildFrameBadge(qid, type) {
+    var badge = document.createElement('div');
+    badge.className = 'studio-frame-badge';
+    badge.setAttribute('data-frame-badge', qid);
+    var text = document.createElement('span');
+    text.appendChild(document.createTextNode('Page-frame element \\u2014 belongs to the Quote frame \\u00B7'));
+    badge.appendChild(text);
+    var move = document.createElement('button');
+    move.type = 'button';
+    move.className = 'btn btn-sm btn-outline';
+    move.setAttribute('data-frame-move', qid);
+    move.title = 'Move this ' + typeLabel(type) + ' into the Quote frame (edited in the Quote Builder).';
+    move.appendChild(document.createTextNode('Move to Quote frame'));
+    badge.appendChild(move);
+    var keep = document.createElement('button');
+    keep.type = 'button';
+    keep.className = 'btn btn-sm btn-outline';
+    keep.setAttribute('data-frame-keep', qid);
+    keep.appendChild(document.createTextNode('Keep (legacy)'));
+    badge.appendChild(keep);
+    // C2 consequence (§5.4): the badge NAMES the activation block.
+    var note = document.createElement('span');
+    note.className = 'studio-frame-badge-note';
+    note.appendChild(document.createTextNode('While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel\\u2019s Advanced legacy override allows it.'));
+    badge.appendChild(note);
+    return badge;
+  }
+  // §6.2 canvas choice decoration: per-choice selection highlight, the per-
+  // choice ✕, the "+ Add choice" ghost tile at the grid end, choice drag
+  // handles and the selected-CardPanel resize handle. Rebuilt per pass like
+  // the maps chips (the region is server HTML).
+  function decorateChoiceCards(region) {
+    var cards = region.querySelectorAll('[data-lg-choice]');
+    var i, card, host, qid, x;
+    for (i = 0; i < cards.length; i++) {
+      card = cards[i];
+      host = card.closest ? card.closest('[data-question-id]') : null;
+      if (!host) { continue; }
+      qid = host.getAttribute('data-question-id');
+      if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
+      card.setAttribute('draggable', 'true');
+      if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
+        card.className = card.className + ' studio-choice-selected';
+      }
+      x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'studio-choice-x';
+      x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
+      x.setAttribute('data-choice-x-qid', qid);
+      x.setAttribute('aria-label', 'Remove choice');
+      x.appendChild(document.createTextNode('\\u00D7'));
+      if (card.parentNode) { card.parentNode.insertBefore(x, card.nextSibling); }
+    }
+    var nodes = region.querySelectorAll('[data-question-id]');
+    var ghost, handle, type;
+    for (i = 0; i < nodes.length; i++) {
+      qid = nodes[i].getAttribute('data-question-id');
+      type = nodes[i].getAttribute('data-component-type');
+      if (typeMeta(type).choice === true) {
+        ghost = document.createElement('button');
+        ghost.type = 'button';
+        ghost.className = 'lg-card studio-choice-ghost';
+        ghost.setAttribute('data-choice-ghost', qid);
+        ghost.appendChild(document.createTextNode('+ Add choice'));
+        nodes[i].appendChild(ghost);
+      }
+      // §6.2: resize handle on the SELECTED CardPanel — snaps to width presets.
+      if (type === 'CardPanel' && qid === selectedQuestionId) {
+        nodes[i].style.position = 'relative';
+        handle = document.createElement('span');
+        handle.className = 'studio-resize-handle';
+        handle.setAttribute('data-resize-handle', qid);
+        handle.title = 'Drag to resize \\u2014 snaps to the width presets (s / m / l / full)';
+        nodes[i].appendChild(handle);
+      }
+    }
+  }
   function applyCanvasDecoration() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
-    // §8.8 linked-field chips REBUILD per pass (the region is server HTML —
-    // every re-render wipes them, so decoration re-derives from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip');
+    // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
+    // is server HTML — every re-render wipes them, so decoration re-derives
+    // from the model).
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
     }
     var nodes = region.querySelectorAll('[data-question-id]');
-    var qid, base, ref, labels, chip;
+    var qid, base, ref, labels, chip, nodeType;
     for (i = 0; i < nodes.length; i++) {
       nodes[i].setAttribute('draggable', 'true');
       qid = nodes[i].getAttribute('data-question-id');
       base = withoutClasses(nodes[i].className, [SELECT_CLASS]);
       nodes[i].className = qid === selectedQuestionId ? base + ' ' + SELECT_CLASS : base;
+      // §5.4: legacy frame-scope node → amber badge (unless Keep-acknowledged
+      // this session). Inserted as a SIBLING above the node element.
+      nodeType = nodes[i].getAttribute('data-component-type');
+      if (typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true && nodes[i].parentNode) {
+        nodes[i].parentNode.insertBefore(buildFrameBadge(qid, nodeType), nodes[i]);
+      }
       // chip: "fills: city, state" from the config's autofill keys. Inserted
       // as a SIBLING (the ZIP node element is the <input> itself — it cannot
       // contain children).
@@ -1912,6 +3531,7 @@ export const SECTION_STUDIO_SCRIPT = `
         nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
       }
     }
+    decorateChoiceCards(region);
   }
   function clearDropClasses() {
     var region = document.getElementById('lg-studio-canvas-render');
@@ -1921,36 +3541,277 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < marked.length; i++) { marked[i].className = withoutClasses(marked[i].className, DROP_CLASSES); }
   }
 
-  // --- selection --------------------------------------------------------------
+  // --- §7.1 scope header + §7.2 pills ------------------------------------------
+  // The blast-radius sentence per scope — Section scope cites the live
+  // "Used in N quotes" reuse line (§2.4); C6 vocabulary only (this comment
+  // ships with the island — keep it token-clean for the copy lint).
+  function scopeAffectsText(node) {
+    if (scopeState === 'choice') { return 'Affects: this card only.'; }
+    if (scopeState === 'component' && node) {
+      if (typeMeta(node.type).scope === 'frame') {
+        return 'Affects: a page-frame element kept inside this Section (legacy) \\u2014 the frame itself is edited in the Quote Builder.';
+      }
+      return 'Affects: this question unit \\u2014 in every quote that uses this Section.';
+    }
+    if (usageQuoteCount === null) { return 'Affects: changes apply everywhere this Section is used.'; }
+    if (usageQuoteCount === 0) { return 'Affects: not used in any quote yet.'; }
+    return 'Affects: used in ' + usageQuoteCount + ' quote' + (usageQuoteCount === 1 ? '' : 's') + '; changes apply everywhere it\\u2019s used.';
+  }
+  function scopeEditingName(node) {
+    if (scopeState === 'choice') { return 'Answer choice \\u201C' + choiceScopeLabel + '\\u201D'; }
+    if (scopeState === 'component' && node) { return typeLabel(node.type); }
+    return 'This Section (question unit)';
+  }
+  var scopeFlashTimer = null;
+  function renderScopeHeader() {
+    var header = document.querySelector('[data-studio-scope-header]');
+    if (!header) { return; }
+    var node = selectedNode();
+    if (scopeState !== 'section' && !node) { scopeState = 'section'; }
+    var nameEl = header.querySelector('[data-scope-editing-name]');
+    var affectsEl = header.querySelector('[data-scope-affects]');
+    var changed = false;
+    var newName = scopeEditingName(node);
+    if (nameEl && nameEl.textContent !== newName) { nameEl.textContent = newName; changed = true; }
+    if (affectsEl) { affectsEl.textContent = scopeAffectsText(node); }
+    // §6.1.2: ONE pill implementation, two hosts — every instance syncs.
+    var pills = document.querySelectorAll('[data-scope-pill]');
+    var i, key, active;
+    var meta = node ? typeMeta(node.type) : {};
+    for (i = 0; i < pills.length; i++) {
+      key = pills[i].getAttribute('data-scope-pill');
+      active = key === scopeState;
+      pills[i].className = active ? 'studio-scope-pill active' : 'studio-scope-pill';
+      pills[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+      // MINOR 9: frame is never an ACTIVE scope here (Quote-Builder-owned) —
+      // the pill is a DEEP LINK to the using funnel's Quote Builder, disabled
+      // only while ZERO funnels use this Section; component needs a
+      // selection; choice needs a choice-bearing selection.
+      if (key === 'frame') { pills[i].disabled = usageFunnelsOf().length === 0; }
+      if (key === 'component') { pills[i].disabled = !node; }
+      if (key === 'choice') { pills[i].disabled = !node || meta.choice !== true; }
+    }
+    // §7.2: the retarget is SEEN — a brief flash on the aria-live region.
+    if (changed) {
+      header.className = 'studio-scope-header studio-scope-flash';
+      if (scopeFlashTimer) { clearTimeout(scopeFlashTimer); }
+      scopeFlashTimer = setTimeout(function () {
+        scopeFlashTimer = null;
+        header.className = 'studio-scope-header';
+      }, 400);
+    }
+  }
+  function setScope(scope) {
+    scopeState = scope;
+    if (scope !== 'choice') { selectedChoiceValue = null; }
+    renderScopeHeader();
+    updateCanvasToolbar();
+  }
+
+  // --- selection + §6.1 toolbar render layer ------------------------------------
+  // §6.1.1 clickable breadcrumb: root crumb = the scope ("This Section"); each
+  // ancestor crumb re-selects it; a focused choice appends its crumb.
+  function crumbHandler(qid) { return function () { selectComponent(qid); }; }
+  function renderBreadcrumb() {
+    var crumb = document.querySelector('[data-studio-breadcrumb]');
+    if (!crumb) { return; }
+    clearChildren(crumb);
+    var root = document.createElement('button');
+    root.type = 'button';
+    root.setAttribute('data-crumb', '');
+    if (!selectedQuestionId) { root.className = 'studio-crumb-current'; }
+    root.appendChild(document.createTextNode('This Section'));
+    root.addEventListener('click', function () { selectComponent(null); });
+    crumb.appendChild(root);
+    if (!selectedQuestionId) { return; }
+    var ref = findRef(selectedQuestionId);
+    if (!ref) { return; }
+    var i, sep, b;
+    for (i = 0; i < ref.trail.length; i++) {
+      sep = document.createElement('span');
+      sep.appendChild(document.createTextNode(' \\u203A '));
+      crumb.appendChild(sep);
+      b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('data-crumb', ref.trail[i].question_id);
+      if (i === ref.trail.length - 1 && !(scopeState === 'choice' && selectedChoiceValue !== null)) { b.className = 'studio-crumb-current'; }
+      b.appendChild(document.createTextNode(typeLabel(ref.trail[i].type)));
+      b.addEventListener('click', crumbHandler(ref.trail[i].question_id));
+      crumb.appendChild(b);
+    }
+    if (scopeState === 'choice' && selectedChoiceValue !== null) {
+      sep = document.createElement('span');
+      sep.appendChild(document.createTextNode(' \\u203A '));
+      crumb.appendChild(sep);
+      b = document.createElement('span');
+      b.className = 'studio-crumb-current';
+      b.setAttribute('data-crumb-choice', String(selectedChoiceValue));
+      b.appendChild(document.createTextNode('Choice \\u201C' + choiceScopeLabel + '\\u201D'));
+      crumb.appendChild(b);
+    }
+  }
+  // §6.7: the selected node's validation problems inline at the control (red
+  // outline + one sentence in the toolbar).
+  function renderToolbarProblems() {
+    var marked = document.querySelectorAll('.studio-control-invalid');
+    var i;
+    for (i = 0; i < marked.length; i++) { marked[i].className = withoutClasses(marked[i].className, ['studio-control-invalid']); }
+    var el = document.querySelector('[data-toolbar-problems]');
+    if (!el) { return; }
+    var node = selectedNode();
+    if (!node) { el.hidden = true; el.textContent = ''; return; }
+    var issues = computeIssues();
+    var mine = [];
+    for (i = 0; i < issues.length; i++) { if (issues[i].qid === node.question_id) { mine.push(issues[i]); } }
+    if (mine.length === 0) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
+    var key, ctl;
+    for (i = 0; i < mine.length; i++) {
+      key = issueControlKeyOf(mine[i].message);
+      if (key === null) { continue; }
+      if (key === 'choices') { ctl = document.getElementById('lg-choice-add'); }
+      else {
+        ctl = document.querySelector('[data-inspector-field="' + key + '"]') ||
+          document.querySelector('[data-inspector-vprop="' + key + '"]') ||
+          document.querySelector('[data-container-prop="' + key + '"]');
+      }
+      if (ctl && ctl.className.indexOf('studio-control-invalid') === -1) { ctl.className = ctl.className + ' studio-control-invalid'; }
+    }
+  }
+  // §6.5: the toolbar clusters are a PURE function of the selection.
+  function updateCanvasToolbar() {
+    var node = selectedNode();
+    var choiceFocused = scopeState === 'choice' && selectedChoiceValue !== null;
+    var visible = toolbarClustersFor(node, choiceFocused);
+    var clusters = document.querySelectorAll('[data-toolbar-cluster]');
+    var i, key;
+    for (i = 0; i < clusters.length; i++) {
+      key = clusters[i].getAttribute('data-toolbar-cluster');
+      clusters[i].hidden = visible.indexOf(key) === -1;
+    }
+    var meta = node ? typeMeta(node.type) : {};
+    var addChoice = document.querySelector('[data-toolbar-add-choice]');
+    if (addChoice) { addChoice.hidden = !node || meta.choice !== true; }
+    var auto = document.querySelector('[data-toolbar-autoadvance]');
+    if (auto) {
+      auto.hidden = !node || meta.choice !== true;
+      var on = (state.continue_mode || 'button') === 'auto_advance';
+      auto.textContent = on ? 'Auto-advance: on' : 'Auto-advance: off';
+      auto.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    var selButton = document.querySelector('[data-tb-selected-role="button"]');
+    if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
+    // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
+    // a dead write; the selected-icon role shows only for the two card grids.
+    var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
+    if (selIcon) { selIcon.hidden = !isCardGridType(node); }
+    var inputQuick = document.querySelector('[data-toolbar-input-quick]');
+    if (inputQuick) { inputQuick.hidden = !node || !meta.produces || meta.choice === true; }
+    // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — the
+    // quick layout cluster is gated to the two card grids (ButtonAnswerGroup /
+    // dropdowns / MultiChoiceCardGroup wrote dead keys).
+    var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
+    if (choiceLayout) { choiceLayout.hidden = !isCardGridType(node); }
+    // §5.5: the dropdown searchable toggle SWITCHES the component type.
+    var searchWrap = document.querySelector('[data-toolbar-searchable-wrap]');
+    var searchBtn = document.querySelector('[data-toolbar-searchable]');
+    var isDropdown = !!node && (node.type === 'DropdownQuestion' || node.type === 'SearchableDropdownQuestion');
+    if (searchWrap) { searchWrap.hidden = !isDropdown; }
+    if (searchBtn && isDropdown) {
+      var searchable = node.type === 'SearchableDropdownQuestion';
+      searchBtn.textContent = searchable ? 'Searchable: on' : 'Searchable: off';
+      searchBtn.setAttribute('aria-pressed', searchable ? 'true' : 'false');
+    }
+    var textRoleSel = document.querySelector('[data-text-role]');
+    if (textRoleSel && node && TEXT_ROLE_TYPES.indexOf(node.type) !== -1) {
+      textRoleSel.value = node.type;
+      textRoleSel.disabled = node.bind !== undefined;
+    }
+    var textColor = document.querySelector('[data-toolbar-text-color]');
+    if (textColor) { textColor.hidden = !node || node.type !== 'CategoryLabel'; }
+    var chip = document.querySelector('[data-choice-value-chip]');
+    var c = (node && choiceFocused) ? findChoice(node, selectedChoiceValue) : null;
+    if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
+    var badgeBtn = document.querySelector('[data-choice-act="badge"]');
+    if (badgeBtn) { badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
+    var disBtn = document.querySelector('[data-choice-act="disabled"]');
+    if (disBtn) { disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    updateHistoryButtons();
+    renderToolbarProblems();
+  }
   function selectComponent(qid) {
     selectedQuestionId = qid || null;
+    scopeState = selectedQuestionId ? 'component' : 'section';
+    selectedChoiceValue = null;
     applyCanvasDecoration();
-    var crumb = document.querySelector('[data-studio-breadcrumb]');
-    if (crumb) { crumb.textContent = selectedQuestionId ? breadcrumbText(selectedQuestionId) : ''; }
-    var toolbar = document.querySelector('[data-studio-selection-toolbar]');
-    if (toolbar) { toolbar.hidden = !selectedQuestionId; }
+    renderBreadcrumb();
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
     populateInspector();
     renderInspectorMapping();
+    renderScopeHeader();
+    updateCanvasToolbar();
+  }
+  // §6.2/§6.4 per-choice selection: clicking a card/button selects the CHOICE;
+  // the inspector simultaneously opens the Choices tab scrolled to that row.
+  function focusChoiceRow(value) {
+    var rows = document.querySelectorAll('[data-choice-row]');
+    var i, inp, label;
+    for (i = 0; i < rows.length; i++) {
+      inp = rows[i].querySelector('[data-choice-field="value"]');
+      if (inp && String(inp.value) === String(value)) {
+        if (rows[i].scrollIntoView) { rows[i].scrollIntoView({ block: 'nearest' }); }
+        label = rows[i].querySelector('[data-choice-field="label"]');
+        if (label && label.focus) { label.focus(); }
+        return true;
+      }
+    }
+    return false;
+  }
+  function selectChoice(qid, value) {
+    selectedQuestionId = qid || null;
+    var node = selectedNode();
+    if (!node || typeMeta(node.type).choice !== true) { selectComponent(qid); return; }
+    selectedChoiceValue = value;
+    var c = findChoice(node, value);
+    choiceScopeLabel = c && c.label !== undefined ? String(c.label) : '';
+    scopeState = 'choice';
+    applyCanvasDecoration();
+    renderBreadcrumb();
+    populateInspector();
+    renderInspectorMapping();
+    setInspectorTab('choices');
+    // populateInspector/setInspectorTab may have re-scoped — re-assert CHOICE.
+    scopeState = 'choice';
+    focusChoiceRow(value);
+    renderScopeHeader();
+    updateCanvasToolbar();
   }
 
-  // --- inspector tabs ----------------------------------------------------------
+  // --- inspector tabs (§7.3: DYNAMIC per selection — never a fixed strip) -------
   function availableTabsFor(node) {
     if (!node) { return []; }
     var meta = typeMeta(node.type);
     var tabs = [];
-    if (meta.layout) {
-      tabs.push('layout');
-      if ((meta.content_props || []).length > 0) { tabs.push('content'); }
-      tabs.push('dependencies');
+    // Content shows for a COPY-BEARING selection only (§7.3 "Shown when"): a
+    // type with content props, or a §5.2 BOUND node (its shared text field).
+    var hasContent = node.bind !== undefined || (meta.content_props || []).length > 0;
+    // §5.4/§8.2: a legacy PAGE-FRAME element is not a unit component — it gets
+    // its copy/structured props + Advanced, but no unit tabs (design/
+    // validation/dependencies/mapping are unit-scope surfaces).
+    if (meta.scope === 'frame') {
+      if (hasContent) { tabs.push('content'); }
+      if (meta.layout_props) { tabs.push('layout'); }
       tabs.push('advanced');
       return tabs;
     }
-    tabs.push('content');
+    if (hasContent) { tabs.push('content'); }
     if (meta.choice) { tabs.push('choices'); }
-    // Structured-prop affordance/chrome leaves (TrustBar/LogoStrip/
-    // StepIndicator) author their catalog props on the Layout tab too.
+    // Structured-prop containers/leaves (Stack/Grid/…/TrustBar/LogoStrip)
+    // author their token props on the Layout tab (wave-2 folds this into
+    // Design depth per §7.3).
     if (meta.layout_props) { tabs.push('layout'); }
+    // Design: any visual selection (§7.3) — containers included.
     tabs.push('design');
     if (meta.produces) { tabs.push('validation'); }
     if (meta.maps) { tabs.push('maps'); }
@@ -1960,6 +3821,13 @@ export const SECTION_STUDIO_SCRIPT = `
     return tabs;
   }
   function setInspectorTab(key) {
+    // §7.5: opening the Advanced tab is tracked (admin-side, console-only —
+    // no schema change).
+    if (key === 'advanced' && currentInspectorTab !== 'advanced' && window.console && window.console.info) {
+      window.console.info('section_advanced_opened', { section: state.public_id || 'new', component: selectedQuestionId });
+    }
+    // Leaving the Choices tab ends the choice scope (§7.2 retarget).
+    if (key !== 'choices' && scopeState === 'choice') { scopeState = selectedQuestionId ? 'component' : 'section'; renderScopeHeader(); }
     currentInspectorTab = key;
     var tabs = document.querySelectorAll('[data-studio-inspector-tab]');
     var panels = document.querySelectorAll('[data-studio-panel]');
@@ -1986,8 +3854,11 @@ export const SECTION_STUDIO_SCRIPT = `
   function populateInspector() {
     var node = selectedNode();
     var meta = node ? typeMeta(node.type) : {};
-    var target = document.getElementById('lg-inspector-target');
-    if (target) { target.textContent = node ? 'Editing ' + node.question_id + ' (' + node.type + ')' : 'Select a component'; }
+    var isBound = !!node && node.bind !== undefined;
+    // §7.1: the scope header (operator words) replaced the old id/type head;
+    // the Section-scope helper note shows only while nothing is selected.
+    var scopeNote = document.querySelector('[data-studio-section-scope-note]');
+    if (scopeNote) { scopeNote.hidden = !!node; }
     var avail = availableTabsFor(node);
     var tabs = document.querySelectorAll('[data-studio-inspector-tab]');
     var i, k;
@@ -1999,18 +3870,39 @@ export const SECTION_STUDIO_SCRIPT = `
     else if (avail.indexOf(currentInspectorTab) === -1) { setInspectorTab(avail[0]); }
     else { setInspectorTab(currentInspectorTab); }
 
+    // §5.2: a BOUND node's Content tab shows the SAME single shared field —
+    // never a second text store. The generic props.text control is hidden for
+    // it; the shared input mirrors the strip input (one store, two views).
+    var boundWrap = document.querySelector('[data-bound-content]');
+    var boundInput = document.querySelector('[data-bound-shared-input]');
+    var boundLabel = document.querySelector('[data-bound-content-label]');
+    if (boundWrap) { boundWrap.hidden = !isBound; }
+    if (isBound && boundInput) {
+      var boundStrip = stripInputFor(node.bind);
+      boundInput.value = boundStrip ? boundStrip.value : '';
+      if (boundLabel) {
+        boundLabel.textContent = node.bind === 'section_subheadline'
+          ? 'Subheadline (shared with the Section header above)'
+          : 'Question headline (shared with the Section header above)';
+      }
+    }
+
     // content controls: only the selected type's copy fields are visible
     var wraps = document.querySelectorAll('[data-content-prop]');
     var cp = meta.content_props || [];
-    var anyContent = false;
+    var anyContent = isBound;
     for (i = 0; i < wraps.length; i++) {
       k = wraps[i].getAttribute('data-content-prop');
-      var on = !!node && cp.indexOf(k) !== -1;
+      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text');
       wraps[i].hidden = !on;
       if (on) { anyContent = true; }
     }
     var emptyNote = document.querySelector('[data-content-empty]');
     if (emptyNote) { emptyNote.hidden = anyContent || !node; }
+
+    // A6: the image-fit Design control shows ONLY for the image answer grid.
+    var fitWrap = document.querySelector('[data-image-fit-wrap]');
+    if (fitWrap) { fitWrap.hidden = !node || node.type !== 'ImageCardAnswerGrid'; }
 
     var fieldEls = document.querySelectorAll('[data-inspector-field]');
     var el, field, val;
@@ -2026,11 +3918,26 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < ovEls.length; i++) {
       k = ovEls[i].getAttribute('data-inspector-override');
       oval = (node && node.design_overrides) ? node.design_overrides[k] : undefined;
+      // §9.4: a stored legacy #hex needs its appended option before .value.
+      if (isHexColor(oval)) { ensureLegacyOption(ovEls[i], String(oval)); }
       ovEls[i].value = (oval === undefined || oval === null) ? '' : String(oval);
     }
+    // FIX 4b: dead-write Design rows are GATED per type (overrideRowHidden —
+    // columns/gridGap are consumed by renderCardGrid only; iconColor has no
+    // consumer on MultiChoiceCardGroup).
+    var rowEls = document.querySelectorAll('[data-override-row]');
+    var rowKey;
+    for (i = 0; i < rowEls.length; i++) {
+      rowKey = rowEls[i].getAttribute('data-override-row');
+      rowEls[i].hidden = overrideRowHidden(rowKey, node);
+    }
+    renderOverrideDecorations(node);
+    renderPresetControls();
     populateValidation(node, meta);
     populateMapsPanel(node);
     populateConditional(node);
+    populateRequiredWhen(node);
+    populateDefaultControls(node);
     var groups = document.querySelectorAll('[data-container-group]');
     for (i = 0; i < groups.length; i++) {
       groups[i].hidden = !node || groups[i].getAttribute('data-container-group') !== node.type;
@@ -2040,8 +3947,16 @@ export const SECTION_STUDIO_SCRIPT = `
     populateChoiceDisplay(node);
     var dbg = document.querySelector('[data-studio-debug-id]');
     if (dbg) { dbg.textContent = node ? node.question_id : ''; }
+    // §7.3 Advanced: the bind marker (read-only) — ids/raw markers live here
+    // only (§7.4).
+    var bindMarker = document.querySelector('[data-studio-bind-marker]');
+    if (bindMarker) { bindMarker.textContent = node && node.bind !== undefined ? node.bind : '\\u2014'; }
     var jsonTa = document.getElementById('lg-node-json');
     if (jsonTa) { jsonTa.value = node ? JSON.stringify(node, null, 2) : ''; }
+    // §7.3: the raw view re-locks per selection — editing needs the explicit
+    // "Edit raw…" confirm again.
+    rawEditArmed = false;
+    syncRawJsonMode();
     var jsonErr = document.querySelector('[data-studio-node-json-error]');
     if (jsonErr) { jsonErr.hidden = true; }
     var warn = document.querySelector('[data-studio-rename-warning]');
@@ -2068,8 +3983,19 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-studio-rename-warning]');
     if (!el) { return; }
     if (!oldField || newField === oldField) { el.hidden = true; el.textContent = ''; return; }
+    // §7.4: the destructive control carries its CONSEQUENCE inline, counted
+    // against the live mapping model ("will unlink N Offer mappings").
+    var mapCount = 0, mi;
+    for (mi = 0; mi < state.answer_maps.length; mi++) {
+      if (state.answer_maps[mi] && state.answer_maps[mi].internal_field === oldField) { mapCount += 1; }
+    }
     var refs = findConditionalRefs(oldField);
-    var msg = 'Mapping impact: renaming this internal field can break existing answer-to-Offer mappings that reference "' + oldField + '" (the D2 mapping panel will show exact usage).';
+    var msg;
+    if (mapCount > 0) {
+      msg = 'Renaming the internal field will unlink ' + mapCount + ' Offer mapping' + (mapCount === 1 ? '' : 's') + ' \\u2014 they\\u2019ll need remapping.';
+    } else {
+      msg = 'Renaming this internal field can break Offer mappings that reference "' + oldField + '" (the mapping panel shows exact usage).';
+    }
     if (refs.length > 0) {
       msg += ' ' + refs.length + ' dependency reference(s) still point at it: ' + refs.join(', ') + ' — update them before saving.';
     }
@@ -2148,6 +4074,11 @@ export const SECTION_STUDIO_SCRIPT = `
         v = (node && node.props) ? node.props[k] : undefined;
         input.value = (v === undefined || v === null) ? '' : String(v);
       }
+    }
+    // §5.5: the range provider-format note shows for the slider family only.
+    var rangeNote = document.querySelector('[data-range-format-note]');
+    if (rangeNote) {
+      rangeNote.hidden = !node || (node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion');
     }
     var presetSel = document.querySelector('[data-inspector-vprop="pattern_preset"]');
     var patternIn = document.querySelector('[data-inspector-vprop="pattern"]');
@@ -2518,28 +4449,354 @@ export const SECTION_STUDIO_SCRIPT = `
     var cond = buildConditional(whenVal, op, parts, info.type);
     if (cond === null) { delete node.conditional; } else { node.conditional = cond; }
     updateCondValueInputs(node);
+    renderConditionSentences(node);
+    afterModelChange();
+  }
+
+  // --- FIX 7: "Require this component IF" — props.requiredWhen -------------------
+  // The runtime already consumes props.requiredWhen (runtime/dependencies.ts
+  // requiredNow + the server twin) — these rows are the authoring side. The
+  // SAME typed IF builder (buildConditional) produces the SAME conditional
+  // shape; the pickers stay the controls, the sentence is the readable text.
+  function readReqCond(key) {
+    var el = document.querySelector('[data-inspector-reqcond="' + key + '"]');
+    return el ? el.value : '';
+  }
+  function reqCondPartValue(info, op) {
+    if (op === 'range' || op === 'in' || op === 'not_in') { return ''; }
+    if (info.type === 'boolean') { return readReqCond('value-bool'); }
+    if (info.choices && (op === 'eq' || op === 'neq')) { return readReqCond('value-enum'); }
+    return readReqCond('value');
+  }
+  function nodeRequiredWhen(node) {
+    if (!node || !node.props || !node.props.requiredWhen || typeof node.props.requiredWhen !== 'object') { return null; }
+    return node.props.requiredWhen;
+  }
+  function updateReqCondValueInputs(node) {
+    var whenSel = document.querySelector('[data-inspector-reqcond="when"]');
+    var opSel = document.querySelector('[data-inspector-reqcond="op"]');
+    var boolSel = document.querySelector('[data-inspector-reqcond="value-bool"]');
+    var enumSel = document.querySelector('[data-inspector-reqcond="value-enum"]');
+    var valIn = document.querySelector('[data-inspector-reqcond="value"]');
+    var fromIn = document.querySelector('[data-inspector-reqcond="from"]');
+    var toIn = document.querySelector('[data-inspector-reqcond="to"]');
+    var valuesIn = document.querySelector('[data-inspector-reqcond="values"]');
+    if (!whenSel || !opSel) { return; }
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenSel.value);
+    var cond = nodeRequiredWhen(node) || {};
+    var isRange = op === 'range';
+    var isList = op === 'in' || op === 'not_in';
+    var scalarKind = 'text';
+    if (!isRange && !isList) {
+      if (info.type === 'boolean') { scalarKind = 'bool'; }
+      else if (info.choices && (op === 'eq' || op === 'neq')) { scalarKind = 'enum'; }
+    }
+    if (boolSel) {
+      boolSel.hidden = scalarKind !== 'bool';
+      boolSel.value = cond.value === false ? 'false' : 'true';
+    }
+    if (enumSel) {
+      enumSel.hidden = scalarKind !== 'enum';
+      clearChildren(enumSel);
+      var i, o;
+      if (info.choices) {
+        for (i = 0; i < info.choices.length; i++) {
+          o = document.createElement('option');
+          o.value = String(info.choices[i].value);
+          o.textContent = String(info.choices[i].label || info.choices[i].value);
+          enumSel.appendChild(o);
+        }
+      }
+      if (scalarKind === 'enum' && cond.value !== undefined && cond.value !== null) { enumSel.value = String(cond.value); }
+    }
+    if (valIn) {
+      valIn.hidden = isRange || isList || scalarKind !== 'text';
+      valIn.value = (cond.value === undefined || cond.value === null) ? '' : String(cond.value);
+    }
+    if (fromIn) { fromIn.hidden = !isRange; fromIn.value = (cond.from === undefined) ? '' : String(cond.from); }
+    if (toIn) { toIn.hidden = !isRange; toIn.value = (cond.to === undefined) ? '' : String(cond.to); }
+    if (valuesIn) {
+      valuesIn.hidden = !isList;
+      valuesIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : '';
+    }
+  }
+  function populateRequiredWhen(node) {
+    var wrap = document.querySelector('[data-reqcond-wrap]');
+    var meta = node ? typeMeta(node.type) : {};
+    // requiredWhen is meaningful for answer-PRODUCING components only.
+    if (wrap) { wrap.hidden = !node || !meta.produces; }
+    var whenSel = document.querySelector('[data-inspector-reqcond="when"]');
+    var opSel = document.querySelector('[data-inspector-reqcond="op"]');
+    if (!whenSel || !opSel) { return; }
+    clearChildren(whenSel);
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '\\u2014 only when marked Required \\u2014';
+    whenSel.appendChild(opt);
+    var fields = internalFieldsOf();
+    var i;
+    for (i = 0; i < fields.length; i++) {
+      if (node && node.internal_field && fields[i] === node.internal_field) { continue; }
+      opt = document.createElement('option');
+      opt.value = fields[i];
+      opt.textContent = fields[i];
+      whenSel.appendChild(opt);
+    }
+    var cond = nodeRequiredWhen(node);
+    whenSel.value = (cond && cond.when) ? cond.when : '';
+    opSel.value = (cond && cond.op) ? cond.op : 'eq';
+    updateReqCondValueInputs(node);
+    renderConditionSentences(node);
+  }
+  function collectRequiredWhen() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var whenSel = document.querySelector('[data-inspector-reqcond="when"]');
+    var opSel = document.querySelector('[data-inspector-reqcond="op"]');
+    if (!whenSel || !opSel) { return; }
+    var whenVal = trimStr(whenSel.value);
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenVal);
+    var parts = {
+      value: reqCondPartValue(info, op),
+      values: readReqCond('values'),
+      from: readReqCond('from'),
+      to: readReqCond('to')
+    };
+    var cond = buildConditional(whenVal, op, parts, info.type);
+    var props = ensureObj(node, 'props');
+    if (cond === null) { delete props.requiredWhen; } else { props.requiredWhen = cond; }
+    cleanupEmpty(node, 'props');
+    updateReqCondValueInputs(node);
+    renderConditionSentences(node);
+    afterModelChange();
+  }
+
+  // §7.3 sentence pattern: the row's READABLE text — "Show this question when
+  // <field> is <value>" — rendered from the stored conditional; the pickers
+  // stay the controls.
+  function conditionSentence(prefix, cond) {
+    var field = cond.when;
+    var op = cond.op || 'eq';
+    if (op === 'range') { return prefix + ' when ' + field + ' is between ' + String(cond.from) + ' and ' + String(cond.to); }
+    if (op === 'in') { return prefix + ' when ' + field + ' is one of: ' + (cond.values || []).join(', '); }
+    if (op === 'not_in') { return prefix + ' when ' + field + ' is none of: ' + (cond.values || []).join(', '); }
+    var rel = 'is';
+    if (op === 'neq') { rel = 'is not'; }
+    else if (op === 'gt') { rel = 'is more than'; }
+    else if (op === 'lt') { rel = 'is less than'; }
+    else if (op === 'gte') { rel = 'is at least'; }
+    else if (op === 'lte') { rel = 'is at most'; }
+    return prefix + ' when ' + field + ' ' + rel + ' ' + String(cond.value);
+  }
+  function renderConditionSentences(node) {
+    var showEl = document.querySelector('[data-cond-sentence]');
+    var reqEl = document.querySelector('[data-reqcond-sentence]');
+    var cond = (node && node.conditional) ? node.conditional : null;
+    var rw = nodeRequiredWhen(node);
+    if (showEl) {
+      showEl.textContent = (cond && cond.when) ? conditionSentence('Show this question', cond) : 'This question is always shown.';
+    }
+    if (reqEl) {
+      if (rw && rw.when) { reqEl.textContent = conditionSentence('Require this question', rw); }
+      else if (node && node.required === true) { reqEl.textContent = 'This question is always required (Validation tab).'; }
+      else { reqEl.textContent = 'No requirement condition \\u2014 add one below.'; }
+    }
+  }
+
+  // --- §5.5 defaults (FIX 8a/8b) --------------------------------------------------
+  // yes/no → props.defaultValue (boolean) — the config-dto default_answer /
+  // runtime default_applied path; the visitor still confirms it (§5.5).
+  // range → props.default (number); dropdowns → props.default (choice value)
+  // — both consumed by the presets (renderRange / the dropdown renderers).
+  var RANGE_DEFAULT_TYPES = ['RangeQuestion', 'CurrencyRangeQuestion', 'NumberRangeQuestion'];
+  var DROPDOWN_DEFAULT_TYPES = ['DropdownQuestion', 'SearchableDropdownQuestion'];
+  function defaultKindOf(node) {
+    if (!node) { return null; }
+    if (node.type === 'TwoButtonYesNo') { return 'yesno'; }
+    if (RANGE_DEFAULT_TYPES.indexOf(node.type) !== -1) { return 'range'; }
+    if (DROPDOWN_DEFAULT_TYPES.indexOf(node.type) !== -1) { return 'dropdown'; }
+    return null;
+  }
+  function populateDefaultControls(node) {
+    var kind = defaultKindOf(node);
+    var wraps = document.querySelectorAll('[data-default-wrap]');
+    var i, w;
+    for (i = 0; i < wraps.length; i++) {
+      w = wraps[i].getAttribute('data-default-wrap');
+      wraps[i].hidden = w !== kind;
+    }
+    if (kind === null) { return; }
+    var props = node.props || {};
+    var el;
+    if (kind === 'yesno') {
+      el = document.querySelector('[data-default-control="yesno"]');
+      if (el) { el.value = props.defaultValue === true ? 'true' : (props.defaultValue === false ? 'false' : ''); }
+      return;
+    }
+    if (kind === 'range') {
+      el = document.querySelector('[data-default-control="range"]');
+      if (el) { el.value = typeof props.default === 'number' ? String(props.default) : ''; }
+      return;
+    }
+    el = document.querySelector('[data-default-control="dropdown"]');
+    if (!el) { return; }
+    clearChildren(el);
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No default \\u2014 the visitor picks';
+    el.appendChild(opt);
+    var choices = node.choices || [];
+    for (i = 0; i < choices.length; i++) {
+      if (!choices[i]) { continue; }
+      opt = document.createElement('option');
+      opt.value = String(choices[i].value);
+      opt.textContent = String(choices[i].label || choices[i].value);
+      el.appendChild(opt);
+    }
+    el.value = (props.default === undefined || props.default === null) ? '' : String(props.default);
+  }
+  function collectDefaultControl(input) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var kind = input.getAttribute('data-default-control');
+    if (kind !== defaultKindOf(node)) { return; }
+    var props = ensureObj(node, 'props');
+    var v = trimStr(input.value);
+    if (kind === 'yesno') {
+      if (v === '') { delete props.defaultValue; }
+      else { props.defaultValue = v === 'true'; }
+    } else if (kind === 'range') {
+      var n = Number(v);
+      if (v === '' || isNaN(n)) { delete props.default; }
+      else { props.default = n; }
+    } else {
+      if (v === '') { delete props.default; }
+      else { props.default = v; }
+    }
+    cleanupEmpty(node, 'props');
     afterModelChange();
   }
 
   // --- choices editor (§8.6: rows + main/Other grouping + bulk paste) -----------
-  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'icon', 'imageMediaId', 'description'];
+  // A5: image_alt rides the row editor so an image-grid choice edit PRESERVES
+  // the §8.4-required alt (collectChoices rebuilds each choice from the row
+  // inputs — a field missing here would be silently dropped). Wave 2 owns the
+  // full §7.3 Choices-depth grid (title/subtitle/badge/emoji/picker cells).
+  // §7.3 Choices tab rows — SECTION-OWNED fields ONLY (C1): display label,
+  // internal normalized value (auto-suggested from the label), analytics
+  // label, icon/emoji (mutually exclusive), image + REQUIRED alt (media
+  // picker cell), title/subtitle/badge, aria_label, disabled, main/Other
+  // grouping, reorder. There is NO provider-value control here — each row
+  // ends with the read-only "Provider values: k/n Offers" chip (§12.2).
+  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'title', 'subtitle', 'badge', 'icon', 'emoji', 'imageMediaId', 'image_alt', 'aria_label', 'description'];
+  // §12.4: placeholders are operator copy — raw storage keys never surface.
+  var CHOICE_FIELD_PLACEHOLDERS = { analytics_id: 'Analytics label (auto)', imageMediaId: 'Image', image_alt: 'Image alt text', aria_label: 'Screen-reader label' };
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
-  function buildChoiceRow(choice, isMain) {
+  // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
+  // that Offer's provider value or "not set", deep-linking into the Offer's
+  // value map. Read-only by construction.
+  function buildProviderChip(node, choice) {
+    var wrap = document.createElement('span');
+    wrap.setAttribute('data-choice-provider', '');
+    var internalField = node && node.internal_field ? String(node.internal_field) : '';
+    var value = choice && choice.value !== undefined ? String(choice.value) : '';
+    var chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'studio-provider-chip';
+    chip.setAttribute('data-choice-provider-chip', value);
+    chip.appendChild(document.createTextNode(providerChipLabel(internalField, value)));
+    wrap.appendChild(chip);
+    var rowsEl = document.createElement('div');
+    rowsEl.className = 'studio-provider-rows';
+    rowsEl.setAttribute('data-choice-provider-rows', value);
+    rowsEl.hidden = true;
+    var rows = providerChipRows(internalField, value);
+    var i, line, a;
+    if (rows.length === 0) {
+      line = document.createElement('div');
+      line.appendChild(document.createTextNode('No Offers selected yet \\u2014 select Offers in the mapping drawer first.'));
+      rowsEl.appendChild(line);
+    }
+    for (i = 0; i < rows.length; i++) {
+      line = document.createElement('div');
+      line.setAttribute('data-provider-offer', rows[i].offer_public_id || '');
+      line.appendChild(document.createTextNode(rows[i].offer_name + ': ' + (rows[i].value === null ? 'not set' : rows[i].value) + ' '));
+      if (rows[i].href !== null) {
+        a = document.createElement('a');
+        a.href = rows[i].href;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.setAttribute('data-provider-valuemap-link', rows[i].offer_public_id || '');
+        a.appendChild(document.createTextNode('Open value map'));
+        line.appendChild(a);
+      }
+      rowsEl.appendChild(line);
+    }
+    chip.addEventListener('click', function () { rowsEl.hidden = !rowsEl.hidden; });
+    wrap.appendChild(rowsEl);
+    return wrap;
+  }
+  function buildChoiceRow(choice, isMain, node) {
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row';
     wrap.setAttribute('data-choice-row', '');
     var i, inp, val;
+    var inputsByField = {};
     for (i = 0; i < CHOICE_FIELDS.length; i++) {
       inp = document.createElement('input');
       inp.className = 'form-input';
       inp.setAttribute('data-choice-field', CHOICE_FIELDS[i]);
-      inp.setAttribute('placeholder', CHOICE_FIELDS[i]);
+      inp.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS[CHOICE_FIELDS[i]] || CHOICE_FIELDS[i]);
       val = choice ? choice[CHOICE_FIELDS[i]] : undefined;
       inp.value = (val === undefined || val === null) ? '' : String(val);
       inp.addEventListener('input', collectChoices);
       inp.addEventListener('change', collectChoices);
+      inputsByField[CHOICE_FIELDS[i]] = inp;
       wrap.appendChild(inp);
+      // §5.5: the image cell is a PICKER cell — Choose… opens the shared
+      // Media-library chooser writing into this input (same collect path).
+      if (CHOICE_FIELDS[i] === 'imageMediaId') {
+        wrap.appendChild(buildChoiceMediaButton(inp));
+      }
     }
+    // §7.3: value auto-suggested from the label while un-edited.
+    var valueInput = inputsByField['value'];
+    if (valueInput) {
+      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
+    var labelInput = inputsByField['label'];
+    if (labelInput && valueInput) {
+      labelInput.addEventListener('input', function () {
+        if (valueInput.getAttribute('data-auto') === 'true') {
+          valueInput.value = slugify(this.value);
+          collectChoices();
+        }
+      });
+    }
+    // §8.4: emoji ⊕ icon are mutually exclusive — setting one clears the other.
+    var iconInput = inputsByField['icon'];
+    var emojiInput = inputsByField['emoji'];
+    if (iconInput && emojiInput) {
+      iconInput.addEventListener('input', function () {
+        if (trimStr(this.value) !== '' && trimStr(emojiInput.value) !== '') { emojiInput.value = ''; collectChoices(); }
+      });
+      emojiInput.addEventListener('input', function () {
+        if (trimStr(this.value) !== '' && trimStr(iconInput.value) !== '') { iconInput.value = ''; collectChoices(); }
+      });
+    }
+    var disabledLabel = document.createElement('label');
+    disabledLabel.className = 'lg-check';
+    var disabledCb = document.createElement('input');
+    disabledCb.type = 'checkbox';
+    disabledCb.setAttribute('data-choice-disabled', '');
+    disabledCb.checked = !!(choice && choice.disabled === true);
+    disabledCb.addEventListener('change', collectChoices);
+    disabledLabel.appendChild(disabledCb);
+    disabledLabel.appendChild(document.createTextNode('disabled'));
+    wrap.appendChild(disabledLabel);
     var mainLabel = document.createElement('label');
     mainLabel.className = 'lg-check';
     var mainCb = document.createElement('input');
@@ -2550,6 +4807,12 @@ export const SECTION_STUDIO_SCRIPT = `
     mainLabel.appendChild(mainCb);
     mainLabel.appendChild(document.createTextNode('main'));
     wrap.appendChild(mainLabel);
+    // §7.3 reorder within the row grid.
+    var reorder = document.createElement('span');
+    reorder.className = 'studio-choice-reorder';
+    reorder.appendChild(choiceRowMoveBtn(wrap, -1));
+    reorder.appendChild(choiceRowMoveBtn(wrap, 1));
+    wrap.appendChild(reorder);
     var rm = document.createElement('button');
     rm.type = 'button';
     rm.className = 'btn btn-sm btn-danger';
@@ -2560,7 +4823,36 @@ export const SECTION_STUDIO_SCRIPT = `
       collectChoices();
     });
     wrap.appendChild(rm);
+    // §12.2 C1: the read-only per-Offer provider-values chip ends the row.
+    wrap.appendChild(buildProviderChip(node || selectedNode(), choice || {}));
     return wrap;
+  }
+  function choiceRowMoveBtn(wrap, delta) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-choice-row-move', delta < 0 ? 'up' : 'down');
+    b.setAttribute('aria-label', delta < 0 ? 'Move choice up' : 'Move choice down');
+    b.appendChild(document.createTextNode(delta < 0 ? '\\u2191' : '\\u2193'));
+    b.addEventListener('click', function () {
+      var parent = wrap.parentNode;
+      if (!parent) { return; }
+      if (delta < 0 && wrap.previousElementSibling) { parent.insertBefore(wrap, wrap.previousElementSibling); }
+      else if (delta > 0 && wrap.nextElementSibling) { parent.insertBefore(wrap.nextElementSibling, wrap); }
+      collectChoices();
+    });
+    return b;
+  }
+  function buildChoiceMediaButton(input) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-choice-media-choose', '');
+    b.textContent = 'Choose\\u2026';
+    b.addEventListener('click', function () {
+      openMediaPicker({ input: input, onpick: collectChoices });
+    });
+    return b;
   }
   function renderChoiceEditor(node) {
     var c = choiceContainer();
@@ -2570,7 +4862,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var mains = (node && node.choiceDisplay && node.choiceDisplay.mainValues) ? node.choiceDisplay.mainValues : [];
     var i;
     for (i = 0; i < choices.length; i++) {
-      c.appendChild(buildChoiceRow(choices[i], mains.indexOf(String(choices[i].value)) !== -1));
+      c.appendChild(buildChoiceRow(choices[i], mains.indexOf(String(choices[i].value)) !== -1, node));
     }
   }
   function populateChoiceDisplay(node) {
@@ -2614,6 +4906,9 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       mainCb = rows[i].querySelector('[data-choice-main]');
       if (mainCb && mainCb.checked && choice.value !== undefined) { mains.push(String(choice.value)); }
+      // §8.4 disabled rides a checkbox (boolean — set only when true).
+      var disabledCb = rows[i].querySelector('[data-choice-disabled]');
+      if (disabledCb && disabledCb.checked) { choice.disabled = true; }
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
@@ -2626,14 +4921,19 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < lines.length; i++) {
       line = trimStr(lines[i]);
       if (line === '') { continue; }
+      // §5.5: "label = value" is the documented idiom; the legacy
+      // "label|value" separator stays accepted.
       at = line.indexOf('|');
+      if (at === -1) { at = line.indexOf('='); }
       label = at === -1 ? line : trimStr(line.slice(0, at));
       value = at === -1 ? slugify(line) : trimStr(line.slice(at + 1));
       if (label === '') { continue; }
       if (value === '') { value = slugify(label); }
       c = { label: label, value: value, analytics_id: value };
       if (req && req.choice_icon) { c.icon = '\\u2605'; }
-      if (req && req.choice_image) { c.imageMediaId = 'media_' + value; }
+      // A5: pasted image-grid choices carry image_alt next to imageMediaId
+      // (§8.4 requirement — see sampleChoice).
+      if (req && req.choice_image) { c.imageMediaId = 'media_' + value; c.image_alt = label; }
       out.push(c);
     }
     return out;
@@ -2678,6 +4978,555 @@ export const SECTION_STUDIO_SCRIPT = `
     selectComponent(parsed.question_id);
   }
 
+  // --- §7.3 Advanced raw JSON: read-only + explicit "Edit raw…" confirm ---------
+  function syncRawJsonMode() {
+    var ta = document.getElementById('lg-node-json');
+    var applyBtn = document.getElementById('lg-node-json-apply');
+    var editBtn = document.getElementById('lg-node-json-edit');
+    if (ta) {
+      if (rawEditArmed) { ta.removeAttribute('readonly'); }
+      else { ta.setAttribute('readonly', 'readonly'); }
+    }
+    if (applyBtn) { applyBtn.hidden = !rawEditArmed; }
+    if (editBtn) { editBtn.hidden = rawEditArmed; }
+  }
+  function armRawEdit() {
+    if (rawEditArmed) { return false; }
+    if (!window.confirm('Edit the raw component JSON? Invalid structures are rejected on Apply, but raw edits bypass the guided controls.')) { return false; }
+    rawEditArmed = true;
+    syncRawJsonMode();
+    return true;
+  }
+
+  // --- §9.4 role-override DOM decorations ----------------------------------------
+  function ensureLegacyOption(sel, hex) {
+    var i, has = false;
+    for (i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === hex) { has = true; break; }
+    }
+    if (!has) {
+      var o = document.createElement('option');
+      o.value = hex;
+      o.textContent = 'Custom color (legacy)';
+      sel.appendChild(o);
+    }
+  }
+  function renderOverrideDecorations(node) {
+    var i, key, sel, cur, resetBtn, srcEl, legacyEl, swatch;
+    for (i = 0; i < COLOR_OVERRIDE_KEYS.length; i++) {
+      key = COLOR_OVERRIDE_KEYS[i];
+      sel = document.getElementById('lg-inspector-' + key);
+      cur = (node && node.design_overrides) ? node.design_overrides[key] : undefined;
+      if (sel && isHexColor(cur)) { ensureLegacyOption(sel, String(cur)); sel.value = String(cur); }
+      resetBtn = document.querySelector('[data-override-reset="' + key + '"]');
+      if (resetBtn) { resetBtn.hidden = !node || cur === undefined || cur === null || cur === ''; }
+      srcEl = document.querySelector('[data-override-source="' + key + '"]');
+      if (srcEl) { srcEl.textContent = node ? overrideSourceText(key, cur) : ''; }
+      legacyEl = document.querySelector('[data-override-legacy="' + key + '"]');
+      if (legacyEl) { legacyEl.hidden = !node || !isHexColor(cur); }
+      swatch = document.querySelector('[data-override-swatch="' + key + '"]');
+      if (swatch && swatch.style) { swatch.style.background = node ? resolvedOverrideColor(key, cur) : ''; }
+    }
+  }
+  function resetOverride(key) {
+    var node = selectedNode();
+    if (!node || !node.design_overrides) { return; }
+    delete node.design_overrides[key];
+    cleanupEmpty(node, 'design_overrides');
+    afterModelChange();
+    populateInspector();
+  }
+  // §9.4 "Convert to a theme color": exact default-design match converts in
+  // place; no match → the operator picks from the (focused) role select.
+  function convertLegacyOverride(key) {
+    var node = selectedNode();
+    if (!node || !node.design_overrides) { return null; }
+    var cur = node.design_overrides[key];
+    var role = legacyHexToRole(cur);
+    if (role !== null) {
+      node.design_overrides[key] = role;
+      afterModelChange();
+      populateInspector();
+      return role;
+    }
+    var sel = document.getElementById('lg-inspector-' + key);
+    if (sel && sel.focus) { sel.focus(); }
+    return null;
+  }
+
+  // --- §9.5 Section-overrides drawer mode: populate + collect --------------------
+  function renderSectionOverrideSwatches() {
+    var palette = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette : {};
+    var swatches = document.querySelectorAll('[data-section-role-swatch]');
+    var i, role, v, resolved;
+    for (i = 0; i < swatches.length; i++) {
+      role = swatches[i].getAttribute('data-section-role-swatch');
+      v = palette[role];
+      resolved = isHexColor(v) ? v : (v && ROLE_VALUES[v]) ? ROLE_VALUES[v] : (ROLE_VALUES[role] || '');
+      if (swatches[i].style) { swatches[i].style.background = resolved; }
+    }
+  }
+  function populateSectionOverrides() {
+    var ov = (state.design_overrides && typeof state.design_overrides === 'object') ? state.design_overrides : {};
+    var palette = (ov.palette && typeof ov.palette === 'object') ? ov.palette : {};
+    var sels = document.querySelectorAll('[data-section-role]');
+    var i, role, v;
+    for (i = 0; i < sels.length; i++) {
+      role = sels[i].getAttribute('data-section-role');
+      v = palette[role];
+      if (isHexColor(v)) { ensureLegacyOption(sels[i], String(v)); }
+      sels[i].value = (v === undefined || v === null) ? '' : String(v);
+    }
+    var colsEl = document.querySelector('[data-section-columns-default]');
+    if (colsEl) { colsEl.value = typeof ov.columnsDefault === 'number' ? String(ov.columnsDefault) : ''; }
+    var gapEl = document.querySelector('[data-section-gap-default]');
+    if (gapEl) { gapEl.value = typeof ov.gapDefault === 'string' ? ov.gapDefault : ''; }
+    renderSectionOverrideSwatches();
+  }
+  function collectSectionOverrides() {
+    state.design_overrides = buildSectionOverrides();
+    markDirty();
+    renderSectionOverrideSwatches();
+    scheduleCanvasRender();
+  }
+
+  // --- §6.6 presets: load + Design-tab dropdown + apply + save -------------------
+  function renderPresetControls() {
+    var node = selectedNode();
+    var designSel = document.querySelector('[data-preset-select]');
+    var applySel = document.querySelector('[data-preset-apply]');
+    var list = node ? presetsForType(node.type) : [];
+    var i, o;
+    if (designSel) {
+      clearChildren(designSel);
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = '(none)';
+      designSel.appendChild(o);
+      for (i = 0; i < list.length; i++) {
+        o = document.createElement('option');
+        o.value = list[i].name;
+        o.textContent = list[i].name;
+        designSel.appendChild(o);
+      }
+      var cur = node && node.design_preset ? String(node.design_preset) : '';
+      if (cur !== '' && presetByName(cur) === null) {
+        // provenance for a deleted/renamed preset stays visible, never dropped
+        o = document.createElement('option');
+        o.value = cur;
+        o.textContent = cur + ' (stored)';
+        designSel.appendChild(o);
+      }
+      designSel.value = cur;
+      designSel.disabled = !node;
+    }
+    if (applySel) {
+      clearChildren(applySel);
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = 'Apply preset…';
+      applySel.appendChild(o);
+      for (i = 0; i < list.length; i++) {
+        o = document.createElement('option');
+        o.value = list[i].name;
+        o.textContent = list[i].name;
+        applySel.appendChild(o);
+      }
+      // §6.6: mismatched type (no presets for this type) → disabled.
+      applySel.disabled = !node || list.length === 0;
+    }
+  }
+  function loadComponentPresets() {
+    fetchItems('/api/admin/leadgen/component-presets', function (items) {
+      presetsData = items || [];
+      renderPresetControls();
+    });
+  }
+  function savePresetFromSelection() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var name = trimStr(window.prompt('Preset name'));
+    if (name === '') { return; }
+    var payload = buildPresetPayload(node);
+    payload.name = name;
+    fetch('/api/admin/leadgen/component-presets', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        showRefusal('Preset save failed: ' + ((res.body && res.body.error) || 'error'));
+        return;
+      }
+      presetsData = (res.body && res.body.items) || presetsData;
+      node.design_preset = name;
+      afterModelChange();
+      renderPresetControls();
+    }).catch(function () { showRefusal('Preset save failed: network error'); });
+  }
+
+  // --- §5.5/§6.4 media picker (the shared Media-library chooser) -----------------
+  var mediaPickTarget = null;
+  function mediaSrc(v) {
+    var str = String(v || '');
+    if (str === '') { return ''; }
+    if (str.charAt(0) === '/' || str.indexOf('http://') === 0 || str.indexOf('https://') === 0 || str.indexOf('data:') === 0) { return str; }
+    return '/media/' + str;
+  }
+  function mediaPickerStatus(text) {
+    var el = document.getElementById('lg-media-picker-status');
+    if (el) {
+      clearChildren(el);
+      if (text) { el.appendChild(document.createTextNode(text)); }
+    }
+  }
+  function closeMediaPicker() {
+    var overlay = document.getElementById('lg-media-picker');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay lg-hidden'; }
+    mediaPickTarget = null;
+  }
+  function renderMediaGrid(items) {
+    var grid = document.getElementById('lg-media-picker-grid');
+    if (!grid) { return; }
+    clearChildren(grid);
+    if (!items || items.length === 0) {
+      var pEl = document.createElement('p');
+      pEl.className = 'form-help';
+      pEl.appendChild(document.createTextNode('No images in the Media library yet — upload one above.'));
+      grid.appendChild(pEl);
+      return;
+    }
+    var i, it, btn, img, name;
+    for (i = 0; i < items.length; i++) {
+      it = items[i];
+      if (!it || !it.storage_key) { continue; }
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lg-media-item';
+      btn.setAttribute('data-media-pick', it.storage_key);
+      btn.title = it.filename || it.storage_key;
+      img = document.createElement('img');
+      img.setAttribute('src', mediaSrc(it.storage_key));
+      img.setAttribute('alt', it.alt_text || it.filename || '');
+      btn.appendChild(img);
+      name = document.createElement('span');
+      name.appendChild(document.createTextNode(it.filename || it.storage_key));
+      btn.appendChild(name);
+      grid.appendChild(btn);
+    }
+  }
+  function loadMediaList() {
+    mediaPickerStatus('Loading…');
+    fetch('/api/admin/media', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { mediaPickerStatus('Could not load the Media library.'); return; }
+        mediaPickerStatus('');
+        renderMediaGrid((res.body && res.body.media) || []);
+      })
+      .catch(function () { mediaPickerStatus('Could not load the Media library.'); });
+  }
+  function openMediaPicker(target) {
+    mediaPickTarget = target;
+    var overlay = document.getElementById('lg-media-picker');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay'; }
+    loadMediaList();
+  }
+  function applyMediaPick(storageKey) {
+    var target = mediaPickTarget;
+    closeMediaPicker();
+    if (!target) { return; }
+    if (target.input) {
+      target.input.value = storageKey;
+      if (target.input.setAttribute) { target.input.setAttribute('data-auto', 'false'); }
+      if (target.onpick) { target.onpick(); }
+      return;
+    }
+    if (target.qid) {
+      var ref = findRef(target.qid);
+      if (!ref) { return; }
+      var c = findChoice(ref.node, target.value);
+      if (!c) { return; }
+      c.imageMediaId = storageKey;
+      // A5: image_alt is REQUIRED next to imageMediaId — default to the label.
+      if (!c.image_alt || trimStr(c.image_alt) === '') { c.image_alt = c.label || storageKey; }
+      afterModelChange();
+      renderChoiceEditor(ref.node);
+    }
+  }
+  function uploadMediaFile() {
+    var fileInput = document.getElementById('lg-media-upload-file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) { mediaPickerStatus('Choose an image file first.'); return; }
+    var fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    mediaPickerStatus('Uploading…');
+    fetch('/api/admin/media/upload', { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body || !res.body.item || !res.body.item.storage_key) {
+          mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Upload failed.');
+          return;
+        }
+        mediaPickerStatus('');
+        fileInput.value = '';
+        applyMediaPick(res.body.item.storage_key);
+      })
+      .catch(function () { mediaPickerStatus('Upload failed: network error.'); });
+  }
+  // FIX 8c (§8.4): "Generate with AI" — the EXISTING admin generation
+  // endpoint (POST /api/admin/ai/image writes R2 + the media row); the
+  // resulting storage_key flows through the SAME applyMediaPick path an
+  // upload takes. The control is server-hidden when the route is unavailable.
+  function generateMediaWithAi() {
+    var promptEl = document.getElementById('lg-media-ai-prompt');
+    var prompt = promptEl ? trimStr(promptEl.value) : '';
+    if (prompt === '') { mediaPickerStatus('Describe the image to generate first.'); return; }
+    mediaPickerStatus('Generating\\u2026');
+    fetch('/api/admin/ai/image', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ prompt: prompt })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.storage_key) {
+        mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Image generation failed.');
+        return;
+      }
+      mediaPickerStatus('');
+      if (promptEl) { promptEl.value = ''; }
+      applyMediaPick(res.body.storage_key);
+    }).catch(function () { mediaPickerStatus('Image generation failed: network error.'); });
+  }
+
+  // --- §5.4 Move to Quote frame: the LIVE action ---------------------------------
+  function showMoveNote(text) {
+    var note = document.querySelector('[data-studio-pending-note]');
+    if (note) { note.hidden = false; note.textContent = text; }
+  }
+  // FIX 1a (BLOCKER): removing the MOVED node must never destroy its
+  // children — a container (BackgroundPanel) dissolves exactly like Ungroup
+  // (§6.1.5): its children splice into the parent list at the node's index,
+  // order preserved. Leaf frame nodes remove exactly as before.
+  function removeMovedFrameNode(qid) {
+    var ref = findRef(qid);
+    if (!ref) { return; }
+    if (isContainerType(ref.node.type) && ref.node.children && ref.node.children.length > 0) {
+      var children = ref.node.children;
+      var args = [ref.index, 1];
+      var i;
+      for (i = 0; i < children.length; i++) { args.push(children[i]); }
+      Array.prototype.splice.apply(ref.list, args);
+      if (selectedQuestionId === qid) { selectedQuestionId = null; }
+      afterModelChange();
+      return;
+    }
+    removeNode(qid);
+  }
+  // Finish: remove the node and persist the removal on the SAME action — a
+  // content-only PATCH (merge-then-revalidate keeps every other stored field;
+  // §5.4 "delete-from-Section only after confirm").
+  function finishMoveToFrame(qid, funnel, wasDirty) {
+    removeMovedFrameNode(qid);
+    if (selectedQuestionId === qid) { selectComponent(null); }
+    if (!state.public_id) {
+      showMoveNote('Moved into the Quote frame of “' + funnel.name + '”. Save the Section to persist the removal.');
+      return;
+    }
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id), {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ content_json: JSON.stringify(state.content) })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        showRefusal('The element moved into the frame, but saving its removal failed: ' + ((res.body && res.body.error) || 'error') + ' — Save the Section to persist it.');
+        return;
+      }
+      if (!wasDirty) { dirty = false; }
+      showMoveNote('Moved into the Quote frame of “' + funnel.name + '” — the Section was saved without the element.');
+    }).catch(function () {
+      showRefusal('The element moved into the frame, but saving its removal failed — Save the Section to persist it.');
+    });
+  }
+  function doMoveToFrame(qid, funnel) {
+    var ref = findRef(qid);
+    if (!ref) { return; }
+    // §5.4: explicit confirm that NAMES the funnel, before any write.
+    if (!window.confirm(moveConfirmMessage(ref.node, funnel.name))) { return; }
+    var group = equivalentFrameGroup(ref.node);
+    if (group === null) {
+      showRefusal('This element has no Quote-frame equivalent — configure it in the Quote Builder instead.');
+      return;
+    }
+    var wasDirty = dirty;
+    fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnel.public_id) + '/frame', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        showRefusal('Could not read the funnel frame — the element stays in this Section.');
+        return null;
+      }
+      var merged = mergeFrameGroups(res.body ? res.body.frame_config : null, group);
+      return fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnel.public_id) + '/frame', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ frame_config_json: merged })
+      }).then(function (r2) {
+        return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; });
+      }).then(function (putRes) {
+        if (!putRes.ok) {
+          showRefusal('Frame save failed: ' + ((putRes.body && putRes.body.error) || 'error') + ' — the element stays in this Section.');
+          return;
+        }
+        finishMoveToFrame(qid, funnel, wasDirty);
+      });
+    }).catch(function () {
+      showRefusal('Frame save failed — the element stays in this Section.');
+    });
+  }
+  function funnelPickBtn(qid, funnel) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-funnel-pick', funnel.public_id);
+    b.textContent = funnel.name;
+    b.addEventListener('click', function () { doMoveToFrame(qid, funnel); });
+    return b;
+  }
+  // §5.4 used-by-many: a picker listing the funnels; applying to the chosen
+  // one (the confirm still names it) and deleting from the Section only after.
+  function renderFunnelPicker(qid, funnels) {
+    var badge = document.querySelector('[data-frame-badge="' + qid + '"]');
+    if (!badge) { return; }
+    var oldPicker = badge.querySelector('[data-funnel-picker]');
+    if (oldPicker) { badge.removeChild(oldPicker); return; }
+    var picker = document.createElement('span');
+    picker.className = 'studio-funnel-picker';
+    picker.setAttribute('data-funnel-picker', qid);
+    var label = document.createElement('span');
+    label.appendChild(document.createTextNode('Used by ' + funnels.length + ' funnels — move to:'));
+    picker.appendChild(label);
+    var i;
+    for (i = 0; i < funnels.length; i++) { picker.appendChild(funnelPickBtn(qid, funnels[i])); }
+    badge.appendChild(picker);
+  }
+  function startMoveToFrame(qid) {
+    var funnels = usageFunnelsOf();
+    if (funnels.length === 0) {
+      showRefusal('This Section isn’t used by any funnel yet — there is no Quote frame to move this element into. Configure the frame in the Quote Builder.');
+      return;
+    }
+    if (funnels.length === 1) { doMoveToFrame(qid, funnels[0]); return; }
+    renderFunnelPicker(qid, funnels);
+  }
+
+  // --- §5.3 mode 5: frame picker loads + empty state ------------------------------
+  function renderFramePreviewEmpty() {
+    var el = document.querySelector('[data-frame-preview-empty]');
+    if (!el) { return; }
+    el.hidden = !(usageQuoteCount !== null && usageQuoteCount === 0);
+  }
+  function populateFramePickSelect(sel, entries, placeholder, current) {
+    if (!sel) { return; }
+    clearChildren(sel);
+    var o = document.createElement('option');
+    o.value = '';
+    o.textContent = placeholder;
+    sel.appendChild(o);
+    var i;
+    for (i = 0; i < entries.length; i++) {
+      o = document.createElement('option');
+      o.value = entries[i].value;
+      o.textContent = entries[i].label;
+      sel.appendChild(o);
+    }
+    sel.value = current || '';
+    sel.disabled = entries.length === 0;
+  }
+  function loadFramePickerQuotes() {
+    var quoteSel = document.querySelector('[data-frame-pick-quote]');
+    if (!quoteSel) { return; }
+    fetchItems('/api/admin/leadgen/quotes', function (items) {
+      var entries = [], i;
+      for (i = 0; i < items.length; i++) {
+        if (items[i] && items[i].public_id) {
+          entries.push({ value: items[i].public_id, label: items[i].quote_name || items[i].public_id });
+        }
+      }
+      populateFramePickSelect(quoteSel, entries, '— no frame (unit only) —', framePick.quote);
+      quoteSel.disabled = false;
+    });
+  }
+  function populateFramePickFunnels() {
+    var funnelSel = document.querySelector('[data-frame-pick-funnel]');
+    var entries = [], i;
+    for (i = 0; i < framePickFunnels.length; i++) {
+      if (framePickFunnels[i] && framePickFunnels[i].public_id) {
+        entries.push({ value: framePickFunnels[i].public_id, label: framePickFunnels[i].funnel_name || framePickFunnels[i].public_id });
+      }
+    }
+    populateFramePickSelect(funnelSel, entries, 'Funnel…', framePick.funnel);
+  }
+  function populateFramePickVariants() {
+    var variantSel = document.querySelector('[data-frame-pick-variant]');
+    var entries = [], i, j, f;
+    for (i = 0; i < framePickFunnels.length; i++) {
+      f = framePickFunnels[i];
+      if (!f || f.public_id !== framePick.funnel || !f.variants) { continue; }
+      for (j = 0; j < f.variants.length; j++) {
+        if (f.variants[j] && f.variants[j].public_id) {
+          entries.push({ value: f.variants[j].public_id, label: f.variants[j].variant_label || f.variants[j].public_id });
+        }
+      }
+    }
+    populateFramePickSelect(variantSel, entries, 'Variant…', framePick.variant);
+  }
+  function loadFramePickSites(quotePublicId) {
+    var siteSel = document.querySelector('[data-frame-pick-site]');
+    if (!siteSel) { return; }
+    fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/activation', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      var sites = (j && j.sites) || [];
+      var entries = [], i;
+      for (i = 0; i < sites.length; i++) {
+        if (sites[i] && sites[i].site_id) {
+          entries.push({ value: sites[i].site_id, label: sites[i].site_name || sites[i].site_id });
+        }
+      }
+      populateFramePickSelect(siteSel, entries, '— no site branding —', framePick.site);
+    }).catch(function () {});
+  }
+  function onFramePickQuote(quotePublicId) {
+    framePick.quote = quotePublicId;
+    framePick.funnel = '';
+    framePick.variant = '';
+    framePick.site = '';
+    framePickFunnels = [];
+    populateFramePickFunnels();
+    populateFramePickVariants();
+    populateFramePickSelect(document.querySelector('[data-frame-pick-site]'), [], '— no site branding —', '');
+    if (quotePublicId === '') { runPreview(); return; }
+    fetchItems('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/funnels', function (items) {
+      framePickFunnels = items || [];
+      populateFramePickFunnels();
+    });
+    loadFramePickSites(quotePublicId);
+    runPreview();
+  }
+
   // --- library: search + click-to-add + drag source ------------------------------
   function addFromLibrary(type) {
     var node = null;
@@ -2697,6 +5546,8 @@ export const SECTION_STUDIO_SCRIPT = `
     libraryEl.addEventListener('click', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn) { return; }
+      // §5.2: a disabled bound item never consumes the armed insertion point.
+      if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
       addFromLibrary(btn.getAttribute('data-add-component'));
     });
     // the items are role="button" divs (nested-button validity) — keep the
@@ -2706,6 +5557,7 @@ export const SECTION_STUDIO_SCRIPT = `
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn) { return; }
       ev.preventDefault();
+      if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
       addFromLibrary(btn.getAttribute('data-add-component'));
     });
     libraryEl.addEventListener('dragstart', function (ev) {
@@ -2732,12 +5584,104 @@ export const SECTION_STUDIO_SCRIPT = `
   var canvasSurface = document.getElementById('lg-studio-canvas');
   if (canvasSurface) {
     canvasSurface.addEventListener('click', function (ev) {
+      // §5.4 amber-badge actions (the badge is a sibling of the node, so the
+      // component-select path below never fires for it). Keep (legacy) = NO
+      // model change — session-local acknowledgement only; the C2 activation
+      // consequence stays named on other badges. Move is LIVE (wave 2).
+      var keepBtn = ev.target && ev.target.closest ? ev.target.closest('[data-frame-keep]') : null;
+      if (keepBtn) {
+        keptLegacyFrameNodes[keepBtn.getAttribute('data-frame-keep')] = true;
+        applyCanvasDecoration();
+        return;
+      }
+      var moveBtn = ev.target && ev.target.closest ? ev.target.closest('[data-frame-move]') : null;
+      if (moveBtn) {
+        startMoveToFrame(moveBtn.getAttribute('data-frame-move'));
+        return;
+      }
+      // funnel-picker buttons wire their own handlers; don't fall through.
+      if (ev.target && ev.target.closest && ev.target.closest('[data-funnel-picker]')) { return; }
+      // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
+      var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
+      if (xBtn) {
+        var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
+        if (xRef) {
+          removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
+          if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
+        }
+        return;
+      }
+      var ghostBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-ghost]') : null;
+      if (ghostBtn) {
+        var gRef = findRef(ghostBtn.getAttribute('data-choice-ghost'));
+        if (gRef) {
+          var added = addChoiceToNode(gRef.node);
+          if (added) { selectChoice(gRef.node.question_id, String(added.value)); }
+        }
+        return;
+      }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !canvasSurface.contains(el)) { return; }
       ev.preventDefault();
+      // §6.2/§6.4: clicking a card/button selects the CHOICE, not just the
+      // component (the inspector opens the Choices tab at that row).
+      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
+        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'));
+        return;
+      }
       selectComponent(el.getAttribute('data-question-id'));
     });
+    // §6.2 inline text editing on double-click: bound/label/helper text writes
+    // the bound column or props; a choice card edits its label.
+    canvasSurface.addEventListener('dblclick', function (ev) {
+      var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+      if (!host || !canvasSurface.contains(host)) { return; }
+      var qid = host.getAttribute('data-question-id');
+      var ref = findRef(qid);
+      if (!ref) { return; }
+      ev.preventDefault();
+      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      var editEl, committer;
+      if (cardEl && typeMeta(ref.node.type).choice === true) {
+        var choiceValue = cardEl.getAttribute('data-lg-choice');
+        editEl = cardEl.querySelector('.lg-card-title') || cardEl;
+        committer = function (text) { commitInlineChoiceLabel(qid, choiceValue, text); };
+      } else {
+        var key = inlineEditKeyFor(ref.node);
+        if (key === null) { return; }
+        editEl = host;
+        committer = function (text) { commitInlineText(qid, key, text); };
+      }
+      startInlineEdit(editEl, committer);
+    });
+    // §6.2 container resize handles snap to the width presets only.
+    canvasSurface.addEventListener('mousedown', function (ev) {
+      var handle = ev.target && ev.target.closest ? ev.target.closest('[data-resize-handle]') : null;
+      if (!handle) { return; }
+      ev.preventDefault();
+      var qid = handle.getAttribute('data-resize-handle');
+      var startX = ev.clientX;
+      function onUp(upEv) {
+        document.removeEventListener('mouseup', onUp);
+        var ref = findRef(qid);
+        if (!ref) { return; }
+        var props = ensureObj(ref.node, 'props');
+        var next = snapWidthPreset(typeof props.width === 'string' ? props.width : 'm', upEv.clientX - startX);
+        if (next !== props.width) { props.width = next; afterModelChange(); }
+      }
+      document.addEventListener('mouseup', onUp);
+    });
     canvasSurface.addEventListener('dragstart', function (ev) {
+      // §6.2: dragging a CHOICE card reorders choices within its component.
+      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      if (cardEl && ev.dataTransfer) {
+        var cardHost = cardEl.closest ? cardEl.closest('[data-question-id]') : null;
+        if (cardHost && typeMeta(cardHost.getAttribute('data-component-type')).choice === true) {
+          ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + cardEl.getAttribute('data-lg-choice'));
+          return;
+        }
+      }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !ev.dataTransfer) { return; }
       ev.dataTransfer.setData('text/plain', 'move:' + el.getAttribute('data-question-id'));
@@ -2773,6 +5717,19 @@ export const SECTION_STUDIO_SCRIPT = `
       var payload = data.slice(data.indexOf(':') + 1);
       var placed = null;
       var ref;
+      if (kind === 'choice') {
+        // payload = qid:choiceValue → reorder BEFORE the card dropped on.
+        var sepAt = payload.indexOf(':');
+        if (sepAt === -1) { return; }
+        var cQid = payload.slice(0, sepAt);
+        var fromValue = payload.slice(sepAt + 1);
+        var targetCard = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+        var targetHost = targetCard && targetCard.closest ? targetCard.closest('[data-question-id]') : null;
+        if (!targetCard || !targetHost || targetHost.getAttribute('data-question-id') !== cQid) { return; }
+        var cRef = findRef(cQid);
+        if (cRef) { reorderChoiceBefore(cRef.node, fromValue, targetCard.getAttribute('data-lg-choice')); }
+        return;
+      }
       if (kind === 'add') {
         if (hint.mode === 'into') { placed = addComponentAt(payload, hint.qid, null); }
         else if (hint.mode === 'before' || hint.mode === 'after') { placed = insertRelative(hint.qid, hint.mode, payload); }
@@ -2792,16 +5749,126 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!selectedQuestionId) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
+      // §6.2: Del deletes the selection; Esc walks UP the ancestry.
+      else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+        ev.preventDefault();
+        removeNode(selectedQuestionId);
+        selectComponent(null);
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        var upRef = findRef(selectedQuestionId);
+        selectComponent(upRef && upRef.parent ? upRef.parent.question_id : null);
+      }
     });
   }
 
-  // --- selection toolbar -----------------------------------------------------------
+  // --- §6.1 canvas toolbar (always visible; clusters per the §6.5 matrix) --------
   var toolbarEl = document.querySelector('[data-studio-selection-toolbar]');
+  function handleChoiceAct(act) {
+    var node = selectedNode();
+    if (!node || selectedChoiceValue === null) { return; }
+    var value = String(selectedChoiceValue);
+    var c = findChoice(node, value);
+    if (!c) { return; }
+    if (act === 'image') {
+      // §6.4 image/icon swap: image grids open the media picker; icon/emoji
+      // types prompt for the curated glyph.
+      if (node.type === 'ImageCardAnswerGrid') {
+        openMediaPicker({ qid: node.question_id, value: value });
+      } else {
+        var glyph = window.prompt('Icon or emoji character', c.icon || c.emoji || '');
+        if (glyph === null) { return; }
+        glyph = trimStr(glyph);
+        if (glyph === '') { delete c.icon; delete c.emoji; }
+        else { c.icon = glyph; delete c.emoji; }
+        afterModelChange();
+        renderChoiceEditor(node);
+      }
+      return;
+    }
+    if (act === 'label') {
+      setInspectorTab('choices');
+      focusChoiceRow(value);
+      return;
+    }
+    if (act === 'badge') {
+      if (typeof c.badge === 'string' && c.badge !== '') { setChoiceField(node, value, 'badge', null); }
+      else {
+        var badgeText = window.prompt('Badge text', 'Recommended');
+        if (badgeText === null || trimStr(badgeText) === '') { return; }
+        setChoiceField(node, value, 'badge', trimStr(badgeText));
+      }
+      renderChoiceEditor(node);
+      return;
+    }
+    if (act === 'disabled') {
+      setChoiceField(node, value, 'disabled', c.disabled === true ? null : true);
+      renderChoiceEditor(node);
+      return;
+    }
+    if (act === 'duplicate') {
+      var dup = duplicateChoice(node, value);
+      if (dup) { selectChoice(node.question_id, String(dup.value)); }
+      return;
+    }
+    if (act === 'delete') {
+      removeChoiceFromNode(node, value);
+      renderChoiceEditor(node);
+      setScope(selectedQuestionId ? 'component' : 'section');
+      return;
+    }
+    if (act === 'left') { moveChoice(node, value, -1); return; }
+    if (act === 'right') { moveChoice(node, value, 1); return; }
+  }
   if (toolbarEl) {
     toolbarEl.addEventListener('click', function (ev) {
+      // §6.4 choice cluster acts.
+      var choiceBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-act]') : null;
+      if (choiceBtn) { handleChoiceAct(choiceBtn.getAttribute('data-choice-act')); return; }
+      var chipBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-value-chip]') : null;
+      if (chipBtn && selectedChoiceValue !== null) {
+        setInspectorTab('choices');
+        focusChoiceRow(String(selectedChoiceValue));
+        return;
+      }
+      // §6.5 component-cluster quick controls.
+      var addChoiceBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-add-choice]') : null;
+      if (addChoiceBtn) {
+        var acNode = selectedNode();
+        var acAdded = acNode ? addChoiceToNode(acNode) : null;
+        if (acAdded) { selectChoice(acNode.question_id, String(acAdded.value)); }
+        return;
+      }
+      var autoBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-autoadvance]') : null;
+      if (autoBtn) {
+        // reflects + toggles the Section continue mode (§5.5) — writes the
+        // SAME store the Question-strip radios own.
+        state.continue_mode = (state.continue_mode || 'button') === 'auto_advance' ? 'button' : 'auto_advance';
+        var radios = document.querySelectorAll('input[name="continue_mode"]');
+        var ri;
+        for (ri = 0; ri < radios.length; ri++) { radios[ri].checked = radios[ri].value === state.continue_mode; }
+        markDirty();
+        updateCanvasToolbar();
+        return;
+      }
+      var valShortcut = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-open-validation]') : null;
+      if (valShortcut) { setInspectorTab('validation'); return; }
+      var searchToggle = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-searchable]') : null;
+      if (searchToggle) {
+        var sNode = selectedNode();
+        if (sNode) { toggleSearchableDropdown(sNode); }
+        return;
+      }
+      // §6.6 preset menu.
+      var presetSaveBtn = ev.target && ev.target.closest ? ev.target.closest('[data-preset-save]') : null;
+      if (presetSaveBtn) { savePresetFromSelection(); return; }
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-studio-act]') : null;
-      if (!btn || !selectedQuestionId) { return; }
+      if (!btn) { return; }
       var act = btn.getAttribute('data-studio-act');
+      // §6.1.3 undo/redo work with or without a selection.
+      if (act === 'undo') { historyUndo(); return; }
+      if (act === 'redo') { historyRedo(); return; }
+      if (!selectedQuestionId) { return; }
       var out;
       if (act === 'move-up') { moveWithin(selectedQuestionId, -1); }
       else if (act === 'move-down') { moveWithin(selectedQuestionId, 1); }
@@ -2823,6 +5890,49 @@ export const SECTION_STUDIO_SCRIPT = `
       else if (act === 'group-cardpanel') {
         out = wrapSelection(selectedQuestionId, 'CardPanel');
         if (out) { selectComponent(out.question_id); }
+      }
+      // §6.1.5: Group into Grid / Columns + Ungroup (children splice up).
+      else if (act === 'group-grid') {
+        out = wrapSelection(selectedQuestionId, 'GridContainer');
+        if (out) { selectComponent(out.question_id); }
+      }
+      else if (act === 'group-columns') {
+        out = wrapSelection(selectedQuestionId, 'Columns');
+        if (out) { selectComponent(out.question_id); }
+      }
+      else if (act === 'ungroup') {
+        out = ungroupSelection(selectedQuestionId);
+        if (out) { selectComponent(selectedQuestionId); }
+      }
+    });
+  }
+  // §6.1.4 canvas viewport toggle: Desktop 1280 / Mobile 375 — SERVER-rendered
+  // via the existing preview viewport param.
+  var canvasViewportBtns = document.querySelectorAll('[data-canvas-viewport]');
+  var cvb;
+  for (cvb = 0; cvb < canvasViewportBtns.length; cvb++) {
+    canvasViewportBtns[cvb].addEventListener('click', function () {
+      canvasViewport = this.getAttribute('data-canvas-viewport') === 'mobile' ? 'mobile' : 'desktop';
+      var all = document.querySelectorAll('[data-canvas-viewport]');
+      var k;
+      for (k = 0; k < all.length; k++) {
+        var isOn = all[k] === this;
+        all[k].className = isOn ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-secondary';
+        all[k].setAttribute('aria-pressed', isOn ? 'true' : 'false');
+      }
+      renderCanvasNow();
+    });
+  }
+  // §6.1.7 text cluster: type role conversion.
+  var textRoleEl = document.querySelector('[data-text-role]');
+  if (textRoleEl) {
+    textRoleEl.addEventListener('change', function () {
+      if (!selectedQuestionId) { return; }
+      var ok = convertTextRole(selectedQuestionId, this.value);
+      if (ok) { selectComponent(selectedQuestionId); }
+      else {
+        var cur = selectedNode();
+        if (cur) { this.value = cur.type; }
       }
     });
   }
@@ -2892,6 +6002,20 @@ export const SECTION_STUDIO_SCRIPT = `
     condEls[ce].addEventListener('input', collectConditional);
     condEls[ce].addEventListener('change', collectConditional);
   }
+  // FIX 7: the "Require this component IF" pickers (props.requiredWhen).
+  var reqCondEls = document.querySelectorAll('[data-inspector-reqcond]');
+  var rce;
+  for (rce = 0; rce < reqCondEls.length; rce++) {
+    reqCondEls[rce].addEventListener('input', collectRequiredWhen);
+    reqCondEls[rce].addEventListener('change', collectRequiredWhen);
+  }
+  // §5.5 (FIX 8a/8b): the typed default controls.
+  var defaultEls = document.querySelectorAll('[data-default-control]');
+  var dce;
+  for (dce = 0; dce < defaultEls.length; dce++) {
+    defaultEls[dce].addEventListener('input', function () { collectDefaultControl(this); });
+    defaultEls[dce].addEventListener('change', function () { collectDefaultControl(this); });
+  }
   var containerEls = document.querySelectorAll('[data-container-prop]');
   var cpe;
   for (cpe = 0; cpe < containerEls.length; cpe++) {
@@ -2908,7 +6032,7 @@ export const SECTION_STUDIO_SCRIPT = `
   if (choiceAdd) {
     choiceAdd.addEventListener('click', function () {
       var c = choiceContainer();
-      if (c) { c.appendChild(buildChoiceRow({}, false)); }
+      if (c) { c.appendChild(buildChoiceRow({}, false, selectedNode())); }
     });
   }
   // B9 §6.4 grouping controls: the three [data-choicedisplay] inputs fold into
@@ -2928,6 +6052,111 @@ export const SECTION_STUDIO_SCRIPT = `
   if (bulkApply) { bulkApply.addEventListener('click', applyBulkPaste); }
   var jsonApply = document.getElementById('lg-node-json-apply');
   if (jsonApply) { jsonApply.addEventListener('click', applyNodeJson); }
+  // §7.3: the explicit "Edit raw…" confirm unlocks the read-only raw view.
+  var jsonEdit = document.getElementById('lg-node-json-edit');
+  if (jsonEdit) { jsonEdit.addEventListener('click', armRawEdit); }
+  // §9.4 role rows: Reset to inherited + Convert-legacy delegation.
+  var inspectorEl = document.querySelector('[data-studio-inspector]');
+  if (inspectorEl) {
+    inspectorEl.addEventListener('click', function (ev) {
+      var resetBtn = ev.target && ev.target.closest ? ev.target.closest('[data-override-reset]') : null;
+      if (resetBtn) { resetOverride(resetBtn.getAttribute('data-override-reset')); return; }
+      var convertBtn = ev.target && ev.target.closest ? ev.target.closest('[data-override-convert]') : null;
+      if (convertBtn) { convertLegacyOverride(convertBtn.getAttribute('data-override-convert')); return; }
+    });
+  }
+  // §6.6: the Design-tab saved-presets dropdown (apply-merge + provenance) +
+  // the toolbar apply select.
+  var presetSelectEl = document.querySelector('[data-preset-select]');
+  if (presetSelectEl) {
+    presetSelectEl.addEventListener('change', function () {
+      var node = selectedNode();
+      if (!node) { return; }
+      var v = trimStr(this.value);
+      if (v === '') {
+        // "(none)" clears the provenance name only — applied values stay.
+        delete node.design_preset;
+        afterModelChange();
+        return;
+      }
+      var preset = presetByName(v);
+      if (preset === null) { return; }
+      if (!applyPreset(node, preset)) { this.value = node.design_preset || ''; return; }
+      populateInspector();
+    });
+  }
+  var presetApplyEl = document.querySelector('[data-preset-apply]');
+  if (presetApplyEl) {
+    presetApplyEl.addEventListener('change', function () {
+      var node = selectedNode();
+      var v = trimStr(this.value);
+      this.value = '';
+      if (!node || v === '') { return; }
+      var preset = presetByName(v);
+      if (preset !== null && applyPreset(node, preset)) { populateInspector(); }
+    });
+  }
+  // §9.5 Section-overrides drawer controls.
+  var sectionRoleEls = document.querySelectorAll('[data-section-role], [data-section-columns-default], [data-section-gap-default]');
+  var sre;
+  for (sre = 0; sre < sectionRoleEls.length; sre++) {
+    sectionRoleEls[sre].addEventListener('change', collectSectionOverrides);
+  }
+  // Media picker chrome.
+  var mediaCloseBtn = document.getElementById('lg-media-picker-close');
+  if (mediaCloseBtn) { mediaCloseBtn.addEventListener('click', closeMediaPicker); }
+  var mediaUploadBtn = document.getElementById('lg-media-upload-btn');
+  if (mediaUploadBtn) { mediaUploadBtn.addEventListener('click', uploadMediaFile); }
+  // FIX 8c: the picker's AI-generation affordance (server-hidden when the
+  // route is unavailable — §8.4).
+  var mediaAiBtn = document.getElementById('lg-media-ai-generate');
+  if (mediaAiBtn) { mediaAiBtn.addEventListener('click', generateMediaWithAi); }
+  var mediaGridEl = document.getElementById('lg-media-picker-grid');
+  if (mediaGridEl) {
+    mediaGridEl.addEventListener('click', function (ev) {
+      var pick = ev.target && ev.target.closest ? ev.target.closest('[data-media-pick]') : null;
+      if (pick) { applyMediaPick(pick.getAttribute('data-media-pick')); }
+    });
+  }
+  // §6.1.3 keyboard: ⌘Z / ⇧⌘Z (typing fields keep their native undo).
+  document.addEventListener('keydown', function (ev) {
+    if (!(ev.metaKey || ev.ctrlKey)) { return; }
+    var k = ev.key ? String(ev.key).toLowerCase() : '';
+    if (k !== 'z') { return; }
+    var t = ev.target;
+    var tag = t && t.tagName ? String(t.tagName).toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) { return; }
+    ev.preventDefault();
+    if (ev.shiftKey) { historyRedo(); } else { historyUndo(); }
+  });
+  // §5.3 mode 5: frame-picker wiring (Quote → Funnel → Variant + site).
+  var framePickQuoteEl = document.querySelector('[data-frame-pick-quote]');
+  if (framePickQuoteEl) {
+    framePickQuoteEl.addEventListener('change', function () { onFramePickQuote(trimStr(this.value)); });
+  }
+  var framePickFunnelEl = document.querySelector('[data-frame-pick-funnel]');
+  if (framePickFunnelEl) {
+    framePickFunnelEl.addEventListener('change', function () {
+      framePick.funnel = trimStr(this.value);
+      framePick.variant = '';
+      populateFramePickVariants();
+      runPreview();
+    });
+  }
+  var framePickVariantEl = document.querySelector('[data-frame-pick-variant]');
+  if (framePickVariantEl) {
+    framePickVariantEl.addEventListener('change', function () {
+      framePick.variant = trimStr(this.value);
+      runPreview();
+    });
+  }
+  var framePickSiteEl = document.querySelector('[data-frame-pick-site]');
+  if (framePickSiteEl) {
+    framePickSiteEl.addEventListener('change', function () {
+      framePick.site = trimStr(this.value);
+      runPreview();
+    });
+  }
 
   // --- Desktop/Mobile preview (slice-C wiring, byte-compatible hooks) -------------------
   var previewViewport = 'desktop';
@@ -2972,6 +6201,10 @@ export const SECTION_STUDIO_SCRIPT = `
     };
     if (state.public_id) { requestBody.section_public_id = state.public_id; }
     if (simState !== 'default') { requestBody.sim.answers = sampleAnswers(); }
+    // §5.3 mode 5: a picked Quote frame rides the LANDED frame_context param —
+    // the unit renders inside that funnel's effective frame (13 §13.4).
+    var frameCtx = frameContextBody();
+    if (frameCtx !== null) { requestBody.frame_context = frameCtx; }
     var designSel = document.getElementById('lg-preview-design');
     if (designSel && trimStr(designSel.value) !== '') { requestBody.design_id = trimStr(designSel.value); }
     fetch('/api/admin/leadgen/sections/preview', {
@@ -3904,6 +7137,144 @@ export const SECTION_STUDIO_SCRIPT = `
     });
   }
 
+  // --- §5.2 binding wiring: strip ⇄ bound-node views of the ONE store ----------
+  // The strip inputs ARE the store (headline_text/subheadline_text). The
+  // inspector's shared field and the canvas render are the other views.
+  function collectBoundShared() {
+    var node = selectedNode();
+    if (!node || node.bind === undefined) { return; }
+    var inputEl = document.querySelector('[data-bound-shared-input]');
+    var strip = stripInputFor(node.bind);
+    if (!inputEl || !strip) { return; }
+    strip.value = inputEl.value;
+    markDirty();
+    scheduleCanvasRender();
+  }
+  var boundSharedInput = document.querySelector('[data-bound-shared-input]');
+  if (boundSharedInput) {
+    boundSharedInput.addEventListener('input', collectBoundShared);
+    boundSharedInput.addEventListener('change', collectBoundShared);
+  }
+  // Typing in the strip live-updates the canvas render (bound nodes) and the
+  // inspector mirror when a bound node is selected.
+  function onStripInput() {
+    var node = selectedNode();
+    if (node && node.bind !== undefined && boundSharedInput) {
+      var strip = stripInputFor(node.bind);
+      if (strip && boundSharedInput.value !== strip.value) { boundSharedInput.value = strip.value; }
+    }
+    scheduleCanvasRender();
+  }
+  var stripHeadline = document.getElementById('lg-section-headline');
+  var stripSubheadline = document.getElementById('lg-section-subheadline');
+  if (stripHeadline) { stripHeadline.addEventListener('input', onStripInput); }
+  if (stripSubheadline) { stripSubheadline.addEventListener('input', onStripInput); }
+  // §5.2 hidden chip "[Show]": re-insert the bound node at the top.
+  var boundShowBtns = document.querySelectorAll('[data-bound-show]');
+  var bs;
+  for (bs = 0; bs < boundShowBtns.length; bs++) {
+    boundShowBtns[bs].addEventListener('click', function () {
+      var node = insertBoundNodeAtTop(this.getAttribute('data-bound-show'));
+      if (node) { selectComponent(node.question_id); }
+    });
+  }
+
+  // --- §7.2 scope pills + choice-scope focus ------------------------------------
+  var scopePills = document.querySelectorAll('[data-scope-pill]');
+  var sp;
+  for (sp = 0; sp < scopePills.length; sp++) {
+    scopePills[sp].addEventListener('click', function () {
+      var key = this.getAttribute('data-scope-pill');
+      if (key === 'section') { selectComponent(null); return; }
+      if (key === 'component') {
+        if (selectedQuestionId) { setScope('component'); }
+        return;
+      }
+      if (key === 'choice') {
+        var node = selectedNode();
+        if (!node || typeMeta(node.type).choice !== true) { return; }
+        var first = (node.choices && node.choices.length) ? node.choices[0] : null;
+        choiceScopeLabel = first && first.label !== undefined ? String(first.label) : '';
+        setInspectorTab('choices');
+        setScope('choice');
+        return;
+      }
+      if (key === 'frame') {
+        // MINOR 9: the frame is Quote-Builder-owned — the pill DEEP-LINKS to
+        // the using funnel's Quote Builder. One funnel → navigate; many → a
+        // picker; zero → the pill is disabled (this handler never fires).
+        var funnels = usageFunnelsOf();
+        if (funnels.length === 0) { return; }
+        if (funnels.length === 1) { window.location.href = funnelQuoteUrl(funnels[0]); return; }
+        renderFramePillPicker(this, funnels);
+        return;
+      }
+    });
+  }
+  // §7.5: focusing a choice row retargets the scope header to that choice
+  // (synchronous — well inside the 100 ms probe budget).
+  var choicesPanelWrap = document.querySelector('[data-inspector-choices]');
+  if (choicesPanelWrap) {
+    choicesPanelWrap.addEventListener('focusin', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-choice-row]') : null;
+      if (!row) { return; }
+      var labelInput = row.querySelector('[data-choice-field="label"]');
+      choiceScopeLabel = labelInput ? labelInput.value : '';
+      setScope('choice');
+    });
+  }
+
+  // --- §5.4 frame hint toggle (presentation-only skeleton) ----------------------
+  var frameHintBtn = document.querySelector('[data-studio-frame-hint]');
+  if (frameHintBtn) {
+    frameHintBtn.addEventListener('click', function () {
+      var on = this.getAttribute('aria-pressed') !== 'true';
+      this.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this.className = on ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
+      var skels = document.querySelectorAll('[data-studio-frame-skeleton]');
+      var i;
+      for (i = 0; i < skels.length; i++) { skels[i].hidden = !on; }
+    });
+  }
+
+  // --- §8.3 frame callout: dismiss persists per browser -------------------------
+  var frameCallout = document.querySelector('[data-studio-frame-callout]');
+  var CALLOUT_DISMISS_KEY = 'lg-studio-frame-callout-dismissed';
+  if (frameCallout) {
+    var calloutDismissed = false;
+    try { calloutDismissed = window.localStorage.getItem(CALLOUT_DISMISS_KEY) === '1'; } catch (e4) { calloutDismissed = false; }
+    if (calloutDismissed) { frameCallout.hidden = true; }
+  }
+  var calloutDismissBtn = document.querySelector('[data-studio-callout-dismiss]');
+  if (calloutDismissBtn) {
+    calloutDismissBtn.addEventListener('click', function () {
+      if (frameCallout) { frameCallout.hidden = true; }
+      try { window.localStorage.setItem(CALLOUT_DISMISS_KEY, '1'); } catch (e5) {}
+    });
+  }
+
+  // --- §7.1/§2.4 "Used in N quotes" (the reuse line) -----------------------------
+  function loadUsage() {
+    if (!state.public_id) { return; }
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/usage', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) {
+      return r.json();
+    }).then(function (j) {
+      var rows = (j && j.usage && j.usage.variants) || [];
+      var seen = {}, n = 0, i, q;
+      for (i = 0; i < rows.length; i++) {
+        q = rows[i] && rows[i].quote_public_id;
+        if (q && seen[q] !== true) { seen[q] = true; n += 1; }
+      }
+      usageRows = rows;
+      usageQuoteCount = n;
+      renderScopeHeader();
+      renderFramePreviewEmpty();
+    }).catch(function () {});
+  }
+
   // --- scalar controls (continue mode + Maps toggle) --------------------------------------
   var mapsToggle = document.getElementById('lg-address-validation');
   if (mapsToggle) {
@@ -3939,7 +7310,9 @@ export const SECTION_STUDIO_SCRIPT = `
       address_validation_enabled: !!state.address_validation_enabled,
       content_json: JSON.stringify(state.content),
       answer_maps: state.answer_maps,
-      selected_offers: state.selected_offers
+      selected_offers: state.selected_offers,
+      // §9.5: the Section-level role overrides (null clears the column).
+      design_overrides: state.design_overrides || null
     };
   }
   // §8.2 save-time warning: the (saved) pair matches zero active Offers —
@@ -3955,11 +7328,93 @@ export const SECTION_STUDIO_SCRIPT = `
       warn.textContent = '';
     }
   }
+  // --- FIX 5: save-response problems[] + 400 field-error inline routing -----------
+  // A §3.6 problem path (components[i]…, children[j]…) resolves to its node so
+  // a clicked row FOCUSES the offending component (the §6.7 inline idiom).
+  function componentByProblemPath(path) {
+    var segs = String(path).match(/components\\[(\\d+)\\]|children\\[(\\d+)\\]/g) || [];
+    if (segs.length === 0 || String(path).indexOf('components[') !== 0) { return null; }
+    var list = state.content.components;
+    var node = null;
+    var i, idx;
+    for (i = 0; i < segs.length; i++) {
+      idx = Number(segs[i].replace(/[^0-9]/g, ''));
+      if (!list || !list[idx]) { return node; }
+      node = list[idx];
+      list = node.children;
+    }
+    return node;
+  }
+  function saveProblemFocusHandler(path) {
+    return function () {
+      var node = componentByProblemPath(path);
+      if (node && node.question_id) { selectComponent(node.question_id); }
+    };
+  }
+  function renderSaveProblems(problems) {
+    var box = document.querySelector('[data-studio-save-problems]');
+    if (!box) { return; }
+    clearChildren(box);
+    if (!problems || problems.length === 0) { box.hidden = true; return; }
+    box.hidden = false;
+    var head = document.createElement('p');
+    head.setAttribute('data-save-problems-summary', '');
+    head.appendChild(document.createTextNode('Saved \\u2014 with ' + problems.length + ' thing' + (problems.length === 1 ? '' : 's') + ' worth checking:'));
+    box.appendChild(head);
+    var list = document.createElement('ul');
+    var i, li, btn;
+    for (i = 0; i < problems.length; i++) {
+      if (!problems[i]) { continue; }
+      li = document.createElement('li');
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'studio-link-btn';
+      btn.setAttribute('data-save-problem-path', String(problems[i].path || ''));
+      btn.appendChild(document.createTextNode(String(problems[i].message || '')));
+      btn.addEventListener('click', saveProblemFocusHandler(problems[i].path));
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+    box.appendChild(list);
+  }
+  // Scalar strip fields → their strip inputs (the save-path controls).
+  var SAVE_FIELD_CONTROL_IDS = {
+    section_name: 'lg-section-name',
+    activity: 'lg-section-activity',
+    vertical: 'lg-section-vertical',
+    headline_text: 'lg-section-headline',
+    subheadline_text: 'lg-section-subheadline'
+  };
+  function markSaveFieldControl(key) {
+    var ctl = SAVE_FIELD_CONTROL_IDS[key] ? document.getElementById(SAVE_FIELD_CONTROL_IDS[key]) : null;
+    if (!ctl) {
+      ctl = document.querySelector('[data-inspector-field="' + key + '"]') ||
+        document.querySelector('[data-inspector-vprop="' + key + '"]') ||
+        document.querySelector('[data-container-prop="' + key + '"]');
+    }
+    if (ctl && ctl.className.indexOf('studio-control-invalid') === -1) { ctl.className = ctl.className + ' studio-control-invalid'; }
+  }
+  function routeSaveFieldErrors(fields) {
+    if (!fields || typeof fields !== 'object') { return; }
+    var k, focused = false, node, key;
+    for (k in fields) {
+      if (!Object.prototype.hasOwnProperty.call(fields, k)) { continue; }
+      // content.components[i]….<key> → focus the FIRST offending component,
+      // then mark the matching control (the §6.7 inline idiom).
+      if (k.indexOf('content.components[') === 0 && !focused) {
+        node = componentByProblemPath(k.slice('content.'.length));
+        if (node && node.question_id) { selectComponent(node.question_id); focused = true; }
+      }
+      key = k.replace(/^.*\\./, '');
+      markSaveFieldControl(key);
+    }
+  }
   var saveBtn = document.getElementById('lg-section-save');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       var errEl = document.getElementById('lg-section-error');
       if (errEl) { errEl.hidden = true; }
+      renderSaveProblems([]);
       renderZeroOffersWarning();
       saveBtn.disabled = true;
       var isNew = !state.public_id;
@@ -3975,9 +7430,23 @@ export const SECTION_STUDIO_SCRIPT = `
         saveBtn.disabled = false;
         if (!res.ok) {
           if (errEl) { errEl.hidden = false; errEl.textContent = (res.body && res.body.error) || 'Save failed'; }
+          // FIX 5: server-side FIELD errors route inline where a control
+          // matches (400 body: { error, fields }).
+          routeSaveFieldErrors(res.body && res.body.fields);
           return;
         }
         dirty = false;
+        // §6.1.3: the history is per open editor and cleared on Save.
+        historyReset();
+        // FIX 5: the save landed — non-blocking problems[] surface as the
+        // summary + click-to-focus rows. An EXISTING Section stays on the
+        // page so the rows are readable; a NEW Section must still navigate
+        // to its minted URL.
+        var problems = (res.body && res.body.problems) ? res.body.problems : [];
+        if (!isNew && problems.length > 0) {
+          renderSaveProblems(problems);
+          return;
+        }
         if (res.body && res.body.public_id) {
           window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit';
         } else {
@@ -4017,12 +7486,22 @@ export const SECTION_STUDIO_SCRIPT = `
   updatePendingUi();
   renderIssues();
   renderMapsBanner();
+  renderBoundChips();
+  updatePaletteBindItems();
+  renderBindBanner();
+  renderScopeHeader();
   updateCanvasEmpty();
   applyCanvasDecoration();
   populateInspector();
+  renderBreadcrumb();
+  updateCanvasToolbar();
+  populateSectionOverrides();
+  loadComponentPresets();
+  loadFramePickerQuotes();
   loadActivities();
   loadVerticals();
   loadOffers();
+  loadUsage();
   // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
   // quote activation preflight's "Open Section Mapping" link) opens the
   // mapping drawer tab directly.

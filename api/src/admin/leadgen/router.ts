@@ -53,9 +53,12 @@ import {
   patchMediaPlatformHandler,
 } from "./media-platforms-handlers";
 import {
+  createComponentPresetHandler,
   createSectionHandler,
+  deleteComponentPresetHandler,
   deleteSectionHandler,
   getSectionHandler,
+  listComponentPresetsHandler,
   listSectionsHandler,
   patchSectionHandler,
   previewSectionHandler,
@@ -153,6 +156,13 @@ routes.post("/offers/:id/test", testOfferHandler);
 // persists the operator's edited answers as that draft.
 routes.post("/offers/:id/payload/sample-answers", generateSampleAnswersHandler);
 routes.put("/offers/:id/payload/sample-answers", putSampleAnswersDraftHandler);
+
+// --- Component presets (v2.5 06 §6.6 — KV `lg-component-presets`) ------------
+// Own top-level prefix; static list/create BEFORE the /:name delete per the
+// 03 §8.1 discipline. Storage is the CACHE KV binding — no migration.
+routes.get("/component-presets", listComponentPresetsHandler);
+routes.post("/component-presets", createComponentPresetHandler);
+routes.delete("/component-presets/:name", deleteComponentPresetHandler);
 
 // --- Sections (03 §8.2 + 05 §12–§14 — Phase-5 Stage B full surface) ----------
 // Static paths BEFORE /sections/:id (03 §8.1 static-before-param discipline).

@@ -647,9 +647,11 @@ function renderClusters(
   return parts.join("");
 }
 
+// FIX 6a (15 §15.2): operator language — "JSON" never appears outside the
+// Advanced details this card also renders (the summary label names it there).
 const RAW_FALLBACK_COPY =
-  "These conditions use advanced JSON this visual builder can’t edit safely. " +
-  "The original JSON is preserved exactly as saved and will be submitted unchanged.";
+  "This rule uses advanced settings this visual builder can’t edit safely. " +
+  "The original settings are preserved exactly.";
 
 function renderCard(view: RuleView, fields: readonly RulesBuilderField[]): string {
   const chips: string[] = [];
@@ -1575,7 +1577,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       var rawString = typeof rawText === 'string' ? rawText : JSON.stringify(rawText);
       var warning = el('div', 'lg-rb-warning');
       warning.setAttribute('role', 'alert');
-      warning.textContent = 'These conditions use advanced JSON this visual builder cannot edit safely. The original JSON is preserved exactly as saved and will be submitted unchanged.';
+      warning.textContent = 'This rule uses advanced settings this visual builder can\\u2019t edit safely. The original settings are preserved exactly.';
       container.appendChild(warning);
       var details = el('details', 'lg-rb-advanced');
       details.setAttribute('open', 'open');

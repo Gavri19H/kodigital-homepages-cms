@@ -98,7 +98,7 @@ function propBool(node: LeadgenComponentNode, key: string): boolean {
 }
 
 // Curated design-override reads (§14.8). Only string overrides feed inline
-// style; the rest (columns, mobileBehavior) are consumed structurally.
+// mobileBehavior: schema-legal LEGACY key — zero renderer consumers; the Design-tab control was removed in Phase C (DEV-64/FIX-4b). Kept valid so stored content keeps validating.
 function ov(node: LeadgenComponentNode, key: keyof LeadgenDesignOverrides): string | undefined {
   const v = node.design_overrides?.[key];
   return typeof v === "string" ? v : undefined;
@@ -610,9 +610,26 @@ function iconCardDepthSlots(design: DefaultFunnelDesign): LeadgenIconCardDepthSl
 // rules live in the scoped chrome CSS (.lg-btn.lg-btn-answer, styles.ts) — never
 // inline — so the "selected animation" state wins by cascade (no !important; the
 // compound .lg-btn.lg-btn-answer outranks the .lg-btn primary base/hover). Only
-// class + role/aria + hydration data attrs are emitted here (no per-instance
-// style at all), so `design` is unused (kept for the uniform dispatcher shape).
-export function renderButtonAnswerGroup(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+// class + role/aria + hydration data attrs are emitted per BUTTON.
+//
+// FIX 4a (§14.8 render-back): a curated `buttonBackground` override on the
+// GROUP node resolves through the SAME §9.4 ovColor path (role-or-hex, layer-4
+// Section re-pointing honored) and rides the group ROOT as the --lg-sel-bg
+// custom property; the base sheet's selected rule consumes it with the token
+// fallback. ADDITIVE: no override ⇒ style() emits nothing ⇒ byte-identical.
+function answerGroupSelectedVar(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  return style({ "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx) });
+}
+
+export function renderButtonAnswerGroup(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const autoAdvance = propBool(node, "auto_advance");
   const btn = (c: LeadgenChoice): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
@@ -639,25 +656,30 @@ export function renderButtonAnswerGroup(node: LeadgenComponentNode, _design: Def
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
     `</div>`
   );
 }
 
-export function renderTwoButtonYesNo(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+export function renderTwoButtonYesNo(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const yes = propStr(node, "yesLabel") ?? "Yes";
   const no = propStr(node, "noLabel") ?? "No";
   const autoAdvance = propBool(node, "auto_advance");
   // Same discipline as renderButtonAnswerGroup: base + state chrome is fully
   // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply;
-  // no inline background/color/border to defeat them.
+  // no inline background/color/border to defeat them. FIX 4a: the curated
+  // buttonBackground override rides the group root as --lg-sel-bg (additive).
   const btn = (label: string, value: boolean): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
     ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
-    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true) +
     btn(no, false) +
     `</div>`
@@ -686,6 +708,13 @@ function renderCardGrid(
   // re-pointed) role; legacy `#hex` renders as-is.
   const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
   const ic = iconCardDepthSlots(design);
+  // A6 (05 §5.5): `image_fit` is a COMPONENT prop on the image grid — the
+  // canonical authoring surface (content-schema optional enum + the studio
+  // Design-tab control). Resolved once for the whole grid; the per-choice
+  // defensive read below stays as the legacy FALLBACK only (§8.4's per-choice
+  // list omits image_fit).
+  const nodeFitRaw = propStr(node, "image_fit");
+  const nodeFit = nodeFitRaw === "cover" || nodeFitRaw === "contain" ? nodeFitRaw : undefined;
   const card = (c: LeadgenChoice): string => {
     // v2.5 08 §8.4 choice depth — every new field is ADDITIVE: a choice
     // carrying none of them renders byte-identically to the v2.4 markup
@@ -696,12 +725,15 @@ function renderCardGrid(
     const iconSlot = (glyph: string | undefined): string =>
       `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(glyph)}</span>`;
     const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
-    // §8.4 image fit (cover|contain — the 05 §5.2 F6 inspector control). Read
-    // DEFENSIVELY off the raw choice (the readChoiceDisplay idiom): the typed
-    // LeadgenChoice field lands with the authoring/schema leg. A curated enum,
-    // not author CSS; absent → today's attribute-free <img> byte-identically.
+    // §8.4/A6 image fit (cover|contain — the 05 §5.5 grid control): the
+    // COMPONENT prop (nodeFit above) is canonical; a legacy PER-CHOICE
+    // image_fit read DEFENSIVELY off the raw choice (the readChoiceDisplay
+    // idiom) applies only when no component prop is authored. A curated enum,
+    // not author CSS; both absent → today's attribute-free <img>
+    // byte-identically.
     const fitRaw = (c as unknown as Record<string, unknown>)["image_fit"];
-    const fit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
+    const choiceFit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
+    const fit = nodeFit ?? choiceFit;
     const media =
       kind === "image"
         ? !hasImage && emoji !== undefined
@@ -801,15 +833,32 @@ export function renderMultiChoiceCardGroup(
 ): string {
   const min = propNum(node, "min");
   const max = propNum(node, "max");
-  const card = (c: LeadgenChoice): string =>
+  // v2.5 05 §5.5 / 08 §8.7 patterns D/F (A6 flag d): title/subtitle choice
+  // depth PARITY with renderCardGrid — ADDITIVE: title renders in the
+  // card-title slot when present (label stays the stored/a11y base), subtitle
+  // renders the same iconCard.subtitle* token slots. A choice carrying
+  // neither renders byte-identically to the pre-depth markup.
+  const ic = iconCardDepthSlots(design);
+  const card = (c: LeadgenChoice): string => {
+    const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
+    const desc =
+      typeof c.subtitle === "string" && c.subtitle !== ""
+        ? `<span class="lg-card-desc lg-card-subtitle"${style({
+            "font-size": ic.subtitleFontSize,
+            color: ic.subtitleColor,
+          })}>${esc(c.subtitle)}</span>`
+        : "";
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
-    `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
-    attr("data-value", c.value) +
-    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
-    attr("data-lg-choice", c.value) +
-    attr("data-analytics-id", c.analytics_id) +
-    `><span class="lg-card-title">${esc(c.label)}</span></button>`;
+    return (
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
+      attr("data-value", c.value) +
+      // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+      attr("data-lg-choice", c.value) +
+      attr("data-analytics-id", c.analytics_id) +
+      `><span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
+    );
+  };
   const display = readChoiceDisplay(node);
   let cards: string;
   if (display !== undefined && display.otherGroupEnabled) {
@@ -838,8 +887,20 @@ export function renderMultiChoiceCardGroup(
   );
 }
 
+// §5.5 (FIX 8b): the authored dropdown default — `props.default` names a
+// choice VALUE; the matching <option> gets the `selected` marker and the
+// placeholder loses it. Unmatched/absent default → undefined → the legacy
+// placeholder-selected markup renders byte-identically.
+function dropdownDefaultValue(node: LeadgenComponentNode): string | undefined {
+  const raw = node.props?.["default"];
+  const def = typeof raw === "string" || typeof raw === "number" ? String(raw) : undefined;
+  if (def === undefined) return undefined;
+  return choiceList(node).some((c) => String(c.value) === def) ? def : undefined;
+}
+
 export function renderDropdownQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
+  const def = dropdownDefaultValue(node);
   // 03 §3.3: each <option> is a selectable choice → data-lg-choice. A dropdown
   // with B9 choiceDisplay renders ALL values flat (main + secondary as plain
   // options — real values only, so the §6.4 "never literal Other" invariant
@@ -848,7 +909,7 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   const options = choiceList(node)
     .map(
       (c) =>
-        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}${def !== undefined && String(c.value) === def ? " selected" : ""}>${esc(c.label)}</option>`,
     )
     .join("");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
@@ -856,7 +917,7 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   return (
     `<select class="lg-input lg-dropdown"${hydration(node)}` +
     `>` +
-    `<option value="" disabled selected>${esc(placeholder)}</option>` +
+    `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>`
   );
@@ -871,10 +932,13 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
 // (.lg-input / .lg-dropdown) — no inline style.
 export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
+  // §5.5 (FIX 8b): the SAME props.default semantics as DropdownQuestion — the
+  // two dropdown shapes may never disagree on what a default means.
+  const def = dropdownDefaultValue(node);
   const options = choiceList(node)
     .map(
       (c) =>
-        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}${def !== undefined && String(c.value) === def ? " selected" : ""}>${esc(c.label)}</option>`,
     )
     .join("");
   return (
@@ -882,7 +946,7 @@ export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _de
     `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search` +
     ` placeholder="Search…" aria-label="Search options">` +
     `<select class="lg-input lg-dropdown">` +
-    `<option value="" disabled selected>${esc(placeholder)}</option>` +
+    `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>` +
     `</div>`
@@ -897,8 +961,14 @@ export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _de
 // otherGroupEnabled:false) it renders all choices flat — defensive, and the
 // §6.4 "literal 'Other' is never a stored value" invariant holds throughout.
 // Base + state chrome is fully class-driven (.lg-btn.lg-btn-answer) — no
-// inline style (the renderButtonAnswerGroup discipline).
-export function renderOtherGroupSelector(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+// inline style per button (the renderButtonAnswerGroup discipline). FIX 4a:
+// the curated buttonBackground override rides the group root as --lg-sel-bg
+// (additive — absent override renders byte-identically).
+export function renderOtherGroupSelector(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const btn = (c: LeadgenChoice): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
     attr("data-value", c.value) +
@@ -921,7 +991,7 @@ export function renderOtherGroupSelector(node: LeadgenComponentNode, _design: De
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}>` +
+    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)}>` +
     body +
     `</div>`
   );
@@ -1704,13 +1774,13 @@ export function renderComponent(
     case "NumberRangeQuestion":
       return renderNumberRangeQuestion(node, design, state?.ctx);
     case "ButtonAnswerGroup":
-      return renderButtonAnswerGroup(node, design);
+      return renderButtonAnswerGroup(node, design, state?.ctx);
     case "IconCardAnswerGrid":
       return renderIconCardAnswerGrid(node, design, state?.ctx);
     case "ImageCardAnswerGrid":
       return renderImageCardAnswerGrid(node, design, state?.ctx);
     case "TwoButtonYesNo":
-      return renderTwoButtonYesNo(node, design);
+      return renderTwoButtonYesNo(node, design, state?.ctx);
     case "MultiChoiceCardGroup":
       return renderMultiChoiceCardGroup(node, design, state?.ctx);
     case "DropdownQuestion":
@@ -1718,7 +1788,7 @@ export function renderComponent(
     case "SearchableDropdownQuestion":
       return renderSearchableDropdownQuestion(node, design);
     case "OtherGroupSelector":
-      return renderOtherGroupSelector(node, design);
+      return renderOtherGroupSelector(node, design, state?.ctx);
     case "FreeTextQuestion":
       return renderFreeTextQuestion(node, design);
     case "NumberInputQuestion":
@@ -1864,11 +1934,53 @@ export function renderSectionComponents(
 // the dependency state and always keep their wrapper (an emptied container
 // renders as an empty wrapper, exactly how the live runtime keeps the nested
 // DOM and toggles [data-question-id] leaves in place).
+//
+// v2.5 Phase C (DEV-57): the OPTIONAL `sectionCtx` threads the §3.4/§11.5/§9.5
+// context EXACTLY like renderSectionComponents — one per-call state (bound
+// text, single-control dedupe, auto_advance suppression, below_unit deferral,
+// Section design_overrides), threaded through the visible-leaf walk and the
+// depth-1 end-of-subtree slot. LEGACY IDENTITY: a call WITHOUT sectionCtx
+// creates NO state, so every no-ctx call renders byte-identically to the
+// pre-thread output (the components-render/parity suites hold the pin).
 export function renderSectionComponentsVisible(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
   visibleIds: ReadonlySet<string>,
+  sectionCtx?: LeadgenSectionRenderCtx,
   depth = 1,
+): string {
+  let state: SectionRenderState | undefined;
+  if (sectionCtx !== undefined) {
+    // Mirror renderSectionComponents' per-call state construction 1:1.
+    const suppressContinue = sectionCtx.continue_mode === "auto_advance";
+    state = {
+      ctx: sectionCtx,
+      suppressContinue,
+      deferContinue: !suppressContinue && sectionCtx.continue_placement === "below_unit",
+      continueSeen: false,
+      deferredContinue: undefined,
+    };
+  }
+  let out = renderVisibleNodes(nodes, design, visibleIds, depth, state);
+  // 11 §11.5 below_unit (top-level call only): the ONE end-of-subtree control
+  // — the Section's first VISIBLE ContinueButton provides props when present,
+  // else the theme-default copy renders (same rule as renderSectionComponents).
+  if (depth === 1 && state !== undefined && state.deferContinue) {
+    out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
+  }
+  return out;
+}
+
+// The visible-leaf walk renderSectionComponentsVisible drives — extracted so
+// the recursion threads the SAME per-call state object across every nesting
+// level (never re-created per container). With `state === undefined` this is
+// byte-for-byte the pre-v2.5-C walk.
+function renderVisibleNodes(
+  nodes: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+  visibleIds: ReadonlySet<string>,
+  depth: number,
+  state: SectionRenderState | undefined,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return "";
   let out = "";
@@ -1876,23 +1988,19 @@ export function renderSectionComponentsVisible(
     if (typeof node !== "object" || node === null) continue;
     if (isLayoutContainerType(node.type)) {
       if (depth > LEADGEN_MAX_CONTAINER_DEPTH) continue; // defensive (validator is the gate)
-      const inner = renderSectionComponentsVisible(
-        containerChildren(node),
-        design,
-        visibleIds,
-        depth + 1,
-      );
+      const inner = renderVisibleNodes(containerChildren(node), design, visibleIds, depth + 1, state);
       // Re-render the container wrapper with the FILTERED children: emit the
       // container via its own preset around the filtered inner markup by
       // rendering a children-less clone and splicing the inner HTML into the
       // wrapper. The wrapper close tag is always the last `</…>` emitted by
       // the container preset, and every container preset nests children as
       // the LAST element before its closing tag(s), so the splice point is
-      // the recursion output of the empty clone.
+      // the recursion output of the empty clone. (Wrapper markup never reads
+      // the render state — state feeds only the children walk above.)
       out += renderContainerWrapper(node, design, depth, inner);
     } else {
       if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
-        out += renderComponent(node, design, depth);
+        out += renderComponent(node, design, depth, state);
       }
     }
   }
