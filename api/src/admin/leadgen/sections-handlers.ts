@@ -21,6 +21,7 @@ import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import {
   renderSectionComponents,
   renderSectionComponentsVisible,
+  type LeadgenSectionRenderCtx,
 } from "../../public/leadgen/components/presets";
 // §8.5 layout containers: question/mapping/ZIP walks consume the canonical
 // flattened projection; ONLY the renderer receives the full tree (it recurses).
@@ -50,7 +51,7 @@ import { applyPreviewSimMarkup, parsePreviewSim } from "./preview-sim";
 // INLINED because the admin host has no tenant site context: every /lg/*
 // path (including the bundle URL) rides publicSiteContextMiddleware and 404s
 // on ADMIN_HOST, so a script-src from the studio srcdoc cannot load there.
-import { toPublicComponent } from "../../public/leadgen/config-dto";
+import { parseSectionDesignOverrides, toPublicComponent } from "../../public/leadgen/config-dto";
 import { LEADGEN_RUNTIME_JS } from "../../public/leadgen/runtime/engine-bundle.generated";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { escapeHtml } from "../templates/layout";
@@ -62,6 +63,7 @@ import {
   validateMappingReferences,
   validateSection,
   type LeadgenAnswerMapEdge,
+  type LeadgenSectionInput,
   type OfferSchemaInfo,
   type RebuildResult,
 } from "../../leadgen/sections";
@@ -485,8 +487,22 @@ async function parseAnswerMaps(
 // content_html render (Stage-A funnel presets)
 // ---------------------------------------------------------------------------
 
-function renderContentHtml(content: LeadgenSectionContent): string {
-  return renderSectionComponents(content.components, getFunnelDesign(null));
+// v2.5 03 §3.4: the persisted content_html renders through the SAME
+// sectionCtx contract as serve/preview — a BOUND QuestionHeadline/Subheadline
+// node persists the Section's canonical column text (so a headline_text edit
+// re-renders content_html with the new text on save), continue_mode threads
+// the §11.5 ownership, and design_overrides_json applies as layer 4. No frame
+// context in Phase A (content_html is funnel-agnostic; placement is a
+// composition-time concern). Legacy content (no bound nodes, no overrides)
+// renders byte-identically.
+function renderContentHtml(value: LeadgenSectionInput): string {
+  const ctx: LeadgenSectionRenderCtx = {
+    headline_text: value.headline_text,
+    subheadline_text: value.subheadline_text,
+    continue_mode: value.continue_mode,
+    design_overrides: parseSectionDesignOverrides(value.design_overrides_json),
+  };
+  return renderSectionComponents(value.content.components, getFunnelDesign(null), ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,7 +730,7 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     offerSchemas,
     selectedOfferIds: parsed.selectedOfferIds,
   });
-  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value.content) };
+  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,6 +1034,32 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
   }
   const sim = simParse.sim;
 
+  // --- v2.5 03 §3.4 sectionCtx (ADDITIVE body params) ------------------------
+  // The draft's Section-row fields, when the caller sends them: canonical
+  // headline/subheadline text (bound-node resolution), continue_mode (§11.5
+  // ownership), design_overrides (§9.5 layer 4). A legacy body carries none →
+  // the ctx is the empty-text default and every unbound node renders
+  // byte-identically (regression-pinned). No frame context in Phase A
+  // (`frame_context` is the 13 §13.4 Phase-C extension).
+  const ctxHeadlineRaw = body["headline"] ?? body["headline_text"];
+  const ctxSubheadlineRaw = body["subheadline"] ?? body["subheadline_text"];
+  const ctxContinueRaw = body["continue_mode"];
+  const ctxOverridesRaw = body["design_overrides"] ?? body["design_overrides_json"];
+  const sectionCtx: LeadgenSectionRenderCtx = {
+    headline_text: typeof ctxHeadlineRaw === "string" ? ctxHeadlineRaw : "",
+    subheadline_text: typeof ctxSubheadlineRaw === "string" ? ctxSubheadlineRaw : null,
+    design_overrides: parseSectionDesignOverrides(
+      typeof ctxOverridesRaw === "string"
+        ? ctxOverridesRaw
+        : isRecord(ctxOverridesRaw)
+          ? JSON.stringify(ctxOverridesRaw)
+          : null,
+    ),
+  };
+  if (ctxContinueRaw === "button" || ctxContinueRaw === "auto_advance") {
+    sectionCtx.continue_mode = ctxContinueRaw;
+  }
+
   // §12.3/§14.9 conditional-dependency preview: the answers BASIS is the
   // legacy `sample_answers` record overlaid by `sim.answers` overlaid by the
   // §9.2 flow reduction (later entries win). Any basis — or the explicit
@@ -1064,9 +1106,10 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       (n) => isRecord(n) && typeof n.question_id === "string" && visible!.has(n.question_id),
     ).length;
   } else {
-    // No basis ⇒ the classic full-render preview (unchanged); the renderer
-    // receives the FULL tree (container presets recurse).
-    rendered = renderSectionComponents(nodes, design);
+    // No basis ⇒ the classic full-render preview; the renderer receives the
+    // FULL tree (container presets recurse) + the §3.4 sectionCtx (legacy
+    // bodies produce the empty-default ctx → byte-identical output).
+    rendered = renderSectionComponents(nodes, design, sectionCtx);
     componentCount = nodes.length;
   }
 

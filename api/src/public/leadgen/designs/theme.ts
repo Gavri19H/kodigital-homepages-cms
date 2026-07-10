@@ -505,6 +505,67 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
+// §9.3 contrast lint — WCAG AA relative-luminance check for the preflight
+// contrast rows (14 §14.1: button-bg/button-text + text/page role pairs →
+// warnings). PURE + additive: nothing else in this module consumes it.
+//
+// contrastRatioAA(fg, bg) → { ratio, passes } for two #hex colours, or null
+// when either value is not a parseable hex literal (role-resolved tokens are
+// normally hex, but a design may carry gradients/rgb() composites — an
+// unparseable pair is UNLINTABLE, never a fake failure). The AA threshold is
+// the normal-text 4.5:1 (both lint pairs are text-on-surface pairs).
+// ---------------------------------------------------------------------------
+
+export const WCAG_AA_MIN_CONTRAST = 4.5;
+
+// #rgb / #rgba / #rrggbb / #rrggbbaa → [r, g, b] (alpha ignored — the lint
+// compares base colours), or null when the value is not a hex literal.
+function parseHexColor(value: unknown): [number, number, number] | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!HEX_COLOR_RE.test(raw)) return null;
+  let hex = raw.slice(1);
+  if (hex.length === 4 || hex.length === 8) {
+    hex = hex.slice(0, hex.length === 4 ? 3 : 6); // strip alpha
+  }
+  if (hex.length === 3) {
+    hex = hex
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  const n = Number.parseInt(hex, 16);
+  if (Number.isNaN(n)) return null;
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+// WCAG 2.x relative luminance of an sRGB channel byte.
+function channelLuminance(byte: number): number {
+  const c = byte / 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+export interface ContrastVerdict {
+  ratio: number; // e.g. 4.52 (rounded to 2 decimals)
+  passes: boolean; // ratio >= WCAG_AA_MIN_CONTRAST
+}
+
+export function contrastRatioAA(fg: string, bg: string): ContrastVerdict | null {
+  const f = parseHexColor(fg);
+  const b = parseHexColor(bg);
+  if (f === null || b === null) return null;
+  const lum = (rgb: [number, number, number]): number =>
+    0.2126 * channelLuminance(rgb[0]) +
+    0.7152 * channelLuminance(rgb[1]) +
+    0.0722 * channelLuminance(rgb[2]);
+  const lf = lum(f);
+  const lb = lum(b);
+  const ratio = (Math.max(lf, lb) + 0.05) / (Math.min(lf, lb) + 0.05);
+  const rounded = Math.round(ratio * 100) / 100;
+  return { ratio: rounded, passes: rounded >= WCAG_AA_MIN_CONTRAST };
+}
+
+// ---------------------------------------------------------------------------
 // validateTheme — server-side gate for PUT /funnels/:id/theme (§4.8). Unknown
 // keys/roles rejected; enums closed; custom #hex palette values are ALLOWED
 // but flagged (legacy-literal rule, §9.3/§9.4). `theme` is non-null iff no

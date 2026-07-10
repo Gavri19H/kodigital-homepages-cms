@@ -1134,6 +1134,35 @@ export function funnelChromeCss(
         "font-size": "0.875rem",
         "text-align": "left",
       }),
+      // ---- v2.5 A7: choice-depth + continue-slot base rules ------------------
+      // The three token-driven class rules for markup the presets emit
+      // inline-token-styled (08 §8.4 subtitle/badge; 11 §11.5 continue slot).
+      // They live in THIS frameRegions-gated block on purpose: the legacy
+      // shell pin embeds the base stylesheet byte-exactly, and a legacy
+      // funnel never renders `.lg-continue-slot` anyway (the slot exists only
+      // under a frame's `continue_placement:"below_unit"`).
+      // .lg-card-subtitle base — structural complement of the inline
+      // iconCard.subtitle* tokens (font-size/color ride inline).
+      rule(`${scope} .lg-card-subtitle`, {
+        display: "block",
+        "margin-top": spacing.xs,
+        "line-height": "1.3",
+      }),
+      // .lg-card-badge positioning — top-right pill over the card corner
+      // (the badge colours/typography ride inline via iconCard.badge*).
+      rule(`${scope} .lg-card`, { position: "relative" }),
+      rule(`${scope} .lg-card-badge`, {
+        position: "absolute",
+        top: spacing.xs,
+        right: spacing.xs,
+        "line-height": "1.2",
+        "white-space": "nowrap",
+      }),
+      // .lg-continue-slot spacing — the §11.5 below_unit end-of-section slot.
+      rule(`${scope} .lg-continue-slot`, {
+        "margin-top": spacing.lg,
+        "text-align": "center",
+      }),
     );
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.
