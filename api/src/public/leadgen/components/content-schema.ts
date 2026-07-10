@@ -320,7 +320,9 @@ export type SectionContentErrorCode =
   // v2.5 §9.4 color-typed override VALUE vocabulary (role name or legacy #hex)
   | "invalid_override_value"
   // v2.5 §3.5/§8.2 WARNING code (emitted into `warnings`, never `errors`)
-  | "frame_scope_component";
+  | "frame_scope_component"
+  // v2.5 11 §11.5 WARNING code (emitted into `warnings`, never `errors`)
+  | "duplicate_continue";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -740,6 +742,8 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   const seenInternalFields = new Set<string>();
   // §3.4: each bind VALUE may be claimed at most once per Section, whole tree.
   const seenBinds = new Set<string>();
+  // 11 §11.5: ContinueButton nodes counted across the whole tree (warning).
+  let continueCount = 0;
 
   // Pass 2: per-node validation, recursive over container children.
   const validateNode = (raw: unknown, base: string, depth: number): void => {
@@ -797,6 +801,24 @@ export function validateSectionContent(content: unknown): SectionContentValidati
         base,
         `${type} is a funnel-frame component (§8.2 scope "frame") — it belongs to the Quote frame, not a Section unit`,
       );
+    }
+
+    // 11 §11.5 duplicate Continue buttons: the SECOND+ ContinueButton anywhere
+    // in the tree gets a path-precise save-time WARNING (§11.5 mandates the
+    // save-time surface; only the first Continue renders/wires). `ok` is
+    // unaffected. The activation-PREFLIGHT row stays frame-gated per 14 §14.4
+    // (activating untouched legacy quotes yields zero new problems) — a SAVE
+    // is an operator action on this Section, so warning here is
+    // §14.4-compatible.
+    if (type === "ContinueButton") {
+      continueCount += 1;
+      if (continueCount > 1) {
+        warn(
+          "duplicate_continue",
+          base,
+          "this Section has more than one Continue button — only the first is shown (§11.5)",
+        );
+      }
     }
 
     // §3.4 canonical headline binding. Checked for EVERY known-typed node

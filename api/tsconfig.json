@@ -32,6 +32,9 @@
     // The hydration regression suite imports the DOM-touching runtime modules
     // (engine/maps/render), so it type-checks in the SAME runtime program
     // (tsconfig.runtime.json include) — never under the worker lib.
-    "test/leadgen-runtime-hydration.test.ts"
+    "test/leadgen-runtime-hydration.test.ts",
+    // The frame engine-sim suite (v2.5.1) drives the REAL LgEngine over a
+    // fake DOM — same DOM-lib split as the hydration suite.
+    "test/leadgen-frame-engine-sim.test.ts"
   ]
 }

@@ -2213,25 +2213,18 @@ async function computeFunnelV25Problems(
       });
     } else {
       const validation = validateFrameConfig(state.rawFrame);
-      for (const p of validation.problems) {
-        problems.push({
-          ...p,
-          message:
-            p.severity === "error"
-              ? `The funnel's page frame has an invalid setting: ${p.message}`
-              : p.message,
-          fix_url: fixQuote,
-        });
-      }
       // --- trust-strip logo missing alt (row 12, error — dedicated
-      // accessibility copy; the schema row above may also flag the same path).
+      // accessibility copy). The generic schema validation flags the SAME
+      // path (`alt` is a required_text field), so collect the a11y rows FIRST
+      // and dedupe by path — one problem per path, the a11y copy wins.
+      const trustAltRows: Problem[] = [];
       const trust = state.rawFrame["trust_strip"];
       if (isRecord(trust) && Array.isArray(trust["logos"])) {
         (trust["logos"] as unknown[]).forEach((logo, i) => {
           if (!isRecord(logo)) return;
           const alt = logo["alt"];
           if (typeof alt !== "string" || alt.trim() === "") {
-            problems.push({
+            trustAltRows.push({
               path: `frame.trust_strip.logos[${i}].alt`,
               scope: "frame",
               severity: "error",
@@ -2241,6 +2234,19 @@ async function computeFunnelV25Problems(
           }
         });
       }
+      const trustAltPaths = new Set(trustAltRows.map((row) => row.path));
+      for (const p of validation.problems) {
+        if (trustAltPaths.has(p.path)) continue; // deduped: the a11y row below wins
+        problems.push({
+          ...p,
+          message:
+            p.severity === "error"
+              ? `The funnel's page frame has an invalid setting: ${p.message}`
+              : p.message,
+          fix_url: fixQuote,
+        });
+      }
+      problems.push(...trustAltRows);
     }
   }
 

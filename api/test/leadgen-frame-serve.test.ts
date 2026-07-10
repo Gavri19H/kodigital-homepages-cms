@@ -589,3 +589,68 @@ describeDb("no-duplicate-headline-storage (15 §15.1 + 03 §3.4)", () => {
     expect(renderComposedVariantPreview({ quote, funnel: legacyFunnel, variant, sections })).toBeNull();
   });
 });
+
+// ===========================================================================
+
+// Serve fork FAIL-SAFE (13 §13.3 / resolveFrameComposition degrade contract):
+// a corrupt or schema-invalid stored frame_config_json must never break — or
+// even ALTER — a revenue-serving page. Each case writes the bad column value
+// directly into the funnel row, GETs the REAL funnel route, and asserts the
+// response body is BYTE-EQUAL to the NULL-frame legacy body of the very same
+// funnel (rendered through the same route in the same test).
+//
+// Cache note: the shell cache key (site/slug/ids/content_version/ab_rev/
+// activation updated_at) carries NO frame axis, so each GET below rides a
+// FRESH env (fresh KV stub) over the SAME sqlite db — every render is a cold,
+// honest pass through resolveFrameComposition, never a cache echo.
+describeDb("serve fork fail-safe (13 §13.3): bad frame_config_json degrades BYTE-EQUAL to the legacy shell", () => {
+  async function coldServeBody(h: Harness, slug: string): Promise<string> {
+    const env = buildEnv(d1FromSqlite(h.sdb), makeKvStub());
+    const res = await app.request(`${TENANT_ORIGIN}/lg/${slug}`, {}, env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    return res.text();
+  }
+
+  async function legacyReferenceBody(h: Harness, funnelPublicId: string, slug: string): Promise<string> {
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = NULL WHERE public_id = ?")
+      .run(funnelPublicId);
+    const body = await coldServeBody(h, slug);
+    // Sanity: the reference IS the legacy shell (no frame markup).
+    expect(body).not.toContain("data-frame-region");
+    expect(body).toContain('<main class="lg-content" data-lg-mount>');
+    return body;
+  }
+
+  it("corrupt frame_config_json ('{not json') serves the NULL-frame legacy body byte-for-byte", async () => {
+    const h = newHarness();
+    const seeded = await seedComposedFunnel(h, { slug: "failsafe-corrupt" });
+    const legacy = await legacyReferenceBody(h, seeded.funnelPublicId, "failsafe-corrupt");
+
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE public_id = ?")
+      .run("{not json", seeded.funnelPublicId);
+    const corrupt = await coldServeBody(h, "failsafe-corrupt");
+    expect(corrupt).toBe(legacy);
+  });
+
+  it("valid-JSON schema-INVALID frame (unsafe javascript: CTA href) serves the NULL-frame legacy body byte-for-byte", async () => {
+    const h = newHarness();
+    const seeded = await seedComposedFunnel(h, { slug: "failsafe-invalid" });
+    const legacy = await legacyReferenceBody(h, seeded.funnelPublicId, "failsafe-invalid");
+
+    const schemaInvalid = JSON.stringify({
+      version: 1,
+      template: "centered",
+      header: { cta: { enabled: true, label: "Call now", href: "javascript:alert(1)" } },
+    });
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE public_id = ?")
+      .run(schemaInvalid, seeded.funnelPublicId);
+    const invalid = await coldServeBody(h, "failsafe-invalid");
+    // Fail-safe: the unsafe href never reaches the page AND the whole body is
+    // exactly the legacy render.
+    expect(invalid).not.toContain("javascript:alert(1)");
+    expect(invalid).toBe(legacy);
+  });
+});

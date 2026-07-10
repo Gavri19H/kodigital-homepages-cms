@@ -347,4 +347,55 @@ describe("component-schema-validation", () => {
       expect(codesOf(result)).toEqual(["arbitrary_css_override"]);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 11 §11.5 duplicate Continue buttons — save-time WARNING (never an error)
+  // -------------------------------------------------------------------------
+  describe("§11.5 duplicate_continue — save-time warning", () => {
+    const question: LeadgenComponentNode = {
+      type: "TwoButtonYesNo",
+      question_id: "q1",
+      question_key: "k1",
+      internal_field: "f1",
+      answer_type: "boolean",
+    };
+    const continueNode = (id: string): LeadgenComponentNode => ({
+      type: "ContinueButton",
+      question_id: id,
+      props: { label: "Continue" },
+    });
+
+    it("2+ ContinueButton nodes → duplicate_continue WARNING, path-precise to the second+ node; ok stays true", () => {
+      const result = validateSectionContent(
+        content([question, continueNode("c1"), continueNode("c2"), continueNode("c3")]),
+      );
+      // A warning, never an error — the save is unaffected (§8.6 channel).
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toBe(true);
+      const dups = result.warnings.filter((w) => w.code === "duplicate_continue");
+      expect(dups.map((w) => w.path)).toEqual(["components[2]", "components[3]"]);
+      expect(dups[0]!.message).toContain("more than one Continue button");
+    });
+
+    it("a duplicate Continue INSIDE a container is caught (whole tree) with the nested path", () => {
+      const result = validateSectionContent(
+        content([
+          question,
+          continueNode("c1"),
+          { type: "Stack", question_id: "s1", children: [continueNode("c2")] },
+        ]),
+      );
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toBe(true);
+      const dups = result.warnings.filter((w) => w.code === "duplicate_continue");
+      expect(dups.map((w) => w.path)).toEqual(["components[2].children[0]"]);
+    });
+
+    it("a single ContinueButton → NO duplicate_continue warning; ok stays true", () => {
+      const result = validateSectionContent(content([question, continueNode("c1")]));
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+      expect(result.warnings.filter((w) => w.code === "duplicate_continue")).toEqual([]);
+    });
+  });
 });

@@ -103,6 +103,16 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
     if (bar !== null && bar instanceof HTMLElement) {
       bar.style.width = `${pct}%`;
     }
+    // 11 §11.6 dots-style mounts: re-stamp the StepIndicator dots inside this
+    // mount so EXACTLY the current step's dot carries data-active (the server
+    // renders step 1 active; without this the dots never advance).
+    const dots = el.querySelectorAll(".lg-step");
+    for (let d = 0; d < dots.length; d++) {
+      const dot = dots[d];
+      if (dot === undefined) continue;
+      if (d === currentStep - 1) dot.setAttribute("data-active", "true");
+      else dot.removeAttribute("data-active");
+    }
     const label = el.querySelector("[data-lg-progress-label]");
     const text = mode === "percent" ? `${pct}%` : `${currentStep} / ${safeTotal}`;
     if (label !== null) label.textContent = text;

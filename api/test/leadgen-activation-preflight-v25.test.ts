@@ -427,12 +427,13 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
     );
     expect(frameHref.severity).toBe("error");
 
-    // Row 12 — trust-strip logo missing alt → error, dedicated a11y copy.
-    const trustAlt = firstMatch(
-      problems,
-      (p) => p.path === "frame.trust_strip.logos[0].alt" && p.message.includes("screen readers"),
-      "row 12 (trust alt)",
-    );
+    // Row 12 — trust-strip logo missing alt → error, dedicated a11y copy —
+    // and EXACTLY ONE problem on that path: the generic schema row (alt is a
+    // required_text frame field) is deduped in favour of the a11y copy.
+    const trustAltRows = problems.filter((p) => p.path === "frame.trust_strip.logos[0].alt");
+    expect(trustAltRows, `row 12 deduped by path; got:\n${JSON.stringify(trustAltRows, null, 2)}`).toHaveLength(1);
+    const trustAlt = trustAltRows[0]!;
+    expect(trustAlt.message).toContain("screen readers");
     expect(trustAlt.severity).toBe("error");
 
     // Row 2 — theme invalid → error.
