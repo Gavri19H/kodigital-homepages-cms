@@ -530,3 +530,81 @@ Built (contract 07 §19 + §18 + §20 + 09 §28/§30.3/§30.4):
 - **Transient note (honest, evidence-grounded):** the FIRST `/offers` hit in the rapid-fire smoke returned a one-off 500 during CF-Access service-token session establishment; the immediately-following 5/5 `/offers` hits + `/offers/search` + `/offers?page=1` + all sibling admin GETs returned 200 with the correct `{items:[],paging:{total:0}}` envelope. Diagnosed as a CF-Access edge/session transient, NOT a Worker code defect (non-reproducing; correct response; no other endpoint affected) — no code change warranted.
 - **PROGRAM SEALED: P1–P15 live in production** (deployed SHA aligned to `a79c651`). The `/lg/*` runtime is dark-by-construction until the operator activates a quote on a live tenant; all other remaining actions are operator-owned (CH/Maps/signing/provider secrets, the Athena→CH ingest, the manualQA run, the DEV-24 contract-SSOT fix).
 - **[v2.4 re-audit 2026-07-09: "SEALED" was premature.** The Worker deployed, but the shipped `/lg/*` runtime was an empty shell — the client funnel engine, real macro/computed context, and the §11.8 + quote-publish gates were absent (2026-07-08 investigation). "dark-by-construction until activation" masked "no runtime to activate." The runtime plane was built by v2.4 Fix-Phases 1–5 (PRs #88–#92 + Fix-P5 `leadgen/fix-p5-parity-qa`); see the ⚠ v2.4 RE-AUDIT section at top.]**
+
+---
+
+# v2.5 — Quote & Section Authoring Redesign (Contract v2.5.1)
+
+> **Contract SSOT:** `docs/leadgen/redesign-contract-v2.5/` — the v2.5.1 package (19 files `00`–`18`; per `00`, v2.5.1 supersedes v2.5 in place). Vendored 2026-07-10 from Claude Design project `159eadec-6141-4457-a2df-3cc02f035659` dir `redesign-contract-v2.5.1/`; **19/19 cmp-verified via two independent transcriptions of the source content** + `MANIFEST.sha256` (self-check OK). Baseline `main @ 7e3f290` == the contract's inspection baseline (verified at kickoff, clean tree).
+> **Vehicle:** phases A–E per `16`, sequential PRs on `leadgen/redesign-p*` branches (delegated loop; per-phase gates: tsc · vitest · verify:all · Playwright w/ fresh local D1; fresh-context adversarial review + 1:1 contract-fidelity audit before each merge). **Evidence standard (binding, same as v2.4):** a row flips to PASS only with a named test file + test name that EXECUTES the behavior; operator-owned legs are `BLOCKED(<blocker>)`, never PASS. No deploys or secret writes by the agent.
+> Paths below relative to `api/`. Admin = `src/admin/leadgen/`, public = `src/public/leadgen/`.
+
+## v2.5 requirement matrix (contract `17` — every row starts Specified; flips with PR links)
+
+| Req | Mission | Contract | Phase | Implementation file(s) (planned → actual) | Test(s) (evidence) | Status |
+|---|---|---|---|---|---|---|
+| Boundary correction | §2 | `02`, `03` | A | public/designs/frame.ts + frames.ts + theme.ts (new), public/serve.ts | frame-plus-unit-composition; runtime frame-constancy Playwright | Specified |
+| One canonical headline | §3.1, AC1 | `03 §3.4`, `05 §5.2` | A+C | public/components/content-schema.ts + presets.ts, admin/sections-handlers.ts, admin/quotes-handlers.ts (h2 removal), admin/ui-section-studio.ts | canonical-headline-binding; no-duplicate-headline-storage; studio Playwright | Specified |
+| Scope-aware inspector | §3.2, AC10 | `07` | C | admin/ui-section-studio.ts | inspector Playwright; glossary-lint | Specified |
+| Palette/token color UX | §3.3, AC11 | `09` | A+C | public/designs/theme.ts (new), admin/ui-section-studio.ts, admin/ui-quotes.ts | token-priority-order; hex-lint; color Playwright | Specified |
+| Layout model fix | §3.4, AC12/13 | `08 §8.2–8.3`, `05 §5.4` | A+C | public/components/registry.ts (scope field) + content-schema.ts (warnings), admin/ui-section-studio.ts (palette re-scope) | component-schema `frame_scope_component`; palette Playwright | Specified |
+| Canvas toolbar | §3.5 | `06` | C | admin/ui-section-studio.ts (toolbar + undo/redo + KV presets) | toolbar context-matrix Playwright | Specified |
+| Card/choice depth | §3.6, AC9 | `08 §8.4`, `05 §5.5` | A+C | public/components/content-schema.ts (LeadgenChoice ext) + presets.ts, public/designs/*/tokens.ts (subtitle/badge slots), admin/ui-section-studio.ts | image-card-choice-data; image-card Playwright | Specified |
+| Visual rich library | §3.7 | `08 §8.1/8.3` | C | admin/ui-section-studio.ts (palette groups + callout) | palette Playwright | Specified |
+| Pattern capability | §3.8/§10, AC17 | `08 §8.7`, `04 §4.3` | B+C+E | public/designs/frames.ts (6 templates), test-ui pattern fixtures | pattern fixtures + visual regression | Specified |
+| Quote Builder modeling | §3.9, AC2 | `04`, `03 §3.3` | B | admin/ui-quotes.ts (frame studio), admin/quotes-handlers.ts or frame-handlers.ts, admin/router.ts | quote-builder Playwright; frame-config-serialization | Specified |
+| Auto site logo | §3.10, AC4 | `10` | A+B | src/leadgen/branding.ts (new), public/resolver.ts + serve.ts, admin/ui-quotes.ts (site selector) | site-logo-inheritance; site-swap Playwright | Specified |
+| Progress ownership | §3.11, AC5 | `11 §11.1` | A | public/designs/frame.ts (+ presets renderProgressBar reuse) | progress-from-variant-order | Specified |
+| Back ownership | §3.12, AC6 | `11 §11.2` | A | public/designs/frame.ts, public/runtime engine audit (`11 §11.6`) | back-behavior | Specified |
+| Footer/disclosure/trust | §3.13, AC7 | `11 §11.3–11.4` | A+B | public/designs/frame.ts, admin/ui-quotes.ts (region inspectors) | runtime persistence Playwright | Specified |
+| Continue ownership | §3.14 | `11 §11.5` | A | public/components/presets.ts (sectionCtx.continue_placement + duplicate_continue) | composition vitest (continue placement) | Specified |
+| Deep section design | AC3/AC8 | `05`, `06`, `09 §9.5` | C | admin/ui-section-studio.ts, public/components/content-schema.ts (Section role overrides) | studio suite | Specified |
+| Data/ownership model | §7, §12 | `03` | A | migrations/0041_leadgen_frame_theme.sql (new), admin/db-types.ts, .github/workflows/deploy.yml (enum comment) | migration + serialization tests | Specified |
+| API contract | §13 | `04 §4.8`, `10 §10.5`, `13 §13.4`, `03 §3.6` | A/B | admin/router.ts, admin/quotes-handlers.ts or frame-handlers.ts | handler vitest (routes, `problems[]`) | Specified |
+| Runtime composition | §14, AC15 | `13` | A+D | public/serve.ts, public/designs/frame.ts | preview-runtime-parity | Specified |
+| Preview contract | §15, AC14 | `13 §13.4`, `04 §4.6`, `05 §5.3` | B+C+D | admin/quotes-handlers.ts (variant preview modes), admin/sections-handlers.ts (frame_context) | preview Playwright | Specified |
+| Testing contract | §16, AC20 | `15` | E | api/test/leadgen-frame-*.test.ts + test-ui/leadgen-*-v25 specs (new) | suites themselves | Specified |
+| Language alignment + glossary | §11 | `02 §2.4`, `12 §12.4` | C | admin/ui-*.ts copy pass, api/test glossary-lint (new) | glossary-lint | Specified |
+| Mapping visibility | AC16 | `12` | D | admin/ui-section-studio.ts (mapping panel/overlay) | mapping Playwright | Specified |
+| No arbitrary CSS | AC18 | `03 §3.3`, `06`, `09` | all | frame/theme schema validators (new), existing CSS_ESCAPE_RE guards | schema validators + existing CSS_ESCAPE_RE tests | Specified |
+| No raw JSON normal flows | AC19 | `04`, `07 §7.4` | B+C | admin/ui-quotes.ts (rules visual builder), admin/ui-section-studio.ts (raw JSON → Advanced) | no-raw-json-normal-mode | Specified |
+| Preserve list | §0/§6 | `00` preserve table | all | (no files — negative constraint) | regression umbrellas (mapping, auction, mirrors; no migration beyond 0041) | Specified |
+
+## v2.5.1 consistency rows (C1–C7)
+
+| # | Fix | Contract | Phase | Test(s) (evidence) | Status |
+|---|---|---|---|---|---|
+| C1 | Provider values per Offer only; Choices tab Section-owned fields only | `07 §7.3`, `12 §12.2`, `05 §5.5`, `06 §6.4` | A (data legs) + C (UI) | per-offer-provider-values; Choices-tab Playwright; glossary-lint provider-value rule | Specified |
+| C2 | Chrome-in-Section blocks activation when frame configured; `compat.allow_section_chrome` Advanced override | `03 §3.3/3.5`, `14 §14.1`, `04 §4.4`, `08 §8.6`, `05 §5.4` | A (compat group) + B (control) + D (block live) | activation-chrome-block; publish-block Playwright | Specified |
+| C3 | Exactly one `data-lg-continue` per visible Section; below_unit move/suppress | `11 §11.5`, `13 §13.1` | A | continue-single-dom; runtime Playwright | Specified |
+| C4 | Preview site selector = all CMS sites + badges; pre-activation branding preview | `10 §10.5`, `04 §4.6`, `13 §13.4` | B | site-selector Playwright | Specified |
+| C5 | Template switch merge classes + confirmation + preview-before-apply | `04 §4.3`, `13 §13.4` | B | template-switch-merge; template Playwright | Specified |
+| C6 | "Section / question unit" wording; "slide" = Quote-Builder only | `02 §2.4`, `06 §6.1`, `07 §7.1–7.4`, `05 §5.2` | C | glossary-lint slide rule | Specified |
+| C7 | "inside this question unit" vs "funnel-wide" labeling | `08 §8.2/8.3`, `04 §4.4` | C (+B labels) | palette-copy Playwright assertions | Specified |
+
+## v2.5 DEV register (continues DEV-49 in fix-traceability.md)
+
+| # | Decision / evidence |
+|---|---|
+| DEV-50 | 2026-07-10 — v2.5.1 contract ADOPTED: 19 files vendored to `docs/leadgen/redesign-contract-v2.5/` (per `00`: v2.5.1 supersedes v2.5 in place — the directory name is the contract's own instruction). Fidelity method: each file fetched via DesignSync `get_file`, written, then INDEPENDENTLY re-transcribed from the same source content and `cmp`-verified — 19/19 IDENTICAL; `MANIFEST.sha256` committed (self-check 19/19 OK). Caveat recorded honestly: there is no raw-byte download path from the design project, so both copies pass through conductor transcription; the two-pass cmp + a character-class audit (curly quotes/ellipses/UTF-8/trailing-newline per file) is the strongest available fidelity proof. |
+| DEV-51 | 2026-07-10 — Phase branch naming `leadgen/redesign-p{0,A,B,C,D,E}-*`; Phase 0 = adoption PR (this section + vendored contract + baseline gates), then A–E per contract `16`. B/C contract-parallelizable but executed sequentially (one-branch-at-a-time program precedent). |
+| DEV-52 | 2026-07-10 — Adoption adversarial review (SHIP; 2 MINOR + 1 NIT, all contract-text citation nits — vendored bytes are MANIFEST-frozen, so recorded here as errata, contract SSOT unchanged): (1) `redesign-contract-v2.5/04:87` cites `03 §8.1` — resolves to **v2.3.7 03 §8.1** ("Mount + middleware", static-before-param discipline); the `v2.3.7` prefix is missing per the package's own citation grammar (`00`). (2) `16` Phase A exit names "vitest rows 1–10 + 13–16" of `15 §15.1`, omitting row 11 `back-behavior` (pinned to Phase A by `17`) and row 12 `mapping-compatibility` — BOTH are included in the Phase-A exit gate here, and every phase exit runs the FULL vitest suite regardless. (3) `05:9` "AMENDS v2.4 §8.1" omits the file number — resolves to **v2.4 08 §8.1** (Studio layout). |
+
+## v2.5 operator-owned (tracked BLOCKED, never PASS)
+
+| Item | Status |
+|---|---|
+| Manual-QA designer run + sign-off (`15 §15.5`, 4 scenarios added to manualQA.md in Phase E) | BLOCKED(operator, manual_qa_visual) |
+| Production deploy of merged v2.5 phases (`gh workflow run deploy.yml -f target_env=production`) | BLOCKED(operator, deploy_approval) |
+
+## v2.5 phase sections (verification headers appended at each phase exit)
+
+### Phase 0 — Adoption (branch `leadgen/redesign-p0-adoption`)
+
+- Vendored contract 19/19 cmp-verified + MANIFEST (DEV-50). Baseline `7e3f290` == contract inspection baseline.
+- Baseline gates at `7e3f290` before any code change (2026-07-10, conductor-run):
+  - `npm run verify:all` → verify:no-legacy-prod-refs OK (vendored contract accepted by the scanner) · verify:infra OK (8 checks) · verify:worker-config OK (3 blocks) · verify:leadgen-runtime PASS (freshness byte-identical; size 39,157 B = 95.6% of 40,960; runtime tsc OK).
+  - `npx tsc --noEmit` → 0 errors.
+  - `npx vitest run` → **3979/3979 passed (311 files)** — exact v2.4-exit baseline.
+  - Playwright ritual (`rm -rf .wrangler/state/v3/d1` → `db:migrate:local` → `seed:local` → `npx playwright test`) → **135/135 passed (2.0m)**.
+- Adoption diff = docs-only: `docs/leadgen/redesign-contract-v2.5/` (19 files + MANIFEST.sha256) + this traceability section. No product code touched.
