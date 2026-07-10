@@ -23,6 +23,7 @@ import {
   DEFAULT_FRAME_TEMPLATE_ID,
   FRAME_TEMPLATES,
   FRAME_TEMPLATE_IDS,
+  computeTemplateSwitch,
   effectiveFrame,
   validateFrameConfig,
   type FrameTemplateDef,
@@ -87,6 +88,21 @@ export async function getFunnelFrameHandler(c: AdminContext): Promise<Response> 
   const funnel = await resolveFunnelRow(c.env.DB, c.req.param("id") ?? "");
   if (funnel === null) return c.json({ error: "Not Found" }, 404);
   const stored = parsedJsonRecord(funnel.frame_config_json);
+
+  // --- ?switch_to=<templateId> (04 §4.3, C5) — READ-ONLY template-switch
+  // projection: the per-GROUP three-way merge + the confirmation lines the
+  // picker dialog shows. NOTHING persists — the builder previews the merged
+  // result via POST /variants/:id/preview {draft_frame_config} and only Save
+  // writes it. Same route, additive query param (no new registration).
+  const switchTo = c.req.query("switch_to");
+  if (switchTo !== undefined && switchTo.trim() !== "") {
+    const { merged, confirmations } = computeTemplateSwitch(
+      stored as StoredFrameConfig | null,
+      switchTo.trim(),
+    );
+    return c.json({ merged, confirmations });
+  }
+
   const projection = frameProjection(stored);
   // Additive §3.6: a stored config's validation rows (e.g. the §4.4 manual-
   // logo warning, or drift errors the preflight also reports) surface on load

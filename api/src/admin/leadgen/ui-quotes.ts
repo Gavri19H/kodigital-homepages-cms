@@ -1,14 +1,21 @@
-// LeadGen admin UI — Quotes tab (contract 03 §9.4 + 06 §15–§17, Phase-7 Stage
-// B). The Quotes tab goes LIVE: the list (Create + filters + timeframe +
-// after-paint §15.6 analytics hydration) and the full-page editor at
-// /admin/leadgen/quotes/:id/edit — five sub-tabs: Funnel builder (§15.2 opening
-// lander + §15.3 ordered sections with the auction-entry = MAX position marked,
-// no "final" flag + §15.4 design selector + auction FK picker), Rules (§15.5
-// IF/THEN with redirect-safety), A/B (variant list + the P8 allocation note),
-// Activation (§17 per-site enable/slug/preview-url), Analytics (§15.6 read-only).
+// LeadGen admin UI — Quotes tab (v2.5 redesign-contract 04 + 03 §9.4, Phase-B
+// slice B2). The list (Create + filters + timeframe + after-paint analytics
+// hydration) and the full-page editor at /admin/leadgen/quotes/:id/edit are
+// LIVE. The editor keeps its five sub-tabs — the **Funnel builder** tab is the
+// 04 §4.1 FRAME STUDIO (left structure panel · center composed-page canvas in
+// a srcdoc iframe fed by POST /variants/:id/preview · right per-region
+// inspectors per §4.4 · canvas toolbar: template picker w/ preview-before-
+// apply (§4.3, C5), theme editor (09 §9.3), 1280/375 viewport toggle, current
+// slide / step-through-all preview modes, site selector (10 §10.5), variant
+// selector) — while Rules (the raw conditions textarea replaced by the B3
+// visual-builder mount, legacy textarea behind Advanced) · A/B (+ §4.5
+// per-arm frame-override listing) · Activation (§17 + 05 §5.2 preflight) ·
+// Analytics are PRESERVED. One Save persists frame + theme + variant
+// overrides + section order (§4.7) and refreshes the §14.2 publish chip.
 // SSR drives the JSON API in-process via ui.ts's apiJson. Inline scripts are
-// strict ES5 (layout.ts constraint, asserted by the ES5 parse test). Every
-// author value is escapeHtml-escaped.
+// strict ES5 (layout.ts constraint, asserted by the ES5 parse test — NO
+// backticks, NO arrow/const/let, template literals forbidden). Every author
+// value is escapeHtml-escaped; JSON blobs are `<`-escaped.
 
 import { escapeHtml, renderListPager, listFilterScript } from "../templates/layout";
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
@@ -26,6 +33,35 @@ import {
 import { listFunnelDesignOptions } from "./quotes-handlers";
 import { LEADGEN_ELIGIBILITY_REASON_LABELS, eligibilityReasonLabel } from "./ui-offers";
 import type { Paging } from "./router";
+import {
+  FRAME_BACKGROUND_STYLES,
+  FRAME_BACK_POSITIONS,
+  FRAME_BACK_STYLES,
+  FRAME_DISCLOSURE_LOCATIONS,
+  FRAME_FOOTER_SHOW_ON,
+  FRAME_LOGO_ALIGNS,
+  FRAME_PROGRESS_POSITIONS,
+  FRAME_PROGRESS_STYLES,
+  FRAME_PROGRESS_WIDTHS,
+  FRAME_SIZES,
+  FRAME_SLOT_CARDS,
+  FRAME_SLOT_OFFSETS,
+  FRAME_SLOT_TRANSITIONS,
+  FRAME_TRUST_MOBILE_MODES,
+  FRAME_TRUST_PLACEMENTS,
+} from "../../public/leadgen/designs/frames";
+import {
+  FUNNEL_TOKEN_ROLES,
+  THEME_FONT_IDS,
+  THEME_RADIUS_SCALES,
+  THEME_RADIUS_STEPS,
+  THEME_SHADOW_SCALES,
+  THEME_SHADOW_STEPS,
+  THEME_SIZE_SCALES,
+  THEME_SPACING_SCALES,
+} from "../../public/leadgen/designs/theme";
+import type { Problem } from "../../public/leadgen/designs/theme";
+import { renderRulesBuilderPanel, RULES_BUILDER_SCRIPT } from "./ui-rules-builder";
 
 // ---------------------------------------------------------------------------
 // API shapes (quotes-handlers.ts)
@@ -83,6 +119,9 @@ interface VariantNode {
   sections: VariantSectionNode[];
   rules: RuleNode[];
   auction_entry_position: number | null;
+  // v2.5 §4.5 — the sparse per-arm frame/theme override patch (0041 column,
+  // parsed by variantRowToApi; null on legacy rows).
+  frame_overrides_json: Record<string, unknown> | null;
 }
 
 interface AbTestNode {
@@ -126,6 +165,9 @@ interface AvailableSection {
   activity: string;
   vertical: string;
   status: string;
+  // Present on the sections list body (LeadgenSectionApi) — the B3 rules-
+  // builder `fields` derivation reads component internal_fields from it.
+  content_json?: unknown;
 }
 
 interface AuctionListItem {
@@ -164,12 +206,66 @@ interface ActivationPreflight {
   funnel_variant_id: string;
   blocks: ActivationPreflightBlock[];
   computed_at: number;
+  // v2.5 14 §14.1 — the additive §3.6 problems projection (frame/theme/
+  // branding/chrome rows). Optional: pre-v2.5 stored verdicts lack it.
+  problems?: Problem[];
 }
 
 interface ActivationBody {
   quote_id: string;
   sites: ActivationSite[];
   activation_preflight?: ActivationPreflight | null;
+}
+
+// --- v2.5 04 §4.8 bodies the studio SSR embeds (frame-handlers.ts) ----------
+
+interface FrameGetBody {
+  frame_config: Record<string, unknown> | null;
+  effective_frame: Record<string, unknown>;
+  template_defaults: Record<string, unknown>;
+  problems: Problem[];
+}
+
+interface ThemeGetBody {
+  theme: Record<string, unknown> | null;
+  effective_tokens: Record<string, string>;
+  problems: Problem[];
+}
+
+interface FrameTemplateItem {
+  id: string;
+  label: string;
+  arrangement: string;
+  thumbnail_html: string;
+  defaults: Record<string, unknown>;
+}
+
+interface OfferListItem {
+  public_id: string;
+  offer_name: string;
+}
+
+// The §10.5 site-selector option: ALL CMS sites + the status badge derived
+// from this quote's leadgen_site_quotes rows (the activation GET the page
+// already queries — no new SQL).
+interface PreviewSiteOption {
+  site_id: string;
+  site_name: string;
+  badge: "Active" | "Activation off" | "Not activated yet";
+}
+
+function previewSiteOptions(activation: ActivationBody | null): PreviewSiteOption[] {
+  const sites = activation?.sites ?? [];
+  const options = sites.map((s): PreviewSiteOption => ({
+    site_id: s.site_id,
+    site_name: s.site_name,
+    badge: s.enabled ? "Active" : s.activated ? "Activation off" : "Not activated yet",
+  }));
+  // §10.5: activated sites list first.
+  return options.sort((a, b) => {
+    const rank = (o: PreviewSiteOption): number => (o.badge === "Active" ? 0 : o.badge === "Activation off" ? 1 : 2);
+    return rank(a) - rank(b) || a.site_name.localeCompare(b.site_name);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +306,89 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 ];
 
 // ---------------------------------------------------------------------------
+// v2.5 09 §9.1 — semantic role metadata (label + "Used by", verbatim from the
+// contract table). The ONLY color vocabulary on normal surfaces; the island
+// paints swatches from `effective_tokens` — no hex is ever SSR'd as text.
+// ---------------------------------------------------------------------------
+
+export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: string }> = [
+  { role: "brand_primary", label: "Brand primary", used_by: "buttons, progress fill, selected borders, logo text" },
+  { role: "brand_secondary", label: "Brand secondary", used_by: "gradients, secondary emphasis" },
+  { role: "accent", label: "Accent", used_by: "category label, highlights, recommended" },
+  { role: "success", label: "Success", used_by: "reassurance, valid states" },
+  { role: "error", label: "Error", used_by: "validation errors" },
+  { role: "page_background", label: "Page background", used_by: "frame background" },
+  { role: "card_background", label: "Card background", used_by: "question card, answer cards" },
+  { role: "surface_wash", label: "Soft fill", used_by: "selected fills, quiet panels" },
+  { role: "border", label: "Border", used_by: "card/input borders" },
+  { role: "text_primary", label: "Text", used_by: "headlines, labels" },
+  { role: "text_muted", label: "Muted text", used_by: "subheadlines, helper, meta" },
+  { role: "button_primary_bg", label: "Button", used_by: "Continue/CTA background" },
+  { role: "button_primary_text", label: "Button text", used_by: "Continue/CTA text" },
+  { role: "button_secondary_bg", label: "Secondary button", used_by: "back button-style, quiet buttons" },
+];
+
+function roleLabel(role: string): string {
+  return ROLE_META.find((r) => r.role === role)?.label ?? role.replace(/_/g, " ");
+}
+
+// The §4.1 clickable frame regions → operator labels (data-frame-region
+// values stamped by renderQuoteFrame; `logo` clicks land on the Header
+// inspector — the logo is header config).
+export const FRAME_REGION_LABELS: Readonly<Record<string, string>> = {
+  header: "Header",
+  progress: "Progress",
+  back: "Back",
+  disclosure: "Disclosure",
+  footer: "Footer",
+  trust_strip: "Trust strip",
+  benefit_bar: "Benefit bar",
+  background: "Background",
+  section_slot: "Section slot",
+};
+
+// §4.5 override-group labels (the switchable inspector groups + theme).
+export const OVERRIDE_GROUP_LABELS: Readonly<Record<string, string>> = {
+  ...FRAME_REGION_LABELS,
+  mobile: "Mobile behavior",
+  theme: "Theme colors",
+};
+
+// The frame groups a Variant may override (§4.5) — every §4.4 region group.
+const OVERRIDABLE_GROUPS = [
+  "header",
+  "progress",
+  "back",
+  "disclosure",
+  "footer",
+  "trust_strip",
+  "benefit_bar",
+  "background",
+  "section_slot",
+] as const;
+
+// ---------------------------------------------------------------------------
+// 14 §14.2 — the publish chip: "Blocked (2 errors)" / "Ready (3 warnings)".
+// Counts: preflight blocks are error-class + the additive §3.6 problems split
+// by severity. The ES5 re-renderer mirrors this EXACT copy.
+// ---------------------------------------------------------------------------
+
+function publishChipCounts(preflight: ActivationPreflight | null): { errors: number; warnings: number } {
+  if (preflight === null) return { errors: 0, warnings: 0 };
+  const problems = preflight.problems ?? [];
+  return {
+    errors: preflight.blocks.length + problems.filter((p) => p.severity === "error").length,
+    warnings: problems.filter((p) => p.severity === "warning").length,
+  };
+}
+
+function publishChipLabel(counts: { errors: number; warnings: number }): string {
+  if (counts.errors > 0) return `Blocked (${counts.errors} ${counts.errors === 1 ? "error" : "errors"})`;
+  if (counts.warnings > 0) return `Ready (${counts.warnings} ${counts.warnings === 1 ? "warning" : "warnings"})`;
+  return "Ready";
+}
+
+// ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
@@ -239,8 +418,69 @@ const LG_QUOTES_STYLES = `
 .lg-preflight-pass{list-style:none;margin:0;padding:0}
 .lg-preflight-pass li{color:var(--c-success,#186a3b);font-size:13px;padding:3px 0}
 .lg-ab-note{color:var(--c-muted);font-size:13px;margin:8px 0}
-.lg-preview-frame{width:100%;height:520px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
+.lg-preview-frame{width:100%;height:640px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* --- v2.5 04 §4.1 frame studio ------------------------------------------- */
+.lg-studio{display:grid;grid-template-columns:260px minmax(0,1fr) 320px;gap:12px;align-items:start}
+@media (max-width:1100px){.lg-studio{grid-template-columns:1fr}}
+.lg-studio-left,.lg-studio-right{display:flex;flex-direction:column;gap:12px}
+.lg-canvas-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:8px}
+.lg-canvas-wrap{overflow:auto;border:1px solid var(--c-border);border-radius:8px;padding:8px;background:var(--c-bg,#f6f7f9)}
+.lg-canvas-wrap iframe{display:block;margin:0 auto;border:0;background:#fff;height:640px}
+.lg-toolbar-sep{width:1px;align-self:stretch;background:var(--c-border)}
+.lg-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--c-muted);background:var(--c-bg,#f6f7f9)}
+.lg-chip strong{color:var(--c-text)}
+.lg-publish-chip[data-publish-verdict=blocked]{background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border-color:var(--c-danger,#e5a49a)}
+.lg-publish-chip[data-publish-verdict=ok]{background:var(--c-success-bg,#e9f7ef);color:var(--c-success,#186a3b);border-color:var(--c-success,#a9dfbf)}
+.lg-scope-head{font-size:12px;color:var(--c-muted);border-bottom:1px solid var(--c-border);padding-bottom:6px;margin-bottom:8px}
+.lg-scope-head strong{color:var(--c-text)}
+.lg-scope-chip{display:inline-block;border:1px solid var(--c-border);border-radius:999px;padding:0 8px;font-size:11px;margin-left:6px;color:var(--c-muted)}
+.lg-inspector-panel{display:none}
+.lg-inspector-panel.active{display:block}
+.lg-inspector-panel .form-group{margin-bottom:10px}
+.lg-region-note{color:var(--c-muted);font-size:12px;margin:6px 0 0}
+.lg-advanced{border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-top:10px}
+.lg-advanced summary{cursor:pointer;color:var(--c-muted);font-size:12px}
+.lg-role-strip{display:flex;flex-wrap:wrap;gap:4px}
+.lg-role-swatch{width:22px;height:22px;border-radius:6px;border:1px solid var(--c-border);cursor:pointer;padding:0}
+.lg-role-swatch.selected{outline:2px solid var(--c-primary);outline-offset:1px}
+.lg-slot-banner{background:var(--c-warn-bg,#fff4e5);border:1px solid var(--c-warn,#e0a04a);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lg-structure-row{display:flex;align-items:center;gap:6px;padding:6px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px}
+.lg-structure-row .lg-grow{flex:1;min-width:0}
+.lg-structure-row button[data-select-slide]{background:none;border:0;padding:0;cursor:pointer;color:var(--c-text);text-align:left;font:inherit}
+.lg-structure-row.lg-slide-current{border-color:var(--c-primary)}
+.lg-map-dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--c-border);flex:none}
+.lg-map-dot[data-mapping-status="unknown"]{background:var(--c-border)}
+.lg-template-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.lg-template-card{border:1px solid var(--c-border);border-radius:8px;padding:8px;cursor:pointer;background:none;text-align:center}
+.lg-template-card.selected{border-color:var(--c-primary)}
+.lg-tpl-thumb{display:flex;flex-direction:column;gap:3px;padding:6px;border-radius:6px;background:var(--c-bg,#f6f7f9);min-height:64px;justify-content:center}
+.lg-tpl-band{display:block;height:6px;border-radius:3px;background:var(--c-border)}
+.lg-tpl-logo{width:40%;margin:0 auto}
+.lg-tpl-logo--left{margin:0}
+.lg-tpl-progress{background:var(--c-primary);opacity:.5}
+.lg-tpl-slot{height:22px;background:#fff;border:1px solid var(--c-border)}
+.lg-tpl-slot--bare{background:none;border-style:dashed}
+.lg-tpl-thumb--bg-brand,.lg-tpl-thumb--bg-brand_gradient{background:var(--c-primary);opacity:.85}
+.lg-theme-role-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--c-border);flex-wrap:wrap}
+.lg-theme-role-row .lg-grow{flex:1;min-width:180px}
+.lg-theme-swatch{width:28px;height:28px;border-radius:6px;border:1px solid var(--c-border);flex:none}
+.lg-used-by{color:var(--c-muted);font-size:12px}
+.lg-inherit-tag{font-size:11px;border:1px solid var(--c-border);border-radius:999px;padding:0 8px;color:var(--c-muted)}
+.lg-theme-minipreview{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--c-border);border-radius:8px;padding:12px;margin:10px 0}
+.lg-mini-btn{border:0;border-radius:8px;padding:10px 18px;font-weight:600;cursor:default}
+.lg-mini-card{border:1px solid var(--c-border);border-radius:8px;padding:10px 14px}
+.lg-mini-input{border:1px solid var(--c-border);border-radius:6px;padding:8px 10px;min-width:120px}
+.lg-mini-progress{width:120px;height:8px;border-radius:4px;background:var(--c-border);overflow:hidden}
+.lg-mini-progress span{display:block;height:100%;width:60%}
+.lg-list-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.lg-list-row .form-input{flex:1;min-width:90px}
+.lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
+.lg-override-badge{position:sticky;top:0;z-index:2}
+.lg-step-controls{display:inline-flex;align-items:center;gap:6px}
+.lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
+.lg-panel-card h3{margin:0 0 8px;font-size:14px}
+.lg-hidden{display:none}
 `;
 
 // ---------------------------------------------------------------------------
@@ -562,10 +802,275 @@ function renderVariantSelector(structure: StructureBody, selected: VariantNode):
 </div>`;
 }
 
-// Funnel-builder panel (§15.2 lander + §15.3 ordered sections + §15.4 design +
-// auction picker). The MAX-position section carries a visible auction-entry
-// marker (no "final" flag).
-function renderBuilderPanel(
+// ---------------------------------------------------------------------------
+// v2.5 04 §4.1 FRAME STUDIO — SSR renderers. The island populates control
+// VALUES from the embedded frame/theme state; SSR owns structure + copy.
+// ---------------------------------------------------------------------------
+
+// <select> options over a closed enum set, operator labels via the map.
+function enumOptions(
+  values: readonly string[],
+  labels?: Readonly<Record<string, string>>,
+): string {
+  return values
+    .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(labels?.[v] ?? v.replace(/_/g, " "))}</option>`)
+    .join("");
+}
+
+// A 14-role swatch strip bound to one frame/theme key. Swatch backgrounds are
+// painted by the island from effective_tokens (no hex in the SSR text).
+function renderRoleStrip(pickFor: string): string {
+  const swatches = ROLE_META.map(
+    (r) =>
+      `<button type="button" class="lg-role-swatch" data-role-pick="${escapeHtml(r.role)}" data-role-pick-for="${escapeHtml(pickFor)}" title="${escapeHtml(r.label)}" aria-label="${escapeHtml(r.label)}"></button>`,
+  ).join("");
+  return `<div class="lg-role-strip" data-role-strip="${escapeHtml(pickFor)}">${swatches}</div>`;
+}
+
+function frameControl(label: string, control: string, help?: string): string {
+  return `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label>${control}${help === undefined ? "" : `<p class="form-help">${escapeHtml(help)}</p>`}</div>`;
+}
+
+function frameCheck(label: string, key: string): string {
+  return `<label class="lg-check"><input type="checkbox" data-frame-key="${escapeHtml(key)}" /> ${escapeHtml(label)}</label>`;
+}
+
+function frameSelect(label: string, key: string, values: readonly string[], labels?: Readonly<Record<string, string>>, help?: string): string {
+  return frameControl(label, `<select class="form-select" data-frame-key="${escapeHtml(key)}">${enumOptions(values, labels)}</select>`, help);
+}
+
+function frameInput(label: string, key: string, placeholder = "", help?: string): string {
+  return frameControl(label, `<input class="form-input" data-frame-key="${escapeHtml(key)}" placeholder="${escapeHtml(placeholder)}" />`, help);
+}
+
+// §4.5 — the per-group override switch (non-control arms only): "Same as
+// funnel (default) / Override for this variant"; writes route the group's
+// edits into the sparse frame_overrides_json instead of the funnel frame.
+function renderOverrideSwitch(group: string, isControl: boolean): string {
+  if (isControl) return "";
+  return `<div class="lg-override-switch" data-override-switch="${escapeHtml(group)}">
+    <label class="lg-check"><input type="radio" name="lg-ov-${escapeHtml(group)}" value="inherit" data-override-group="${escapeHtml(group)}" checked /> Same as funnel (default)</label>
+    <label class="lg-check"><input type="radio" name="lg-ov-${escapeHtml(group)}" value="override" data-override-group="${escapeHtml(group)}" /> Override for this variant</label>
+  </div>`;
+}
+
+// §7.1 scope header — first element of every region inspector: "Editing:
+// Funnel frame — <Region> · affects every slide of this funnel". Trust strip
+// + benefit bar additionally carry the C7 "funnel-wide" chip.
+function scopeHead(regionLabel: string, funnelWide: boolean): string {
+  return `<div class="lg-scope-head">Editing: <strong>Funnel frame — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
+}
+
+// One editable list (footer links / trust logos / benefit items): the island
+// fills rows from config and collects rows → whole-array replacement (the
+// §13.2 arrays-replace-whole merge rule).
+function renderFrameList(key: string, addLabel: string, fields: Array<{ field: string; label: string; placeholder?: string }>): string {
+  const inputs = fields
+    .map((f) => `<input class="form-input" data-list-field="${escapeHtml(f.field)}" placeholder="${escapeHtml(f.placeholder ?? f.label)}" aria-label="${escapeHtml(f.label)}" />`)
+    .join("");
+  return `<div data-frame-list="${escapeHtml(key)}"></div>
+  <template data-frame-list-tpl="${escapeHtml(key)}"><div class="lg-list-row">${inputs}<button type="button" class="btn btn-sm btn-outline" data-remove-list-row aria-label="Remove">&#10005;</button></div></template>
+  <button type="button" class="btn btn-sm btn-secondary" data-add-list-row="${escapeHtml(key)}">${escapeHtml(addLabel)}</button>`;
+}
+
+// --- the ten §4.4 region inspectors ------------------------------------------
+
+function renderHeaderInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="header">
+  ${scopeHead("Header", false)}
+  ${renderOverrideSwitch("header", isControl)}
+  ${frameCheck("Show the header", "header.enabled")}
+  ${frameSelect("Logo source", "header.logo_source", ["site", "cms_fallback"], { site: "Site logo (auto)", cms_fallback: "CMS fallback" })}
+  ${frameSelect("Logo size", "header.logo_size", FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}
+  ${frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, { left: "Left", center: "Center" })}
+  ${frameInput("Tagline", "header.tagline", "e.g. Compare quotes in minutes")}
+  ${frameCheck("Show the secure badge", "header.secure_badge.enabled")}
+  ${frameInput("Secure badge text", "header.secure_badge.text", "Safe, secure & confidential")}
+  ${frameCheck("Show a call button", "header.cta.enabled")}
+  ${frameInput("Call button label", "header.cta.label", "Call now")}
+  ${frameInput("Phone number", "header.cta.tel", "+1 555 123 4567")}
+  ${frameInput("Link (instead of a phone number)", "header.cta.href", "https://…")}
+  ${frameCheck("Show the disclosure link in the header", "header.disclosure_link")}
+  ${frameCheck("Keep the header visible while scrolling (sticky)", "header.sticky")}
+  <details class="lg-advanced"><summary>Advanced</summary>
+    <label class="lg-check"><input type="checkbox" data-manual-logo /> Use a manual logo instead of site branding</label>
+    <p class="form-help">Manual logo overrides site branding.</p>
+    ${frameInput("Manual logo image (from the Media library)", "header.logo_media_id", "path of an uploaded image")}
+  </details>
+</div>`;
+}
+
+function renderProgressInspector(isControl: boolean): string {
+  const styleRadios = FRAME_PROGRESS_STYLES.map(
+    (s) =>
+      `<label class="lg-check lg-progress-style-opt"><input type="radio" name="lg-progress-style" value="${escapeHtml(s)}" data-frame-key="progress.style" data-frame-radio="1" /> <span class="lg-tpl-band lg-progress-thumb lg-progress-thumb--${escapeHtml(s)}" aria-hidden="true"></span> ${escapeHtml(s === "hidden" ? "Hidden" : s === "bar" ? "Bar" : s === "dots" ? "Dots" : s === "numbered" ? "Numbered" : "Percent")}</label>`,
+  ).join("");
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="progress">
+  ${scopeHead("Progress", false)}
+  ${renderOverrideSwitch("progress", isControl)}
+  ${frameControl("Style", `<div class="lg-progress-style-radios">${styleRadios}</div>`)}
+  ${frameSelect("Position", "progress.position", FRAME_PROGRESS_POSITIONS, { top: "Top of page", under_header: "Under the header", above_unit: "Above the question unit", in_card: "Inside the card" })}
+  ${frameSelect("Thickness", "progress.thickness", FRAME_SIZES, { s: "Thin", m: "Medium", l: "Thick" })}
+  ${frameSelect("Width", "progress.width", FRAME_PROGRESS_WIDTHS, { content: "Content width", full: "Full width" })}
+  ${frameControl("Color", renderRoleStrip("progress.color_role"))}
+  ${frameCheck("Show a label", "progress.show_label")}
+  <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
+</div>`;
+}
+
+function renderBackInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="back">
+  ${scopeHead("Back", false)}
+  ${renderOverrideSwitch("back", isControl)}
+  ${frameSelect("Style", "back.style", FRAME_BACK_STYLES, { hidden: "Hidden", text: "Text link", icon_text: "Icon + text", button: "Button" })}
+  ${frameSelect("Position", "back.position", FRAME_BACK_POSITIONS, { under_header_left: "Under the header (left)", in_card: "Inside the card", below_card: "Below the card", footer: "In the footer" })}
+  ${frameInput("Label", "back.label", "Back")}
+  <p class="lg-region-note">Hidden automatically on the first slide.</p>
+</div>`;
+}
+
+function renderDisclosureInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="disclosure">
+  ${scopeHead("Disclosure", false)}
+  ${renderOverrideSwitch("disclosure", isControl)}
+  ${frameCheck("Show the advertising disclosure", "disclosure.enabled")}
+  ${frameSelect("Location", "disclosure.location", FRAME_DISCLOSURE_LOCATIONS, { top_bar: "Top bar", header: "Header", footer: "Footer", modal: "Pop-up panel" })}
+  ${frameInput("Link label", "disclosure.link_label", "Advertising Disclosure")}
+  ${frameControl("Panel text", `<textarea class="form-input" rows="4" data-frame-key="disclosure.text" placeholder="The disclosure copy shown to visitors"></textarea>`)}
+</div>`;
+}
+
+function renderFooterInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="footer">
+  ${scopeHead("Footer", false)}
+  ${renderOverrideSwitch("footer", isControl)}
+  ${frameCheck("Show the footer", "footer.enabled")}
+  ${frameSelect("Show on", "footer.show_on", FRAME_FOOTER_SHOW_ON, { all: "Every slide", first: "First slide", final: "Final slide", never: "Never" })}
+  ${frameSelect("Links source", "footer.links_source", ["site", "manual"], { site: "From site settings", manual: "Manual list" })}
+  ${frameControl("Manual links", renderFrameList("footer.links", "+ Add link", [
+    { field: "label", label: "Label" },
+    { field: "href", label: "Link", placeholder: "https://… or /page" },
+  ]))}
+  ${frameInput("Trust text", "footer.trust_text", "e.g. Licensed in all 50 states")}
+  ${frameInput("Description", "footer.description", "Short legal description")}
+  ${frameCheck("Show the logo in the footer", "footer.show_logo")}
+  ${frameCheck("Hide on mobile", "footer.hide_on_mobile")}
+</div>`;
+}
+
+function renderTrustStripInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="trust_strip">
+  ${scopeHead("Trust strip", true)}
+  ${renderOverrideSwitch("trust_strip", isControl)}
+  ${frameCheck("Show the trust strip", "trust_strip.enabled")}
+  ${frameSelect("Source", "trust_strip.source", ["manual", "site_logo_set"], { manual: "Manual logos", site_logo_set: "Site logo set" })}
+  ${frameControl("Logos", renderFrameList("trust_strip.logos", "+ Add logo", [
+    { field: "media_id", label: "Image (from the Media library)", placeholder: "path of an uploaded image" },
+    { field: "alt", label: "Alt text (required)", placeholder: "Alt text (required)" },
+  ]))}
+  ${frameSelect("Placement", "trust_strip.placement", FRAME_TRUST_PLACEMENTS, { below_unit: "Below the question unit", footer: "In the footer", between_progress_and_unit: "Between progress and the question unit" })}
+  ${frameSelect("Mobile behavior", "trust_strip.mobile", FRAME_TRUST_MOBILE_MODES, { wrap: "Wrap", scroll: "Scroll", hide: "Hide" })}
+</div>`;
+}
+
+function renderBenefitBarInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="benefit_bar">
+  ${scopeHead("Benefit bar", true)}
+  ${renderOverrideSwitch("benefit_bar", isControl)}
+  ${frameCheck("Show the benefit bar", "benefit_bar.enabled")}
+  ${frameControl("Items", renderFrameList("benefit_bar.items", "+ Add item", [
+    { field: "icon", label: "Icon", placeholder: "Icon (e.g. check)" },
+    { field: "text", label: "Text" },
+  ]))}
+  ${frameSelect("Placement", "benefit_bar.placement", ["bottom", "below_unit"], { bottom: "Bottom of page", below_unit: "Below the question unit" })}
+</div>`;
+}
+
+function renderBackgroundInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="background">
+  ${scopeHead("Background", false)}
+  ${renderOverrideSwitch("background", isControl)}
+  ${frameControl("Color", renderRoleStrip("background.role"))}
+  ${frameInput("Background image (optional, from the Media library)", "background.image_media_id", "path of an uploaded image")}
+  ${frameSelect("Style", "background.style", FRAME_BACKGROUND_STYLES, { flat: "Flat", brand: "Brand", brand_gradient: "Brand gradient" })}
+</div>`;
+}
+
+function renderSectionSlotInspector(isControl: boolean): string {
+  return `<div class="lg-inspector-panel lg-panel-card" data-region-panel="section_slot">
+  ${scopeHead("Section slot", false)}
+  ${renderOverrideSwitch("section_slot", isControl)}
+  ${frameSelect("Max width", "section_slot.max_width", FRAME_SIZES, { s: "Narrow", m: "Medium", l: "Wide" })}
+  ${frameSelect("Card", "section_slot.card", FRAME_SLOT_CARDS, { card: "Card", bare: "Bare" })}
+  ${frameSelect("Padding", "section_slot.padding", FRAME_SIZES, { s: "Compact", m: "Medium", l: "Roomy" })}
+  ${frameSelect("Vertical offset", "section_slot.offset_y", FRAME_SLOT_OFFSETS, { none: "None", s: "Small", m: "Medium" })}
+  ${frameCheck("Allow a Section-local card", "section_slot.allow_section_card")}
+  ${frameSelect("Transition", "section_slot.transition", FRAME_SLOT_TRANSITIONS, { fade: "Fade", none: "None" })}
+  ${frameSelect("Continue placement", "section_slot.continue_placement", ["inside_unit", "below_unit"], { inside_unit: "Inside the question unit", below_unit: "Below the question unit" })}
+  ${frameControl("Continue style", renderRoleStrip("section_slot.continue_style_role"))}
+  <p class="lg-region-note">Continue is only shown when the current Section uses button mode.</p>
+</div>`;
+}
+
+// C2 — Compatibility, its own Advanced-collapsed group (§4.4 last row), with
+// the EXACT consequence sentence inline.
+function renderCompatibilityInspector(): string {
+  return `<details class="lg-advanced" data-region-panel-compat>
+  <summary>Advanced</summary>
+  <div class="lg-panel-card" style="border:0;padding:8px 0 0">
+    <h3>Compatibility</h3>
+    ${frameCheck("Allow slides to keep their own page chrome (legacy)", "compat.allow_section_chrome")}
+    <p class="form-help">ON: publishing warns instead of blocking when slides contain their own header/progress/footer — the live page may show them twice.</p>
+  </div>
+</details>`;
+}
+
+function renderInspectorColumn(isControl: boolean): string {
+  return `<div class="lg-studio-right" id="lg-inspector-column">
+  <p class="form-help" id="lg-inspector-hint">Click a region of the page on the canvas to edit it.</p>
+  ${renderHeaderInspector(isControl)}
+  ${renderProgressInspector(isControl)}
+  ${renderBackInspector(isControl)}
+  ${renderDisclosureInspector(isControl)}
+  ${renderFooterInspector(isControl)}
+  ${renderTrustStripInspector(isControl)}
+  ${renderBenefitBarInspector(isControl)}
+  ${renderBackgroundInspector(isControl)}
+  ${renderSectionSlotInspector(isControl)}
+  ${renderCompatibilityInspector()}
+</div>`;
+}
+
+// --- left structure panel (§4.1) ---------------------------------------------
+
+function renderSectionRow(
+  sectionId: number,
+  sectionPublicId: string,
+  name: string,
+  vertical: string,
+  position: number,
+  isAuctionEntry: boolean,
+): string {
+  const marker = isAuctionEntry
+    ? `<div class="lg-auction-entry-mark" data-auction-entry="1">Auction runs after this slide</div>`
+    : "";
+  return `<div class="lg-section-row lg-structure-row" data-section-id="${sectionId}" data-section-public-id="${escapeHtml(sectionPublicId)}">
+  <span class="lg-pos" data-pos>${position}</span>
+  <span class="lg-map-dot" data-mapping-status="unknown" title="Offer mapping status"></span>
+  <span class="lg-grow"><button type="button" data-select-slide data-section-name>${escapeHtml(name)}</button></span>
+  <span class="form-help" data-vertical>${escapeHtml(vertical)}</span>
+  <button type="button" class="btn btn-sm btn-outline" data-move-up aria-label="Move up">&#8593;</button>
+  <button type="button" class="btn btn-sm btn-outline" data-move-down aria-label="Move down">&#8595;</button>
+  <button type="button" class="btn btn-sm btn-danger" data-remove-section aria-label="Remove">Remove</button>
+</div>${marker}`;
+}
+
+// Funnel structure (left): ordered slides + add picker + the A/B arms mini
+// switcher + Rules link + the PRESERVED variant scalars (lander / base design
+// / auction FK) behind a collapsed Funnel settings disclosure — their ids and
+// the §4.7 save path are unchanged.
+function renderStructurePanel(
+  structure: StructureBody,
   variant: VariantNode,
   designs: Array<{ id: string; label: string }>,
   auctions: AuctionListItem[],
@@ -590,69 +1095,243 @@ function renderBuilderPanel(
     .map((s) => renderSectionRow(s.section_id, s.section_public_id, s.section_name, s.vertical, s.position, s.position === maxPos))
     .join("");
 
-  return `<div class="lg-qpanel active" data-panel="builder">
-  <fieldset class="card">
-    <legend>Opening lander (§15.2)</legend>
-    <label class="lg-check"><input type="checkbox" id="lg-lander-enabled"${variant.lander_enabled ? " checked" : ""} /> Enable opening lander</label>
-    <div class="lg-scalars">
-      <div class="form-group"><label class="form-label" for="lg-lander-headline">Headline</label><input id="lg-lander-headline" class="form-input" value="${escapeHtml(variant.lander_headline ?? "")}" /></div>
-      <div class="form-group"><label class="form-label" for="lg-lander-sub">Subheadline</label><input id="lg-lander-sub" class="form-input" value="${escapeHtml(variant.lander_subheadline ?? "")}" /></div>
-      <div class="form-group"><label class="form-label" for="lg-lander-hero">Hero media URL</label><input id="lg-lander-hero" class="form-input" value="${escapeHtml(variant.lander_hero_media_url ?? "")}" /></div>
-    </div>
-  </fieldset>
+  const funnel =
+    structure.funnels.find((f) => f.funnel_id === variant.funnel_id) ?? structure.funnels[0] ?? null;
+  const armRows = (funnel?.variants ?? [])
+    .map((v) => {
+      const pct = (v.traffic_allocation_bp / 100).toFixed(0);
+      const current = v.public_id === variant.public_id;
+      return `<div class="lg-structure-row${current ? " lg-slide-current" : ""}" data-arm-row="${escapeHtml(v.public_id)}">
+    <a class="lg-grow" href="/admin/leadgen/quotes/${escapeHtml(structure.quote.public_id)}/edit?variant=${escapeHtml(v.public_id)}">${escapeHtml(v.variant_label)}${v.is_control ? " (control)" : ""}</a>
+    <span class="form-help">${escapeHtml(pct)}%</span>
+  </div>`;
+    })
+    .join("");
 
-  <fieldset class="card">
-    <legend>Funnel design (§15.4)</legend>
-    <select id="lg-funnel-design" class="form-select" aria-label="Funnel design">${designOptions}</select>
-  </fieldset>
-
-  <fieldset class="card">
-    <legend>Auction attribution (optional FK — auctions authored in P9)</legend>
-    <select id="lg-auction-id" class="form-select" aria-label="Auction">${auctionOptions}</select>
-  </fieldset>
-
-  <fieldset class="card">
-    <legend>Ordered sections (§15.3 — auction runs after the MAX position; no "final" flag)</legend>
+  return `<div class="lg-studio-left">
+  <div class="lg-panel-card" id="lg-structure-panel">
+    <h3>Funnel structure</h3>
+    <div id="lg-section-list" data-max-position="${maxPos === null ? "" : maxPos}">${sectionRows || `<p class="form-help" data-empty-sections>No slides yet — add at least one Section to publish.</p>`}</div>
     <div class="toolbar">
       <select id="lg-add-section-select" class="form-select" aria-label="Add section">${addOptions || `<option value="">No sections for this activity</option>`}</select>
-      <button type="button" id="lg-add-section" class="btn btn-secondary">Add section</button>
+      <button type="button" id="lg-add-section" class="btn btn-secondary">+ Add Section</button>
     </div>
-    <div id="lg-section-list" data-max-position="${maxPos === null ? "" : maxPos}">${sectionRows || `<p class="form-help" data-empty-sections>No sections yet — add at least one to publish (§15.3).</p>`}</div>
-  </fieldset>
-
+  </div>
+  <div class="lg-panel-card" id="lg-ab-switcher">
+    <h3>A/B variants</h3>
+    ${armRows || `<p class="form-help">One arm (control).</p>`}
+    <button type="button" class="lg-qtab" data-goto-tab="ab">Manage allocation &amp; tests &#8594;</button>
+    <button type="button" class="lg-qtab" data-goto-tab="rules">Rules for this variant &#8594;</button>
+  </div>
+  <details class="lg-advanced" id="lg-funnel-settings">
+    <summary>Funnel settings</summary>
+    <label class="lg-check"><input type="checkbox" id="lg-lander-enabled"${variant.lander_enabled ? " checked" : ""} /> Enable opening lander</label>
+    <div class="form-group"><label class="form-label" for="lg-lander-headline">Lander headline</label><input id="lg-lander-headline" class="form-input" value="${escapeHtml(variant.lander_headline ?? "")}" /></div>
+    <div class="form-group"><label class="form-label" for="lg-lander-sub">Lander subheadline</label><input id="lg-lander-sub" class="form-input" value="${escapeHtml(variant.lander_subheadline ?? "")}" /></div>
+    <div class="form-group"><label class="form-label" for="lg-lander-hero">Lander hero image URL</label><input id="lg-lander-hero" class="form-input" value="${escapeHtml(variant.lander_hero_media_url ?? "")}" /></div>
+    <div class="form-group"><label class="form-label" for="lg-funnel-design">Base visual design</label><select id="lg-funnel-design" class="form-select" aria-label="Funnel design">${designOptions}</select></div>
+    <div class="form-group"><label class="form-label" for="lg-auction-id">Auction</label><select id="lg-auction-id" class="form-select" aria-label="Auction">${auctionOptions}</select></div>
+  </details>
   <template id="lg-section-row-tpl">${renderSectionRow(0, "", "", "", 0, false)}</template>
 </div>`;
 }
 
-function renderSectionRow(
-  sectionId: number,
-  sectionPublicId: string,
-  name: string,
-  vertical: string,
-  position: number,
-  isAuctionEntry: boolean,
-): string {
-  const marker = isAuctionEntry
-    ? `<div class="lg-auction-entry-mark" data-auction-entry="1">Auction runs after this section (§15.3 max position)</div>`
-    : "";
-  return `<div class="lg-section-row" data-section-id="${sectionId}" data-section-public-id="${escapeHtml(sectionPublicId)}">
-  <span class="lg-pos" data-pos>${position}</span>
-  <span class="lg-grow" data-section-name>${escapeHtml(name)}</span>
-  <span class="form-help" data-vertical>${escapeHtml(vertical)}</span>
-  <button type="button" class="btn btn-sm btn-outline" data-move-up aria-label="Move up">&#8593;</button>
-  <button type="button" class="btn btn-sm btn-outline" data-move-down aria-label="Move down">&#8595;</button>
-  <button type="button" class="btn btn-sm btn-danger" data-remove-section aria-label="Remove">Remove</button>
-</div>${marker}`;
+// --- canvas toolbar + canvas (§4.1 center) -----------------------------------
+
+function renderSiteSelect(id: string, sites: PreviewSiteOption[]): string {
+  const options = [`<option value="">CMS fallback branding</option>`]
+    .concat(
+      sites.map(
+        (s) =>
+          `<option value="${escapeHtml(s.site_id)}" data-badge="${escapeHtml(s.badge)}">${escapeHtml(s.site_name)} — ${escapeHtml(s.badge)}</option>`,
+      ),
+    )
+    .join("");
+  return `<select id="${escapeHtml(id)}" class="form-select" data-site-select aria-label="Preview site">${options}</select>`;
 }
 
-// Rules panel (§15.5).
-function renderRuleRow(rule: RuleNode | null): string {
+function renderTemplatePicker(templates: FrameTemplateItem[]): string {
+  const cards = templates
+    .map(
+      (t) => `<button type="button" class="lg-template-card" data-template-pick="${escapeHtml(t.id)}" title="${escapeHtml(t.arrangement)}">
+    ${t.thumbnail_html}
+    <span>${escapeHtml(t.label)}</span>
+  </button>`,
+    )
+    .join("");
+  return `<div class="lg-panel-card lg-hidden" id="lg-template-picker">
+  <h3>Frame template</h3>
+  <p class="form-help">Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you Save.</p>
+  <div class="lg-template-grid">${cards || `<p class="form-help">No templates available.</p>`}</div>
+  <div class="lg-hidden" id="lg-template-confirm">
+    <h3>Before you switch</h3>
+    <ul id="lg-template-confirm-list"></ul>
+    <div class="toolbar">
+      <button type="button" class="btn btn-primary" id="lg-template-apply">Switch template</button>
+      <button type="button" class="btn btn-outline" id="lg-template-cancel">Cancel</button>
+    </div>
+  </div>
+</div>`;
+}
+
+function renderCanvasPanel(templates: FrameTemplateItem[], sites: PreviewSiteOption[], structure: StructureBody, selected: VariantNode): string {
+  const variantOptions: string[] = [];
+  for (const f of structure.funnels) {
+    for (const v of f.variants) {
+      variantOptions.push(
+        `<option value="${escapeHtml(v.public_id)}"${v.public_id === selected.public_id ? " selected" : ""}>${escapeHtml(v.variant_label)}${v.is_control ? " (control)" : ""}</option>`,
+      );
+    }
+  }
+  return `<div class="lg-studio-center">
+  <div class="lg-canvas-toolbar" id="lg-canvas-toolbar">
+    <button type="button" class="btn btn-sm btn-secondary" id="lg-template-btn">Template</button>
+    <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-btn">Theme</button>
+    <span class="lg-toolbar-sep" aria-hidden="true"></span>
+    <span class="lg-step-controls" role="group" aria-label="Viewport">
+      <button type="button" class="btn btn-sm btn-outline" data-viewport-btn="desktop" aria-pressed="true">Desktop 1280</button>
+      <button type="button" class="btn btn-sm btn-outline" data-viewport-btn="mobile" aria-pressed="false">Mobile 375</button>
+    </span>
+    <span class="lg-toolbar-sep" aria-hidden="true"></span>
+    <span class="lg-step-controls" role="group" aria-label="Preview mode">
+      <button type="button" class="btn btn-sm btn-outline" data-preview-mode-btn="section" aria-pressed="true">Current slide</button>
+      <button type="button" class="btn btn-sm btn-outline" data-preview-mode-btn="all" aria-pressed="false">Step through all slides</button>
+    </span>
+    <span class="lg-step-controls lg-hidden" id="lg-step-controls">
+      <button type="button" class="btn btn-sm btn-outline" id="lg-step-prev" aria-label="Previous slide">&#8592;</button>
+      <span class="form-help" id="lg-step-label">Slide 1</span>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-step-next" aria-label="Next slide">&#8594;</button>
+    </span>
+    <span class="lg-toolbar-sep" aria-hidden="true"></span>
+    ${renderSiteSelect("lg-canvas-site-select", sites)}
+    <select id="lg-canvas-variant-select" class="form-select" aria-label="Preview variant">${variantOptions.join("")}</select>
+  </div>
+  ${renderTemplatePicker(templates)}
+  ${renderThemeEditorPanel(selected.is_control)}
+  <div class="lg-chip lg-override-badge lg-hidden" id="lg-override-badge">Variant overrides: <strong id="lg-override-badge-list"></strong></div>
+  <div class="lg-slot-banner lg-hidden" id="lg-slot-banner" role="status">
+    <span>This area is the Section&#8217;s question unit &#8212; edit it in the Section Builder</span>
+    <a class="btn btn-sm btn-secondary" id="lg-slot-banner-open" href="#">Open Section</a>
+  </div>
+  <div class="lg-canvas-wrap" id="lg-canvas-wrap">
+    <iframe id="lg-preview-iframe" class="lg-frame-canvas" title="Funnel frame preview" sandbox="allow-same-origin"></iframe>
+  </div>
+  <p class="form-help" id="lg-canvas-status" role="status"></p>
+</div>`;
+}
+
+// --- theme editor (09 §9.3) ---------------------------------------------------
+
+function renderThemeEditorPanel(isControl: boolean): string {
+  const paletteRows = ROLE_META.map(
+    (r) => `<div class="lg-theme-role-row" data-theme-role="${escapeHtml(r.role)}">
+    <span class="lg-theme-swatch" data-role-swatch aria-hidden="true"></span>
+    <span class="lg-grow"><strong>${escapeHtml(r.label)}</strong><br /><span class="lg-used-by">Used by: ${escapeHtml(r.used_by)}</span></span>
+    <span class="lg-inherit-tag" data-role-source>Base design</span>
+    <details class="lg-theme-edit"><summary class="form-help">Edit</summary>
+      <p class="form-help">Pick a color from this design&#8217;s palette:</p>
+      ${renderRoleStrip(`palette.${r.role}`)}
+      <button type="button" class="btn btn-sm btn-outline" data-role-reset="${escapeHtml(r.role)}">Reset to inherited</button>
+    </details>
+  </div>`,
+  ).join("");
+
+  const themeSelect = (label: string, key: string, values: readonly string[], labels?: Readonly<Record<string, string>>): string =>
+    `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base design</option>${enumOptions(values, labels)}</select></div>`;
+
+  return `<div class="lg-panel-card lg-hidden" id="lg-theme-editor">
+  <h3>Funnel theme</h3>
+  <div class="lg-scope-head">Editing: <strong>Funnel theme</strong> · affects every slide and every component default of this funnel</div>
+  ${renderOverrideSwitch("theme", isControl)}
+  <div class="lg-theme-minipreview" id="lg-theme-minipreview" aria-hidden="true">
+    <button type="button" class="lg-mini-btn" data-mini-button>Continue</button>
+    <span class="lg-mini-card" data-mini-card>Answer card</span>
+    <span class="lg-mini-input" data-mini-input>Your answer</span>
+    <span class="lg-mini-progress"><span data-mini-progress></span></span>
+  </div>
+  <h3>Colors</h3>
+  <div id="lg-theme-palette">${paletteRows}</div>
+  <h3>Typography</h3>
+  <div class="lg-scalars">
+    ${themeSelect("Display font", "typography.display", THEME_FONT_IDS, { literata: "Literata", sora: "Sora", system: "System" })}
+    ${themeSelect("Body font", "typography.body", THEME_FONT_IDS, { literata: "Literata", sora: "Sora", system: "System" })}
+    ${themeSelect("Text size", "typography.size", THEME_SIZE_SCALES, { s: "Small", m: "Medium", l: "Large" })}
+  </div>
+  <h3>Scales</h3>
+  <div class="lg-scalars">
+    ${themeSelect("Spacing", "scales.spacing", THEME_SPACING_SCALES, { compact: "Compact", regular: "Regular", roomy: "Roomy" })}
+    ${themeSelect("Corners", "scales.radius", THEME_RADIUS_SCALES, { sharp: "Sharp", soft: "Soft", round: "Round" })}
+    ${themeSelect("Shadows", "scales.shadow", THEME_SHADOW_SCALES, { none: "None", low: "Low", mid: "Mid", high: "High" })}
+  </div>
+  <h3>Buttons</h3>
+  ${frameControl("Button background", renderRoleStrip("theme:button_defaults.background_role"))}
+  ${frameControl("Button text", renderRoleStrip("theme:button_defaults.text_role"))}
+  <div class="lg-scalars">
+    ${themeSelect("Button corners", "button_defaults.radius", THEME_RADIUS_STEPS)}
+    ${themeSelect("Button height", "button_defaults.min_height", ["m", "l"], { m: "Medium", l: "Large" })}
+    ${themeSelect("Button casing", "button_defaults.casing", ["none", "upper"], { none: "As written", upper: "UPPERCASE" })}
+  </div>
+  <h3>Cards</h3>
+  ${frameControl("Card background", renderRoleStrip("theme:card_defaults.background_role"))}
+  ${frameControl("Card border", renderRoleStrip("theme:card_defaults.border_role"))}
+  <div class="lg-scalars">
+    ${themeSelect("Card corners", "card_defaults.radius", THEME_RADIUS_STEPS)}
+    ${themeSelect("Card shadow", "card_defaults.shadow", THEME_SHADOW_STEPS)}
+  </div>
+  <details class="lg-advanced" id="lg-theme-advanced">
+    <summary>Advanced token administration</summary>
+    <p class="form-help">Custom colors skip the design system &#8212; check contrast.</p>
+    <div class="lg-list-row">
+      <select class="form-select" id="lg-theme-hex-role">${ROLE_META.map((r) => `<option value="${escapeHtml(r.role)}">${escapeHtml(r.label)}</option>`).join("")}</select>
+      <input class="form-input" id="lg-theme-hex-value" placeholder="Custom color value" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-hex-apply">Apply</button>
+    </div>
+  </details>
+</div>`;
+}
+
+// --- the assembled §4.1 Funnel-builder panel ----------------------------------
+
+function renderBuilderPanel(
+  structure: StructureBody,
+  variant: VariantNode,
+  designs: Array<{ id: string; label: string }>,
+  auctions: AuctionListItem[],
+  available: AvailableSection[],
+  templates: FrameTemplateItem[],
+  sites: PreviewSiteOption[],
+): string {
+  return `<div class="lg-qpanel active" data-panel="builder">
+  <div class="lg-studio" id="lg-frame-studio">
+    ${renderStructurePanel(structure, variant, designs, auctions, available)}
+    ${renderCanvasPanel(templates, sites, structure, variant)}
+    ${renderInspectorColumn(variant.is_control)}
+  </div>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Rules panel (§15.5) — the raw conditions textarea is REPLACED on the normal
+// surface by the B3 visual-builder mount (v2.4 06 §6.10); the legacy textarea
+// survives BEHIND an Advanced disclosure per row (same [data-rule-conditions]
+// carrier → the save path stays byte-compatible).
+// ---------------------------------------------------------------------------
+
+// B3 module (v2.4 06 §6.10 visual condition builder) — real implementation in
+// ./ui-rules-builder (frozen interface). The local name aliases the module's
+// param type so the two can never drift.
+export type RulesBuilderData = Parameters<typeof renderRulesBuilderPanel>[0];
+
+function renderRuleRow(rule: RuleNode | null, index = -1): string {
   const ruleTypes = ["redirect_direct_offer", "skip_section", "show_section", "eligibility", "disqualification", "auction_entry"];
   const selectedType = rule?.rule_type ?? "eligibility";
   const typeOptions = ruleTypes
     .map((t) => `<option value="${t}"${t === selectedType ? " selected" : ""}>${t}</option>`)
     .join("");
   const conditions = rule ? JSON.stringify(rule.conditions_json ?? { groups: [] }) : `{"groups":[]}`;
+  // The FIRST SSR'd row's conditions carrier gets the stable id the B3 panel's
+  // data-target-input names (template clones carry only the data attribute).
+  const condId = index === 0 ? ' id="lg-rule-conditions"' : "";
   return `<div class="lg-rule-row" data-rule-row>
   <div class="lg-rule-grid">
     <div class="form-group"><label class="form-label">Rule type</label><select class="form-select" data-rule-type>${typeOptions}</select></div>
@@ -664,21 +1343,39 @@ function renderRuleRow(rule: RuleNode | null): string {
     <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> redirect_url_allowlisted</label></div>
     <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-enabled${rule === null || rule.enabled ? " checked" : ""} /> enabled</label></div>
   </div>
-  <div class="form-group"><label class="form-label">Conditions JSON (§21.4)</label><textarea class="form-input" data-rule-conditions rows="2">${escapeHtml(conditions)}</textarea></div>
+  <details class="lg-advanced"><summary>Advanced &#8212; raw conditions (visual builder pending)</summary>
+    <textarea class="form-input"${condId} data-rule-conditions rows="2">${escapeHtml(conditions)}</textarea>
+  </details>
   <button type="button" class="btn btn-sm btn-danger" data-remove-rule>Remove rule</button>
 </div>`;
 }
 
-function renderRulesPanel(variant: VariantNode): string {
-  const rows = variant.rules.map((r) => renderRuleRow(r)).join("");
+function renderRulesPanel(variant: VariantNode, rulesBuilderData: RulesBuilderData): string {
+  const rows = variant.rules.map((r, i) => renderRuleRow(r, i)).join("");
   return `<div class="lg-qpanel" data-panel="rules">
   <div class="card">
+    ${renderRulesBuilderPanel(rulesBuilderData)}
     <div class="toolbar"><button type="button" id="lg-add-rule" class="btn btn-secondary">+ Add rule</button></div>
     <p class="form-help">redirect_direct_offer uses a target offer (governed URL). A raw redirect URL is honored only when allowlisted AND its host is on the admin allowlist (§15.5).</p>
     <div id="lg-rule-list">${rows || `<p class="form-help" data-empty-rules>No rules.</p>`}</div>
   </div>
   <template id="lg-rule-row-tpl">${renderRuleRow(null)}</template>
 </div>`;
+}
+
+// §4.5 — the operator labels of the groups a sparse frame_overrides_json
+// patch overrides (frame groups + `theme` palette; version/template are
+// funnel-level and never listed).
+function overriddenGroupLabels(overrides: Record<string, unknown> | null): string[] {
+  if (overrides === null || typeof overrides !== "object") return [];
+  const labels: string[] = [];
+  for (const key of Object.keys(overrides)) {
+    if (key === "version" || key === "template") continue;
+    const value = overrides[key];
+    if (value === null || typeof value !== "object" || Object.keys(value as Record<string, unknown>).length === 0) continue;
+    labels.push(OVERRIDE_GROUP_LABELS[key] ?? key.replace(/_/g, " "));
+  }
+  return labels;
 }
 
 // A/B panel (§16.2) — per-variant percent allocation (stored as basis points),
@@ -696,12 +1393,20 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
   const allocRows = variants
     .map((v) => {
       const pct = v.traffic_allocation_bp / 100;
+      // §4.5 — the overridden frame/theme groups of this arm (sparse
+      // frame_overrides_json keys → operator labels).
+      const groups = overriddenGroupLabels(v.frame_overrides_json);
+      const overridesLine =
+        groups.length > 0
+          ? `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Frame overrides: ${escapeHtml(groups.join(", "))}</p>`
+          : `<p class="form-help" data-arm-overrides="${escapeHtml(v.public_id)}">Same frame as funnel (no overrides)</p>`;
       return `<div class="lg-alloc-row" data-variant="${escapeHtml(v.public_id)}">
     <span class="lg-alloc-label"><strong>${escapeHtml(v.variant_label)}</strong>${v.is_control ? " (control)" : ""}</span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
       data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
       min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
     <code class="lg-editor-pubid">${escapeHtml(v.public_id)}</code>
+    ${overridesLine}
   </div>`;
     })
     .join("");
@@ -794,13 +1499,14 @@ function preflightStateAttr(preflight: ActivationPreflight | null): string {
   return preflight.ok ? "pass" : "blocked";
 }
 
-// The head badge (§5.2: advisory → authoritative — the SAME server verdict
-// the activation gate enforces, not a client heuristic).
+// The head publish chip (05 §5.2 advisory → authoritative verdict, re-labeled
+// per v2.5 14 §14.2 with counts: "Blocked (2 errors)" / "Ready (3 warnings)").
+// Same id + data-publish-verdict contract the ES5 re-renderer updates.
 function renderPublishBadge(preflight: ActivationPreflight | null): string {
   if (preflight === null) return "";
-  return preflight.ok
-    ? `<span id="lg-publish-badge" class="badge badge-published" data-publish-verdict="ok">Publishable</span>`
-    : `<span id="lg-publish-badge" class="badge badge-archived" data-publish-verdict="blocked">Blocked from publish</span>`;
+  const counts = publishChipCounts(preflight);
+  const verdict = preflight.ok && counts.errors === 0 ? "ok" : "blocked";
+  return `<span id="lg-publish-badge" class="lg-chip lg-publish-chip" data-publish-verdict="${verdict}" data-publish-errors="${counts.errors}" data-publish-warnings="${counts.warnings}">${escapeHtml(publishChipLabel(counts))}</span>`;
 }
 
 // Activation panel (§17 per-site + the 05 §5.2 preflight panel).
@@ -852,13 +1558,32 @@ function renderAnalyticsPanel(): string {
 }
 
 // The #lg-quote-data JSON state blob. `<`-escaped so a hostile author value can
-// never break out of the <script type="application/json">.
-function quoteDataBlob(structure: StructureBody, selected: VariantNode): string {
+// never break out of the <script type="application/json">. Carries the FULL
+// studio boot state — the island fetches nothing on boot except previews.
+function quoteDataBlob(
+  structure: StructureBody,
+  selected: VariantNode,
+  funnelPublicId: string,
+  frame: FrameGetBody | null,
+  theme: ThemeGetBody | null,
+  templates: FrameTemplateItem[],
+  sites: PreviewSiteOption[],
+  activation: ActivationBody | null,
+): string {
   const data = {
     quote_public_id: structure.quote.public_id,
     quote_id: structure.quote.quote_id,
     activity: structure.quote.activity,
     selected_variant: selected.public_id,
+    selected_variant_is_control: selected.is_control,
+    funnel_public_id: funnelPublicId,
+    sections: selected.sections.map((s) => ({ public_id: s.section_public_id, name: s.section_name })),
+    frame,
+    theme,
+    templates: templates.map((t) => ({ id: t.id, label: t.label, defaults: t.defaults })),
+    sites,
+    overrides: selected.frame_overrides_json,
+    preflight: activation?.activation_preflight ?? null,
   };
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
@@ -870,16 +1595,37 @@ function quoteEditorHtml(
   auctions: AuctionListItem[],
   available: AvailableSection[],
   activation: ActivationBody | null,
+  frame: FrameGetBody | null,
+  theme: ThemeGetBody | null,
+  templates: FrameTemplateItem[],
+  rulesBuilderData: RulesBuilderData,
   brand: { userEmail?: string },
 ): string {
   const q = structure.quote;
+  const sites = previewSiteOptions(activation);
+  const funnelPublicId =
+    structure.funnels.find((f) => f.funnel_id === selected.funnel_id)?.public_id ??
+    structure.funnels[0]?.public_id ??
+    "";
+  const verticalChips = (Array.isArray(q.verticals_json) ? q.verticals_json : [])
+    .map((v) => `<span class="lg-chip">${escapeHtml(v)}</span>`)
+    .join("");
+
+  // §4.1 top bar: name · status pill · Activity chip · verticals chips ·
+  // funnel/variant selector (+ fork) · publish chip · preview-site selector ·
+  // Save · Publish (opens the Activation tab, where the per-site preflight-
+  // gated activate lives).
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title">${escapeHtml(q.quote_name)}</h2>
-    <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code>${statusBadge(q.status)}${renderPublishBadge(activation?.activation_preflight ?? null)}
+    <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code>${statusBadge(q.status)}
+    <span class="lg-chip" data-quote-activity>Activity: <strong>${escapeHtml(q.activity)}</strong></span>
+    ${verticalChips}
+    ${renderPublishBadge(activation?.activation_preflight ?? null)}
     <span class="lg-editor-spacer"></span>
-    <button type="button" id="lg-variant-preview" class="btn btn-outline">Preview</button>
-    <button type="button" id="lg-variant-save" class="btn btn-primary">Save variant</button>
+    <span class="lg-chip" id="lg-site-chip">Preview site: ${renderSiteSelect("lg-site-select", sites)}</span>
+    <button type="button" id="lg-variant-save" class="btn btn-primary">Save</button>
+    <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
   </div>`;
 
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
@@ -890,20 +1636,24 @@ function quoteEditorHtml(
   <button type="button" class="lg-qtab" data-tab="analytics">Analytics</button>
 </nav>`;
 
+  const variantBar = `<div class="lg-editor-head">
+  ${renderVariantSelector(structure, selected)}
+  <button type="button" class="btn btn-sm btn-outline" data-fork-variant="${escapeHtml(selected.public_id)}">Fork this variant</button>
+</div>`;
+
   const content = `${renderLeadgenTabs("quotes")}
-<div id="lg-quote-editor" data-quote-id="${q.id}" data-quote-public-id="${escapeHtml(q.public_id)}" data-variant-public-id="${escapeHtml(selected.public_id)}" data-variant-funnel-id="${escapeHtml(selected.funnel_id)}" data-variant-funnel-variant-id="${escapeHtml(selected.funnel_variant_id)}">
+<div id="lg-quote-editor" data-quote-id="${q.id}" data-quote-public-id="${escapeHtml(q.public_id)}" data-variant-public-id="${escapeHtml(selected.public_id)}" data-variant-funnel-id="${escapeHtml(selected.funnel_id)}" data-variant-funnel-variant-id="${escapeHtml(selected.funnel_variant_id)}" data-funnel-public-id="${escapeHtml(funnelPublicId)}">
   ${head}
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
-  ${renderVariantSelector(structure, selected)}
+  ${variantBar}
   ${subtabs}
-  ${renderBuilderPanel(selected, designs, auctions, available)}
-  ${renderRulesPanel(selected)}
+  ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites)}
+  ${renderRulesPanel(selected, rulesBuilderData)}
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}
-  <iframe id="lg-preview-iframe" class="lg-preview-frame" title="Funnel preview" sandbox="allow-same-origin" hidden></iframe>
-  <script type="application/json" id="lg-quote-data">${quoteDataBlob(structure, selected)}</script>
+  <script type="application/json" id="lg-quote-data">${quoteDataBlob(structure, selected, funnelPublicId, frame, theme, templates, sites, activation)}</script>
 </div>`;
 
   return leadgenPageShell({
@@ -911,7 +1661,7 @@ function quoteEditorHtml(
     userEmail: brand.userEmail,
     content,
     styles: LG_QUOTES_STYLES,
-    scripts: QUOTE_EDITOR_SCRIPT,
+    scripts: QUOTE_EDITOR_SCRIPT + RULES_BUILDER_SCRIPT,
   });
 }
 
@@ -957,14 +1707,54 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     `/api/admin/leadgen/quotes/${encodedQuote}/activation`,
   );
 
+  // --- v2.5 §4.1 studio state (same in-process API the browser XHRs hit) ----
+  const funnelPublicId =
+    structure.funnels.find((f) => f.funnel_id === selected.funnel_id)?.public_id ??
+    structure.funnels[0]?.public_id ??
+    "";
+  const encodedFunnel = encodeURIComponent(funnelPublicId);
+  const frameRes = await apiJson<FrameGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/frame`);
+  const themeRes = await apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`);
+  const templatesRes = await apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates");
+  const offersRes = await apiJson<ListBody<OfferListItem>>(c.env, "/api/admin/leadgen/offers?page_size=200");
+
+  // B3 rules-builder data: this variant's rules + the internal fields of the
+  // activity's Sections (from their content_json components) + Offers.
+  const available = sectionsRes.ok ? sectionsRes.body.items : [];
+  const fieldSeen = new Set<string>();
+  const fields: { internal_field: string; label: string }[] = [];
+  for (const section of available) {
+    const content = section.content_json;
+    const components =
+      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
+        ? ((content as { components: unknown[] }).components)
+        : [];
+    for (const node of components) {
+      if (node === null || typeof node !== "object") continue;
+      const internalField = (node as { internal_field?: unknown }).internal_field;
+      if (typeof internalField !== "string" || internalField === "" || fieldSeen.has(internalField)) continue;
+      fieldSeen.add(internalField);
+      fields.push({ internal_field: internalField, label: `${section.section_name} · ${internalField}` });
+    }
+  }
+  const rulesBuilderData: RulesBuilderData = {
+    rules: selected.rules.map((r) => r.conditions_json ?? { groups: [] }),
+    fields,
+    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({ public_id: o.public_id, name: o.offer_name })),
+  };
+
   return c.html(
     quoteEditorHtml(
       structure,
       selected,
       listFunnelDesignOptions(),
       auctionsRes.ok ? auctionsRes.body.items : [],
-      sectionsRes.ok ? sectionsRes.body.items : [],
+      available,
       activationRes.ok ? activationRes.body : null,
+      frameRes.ok ? frameRes.body : null,
+      themeRes.ok ? themeRes.body : null,
+      templatesRes.ok ? templatesRes.body.items : [],
+      rulesBuilderData,
       branding(c),
     ),
   );
@@ -996,18 +1786,40 @@ const QUOTE_EDITOR_SCRIPT = `
   var PREFLIGHT_CODE_LABELS = ${JSON.stringify(PREFLIGHT_BLOCK_CODE_LABELS)};
   var ELIGIBILITY_REASON_LABELS = ${JSON.stringify(LEADGEN_ELIGIBILITY_REASON_LABELS)};
   var PREFLIGHT_PASS_CHECKS = ${JSON.stringify(PREFLIGHT_PASS_CHECKS)};
+  var REGION_LABELS = ${JSON.stringify(FRAME_REGION_LABELS)};
+  var OVERRIDE_LABELS = ${JSON.stringify(OVERRIDE_GROUP_LABELS)};
+  var TOKEN_ROLES = ${JSON.stringify(FUNNEL_TOKEN_ROLES)};
 
   function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
   function preflightCodeLabel(code) { return PREFLIGHT_CODE_LABELS[code] || String(code || '').replace(/_/g, ' '); }
   function eligibilityLabel(code) { return ELIGIBILITY_REASON_LABELS[code] || String(code || '').replace(/_/g, ' '); }
 
-  function updatePublishBadge(ok) {
+  // 14 14.2 — the publish chip copy w/ counts (mirrors the SSR renderer):
+  // "Blocked (2 errors)" / "Ready (3 warnings)" / "Ready".
+  function publishChipText(errors, warnings) {
+    if (errors > 0) { return 'Blocked (' + errors + (errors === 1 ? ' error' : ' errors') + ')'; }
+    if (warnings > 0) { return 'Ready (' + warnings + (warnings === 1 ? ' warning' : ' warnings') + ')'; }
+    return 'Ready';
+  }
+
+  function updatePublishBadge(preflight) {
     var badge = byId('lg-publish-badge');
-    if (!badge) { return; }
-    badge.className = ok ? 'badge badge-published' : 'badge badge-archived';
+    if (!badge || !preflight) { return; }
+    var problems = preflight.problems || [];
+    var errors = (preflight.blocks || []).length;
+    var warnings = 0;
+    var i;
+    for (i = 0; i < problems.length; i++) {
+      if (problems[i] && problems[i].severity === 'error') { errors++; }
+      else if (problems[i] && problems[i].severity === 'warning') { warnings++; }
+    }
+    var ok = errors === 0;
+    badge.className = 'lg-chip lg-publish-chip';
     badge.setAttribute('data-publish-verdict', ok ? 'ok' : 'blocked');
+    badge.setAttribute('data-publish-errors', String(errors));
+    badge.setAttribute('data-publish-warnings', String(warnings));
     clearChildren(badge);
-    badge.appendChild(document.createTextNode(ok ? 'Publishable' : 'Blocked from publish'));
+    badge.appendChild(document.createTextNode(publishChipText(errors, warnings)));
   }
 
   function preflightFixLink(href, label) {
@@ -1046,7 +1858,7 @@ const QUOTE_EDITOR_SCRIPT = `
     if (!panel || !preflight) { return; }
     clearChildren(panel);
     panel.setAttribute('data-preflight-state', preflight.ok ? 'pass' : 'blocked');
-    updatePublishBadge(!!preflight.ok);
+    updatePublishBadge(preflight);
     var i;
     if (preflight.ok) {
       var okTitle = document.createElement('p');
@@ -1097,6 +1909,13 @@ const QUOTE_EDITOR_SCRIPT = `
   for (ti = 0; ti < tabs.length; ti++) {
     tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });
   }
+  // §4.1 structure-panel links into the A/B + Rules tabs (and the head
+  // Publish button into Activation).
+  document.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el.getAttribute && !el.getAttribute('data-goto-tab')) { el = el.parentNode; }
+    if (el && el.getAttribute) { activate(el.getAttribute('data-goto-tab')); }
+  });
 
   // --- section order --------------------------------------------------------
   var sectionList = byId('lg-section-list');
@@ -1111,13 +1930,14 @@ const QUOTE_EDITOR_SCRIPT = `
       var pos = rows[i].querySelector('[data-pos]');
       if (pos) { pos.textContent = String(i); }
     }
-    // mark the MAX-position (last) row as the auction entry (§15.3)
+    // mark the MAX-position (last) row as the auction entry (§15.3 max
+    // position rule; §2.4 Quote-Builder vocabulary: "slide")
     if (rows.length > 0) {
       var last = rows[rows.length - 1];
       var mark = document.createElement('div');
       mark.className = 'lg-auction-entry-mark';
       mark.setAttribute('data-auction-entry', '1');
-      mark.appendChild(document.createTextNode('Auction runs after this section (\\u00a715.3 max position)'));
+      mark.appendChild(document.createTextNode('Auction runs after this slide'));
       if (last.nextSibling) { last.parentNode.insertBefore(mark, last.nextSibling); } else { last.parentNode.appendChild(mark); }
     }
     var empty = sectionList.querySelector('[data-empty-sections]');
@@ -1239,7 +2059,7 @@ const QUOTE_EDITOR_SCRIPT = `
   function collectPayload() {
     var auctionSel = byId('lg-auction-id');
     var auctionVal = auctionSel && auctionSel.value ? Number(auctionSel.value) : null;
-    return {
+    var payload = {
       lander_enabled: byId('lg-lander-enabled').checked,
       lander_headline: byId('lg-lander-headline').value,
       lander_subheadline: byId('lg-lander-sub').value,
@@ -1249,53 +2069,848 @@ const QUOTE_EDITOR_SCRIPT = `
       sections: collectSections(),
       rules: collectRules()
     };
+    // 4.5/4.7 — the sparse per-arm overrides ride the SAME variant PUT, and
+    // ONLY when the operator touched them (additive contract; {} clears).
+    if (overridesDirty) {
+      payload.frame_overrides_json = isEmptyObject(workingOverrides) ? null : workingOverrides;
+    }
+    return payload;
   }
+
+  function putJson(url, body) {
+    return fetch(url, {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); });
+  }
+
+  function saveFailureText(res, what) {
+    var msg = (res.body && res.body.error) ? (what + ': ' + res.body.error) : (what + ' failed');
+    if (res.body && res.body.fields) { msg = msg + ': ' + JSON.stringify(res.body.fields); }
+    if (res.body && res.body.problems && res.body.problems.length) {
+      var lines = [];
+      var i;
+      for (i = 0; i < res.body.problems.length; i++) { lines.push(res.body.problems[i].message || ''); }
+      msg = msg + ' \\u2014 ' + lines.join(' ');
+    }
+    return msg;
+  }
+
+  // --- 4.7 one-Save: frame PUT (when edited) -> theme PUT (when edited) ->
+  // variant PUT (order + lander + design + rules + sparse overrides). The
+  // variant PUT's recomputed preflight refreshes the panel + publish chip.
   var saveBtn = byId('lg-variant-save');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       hideMsg('lg-quote-error'); hideMsg('lg-quote-ok');
       saveBtn.disabled = true;
-      fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
-        method: 'PUT', credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify(collectPayload())
-      }).then(function (r) {
-        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-      }).then(function (res) {
+      var warned = 0;
+      var funnelBase = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId);
+      var step1 = frameDirty
+        ? putJson(funnelBase + '/frame', { frame_config_json: workingFrame })
+        : Promise.resolve({ ok: true, body: null });
+      step1.then(function (res1) {
+        if (!res1.ok) { throw new Error(saveFailureText(res1, 'Frame save')); }
+        if (res1.body && res1.body.problems) { warned += res1.body.problems.length; }
+        return themeDirty
+          ? putJson(funnelBase + '/theme', { theme_json: workingTheme })
+          : Promise.resolve({ ok: true, body: null });
+      }).then(function (res2) {
+        if (!res2.ok) { throw new Error(saveFailureText(res2, 'Theme save')); }
+        if (res2.body && res2.body.problems) { warned += res2.body.problems.length; }
+        return putJson('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), collectPayload());
+      }).then(function (res3) {
         saveBtn.disabled = false;
-        if (res.ok) {
-          dirty = false;
-          showMsg('lg-quote-ok', 'Saved.');
-          // 05 5.2: the variant PUT recomputes + returns the preflight
-          // verdict — refresh the Activation-tab panel + the head badge.
-          if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
-        }
-        else {
-          var msg = (res.body && res.body.error) ? res.body.error : 'Save failed';
-          if (res.body && res.body.fields) { msg = msg + ': ' + JSON.stringify(res.body.fields); }
-          showMsg('lg-quote-error', msg);
-        }
-      }).catch(function () { saveBtn.disabled = false; showMsg('lg-quote-error', 'Network error'); });
-    });
-  }
-
-  // --- preview (POST /variants/:id/preview → sandboxed iframe) ---------------
-  var previewBtn = byId('lg-variant-preview');
-  if (previewBtn) {
-    previewBtn.addEventListener('click', function () {
-      fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({})
-      }).then(function (r) { return r.json(); }).then(function (body) {
-        var frame = byId('lg-preview-iframe');
-        if (!frame || !body || !body.preview) { return; }
-        frame.hidden = false;
-        var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (body.preview.css || '') + '</style></head><body>' + (body.preview.desktop || '') + '</body></html>';
-        frame.setAttribute('srcdoc', doc);
+        if (!res3.ok) { showMsg('lg-quote-error', saveFailureText(res3, 'Save')); return; }
+        dirty = false; frameDirty = false; themeDirty = false; overridesDirty = false;
+        showMsg('lg-quote-ok', warned > 0 ? 'Saved. ' + warned + ' validation note' + (warned === 1 ? '' : 's') + ' \\u2014 see the Activation tab.' : 'Saved.');
+        // 05 5.2 + 14 14.2: the variant PUT recomputes + returns the
+        // preflight verdict — refresh the panel + the head publish chip.
+        if (res3.body && res3.body.activation_preflight) { renderPreflight(res3.body.activation_preflight); }
+      }).catch(function (err) {
+        saveBtn.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error');
       });
     });
   }
+
+  // ==========================================================================
+  // v2.5 04 §4.1 FRAME STUDIO island. State boots from the SSR #lg-quote-data
+  // blob (no fetches on boot); every config change round-trips through
+  // POST /variants/:id/preview with draft_frame_config/draft_theme — the
+  // server render is the canvas authority (client merges only POPULATE the
+  // inspector controls). Region click-select uses the same-origin srcdoc
+  // contentDocument directly (sandbox="allow-same-origin", scripts inert):
+  // the parent attaches ONE click listener per load — no postMessage bridge,
+  // no script injected into the composed page.
+  // ==========================================================================
+
+  function readBlob(id) {
+    var el = byId(id);
+    if (!el) { return null; }
+    try { return JSON.parse(el.textContent || el.innerText || 'null'); } catch (e) { return null; }
+  }
+  var lgData = readBlob('lg-quote-data') || {};
+  var frameState = lgData.frame || { frame_config: null, effective_frame: null, template_defaults: {}, problems: [] };
+  var themeState = lgData.theme || { theme: null, effective_tokens: {}, problems: [] };
+  var tokens = themeState.effective_tokens || {};
+  var templates = lgData.templates || [];
+  var slideList = lgData.sections || [];
+  var isControl = lgData.selected_variant_is_control !== false;
+  var funnelPublicId = root.getAttribute('data-funnel-public-id') || lgData.funnel_public_id || '';
+
+  function deepClone(v) { return v === null || v === undefined ? {} : JSON.parse(JSON.stringify(v)); }
+  function isRecordVal(v) { return v !== null && typeof v === 'object' && Object.prototype.toString.call(v) !== '[object Array]'; }
+  function isEmptyObject(v) { return isRecordVal(v) && (function () { for (var k in v) { if (Object.prototype.hasOwnProperty.call(v, k)) { return false; } } return true; }()); }
+  // The §13.2 merge mirror (populate-only): objects merge, arrays replace whole.
+  function deepMerge(base, patch) {
+    if (!isRecordVal(patch)) { return base; }
+    var k;
+    for (k in patch) {
+      if (!Object.prototype.hasOwnProperty.call(patch, k)) { continue; }
+      var v = patch[k];
+      if (v === undefined) { continue; }
+      if (isRecordVal(v) && isRecordVal(base[k])) { deepMerge(base[k], v); }
+      else { base[k] = v === null ? null : (typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v); }
+    }
+    return base;
+  }
+  function getPath(obj, path) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length; i++) {
+      if (cur === null || cur === undefined || typeof cur !== 'object') { return undefined; }
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+  function setPath(obj, path, value) {
+    var parts = path.split('.');
+    var cur = obj;
+    var i;
+    for (i = 0; i < parts.length - 1; i++) {
+      if (!isRecordVal(cur[parts[i]])) { cur[parts[i]] = {}; }
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  var workingFrame = deepClone(frameState.frame_config || {});
+  var workingTheme = deepClone(themeState.theme || {});
+  var workingOverrides = deepClone(lgData.overrides || {});
+  var frameDirty = false;
+  var themeDirty = false;
+  var overridesDirty = false;
+  var overrideMode = {};
+  var viewport = 'desktop';
+  var previewMode = 'section';
+  var currentSlideId = slideList.length > 0 ? slideList[0].public_id : null;
+  var pages = [];
+  var pageIndex = 0;
+  var lastCss = '';
+  var selectedRegion = null;
+  var siteId = '';
+  var pendingSwitch = null;
+
+  function templateDefaults(id) {
+    var i;
+    for (i = 0; i < templates.length; i++) { if (templates[i].id === id) { return templates[i].defaults || {}; } }
+    return templates.length > 0 ? (templates[0].defaults || {}) : {};
+  }
+  function currentTemplateId() {
+    if (workingFrame.template) { return workingFrame.template; }
+    if (frameState.effective_frame && frameState.effective_frame.template) { return frameState.effective_frame.template; }
+    return 'centered';
+  }
+  // Populate-only effective config: template defaults + funnel patch +
+  // active per-arm override groups (the SERVER recomputes the truth on every
+  // preview POST — this only fills control values).
+  function clientEffective() {
+    var eff = deepClone(templateDefaults(currentTemplateId()));
+    var groups = deepClone(workingFrame);
+    delete groups.template;
+    delete groups.version;
+    deepMerge(eff, groups);
+    var g;
+    for (g in workingOverrides) {
+      if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
+      if (g === 'theme' || g === 'template' || g === 'version') { continue; }
+      if (isRecordVal(workingOverrides[g])) {
+        if (!isRecordVal(eff[g])) { eff[g] = {}; }
+        deepMerge(eff[g], workingOverrides[g]);
+      }
+    }
+    return eff;
+  }
+
+  // --- override routing (§4.5) ----------------------------------------------
+  function writeTargetFor(group) {
+    if (!isControl && overrideMode[group] === 'override') { return 'overrides'; }
+    return 'frame';
+  }
+  function writeConfigValue(path, value) {
+    var group = path.split('.')[0];
+    if (writeTargetFor(group) === 'overrides') {
+      setPath(workingOverrides, path, value);
+      overridesDirty = true;
+    } else {
+      setPath(workingFrame, path, value);
+      if (workingFrame.template === undefined) { workingFrame.template = currentTemplateId(); }
+      workingFrame.version = 1;
+      frameDirty = true;
+    }
+    markDirty();
+    updateOverrideBadge();
+    schedulePreview();
+  }
+  function updateOverrideBadge() {
+    var badge = byId('lg-override-badge');
+    var list = byId('lg-override-badge-list');
+    if (!badge || !list) { return; }
+    var names = [];
+    var g;
+    for (g in workingOverrides) {
+      if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
+      if (g === 'template' || g === 'version') { continue; }
+      if (isRecordVal(workingOverrides[g]) && !isEmptyObject(workingOverrides[g])) { names.push(OVERRIDE_LABELS[g] || g); }
+    }
+    if (names.length === 0) { badge.className = 'lg-chip lg-override-badge lg-hidden'; return; }
+    badge.className = 'lg-chip lg-override-badge';
+    clearChildren(list);
+    list.appendChild(document.createTextNode(names.join(', ')));
+  }
+  function initOverrideSwitches() {
+    var radios = root.querySelectorAll('[data-override-group]');
+    var i;
+    for (i = 0; i < radios.length; i++) {
+      var group = radios[i].getAttribute('data-override-group');
+      if (overrideMode[group] === undefined) {
+        overrideMode[group] = isRecordVal(workingOverrides[group]) && !isEmptyObject(workingOverrides[group]) ? 'override' : 'inherit';
+      }
+      radios[i].checked = radios[i].value === overrideMode[group];
+    }
+  }
+  root.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || el.getAttribute('data-override-group') === null) { return; }
+    var group = el.getAttribute('data-override-group');
+    overrideMode[group] = el.value === 'override' ? 'override' : 'inherit';
+    if (overrideMode[group] === 'inherit' && workingOverrides[group] !== undefined) {
+      delete workingOverrides[group];
+      overridesDirty = true;
+      markDirty();
+    }
+    populateAllControls();
+    updateOverrideBadge();
+    schedulePreview();
+  });
+
+  // --- inspector control binding ---------------------------------------------
+  // 3.3 kind mirror: these keys are plain text-kind (empty string legal,
+  // null rejected) — everything else maps a cleared input to null (the
+  // *_or_null kinds inherit/blank that way).
+  var NOT_NULLABLE_TEXT_KEYS = { 'back.label': 1, 'disclosure.link_label': 1, 'disclosure.text': 1, 'header.cta.label': 1 };
+  function controlValueOf(el, key) {
+    if (el.type === 'checkbox') { return el.checked; }
+    var v = el.value;
+    if (v === '' && NOT_NULLABLE_TEXT_KEYS[key] === 1) { return ''; }
+    return v === '' ? null : v;
+  }
+  root.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var key = el.getAttribute('data-frame-key');
+    if (key === null) { return; }
+    if (el.type === 'radio' && !el.checked) { return; }
+    writeConfigValue(key, controlValueOf(el, key));
+  });
+  // Manual logo (Advanced, §4.4): the checkbox flips header.logo_source.
+  root.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || el.getAttribute('data-manual-logo') === null) { return; }
+    writeConfigValue('header.logo_source', el.checked ? 'manual' : 'site');
+  });
+
+  // --- editable lists (arrays replace whole, §13.2) ---------------------------
+  var LIST_FIELDS = { 'footer.links': ['label', 'href'], 'trust_strip.logos': ['media_id', 'alt'], 'benefit_bar.items': ['icon', 'text'] };
+  function listContainer(key) { return root.querySelector('[data-frame-list="' + key + '"]'); }
+  function fillList(key, rows) {
+    var box = listContainer(key);
+    var tpl = root.querySelector('template[data-frame-list-tpl="' + key + '"]');
+    if (!box || !tpl || !tpl.content) { return; }
+    clearChildren(box);
+    var i, f;
+    for (i = 0; i < (rows || []).length; i++) {
+      var frag = document.importNode(tpl.content, true);
+      var row = frag.querySelector('.lg-list-row');
+      if (!row) { continue; }
+      var fields = LIST_FIELDS[key] || [];
+      for (f = 0; f < fields.length; f++) {
+        var input = row.querySelector('[data-list-field="' + fields[f] + '"]');
+        if (input) { input.value = rows[i] && rows[i][fields[f]] !== undefined && rows[i][fields[f]] !== null ? String(rows[i][fields[f]]) : ''; }
+      }
+      box.appendChild(row);
+    }
+  }
+  function collectList(key) {
+    var box = listContainer(key);
+    if (!box) { return []; }
+    var out = [];
+    var rows = box.querySelectorAll('.lg-list-row');
+    var i, f;
+    for (i = 0; i < rows.length; i++) {
+      var entry = {};
+      var any = false;
+      var fields = LIST_FIELDS[key] || [];
+      for (f = 0; f < fields.length; f++) {
+        var input = rows[i].querySelector('[data-list-field="' + fields[f] + '"]');
+        var v = input ? input.value : '';
+        entry[fields[f]] = v;
+        if (v !== '') { any = true; }
+      }
+      if (any) { out.push(entry); }
+    }
+    return out;
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var addKey = el.getAttribute('data-add-list-row');
+    if (addKey !== null) {
+      var rows = collectList(addKey);
+      rows.push({});
+      fillList(addKey, rows);
+      return;
+    }
+    if (el.getAttribute && el.hasAttribute && el.hasAttribute('data-remove-list-row')) {
+      var row = el;
+      while (row && row.className !== undefined && String(row.className).indexOf('lg-list-row') < 0) { row = row.parentNode; }
+      if (row && row.parentNode) {
+        var box = row.parentNode;
+        var key = box.getAttribute ? box.getAttribute('data-frame-list') : null;
+        row.parentNode.removeChild(row);
+        if (key) { writeConfigValue(key, collectList(key)); }
+      }
+    }
+  });
+  root.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || el.getAttribute('data-list-field') === null) { return; }
+    var box = el;
+    while (box && box.getAttribute && box.getAttribute('data-frame-list') === null) { box = box.parentNode; }
+    if (box && box.getAttribute) { writeConfigValue(box.getAttribute('data-frame-list'), collectList(box.getAttribute('data-frame-list'))); }
+  });
+
+  // --- role swatches (frame keys + theme palette + theme role picks) ---------
+  function resolveRoleValue(role) {
+    var pal = workingTheme.palette || {};
+    var ov = workingOverrides.theme && workingOverrides.theme.palette ? workingOverrides.theme.palette : {};
+    var v = ov[role] !== undefined ? ov[role] : pal[role];
+    if (v === undefined || v === null || v === '') { return tokens[role] || ''; }
+    if (String(v).charAt(0) === '#') { return String(v); }
+    return tokens[v] || tokens[role] || '';
+  }
+  function paintSwatches() {
+    var swatches = root.querySelectorAll('.lg-role-swatch');
+    var i;
+    for (i = 0; i < swatches.length; i++) {
+      swatches[i].style.background = resolveRoleValue(swatches[i].getAttribute('data-role-pick'));
+    }
+    var themeSw = root.querySelectorAll('[data-theme-role]');
+    for (i = 0; i < themeSw.length; i++) {
+      var role = themeSw[i].getAttribute('data-theme-role');
+      var sw = themeSw[i].querySelector('[data-role-swatch]');
+      if (sw) { sw.style.background = resolveRoleValue(role); }
+      var src = themeSw[i].querySelector('[data-role-source]');
+      if (src) {
+        var owned = (workingTheme.palette && workingTheme.palette[role] !== undefined) ||
+          (workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[role] !== undefined);
+        clearChildren(src);
+        src.appendChild(document.createTextNode(owned ? 'This funnel' : 'Base design'));
+      }
+    }
+    paintMiniPreview();
+  }
+  function markStripSelection() {
+    var strips = root.querySelectorAll('[data-role-strip]');
+    var i, j;
+    for (i = 0; i < strips.length; i++) {
+      var key = strips[i].getAttribute('data-role-strip');
+      var current = null;
+      if (key.indexOf('palette.') === 0) {
+        var role = key.slice(8);
+        current = (workingTheme.palette && workingTheme.palette[role]) || null;
+      } else if (key.indexOf('theme:') === 0) {
+        current = getPath(workingTheme, key.slice(6)) || null;
+      } else {
+        current = getPath(clientEffective(), key) || null;
+      }
+      var buttons = strips[i].querySelectorAll('.lg-role-swatch');
+      for (j = 0; j < buttons.length; j++) {
+        buttons[j].className = buttons[j].getAttribute('data-role-pick') === current ? 'lg-role-swatch selected' : 'lg-role-swatch';
+      }
+    }
+  }
+  function writeThemeValue(path, value) {
+    if (value === null || value === '') {
+      // delete the key — absent inherits from the base design (09 §9.2)
+      var parts = path.split('.');
+      var parent = parts.length > 1 ? getPath(workingTheme, parts.slice(0, -1).join('.')) : workingTheme;
+      if (isRecordVal(parent)) { delete parent[parts[parts.length - 1]]; }
+    } else {
+      setPath(workingTheme, path, value);
+      workingTheme.version = 1;
+    }
+    themeDirty = true;
+    markDirty();
+    paintSwatches();
+    markStripSelection();
+    schedulePreview();
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var pick = el.getAttribute('data-role-pick');
+    if (pick === null) { return; }
+    var pickFor = el.getAttribute('data-role-pick-for') || '';
+    if (pickFor.indexOf('palette.') === 0) {
+      var role = pickFor.slice(8);
+      // §4.5: palette overrides ride frame_overrides_json.theme when the
+      // theme override switch is ON for this arm.
+      if (!isControl && overrideMode['theme'] === 'override') {
+        if (!isRecordVal(workingOverrides.theme)) { workingOverrides.theme = {}; }
+        if (!isRecordVal(workingOverrides.theme.palette)) { workingOverrides.theme.palette = {}; }
+        workingOverrides.theme.palette[role] = pick;
+        overridesDirty = true;
+        markDirty();
+        paintSwatches();
+        markStripSelection();
+        updateOverrideBadge();
+        schedulePreview();
+      } else {
+        if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
+        writeThemeValue('palette.' + role, pick);
+      }
+      return;
+    }
+    if (pickFor.indexOf('theme:') === 0) { writeThemeValue(pickFor.slice(6), pick); return; }
+    if (pickFor !== '') { writeConfigValue(pickFor, pick); markStripSelection(); }
+  });
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var resetRole = el.getAttribute('data-role-reset');
+    if (resetRole === null) { return; }
+    if (workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[resetRole] !== undefined) {
+      delete workingOverrides.theme.palette[resetRole];
+      overridesDirty = true;
+      markDirty();
+      paintSwatches(); markStripSelection(); updateOverrideBadge(); schedulePreview();
+      return;
+    }
+    writeThemeValue('palette.' + resetRole, null);
+  });
+  root.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var key = el.getAttribute('data-theme-key');
+    if (key === null) { return; }
+    writeThemeValue(key, el.value === '' ? null : el.value);
+  });
+  (function () {
+    var apply = byId('lg-theme-hex-apply');
+    if (!apply) { return; }
+    apply.addEventListener('click', function () {
+      var roleSel = byId('lg-theme-hex-role');
+      var valueEl = byId('lg-theme-hex-value');
+      if (!roleSel || !valueEl) { return; }
+      var v = (valueEl.value || '').trim();
+      if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+        showMsg('lg-quote-error', 'Custom colors must be a color value like #1a2b3c.');
+        return;
+      }
+      hideMsg('lg-quote-error');
+      writeThemeValue('palette.' + roleSel.value, v);
+    });
+  }());
+  function paintMiniPreview() {
+    var bd = workingTheme.button_defaults || {};
+    var cd = workingTheme.card_defaults || {};
+    var btn = root.querySelector('[data-mini-button]');
+    if (btn) {
+      btn.style.background = resolveRoleValue(bd.background_role || 'button_primary_bg');
+      btn.style.color = resolveRoleValue(bd.text_role || 'button_primary_text');
+      btn.style.textTransform = bd.casing === 'upper' ? 'uppercase' : 'none';
+    }
+    var card = root.querySelector('[data-mini-card]');
+    if (card) {
+      card.style.background = resolveRoleValue(cd.background_role || 'card_background');
+      card.style.borderColor = resolveRoleValue(cd.border_role || 'border');
+      card.style.color = resolveRoleValue('text_primary');
+    }
+    var input = root.querySelector('[data-mini-input]');
+    if (input) {
+      input.style.borderColor = resolveRoleValue('border');
+      input.style.color = resolveRoleValue('text_muted');
+    }
+    var prog = root.querySelector('[data-mini-progress]');
+    if (prog) { prog.style.background = resolveRoleValue('brand_primary'); }
+  }
+
+  // --- populate every inspector control from the effective config ------------
+  function populateAllControls() {
+    var eff = clientEffective();
+    var controls = root.querySelectorAll('[data-frame-key]');
+    var i;
+    for (i = 0; i < controls.length; i++) {
+      var el = controls[i];
+      var val = getPath(eff, el.getAttribute('data-frame-key'));
+      if (el.type === 'checkbox') { el.checked = val === true; }
+      else if (el.type === 'radio') { el.checked = String(val) === el.value; }
+      else { el.value = val === null || val === undefined ? '' : String(val); }
+    }
+    var manual = root.querySelector('[data-manual-logo]');
+    if (manual) { manual.checked = eff.header && eff.header.logo_source === 'manual'; }
+    fillList('footer.links', eff.footer ? eff.footer.links : []);
+    fillList('trust_strip.logos', eff.trust_strip ? eff.trust_strip.logos : []);
+    fillList('benefit_bar.items', eff.benefit_bar ? eff.benefit_bar.items : []);
+    var themeControls = root.querySelectorAll('[data-theme-key]');
+    for (i = 0; i < themeControls.length; i++) {
+      var tval = getPath(workingTheme, themeControls[i].getAttribute('data-theme-key'));
+      themeControls[i].value = tval === null || tval === undefined ? '' : String(tval);
+    }
+    paintSwatches();
+    markStripSelection();
+  }
+
+  // --- the canvas (server-rendered composed page in a srcdoc iframe) ---------
+  var canvas = byId('lg-preview-iframe');
+  var previewTimer = null;
+  // The §13.4 draft params carry funnel-frame + theme drafts only; UNSAVED
+  // per-arm override edits are folded into the draft group-wise here. Known
+  // approximation: the server still merges the arm's STORED overrides last,
+  // so re-editing a field that ALREADY has a stored override shows the stored
+  // value until Save (the draft API has no overrides param by contract). The
+  // canvas is exact after Save.
+  function draftFrameConfig() {
+    var d = deepClone(workingFrame);
+    if (d.template === undefined) { d.template = currentTemplateId(); }
+    d.version = 1;
+    var g;
+    for (g in workingOverrides) {
+      if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
+      if (g === 'theme' || g === 'template' || g === 'version') { continue; }
+      if (!isRecordVal(workingOverrides[g])) { continue; }
+      if (!isRecordVal(d[g])) { d[g] = {}; }
+      deepMerge(d[g], workingOverrides[g]);
+    }
+    return d;
+  }
+  function draftTheme() {
+    var t = deepClone(workingTheme);
+    if (workingOverrides.theme && isRecordVal(workingOverrides.theme.palette)) {
+      if (!isRecordVal(t.palette)) { t.palette = {}; }
+      deepMerge(t.palette, workingOverrides.theme.palette);
+    }
+    return t;
+  }
+  function canvasStatus(text) {
+    var el = byId('lg-canvas-status');
+    if (el) { clearChildren(el); if (text) { el.appendChild(document.createTextNode(text)); } }
+  }
+  var REGION_SELECT_CSS = '[data-frame-region]{cursor:pointer}' +
+    '.lg-region-sel{outline:3px solid #2563eb;outline-offset:-3px}';
+  function setCanvasDoc(bodyHtml, css) {
+    if (!canvas) { return; }
+    canvas.style.width = viewport === 'mobile' ? '375px' : '1280px';
+    var doc = '<!doctype html><html><head><meta charset="utf-8"><style>' + (css || '') + REGION_SELECT_CSS + '</style></head><body>' + (bodyHtml || '') + '</body></html>';
+    canvas.setAttribute('srcdoc', doc);
+  }
+  function slideStillPresent(publicId) {
+    if (!publicId) { return false; }
+    var rows = root.querySelectorAll('.lg-section-row[data-section-public-id]');
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-section-public-id') === publicId) { return true; }
+    }
+    return false;
+  }
+  function previewBody(draftF) {
+    var body = {
+      mode: previewMode,
+      viewport: viewport,
+      draft_frame_config: draftF === undefined ? draftFrameConfig() : draftF,
+      draft_theme: draftTheme()
+    };
+    if (siteId) { body.site_id = siteId; }
+    // a removed/unsaved slide must not ride the POST (the server 400s on a
+    // public id outside the PERSISTED order) — fall back to the first slide.
+    if (previewMode === 'section' && currentSlideId && slideStillPresent(currentSlideId)) {
+      body.section_public_id = currentSlideId;
+    }
+    return body;
+  }
+  function renderPreview(draftF) {
+    fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(previewBody(draftF))
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        canvasStatus(res.body && res.body.error ? 'Preview failed: ' + res.body.error : 'Preview failed');
+        return;
+      }
+      canvasStatus('');
+      var p = res.body.preview || {};
+      lastCss = p.css || '';
+      if (previewMode === 'all') {
+        pages = p.pages || [];
+        if (pageIndex >= pages.length) { pageIndex = 0; }
+        setCanvasDoc(pages[pageIndex] || '', lastCss);
+        updateStepLabel();
+      } else {
+        setCanvasDoc(p.html || '', lastCss);
+      }
+    }).catch(function () { canvasStatus('Preview failed: network error'); });
+  }
+  function schedulePreview() {
+    if (previewTimer) { window.clearTimeout(previewTimer); }
+    previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 300);
+  }
+
+  // --- region click-select (same-origin contentDocument delegation) ----------
+  function outlineSelection(doc) {
+    var all = doc.querySelectorAll('[data-frame-region]');
+    var i;
+    for (i = 0; i < all.length; i++) {
+      var name = all[i].getAttribute('data-frame-region');
+      var match = selectedRegion !== null && (name === selectedRegion || (selectedRegion === 'header' && name === 'logo'));
+      var cls = String(all[i].className || '').replace(/\\s*lg-region-sel/g, '');
+      all[i].className = match ? cls + ' lg-region-sel' : cls;
+    }
+  }
+  function showRegionPanel(name) {
+    var panels = root.querySelectorAll('[data-region-panel]');
+    var i;
+    for (i = 0; i < panels.length; i++) {
+      panels[i].className = panels[i].getAttribute('data-region-panel') === name
+        ? 'lg-inspector-panel lg-panel-card active' : 'lg-inspector-panel lg-panel-card';
+    }
+    var hint = byId('lg-inspector-hint');
+    if (hint) { hint.hidden = name !== null && name !== undefined; }
+  }
+  function hideSlotBanner() {
+    var banner = byId('lg-slot-banner');
+    if (banner) { banner.className = 'lg-slot-banner lg-hidden'; }
+  }
+  function showSlotBanner() {
+    var banner = byId('lg-slot-banner');
+    if (!banner) { return; }
+    var link = byId('lg-slot-banner-open');
+    if (link) {
+      link.setAttribute('href', currentSlideId
+        ? '/admin/leadgen/sections/' + encodeURIComponent(currentSlideId) + '/edit'
+        : '/admin/leadgen/sections');
+    }
+    banner.className = 'lg-slot-banner';
+  }
+  function selectRegion(name) {
+    selectedRegion = name;
+    showRegionPanel(name);
+    if (canvas && canvas.contentDocument) { outlineSelection(canvas.contentDocument); }
+  }
+  function onCanvasClick(ev) {
+    if (ev.preventDefault) { ev.preventDefault(); }
+    var node = ev.target;
+    var interior = false;
+    var region = null;
+    while (node && node.getAttribute) {
+      if (node.getAttribute('data-lg-section') !== null || node.getAttribute('data-lg-slot-placeholder') !== null) { interior = true; }
+      var r = node.getAttribute('data-frame-region');
+      if (r !== null && r !== undefined && r !== '') { region = r; break; }
+      node = node.parentNode;
+    }
+    if (region === 'logo') { region = 'header'; }
+    if (region === 'section_slot' && interior) { showSlotBanner(); return; }
+    hideSlotBanner();
+    if (region !== null) { selectRegion(region); }
+  }
+  if (canvas) {
+    canvas.addEventListener('load', function () {
+      var doc = canvas.contentDocument;
+      if (!doc) { return; }
+      doc.addEventListener('click', onCanvasClick);
+      outlineSelection(doc);
+    });
+  }
+
+  // --- toolbar: viewport / preview mode / stepper / site / variant mirror ----
+  function pressGroup(attr, value) {
+    var buttons = root.querySelectorAll('[' + attr + ']');
+    var i;
+    for (i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', buttons[i].getAttribute(attr) === value ? 'true' : 'false');
+    }
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute) { return; }
+    var vp = el.getAttribute('data-viewport-btn');
+    if (vp !== null) { viewport = vp; pressGroup('data-viewport-btn', vp); schedulePreview(); return; }
+    var pm = el.getAttribute('data-preview-mode-btn');
+    if (pm !== null) {
+      previewMode = pm;
+      pressGroup('data-preview-mode-btn', pm);
+      var steps = byId('lg-step-controls');
+      if (steps) { steps.className = pm === 'all' ? 'lg-step-controls' : 'lg-step-controls lg-hidden'; }
+      pageIndex = 0;
+      schedulePreview();
+      return;
+    }
+  });
+  function updateStepLabel() {
+    var label = byId('lg-step-label');
+    if (label) {
+      clearChildren(label);
+      label.appendChild(document.createTextNode('Slide ' + (pages.length === 0 ? 0 : pageIndex + 1) + ' of ' + pages.length));
+    }
+  }
+  (function () {
+    var prev = byId('lg-step-prev');
+    var next = byId('lg-step-next');
+    if (prev) { prev.addEventListener('click', function () { if (pageIndex > 0) { pageIndex--; setCanvasDoc(pages[pageIndex] || '', lastCss); updateStepLabel(); } }); }
+    if (next) { next.addEventListener('click', function () { if (pageIndex < pages.length - 1) { pageIndex++; setCanvasDoc(pages[pageIndex] || '', lastCss); updateStepLabel(); } }); }
+  }());
+  (function () {
+    var selects = root.querySelectorAll('[data-site-select]');
+    var i;
+    function onSiteChange() {
+      siteId = this.value || '';
+      var j;
+      for (j = 0; j < selects.length; j++) { if (selects[j] !== this) { selects[j].value = siteId; } }
+      schedulePreview();
+    }
+    for (i = 0; i < selects.length; i++) { selects[i].addEventListener('change', onSiteChange); }
+  }());
+  (function () {
+    var mirror = byId('lg-canvas-variant-select');
+    if (mirror) {
+      mirror.addEventListener('change', function () {
+        window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(this.value);
+      });
+    }
+  }());
+
+  // --- structure panel: slide selection --------------------------------------
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || !el.getAttribute || el.getAttribute('data-select-slide') === null) { return; }
+    var row = el;
+    while (row && row.getAttribute && row.getAttribute('data-section-public-id') === null) { row = row.parentNode; }
+    if (!row || !row.getAttribute) { return; }
+    currentSlideId = row.getAttribute('data-section-public-id') || null;
+    var rows = root.querySelectorAll('.lg-structure-row[data-section-public-id]');
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var cls = String(rows[i].className).replace(/\\s*lg-slide-current/g, '');
+      rows[i].className = rows[i] === row ? cls + ' lg-slide-current' : cls;
+    }
+    if (previewMode === 'section') { schedulePreview(); }
+  });
+
+  // --- template picker (§4.3, C5 preview-before-apply) -----------------------
+  function togglePanel(id, otherId) {
+    var panel = byId(id);
+    var other = byId(otherId);
+    if (other) { other.className = 'lg-panel-card lg-hidden'; }
+    if (panel) {
+      var open = String(panel.className).indexOf('lg-hidden') >= 0;
+      panel.className = open ? 'lg-panel-card' : 'lg-panel-card lg-hidden';
+      return open;
+    }
+    return false;
+  }
+  (function () {
+    var btn = byId('lg-template-btn');
+    if (btn) { btn.addEventListener('click', function () { togglePanel('lg-template-picker', 'lg-theme-editor'); }); }
+    var themeBtn = byId('lg-theme-btn');
+    if (themeBtn) { themeBtn.addEventListener('click', function () { togglePanel('lg-theme-editor', 'lg-template-picker'); }); }
+  }());
+  function showTemplateConfirm(confirmations) {
+    var box = byId('lg-template-confirm');
+    var list = byId('lg-template-confirm-list');
+    if (!box || !list) { return; }
+    clearChildren(list);
+    var lines = confirmations.length > 0 ? confirmations : ['Your content is unaffected by this switch.'];
+    var i;
+    for (i = 0; i < lines.length; i++) {
+      var li = document.createElement('li');
+      li.appendChild(document.createTextNode(lines[i]));
+      list.appendChild(li);
+    }
+    box.className = '';
+  }
+  function hideTemplateConfirm() {
+    var box = byId('lg-template-confirm');
+    if (box) { box.className = 'lg-hidden'; }
+  }
+  root.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el.getAttribute && el.getAttribute('data-template-pick') === null) { el = el.parentNode; }
+    if (!el || !el.getAttribute) { return; }
+    var id = el.getAttribute('data-template-pick');
+    var cards = root.querySelectorAll('[data-template-pick]');
+    var i;
+    for (i = 0; i < cards.length; i++) {
+      cards[i].className = cards[i] === el ? 'lg-template-card selected' : 'lg-template-card';
+    }
+    fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/frame?switch_to=' + encodeURIComponent(id), {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.merged) {
+        canvasStatus('Template preview failed.');
+        return;
+      }
+      pendingSwitch = { id: id, merged: res.body.merged };
+      showTemplateConfirm(res.body.confirmations || []);
+      // C5: preview-before-apply — the canvas shows the WOULD-BE result;
+      // nothing persists (and Cancel restores the working config).
+      renderPreview(res.body.merged);
+    });
+  });
+  (function () {
+    var apply = byId('lg-template-apply');
+    var cancel = byId('lg-template-cancel');
+    if (apply) {
+      apply.addEventListener('click', function () {
+        if (!pendingSwitch) { return; }
+        workingFrame = deepClone(pendingSwitch.merged);
+        frameDirty = true;
+        markDirty();
+        pendingSwitch = null;
+        hideTemplateConfirm();
+        populateAllControls();
+        schedulePreview();
+      });
+    }
+    if (cancel) {
+      cancel.addEventListener('click', function () {
+        pendingSwitch = null;
+        hideTemplateConfirm();
+        schedulePreview();
+      });
+    }
+  }());
+
+  // --- studio boot ------------------------------------------------------------
+  initOverrideSwitches();
+  populateAllControls();
+  updateOverrideBadge();
+  schedulePreview();
 
   // --- A/B (§16.2): allocation Σ, save, lifecycle (create/start/stop), preview -
   function allocInputs() { return root.querySelectorAll('[data-alloc-input]'); }
