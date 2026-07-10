@@ -1495,7 +1495,6 @@ function renderAbPanel(structure: StructureBody, selected: VariantNode): string 
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
       data-variant-id="${escapeHtml(v.public_id)}" data-variant-label="${escapeHtml(v.variant_label)}"
       min="0" max="100" step="0.01" value="${escapeHtml(String(pct))}" /> %</label>
-    <code class="lg-editor-pubid">${escapeHtml(v.public_id)}</code>
     ${overridesLine}
   </div>`;
     })
@@ -1741,7 +1740,7 @@ function quoteEditorHtml(
       <button type="button" class="btn btn-sm btn-primary" id="lg-quote-rename-save">Save name</button>
       <button type="button" class="btn btn-sm btn-outline" id="lg-quote-rename-cancel">Cancel</button>
     </span>
-    <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code>${statusBadge(q.status)}
+    ${statusBadge(q.status)}
     <span class="lg-chip" data-quote-activity>Activity: <strong>${escapeHtml(q.activity)}</strong></span>
     ${verticalChips}
     ${renderPublishBadge(activation?.activation_preflight ?? null)}
@@ -1749,7 +1748,10 @@ function quoteEditorHtml(
     <span class="lg-chip" id="lg-site-chip">Preview site: ${renderSiteSelect("lg-site-select", sites)}</span>
     <button type="button" id="lg-variant-save" class="btn btn-primary">Save</button>
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
-  </div>`;
+  </div>
+  <details class="lg-advanced"><summary>Advanced</summary>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">${escapeHtml(q.public_id)}</code></p>
+  </details>`;
 
   const subtabs = `<nav class="lg-qtabs" aria-label="Quote editor tabs">
   <button type="button" class="lg-qtab active" data-tab="builder">Funnel builder</button>

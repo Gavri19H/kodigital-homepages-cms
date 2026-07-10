@@ -407,9 +407,10 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
   const s = data.section;
   const isNew = s === null;
   const view = toStudioView(s);
-  const statusPillHtml = isNew
-    ? ""
-    : `<code class="lg-editor-pubid">${escapeHtml((s as SectionDetail).public_id)}</code>${statusBadge((s as SectionDetail).status)}`;
+  // §7.4 "Normal designers see NO ids": the top bar carries the status badge
+  // only — the public id lives on the Advanced surfaces (inspector Advanced
+  // tab / debug drawer), never in normal-mode chrome.
+  const statusPillHtml = isNew ? "" : statusBadge((s as SectionDetail).status);
 
   const content = `${renderLeadgenTabs("sections")}
 <div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>

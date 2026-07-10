@@ -388,7 +388,7 @@ describeDb("section studio SSR — §8.3 component library", () => {
       "Secure-form badge",
       "Trust points",
       "Logo row",
-      "Error message slot",
+      "Error message line",
       "Continue button",
       "Auto-advance",
     ]) {
@@ -3505,33 +3505,12 @@ describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
 });
 
 // ---------------------------------------------------------------------------
-// v2.5 wave-1 — C6 language lint: "slide" never appears in the Section Studio
+// v2.5 wave-1 C6 "slide" page lint — SUPERSEDED (slice C-verify): the lint
+// moved to the dedicated 15 §15.2 suite, test/leadgen-glossary-lint.test.ts,
+// EXTENDED without weakening — same full-page regex over edit + new + the
+// sections LIST page, plus the quote-side "Slide stays allowed" calibration
+// and the full §12.4/§7.4 forbidden-term matrix.
 // ---------------------------------------------------------------------------
-
-describeDb("v2.5 C6 — the Section Builder never says 'slide'", () => {
-  it("the FULL served studio page (edit + new) carries no 'slide' word in any casing (SSR copy, island JS, blobs, styles)", async () => {
-    const { env } = newHarness();
-    const section = await createSection(env);
-    const editHtml = await studioPage(env, section.public_id);
-    const newHtml = await getHtml(env, "/admin/leadgen/sections/new");
-    for (const [label, html] of [
-      ["edit", editHtml],
-      ["new", newHtml],
-    ] as const) {
-      // the WORD "slide" (slide/slides/slideshow…) is the forbidden operator
-      // vocabulary. Exempt: "slider" (platform identifiers — ARIA
-      // role="slider", ::-webkit-slider-thumb — and the §8.3 item name
-      // "Slider") and interior identifier fragments (the shell's
-      // toastSlideIn keyframes), neither of which describes a Section as a
-      // "slide" to an operator. Capture ±20 chars so a violation names itself.
-      const hits = [...html.matchAll(/.{0,20}\bslide(?!r)[a-z]*.{0,20}/gi)].map((m) => m[0]);
-      expect(hits, `${label} page says 'slide' ${hits.length}x`).toEqual([]);
-    }
-    // and the sections LIST page empty-state stopped calling a Section a slide
-    const listHtml = await getHtml(env, "/admin/leadgen/sections");
-    expect(listHtml.toLowerCase()).not.toContain("quote slide");
-  });
-});
 
 // ---------------------------------------------------------------------------
 // v2.5 wave-1 — A5 image_alt samples + A6 image_fit component prop
@@ -4242,6 +4221,76 @@ describeDb("wave 2 — §9.4 Design-tab role decorations (executed)", () => {
     const accentHex = (extractJsonBlob(html, "lg-studio-meta")["roles"] as Record<string, string>)["accent"];
     expect(probe.run(`legacyHexToRole(${JSON.stringify(accentHex)})`)).toBe("accent");
     expect(probe.run("legacyHexToRole('#00dead')")).toBe(null);
+  });
+
+  it("a role PICK repaints the decorations SAME-TICK through afterModelChange — source line + Reset + swatch, no re-selection (09 §9.4)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // decoration elements for ONE key (buttonBackground); every other lookup null
+    const srcEl = { textContent: "" };
+    const resetBtn = { hidden: true };
+    const legacyEl = { hidden: false };
+    const swatch = { style: { background: "" } };
+    const decorations: Record<string, unknown> = {
+      '[data-override-source="buttonBackground"]': srcEl,
+      '[data-override-reset="buttonBackground"]': resetBtn,
+      '[data-override-legacy="buttonBackground"]': legacyEl,
+      '[data-override-swatch="buttonBackground"]': swatch,
+    };
+    const probe = studioProbe(html, YESNO_CONTENT, {
+      getElementById() {
+        return null;
+      },
+      querySelector(sel: string) {
+        return decorations[sel] ?? null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    });
+    probe.run(
+      [
+        "var ROLE_VALUES = studioMeta.roles; var ROLE_LABELS = studioMeta.role_labels;",
+        sliceIslandArray(island, "COLOR_OVERRIDE_KEYS"),
+        sliceIslandVar(island, "OVERRIDE_BACKING_ROLE"),
+        sliceIslandFunction(island, "isHexColor"),
+        sliceIslandFunction(island, "roleLabelOf"),
+        sliceIslandFunction(island, "overrideSourceText"),
+        sliceIslandFunction(island, "resolvedOverrideColor"),
+        sliceIslandFunction(island, "ensureLegacyOption"),
+        sliceIslandFunction(island, "renderOverrideDecorations"),
+        sliceIslandFunction(island, "collectInspectorOverride"),
+        // the REAL served afterModelChange (overrides the harness no-op) + stubs
+        // for its non-§9.4 collaborators. populateInspector THROWS on purpose:
+        // repainting by re-selection is the defect — same-tick or fail.
+        sliceIslandFunction(island, "afterModelChange"),
+        "function markDirty() {} function historyPush() {} function renderIssues() {}",
+        "function renderBoundChips() {} function updatePaletteBindItems() {} function renderBindBanner() {}",
+        "function updateCanvasToolbar() {} function scheduleCanvasRender() {}",
+        "function populateInspector() { throw new Error('§9.4 repaint must not require re-selection'); }",
+      ].join("\n"),
+    );
+    // a node is selected; its decorations are still unpainted
+    probe.run("selectedQuestionId = 'q1';");
+    expect(srcEl.textContent).toBe("");
+    expect(resetBtn.hidden).toBe(true);
+    // the PICK rides the real inspector change path (collect → afterModelChange)
+    probe.sandbox["pickInput"] = {
+      value: "accent",
+      getAttribute: (k: string) => (k === "data-inspector-override" ? "buttonBackground" : null),
+    };
+    probe.run("collectInspectorOverride(pickInput)");
+    // same tick: the source line speaks the role LABEL, Reset appears, the
+    // swatch paints the role's resolved color — with NO re-selection.
+    expect(srcEl.textContent).toBe("Accent — overridden for this component.");
+    expect(resetBtn.hidden).toBe(false);
+    expect(legacyEl.hidden).toBe(true); // a role pick is not a legacy hex
+    const accentHex = (extractJsonBlob(html, "lg-studio-meta")["roles"] as Record<string, string>)["accent"];
+    expect(swatch.style.background).toBe(accentHex);
+    // and the model carries exactly the override the decorations describe
+    expect(probe.run("selectedNode().design_overrides.buttonBackground")).toBe("accent");
   });
 });
 

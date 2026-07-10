@@ -232,7 +232,7 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   SecureFormBadge: { label: "Secure-form badge", description: "Lock badge naming the form security." },
   TrustBar: { label: "Trust points", description: "Icon/text trust pairs, horizontal or stacked." },
   LogoStrip: { label: "Logo row", description: "Carrier / partner logo row." },
-  ValidationError: { label: "Error message slot", description: "Inline error slot for a field." },
+  ValidationError: { label: "Error message line", description: "Inline error line for a field." },
   LegalNote: { label: "Legal note", description: "Small-print legal copy block." },
   Stack: { label: "Stack", description: "Vertical/horizontal token-gap grouping." },
   GridContainer: { label: "Answer grid", description: "Per-breakpoint column grid container." },
@@ -1475,7 +1475,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
   </div>
 
   <div class="studio-panel" data-studio-panel="mapping" role="tabpanel" hidden>
-    <p class="form-help">This component&#39;s <code>internal_field</code> mapping status per selected Offer (§8.6). Quick-map picks the Offer&#39;s schema field — never a typed path.</p>
+    <p class="form-help">How this component&#39;s answer maps to each selected Offer. Quick-map picks the Offer&#39;s field — never a typed path.</p>
     <div class="studio-inspector-mapping" data-studio-inspector-mapping></div>
     <button type="button" class="btn btn-sm btn-outline" data-studio-open-mapping-drawer>Open Offer mapping drawer</button>
   </div>
@@ -3162,6 +3162,10 @@ export const SECTION_STUDIO_SCRIPT = `
     renderBoundChips();
     updatePaletteBindItems();
     renderBindBanner();
+    // 09 §9.4 "appears once overridden": the inheritance-source line, the
+    // "Reset to inherited" affordance and the swatch repaint IMMEDIATELY on a
+    // pick — same tick, never deferred to a re-selection.
+    renderOverrideDecorations(selectedNode());
     updateCanvasToolbar();
     scheduleCanvasRender();
   }
@@ -4283,6 +4287,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // grouping, reorder. There is NO provider-value control here — each row
   // ends with the read-only "Provider values: k/n Offers" chip (§12.2).
   var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'title', 'subtitle', 'badge', 'icon', 'emoji', 'imageMediaId', 'image_alt', 'aria_label', 'description'];
+  // §12.4: placeholders are operator copy — raw storage keys never surface.
+  var CHOICE_FIELD_PLACEHOLDERS = { analytics_id: 'Analytics label (auto)', imageMediaId: 'Image', image_alt: 'Image alt text', aria_label: 'Screen-reader label' };
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
   // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
   // that Offer's provider value or "not set", deep-linking into the Offer's
@@ -4338,7 +4344,7 @@ export const SECTION_STUDIO_SCRIPT = `
       inp = document.createElement('input');
       inp.className = 'form-input';
       inp.setAttribute('data-choice-field', CHOICE_FIELDS[i]);
-      inp.setAttribute('placeholder', CHOICE_FIELDS[i]);
+      inp.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS[CHOICE_FIELDS[i]] || CHOICE_FIELDS[i]);
       val = choice ? choice[CHOICE_FIELDS[i]] : undefined;
       inp.value = (val === undefined || val === null) ? '' : String(val);
       inp.addEventListener('input', collectChoices);
