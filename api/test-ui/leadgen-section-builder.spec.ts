@@ -23,7 +23,10 @@
 //   ⑥ map an answer to an Offer field from the Mapping tab via PICKERS only
 //     (no JSON, no free text anywhere in the flow) → persisted edge read back;
 //   ⑦ desktop/mobile round-trip at REAL widths (server-rendered viewport
-//     param: 600px desktop wrap ↔ 480px mobile wrap, measured);
+//     param: 600px desktop wrap declared+rendered ↔ mobile wrap declared 480
+//     but RENDERED at the REAL 375 frame viewport; DEV-66: the canvas is a
+//     srcdoc iframe so the design's @media mobile rules genuinely fire —
+//     asserted via a computed-style flip on .lg-content padding 24px↔16px);
 //   ⑧ the palette contains NO header/footer/progress/background items; the
 //     callout links to the Quote Builder;
 //   ⑨ a LEGACY Section carrying a HeaderBar (raw-API-injected) shows the amber
@@ -35,7 +38,7 @@
 // `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
 // Screenshots land in test-artifacts/leadgen-c-*.png.
 
-import { test, expect, request as playwrightRequest, type Page } from "@playwright/test";
+import { test, expect, request as playwrightRequest, type FrameLocator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import {
   seedSectionBuilder,
@@ -62,11 +65,20 @@ test.beforeAll(async () => {
   await ctx.dispose();
 });
 
+// DEV-66: the Build canvas renders inside a same-origin srcdoc iframe (a
+// REAL 1280/375 viewport so the design's @media rules genuinely fire) — the
+// render region and every decoration live in the FRAME document now, reached
+// through frameLocator (the leadgen-quote-builder canvas idiom).
+const CANVAS_FRAME = "#lg-studio-canvas-frame";
 const CANVAS = "#lg-studio-canvas-render";
+
+function canvas(page: Page): FrameLocator {
+  return page.frameLocator(CANVAS_FRAME);
+}
 
 async function openImageSection(page: Page): Promise<void> {
   await page.goto(`/admin/leadgen/sections/${seed.imageSection.publicId}/edit`, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(`${CANVAS} h1.lg-headline`)).toBeVisible({ timeout: 20_000 });
+  await expect(canvas(page).locator(`${CANVAS} h1.lg-headline`)).toBeVisible({ timeout: 20_000 });
 }
 
 async function sectionDetail(page: Page, publicId: string): Promise<Record<string, unknown>> {
@@ -92,7 +104,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     test.setTimeout(120_000);
     await openImageSection(page);
     const strip = page.locator("#lg-section-headline");
-    const canvasHeadline = page.locator(`${CANVAS} h1.lg-headline`);
+    const canvasHeadline = canvas(page).locator(`${CANVAS} h1.lg-headline`);
     await expect(canvasHeadline).toHaveText(IMAGE_SECTION_HEADLINE);
     await expect(strip).toHaveValue(IMAGE_SECTION_HEADLINE);
 
@@ -112,10 +124,10 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
       typed,
     );
     expect(fieldsWithValue, "exactly ONE field carries the headline").toBe(1);
-    await expect(page.locator(`${CANVAS} h1.lg-headline`)).toHaveCount(1);
-    await expect(page.locator(`${CANVAS} input`).filter({ hasNot: page.locator("nothing") })).not.toHaveCount(0); // ZIP input exists — the canvas is live markup…
+    await expect(canvas(page).locator(`${CANVAS} h1.lg-headline`)).toHaveCount(1);
+    await expect(canvas(page).locator(`${CANVAS} input`).filter({ hasNot: page.locator("nothing") })).not.toHaveCount(0); // ZIP input exists — the canvas is live markup…
     expect(
-      await page.locator(`${CANVAS} input`).evaluateAll((els, needle) => els.filter((e) => (e as HTMLInputElement).value === needle).length, typed),
+      await canvas(page).locator(`${CANVAS} input`).evaluateAll((els, needle) => els.filter((e) => (e as HTMLInputElement).value === needle).length, typed),
       "…but NO canvas input carries the headline",
     ).toBe(0);
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-01a-strip-to-canvas.png` });
@@ -159,7 +171,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     await expect(scopeName).toHaveText("This Section (question unit)");
 
     // ZIP component → component scope header + ZIP's tab set (Maps present)
-    await page.locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
+    await canvas(page).locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
     await expect(scopeName).toHaveText("ZIP");
     await expect(affects).toContainText("Affects: this question unit");
     await expect(tab("maps")).toBeVisible();
@@ -168,7 +180,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     await expect(tab("choices")).toBeHidden();
 
     // a CHOICE card → choice scope header ("this card only") + Choices tab
-    await page.locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
+    await canvas(page).locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
     await expect(scopeName).toContainText("Answer choice");
     await expect(scopeName).toContainText(IMAGE_CHOICES[0].label);
     await expect(affects).toHaveText("Affects: this card only.");
@@ -191,7 +203,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
   test("③ C1: Choices tab has NO universal provider-value control; the per-choice chip lists one row per selected Offer (TWO Offers, DIVERGENT values) + deep-links", async ({ page }) => {
     test.setTimeout(120_000);
     await openImageSection(page);
-    await page.locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
+    await canvas(page).locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
     const panel = page.locator('[data-studio-panel="choices"]');
     await expect(panel).toBeVisible();
 
@@ -246,7 +258,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
   test("④ image card grid: image per card via the REAL picker dialog + alt/title/subtitle/value; SAVE; re-open intact", async ({ page }) => {
     test.setTimeout(180_000);
     await openImageSection(page);
-    await page.locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
+    await canvas(page).locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
     const panel = page.locator('[data-studio-panel="choices"]');
     await expect(panel).toBeVisible();
     const rows = panel.locator("[data-choice-row]");
@@ -278,8 +290,8 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
 
     // SAVE → reload → RE-OPEN the choices grid → every field intact
     await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click()]);
-    await expect(page.locator(`${CANVAS} h1.lg-headline`)).toBeVisible({ timeout: 20_000 });
-    await page.locator(`${CANVAS} [data-lg-choice="${edits[0]!.value}"]`).click();
+    await expect(canvas(page).locator(`${CANVAS} h1.lg-headline`)).toBeVisible({ timeout: 20_000 });
+    await canvas(page).locator(`${CANVAS} [data-lg-choice="${edits[0]!.value}"]`).click();
     const panelAfter = page.locator('[data-studio-panel="choices"]');
     await expect(panelAfter).toBeVisible();
     const rowsAfter = panelAfter.locator("[data-choice-row]");
@@ -311,7 +323,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     test.setTimeout(120_000);
     await openImageSection(page);
     // select the grid (card → Component pill), open the Design tab
-    await page.locator(`${CANVAS} [data-lg-choice]`).first().click();
+    await canvas(page).locator(`${CANVAS} [data-lg-choice]`).first().click();
     await page.locator('[data-scope-pill="component"]').first().click();
     await page.locator('[data-studio-inspector-tab="design"]').click();
     const panel = page.locator('[data-studio-panel="design"]');
@@ -334,7 +346,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // afterModelChange re-renders the §9.4 decorations on the SAME tick
     // (renderOverrideDecorations); re-selecting exercises the populate path
     // over the stored ROLE as well.
-    await page.locator(`${CANVAS} [data-lg-choice]`).first().click();
+    await canvas(page).locator(`${CANVAS} [data-lg-choice]`).first().click();
     await page.locator('[data-scope-pill="component"]').first().click();
     await page.locator('[data-studio-inspector-tab="design"]').click();
     await expect(panel.locator('[data-override-source="iconColor"]')).toContainText("Brand primary");
@@ -354,7 +366,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
   test("⑥ map an answer to an Offer field from the Mapping tab via PICKERS only (no JSON anywhere in the flow)", async ({ page }) => {
     test.setTimeout(120_000);
     await openImageSection(page);
-    await page.locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
+    await canvas(page).locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
     await page.locator('[data-studio-inspector-tab="mapping"]').click();
     const wrap = page.locator("[data-studio-inspector-mapping]");
     await expect(wrap).toBeVisible();
@@ -393,42 +405,71 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     expect(maps.find((m) => m["internal_field"] === "business_type"), "seeded edge kept").toBeTruthy();
   });
 
-  test("⑦ desktop/mobile round-trip at REAL widths (server-rendered viewport param)", async ({ page }) => {
+  test("⑦ desktop/mobile round-trip at REAL widths (server viewport param + DEV-66: the frame viewport makes mobile @media rules ACTUALLY fire)", async ({ page }) => {
     test.setTimeout(120_000);
-    // wide enough that the canvas COLUMN (viewport − 250px admin sidebar −
-    // 280px library − 380px inspector − paddings/gaps) exceeds the 600px
-    // desktop wrap → both server-declared widths render UNCAPPED
+    // the wide admin window is kept from the pre-DEV-66 row; the widths are
+    // now measured INSIDE the canvas iframe, whose element IS the viewport
+    // (Desktop 1280 / Mobile 375 — §6.1.4), independent of the column width
     await page.setViewportSize({ width: 1760, height: 900 });
     await openImageSection(page);
-    const wrap = page.locator(`${CANVAS} .lg-preview`).first();
+    const frameEl = page.locator(CANVAS_FRAME);
+    const wrap = canvas(page).locator(`${CANVAS} .lg-preview`).first();
+    // computed style + rect measured through the same-origin contentDocument
+    // (the exact mechanism the island itself uses)
+    const measure = (prop: "paddingLeft" | "wrapWidth") =>
+      page.evaluate((p) => {
+        const f = document.querySelector("#lg-studio-canvas-frame") as HTMLIFrameElement;
+        const el = f.contentDocument!.querySelector(p === "wrapWidth" ? ".lg-preview" : ".lg-content")!;
+        if (p === "wrapWidth") return Math.round(el.getBoundingClientRect().width);
+        return f.contentWindow!.getComputedStyle(el).paddingLeft;
+      }, prop);
 
-    // desktop: the server-rendered wrap declares its width and RENDERS at it
+    // desktop: the frame is a REAL 1280 viewport; the server-rendered wrap
+    // declares its width and RENDERS at it (kept server-width assertions)
+    await expect(frameEl).toHaveAttribute("data-canvas-frame-viewport", "desktop");
+    expect(Math.round((await frameEl.boundingBox())!.width), "the canvas frame is a real 1280 viewport").toBe(1280);
     await expect(wrap).toHaveAttribute("data-viewport", "desktop");
     await expect(wrap).toHaveClass(/lg-preview-desktop/);
     const desktopDeclared = Number(((await wrap.getAttribute("style")) ?? "").match(/max-width:(\d+)px/)?.[1]);
     expect(desktopDeclared).toBe(600);
-    const desktopBox = await wrap.boundingBox();
-    expect(Math.round(desktopBox!.width), "desktop wrap renders at its real width").toBe(600);
+    expect(await measure("wrapWidth"), "desktop wrap renders at its real width").toBe(600);
+    // the @media(max-width:480px)-gated .lg-content padding is OFF at 1280:
+    // the desktop token (1.5rem = 24px) applies inside the canvas document
+    expect(await measure("paddingLeft"), "mobile-only padding rule must NOT fire at the 1280 frame viewport").toBe("24px");
 
-    // → mobile: the island re-renders SERVER-side with viewport=mobile
+    // → mobile: the island re-renders SERVER-side with viewport=mobile AND
+    // sizes the frame element to a REAL 375 viewport
     await page.locator('[data-canvas-viewport="mobile"]').click();
-    const mobileWrap = page.locator(`${CANVAS} .lg-preview`).first();
+    const mobileWrap = canvas(page).locator(`${CANVAS} .lg-preview`).first();
     await expect(mobileWrap).toHaveAttribute("data-viewport", "mobile", { timeout: 20_000 });
     await expect(mobileWrap).toHaveClass(/lg-preview-mobile/);
     await expect(page.locator('[data-canvas-viewport="mobile"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator('[data-canvas-viewport="desktop"]')).toHaveAttribute("aria-pressed", "false");
-    const mobileBox = await mobileWrap.boundingBox();
-    expect(Math.round(mobileBox!.width), "mobile wrap renders at the design's real mobile width").toBe(480);
+    await expect(frameEl).toHaveAttribute("data-canvas-frame-viewport", "mobile");
+    expect(Math.round((await frameEl.boundingBox())!.width), "the canvas frame is a real 375 viewport").toBe(375);
+    // the server STILL declares the design's mobile wrap width (480 — the
+    // kept server-width assertion) while the RENDERED width is genuinely
+    // capped by the 375 frame viewport (pre-DEV-66 the inline region let it
+    // render 480 wide in a wide admin window and no mobile rule ever fired)
+    const mobileDeclared = Number(((await mobileWrap.getAttribute("style")) ?? "").match(/max-width:(\d+)px/)?.[1]);
+    expect(mobileDeclared).toBe(480);
+    expect(await measure("wrapWidth"), "mobile wrap renders at the REAL frame viewport").toBe(375);
+    // DEV-66 acceptance: a REAL mobile-only CSS effect now applies inside
+    // the canvas — funnelChromeCss's @media-gated .lg-content padding drops
+    // to the mobile token (1rem = 16px), differing from the desktop 24px
+    expect(await measure("paddingLeft"), "the mobile @media rule FIRES inside the 375 canvas frame").toBe("16px");
     // the SAME canvas content re-rendered — the bound headline still rides it
-    await expect(page.locator(`${CANVAS} h1.lg-headline`)).toBeVisible();
-    await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-07a-mobile-480.png` });
+    await expect(canvas(page).locator(`${CANVAS} h1.lg-headline`)).toBeVisible();
+    await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-07a-mobile-375.png` });
 
-    // → back to desktop: full round-trip
+    // → back to desktop: full round-trip (declared 600 AND rendered 600; the
+    // mobile-only padding effect switches OFF again)
     await page.locator('[data-canvas-viewport="desktop"]').click();
-    const backWrap = page.locator(`${CANVAS} .lg-preview`).first();
+    const backWrap = canvas(page).locator(`${CANVAS} .lg-preview`).first();
     await expect(backWrap).toHaveAttribute("data-viewport", "desktop", { timeout: 20_000 });
-    const backBox = await backWrap.boundingBox();
-    expect(Math.round(backBox!.width)).toBe(600);
+    await expect(frameEl).toHaveAttribute("data-canvas-frame-viewport", "desktop");
+    expect(await measure("wrapWidth")).toBe(600);
+    expect(await measure("paddingLeft"), "the mobile rule stops firing back at 1280").toBe("24px");
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-07b-desktop-600.png` });
   });
 
@@ -468,11 +509,12 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
   test("⑨ legacy HeaderBar: amber badge + Move-to-frame END-TO-END (confirm names the funnel; frame gains the header group; the node leaves the Section)", async ({ page }) => {
     test.setTimeout(180_000);
     await page.goto(`/admin/leadgen/sections/${seed.legacySection.publicId}/edit`, { waitUntil: "domcontentloaded" });
-    const headerNode = page.locator(`${CANVAS} [data-component-type="HeaderBar"]`);
+    const headerNode = canvas(page).locator(`${CANVAS} [data-component-type="HeaderBar"]`);
     await expect(headerNode).toBeVisible({ timeout: 20_000 });
 
     // the §5.4 amber badge with the Move / Keep affordances + the C2 note
-    const badge = page.locator("[data-frame-badge]");
+    // (DEV-66: the badge is a canvas decoration — it lives in the frame doc)
+    const badge = canvas(page).locator("[data-frame-badge]");
     await expect(badge).toBeVisible();
     await expect(badge).toContainText("Page-frame element — belongs to the Quote frame");
     await expect(badge.locator("[data-frame-move]")).toHaveText("Move to Quote frame");
@@ -501,8 +543,8 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     expect(confirmMessage, "the confirm NAMES the funnel").toContain(seed.funnelName);
 
     // the canvas no longer shows the node (and no amber badge remains)
-    await expect(page.locator(`${CANVAS} [data-component-type="HeaderBar"]`)).toHaveCount(0);
-    await expect(page.locator("[data-frame-badge]")).toHaveCount(0);
+    await expect(canvas(page).locator(`${CANVAS} [data-component-type="HeaderBar"]`)).toHaveCount(0);
+    await expect(canvas(page).locator("[data-frame-badge]")).toHaveCount(0);
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-09b-after-move.png` });
 
     // API read-back 1: the funnel frame CARRIES the equivalent header group

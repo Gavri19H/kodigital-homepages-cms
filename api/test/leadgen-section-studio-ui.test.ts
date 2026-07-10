@@ -12,6 +12,11 @@
 // router (client-vs-server seam). NOTE on the canvas-region stub: the island
 // injects ONLY our own preview-endpoint output (server-rendered presets that
 // escapeHtml every author value) — the stub here is a plain object, no DOM.
+// DEV-66: the render region now lives INSIDE the canvas srcdoc iframe (a
+// REAL viewport, so the design's @media mobile block can genuinely fire at
+// 375); the executed probes model iframe.contentDocument — the document stub
+// serves 'lg-studio-canvas-frame' as a frame object whose contentDocument
+// owns the '#lg-studio-canvas-render' mount.
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -221,6 +226,21 @@ async function studioPage(env: Env, publicId: string): Promise<string> {
   return getHtml(env, `/admin/leadgen/sections/${publicId}/edit`);
 }
 
+// DEV-66: the SSR canvas document rides the canvas iframe's srcdoc attribute
+// (escapeHtml-escaped). Unescape it so the region pins keep asserting the
+// REAL preset markup byte-for-byte (adjusted for the new mount, never
+// weakened). &amp; decodes LAST — the inverse of escapeHtml's order.
+function canvasSrcdoc(html: string): string {
+  const m = html.match(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*srcdoc="([^"]*)"/);
+  expect(m, "canvas srcdoc iframe present").not.toBeNull();
+  return m![1]!
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 function studioIsland(html: string): string {
   const island = extractScripts(html).find((s) => s.includes("function renderCanvasNow("));
   expect(island, "studio island present").toBeDefined();
@@ -261,9 +281,14 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toContain("data-studio-library");
     expect(html).toContain("data-studio-library-search");
 
-    // 3) center: canvas + breadcrumb + selection toolbar + refusal note
+    // 3) center: canvas + breadcrumb + selection toolbar + refusal note.
+    // DEV-66: the render region mounts INSIDE the canvas srcdoc iframe (a
+    // real viewport — same-origin, scripts inert) — the parent page hosts
+    // the frame element; the mount id lives in the frame document.
     expect(html).toContain("data-studio-canvas");
-    expect(html).toContain('id="lg-studio-canvas-render"');
+    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*sandbox="allow-same-origin"/);
+    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*data-canvas-frame-viewport="desktop"/);
+    expect(canvasSrcdoc(html)).toContain('id="lg-studio-canvas-render"');
     expect(html).toContain("data-studio-breadcrumb");
     expect(html).toContain("data-studio-selection-toolbar");
     expect(html).toContain("data-studio-drop-refusal");
@@ -300,19 +325,222 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toMatch(/data-studio-canvas-empty[^>]*hidden/);
   });
 
-  it("SSR canvas renders the section tree via the REAL preset renderer inside the scoped chrome CSS", async () => {
+  it("SSR canvas renders the section tree via the REAL preset renderer inside the scoped chrome CSS (in the canvas srcdoc)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    const start = html.indexOf('id="lg-studio-canvas-render"');
-    const end = html.indexOf("data-studio-canvas-empty", start);
-    const region = html.slice(start, end);
+    const region = canvasSrcdoc(html);
     // scoped chrome css + the preview-parity wrapper + the REAL preset markup
     expect(region).toContain("<style>");
     expect(region).toContain('data-funnel-design="default-funnel"');
     expect(region).toContain("lg-preview-desktop");
     expect(region).toContain('data-component-type="TwoButtonYesNo"');
     expect(region).toContain('data-question-id="q1"');
+    // DEV-66: the srcdoc is a COMPLETE document carrying the mount + the
+    // design css INCLUDING its mobile media block — the reason the canvas is
+    // an iframe at all (the block can now genuinely fire at the 375 viewport)
+    expect(region).toContain("<!doctype html>");
+    expect(region).toContain('id="lg-studio-canvas-render"');
+    expect(region).toContain("@media (max-width: 480px)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DEV-66 — the Build canvas is a REAL srcdoc iframe (viewport-faithful media
+// queries): the design's mobile block NEVER fired in the inline region no
+// matter the admin window; the frame document is an actual 375/1280 viewport.
+// ---------------------------------------------------------------------------
+
+describeDb("DEV-66 — canvas srcdoc iframe (§6.1.4 real viewports)", () => {
+  it("SSR: the frame is same-origin + script-inert; its srcdoc carries the REAL scoped design css whose mobile block can fire at 375", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const tag = html.match(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*>/)?.[0];
+    expect(tag, "canvas frame tag present").toBeDefined();
+    expect(tag!).toContain('sandbox="allow-same-origin"'); // parent reaches contentDocument; preview scripts stay inert
+    expect(tag!).toContain('class="studio-canvas-frame"');
+    expect(tag!).toContain('data-canvas-frame-viewport="desktop"');
+    const doc = canvasSrcdoc(html);
+    // the srcdoc document embeds the BYTE-IDENTICAL scoped chrome css the
+    // design module emits — including its @media mobile block (the leg cannot
+    // degenerate: the reference css is asserted to carry the block first)
+    const scopedCss = funnelChromeCss(defaultFunnelDesign, `[data-funnel-design="${defaultFunnelDesign.id}"]`);
+    expect(scopedCss).toContain("@media (max-width: 480px)");
+    expect(doc).toContain(scopedCss);
+    // decoration rules live INSIDE the frame document now (the parent page's
+    // stylesheet cannot cross the boundary)
+    expect(doc).toContain(".studio-canvas-render .studio-selected-node");
+    expect(doc).toContain(".studio-frame-badge");
+    expect(doc).toContain(".studio-mapoverlay-chip");
+    // the island wires the frame: load-time delegation re-bind + region
+    // resolution THROUGH contentDocument + the §6.1.4 width swap
+    const island = studioIsland(html);
+    expect(island).toContain("function canvasFrameDoc() {");
+    expect(island).toContain("frame.contentDocument");
+    expect(island).toContain("frame.addEventListener('load', bindCanvasFrameDoc);");
+    expect(island).toContain("frame.style.width = canvasViewport === 'mobile' ? '375px' : '1280px';");
+  });
+
+  it("EXECUTED: the Mobile toggle sizes the frame to 375 (back to 1280) and the live mobile re-render carries the media block INTO the frame document", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const region = { innerHTML: "" };
+    const frameAttrs: Record<string, string> = {};
+    const frame = {
+      style: {} as Record<string, string>,
+      setAttribute(k: string, v: string) {
+        frameAttrs[k] = v;
+      },
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+        body: { scrollHeight: 912 },
+      },
+    };
+    let captured: { url: string; init: RequestInit } | null = null;
+    const sandbox = {
+      state: { content: JSON.parse(JSON.stringify(YESNO_CONTENT)) as unknown },
+      canvasViewport: "mobile",
+      document: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-frame" ? frame : null;
+        },
+      },
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        captured = { url, init };
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      "function applyCanvasDecoration() {}",
+      "function updateCanvasEmpty() {}",
+      "function scheduleCanvasRender() {}",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "canvasRegion"),
+      sliceIslandFunction(island, "updateCanvasFrameViewport"),
+      sliceIslandFunction(island, "updateCanvasFrameHeight"),
+      sliceIslandFunction(island, "renderCanvasNow"),
+      // the §6.1.4 toggle path: size the frame viewport FIRST, then re-render
+      "updateCanvasFrameViewport();",
+      "renderCanvasNow();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && region.innerHTML.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // the frame IS the mobile viewport
+    expect(frame.style["width"]).toBe("375px");
+    expect(frameAttrs["data-canvas-frame-viewport"]).toBe("mobile");
+    // the REAL endpoint round-trip: viewport=mobile rode the POST; the mobile
+    // wrap AND the design css (with the block that can now fire at 375)
+    // landed in the frame document
+    expect(captured, "canvas fetch executed").not.toBeNull();
+    const body = JSON.parse(String(captured!.init.body)) as Record<string, unknown>;
+    expect(body["viewport"]).toBe("mobile");
+    expect(region.innerHTML).toContain("lg-preview-mobile");
+    expect(region.innerHTML).toContain("@media (max-width: 480px)");
+    // the height tracker sizes the frame element to the frame document
+    runInNewContext("updateCanvasFrameHeight();", sandbox);
+    expect(frame.style["height"]).toBe("912px");
+    // desktop round-trip restores the 1280 viewport
+    runInNewContext("canvasViewport = 'desktop'; updateCanvasFrameViewport();", sandbox);
+    expect(frame.style["width"]).toBe("1280px");
+    expect(frameAttrs["data-canvas-frame-viewport"]).toBe("desktop");
+  });
+
+  it("EXECUTED: dragover/drop delegation operates on FRAME-document nodes — insertion hint + palette drop mutate the model through the re-bound path", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // a frame-document-resident canvas node: canvasOwns() must resolve it
+    // through canvasRegion().contains (the parent surface is ABSENT — the
+    // exact contentDocument leg)
+    const target = {
+      className: "",
+      closest(sel: string) {
+        return sel === "[data-question-id]" ? target : null;
+      },
+      getAttribute(k: string) {
+        if (k === "data-question-id") return "q1";
+        if (k === "data-component-type") return "TwoButtonYesNo";
+        return null;
+      },
+      getBoundingClientRect() {
+        return { top: 0, height: 100 };
+      },
+    };
+    const region = {
+      contains(el: unknown) {
+        return el === target;
+      },
+    };
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
+    const probe = studioProbe(html, YESNO_CONTENT, {
+      getElementById(id: string) {
+        return id === "lg-studio-canvas-frame" ? frame : null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    });
+    probe.run(
+      [
+        "var canvasSurface = null;",
+        "var dropHint = null;",
+        "var selected = [];",
+        "function selectComponent(qid) { selected.push(qid); }",
+        "function clearDropClasses() {}",
+        sliceIslandArray(island, "DROP_CLASSES"),
+        sliceIslandFunction(island, "withoutClasses"),
+        sliceIslandFunction(island, "canvasFrameEl"),
+        sliceIslandFunction(island, "canvasFrameDoc"),
+        sliceIslandFunction(island, "canvasRegion"),
+        sliceIslandFunction(island, "canvasOwns"),
+        sliceIslandFunction(island, "onCanvasDragOver"),
+        sliceIslandFunction(island, "onCanvasDrop"),
+      ].join("\n"),
+    );
+    // dragover over the TOP half of the frame-doc node → 'before' hint + the
+    // insertion-indicator class on the node
+    probe.sandbox["dragEv"] = { preventDefault() {}, target, clientY: 10 };
+    probe.run("onCanvasDragOver(dragEv)");
+    expect(probe.run("dropHint.qid")).toBe("q1");
+    expect(probe.run("dropHint.mode")).toBe("before");
+    expect(target.className).toContain("studio-drop-before");
+    // the palette drop (dataTransfer text 'add:<type>' — the library
+    // dragstart payload) lands the component BEFORE q1 in the model
+    probe.sandbox["dropEv"] = {
+      preventDefault() {},
+      target,
+      dataTransfer: {
+        getData() {
+          return "add:HelperText";
+        },
+      },
+    };
+    probe.run("onCanvasDrop(dropEv)");
+    expect(probe.run("state.content.components.map(function (c) { return c.type; })")).toEqual([
+      "HelperText",
+      "TwoButtonYesNo",
+    ]);
+    expect(probe.run("selected.length")).toBe(1); // the drop selected the new node
+    // the mutated model stays valid against the REAL server validator
+    expect(validateSectionContent(probe.sandbox.state.content as never).errors).toEqual([]);
   });
 });
 
@@ -1140,14 +1368,23 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
+    // DEV-66: the region lives in the canvas iframe — the stub models the
+    // contentDocument the sliced canvasRegion() resolves through.
     const region = { innerHTML: "" };
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
     let captured: { url: string; init: RequestInit } | null = null;
     const sandbox = {
       state: { content: JSON.parse(JSON.stringify(YESNO_CONTENT)) as unknown },
       canvasViewport: "desktop", // wave-2 §6.1.4 island state the fn reads
       document: {
         getElementById(id: string) {
-          return id === "lg-studio-canvas-render" ? region : null;
+          return id === "lg-studio-canvas-frame" ? frame : null;
         },
       },
       fetch(url: string, init: RequestInit): Promise<Response> {
@@ -1158,6 +1395,10 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     const source = [
       "function applyCanvasDecoration() {}",
       "function updateCanvasEmpty() {}",
+      "function scheduleCanvasRender() {}",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "canvasRegion"),
       sliceIslandFunction(island, "renderCanvasNow"),
       "renderCanvasNow();",
     ].join("\n");
@@ -3251,9 +3492,9 @@ describeDb("v2.5 §5.1 SSR — the Question strip", () => {
     expect(content.components[0]!["props"]).toBeUndefined(); // bound = NO props.text
     // seeded content validates CLEAN against the REAL server validator
     expect(validateSectionContent(content).errors).toEqual([]);
-    // the SSR canvas rendered the bound nodes (empty text until typed)
-    const start = html.indexOf('id="lg-studio-canvas-render"');
-    const region = html.slice(start, html.indexOf("data-studio-canvas-empty", start));
+    // the SSR canvas rendered the bound nodes (empty text until typed) —
+    // DEV-66: the canvas document rides the frame srcdoc
+    const region = canvasSrcdoc(html);
     expect(region).toContain('data-component-type="QuestionHeadline"');
     expect(region).toContain('data-component-type="Subheadline"');
     // §5.2: while a bound node exists the palette items are disabled with the
@@ -3281,8 +3522,7 @@ describeDb("v2.5 §5.1 SSR — the Question strip", () => {
       content_json: JSON.stringify(BOUND_SEED_CONTENT),
     });
     const boundHtml = await studioPage(env, bound.public_id);
-    const start = boundHtml.indexOf('id="lg-studio-canvas-render"');
-    const region = boundHtml.slice(start, boundHtml.indexOf("data-studio-canvas-empty", start));
+    const region = canvasSrcdoc(boundHtml);
     expect(region).toContain('class="lg-headline"');
     expect(region).toContain("Are you currently insured?");
   });
@@ -3550,14 +3790,22 @@ describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)"
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
+    // DEV-66: the frame-doc stub — the strip inputs stay PARENT-document.
     const region = { innerHTML: "" };
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
     let captured: { url: string; init: RequestInit } | null = null;
     const sandbox = {
       state: { content: JSON.parse(JSON.stringify(BOUND_SEED_CONTENT)) as unknown },
       canvasViewport: "desktop", // wave-2 §6.1.4 island state the fn reads
       document: {
         getElementById(id: string) {
-          if (id === "lg-studio-canvas-render") return region;
+          if (id === "lg-studio-canvas-frame") return frame;
           if (id === "lg-section-headline") return { value: "Live typed headline" };
           if (id === "lg-section-subheadline") return { value: "Live sub copy" };
           return null;
@@ -3571,6 +3819,10 @@ describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)"
     const source = [
       "function applyCanvasDecoration() {}",
       "function updateCanvasEmpty() {}",
+      "function scheduleCanvasRender() {}",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "canvasRegion"),
       sliceIslandFunction(island, "renderCanvasNow"),
       "renderCanvasNow();",
     ].join("\n");
@@ -5006,6 +5258,17 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
     const badge = stubEl("div") as StubEl & { querySelector(sel: string): StubEl | null };
     badge.querySelector = (sel: string): StubEl | null =>
       sel === "[data-funnel-picker]" ? (badge.children.find((c) => c.getAttribute("data-funnel-picker") !== null) ?? null) : null;
+    // DEV-66: the badge is a canvas decoration — renderFunnelPicker resolves
+    // it through the frame document's region, so the stub models the iframe.
+    const region = stubEl("div") as StubEl & { querySelector(sel: string): StubEl | null };
+    region.querySelector = (sel: string): StubEl | null => (sel === '[data-frame-badge="q_hb"]' ? badge : null);
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
     const probe = studioProbe(html, FRAME_NODE_CONTENT, {
       createElement(tag: string) {
         return stubEl(tag);
@@ -5013,14 +5276,14 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
       createTextNode(text: string) {
         return stubEl("#text", text);
       },
-      querySelector(sel: string) {
-        return sel === '[data-frame-badge="q_hb"]' ? badge : null;
+      querySelector() {
+        return null;
       },
       querySelectorAll() {
         return [];
       },
-      getElementById() {
-        return null;
+      getElementById(id: string) {
+        return id === "lg-studio-canvas-frame" ? frame : null;
       },
     });
     probe.sandbox["window"] = {
@@ -5039,6 +5302,9 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
         sliceIslandFunction(island, "moveConfirmMessage"),
         "function doMoveToFrame(qid, funnel) { moved.push(funnel.public_id); }",
         "var moved = [];",
+        sliceIslandFunction(island, "canvasFrameEl"),
+        sliceIslandFunction(island, "canvasFrameDoc"),
+        sliceIslandFunction(island, "canvasRegion"),
         sliceIslandFunction(island, "renderFunnelPicker"),
         sliceIslandFunction(island, "funnelPickBtn"),
         sliceIslandFunction(island, "startMoveToFrame"),
@@ -5199,8 +5465,14 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(html).toMatch(/<textarea id="lg-node-json"[^>]*readonly>/);
     expect(html).toMatch(/<button[^>]*id="lg-node-json-apply" hidden>/);
     expect(html).toContain("data-node-json-edit");
-    // island: dblclick wiring + per-selection re-lock
-    expect(island).toContain("canvasSurface.addEventListener('dblclick', function (ev) {");
+    // island: dblclick wiring + per-selection re-lock. DEV-66: the delegation
+    // is a NAMED handler bound on BOTH roots — the parent surface AND (per
+    // load) the canvas frame's contentDocument, where every node now lives.
+    expect(island).toContain("function onCanvasDblClick(ev) {");
+    expect(island).toContain("target.addEventListener('dblclick', onCanvasDblClick);");
+    expect(island).toContain("if (canvasSurface) { bindCanvasSurface(canvasSurface); }");
+    expect(island).toContain("bindCanvasSurface(doc);");
+    expect(island).toContain("frame.addEventListener('load', bindCanvasFrameDoc);");
     expect(island).toContain("el.setAttribute('contenteditable', 'true');");
     expect(island).toContain("rawEditArmed = false;\n    syncRawJsonMode();");
     const strip = { value: "Old headline" };

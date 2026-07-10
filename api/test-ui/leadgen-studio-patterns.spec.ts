@@ -486,7 +486,7 @@ const TYPE_LABELS: Record<string, string> = {
 // §7.1 scope header (operator label) + the canvas node count (the server
 // re-render carries the new node).
 async function addComponent(page: Page, type: string): Promise<void> {
-  const canvasNodes = page.locator('#lg-studio-canvas-render [data-component-type]');
+  const canvasNodes = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type]');
   const before = await canvasNodes.count();
   await page.locator(`[data-add-component="${type}"]`).click();
   await expect(page.locator('[data-scope-editing-name]')).toHaveText(TYPE_LABELS[type] ?? type);
@@ -690,7 +690,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     await setContentField(page, 'text', 'Get your offers in 2 minutes or less.');
 
     // the bound copy renders on the CANVAS from the ONE store (§5.2)
-    const canvas = page.locator('#lg-studio-canvas-render');
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
     await expect(canvas.locator('h1.lg-headline')).toHaveText('Are you currently insured?');
     await expect(canvas.locator('[data-component-type="Subheadline"]')).toHaveText(
       'It takes under 2 minutes to compare quotes.',
@@ -1121,7 +1121,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await setInternalField(page, 'currently_insured');
 
     // the CANVAS re-renders via the REAL preset renderer (§8.4)
-    const canvas = page.locator('#lg-studio-canvas-render');
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
     await expect(canvas.locator('.lg-yesno button[data-lg-choice="true"]')).toHaveText('Yes, I am');
     await expect(canvas.locator('.lg-yesno button[data-lg-choice="false"]')).toHaveText('Not yet');
     await page.screenshot({ path: `${SHOT_DIR}/flow-yesno-slide.png` });
@@ -1172,7 +1172,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
 
     // author the §6.10 IF/THEN dependency through the visual builder ONLY —
     // selection is announced by the §7.1 scope header (operator label)
-    await page.locator('#lg-studio-canvas-render [data-component-type="DropdownQuestion"]').click();
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="DropdownQuestion"]').click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Dropdown');
     await openInspectorTab(page, 'dependencies');
     await page.locator('[data-inspector-cond="when"]').selectOption('currently_insured');
@@ -1492,7 +1492,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await waitBootPreview(page);
     // §6.4: clicking a choice button focuses the CHOICE scope; the Component
     // pill lifts back to the component whose Choices tab carries the toggle.
-    await page.locator('#lg-studio-canvas-render [data-lg-choice="toyota"]').click();
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-lg-choice="toyota"]').click();
     await expect(page.locator('[data-scope-editing-name]')).toContainText('Answer choice');
     await page.locator('[data-scope-pill="component"]').first().click();
     await expect(page.locator('[data-scope-editing-name]')).toHaveText('Simple answer buttons');
@@ -1765,7 +1765,7 @@ test.describe('LeadGen Studio §9.4 + §8.13 (Slice F)', () => {
     // the legacy Section OPENS in the Studio and RENDERS (§8.13: flat legacy
     // arrays render as the implicit root list — canvas + hydrated preview)
     await page.goto(`/admin/leadgen/sections/${created.public_id}/edit`, { waitUntil: 'domcontentloaded' });
-    const canvas = page.locator('#lg-studio-canvas-render');
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
     await expect(canvas.locator('[data-component-type]')).toHaveCount(7);
     await expect(canvas.locator('[data-component-type="ButtonAnswerGroup"] button[data-lg-choice="acme"]')).toBeVisible();
     await expect(canvas.locator('[data-component-type="RangeQuestion"]')).toBeAttached();

@@ -300,9 +300,12 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain('data-add-component="TwoButtonYesNo"');
     expect(html).toContain('data-add-component="IconCardAnswerGrid"');
     // CENTER: the §8.4 canvas — the seeded component is preset-rendered with
-    // its selection hit-target attribute
+    // its selection hit-target attribute. DEV-66: the canvas document rides
+    // the srcdoc attribute of the canvas iframe (escapeHtml-escaped), so the
+    // hit-target pin asserts the escaped byte form inside that attribute.
     expect(html).toContain("data-studio-canvas");
-    expect(html).toContain('data-question-id="q1"');
+    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*sandbox="allow-same-origin"/);
+    expect(html).toContain("data-question-id=&quot;q1&quot;");
 
     // RIGHT: the §8.6 Design tab — curated token DROPDOWNS only (§14.8; the
     // free-text token inputs are gone, values come from the design's slots).

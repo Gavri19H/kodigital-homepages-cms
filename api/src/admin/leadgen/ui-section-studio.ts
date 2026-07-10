@@ -63,11 +63,16 @@
 // asserted by the ES5 parse test); bootstrap data rides
 // <script type="application/json"> blobs (`<`-escaped); every author value is
 // escapeHtml-escaped; the PREVIEW renders into a sandboxed srcdoc iframe.
-// The CANVAS deliberately injects the preview endpoint's HTML into a live DOM
-// region (§8.1 "rendering via the REAL preset renderer — same srcdoc pipeline
-// as preview, parity by construction"): the markup is OUR OWN server render
-// (presets escape all author content) and the canvas needs real elements for
-// selection hit-targets — the srcdoc-only rule stays for the preview iframe.
+// The CANVAS renders into its OWN same-origin srcdoc iframe as well (DEV-66
+// routed fix): an inline parent-document region can never re-evaluate the
+// design's @media rules, so the mobile block of funnelChromeCss NEVER fired
+// in a wide admin window even when the Mobile toggle server-rendered the
+// mobile wrap. The frame document is a REAL viewport (Desktop 1280 / Mobile
+// 375 — §6.1.4 semantics, the ui-quotes canvas idiom), the markup inside is
+// still OUR OWN preset render (parity by construction), and the island
+// re-binds the §6.2 canvas delegation onto iframe.contentDocument
+// (sandbox="allow-same-origin", scripts inert — the ui-quotes onCanvasClick
+// idiom), so every selection hit-target keeps working.
 //
 // Save path is UNCHANGED from the old island: POST /sections (new) or PATCH
 // /sections/:id with {section_name, activity, vertical, headline_text,
@@ -869,6 +874,67 @@ export function studioCanvasDocument(
   );
 }
 
+// The canvas-frame document's OWN stylesheet (DEV-66): the decoration classes
+// the island injects live INSIDE the srcdoc document now, so their rules must
+// ride the frame shell — the admin page's stylesheet cannot reach into the
+// iframe. Single source: these rules MOVED here from SECTION_STUDIO_STYLES
+// (the parent page keeps only parent-side canvas chrome: surface, skeleton,
+// empty state, frame sizing). The :root block pins the admin custom
+// properties the rules consume; the minimal .btn set styles the §5.4 badge
+// buttons the decoration pass creates.
+export const SECTION_STUDIO_CANVAS_FRAME_CSS = `
+:root{--c-primary:#2563eb;--c-border:#e5e7eb;--c-muted:#6b7280;--c-surface:#fff}
+html,body{margin:0;padding:0;background:#fff}
+.studio-canvas-render [data-question-id]{cursor:pointer}
+.studio-canvas-render .studio-selected-node{outline:2px solid var(--c-primary);outline-offset:2px;border-radius:4px}
+.studio-canvas-render .studio-drop-before{box-shadow:0 -3px 0 0 var(--c-primary)}
+.studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
+.studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
+/* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
+.studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.studio-frame-badge .btn{pointer-events:auto}
+.studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
+/* §8.8 linked-field chips */
+.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+/* §6.2 inline canvas editing + per-choice decoration: selection ring, ghost
+   tile, remove, resize */
+.studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
+.studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
+.studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
+.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
+.studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
+/* §12.3 mapping-overlay chips */
+.studio-mapoverlay-chip{font-size:10px;border-radius:999px;padding:2px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);cursor:pointer;display:inline-block;margin:2px 0}
+.studio-mapoverlay-chip[data-overlay-state="mapped"]{color:#0f5132;background:#d1e7dd;border-color:#badbcc}
+.studio-mapoverlay-chip[data-overlay-state="required-missing"]{color:#842029;background:#f8d7da;border-color:#f5c2c7}
+/* §5.4 move-to-frame funnel picker (renders inside the badge) */
+.studio-funnel-picker{flex-basis:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px}
+/* minimal admin-button skin for the badge affordances inside the frame */
+.btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:6px;background:#fff;color:#111827;cursor:pointer}
+.btn-sm{font-size:11px;padding:2px 8px}
+.btn-outline{background:#fff}
+.btn-danger{background:#dc2626;border-color:#dc2626;color:#fff}
+`;
+
+// §6.1.4 canvas srcdoc shell (DEV-66): a COMPLETE same-origin document whose
+// body mounts the SAME #lg-studio-canvas-render region the island re-renders
+// (the island replaces the mount's markup with style + html per render — the
+// DOCUMENT persists, so the contentDocument delegation bound once per load
+// survives every re-render). The initial content is the SSR
+// studioCanvasDocument — the design css (funnelChromeCss WITH its @media
+// mobile block) rides inside, so the mobile rules can genuinely fire once
+// the frame is sized to 375.
+export function studioCanvasFrameSrcdoc(
+  content: LeadgenSectionContent,
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
+  return (
+    `<!doctype html><html><head><meta charset="utf-8"><style>${SECTION_STUDIO_CANVAS_FRAME_CSS}</style></head>` +
+    `<body><div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div></body></html>`
+  );
+}
+
 // §5.4 "Frame hint": a dimmed, NON-interactive, GENERIC frame skeleton around
 // the unit for spatial context — presentation-only, never editable here (the
 // real frame is Quote-Builder-owned). Toggled by [data-studio-frame-hint].
@@ -1032,7 +1098,7 @@ export function renderStudioCanvas(
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
   <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder; Delete removes; Escape selects the parent">
     ${renderFrameHintSkeleton("top")}
-    <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div>
+    <iframe id="lg-studio-canvas-frame" class="studio-canvas-frame" title="Section canvas" sandbox="allow-same-origin" data-canvas-frame-viewport="desktop" srcdoc="${escapeHtml(studioCanvasFrameSrcdoc(content, design, ctx))}"></iframe>
     ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
   </div>
@@ -1865,11 +1931,10 @@ export const SECTION_STUDIO_STYLES = `
 .studio-refusal{margin:8px 0}
 .studio-canvas-surface{border:1px dashed var(--c-border);border-radius:8px;min-height:320px;padding:12px;position:relative;background:#fff;overflow:auto}
 .studio-canvas-surface:focus-visible{outline:2px solid var(--c-primary);outline-offset:2px}
-.studio-canvas-render [data-question-id]{cursor:pointer}
-.studio-canvas-render .studio-selected-node{outline:2px solid var(--c-primary);outline-offset:2px;border-radius:4px}
-.studio-canvas-render .studio-drop-before{box-shadow:0 -3px 0 0 var(--c-primary)}
-.studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
-.studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
+/* DEV-66: the render region lives in the canvas srcdoc iframe — its viewport
+   IS the §6.1.4 width (island swaps 1280/375); the region-decoration rules
+   moved into SECTION_STUDIO_CANVAS_FRAME_CSS (inside the frame document). */
+.studio-canvas-frame{display:block;border:0;width:1280px;max-width:none;height:320px;margin:0 auto;background:#fff}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
 /* §5.4 frame-hint skeleton: dimmed, generic, NON-interactive (presentation only) */
 .studio-frame-skeleton{opacity:.35;pointer-events:none;user-select:none;margin:0 0 10px}
@@ -1880,10 +1945,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-skel-bar-short{flex:0 0 30%}
 .studio-skel-progress{height:4px;border-radius:2px;background:var(--c-border);margin-top:6px}
 .studio-skel-footer{display:flex;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
-/* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
-.studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.studio-frame-badge .btn{pointer-events:auto}
-.studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
+/* §5.4 amber badge rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §5.1 hidden-in-unit chips next to the strip inputs */
 .studio-hidden-chip{display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px}
 .studio-hidden-show{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:11px;padding:0;text-decoration:underline}
@@ -1891,8 +1953,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-bind-banner{font-size:12px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:8px;padding:8px 10px;margin:0 0 12px}
 .studio-bind-banner-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 0}
 .studio-bind-banner-value{font-weight:600}
-/* §8.8 linked-field chips + key-missing banner */
-.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+/* §8.8 key-missing banner (the linked-field CHIP rule moved into the frame css) */
 .studio-maps-banner{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:6px 10px;margin:0 0 12px}
 /* §7.1 scope header + §7.2 pills */
 .studio-scope-header{border-bottom:1px solid var(--c-border);padding:0 0 8px;margin:0 0 8px;transition:background-color .3s ease}
@@ -1989,12 +2050,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb .studio-crumb-current{color:inherit;text-decoration:none;font-weight:600;cursor:default}
 .studio-toolbar-problems{font-size:11px;color:#842029}
 .studio-control-invalid{outline:2px solid #dc3545;outline-offset:1px}
-/* §6.2 inline canvas editing + choice ops + resize */
-.studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
-.studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
-.studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
-.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
-.studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
+/* §6.2 inline-edit + choice-op rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §9.4 role swatch rows + §9.5 section overrides */
 .studio-role-line{display:flex;gap:6px;align-items:center}
 .studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
@@ -2023,16 +2079,12 @@ export const SECTION_STUDIO_STYLES = `
 .studio-row-status[data-row-status="not-mapped"][data-row-required="true"]{color:#842029;background:#f8d7da;border:0}
 .studio-mapping-advanced{margin:8px 0}
 .studio-mapping-advanced-list{font-size:11px;color:var(--c-muted);margin:4px 0;padding-left:18px}
-/* §12.3 canvas mapping overlay chips */
-.studio-mapoverlay-chip{font-size:10px;border-radius:999px;padding:2px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);cursor:pointer;display:inline-block;margin:2px 0}
-.studio-mapoverlay-chip[data-overlay-state="mapped"]{color:#0f5132;background:#d1e7dd;border-color:#badbcc}
-.studio-mapoverlay-chip[data-overlay-state="required-missing"]{color:#842029;background:#f8d7da;border-color:#f5c2c7}
+/* §12.3 overlay-chip rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §7.3 provider-values chip (C1) */
 .studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
 .studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
 .studio-provider-rows a{font-size:11px}
-/* §5.4 move-to-frame funnel picker */
-.studio-funnel-picker{flex-basis:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px}
+/* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* choice rows: depth fields wrap */
 .lg-choice-row{position:relative}
 .lg-choice-row .studio-choice-reorder{display:inline-flex;gap:2px}
@@ -3384,6 +3436,42 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- canvas: server re-render (debounced) + selection overlay ---------------
+  // DEV-66: the render region lives inside the canvas srcdoc iframe (a REAL
+  // viewport — the design's mobile @media block can genuinely fire at 375).
+  // The document persists across re-renders (only the mount's markup is
+  // replaced), so the delegation bound once per LOADED document survives.
+  function canvasFrameEl() { return document.getElementById('lg-studio-canvas-frame'); }
+  function canvasFrameDoc() {
+    var frame = canvasFrameEl();
+    if (!frame) { return null; }
+    try {
+      if (frame.contentDocument) { return frame.contentDocument; }
+      if (frame.contentWindow && frame.contentWindow.document) { return frame.contentWindow.document; }
+    } catch (eDoc) { return null; }
+    return null;
+  }
+  function canvasRegion() {
+    var doc = canvasFrameDoc();
+    if (!doc || !doc.getElementById) { return null; }
+    return doc.getElementById('lg-studio-canvas-render');
+  }
+  // §6.1.4: the frame element IS the canvas viewport — Desktop 1280 /
+  // Mobile 375 (the ui-quotes setCanvasDoc idiom).
+  function updateCanvasFrameViewport() {
+    var frame = canvasFrameEl();
+    if (!frame) { return; }
+    frame.style.width = canvasViewport === 'mobile' ? '375px' : '1280px';
+    frame.setAttribute('data-canvas-frame-viewport', canvasViewport);
+  }
+  // The iframe cannot auto-size to its content — track the document height
+  // after every render/decoration pass (320px floor = the surface min-height).
+  function updateCanvasFrameHeight() {
+    var frame = canvasFrameEl();
+    var doc = canvasFrameDoc();
+    if (!frame || !doc || !doc.body) { return; }
+    var h = doc.body.scrollHeight || 0;
+    frame.style.height = (h > 320 ? h : 320) + 'px';
+  }
   var canvasTimer = null;
   function scheduleCanvasRender() {
     if (canvasTimer) { clearTimeout(canvasTimer); }
@@ -3395,8 +3483,10 @@ export const SECTION_STUDIO_SCRIPT = `
     }, 300);
   }
   function renderCanvasNow() {
-    var region = document.getElementById('lg-studio-canvas-render');
-    if (!region) { return; }
+    var region = canvasRegion();
+    // the srcdoc document may not have loaded yet — retry on the debounce
+    // cadence; the load binding (bindCanvasFrameDoc) restores decoration.
+    if (!region) { scheduleCanvasRender(); return; }
     // §5.2 one store, two views: the strip values ride every canvas render so
     // BOUND QuestionHeadline/Subheadline nodes show the live canonical text
     // (the preview handler threads body.headline/body.subheadline into
@@ -3552,7 +3642,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   function applyCanvasDecoration() {
-    var region = document.getElementById('lg-studio-canvas-render');
+    var region = canvasRegion();
     if (!region) { return; }
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
@@ -3592,9 +3682,11 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     decorateChoiceCards(region);
     decorateMappingOverlay(region);
+    // badges/chips/handles change the document height — keep the frame sized.
+    updateCanvasFrameHeight();
   }
   function clearDropClasses() {
-    var region = document.getElementById('lg-studio-canvas-render');
+    var region = canvasRegion();
     if (!region) { return; }
     var marked = region.querySelectorAll('.studio-drop-before, .studio-drop-after, .studio-drop-into');
     var i;
@@ -5467,7 +5559,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // §5.4 used-by-many: a picker listing the funnels; applying to the chosen
   // one (the confirm still names it) and deleting from the Section only after.
   function renderFunnelPicker(qid, funnels) {
-    var badge = document.querySelector('[data-frame-badge="' + qid + '"]');
+    // the badge is a canvas decoration — it lives INSIDE the frame document.
+    var region = canvasRegion();
+    var badge = region ? region.querySelector('[data-frame-badge="' + qid + '"]') : null;
     if (!badge) { return; }
     var oldPicker = badge.querySelector('[data-funnel-picker]');
     if (oldPicker) { badge.removeChild(oldPicker); return; }
@@ -5640,10 +5734,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- canvas events: select / drag-drop / keyboard reorder -----------------------
+  // DEV-66: the SAME named handlers bind TWICE — on the parent surface (frame
+  // hint gutter, palette drops past the frame, keyboard on the focused
+  // surface) AND on the srcdoc iframe's contentDocument (every node/choice
+  // hit-target now lives there — the ui-quotes onCanvasClick idiom). The
+  // document persists across region re-renders, so one binding per loaded
+  // document is enough.
   var dropHint = null;
   var canvasSurface = document.getElementById('lg-studio-canvas');
-  if (canvasSurface) {
-    canvasSurface.addEventListener('click', function (ev) {
+  // ownership check that spans BOTH roots (contains() never crosses the
+  // document boundary).
+  function canvasOwns(el) {
+    if (!el) { return false; }
+    if (canvasSurface && canvasSurface.contains && canvasSurface.contains(el)) { return true; }
+    var region = canvasRegion();
+    return !!(region && region.contains && region.contains(el));
+  }
+  function onCanvasClick(ev) {
       // §5.4 amber-badge actions (the badge is a sibling of the node, so the
       // component-select path below never fires for it). Keep (legacy) = NO
       // model change — session-local acknowledgement only; the C2 activation
@@ -5681,7 +5788,7 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!el || !canvasSurface.contains(el)) { return; }
+      if (!el || !canvasOwns(el)) { return; }
       ev.preventDefault();
       // §6.2/§6.4: clicking a card/button selects the CHOICE, not just the
       // component (the inspector opens the Choices tab at that row).
@@ -5691,12 +5798,12 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       selectComponent(el.getAttribute('data-question-id'));
-    });
-    // §6.2 inline text editing on double-click: bound/label/helper text writes
-    // the bound column or props; a choice card edits its label.
-    canvasSurface.addEventListener('dblclick', function (ev) {
+  }
+  // §6.2 inline text editing on double-click: bound/label/helper text writes
+  // the bound column or props; a choice card edits its label.
+  function onCanvasDblClick(ev) {
       var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!host || !canvasSurface.contains(host)) { return; }
+      if (!host || !canvasOwns(host)) { return; }
       var qid = host.getAttribute('data-question-id');
       var ref = findRef(qid);
       if (!ref) { return; }
@@ -5714,25 +5821,39 @@ export const SECTION_STUDIO_SCRIPT = `
         committer = function (text) { commitInlineText(qid, key, text); };
       }
       startInlineEdit(editEl, committer);
-    });
-    // §6.2 container resize handles snap to the width presets only.
-    canvasSurface.addEventListener('mousedown', function (ev) {
+  }
+  // §6.2 container resize handles snap to the width presets only. The handle
+  // lives in the frame document; the release may land in EITHER document
+  // (pointer dragged out of the iframe) — listen on both, translate a
+  // parent-side clientX into frame coordinates via the frame's rect.
+  function onCanvasMouseDown(ev) {
       var handle = ev.target && ev.target.closest ? ev.target.closest('[data-resize-handle]') : null;
       if (!handle) { return; }
       ev.preventDefault();
       var qid = handle.getAttribute('data-resize-handle');
       var startX = ev.clientX;
-      function onUp(upEv) {
-        document.removeEventListener('mouseup', onUp);
+      var innerDoc = canvasFrameDoc();
+      var startedInFrame = !!(innerDoc && handle.ownerDocument === innerDoc);
+      function finishUp(upEv, viaParent) {
+        if (innerDoc && innerDoc.removeEventListener) { innerDoc.removeEventListener('mouseup', onUpInner); }
+        document.removeEventListener('mouseup', onUpOuter);
+        var endX = upEv.clientX;
+        var frame = canvasFrameEl();
+        if (startedInFrame && viaParent && frame && frame.getBoundingClientRect) {
+          endX = upEv.clientX - frame.getBoundingClientRect().left;
+        }
         var ref = findRef(qid);
         if (!ref) { return; }
         var props = ensureObj(ref.node, 'props');
-        var next = snapWidthPreset(typeof props.width === 'string' ? props.width : 'm', upEv.clientX - startX);
+        var next = snapWidthPreset(typeof props.width === 'string' ? props.width : 'm', endX - startX);
         if (next !== props.width) { props.width = next; afterModelChange(); }
       }
-      document.addEventListener('mouseup', onUp);
-    });
-    canvasSurface.addEventListener('dragstart', function (ev) {
+      function onUpInner(upEv) { finishUp(upEv, false); }
+      function onUpOuter(upEv) { finishUp(upEv, true); }
+      if (innerDoc && innerDoc.addEventListener) { innerDoc.addEventListener('mouseup', onUpInner); }
+      document.addEventListener('mouseup', onUpOuter);
+  }
+  function onCanvasDragStart(ev) {
       // §6.2: dragging a CHOICE card reorders choices within its component.
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && ev.dataTransfer) {
@@ -5745,12 +5866,12 @@ export const SECTION_STUDIO_SCRIPT = `
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !ev.dataTransfer) { return; }
       ev.dataTransfer.setData('text/plain', 'move:' + el.getAttribute('data-question-id'));
-    });
-    canvasSurface.addEventListener('dragover', function (ev) {
+  }
+  function onCanvasDragOver(ev) {
       ev.preventDefault();
       clearDropClasses();
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!el || !canvasSurface.contains(el)) { dropHint = { qid: null, mode: 'append' }; return; }
+      if (!el || !canvasOwns(el)) { dropHint = { qid: null, mode: 'append' }; return; }
       var qid = el.getAttribute('data-question-id');
       var type = el.getAttribute('data-component-type');
       var rect = el.getBoundingClientRect();
@@ -5765,8 +5886,8 @@ export const SECTION_STUDIO_SCRIPT = `
         dropHint = { qid: qid, mode: 'after' };
         el.className = withoutClasses(el.className, DROP_CLASSES) + ' studio-drop-after';
       }
-    });
-    canvasSurface.addEventListener('drop', function (ev) {
+  }
+  function onCanvasDrop(ev) {
       ev.preventDefault();
       clearDropClasses();
       var data = ev.dataTransfer ? ev.dataTransfer.getData('text/plain') : '';
@@ -5804,9 +5925,13 @@ export const SECTION_STUDIO_SCRIPT = `
         } else { moveNodeTo(payload, null, null); }
         selectComponent(payload);
       }
-    });
-    canvasSurface.addEventListener('keydown', function (ev) {
+  }
+  function onCanvasKeyDown(ev) {
       if (!selectedQuestionId) { return; }
+      // §6.2 inline editing owns the keys while a contenteditable session is
+      // open (Enter commit / Escape cancel are element-level — never reorder
+      // or walk the selection mid-edit).
+      if (inlineEditing) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
       // §6.2: Del deletes the selection; Esc walks UP the ancestry.
@@ -5819,8 +5944,38 @@ export const SECTION_STUDIO_SCRIPT = `
         var upRef = findRef(selectedQuestionId);
         selectComponent(upRef && upRef.parent ? upRef.parent.question_id : null);
       }
-    });
   }
+  // ONE binder, two roots: the parent surface and (per load) the frame doc.
+  function bindCanvasSurface(target) {
+    if (!target || !target.addEventListener) { return; }
+    target.addEventListener('click', onCanvasClick);
+    target.addEventListener('dblclick', onCanvasDblClick);
+    target.addEventListener('mousedown', onCanvasMouseDown);
+    target.addEventListener('dragstart', onCanvasDragStart);
+    target.addEventListener('dragover', onCanvasDragOver);
+    target.addEventListener('drop', onCanvasDrop);
+    target.addEventListener('keydown', onCanvasKeyDown);
+  }
+  if (canvasSurface) { bindCanvasSurface(canvasSurface); }
+  // Bind the frame document exactly once per LOADED srcdoc document: the
+  // 'load' listener catches a late load, the immediate call an already-loaded
+  // one; the mount check skips the transient about:blank document.
+  var canvasDocBound = null;
+  function bindCanvasFrameDoc() {
+    var doc = canvasFrameDoc();
+    if (!doc || doc === canvasDocBound) { return; }
+    if (!doc.getElementById || !doc.getElementById('lg-studio-canvas-render')) { return; }
+    canvasDocBound = doc;
+    bindCanvasSurface(doc);
+    applyCanvasDecoration();
+    updateCanvasFrameViewport();
+    updateCanvasFrameHeight();
+  }
+  (function () {
+    var frame = canvasFrameEl();
+    if (frame && frame.addEventListener) { frame.addEventListener('load', bindCanvasFrameDoc); }
+    bindCanvasFrameDoc();
+  })();
 
   // --- §6.1 canvas toolbar (always visible; clusters per the §6.5 matrix) --------
   var toolbarEl = document.querySelector('[data-studio-selection-toolbar]');
@@ -5980,6 +6135,10 @@ export const SECTION_STUDIO_SCRIPT = `
         all[k].className = isOn ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-secondary';
         all[k].setAttribute('aria-pressed', isOn ? 'true' : 'false');
       }
+      // DEV-66: the frame element IS the viewport — size it FIRST so the
+      // design's @media rules evaluate at the real width (375/1280), then
+      // fetch the server render for that viewport.
+      updateCanvasFrameViewport();
       renderCanvasNow();
     });
   }
