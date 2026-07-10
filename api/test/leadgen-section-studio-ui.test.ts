@@ -453,6 +453,82 @@ describeDb("DEV-66 — canvas srcdoc iframe (§6.1.4 real viewports)", () => {
     expect(frameAttrs["data-canvas-frame-viewport"]).toBe("desktop");
   });
 
+  it("EXECUTED: in-frame image loads re-run the height tracker — bindCanvasFrameDoc binds ONE capture-phase load delegate per loaded document", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the wiring point is bindCanvasFrameDoc (same lifetime as the surface
+    // delegation) and it MUST ride the capture phase — img 'load' never bubbles
+    expect(island).toContain("doc.addEventListener('load', onFrameDocLoadCapture, true);");
+
+    const region = { innerHTML: "" };
+    const loadListeners: Array<{ fn: (ev: unknown) => unknown; capture: boolean }> = [];
+    let docHeight = 480;
+    const doc = {
+      getElementById(id: string) {
+        return id === "lg-studio-canvas-render" ? region : null;
+      },
+      addEventListener(type: string, fn: (ev: unknown) => unknown, capture?: boolean) {
+        if (type === "load") loadListeners.push({ fn, capture: capture === true });
+      },
+      body: {
+        get scrollHeight() {
+          return docHeight;
+        },
+      },
+    };
+    const frame = {
+      style: {} as Record<string, string>,
+      setAttribute() {
+        /* viewport attr — not under test */
+      },
+      contentDocument: doc,
+    };
+    const sandbox = {
+      canvasViewport: "desktop",
+      document: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-frame" ? frame : null;
+        },
+      },
+    };
+    const source = [
+      "function bindCanvasSurface() {}",
+      "function applyCanvasDecoration() {}",
+      "var canvasDocBound = null;",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "updateCanvasFrameViewport"),
+      sliceIslandFunction(island, "updateCanvasFrameHeight"),
+      sliceIslandFunction(island, "onFrameDocLoadCapture"),
+      sliceIslandFunction(island, "bindCanvasFrameDoc"),
+      "bindCanvasFrameDoc();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+
+    // bound exactly once, capture phase, and the pass-time height was applied
+    expect(loadListeners).toHaveLength(1);
+    expect(loadListeners[0]!.capture, "img load does not bubble — capture required").toBe(true);
+    expect(frame.style["height"]).toBe("480px");
+    // re-binding the SAME loaded document is a no-op (once per document)
+    runInNewContext("bindCanvasFrameDoc();", sandbox);
+    expect(loadListeners).toHaveLength(1);
+
+    // an in-frame <img> finishes loading AFTER the render pass → the document
+    // grows → the delegated capture listener re-runs the tracker
+    docHeight = 912;
+    loadListeners[0]!.fn({ target: { tagName: "IMG" } });
+    expect(frame.style["height"]).toBe("912px");
+    // a non-image subresource load never recomputes (the delegate filters)
+    docHeight = 1500;
+    loadListeners[0]!.fn({ target: { tagName: "LINK" } });
+    expect(frame.style["height"]).toBe("912px");
+    // …and the lowercase tagName shape (foreign-doc defensiveness) still counts
+    loadListeners[0]!.fn({ target: { tagName: "img" } });
+    expect(frame.style["height"]).toBe("1500px");
+  });
+
   it("EXECUTED: dragover/drop delegation operates on FRAME-document nodes — insertion hint + palette drop mutate the model through the re-bound path", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
@@ -5561,6 +5637,103 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(ta.getAttribute("readonly")).toBe(null);
     expect(applyBtn.hidden).toBe(false);
     expect(editBtn.hidden).toBe(true);
+  });
+
+  it("§6.2 Escape ends the inline edit WITHOUT walking the selection — onKey stops propagation before the doc-level handler", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the wiring: BOTH terminating keys are stopped at the element (finish()
+    // clears inlineEditing before the bubble, so the doc guard alone can't)
+    expect(island).toContain("keyEv.preventDefault(); keyEv.stopPropagation(); finish(false);");
+    expect(island).toContain("keyEv.preventDefault(); keyEv.stopPropagation(); finish(true);");
+
+    type Handler = (ev: unknown) => unknown;
+    const committed: string[] = [];
+    const renders: number[] = [];
+    const selections: Array<string | null> = [];
+    const el = {
+      attrs: {} as Record<string, string>,
+      handlers: {} as Record<string, Handler[]>,
+      textContent: "Edited copy",
+      setAttribute(n: string, v: string) {
+        this.attrs[n] = v;
+      },
+      removeAttribute(n: string) {
+        delete this.attrs[n];
+      },
+      addEventListener(t: string, f: Handler) {
+        (this.handlers[t] = this.handlers[t] ?? []).push(f);
+      },
+      removeEventListener(t: string, f: Handler) {
+        const a = this.handlers[t] ?? [];
+        const at = a.indexOf(f);
+        if (at >= 0) a.splice(at, 1);
+      },
+      focus() {
+        /* noop */
+      },
+    };
+    const probe = studioProbe(html, NESTED_CONTENT);
+    probe.sandbox["el"] = el;
+    probe.sandbox["committed"] = committed;
+    probe.sandbox["renders"] = renders;
+    probe.sandbox["selections"] = selections;
+    probe.run(
+      [
+        "var inlineEditing = false;",
+        "function scheduleCanvasRender() { renders.push(1); }",
+        "function selectComponent(qid) { selectedQuestionId = qid; selections.push(qid); }",
+        sliceIslandFunction(island, "startInlineEdit"),
+        sliceIslandFunction(island, "onCanvasKeyDown"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "bag1"; // nested: bag1 → stack1 → panel1
+
+    // the DOM bubble contract: element listeners first, the document handler
+    // ONLY if propagation was not stopped — both handlers are the REAL code.
+    const bubble = (key: string): boolean => {
+      let stopped = false;
+      const ev = {
+        key,
+        preventDefault() {
+          /* noop */
+        },
+        stopPropagation() {
+          stopped = true;
+        },
+      };
+      probe.sandbox["ev"] = ev;
+      for (const h of [...(el.handlers["keydown"] ?? [])]) h(ev);
+      if (!stopped) probe.run("onCanvasKeyDown(ev)");
+      return stopped;
+    };
+
+    expect(probe.run("startInlineEdit(el, function (text) { committed.push(text); })")).toBe(true);
+    expect(el.attrs["contenteditable"]).toBe("true");
+    expect(probe.run("inlineEditing")).toBe(true);
+
+    // Escape: the edit CANCELS (no commit, lock restored, stale draft
+    // repainted) and the selection NEVER walks to the parent.
+    expect(bubble("Escape"), "onKey stopped the Escape at the element").toBe(true);
+    expect(probe.run("inlineEditing")).toBe(false);
+    expect(el.attrs["contenteditable"]).toBeUndefined();
+    expect(committed).toEqual([]);
+    expect(renders.length, "cancel repaints the canvas (stale draft text)").toBeGreaterThan(0);
+    expect(selections, "selection unchanged — the doc handler never ran").toEqual([]);
+    expect(probe.sandbox.selectedQuestionId).toBe("bag1");
+
+    // Enter: commits through the SAME stopped path (selection untouched too).
+    expect(probe.run("startInlineEdit(el, function (text) { committed.push(text); })")).toBe(true);
+    expect(bubble("Enter"), "onKey stopped the Enter at the element").toBe(true);
+    expect(committed).toEqual(["Edited copy"]);
+    expect(selections).toEqual([]);
+
+    // calibration — the stop is LOAD-BEARING: the same Escape arriving at the
+    // doc handler OUTSIDE an edit session walks the selection up the ancestry.
+    probe.run("onCanvasKeyDown({ key: 'Escape', preventDefault: function () {} })");
+    expect(selections).toEqual(["stack1"]);
   });
 });
 

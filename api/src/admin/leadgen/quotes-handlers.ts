@@ -393,11 +393,17 @@ type VariantSectionRow = Omit<OrderedVariantSection, "mapping_status"> & {
 };
 
 // DEV-59: decode the aggregate counts into the structure-panel tri-state.
-// Parity contract: this is the SQL form of the ui-sections mappingSummaryOf /
-// sectionValidationStatus verdict — a section is `complete` only when every
-// linked Offer row is mapping_state='complete' AND no answer-map edge is
-// non-complete (type_mismatch / orphaned / incomplete all make the section
-// NOT publishable, i.e. `incomplete` here); no linked Offers at all → `none`.
+// Parity contract: this is the SQL form of the sections LIST badge —
+// listSectionsHandler's overallCompleteness (worst state across the Section's
+// linked Offer rows; its 4th state `invalid` folds into the dot's amber) —
+// strengthened by the fourth aggregate: any non-complete answer-map edge also
+// turns the dot amber (mappingSummaryOf's per-edge leg). It is deliberately
+// NOT the §12.11 publish verdict (sectionValidationStatus): a `selected` row
+// with required_fields_total=0 IS publishable per that gate, but the dot
+// keeps the Sections-list amber for it — an Offer linked with mapping not
+// started is a workflow nudge, and one section must show ONE color across
+// both admin surfaces (corner pinned by the DEV-59 dot tests). No linked
+// Offers at all → `none`.
 function variantSectionMappingStatus(row: VariantSectionRow): OrderedVariantSection["mapping_status"] {
   if (Number(row.mapped_offer_count ?? 0) === 0) return "none";
   if (
@@ -2000,11 +2006,16 @@ async function composedVariantPreviewResponse(
     } else if (!isRecord(raw)) {
       fields["draft_frame_overrides"] = "draft_frame_overrides must be a JSON object or null";
     } else {
-      let structurallyValid = true;
+      // The stored PUT's assignment idiom, mirrored locally: collect THIS
+      // key's problems and assign the draft only when NONE is an error — the
+      // raw is never held as a schema-invalid draft. (The shared error gate
+      // below 400s the request in exactly those cases, so behavior is
+      // unchanged; this keeps the validity local and non-accidental instead
+      // of leaning on that distant gate.)
+      const overridesProblems: Problem[] = [];
       for (const funnelLevelKey of ["template", "version"] as const) {
         if (raw[funnelLevelKey] !== undefined) {
-          structurallyValid = false;
-          problems.push({
+          overridesProblems.push({
             path: `frame_overrides.${funnelLevelKey}`,
             scope: "frame",
             severity: "error",
@@ -2016,21 +2027,21 @@ async function composedVariantPreviewResponse(
         }
       }
       const { theme: themePart, ...frameParts } = raw;
-      problems.push(...validateFrameConfig(frameParts).problems);
+      overridesProblems.push(...validateFrameConfig(frameParts).problems);
       if (themePart !== undefined) {
         if (!isRecord(themePart)) {
-          structurallyValid = false;
-          problems.push({
+          overridesProblems.push({
             path: "theme",
             scope: "theme",
             severity: "error",
             message: "The variant theme overrides must be a group of palette colours.",
           });
         } else {
-          problems.push(...validateTheme(themePart).problems);
+          overridesProblems.push(...validateTheme(themePart).problems);
         }
       }
-      if (structurallyValid) draftFrameOverrides = raw;
+      problems.push(...overridesProblems);
+      if (!overridesProblems.some((p) => p.severity === "error")) draftFrameOverrides = raw;
     }
   }
 
@@ -3164,7 +3175,13 @@ async function computeVariantV25Problems(
               path: `section.${row.public_id}.content`,
               scope: "section",
               severity: "error",
-              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them or enable the legacy override under Advanced.`,
+              // §14.1 copy pattern in full — the remedy names the Section
+              // Builder's [Move to Quote frame] action (message text only;
+              // fix_url stays the [Review slide] section-edit deep link).
+              // "Slide" is LEGAL here: this copy renders on Quote-Builder
+              // activation surfaces (preflight panel / 409 problems), never
+              // on a Section-Builder page (C6 lint scope).
+              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to Quote frame] in the Section Builder) or enable the legacy override under Advanced.`,
               fix_url: fixSection,
             },
       );

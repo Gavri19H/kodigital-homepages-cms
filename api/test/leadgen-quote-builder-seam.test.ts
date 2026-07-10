@@ -1584,6 +1584,14 @@ describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", 
     // Next → a NEW lazy fetch for page 2 (the eager flow would swap locally)
     const mid = studio.calls.length;
     studio.fire(studio.byId("lg-step-next"), "click");
+    // label-after-response ordering: the click issues the per-step fetch but
+    // the label must NOT move optimistically — a promise can never resolve
+    // synchronously, so right here the page-2 response has not landed and
+    // the label still names the CURRENT step (it updates in renderPreview's
+    // completion path, together with the canvas).
+    expect(textOf(studio.byId("lg-step-label")), "label unchanged while the page-2 fetch is in flight").toBe(
+      "Slide 1 of 9",
+    );
     await studio.settle();
     const second = studio.calls.slice(mid).filter((c) => c.url.endsWith("/preview"));
     expect(second).toHaveLength(1);

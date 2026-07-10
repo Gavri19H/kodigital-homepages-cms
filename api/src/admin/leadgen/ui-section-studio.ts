@@ -2818,8 +2818,13 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     function onBlur() { finish(true); }
     function onKey(keyEv) {
-      if (keyEv.key === 'Enter') { keyEv.preventDefault(); finish(true); }
-      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); finish(false); }
+      // The terminating keys are consumed HERE — stop propagation so the
+      // doc-level onCanvasKeyDown never sees them: finish() clears
+      // inlineEditing BEFORE the event bubbles up, so under that handler's
+      // flag guard alone the Escape that cancels the edit would ALSO walk
+      // the selection to the parent.
+      if (keyEv.key === 'Enter') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(true); }
+      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(false); }
     }
     el.addEventListener('blur', onBlur);
     el.addEventListener('keydown', onKey);
@@ -3471,6 +3476,17 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!frame || !doc || !doc.body) { return; }
     var h = doc.body.scrollHeight || 0;
     frame.style.height = (h > 320 ? h : 320) + 'px';
+  }
+  // In-frame images finish loading AFTER the render pass measured the
+  // document, so the pass-time height misses their laid-out size. One
+  // DELEGATED listener per loaded frame document (bound in
+  // bindCanvasFrameDoc, the same lifetime as the surface delegation):
+  // img 'load' events do not bubble, so it rides the CAPTURE phase.
+  function onFrameDocLoadCapture(ev) {
+    var t = ev ? ev.target : null;
+    if (t && t.tagName && String(t.tagName).toUpperCase() === 'IMG') {
+      updateCanvasFrameHeight();
+    }
   }
   var canvasTimer = null;
   function scheduleCanvasRender() {
@@ -5928,9 +5944,11 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function onCanvasKeyDown(ev) {
       if (!selectedQuestionId) { return; }
-      // §6.2 inline editing owns the keys while a contenteditable session is
-      // open (Enter commit / Escape cancel are element-level — never reorder
-      // or walk the selection mid-edit).
+      // §6.2 inline editing owns the keys: this flag skips keys typed
+      // MID-edit; the session-TERMINATING Enter/Escape never reach here at
+      // all — onKey stops their propagation at the element (finish() clears
+      // the flag before the bubble arrives, so the flag alone could not stop
+      // the cancelling Escape from ALSO walking the selection).
       if (inlineEditing) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
@@ -5967,6 +5985,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!doc.getElementById || !doc.getElementById('lg-studio-canvas-render')) { return; }
     canvasDocBound = doc;
     bindCanvasSurface(doc);
+    // DEV-66 height tracker: recompute when in-frame images load (capture —
+    // img 'load' does not bubble). Bound once per LOADED document, like the
+    // surface delegation above.
+    doc.addEventListener('load', onFrameDocLoadCapture, true);
     applyCanvasDecoration();
     updateCanvasFrameViewport();
     updateCanvasFrameHeight();

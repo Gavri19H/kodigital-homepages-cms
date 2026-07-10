@@ -19,9 +19,14 @@
 //   5. cache impact — served leg (E5: cache-bust ≠ served): the warm KV shell
 //      is NOT re-served after a logo edit — the second /lg render carries the
 //      NEW logo <img> and a SECOND distinct lg-shell key appears whose
-//      activation_version segment equals the bumped updated_at.
+//      activation_version segment equals the bumped updated_at;
+//   6. the SECOND branding write path — the ai-logo apply (REAL POST
+//      /api/admin/ai/logo, generation mocked at the OpenAI fetch boundary,
+//      everything below it real: D1 receipts + media row + setting upsert):
+//      THIS site's activation rows bump, ANOTHER site's rows stay byte-equal,
+//      and a site with NO activation rows is a clean no-op.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -170,13 +175,17 @@ const SLUG = "brand-bump";
 // site_settings mirrors the REAL migration shape (0003: composite UNIQUE the
 // PATCH UPSERT's ON CONFLICT(site_id, key) resolves against). sites carries
 // settings_version + updated_at (both written by the PATCH handler's bump).
+// media + ai_generations mirror 0008's typed-receipts shape (leg 6 drives the
+// REAL logo generator: media UPSERT ON CONFLICT(storage_key) RETURNING id,
+// receipts INSERT + success finisher by idempotency_key).
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
   const sdb = new DatabaseSync(":memory:");
   runSql(
     sdb,
     "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1, updated_at INTEGER DEFAULT 0);" +
       "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
-      "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
+      "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, storage_key TEXT UNIQUE, mime_type TEXT, size_bytes INTEGER, alt_text TEXT, folder TEXT, site_id TEXT, ai_generation_id TEXT);" +
+      "CREATE TABLE ai_generations (id TEXT PRIMARY KEY, site_id TEXT, task TEXT NOT NULL, provider TEXT NOT NULL DEFAULT 'openai', model TEXT NOT NULL, prompt_version TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, request_json TEXT, response_json TEXT, parsed_json TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','success','failed','fallback','skipped_no_api_key')), target_type TEXT, target_id TEXT, error_message TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()));" +
       "CREATE TABLE site_settings (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, key TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(site_id, key));" +
       "INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','one.example.com','insurance','active');" +
       "INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-2','Site Two','two.example.com','insurance','active');" +
@@ -429,7 +438,7 @@ describeDb("10 §10.2 — branding settings save bumps the activation_version ca
     expect(keyAfter.endsWith(`:${after}`)).toBe(true);
   });
 
-  it("served-shell leg: after a logo edit the warm cache is NOT re-served — the new render bakes the new logo under a SECOND distinct shell key", async () => {
+  it("served-shell leg (leg 5): after a logo edit the warm cache is NOT re-served — the new render bakes the new logo under a SECOND distinct shell key", async () => {
     const h = await seedActivated();
     forceActivationVersion(h.sdb, "site-1", 1111);
 
@@ -464,5 +473,141 @@ describeDb("10 §10.2 — branding settings save bumps the activation_version ca
     const newKeys = keys2.filter((k) => !keys1.includes(k));
     expect(newKeys).toHaveLength(1);
     expect(newKeys[0]!.endsWith(`:${bumped}`), "the new key rides the bumped activation_version").toBe(true);
+  });
+});
+
+// ===========================================================================
+// Leg 6 — the SECOND §10.2 branding write path: the admin ai-logo apply
+// (ai-logo.ts calls the SAME bumpLeadGenActivationVersionForBranding after
+// its logo_media_id setting write). Generation is mocked ONLY at the OpenAI
+// fetch boundary (the admin-ai-image.test.ts stub); everything below it is
+// the REAL route over the REAL tables — receipts row, R2 put, media UPSERT,
+// setting upsert, then the parameterized bump.
+// ===========================================================================
+
+// R2 put-recording stub (the generator PUTs the logo bytes before the media
+// row insert — leg 6 asserts the put happened under the returned key).
+function makeMediaStub(): { media: R2Bucket; puts: Array<{ key: string }> } {
+  const puts: Array<{ key: string }> = [];
+  const bucket = {
+    async put(key: string): Promise<null> {
+      puts.push({ key });
+      return null;
+    },
+  };
+  return { media: bucket as unknown as R2Bucket, puts };
+}
+
+// Arm the harness env for the ai-logo route: a key (the 501 gate), the LOCKED
+// image model (buildEnv's "img-test" placeholder would 500 at the route's
+// getImageModel gate) and a working MEDIA bucket.
+function armAiLogo(env: Env): { puts: Array<{ key: string }> } {
+  const { media, puts } = makeMediaStub();
+  const mutable = env as unknown as Record<string, unknown>;
+  mutable["OPENAI_API_KEY"] = "sk-test";
+  mutable["OPENAI_IMAGE_MODEL"] = "gpt-image-2";
+  mutable["MEDIA"] = media;
+  return { puts };
+}
+
+const FAKE_LOGO_B64 = Buffer.from("brand-bump-logo-bytes").toString("base64");
+
+// Outbound OpenAI traffic is a stubbed global fetch — no network leaves the
+// test; the in-process admin/app.request calls never touch global fetch.
+function stubOpenAIFetch(): ReturnType<typeof vi.fn> {
+  const impl = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ data: [{ b64_json: FAKE_LOGO_B64 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  );
+  vi.stubGlobal("fetch", impl);
+  return impl;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+// Full-row snapshot (not just updated_at) — the isolation assertion is
+// BYTE-equality of the other tenant's activation rows.
+function activationRows(sdb: SqliteDb, siteId: string): unknown[] {
+  return sdb.prepare("SELECT * FROM leadgen_site_quotes WHERE site_id = ? ORDER BY id").all(siteId);
+}
+
+describeDb("10 §10.2 — the ai-logo apply (POST /api/admin/ai/logo) bumps the activation_version axis", () => {
+  it("bumps THIS site's leadgen_site_quotes.updated_at through the REAL route; the OTHER site's rows stay byte-equal", async () => {
+    const h = await seedActivated();
+    const { puts } = armAiLogo(h.env);
+    const fetchSpy = stubOpenAIFetch();
+    forceActivationVersion(h.sdb, "site-1", 1111);
+    forceActivationVersion(h.sdb, "site-2", 2222);
+    const site2Before = activationRows(h.sdb, "site-2");
+    expect(site2Before.length, "the isolation leg cannot no-op").toBeGreaterThan(0);
+
+    const res = await admin.request("/api/admin/ai/logo", jsonInit("POST", { site_id: "site-1" }), h.env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      media_id: number;
+      storage_key: string;
+      setting_key: string;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.setting_key).toBe("logo_media_id");
+    expect(body.media_id).toBeGreaterThan(0);
+    expect(fetchSpy, "generation mocked at the fetch boundary — ONE outbound call").toHaveBeenCalledTimes(1);
+
+    // the REAL write path ran end-to-end for the posted site only: R2 put,
+    // media row, success receipt, setting upsert.
+    expect(puts.map((p) => p.key)).toEqual([body.storage_key]);
+    const mediaRow = h.sdb.prepare("SELECT site_id FROM media WHERE storage_key = ?").get(body.storage_key) as {
+      site_id: string;
+    };
+    expect(mediaRow.site_id).toBe("site-1");
+    const receipt = h.sdb.prepare("SELECT status, task, site_id FROM ai_generations").get() as {
+      status: string;
+      task: string;
+      site_id: string;
+    };
+    expect(receipt).toEqual({ status: "success", task: "logo-image", site_id: "site-1" });
+    const setting = h.sdb
+      .prepare("SELECT value FROM site_settings WHERE site_id = 'site-1' AND key = 'logo_media_id'")
+      .get() as { value: string };
+    expect(setting.value).toBe(body.storage_key);
+
+    // §10.2: THIS site's activation rows bumped past the forced value…
+    const site1 = activationVersions(h.sdb, "site-1");
+    expect(site1.length).toBeGreaterThan(0);
+    for (const v of site1) {
+      expect(v, "site-1 activation updated_at bumped by the ai-logo apply").toBeGreaterThan(1111);
+    }
+    // …and the OTHER site's rows are BYTE-EQUAL (the bump is parameterized to
+    // the posted site_id — full-row compare, not just updated_at).
+    expect(activationRows(h.sdb, "site-2")).toEqual(site2Before);
+    expect(activationVersions(h.sdb, "site-2")).toEqual([2222]);
+  });
+
+  it("no activation rows → the ai-logo apply is a clean no-op on the leadgen axis (200; logo writes persist; zero rows; nothing throws)", async () => {
+    const h = await seedActivated();
+    const { puts } = armAiLogo(h.env);
+    stubOpenAIFetch();
+    // site-3 exists as a tenant but has NO leadgen activation; the activated
+    // sites' rows must not be collaterally bumped either.
+    const othersBefore = [...activationRows(h.sdb, "site-1"), ...activationRows(h.sdb, "site-2")];
+    const res = await admin.request("/api/admin/ai/logo", jsonInit("POST", { site_id: "site-3" }), h.env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { ok: boolean; storage_key: string };
+    expect(body.ok).toBe(true);
+    // the apply persisted (the guarded bump never blocks the logo write)…
+    expect(puts).toHaveLength(1);
+    const setting = h.sdb
+      .prepare("SELECT value FROM site_settings WHERE site_id = 'site-3' AND key = 'logo_media_id'")
+      .get() as { value: string };
+    expect(setting.value).toBe(body.storage_key);
+    // …and the leadgen axis is untouched everywhere.
+    expect(activationVersions(h.sdb, "site-3")).toEqual([]);
+    expect([...activationRows(h.sdb, "site-1"), ...activationRows(h.sdb, "site-2")]).toEqual(othersBefore);
   });
 });

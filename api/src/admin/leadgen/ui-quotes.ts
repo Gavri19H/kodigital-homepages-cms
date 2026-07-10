@@ -3595,9 +3595,13 @@ const QUOTE_EDITOR_SCRIPT = `
     var next = byId('lg-step-next');
     // Eager flow (≤ threshold): swap the already-fetched page locally.
     // Lazy flow (> threshold): fetch the ONE composed page for the new step
-    // (renderPreview reads pageIndex through previewBody's page param).
+    // (renderPreview reads pageIndex through previewBody's page param); the
+    // label updates in renderPreview's completion path AFTER that per-step
+    // response lands — canvas and label always move together (a stale
+    // response never leaves the label ahead of the canvas; the seq guard
+    // drops it for both).
     function showStep() {
-      if (lazyAllMode()) { updateStepLabel(); renderPreview(); return; }
+      if (lazyAllMode()) { renderPreview(); return; }
       setCanvasDoc(pages[pageIndex] || '', lastCss);
       updateStepLabel();
     }

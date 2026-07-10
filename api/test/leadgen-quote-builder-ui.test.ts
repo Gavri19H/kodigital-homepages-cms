@@ -317,6 +317,64 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(island).toContain("'No Offers selected yet'");
   });
 
+  it("DEV-59 corner: a SELECTED Offer with ZERO required fields keeps the Sections-list amber (dot == list badge) while the §12.11 publish gate passes it", async () => {
+    const h = await studioHarness();
+    const rows = h.sdb
+      .prepare("SELECT s.id, s.public_id FROM leadgen_sections s ORDER BY s.id ASC")
+      .all() as Array<{ id: number; public_id: string }>;
+    const s1 = rows[0]!;
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, status) VALUES ('lgo_dotzeroreq00000000000000000', 'Dot Offer Zero Required', 'p', 'quote_funnel', 'life', 's2s_postback', 'cpc', 'active')",
+      )
+      .run();
+    const offerId = (
+      h.sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = 'lgo_dotzeroreq00000000000000000'").get() as {
+        id: number;
+      }
+    ).id;
+    // the corner EXPLICITLY: mapping not started ('selected', no edges) with
+    // required_fields_total = 0 — publishable per sectionValidationStatus
+    // ("an Offer with 0 required fields + no errors is publishable even if
+    // nothing is mapped").
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state, required_fields_total, required_fields_mapped) VALUES (?, ?, 1, 'selected', 0, 0)",
+      )
+      .run(s1.id, offerId);
+
+    // the DOT decodes the not-started amber…
+    const structure = await admin.request(`${API}/quotes/${h.quotePublicId}/structure`, {}, h.env);
+    expect(structure.status).toBe(200);
+    const body = (await structure.json()) as {
+      funnels: Array<{ variants: Array<{ sections: Array<{ section_id: number; mapping_status: string }> }> }>;
+    };
+    expect(
+      body.funnels[0]!.variants[0]!.sections.find((s) => s.section_id === s1.id)!.mapping_status,
+      "the dot keeps the not-started amber for the zero-required corner",
+    ).toBe("incomplete");
+
+    // …in PARITY with the Sections-list badge (ONE color per section across
+    // both admin surfaces — the variantSectionMappingStatus contract)…
+    const list = await admin.request(`${API}/sections`, {}, h.env);
+    expect(list.status).toBe(200);
+    const items = ((await list.json()) as { items: Array<{ id: number; completeness: string }> }).items;
+    expect(
+      items.find((i) => i.id === s1.id)!.completeness,
+      "the Sections-list badge shows the SAME amber",
+    ).toBe("incomplete");
+
+    // …while the §12.11 publish gate PASSES the same corner: the activation
+    // PUT (the REAL sectionValidationStatus preflight) stays 200 — the dot's
+    // amber is a workflow nudge, never an activation block.
+    const activate = await admin.request(
+      `${API}/quotes/${h.quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "dot-corner" }),
+      h.env,
+    );
+    expect(activate.status, await activate.clone().text()).toBe(200);
+  });
+
   it("canvas toolbar: template picker, theme button, 1280/375 toggle, current-slide/all-slides modes, stepper, site + variant mirrors", async () => {
     const { html } = await harness();
     expect(html).toContain('id="lg-template-btn"');
@@ -969,6 +1027,10 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
     expect(html).toContain(`data-problem-path="section.${chromePublicId}.content"`);
     expect(html).toContain("contains page-frame elements");
     expect(html).toContain("render twice");
+    // §14.1 full copy: the [Move to Quote frame] remedy SSRs in the message
+    // ("slide"/"[Move to Quote frame]" are Quote-Builder activation copy —
+    // legal vocabulary on this surface per the C6 glossary scope).
+    expect(html).toContain("[Move to Quote frame] in the Section Builder");
     // the fix_url deep link with the derived label
     expect(html).toContain(`href="/admin/leadgen/sections/${chromePublicId}/edit"`);
     expect(html).toContain(">Review slide</a>");

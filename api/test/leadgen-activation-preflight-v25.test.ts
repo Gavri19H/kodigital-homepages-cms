@@ -467,6 +467,9 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
       expect(chrome.message, `chrome row names ${t}`).toContain(t);
     }
     expect(chrome.message).toContain("render twice");
+    // §14.1 full copy pattern: the remedy names the Section Builder's
+    // [Move to Quote frame] action next to the legacy-override alternative.
+    expect(chrome.message).toContain("[Move to Quote frame] in the Section Builder");
 
     // Row 7 — duplicate Continue → warning.
     const dup = firstMatch(
@@ -683,8 +686,12 @@ describeDb("C2 LIVE (Phase D) — error-severity problems block the activation P
     expect(chrome.severity).toBe("error");
     expect(chrome.message).toContain("contains page-frame elements");
     expect(chrome.message).toContain("render twice");
+    // §14.1 full copy pattern: BOTH remedies — the Section Builder's
+    // [Move to Quote frame] action and the Advanced legacy override.
+    expect(chrome.message).toContain("Remove them ([Move to Quote frame] in the Section Builder)");
     expect(chrome.message).toContain("legacy override under Advanced");
-    // §14.2 fix link: the [Review slide] deep link the copy table names.
+    // §14.2 fix link: the [Review slide] deep link the copy table names —
+    // the message mention never replaces it.
     expect(chrome.fix_url).toBe(`/admin/leadgen/sections/${s1.public_id}/edit`);
 
     // The blocked PUT persisted NOTHING.
