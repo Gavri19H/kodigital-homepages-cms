@@ -27,6 +27,15 @@ export interface SiteBrandingLegalLink {
   href: string;
 }
 
+// §11.3 trust-logo set — one entry per resolvable id in the OPTIONAL
+// `site_settings.trust_logo_media_ids` JSON list (additive settings key).
+// `url` is pre-resolved through the same mediaUrl() prefixer as the logo
+// ladder, so consumers never re-derive media routing.
+export interface SiteBrandingTrustLogo {
+  media_id: string;
+  url: string;
+}
+
 // The §10.1 projection.
 export interface SiteBranding {
   // site_settings.site_name (trimmed, non-empty) → the site's hostname
@@ -42,6 +51,11 @@ export interface SiteBranding {
   // privacy/terms/contact derived from site settings when present; a missing
   // signal OMITS the link (never an empty href). See deriveLegalLinks.
   legal_links: SiteBrandingLegalLink[];
+  // §11.3 `trust_strip.source:"site_logo_set"` plumb: the OPTIONAL
+  // `site_settings.trust_logo_media_ids` JSON list, defensively parsed.
+  // Missing / corrupt / non-array / nothing resolvable → null (the frame
+  // renders no strip — never a broken one). See parseTrustLogos.
+  trust_logos: SiteBrandingTrustLogo[] | null;
 }
 
 interface SiteIdentityRow {
@@ -80,6 +94,35 @@ function deriveLegalLinks(
     links.push({ label: "Terms of use", href: "/terms" });
   }
   return links;
+}
+
+// §11.3 `site_settings.trust_logo_media_ids` — an OPTIONAL JSON list of media
+// storage keys (the additive settings key; no admin surface writes it yet, so
+// the parse is maximally defensive — riding revenue-serving paths it may see
+// anything). Rules:
+//   * missing / blank / corrupt JSON / non-array → null (dedicated try/catch,
+//     d1-database-safety JSON.parse rule — never a throw into a serve);
+//   * entries must be non-empty strings resolvable through mediaUrl();
+//     anything else is SKIPPED (never a broken <img src>);
+//   * nothing resolvable → null (consumer semantics: null = render nothing).
+function parseTrustLogos(raw: string | undefined): SiteBrandingTrustLogo[] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null; // corrupt settings value → the optional key is simply absent
+  }
+  if (!Array.isArray(parsed)) return null;
+  const out: SiteBrandingTrustLogo[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "string") continue;
+    const mediaId = entry.trim();
+    if (mediaId === "") continue;
+    const url = mediaUrl(mediaId);
+    if (url !== null) out.push({ media_id: mediaId, url });
+  }
+  return out.length > 0 ? out : null;
 }
 
 // Mirrors listicle/serve.ts loadSiteSettings (module-private there): the full
@@ -154,5 +197,6 @@ export async function resolveSiteBranding(
     logo_url: logoUrl,
     tagline: tagline !== "" ? tagline : null,
     legal_links: deriveLegalLinks(settings),
+    trust_logos: parseTrustLogos(settings.trust_logo_media_ids),
   };
 }

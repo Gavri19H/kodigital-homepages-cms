@@ -895,6 +895,225 @@ function validateField(
   }
 }
 
+// ---------------------------------------------------------------------------
+// §4.3 template switching — computeTemplateSwitch (C5).
+//
+// A switch is a per-GROUP three-way merge over the STORED sparse config (the
+// effective result always recomputes through the SAME effectiveFrame, §13.2):
+//
+//   * OPERATOR CONTENT is PRESERVED VERBATIM — copy (tagline, back/CTA labels,
+//     disclosure text, trust text, footer description, benefit items), media
+//     (`logo_media_id`, trust logos + alts, background image), legal links,
+//     palette-role picks (progress.color_role / background.role /
+//     continue_style_role) and policy fields (links_source, trust source,
+//     footer scheduling, compat, history_fallback…).
+//   * LAYOUT / POSITION fields are REPLACED by the target template's defaults —
+//     implemented by DROPPING those keys from the sparse patch so the new
+//     template's defaults apply (region positions, progress style+position
+//     defaults, section_slot geometry, alignment, sticky, the whole sparse
+//     `mobile` override group, and `header.logo_source` — every template
+//     curates site branding, which is exactly why a manual logo stops
+//     rendering on switch, confirmation (c)).
+//   * REGION AVAILABILITY (`enabled` flags of the toggleable regions) is
+//     preserved where the target template supports the region
+//     (TEMPLATE_REGION_SUPPORT, derived from the §4.3 arrangement rows);
+//     an unsupported-but-enabled region drops its stored `enabled` key so the
+//     target default (off) applies — the region stops rendering while its
+//     CONTENT stays in the config, inert ("its 3 items are kept but won't
+//     show"). Data is never deleted by a switch: default-enabled regions
+//     (e.g. the footer after minimal → centered) revive automatically on
+//     switch-back; content-requiring regions revive their data the moment the
+//     operator re-enables them.
+//
+// Confirmations are REQUIRED (returned as dialog lines) when:
+//   (a) an effectively-enabled region is not part of the target template —
+//       the line names exactly what stops rendering;
+//   (b) `section_slot.card` behaviour changes (card ⇄ bare);
+//   (c) a manual logo would stop rendering (logo_source resets to the
+//       target's curated site branding; the image is kept) or a background
+//       image sits under a background arrangement the switch replaces.
+//
+// PURE + non-mutating: preview-before-apply posts the merged result as
+// `draft_frame_config` (13 §13.4) — nothing persists until Save (C5).
+// ---------------------------------------------------------------------------
+
+// The toggleable frame regions a template arrangement can feature (§4.3).
+export const FRAME_SWITCH_REGIONS = [
+  "header",
+  "disclosure",
+  "footer",
+  "trust_strip",
+  "benefit_bar",
+] as const;
+
+export type FrameSwitchRegion = (typeof FRAME_SWITCH_REGIONS)[number];
+
+const FRAME_SWITCH_REGION_LABELS: Record<FrameSwitchRegion, string> = {
+  header: "Header",
+  disclosure: "Disclosure",
+  footer: "Footer",
+  trust_strip: "Trust strip",
+  benefit_bar: "Benefit bar",
+};
+
+// §4.3 arrangement rows → the regions each template features. header is part
+// of every arrangement (every row starts with a logo/header band); disclosure
+// is a compliance affordance with four location legs (11 §11.4) and is
+// supported everywhere; footer is absent only from `minimal` ("no footer");
+// the trust strip features in `centered` + `white-trust`; the benefit bar only
+// in `header-cta`.
+export const TEMPLATE_REGION_SUPPORT: Record<FrameTemplateId, ReadonlySet<FrameSwitchRegion>> = {
+  centered: new Set<FrameSwitchRegion>(["header", "disclosure", "footer", "trust_strip"]),
+  "header-footer": new Set<FrameSwitchRegion>(["header", "disclosure", "footer"]),
+  "header-cta": new Set<FrameSwitchRegion>(["header", "disclosure", "footer", "benefit_bar"]),
+  "full-background": new Set<FrameSwitchRegion>(["header", "disclosure", "footer"]),
+  "white-trust": new Set<FrameSwitchRegion>(["header", "disclosure", "footer", "trust_strip"]),
+  minimal: new Set<FrameSwitchRegion>(["header", "disclosure"]),
+};
+
+// The LAYOUT/POSITION fields per group (§4.3 class table) — dropped from the
+// sparse stored patch on switch so the target template's defaults apply.
+// Everything NOT listed here is operator content/policy and rides verbatim.
+const SWITCH_LAYOUT_FIELDS: Record<string, readonly string[]> = {
+  header: ["logo_source", "logo_size", "logo_align", "sticky"],
+  progress: ["style", "position", "thickness", "width", "show_label"],
+  back: ["style", "position"],
+  disclosure: ["location"],
+  footer: [], // no geometry fields — links/copy/scheduling are operator data
+  trust_strip: ["placement"],
+  benefit_bar: ["placement"],
+  background: ["style"],
+  section_slot: [
+    "max_width",
+    "align",
+    "card",
+    "padding",
+    "offset_y",
+    "transition",
+    "continue_placement",
+  ],
+  compat: [],
+};
+
+// Content-kept phrase for the (a) confirmation line — names what is kept
+// (matches the §4.3 example: "its 3 items are kept but won't show").
+function regionKeptPhrase(region: FrameSwitchRegion, group: Record<string, unknown> | null): string {
+  if (region === "benefit_bar" && group !== null && Array.isArray(group["items"]) && group["items"].length > 0) {
+    const n = group["items"].length;
+    return `its ${n} item${n === 1 ? "" : "s"} are kept but`;
+  }
+  if (region === "trust_strip" && group !== null && Array.isArray(group["logos"]) && group["logos"].length > 0) {
+    const n = group["logos"].length;
+    return `its ${n} logo${n === 1 ? "" : "s"} ${n === 1 ? "is" : "are"} kept but`;
+  }
+  return "its settings are kept but";
+}
+
+export interface TemplateSwitchResult {
+  merged: StoredFrameConfig;
+  confirmations: string[];
+}
+
+export function computeTemplateSwitch(
+  currentStored: StoredFrameConfig | null,
+  targetTemplateId: string,
+): TemplateSwitchResult {
+  const confirmations: string[] = [];
+
+  // Unknown target id → `centered` (mirror of the §4.3 stored-id fallback).
+  let target: FrameTemplateId;
+  if (isFrameTemplateId(targetTemplateId)) {
+    target = targetTemplateId;
+  } else {
+    target = DEFAULT_FRAME_TEMPLATE_ID;
+    confirmations.push(
+      `The '${targetTemplateId}' frame template isn't available any more — switching to '${DEFAULT_FRAME_TEMPLATE_ID}' instead.`,
+    );
+  }
+  const targetDefaults = FRAME_TEMPLATES[target].defaults;
+  const support = TEMPLATE_REGION_SUPPORT[target];
+
+  // First adoption (no stored frame): nothing to merge, nothing to lose.
+  if (currentStored === null) {
+    return { merged: { version: 1, template: target }, confirmations };
+  }
+
+  // What the funnel currently renders — the confirmation triggers compare
+  // EFFECTIVE current against the target's defaults (stored layout keys are
+  // dropped, so the target default is what the merged config will show).
+  const currentEffective = effectiveFrame(currentStored).frame;
+
+  const merged: Record<string, unknown> = { version: 1, template: target };
+  for (const [groupKey, groupValue] of Object.entries(currentStored)) {
+    if (groupKey === "version" || groupKey === "template") continue;
+    if (groupKey === "mobile") continue; // sparse layout overrides — replaced whole
+    if (!isRecord(groupValue)) continue; // junk survives validation elsewhere, never a switch
+    const layoutFields = SWITCH_LAYOUT_FIELDS[groupKey] ?? [];
+    const kept: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(groupValue)) {
+      if (layoutFields.includes(field)) continue; // layout/position → target default
+      if (
+        field === "enabled" &&
+        (FRAME_SWITCH_REGIONS as readonly string[]).includes(groupKey) &&
+        !support.has(groupKey as FrameSwitchRegion)
+      ) {
+        continue; // unsupported region: availability falls to the target default (off)
+      }
+      kept[field] = value;
+    }
+    if (Object.keys(kept).length > 0) merged[groupKey] = kept;
+  }
+  const mergedConfig = cloneJson(merged) as StoredFrameConfig;
+
+  // (a) enabled-but-unsupported regions — name exactly what stops rendering.
+  for (const region of FRAME_SWITCH_REGIONS) {
+    if (support.has(region)) continue;
+    const effectiveGroup = currentEffective[region] as unknown as Record<string, unknown>;
+    if (effectiveGroup["enabled"] !== true) continue;
+    const storedGroup = isRecord(currentStored[region as keyof StoredFrameConfig])
+      ? (currentStored[region as keyof StoredFrameConfig] as Record<string, unknown>)
+      : null;
+    confirmations.push(
+      `${FRAME_SWITCH_REGION_LABELS[region]} isn't part of '${target}' — ${regionKeptPhrase(region, storedGroup)} won't show.`,
+    );
+  }
+
+  // (b) section_slot.card behaviour change (card ⇄ bare).
+  const cardBefore = currentEffective.section_slot.card;
+  const cardAfter = targetDefaults.section_slot.card;
+  if (cardBefore !== cardAfter) {
+    const word = (v: (typeof FRAME_SLOT_CARDS)[number]): string =>
+      v === "card" ? "a card" : "a bare layout";
+    confirmations.push(`The question unit changes from ${word(cardBefore)} to ${word(cardAfter)}.`);
+  }
+
+  // (c) manual logo — logo_source resets to the target's curated site
+  // branding (a layout-replaced field), so a manual logo stops rendering; the
+  // image reference is kept.
+  if (
+    currentEffective.header.enabled &&
+    currentEffective.header.logo_source === "manual" &&
+    currentEffective.header.logo_media_id !== null
+  ) {
+    confirmations.push(
+      `The manual logo stops rendering — '${target}' uses the site logo by default (the image is kept and revives when you re-select Manual).`,
+    );
+  }
+
+  // (c) background image — kept verbatim (§4.3 media row), but flag when the
+  // switch replaces the background arrangement it sits under.
+  if (
+    currentEffective.background.image_media_id !== null &&
+    currentEffective.background.style !== targetDefaults.background.style
+  ) {
+    confirmations.push(
+      `The background arrangement changes under your background image — check it still renders as intended (the image is kept).`,
+    );
+  }
+
+  return { merged: mergedConfig, confirmations };
+}
+
 function humanize(key: string): string {
   return key.replace(/_/g, " ");
 }

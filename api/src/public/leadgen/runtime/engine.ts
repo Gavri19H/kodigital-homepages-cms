@@ -961,6 +961,10 @@ export class LgEngine {
     const visible = this.visibleIndexes();
     const pos = visible.indexOf(this.store.state.section_index);
     render.updateProgress(this.root, pos === -1 ? 1 : pos + 1, visible.length);
+    // 11 §11.3 footer show_on: first = the first VISIBLE section (pos -1
+    // normalizes to step 1, matching updateProgress); final = the last
+    // visible section (the banners-view leg rides showCompletionState).
+    render.updateFooterVisibility(this.root, pos <= 0, pos !== -1 && pos === visible.length - 1);
   }
 
   // ----- §3.6 auction -------------------------------------------------------

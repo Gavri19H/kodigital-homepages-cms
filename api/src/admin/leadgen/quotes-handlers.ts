@@ -49,8 +49,14 @@ import {
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen/payload";
 import { getFunnelDesign, FUNNEL_DESIGNS } from "../../public/leadgen/designs/registry";
+import type { FunnelDesign } from "../../public/leadgen/designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "../../public/leadgen/designs/default-funnel/styles";
-import { renderSectionComponents } from "../../public/leadgen/components/presets";
+import {
+  renderProgressBar,
+  renderSectionComponents,
+  renderStepIndicator,
+} from "../../public/leadgen/components/presets";
+import type { ComponentType } from "../../public/leadgen/components/presets";
 import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
 import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import { buildPublicConfig, type LeadgenPublicConfig } from "../../public/leadgen/config-dto";
@@ -63,7 +69,11 @@ import {
   renderVariantSectionsHtml,
   resolveFrameComposition,
 } from "../../public/leadgen/serve";
-import { renderQuoteFrame, LG_BANNERS_MOUNT_HTML } from "../../public/leadgen/designs/frame";
+import {
+  renderLegacyShell,
+  renderQuoteFrame,
+  LG_BANNERS_MOUNT_HTML,
+} from "../../public/leadgen/designs/frame";
 import { validateFrameConfig, effectiveFrame } from "../../public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
 import {
@@ -253,10 +263,18 @@ function quoteRowToApi(row: LeadgenQuoteRow): Record<string, unknown> {
   return { ...row, verticals_json: parseStringArray(row.verticals_json) };
 }
 
-// leadgen_funnels row is API-stable (no INTEGER bools, no *_json) — served
-// as-is + the stamped stable funnel_id (lgf_) via the branded constructor (G4).
+// leadgen_funnels row: scalar columns are API-stable (no INTEGER bools); the
+// 0041 v2.5 columns (frame_config_json / theme_json) parse defensively like
+// every *_json column, and the stable funnel_id (lgf_) is stamped via the
+// branded constructor (G4). `?? null` keeps pre-0041 test harnesses (rows
+// without the columns) mapping to the same explicit nulls.
 function funnelRowToApi(row: LeadgenFunnelRow): Record<string, unknown> {
-  return { ...row, funnel_id: toFunnelId(row.public_id) as string };
+  return {
+    ...row,
+    funnel_id: toFunnelId(row.public_id) as string,
+    frame_config_json: parseJsonColumn(row.frame_config_json ?? null),
+    theme_json: parseJsonColumn(row.theme_json ?? null),
+  };
 }
 
 function abTestRowToApi(row: LeadgenFunnelAbTestRow): Record<string, unknown> {
@@ -273,6 +291,9 @@ function variantRowToApi(row: LeadgenFunnelVariantRow): Record<string, unknown> 
     lander_enabled: row.lander_enabled !== 0,
     lander_body_json: parseJsonColumn(row.lander_body_json),
     lander_cta_json: parseJsonColumn(row.lander_cta_json),
+    // 0041 (v2.5 §4.5): the sparse frame/theme override patch, parsed like
+    // every *_json column; `?? null` covers pre-0041 harness rows.
+    frame_overrides_json: parseJsonColumn(row.frame_overrides_json ?? null),
   };
 }
 
@@ -319,7 +340,9 @@ async function resolveRow<Row>(
 
 const resolveQuoteRow = (db: D1Database, id: string): Promise<LeadgenQuoteRow | null> =>
   resolveRow<LeadgenQuoteRow>(db, "leadgen_quotes", "quote", id);
-const resolveFunnelRow = (db: D1Database, id: string): Promise<LeadgenFunnelRow | null> =>
+// EXPORTED (v2.5 04 §4.8): frame-handlers.ts resolves its /funnels/:id/frame|theme
+// targets through the same dual-id helper — one resolution implementation.
+export const resolveFunnelRow = (db: D1Database, id: string): Promise<LeadgenFunnelRow | null> =>
   resolveRow<LeadgenFunnelRow>(db, "leadgen_funnels", "funnel", id);
 const resolveVariantRow = (db: D1Database, id: string): Promise<LeadgenFunnelVariantRow | null> =>
   resolveRow<LeadgenFunnelVariantRow>(db, "leadgen_funnel_variants", "funnel_variant", id);
@@ -402,7 +425,9 @@ async function variantDetailJson(
   };
 }
 
-async function readFunnelVariants(
+// EXPORTED (v2.5 04 §4.8): frame-handlers.ts reads the control variant (the
+// is_control DESC head) to resolve the theme editor's base design.
+export async function readFunnelVariants(
   db: D1Database,
   funnelId: number,
 ): Promise<LeadgenFunnelVariantRow[]> {
@@ -1103,6 +1128,43 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     else trafficBp = v;
   }
 
+  // --- v2.5 §4.5/§4.7: frame_overrides_json (ADDITIVE — absent key = column
+  // untouched, so pre-0041 callers/harnesses are byte-unaffected). Validation
+  // reuses the serve-side split (resolveFrameComposition): the frame groups
+  // through validateFrameConfig-over-sparse, the `theme` part through
+  // validateTheme (palette-role rules). 400 + §3.6 problems on any
+  // error-severity row (14 §14.3 — an invalid overrides patch is never
+  // persisted); warnings persist WITH the save.
+  const overridesProvided = body["frame_overrides_json"] !== undefined;
+  let overridesJson: string | null = null;
+  const overridesProblems: Problem[] = [];
+  if (overridesProvided) {
+    const raw = body["frame_overrides_json"];
+    if (raw === null) {
+      overridesJson = null; // explicit clear — back to "no overrides"
+    } else if (!isRecord(raw)) {
+      errors["frame_overrides_json"] = "frame_overrides_json must be a JSON object or null";
+    } else {
+      const { theme: themePart, ...frameParts } = raw;
+      overridesProblems.push(...validateFrameConfig(frameParts).problems);
+      if (themePart !== undefined) {
+        if (!isRecord(themePart)) {
+          overridesProblems.push({
+            path: "theme",
+            scope: "theme",
+            severity: "error",
+            message: "The variant theme overrides must be a group of palette colours.",
+          });
+        } else {
+          overridesProblems.push(...validateTheme(themePart).problems);
+        }
+      }
+      if (!overridesProblems.some((p) => p.severity === "error")) {
+        overridesJson = JSON.stringify(raw);
+      }
+    }
+  }
+
   // --- section order (§15.3 replace-set) ------------------------------------
   const sectionsProvided = body["sections"] !== undefined;
   let sectionItems: SectionOrderItem[] = [];
@@ -1162,6 +1224,18 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   }
 
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
+  // v2.5 §14.3: schema-invalid overrides → 400 with the path-precise §3.6
+  // problems (additive next to the {error, fields} convention).
+  if (overridesProblems.some((p) => p.severity === "error")) {
+    return c.json(
+      {
+        error: "Validation failed",
+        fields: { frame_overrides_json: "frame/theme overrides failed validation" },
+        problems: overridesProblems,
+      },
+      400,
+    );
+  }
 
   // --- one atomic replace-set batch -----------------------------------------
   const statements: D1PreparedStatement[] = [
@@ -1177,6 +1251,16 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
       landerHeroUrl, landerCta, variant.id,
     ),
   ];
+  // v2.5 §4.5: the overrides column rides the SAME atomic batch, and ONLY when
+  // the body carried the key — pre-0041 databases never see the column name.
+  if (overridesProvided) {
+    statements.push(
+      c.env.DB.prepare("UPDATE leadgen_funnel_variants SET frame_overrides_json = ? WHERE id = ?").bind(
+        overridesJson,
+        variant.id,
+      ),
+    );
+  }
   if (sectionsProvided) {
     statements.push(c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE variant_id = ?").bind(variant.id));
     for (const s of sectionItems) {
@@ -1216,7 +1300,13 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   // R5 (05 §5.2a): every variant save RECOMPUTES + stores the activation
   // preflight verdict (advisory copy; the activation PUT recomputes its own).
   const preflight = await storeVariantPreflight(c, updated, owner.quote);
-  return c.json({ ...(await variantDetailJson(c.env.DB, updated)), activation_preflight: preflight });
+  const detail = await variantDetailJson(c.env.DB, updated);
+  // v2.5 §3.6 (additive): overrides warnings persist WITH the save and ride
+  // the success body so the builder can surface them.
+  if (overridesProvided && overridesProblems.length > 0) {
+    return c.json({ ...detail, activation_preflight: preflight, problems: overridesProblems });
+  }
+  return c.json({ ...detail, activation_preflight: preflight });
 }
 
 function jsonStringOrNull(value: unknown): string | null {
@@ -1253,24 +1343,43 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   const srcSections = await readVariantSections(c.env.DB, source.id);
   const srcRules = await readVariantRules(c.env.DB, source.id);
 
+  // v2.5 04 §4.5: "a fork clones the arm" — frame_overrides_json rides the
+  // clone. The column name enters the INSERT ONLY when the source carries a
+  // value (`?? null` = pre-0041 rows/harnesses without the column), so the
+  // legacy statement below stays byte-identical for legacy databases and a
+  // NULL source clones to the column's NULL default either way.
+  const sourceFrameOverrides: string | null = source.frame_overrides_json ?? null;
+
   // ONE atomic batch (mirrors the POST /quotes create idiom): the variant
   // INSERT runs first, then the section + rule clones link to it via a
   // `(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)` subquery — so
   // the whole fork commits or rolls back together and a mid-failure can never
   // orphan a variant with no sections/rules. Each INSERT is single-row
-  // (≤17 bindings) — 100-binding-safe.
+  // (≤18 bindings) — 100-binding-safe.
   const statements: D1PreparedStatement[] = [
-    c.env.DB.prepare(
-      `INSERT INTO leadgen_funnel_variants
-         (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
-          auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
-          lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status)
-       VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
-    ).bind(
-      variantPublicId, source.funnel_id, newLabel, source.traffic_allocation_bp, source.funnel_design_id,
-      source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
-      source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json,
-    ),
+    sourceFrameOverrides === null
+      ? c.env.DB.prepare(
+          `INSERT INTO leadgen_funnel_variants
+             (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
+              auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
+              lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status)
+           VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
+        ).bind(
+          variantPublicId, source.funnel_id, newLabel, source.traffic_allocation_bp, source.funnel_design_id,
+          source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
+          source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json,
+        )
+      : c.env.DB.prepare(
+          `INSERT INTO leadgen_funnel_variants
+             (public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp, funnel_design_id,
+              auction_id, lander_enabled, lander_headline, lander_subheadline, lander_body_json,
+              lander_hero_media_id, lander_hero_media_url, lander_cta_json, content_version, status, frame_overrides_json)
+           VALUES (?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?)`,
+        ).bind(
+          variantPublicId, source.funnel_id, newLabel, source.traffic_allocation_bp, source.funnel_design_id,
+          source.auction_id, source.lander_enabled, source.lander_headline, source.lander_subheadline, source.lander_body_json,
+          source.lander_hero_media_id, source.lander_hero_media_url, source.lander_cta_json, sourceFrameOverrides,
+        ),
   ];
   for (const s of srcSections) {
     statements.push(
@@ -1361,11 +1470,31 @@ function renderLanderHtml(variant: LeadgenFunnelVariantRow): string {
 </div>`;
 }
 
+// v2.5 13 §13.4: the additive body keys that route a preview POST to the
+// COMPOSED path. A body without ANY of them (the current admin UI posts
+// exactly `{}`) takes the legacy branch below UNTOUCHED — the committed
+// leadgen-legacy-pin fixture enforces byte identity.
+const V25_PREVIEW_KEYS = [
+  "mode",
+  "site_id",
+  "viewport",
+  "section_public_id",
+  "draft_frame_config",
+  "draft_theme",
+] as const;
+
 export async function previewVariantHandler(c: AdminContext): Promise<Response> {
   const variant = await resolveVariantRow(c.env.DB, c.req.param("id") ?? "");
   if (variant === null) return c.json({ error: "Not Found" }, 404);
   const owner = await quoteOfVariant(c.env.DB, variant);
   if (owner === null) return c.json({ error: "Not Found" }, 404);
+
+  // Reading the body first is output-neutral for the legacy branch (which
+  // never consumed it); a missing/invalid JSON body stays legacy.
+  const body = (await readJsonBody(c)) ?? {};
+  if (V25_PREVIEW_KEYS.some((key) => body[key] !== undefined)) {
+    return composedVariantPreviewResponse(c, owner, variant, body);
+  }
 
   const orderedRefs = await readVariantSections(c.env.DB, variant.id);
   const sections: LeadgenSectionRow[] = [];
@@ -1412,21 +1541,34 @@ export async function previewVariantHandler(c: AdminContext): Promise<Response> 
 }
 
 // ---------------------------------------------------------------------------
-// v2.5 A7 — the COMPOSED variant preview (13 §13.4 core; DEV-54 phasing).
+// v2.5 A7 + B1 — the COMPOSED variant preview (13 §13.4).
 //
 // The legacy previewVariantHandler path above stays BYTE-IDENTICAL (the
 // committed leadgen-frame-legacy-pin fixture enforces it, `<h2 class=
-// "lg-section-headline">` duplicate included). THIS function is the internal
-// composed renderer the Phase-B preview routes (`mode:"frame"|"section"|"all"`)
-// will consume: it renders the variant's sections WITH the 03 §3.4 sectionCtx
-// (bound headline text from the Section columns, NO h2 duplicate — the §3.4
-// h2 removal applies to the NEW composed paths) inside the funnel's effective
-// frame via the SAME serve-owned composition pieces the live /lg frame path
-// uses (resolveFrameComposition + renderVariantSectionsHtml + renderQuoteFrame
-// + funnelChromeCss{frameRegions} — parity by construction, 13 §13.5 legs
-// 1+3). Returns null when the funnel has NO configured frame (legacy funnels
-// have no composed preview in Phase A).
+// "lg-section-headline">` duplicate included). THIS function is the composed
+// renderer the §13.4 preview modes consume: it renders the variant's sections
+// WITH the 03 §3.4 sectionCtx (bound headline text from the Section columns,
+// NO h2 duplicate — the §3.4 h2 removal applies to the NEW composed paths)
+// inside the funnel's effective frame via the SAME serve-owned composition
+// pieces the live /lg frame path uses (resolveFrameComposition +
+// renderVariantSectionsHtml + renderQuoteFrame + funnelChromeCss{frameRegions}
+// — parity by construction, 13 §13.5 legs 1+3).
+//
+// Phase-B additive params (§13.4): `mode` ("frame" = slot placeholder ·
+// "section" = chosen/current Section visible · "all" = pages[], one composed
+// document per Section with correct per-step progress values), `visibleIndex`,
+// and the C5 `draftFrameConfig`/`draftTheme` substitutions (this render only —
+// nothing persists). Called WITHOUT `mode` (the Phase-A shape) it still
+// returns null for a legacy/invalid frame; WITH a mode it never returns null —
+// the legacy path composes through the byte-pinned renderLegacyShell, the
+// same fail-safe fork serve.ts takes (§13.1).
 // ---------------------------------------------------------------------------
+
+// §4.1 mode:"frame" slot placeholder — the canvas copy for the section slot.
+export const LG_SLOT_PLACEHOLDER_HTML =
+  '<div class="lg-slot-placeholder" data-lg-slot-placeholder>' +
+  "This area is the Section’s question unit — edit it in the Section Builder." +
+  "</div>";
 
 export interface ComposedVariantPreviewInput {
   quote: LeadgenQuoteRow;
@@ -1434,41 +1576,153 @@ export interface ComposedVariantPreviewInput {
   variant: LeadgenFunnelVariantRow;
   sections: LeadgenSectionRow[]; // ordered (variant section order)
   siteBranding?: SiteBranding | null;
+  // --- v2.5 13 §13.4 additive (Phase B) --------------------------------------
+  mode?: "frame" | "section" | "all";
+  visibleIndex?: number; // mode:"section" — the ordered index shown (default 0)
+  // C5 draft substitutions: undefined = the stored column; null = substitute
+  // nothing (renders the legacy path); an object = THIS render only.
+  draftFrameConfig?: Record<string, unknown> | null;
+  draftTheme?: Record<string, unknown> | null;
 }
 
 export interface ComposedVariantPreview {
   css: string; // the SAME resolveTokens+funnelChromeCss string the runtime shell embeds
-  html: string; // the full composed #lg-funnel-root body (renderQuoteFrame output)
+  html?: string; // modes "frame"/"section" (+ the Phase-A default): one composed body
+  pages?: string[]; // mode "all": one composed document per Section
   section_count: number;
+  config: LeadgenPublicConfig; // the §15.4 config echo (effective design tokens)
+}
+
+// Advance the baked step-1 frame progress markup to `step` (§13.4 "correct
+// per-step progress values"). renderQuoteFrame is pure and always bakes step
+// 1; this re-runs the SAME preset calls frame.ts synthesizes (identical node
+// shape through renderProgressBar/renderStepIndicator) to compute the exact
+// step-1 substring and its step-k replacement — an exact swap, never a fuzzy
+// regex. All four §3.3 progress positions render BEFORE the sections in
+// document order, so the first occurrence is always the frame's own mount
+// even when a legacy section embeds identical progress markup.
+function advanceFrameProgress(
+  pageHtml: string,
+  frame: EffectiveFrameConfig,
+  design: FunnelDesign,
+  step: number,
+  sectionCount: number,
+): string {
+  const p = frame.progress;
+  if (p.style === "hidden") return pageHtml;
+  const total = Math.max(1, Math.round(sectionCount));
+  const target = Math.min(Math.max(1, Math.round(step)), total);
+  if (target === 1) return pageHtml;
+  const node = (type: ComponentType, props: Record<string, unknown>): LeadgenComponentNode => ({
+    type,
+    question_id: "frame_progress",
+    props,
+  });
+  let from: string;
+  let to: string;
+  if (p.style === "dots") {
+    from = renderStepIndicator(node("StepIndicator", { steps: total, current: 1 }), design);
+    to = renderStepIndicator(node("StepIndicator", { steps: total, current: target }), design);
+  } else if (p.style === "percent") {
+    const pctProps = (s: number): Record<string, unknown> => {
+      const pct = Math.round((s / total) * 100);
+      const props: Record<string, unknown> = { mode: "percent", percent: pct };
+      if (p.show_label) props["label"] = `${pct}%`;
+      return props;
+    };
+    from = renderProgressBar(node("ProgressBar", pctProps(1)), design);
+    to = renderProgressBar(node("ProgressBar", pctProps(target)), design);
+  } else {
+    // bar | numbered — step semantics over the section-order total.
+    from = renderProgressBar(node("ProgressBar", { mode: "step", step: 1, totalSteps: total }), design);
+    to = renderProgressBar(node("ProgressBar", { mode: "step", step: target, totalSteps: total }), design);
+  }
+  const at = pageHtml.indexOf(from);
+  return at === -1 ? pageHtml : pageHtml.slice(0, at) + to + pageHtml.slice(at + from.length);
+}
+
+// Toggle which <section data-lg-section> is visible inside a composed body
+// (mode:"section" chosen Section; mode:"all" page k) — the runtime engine
+// flips the SAME `hidden` attribute at step time. The wrapper suffix is
+// recomputed EXACTLY as renderVariantSectionsHtml emits it (index + escaped
+// screen label + hidden flag), so the swap is an exact string replacement;
+// authored content can never collide (its quotes render escaped).
+function toggleVisibleSection(
+  html: string,
+  sections: readonly LeadgenSectionRow[],
+  index: number,
+): string {
+  if (index <= 0 || index >= sections.length) return html;
+  const marker = (i: number, hidden: boolean): string => {
+    const section = sections[i];
+    if (section === undefined) return "";
+    const label = `${String(i + 1).padStart(2, "0")} · ${section.headline_text}`;
+    return ` data-lg-index="${i}" data-screen-label="${escapeHtml(label)}"${hidden ? " hidden" : ""}>`;
+  };
+  return html
+    .replace(marker(0, false), () => marker(0, true))
+    .replace(marker(index, true), () => marker(index, false));
 }
 
 export function renderComposedVariantPreview(
   input: ComposedVariantPreviewInput,
 ): ComposedVariantPreview | null {
   const design = getFunnelDesign(input.variant.funnel_design_id);
+  // C5 draft substitution — the resolver consumes strings exactly as serve
+  // does; the stored columns are never written.
   const composition = resolveFrameComposition(
     {
-      frame_config_json: input.funnel.frame_config_json,
-      theme_json: input.funnel.theme_json,
+      frame_config_json:
+        input.draftFrameConfig === undefined
+          ? input.funnel.frame_config_json
+          : input.draftFrameConfig === null
+            ? null
+            : JSON.stringify(input.draftFrameConfig),
+      theme_json:
+        input.draftTheme === undefined
+          ? input.funnel.theme_json
+          : input.draftTheme === null
+            ? null
+            : JSON.stringify(input.draftTheme),
       frame_overrides_json: input.variant.frame_overrides_json,
     },
     design,
   );
-  if (composition === null) return null;
+  // Phase-A contract: a mode-less call still reports "no composed frame".
+  if (composition === null && input.mode === undefined) return null;
 
   const resolvedSections: ResolvedFunnelSection[] = input.sections.map((section, index) => ({
     position: index,
     section,
   }));
-  const sectionsHtml = renderVariantSectionsHtml(
-    resolvedSections,
-    composition.effectiveTokens.design,
-    composition.frame,
-  );
+  const effectiveDesign = composition === null ? design : composition.effectiveTokens.design;
   const scope = `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`;
-  return {
-    css: funnelChromeCss(composition.effectiveTokens.design, scope, { frameRegions: true }),
-    html: renderQuoteFrame({
+  const css =
+    composition === null
+      ? funnelChromeCss(design, scope)
+      : funnelChromeCss(composition.effectiveTokens.design, scope, { frameRegions: true });
+  // The same §15.4 config echo the legacy preview carries — over the EFFECTIVE
+  // design tokens on the frame path, exactly like the served shell (09 §9.2).
+  const config: LeadgenPublicConfig = buildPublicConfig(
+    buildPreviewResolved(input.quote, input.funnel, input.variant, input.sections),
+    effectiveDesign as FunnelDesign,
+  );
+
+  // ONE body renderer for every mode: renderQuoteFrame when a frame resolves,
+  // the byte-pinned legacy shell otherwise (the same §13.1 serve fork).
+  const renderBody = (sectionsHtml: string, step: number): string => {
+    if (composition === null) {
+      return renderLegacyShell({
+        designId: design.id,
+        funnelId: toFunnelId(input.funnel.public_id) as string,
+        funnelVariantId: toFunnelVariantId(input.variant.public_id) as string,
+        quoteId: input.quote.public_id,
+        contentVersion: input.variant.content_version,
+        sectionsHtml,
+        bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+      });
+    }
+    const page = renderQuoteFrame({
       effectiveTokens: composition.effectiveTokens,
       frame: composition.frame,
       siteBranding: input.siteBranding ?? null,
@@ -1481,9 +1735,209 @@ export function renderComposedVariantPreview(
         quoteId: input.quote.public_id,
         contentVersion: input.variant.content_version,
       },
-    }),
-    section_count: input.sections.length,
+    });
+    return advanceFrameProgress(
+      page,
+      composition.frame,
+      effectiveDesign as FunnelDesign,
+      step,
+      input.sections.length,
+    );
   };
+
+  if (input.mode === "frame") {
+    // Slot placeholder instead of the section list — the frame-only canvas.
+    return {
+      css,
+      html: renderBody(LG_SLOT_PLACEHOLDER_HTML, 1),
+      section_count: input.sections.length,
+      config,
+    };
+  }
+
+  const allSectionsHtml = renderVariantSectionsHtml(
+    resolvedSections,
+    effectiveDesign,
+    composition === null ? null : composition.frame,
+  );
+
+  if (input.mode === "all") {
+    // One composed document per Section: section k visible, progress at step
+    // k of N — the §4.1 "step through all slides" mode.
+    return {
+      css,
+      pages: input.sections.map((_, index) =>
+        renderBody(toggleVisibleSection(allSectionsHtml, input.sections, index), index + 1),
+      ),
+      section_count: input.sections.length,
+      config,
+    };
+  }
+
+  // mode "section" (and the Phase-A mode-less default): the full composed
+  // body with the chosen Section visible. Index 0 — the default — applies
+  // ZERO toggling and step-1 progress, so it stays BYTE-IDENTICAL to the
+  // runtime shell body for the same inputs (13 §13.5 leg 1).
+  const index = Math.min(
+    Math.max(input.visibleIndex ?? 0, 0),
+    Math.max(input.sections.length - 1, 0),
+  );
+  return {
+    css,
+    html: renderBody(toggleVisibleSection(allSectionsHtml, input.sections, index), index + 1),
+    section_count: input.sections.length,
+    config,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The §13.4 composed preview route branch (previewVariantHandler dispatches
+// here when the body carries ANY v2.5 key). Response: {preview:{css, html |
+// pages, section_count}, config} + additive `problems` warnings (§3.6).
+// ---------------------------------------------------------------------------
+
+const PREVIEW_MODES = ["frame", "section", "all"] as const;
+type PreviewMode = (typeof PREVIEW_MODES)[number];
+const PREVIEW_VIEWPORTS = ["desktop", "mobile"] as const;
+
+async function composedVariantPreviewResponse(
+  c: AdminContext,
+  owner: { funnel: LeadgenFunnelRow; quote: LeadgenQuoteRow },
+  variant: LeadgenFunnelVariantRow,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const fields: FieldErrors = {};
+  const problems: Problem[] = [];
+
+  // mode — default "section" (the current-slide canvas render).
+  let mode: PreviewMode = "section";
+  if (body["mode"] !== undefined) {
+    const raw = body["mode"];
+    if (typeof raw !== "string" || !(PREVIEW_MODES as readonly string[]).includes(raw)) {
+      fields["mode"] = `mode must be one of ${PREVIEW_MODES.join("|")}`;
+    } else {
+      mode = raw as PreviewMode;
+    }
+  }
+
+  // viewport — accepted + validated for the §13.4 body shape; css/html are
+  // viewport-invariant (the builder iframes the real 1280/375 widths, §8.9).
+  if (body["viewport"] !== undefined) {
+    const raw = body["viewport"];
+    if (typeof raw !== "string" || !(PREVIEW_VIEWPORTS as readonly string[]).includes(raw)) {
+      fields["viewport"] = `viewport must be one of ${PREVIEW_VIEWPORTS.join("|")}`;
+    }
+  }
+
+  // draft_frame_config / draft_theme (C5 preview-before-apply): validated up
+  // front so the template picker gets path-precise §3.6 problems instead of a
+  // silent legacy fallback. Error severity → 400; warnings ride the response
+  // and never block the render (14 §14.3 severity split).
+  let draftFrameConfig: Record<string, unknown> | null | undefined;
+  if (body["draft_frame_config"] !== undefined) {
+    const raw = body["draft_frame_config"];
+    if (raw === null) {
+      draftFrameConfig = null;
+    } else if (!isRecord(raw)) {
+      fields["draft_frame_config"] = "draft_frame_config must be a JSON object or null";
+    } else {
+      const v = validateFrameConfig(raw);
+      problems.push(...v.problems);
+      if (v.config !== null) draftFrameConfig = raw;
+    }
+  }
+  let draftTheme: Record<string, unknown> | null | undefined;
+  if (body["draft_theme"] !== undefined) {
+    const raw = body["draft_theme"];
+    if (raw === null) {
+      draftTheme = null;
+    } else if (!isRecord(raw)) {
+      fields["draft_theme"] = "draft_theme must be a JSON object or null";
+    } else {
+      const v = validateTheme(raw);
+      problems.push(...v.problems);
+      if (v.theme !== null) draftTheme = raw;
+    }
+  }
+
+  const siteIdRaw = body["site_id"];
+  if (siteIdRaw !== undefined && siteIdRaw !== null) {
+    if (typeof siteIdRaw !== "string" || siteIdRaw.trim() === "") {
+      fields["site_id"] = "site_id must be a site id string";
+    }
+  }
+
+  if (Object.keys(fields).length > 0) {
+    return c.json({ error: "Validation failed", fields }, 400);
+  }
+  if (problems.some((p) => p.severity === "error")) {
+    return c.json({ error: "Validation failed", problems }, 400);
+  }
+
+  // site_id (C4): ANY CMS site is legal — branding is read-only site_settings
+  // data; previewing under a site's branding needs NO activation and creates
+  // none. Unknown site → 404.
+  let siteBranding: SiteBranding | null = null;
+  if (typeof siteIdRaw === "string" && siteIdRaw.trim() !== "") {
+    const siteId = siteIdRaw.trim();
+    const site = await c.env.DB.prepare("SELECT id FROM sites WHERE id = ? LIMIT 1")
+      .bind(siteId)
+      .first<{ id: string }>();
+    if (site === null) return c.json({ error: "Not Found" }, 404);
+    siteBranding = await resolveSiteBranding(c.env.DB, siteId);
+  }
+
+  // Ordered sections — the same rows the legacy branch loads.
+  const orderedRefs = await readVariantSections(c.env.DB, variant.id);
+  const sections: LeadgenSectionRow[] = [];
+  for (const ref of orderedRefs) {
+    const row = await c.env.DB.prepare("SELECT * FROM leadgen_sections WHERE id = ? LIMIT 1")
+      .bind(ref.section_id)
+      .first<LeadgenSectionRow>();
+    if (row) sections.push(row);
+  }
+
+  // section_public_id → the visible ordered index (mode:"section").
+  let visibleIndex = 0;
+  if (body["section_public_id"] !== undefined && body["section_public_id"] !== null) {
+    const raw = body["section_public_id"];
+    const at = typeof raw === "string" ? sections.findIndex((s) => s.public_id === raw.trim()) : -1;
+    if (at === -1) {
+      return c.json(
+        {
+          error: "Validation failed",
+          fields: { section_public_id: "section_public_id is not a section of this variant" },
+        },
+        400,
+      );
+    }
+    visibleIndex = at;
+  }
+
+  const preview = renderComposedVariantPreview({
+    quote: owner.quote,
+    funnel: owner.funnel,
+    variant,
+    sections,
+    siteBranding,
+    mode,
+    visibleIndex,
+    draftFrameConfig,
+    draftTheme,
+  });
+  // With `mode` set the renderer never yields null (legacy funnels compose
+  // through the pinned legacy shell) — this guard is type narrowing only.
+  if (preview === null) return c.json({ error: "preview render failed" }, 500);
+
+  const payload: Record<string, unknown> = {
+    preview:
+      mode === "all"
+        ? { css: preview.css, pages: preview.pages ?? [], section_count: preview.section_count }
+        : { css: preview.css, html: preview.html ?? "", section_count: preview.section_count },
+    config: preview.config,
+  };
+  if (problems.length > 0) payload["problems"] = problems; // §3.6 additive warnings
+  return c.json(payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -2273,6 +2727,29 @@ async function computeFunnelV25Problems(
           fix_url: fixQuote,
         });
       }
+    }
+  }
+
+  // --- disclosure points at a footer that never shows (DEV-57/B registered
+  // obligation; 11 §11.4 `location:"footer"` + footer-disabled orphan →
+  // preflight warning). Evaluated over the EFFECTIVE frame (template ⊕ stored)
+  // so template defaults count; conditional on a valid configured frame
+  // (§14.4 — a legacy quote can never gain this row).
+  if (state.effectiveFrameConfig !== null) {
+    const eff = state.effectiveFrameConfig;
+    if (
+      eff.disclosure.enabled &&
+      eff.disclosure.location === "footer" &&
+      (!eff.footer.enabled || eff.footer.show_on === "never")
+    ) {
+      problems.push({
+        path: "frame.disclosure.location",
+        scope: "frame",
+        severity: "warning",
+        message:
+          "The advertising disclosure points at the footer, but the footer never shows on this funnel — move the disclosure or enable the footer.",
+        fix_url: fixQuote,
+      });
     }
   }
 

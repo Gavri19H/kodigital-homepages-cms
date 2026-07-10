@@ -38,6 +38,14 @@ import {
 } from "./payload-builder-handlers";
 import { rebuildLeadgenAnalyticsRangeHandler } from "./analytics-admin-handlers";
 import {
+  getFunnelFrameHandler,
+  getFunnelThemeHandler,
+  getSiteBrandingHandler,
+  listFrameTemplatesHandler,
+  putFunnelFrameHandler,
+  putFunnelThemeHandler,
+} from "./frame-handlers";
+import {
   createMediaPlatformHandler,
   deleteMediaPlatformHandler,
   getMediaPlatformHandler,
@@ -120,6 +128,10 @@ routes.use("*", async (c, next) => {
 // param discipline — nothing may ever capture them as an :id).
 routes.get("/verticals", listVerticalsHandler);
 routes.get("/activities", listActivitiesHandler);
+// v2.5 04 §4.8: the frame-template registry projection — a top-level STATIC
+// path (own prefix, no /frame-templates/:id sibling), registered in the
+// static block per the same discipline.
+routes.get("/frame-templates", listFrameTemplatesHandler);
 
 // --- Offers (03 §8.2 + 04 §10–§11 — Phase-4 Stage B1 full surface) -----------
 routes.get("/offers", listOffersHandler);
@@ -187,13 +199,24 @@ routes.post("/variants/:id/fork", forkVariantHandler);
 routes.post("/variants/:id/preview", previewVariantHandler);
 routes.put("/variants/:id", putVariantHandler);
 
-// Stable Funnels — /funnels/:id/{variants,experiments} BEFORE /funnels/:id.
+// Stable Funnels — /funnels/:id/{variants,experiments,frame,theme} BEFORE the
+// bare /funnels/:id. frame/theme are the v2.5 Quote Builder save surface
+// (04 §4.8 rows 1–4; handlers in frame-handlers.ts).
 routes.get("/funnels/:id/variants", listFunnelVariantsHandler);
 routes.post("/funnels/:id/variants", createFunnelVariantHandler);
 routes.post("/funnels/:id/experiments", createFunnelExperimentHandler);
+routes.get("/funnels/:id/frame", getFunnelFrameHandler);
+routes.put("/funnels/:id/frame", putFunnelFrameHandler);
+routes.get("/funnels/:id/theme", getFunnelThemeHandler);
+routes.put("/funnels/:id/theme", putFunnelThemeHandler);
 routes.get("/funnels/:id", getFunnelHandler);
 routes.patch("/funnels/:id", patchFunnelHandler);
 routes.delete("/funnels/:id", deleteFunnelHandler);
+
+// --- Site branding (v2.5 10 §10.5) — read-only; ALL CMS sites legal (C4) -----
+// The only /sites/* route on this surface; deeper static suffix, no bare
+// /sites/:id sibling to order against.
+routes.get("/sites/:site_id/branding", getSiteBrandingHandler);
 
 // --- Auctions (03 §8.2 + 07 §18–§21 — Phase-9 Stage B full surface) ----------
 // The API entity path is PLURAL; the HTML tab path is singular /admin/leadgen/

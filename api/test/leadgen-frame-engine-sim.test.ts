@@ -287,6 +287,7 @@ interface FrameDom {
   backMount: FakeElement;
   backButton: FakeElement;
   continues: FakeElement[];
+  footer: FakeElement | null;
 }
 
 // Mirrors the composed-frame output (designs/frame.ts): the dots-style
@@ -296,7 +297,10 @@ interface FrameDom {
 // the BackButton preset's [data-lg-back] hook inside; sections ride inside the
 // section_slot's [data-lg-mount]. All FRAME-level chrome sits OUTSIDE the
 // swapped [data-lg-section] elements.
-function buildFrameDom(doc: FakeDocument, opts: { historyFallback: "true" | "false" }): FrameDom {
+function buildFrameDom(
+  doc: FakeDocument,
+  opts: { historyFallback: "true" | "false"; footerShowOn?: "all" | "first" | "final" },
+): FrameDom {
   const root = new FakeElement("div", { id: "lg-funnel-root" });
 
   // Frame progress region (dots style): wrapper = engine mount.
@@ -362,12 +366,26 @@ function buildFrameDom(doc: FakeDocument, opts: { historyFallback: "true" | "fal
   });
   root.appendChild(mount);
 
+  // Frame footer region (11 §11.3): renderFooterRegion emits it ONCE with
+  // data-show-on riding the region wrapper; SSR leaves it VISIBLE (initial
+  // per-step visibility is engine-owned — the same doctrine as the back
+  // affordance above). "never" renders nothing at all, so it has no sim leg.
+  let footer: FakeElement | null = null;
+  if (opts.footerShowOn !== undefined) {
+    footer = new FakeElement("div", {
+      class: `lg-frame-region lg-frame-footer lg-frame-footer--show-${opts.footerShowOn}`,
+      "data-frame-region": "footer",
+      "data-show-on": opts.footerShowOn,
+    });
+    root.appendChild(footer);
+  }
+
   const setOwner = (el: FakeElement): void => {
     el.ownerDocument = doc;
     for (const child of el.children) setOwner(child);
   };
   setOwner(root);
-  return { root, progressMount, dots, backMount, backButton, continues };
+  return { root, progressMount, dots, backMount, backButton, continues, footer };
 }
 
 interface SimHarness extends FrameDom {
@@ -381,6 +399,7 @@ interface SimHarness extends FrameDom {
 async function bootFrameEngine(opts: {
   preview: boolean;
   historyFallback: "true" | "false";
+  footerShowOn?: "all" | "first" | "final";
   referrer?: string;
   fetchMock?: (url: string) => Response | null;
 }): Promise<SimHarness> {
@@ -390,7 +409,10 @@ async function bootFrameEngine(opts: {
     sessionStorage: fakeSessionStorage(),
     parent: { postMessage: () => undefined }, // preview beacon sink
   };
-  const dom = buildFrameDom(doc, { historyFallback: opts.historyFallback });
+  const dom = buildFrameDom(doc, {
+    historyFallback: opts.historyFallback,
+    ...(opts.footerShowOn !== undefined ? { footerShowOn: opts.footerShowOn } : {}),
+  });
   stubBrowserGlobals(win, doc);
   if (opts.fetchMock !== undefined) {
     const mock = opts.fetchMock;
@@ -504,5 +526,79 @@ describe("frame back mount with data-history-fallback (11 §11.2)", () => {
     expect(backSpy).toHaveBeenCalledTimes(1);
     expect(h.engineApi().getState().section_index).toBe(0);
     expect(h.backButton.hasAttribute("hidden")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (d) footer show_on (11 §11.3 / DEV-57 B) — the frame renders the footer ONCE
+// with data-show-on; the engine toggles it on section advance/back and on the
+// banners/auction view. 3-section config: first = section 1 only; final = the
+// last visible section (3) AND the completion view; all = always. "never"
+// renders no footer at all (renderFooterRegion), so it has no engine leg.
+// ---------------------------------------------------------------------------
+
+describe("frame footer show_on mount (11 §11.3 — engine-toggled per step)", () => {
+  it('show_on="first": visible on the first visible section, hidden after advance, visible again after back, hidden on the banners view', async () => {
+    vi.useFakeTimers();
+    const h = await bootFrameEngine({ preview: true, historyFallback: "false", footerShowOn: "first" });
+
+    // Init lands on section 1 (the first VISIBLE section) → shown.
+    expect(h.engineApi().getState().section_index).toBe(0);
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+
+    // Advance to section 2 → hidden.
+    h.root.dispatch("click", h.continues[0]!);
+    expect(h.engineApi().getState().section_index).toBe(1);
+    expect(h.footer!.hasAttribute("hidden")).toBe(true);
+
+    // Back to section 1 → shown again.
+    h.root.dispatch("click", h.backButton);
+    expect(h.engineApi().getState().section_index).toBe(0);
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+
+    // Through to completion (preview auction is disabled → unfilled view):
+    // the banners view is NOT the first section → hidden.
+    h.root.dispatch("click", h.continues[0]!);
+    h.root.dispatch("click", h.continues[1]!);
+    h.root.dispatch("click", h.continues[2]!);
+    expect(h.root.getAttribute("data-lg-complete")).toBe("1");
+    expect(h.footer!.hasAttribute("hidden")).toBe(true);
+  });
+
+  it('show_on="final": hidden on sections 1–2, visible on the last visible section AND on the banners view', async () => {
+    vi.useFakeTimers();
+    const h = await bootFrameEngine({ preview: true, historyFallback: "false", footerShowOn: "final" });
+
+    // Sections 1 and 2 are not the max-position section → hidden.
+    expect(h.footer!.hasAttribute("hidden")).toBe(true);
+    h.root.dispatch("click", h.continues[0]!);
+    expect(h.engineApi().getState().section_index).toBe(1);
+    expect(h.footer!.hasAttribute("hidden")).toBe(true);
+
+    // Section 3 (last visible) → shown.
+    h.root.dispatch("click", h.continues[1]!);
+    expect(h.engineApi().getState().section_index).toBe(2);
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+
+    // Advancing past the last section → the banners/auction view — the
+    // §11.3 "final" definition INCLUDES it → still shown.
+    h.root.dispatch("click", h.continues[2]!);
+    expect(h.root.getAttribute("data-lg-complete")).toBe("1");
+    expect(h.root.getAttribute("data-lg-auction")).toBe("unfilled");
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+  });
+
+  it('show_on="all": visible on every section and on the banners view', async () => {
+    vi.useFakeTimers();
+    const h = await bootFrameEngine({ preview: true, historyFallback: "false", footerShowOn: "all" });
+
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+    h.root.dispatch("click", h.continues[0]!);
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+    h.root.dispatch("click", h.continues[1]!);
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
+    h.root.dispatch("click", h.continues[2]!);
+    expect(h.root.getAttribute("data-lg-complete")).toBe("1");
+    expect(h.footer!.hasAttribute("hidden")).toBe(false);
   });
 });

@@ -67,6 +67,7 @@ const BRANDING: SiteBranding = {
     { label: "Privacy policy", href: "/privacy-policy" },
     { label: "Terms of use", href: "/terms" },
   ],
+  trust_logos: null,
 };
 
 const ROOT = {
