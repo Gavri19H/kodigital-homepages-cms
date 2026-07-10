@@ -533,6 +533,10 @@ leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttemptV2(c));
 // Immutable-cacheable ONLY at the CURRENT template version (the shell embeds
 // /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js, so a version bump changes the URL
 // and can never serve a stale engine); any other version → 404 no-store.
+// Version history: 1→2 v2.4 Fix-P4 (#88, preset-output change); 2→3 v2.5
+// redesign (the engine bytes changed three times — frame dots/back-button/
+// history wiring, footer show_on, aria-valuetext re-stamp — so the immutable
+// URL must move or a year-cached pre-v2.5 engine keeps running new shells).
 leadgenPublicRouter.get("/lg/runtime/:version_js", (c) => {
   const raw = c.req.param("version_js") ?? "";
   if (!raw.endsWith(".js") || raw.slice(0, -3) !== String(LEADGEN_TEMPLATE_VERSION)) {

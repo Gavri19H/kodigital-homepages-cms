@@ -23,6 +23,16 @@ import { defineConfig, devices } from '@playwright/test';
 // contract under test is invariant; only the literal hostname differs.
 export default defineConfig({
   testDir: './test-ui',
+  // LeadGen v2.5 15 §15.4: committed toHaveScreenshot baselines live under
+  // test-ui/__screenshots__/ (the listicles/leadgen self-baseline folder
+  // convention); specs name explicit path segments, e.g.
+  // ['leadgen-v25', 'pattern-a-desktop.png'] →
+  // test-ui/__screenshots__/leadgen-v25/pattern-a-desktop.png. No
+  // platform/project suffix — the baseline set is the contract-named
+  // committed artifact. Only toHaveScreenshot/toMatchSnapshot consumers are
+  // affected (no other spec uses them; the manual self-baseline suites
+  // read/write the folder directly and are untouched).
+  snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
