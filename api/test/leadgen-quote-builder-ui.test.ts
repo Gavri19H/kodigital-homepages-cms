@@ -412,6 +412,22 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(html).toContain(">Open Section</a>");
   });
 
+  it("E4: the island's click-walk resolves a no-region canvas click to `background` (the served layer is pointer-events:none behind #lg-funnel-root and can never be the click target)", async () => {
+    const { html } = await harness();
+    const island = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)!.join("\n");
+    // the walk-miss fallback: no data-frame-region ancestor + no slot
+    // interior → the background region (04 §4.1 click-select reaches the
+    // §4.4 Background inspector)
+    const fallbackSrc = "if (region === null && !interior) { region = 'background'; }";
+    expect(island).toContain(fallbackSrc);
+    // precedence: the slot-interior banner short-circuit RETURNS before the
+    // fallback line runs, and a real region hit breaks the walk before both
+    const bannerSrc = "if (region === 'section_slot' && interior) { showSlotBanner(); return; }";
+    const bannerAt = island.indexOf(bannerSrc);
+    expect(bannerAt).toBeGreaterThan(-1);
+    expect(island.indexOf(fallbackSrc)).toBeGreaterThan(bannerAt);
+  });
+
   it("top bar: publish chip (14 §14.2 count copy), activity chip, site selector chip, one Save", async () => {
     const { html } = await harness();
     expect(html).toContain('id="lg-publish-badge"');

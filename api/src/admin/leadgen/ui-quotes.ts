@@ -3546,6 +3546,13 @@ const QUOTE_EDITOR_SCRIPT = `
     if (region === 'logo') { region = 'header'; }
     if (region === 'section_slot' && interior) { showSlotBanner(); return; }
     hideSlotBanner();
+    // 04 §4.1/§4.4 background fallback: the .lg-frame-background layer is
+    // pointer-events:none BEHIND the content (frame CSS), so a canvas click
+    // can never target it. A click whose walk found NO region and NO
+    // slot-interior landed on #lg-funnel-root itself (or bare canvas) — the
+    // page background IS what was clicked. A real region hit above always
+    // wins (the walk broke on the nearest data-frame-region stamp).
+    if (region === null && !interior) { region = 'background'; }
     if (region !== null) { selectRegion(region); }
   }
   if (canvas) {

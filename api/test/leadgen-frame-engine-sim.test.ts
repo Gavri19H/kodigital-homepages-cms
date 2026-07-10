@@ -7,6 +7,9 @@
 //       data-mode="step"; the StepIndicator dots ride inside): after an engine
 //       advance to step 2 the wrapper stamps aria-valuenow="2" AND exactly one
 //       .lg-step is active — the 2nd (render.ts updateProgress re-stamps dots);
+//       plus the valuetext leg (the E3-found a11y fix): a bar-style mount that
+//       SSRs aria-valuetext="Step 1 of 3" is re-stamped "Step 2 of 3" on the
+//       same advance, while the attr-less dots wrapper never gains the attr;
 //   (b) frame-level back mount: hidden at init (empty back_stack), visible
 //       after one advance — setBackVisible scoped to the funnel ROOT (§11.6);
 //   (c) back mount with data-history-fallback="true" + a same-origin referrer
@@ -284,6 +287,7 @@ interface FrameDom {
   root: FakeElement;
   progressMount: FakeElement;
   dots: FakeElement[];
+  barMount: FakeElement | null;
   backMount: FakeElement;
   backButton: FakeElement;
   continues: FakeElement[];
@@ -299,7 +303,11 @@ interface FrameDom {
 // swapped [data-lg-section] elements.
 function buildFrameDom(
   doc: FakeDocument,
-  opts: { historyFallback: "true" | "false"; footerShowOn?: "all" | "first" | "final" },
+  opts: {
+    historyFallback: "true" | "false";
+    footerShowOn?: "all" | "first" | "final";
+    barProgressMount?: boolean;
+  },
 ): FrameDom {
   const root = new FakeElement("div", { id: "lg-funnel-root" });
 
@@ -336,6 +344,38 @@ function buildFrameDom(
   progressMount.appendChild(steps);
   progressMount.appendChild(labelSink);
   root.appendChild(progressMount);
+
+  // Optional bar-style mount: mirrors the `bar`/`numbered` renderProgressRegion
+  // output where the ProgressBar PRESET ROOT is the mount and SSRs
+  // aria-valuetext="Step 1 of 3" (presets renderProgressBar step-mode default
+  // label). A real frame renders exactly ONE mount; the sim adds this second
+  // archetype so one engine advance exercises BOTH mount shapes — the
+  // valuetext-carrying mount (must be re-stamped per step) and the attr-less
+  // dots wrapper above (must never gain the attr).
+  let barMount: FakeElement | null = null;
+  if (opts.barProgressMount === true) {
+    barMount = new FakeElement("div", {
+      class: "lg-progress",
+      "data-lg-progress": "",
+      "data-mode": "step",
+      role: "progressbar",
+      "aria-valuemin": "0",
+      "aria-valuemax": "3",
+      "aria-valuenow": "1",
+      "aria-valuetext": "Step 1 of 3",
+    });
+    const track = new FakeElement("div", { class: "lg-progress-track" });
+    track.appendChild(
+      new FakeElement("div", { class: "lg-progress-fill", "data-lg-progress-bar": "" }),
+    );
+    const barLabel = new FakeElement("div", {
+      class: "lg-progress-text",
+      "data-lg-progress-label": "",
+    });
+    barMount.appendChild(track);
+    barMount.appendChild(barLabel);
+    root.appendChild(barMount);
+  }
 
   // Frame back region: wrapper carries data-history-fallback; the BackButton
   // preset's [data-lg-back] button rides inside, initially visible (initial
@@ -389,7 +429,7 @@ function buildFrameDom(
     for (const child of el.children) setOwner(child);
   };
   setOwner(root);
-  return { root, progressMount, dots, backMount, backButton, continues, footer };
+  return { root, progressMount, dots, barMount, backMount, backButton, continues, footer };
 }
 
 interface SimHarness extends FrameDom {
@@ -404,6 +444,7 @@ async function bootFrameEngine(opts: {
   preview: boolean;
   historyFallback: "true" | "false";
   footerShowOn?: "all" | "first" | "final";
+  barProgressMount?: boolean;
   referrer?: string;
   fetchMock?: (url: string) => Response | null;
 }): Promise<SimHarness> {
@@ -416,6 +457,7 @@ async function bootFrameEngine(opts: {
   const dom = buildFrameDom(doc, {
     historyFallback: opts.historyFallback,
     ...(opts.footerShowOn !== undefined ? { footerShowOn: opts.footerShowOn } : {}),
+    ...(opts.barProgressMount !== undefined ? { barProgressMount: opts.barProgressMount } : {}),
   });
   stubBrowserGlobals(win, doc);
   if (opts.fetchMock !== undefined) {
@@ -471,6 +513,32 @@ describe("frame dots progress mount (11 §11.6 — updateProgress re-stamps .lg-
     expect(activeDotIndexes(h.dots)).toEqual([1]);
     // The hidden label sink absorbed the step text (dots untouched by text).
     expect(h.progressMount.querySelector("[data-lg-progress-label]")!.textContent).toBe("2 / 3");
+  });
+
+  it('mount carrying SSR aria-valuetext="Step 1 of 3" is re-stamped "Step 2 of 3" on advance; the attr-less mount gains none', async () => {
+    vi.useFakeTimers();
+    const h = await bootFrameEngine({
+      preview: true,
+      historyFallback: "false",
+      barProgressMount: true,
+    });
+
+    // SSR truth at init: the bar-style mount carries the preset's step-1
+    // valuetext (init's updateProgress re-stamp is identical text); the dots
+    // wrapper mount never SSRs one and must not have gained one.
+    expect(h.barMount!.getAttribute("aria-valuetext")).toBe("Step 1 of 3");
+    expect(h.progressMount.hasAttribute("aria-valuetext")).toBe(false);
+
+    // Engine advance: continue on section 1 → section 2 (step 2 of 3).
+    h.root.dispatch("click", h.continues[0]!);
+    expect(h.engineApi().getState().section_index).toBe(1);
+
+    // The carrying mount is re-stamped per step (screen readers PREFER
+    // valuetext — the E3-found staleness defect); the attr-less mount still
+    // has no aria-valuetext.
+    expect(h.barMount!.getAttribute("aria-valuetext")).toBe("Step 2 of 3");
+    expect(h.barMount!.getAttribute("aria-valuenow")).toBe("2");
+    expect(h.progressMount.hasAttribute("aria-valuetext")).toBe(false);
   });
 });
 

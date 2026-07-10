@@ -242,3 +242,334 @@ export async function activateQuoteOnSite(
   });
   expect(res.ok(), `e1 activation (${slug}): HTTP ${res.status()} ${await res.text()}`).toBeTruthy();
 }
+
+// =============================================================================
+// E3 (§15.3 "Runtime (live /lg fixtures)" rows) seed extensions — ADDITIVE
+// ONLY; nothing above changes (E1's 10 tests keep their exact inputs). Same
+// convention: the REAL admin HTTP APIs, no direct DB writes.
+// =============================================================================
+
+export interface RuntimeSectionSeed {
+  id: number;
+  publicId: string;
+}
+
+async function createRuntimeSection(
+  request: APIRequestContext,
+  data: Record<string, unknown>,
+  label: string,
+): Promise<RuntimeSectionSeed> {
+  const created = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, { data }),
+    label,
+  );
+  return { id: created.id, publicId: created.public_id };
+}
+
+// --- rows ①–④: three DISTINCT question units --------------------------------
+//
+// The §15.3 row ① funnel needs the SAME frame around three sections whose UNIT
+// content genuinely differs, and rows ①/③ drive the REAL engine through them:
+// every unit is continue_mode "button" with auto_advance OFF and an explicit
+// ContinueButton, so each advance is a real answered-question + Continue click
+// (never an auto-advance shortcut). Headlines and copy are RUN-STABLE; uniq
+// rides only the never-rendered section names.
+export async function seedRuntimeUnitSections(
+  request: APIRequestContext,
+  opts: { uniq: string; activity: string; vertical: string },
+): Promise<RuntimeSectionSeed[]> {
+  const defs: Array<{ name: string; headline: string; components: unknown[] }> = [
+    {
+      name: `E3 runtime unit 1 ${opts.uniq}`,
+      headline: "Do you currently have coverage?",
+      components: [
+        {
+          type: "TwoButtonYesNo",
+          question_id: "q_e3_yesno",
+          internal_field: "e3_has_coverage",
+          answer_type: "boolean",
+          required: true,
+          props: { yesLabel: "Yes", noLabel: "No", auto_advance: false },
+        },
+        { type: "ContinueButton", question_id: "q_e3_cont1", props: { label: "Continue" } },
+      ],
+    },
+    {
+      name: `E3 runtime unit 2 ${opts.uniq}`,
+      headline: "Who is the coverage for?",
+      components: [
+        {
+          type: "IconCardAnswerGrid",
+          question_id: "q_e3_cards",
+          internal_field: "e3_coverage_for",
+          answer_type: "enum",
+          required: true,
+          choices: [
+            { label: "Just me", value: "self", analytics_id: "e3_self", icon: "🙋" },
+            { label: "My family", value: "family", analytics_id: "e3_family", icon: "👪" },
+          ],
+          props: { columns: 2 },
+        },
+        { type: "ContinueButton", question_id: "q_e3_cont2", props: { label: "Continue" } },
+      ],
+    },
+    {
+      name: `E3 runtime unit 3 ${opts.uniq}`,
+      headline: "When do you want it to start?",
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_e3_group",
+          internal_field: "e3_start_when",
+          answer_type: "enum",
+          required: true,
+          choices: [
+            { label: "As soon as possible", value: "asap", analytics_id: "e3_asap" },
+            { label: "Within a month", value: "month", analytics_id: "e3_month" },
+          ],
+        },
+        { type: "ContinueButton", question_id: "q_e3_cont3", props: { label: "Continue" } },
+      ],
+    },
+  ];
+  const out: RuntimeSectionSeed[] = [];
+  for (const [i, def] of defs.entries()) {
+    out.push(
+      await createRuntimeSection(
+        request,
+        {
+          section_name: def.name,
+          activity: opts.activity,
+          vertical: opts.vertical,
+          headline_text: def.headline,
+          continue_mode: "button",
+          status: "active",
+          content_json: { components: def.components },
+        },
+        `e3 runtime unit ${i + 1}`,
+      ),
+    );
+  }
+  return out;
+}
+
+// --- row ⑤: below_unit sections ----------------------------------------------
+//
+// Two units for the `section_slot.continue_placement:"below_unit"` funnel:
+//   * unit 1 DECLARES an explicit ContinueButton node (label "Keep going") —
+//     11 §11.5/C3: the in-node visual is suppressed and the node's props feed
+//     the ONE end-of-subtree slot control;
+//   * unit 2 declares NO ContinueButton — the slot control renders the
+//     theme-default copy ("Continue"); a below_unit Section always shows
+//     exactly one control.
+export async function seedBelowUnitSections(
+  request: APIRequestContext,
+  opts: { uniq: string; activity: string; vertical: string },
+): Promise<RuntimeSectionSeed[]> {
+  const first = await createRuntimeSection(
+    request,
+    {
+      section_name: `E3 below-unit 1 ${opts.uniq}`,
+      activity: opts.activity,
+      vertical: opts.vertical,
+      headline_text: "Which coverage do you want to compare?",
+      continue_mode: "button",
+      status: "active",
+      content_json: {
+        components: [
+          {
+            type: "ButtonAnswerGroup",
+            question_id: "q_e3bu_pick",
+            internal_field: "e3bu_coverage",
+            answer_type: "enum",
+            required: true,
+            choices: [
+              { label: "Home", value: "home", analytics_id: "e3bu_home" },
+              { label: "Auto", value: "auto", analytics_id: "e3bu_auto" },
+            ],
+          },
+          { type: "ContinueButton", question_id: "q_e3bu_cont", props: { label: "Keep going" } },
+        ],
+      },
+    },
+    "e3 below-unit section 1",
+  );
+  const second = await createRuntimeSection(
+    request,
+    {
+      section_name: `E3 below-unit 2 ${opts.uniq}`,
+      activity: opts.activity,
+      vertical: opts.vertical,
+      headline_text: "Are you over 25?",
+      continue_mode: "button",
+      status: "active",
+      content_json: {
+        components: [
+          {
+            type: "TwoButtonYesNo",
+            question_id: "q_e3bu_age",
+            internal_field: "e3bu_over_25",
+            answer_type: "boolean",
+            required: true,
+            props: { yesLabel: "Yes", noLabel: "No", auto_advance: false },
+          },
+        ],
+      },
+    },
+    "e3 below-unit section 2",
+  );
+  return [first, second];
+}
+
+// --- row ⑥: the LIVE legacy (frame = NULL) funnel ------------------------------
+//
+// Mirrors the A0-pin funnel (test/leadgen-frame-legacy-pin.test.ts) through the
+// REAL admin APIs so the SERVED /lg body can be byte-compared to the committed
+// pin fixture:
+//   * the SAME quote name ("Legacy Pin Quote" → the funnel_name "Legacy Pin
+//     Quote — Funnel A" baked into <title> + #lg-config), the same
+//     activity/vertical, the same three section content bodies + headlines +
+//     continue_mode, seeded in the same order via the same API sequence
+//     (create quote → PUT variant sections (position-less refs, exactly like
+//     the pin) → activate) so content_version lands on the pinned value;
+//   * NO frame PUT ever happens — leadgen_funnels.frame_config_json stays NULL
+//     (13 §13.1: the byte-pinned renderLegacyShell path);
+//   * the pin eliminated section-id variance with FIXED lgs_ ids via direct
+//     SQL; the admin API MINTS lgs_ ids, so the spec normalizes exactly the
+//     minted ids (returned here) + the section_order_hash they derive.
+//
+// LEGACY_PIN_SECTION_CONTENT below is a VERBATIM copy of that pin test's
+// SECTION_SEEDS content (same key order — validateSection stores
+// JSON.stringify of the parsed body, so byte-identical content_json requires
+// byte-identical input literals). Any drift between the two files fails row
+// ⑥'s byte-compare loudly — the committed fixture stays the single truth.
+const LEGACY_PIN_SECTION_CONTENT = [
+  {
+    headline: "Are you insured?",
+    content: {
+      components: [
+        { type: "ProgressBar", question_id: "p1", props: { mode: "percent", percent: 40 } },
+        { type: "QuestionHeadline", question_id: "h1", props: { text: "Are you insured?" } },
+        {
+          type: "TwoButtonYesNo",
+          question_id: "q_ins",
+          question_key: "insured_q",
+          internal_field: "currently_insured",
+          answer_type: "boolean",
+          required: true,
+          props: { auto_advance: true },
+        },
+        {
+          type: "DropdownQuestion",
+          question_id: "q_insurer",
+          question_key: "insurer_q",
+          internal_field: "insurer",
+          answer_type: "enum",
+          choices: [
+            { label: "Acme", value: "acme", analytics_id: "ins_acme" },
+            { label: "Globex", value: "globex", analytics_id: "ins_globex" },
+          ],
+          conditional: { when: "currently_insured", op: "eq", value: true },
+        },
+        { type: "ContinueButton", question_id: "cont1", props: { label: "Continue" } },
+      ],
+    },
+  },
+  {
+    headline: "What type of business?",
+    content: {
+      components: [
+        { type: "ProgressBar", question_id: "p2", props: { mode: "percent", percent: 70 } },
+        { type: "QuestionHeadline", question_id: "h2", props: { text: "What type of business?" } },
+        {
+          type: "IconCardAnswerGrid",
+          question_id: "q_biz",
+          question_key: "biz_q",
+          internal_field: "biz_type",
+          answer_type: "enum",
+          required: true,
+          choices: [
+            { label: "Sole Proprietor", value: "sole_prop", analytics_id: "biz_sole", icon: "🏢" },
+            { label: "Partnership", value: "partnership", analytics_id: "biz_partner", icon: "🏢" },
+          ],
+          props: { columns: 3 },
+        },
+        { type: "ContinueButton", question_id: "cont2", props: { label: "Continue" } },
+      ],
+    },
+  },
+  {
+    headline: "Anything else we should know?",
+    content: {
+      components: [
+        { type: "QuestionHeadline", question_id: "h3", props: { text: "Anything else we should know?" } },
+        {
+          type: "FreeTextQuestion",
+          question_id: "q_note",
+          question_key: "note_q",
+          internal_field: "note",
+          answer_type: "string",
+          props: { placeholder: "Type…", maxLen: 100 },
+        },
+        { type: "ContinueButton", question_id: "cont3", props: { label: "Continue" } },
+      ],
+    },
+  },
+] as const;
+
+export interface LegacyPinLiveFunnel {
+  host: string;
+  slug: string;
+  /** The three MINTED lgs_ ids, in variant position order (the row-⑥ normalizer input). */
+  sectionPublicIds: string[];
+}
+
+export async function seedLegacyPinLiveFunnel(
+  request: APIRequestContext,
+  uniq: string,
+): Promise<LegacyPinLiveFunnel> {
+  const host = `lg-e3-legacy-${uniq}.e2e.test`;
+  const siteId = await seedActiveSite(request, host, `LG E3 Legacy Site ${uniq}`);
+  // No branding PATCH: renderLegacyShell consumes no site branding, and the
+  // legacy body carries no site name/host (verified against the fixture).
+
+  const sections: RuntimeSectionSeed[] = [];
+  for (const [i, seed] of LEGACY_PIN_SECTION_CONTENT.entries()) {
+    sections.push(
+      await createRuntimeSection(
+        request,
+        {
+          section_name: `E3 legacy pin ${i + 1} ${uniq}`, // never rendered/served
+          activity: "quote_funnel",
+          vertical: "life",
+          headline_text: seed.headline,
+          continue_mode: "button",
+          status: "active",
+          content_json: seed.content,
+        },
+        `e3 legacy pin section ${i + 1}`,
+      ),
+    );
+  }
+
+  const quote = await json<{
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  }>(
+    await request.post(`${LG_API}/quotes`, {
+      data: { quote_name: "Legacy Pin Quote", activity: "quote_funnel", verticals: ["life"] },
+    }),
+    "e3 legacy pin quote create",
+  );
+  const variantId = quote.funnels[0]!.variants[0]!.public_id;
+  // Position-less refs — the pin harness's exact PUT body shape.
+  await json(
+    await request.put(`${LG_API}/variants/${variantId}`, {
+      data: { sections: sections.map((s) => ({ section_id: s.id })) },
+    }),
+    "e3 legacy pin variant sections",
+  );
+  // Deliberately NO PUT /funnels/:id/frame — frame_config_json stays NULL.
+  await activateQuoteOnSite(request, quote.public_id, siteId, "legacy-pin");
+  return { host, slug: "legacy-pin", sectionPublicIds: sections.map((s) => s.publicId) };
+}

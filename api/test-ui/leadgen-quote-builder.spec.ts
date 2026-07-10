@@ -428,4 +428,60 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     expect(okRow.enabled).toBe(true);
     expect(okRow.slug).toBe(`lg-d-chrome-${uniq}`);
   });
+
+  test("⑩ E4: a REAL click on the bare page-background area opens the §4.4 Background inspector; role+style edit → Save → API read-back", async ({ page }) => {
+    test.setTimeout(120_000);
+    await openEditor(page);
+
+    // the Background panel is closed until the region is selected
+    const panel = page.locator('[data-region-panel="background"]');
+    await expect(panel).toBeHidden();
+
+    // The served .lg-frame-background layer is pointer-events:none BEHIND
+    // the content (the E1-measured defect: every probed point reported
+    // "#lg-funnel-root … intercepts pointer events"), so the page background
+    // the operator SEES and clicks is the bare strip beside the centered
+    // card slot — a point vertically centered on the slot, horizontally
+    // between the root's left edge and the slot's left edge (block regions
+    // never overlap the slot's vertical band).
+    const root = canvas(page).locator("#lg-funnel-root");
+    const slotBox = await canvas(page).locator("[data-frame-region='section_slot']").boundingBox();
+    const rootBox = await root.boundingBox();
+    expect(slotBox, "slot bounding box").not.toBeNull();
+    expect(rootBox, "root bounding box").not.toBeNull();
+    await root.click({
+      position: {
+        x: Math.max(4, (slotBox!.x - rootBox!.x) / 2),
+        y: slotBox!.y - rootBox!.y + slotBox!.height / 2,
+      },
+    });
+
+    // …the Background inspector opens (04 §4.1 canvas click-select)
+    await expect(panel).toBeVisible();
+
+    // §4.4 edits: background color role via the swatch strip + style → brand
+    await panel.locator('[data-role-pick="brand_secondary"][data-role-pick-for="background.role"]').click();
+    await panel.locator('select[data-frame-key="background.style"]').selectOption("brand");
+    // the canvas re-composes with BOTH stamps (role + style classes)
+    const bgLayer = canvas(page).locator("[data-frame-region='background']");
+    await expect(bgLayer).toHaveClass(/lg-frame-bg-role-brand_secondary/, { timeout: 20_000 });
+    await expect(bgLayer).toHaveClass(/lg-frame-bg-style-brand/);
+    await page.screenshot({ path: `${SHOT_DIR}/leadgen-e-10-background-inspector.png` });
+
+    // ONE Save → the funnel frame PUT persists the background group
+    const framePut = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${seed.funnelPublicId}/frame`),
+    );
+    await page.locator("#lg-variant-save").click();
+    expect((await framePut).status()).toBe(200);
+    await expect(page.locator("#lg-quote-ok")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#lg-quote-ok")).toContainText("Saved");
+
+    // API read-back: the stored funnel frame carries the authored background
+    const frame = await page.request.get(`${LG_API}/funnels/${seed.funnelPublicId}/frame`).then((r) => r.json()) as {
+      frame_config: { background?: { role?: string; style?: string } };
+    };
+    expect(frame.frame_config.background?.role).toBe("brand_secondary");
+    expect(frame.frame_config.background?.style).toBe("brand");
+  });
 });

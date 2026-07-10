@@ -99,6 +99,14 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
     el.setAttribute("aria-valuenow", String(currentStep));
     el.setAttribute("data-lg-progress-current", String(currentStep));
     el.setAttribute("data-lg-progress-total", String(safeTotal));
+    // A mount that SSRs aria-valuetext="Step 1 of N" (presets renderProgressBar
+    // step-mode default label / renderStepIndicator) must have it re-stamped
+    // per step — screen readers PREFER valuetext over valuenow, so a stale one
+    // reads "Step 1 of N" on every slide (the E3-found a11y defect). The copy
+    // matches the SSR format verbatim; mounts without the attr never gain one.
+    if (el.hasAttribute("aria-valuetext")) {
+      el.setAttribute("aria-valuetext", `Step ${currentStep} of ${safeTotal}`);
+    }
     const bar = el.querySelector("[data-lg-progress-bar]");
     if (bar !== null && bar instanceof HTMLElement) {
       bar.style.width = `${pct}%`;

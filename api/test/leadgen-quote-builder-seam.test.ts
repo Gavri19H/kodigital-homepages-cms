@@ -388,6 +388,7 @@ interface IslandProbe {
   allocDirty: boolean;
   dirty: boolean;
   isControl: boolean;
+  selectedRegion: string | null;
   pendingSwitch: { id: string; merged: Record<string, unknown> } | null;
   clientEffective(): Record<string, unknown>;
   currentTemplateId(): string;
@@ -410,6 +411,7 @@ const SEAM_EXPORTER = `
   get allocDirty() { return allocDirty; },
   get dirty() { return dirty; },
   get isControl() { return isControl; },
+  get selectedRegion() { return selectedRegion; },
   get pendingSwitch() { return pendingSwitch; },
   clientEffective: function () { return clientEffective(); },
   currentTemplateId: function () { return currentTemplateId(); },
@@ -1674,5 +1676,120 @@ describeDb("quote builder EXECUTED island — DEV-66 canvas mobile = real 375 if
     studio.fire(studio.root, "click", fakeTarget("data-viewport-btn", "desktop"));
     await studio.settle();
     expect(canvas.style["width"]).toBe("1280px");
+  });
+});
+
+// ===========================================================================
+// Phase E (slice E4) — EXECUTED canvas click-walk: the background region is
+// reachable through the canvas. The served `.lg-frame-background` layer is
+// pointer-events:none BEHIND the content (frame CSS: layer z-index 0 under
+// region z-index 1), so a bare-canvas click always targets #lg-funnel-root
+// itself (the E1-measured defect: "…intercepts pointer events") — the
+// island's walk-miss fallback must resolve that click to `background`
+// (04 §4.1 click-select → §4.4 Background inspector) while a real region hit
+// and the slot-interior banner keep precedence.
+// ===========================================================================
+
+// Minimal click-chain node for the composed document (getAttribute +
+// parentNode are all onCanvasClick walks; className is what outlineSelection
+// writes).
+function clickNode(attrs: Record<string, string>, parent: unknown = null): {
+  parentNode: unknown;
+  className: string;
+  getAttribute(n: string): string | null;
+} {
+  const node = {
+    parentNode: parent,
+    className: "",
+    getAttribute(n: string) { return Object.prototype.hasOwnProperty.call(attrs, n) ? attrs[n]! : null; },
+  };
+  return node;
+}
+
+describeDb("quote builder EXECUTED island — E4 bare canvas clicks resolve to the background region", () => {
+  it("a #lg-funnel-root / empty-area click selects `background` and opens its inspector; a real region still wins; slot-interior still banners", async () => {
+    const h = await studioHarness();
+    const putFrame = await admin.request(
+      `${API}/funnels/${h.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: { version: 1, template: "centered" } }),
+      h.env,
+    );
+    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
+
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+    const canvas = studio.byId("lg-preview-iframe");
+
+    // the inspector panels showRegionPanel() toggles (root.querySelectorAll)
+    const panelNames = ["header", "progress", "background", "section_slot"];
+    const panels = panelNames.map((name) => {
+      const p = makeNode("div");
+      p.attrs["data-region-panel"] = name;
+      p.className = "lg-inspector-panel lg-panel-card";
+      return p;
+    });
+    studio.root.sel["[data-region-panel]"] = panels;
+    const panelOf = (name: string): FakeNode => panels[panelNames.indexOf(name)]!;
+
+    // the composed document, exactly the renderQuoteFrame nesting: body →
+    // #lg-funnel-root (data-frame-template, NO data-frame-region) containing
+    // the aria-hidden background layer (never a click target —
+    // pointer-events:none), a content region, and the section slot with a
+    // swapped section inside.
+    const iframeBody = clickNode({});
+    const funnelRoot = clickNode({ "data-frame-template": "centered" }, iframeBody);
+    const bgLayer = clickNode({ "data-frame-region": "background" }, funnelRoot);
+    const progressRegion = clickNode({ "data-frame-region": "progress" }, funnelRoot);
+    const progressInner = clickNode({}, progressRegion); // e.g. the track div
+    const slotRegion = clickNode({ "data-frame-region": "section_slot" }, funnelRoot);
+    const sectionInner = clickNode({ "data-lg-section": "s1" }, slotRegion);
+    const docHandlers: Record<string, Array<(ev?: unknown) => unknown>> = {};
+    const fakeDoc = {
+      addEventListener(t: string, f: (ev?: unknown) => unknown) { (docHandlers[t] = docHandlers[t] ?? []).push(f); },
+      querySelectorAll(sel: string) { return sel === "[data-frame-region]" ? [bgLayer, progressRegion, slotRegion] : []; },
+    };
+    (canvas as unknown as { contentDocument: unknown }).contentDocument = fakeDoc;
+    studio.fire(canvas, "load"); // the island wires onCanvasClick onto the doc
+    expect(docHandlers["click"]?.length, "canvas click delegation registered").toBe(1);
+    const clickDoc = (target: unknown): void => {
+      for (const f of docHandlers["click"] ?? []) f({ target, preventDefault() { /* noop */ } });
+    };
+    const hint = studio.byId("lg-inspector-hint");
+    const banner = studio.byId("lg-slot-banner");
+
+    // (1) bare click on #lg-funnel-root (the measured real-world target) →
+    // background selected, its §4.4 panel active, hint hidden, the canvas
+    // outline marks the background layer.
+    clickDoc(funnelRoot);
+    expect(studio.probe.selectedRegion).toBe("background");
+    expect(panelOf("background").className).toBe("lg-inspector-panel lg-panel-card active");
+    expect(panelOf("progress").className).toBe("lg-inspector-panel lg-panel-card");
+    expect(hint.hidden, "inspector hint hides once a region is selected").toBe(true);
+    expect(bgLayer.className).toContain("lg-region-sel");
+    expect(progressRegion.className).not.toContain("lg-region-sel");
+
+    // (1b) a click outside the root entirely (iframe body) resolves the same
+    clickDoc(iframeBody);
+    expect(studio.probe.selectedRegion).toBe("background");
+
+    // (2) a click INSIDE a real region still wins over the fallback
+    clickDoc(progressInner);
+    expect(studio.probe.selectedRegion).toBe("progress");
+    expect(panelOf("progress").className).toBe("lg-inspector-panel lg-panel-card active");
+    expect(panelOf("background").className).toBe("lg-inspector-panel lg-panel-card");
+    expect(progressRegion.className).toContain("lg-region-sel");
+    expect(bgLayer.className).not.toContain("lg-region-sel");
+
+    // (3) slot-interior click still shows the §4.1 banner and does NOT
+    // reroute the selection (precedence unchanged)
+    clickDoc(sectionInner);
+    expect(banner.className).toBe("lg-slot-banner");
+    expect(studio.probe.selectedRegion, "banner path never re-selects").toBe("progress");
+
+    // (4) a following bare click hides the banner and lands on background
+    clickDoc(funnelRoot);
+    expect(banner.className).toBe("lg-slot-banner lg-hidden");
+    expect(studio.probe.selectedRegion).toBe("background");
+    expect(panelOf("background").className).toBe("lg-inspector-panel lg-panel-card active");
   });
 });
