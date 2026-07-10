@@ -811,15 +811,32 @@ export function renderMultiChoiceCardGroup(
 ): string {
   const min = propNum(node, "min");
   const max = propNum(node, "max");
-  const card = (c: LeadgenChoice): string =>
+  // v2.5 05 §5.5 / 08 §8.7 patterns D/F (A6 flag d): title/subtitle choice
+  // depth PARITY with renderCardGrid — ADDITIVE: title renders in the
+  // card-title slot when present (label stays the stored/a11y base), subtitle
+  // renders the same iconCard.subtitle* token slots. A choice carrying
+  // neither renders byte-identically to the pre-depth markup.
+  const ic = iconCardDepthSlots(design);
+  const card = (c: LeadgenChoice): string => {
+    const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
+    const desc =
+      typeof c.subtitle === "string" && c.subtitle !== ""
+        ? `<span class="lg-card-desc lg-card-subtitle"${style({
+            "font-size": ic.subtitleFontSize,
+            color: ic.subtitleColor,
+          })}>${esc(c.subtitle)}</span>`
+        : "";
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
-    `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
-    attr("data-value", c.value) +
-    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
-    attr("data-lg-choice", c.value) +
-    attr("data-analytics-id", c.analytics_id) +
-    `><span class="lg-card-title">${esc(c.label)}</span></button>`;
+    return (
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"` +
+      attr("data-value", c.value) +
+      // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+      attr("data-lg-choice", c.value) +
+      attr("data-analytics-id", c.analytics_id) +
+      `><span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
+    );
+  };
   const display = readChoiceDisplay(node);
   let cards: string;
   if (display !== undefined && display.otherGroupEnabled) {

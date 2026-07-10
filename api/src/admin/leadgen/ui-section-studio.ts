@@ -34,10 +34,29 @@
 // consequence-inline rename copy, Advanced-only ids/bind marker + the §7.5
 // console-only section_advanced_opened event), A5 image_alt sample fixes and
 // the A6 image_fit component prop (Design-tab control).
-// WAVE 2 (same file, follows this one) owns: the badge's real "Move to Quote
-// frame" action (frame_config_json write + funnel picker), Choices/Design
-// depth panels (per-choice picker cells, resolved inherited values), and the
-// §6 canvas-toolbar contract. Search for "wave 2" / "wave-2" markers.
+// WAVE 2 (this file, shipped): the §6 canvas-toolbar contract (§6.1 anatomy
+// 1–9: clickable breadcrumb crumbs, toolbar-hosted scope pills (ONE pill
+// implementation with the inspector, §6.1.2), REQUIRED undo/redo (≥30-step
+// in-memory history per open editor, cleared on Save, ⌘Z/⇧⌘Z), canvas
+// viewport toggle (server-rendered `viewport` param), structure cluster
+// (+ Group→Grid/Columns + Ungroup splice), layout/text/component clusters,
+// §6.6 named presets over KV `lg-component-presets` with the Design-tab
+// saved-presets dropdown), §6.5 context matrix (pure toolbarClustersFor),
+// §6.2 canvas interaction (dblclick inline text editing, per-choice
+// selection, inline choice ops, width-preset resize snap, Del/Esc keys),
+// §6.4 choice cluster, §5.4 Move-to-Quote-frame semantics (single-funnel
+// confirm naming the funnel → real PUT /funnels/:id/frame + node removal
+// persisted on the same action; used-by-many → funnel picker), §5.3 mode 5
+// Preview-in-Quote-frame (frame picker + site selector → the landed
+// sections/preview frame_context param; exact empty-state copy), §5.5 choice
+// depth (per-choice icon/emoji/image picker cells, title/subtitle/badge/
+// disabled/aria_label, bulk paste label = value, searchable-dropdown toggle),
+// §7.3 C1 Choices separation (NO provider-value control; the read-only
+// "Provider values: k/n Offers" chip over the DEV-55 per-offer projection),
+// §9.4 Design-tab role swatch rows (role-name values, inheritance source
+// line, Reset to inherited, legacy-hex Convert affordance), §9.5 Section
+// role-overrides drawer mode, and the Advanced raw-JSON read-only view with
+// the explicit "Edit raw…" confirm.
 //
 // House rules carried over from ui-question-builder: ONE strict-ES5 inline
 // island (no arrow/const/let/async/await/backtick — the layout.ts constraint,
@@ -58,6 +77,7 @@
 import { escapeHtml } from "../templates/layout";
 import { COMPONENT_CATALOG, type ComponentType } from "../../public/leadgen/components/registry";
 import {
+  COLOR_TYPED_OVERRIDE_KEYS,
   CURATED_DESIGN_OVERRIDE_KEYS,
   LEADGEN_BG_PANEL_BACKGROUNDS,
   LEADGEN_BG_PANEL_GRADIENTS,
@@ -81,6 +101,9 @@ import {
   type RequiredSpec,
 } from "../../public/leadgen/components/content-schema";
 import { renderComponent, renderSectionComponents } from "../../public/leadgen/components/presets";
+// v2.5 09 §9.1/§9.4/§9.5: the 14 semantic roles + the resolved role→value
+// table (swatch chips, legacy-hex Convert matching) ride the studio meta blob.
+import { FUNNEL_TOKEN_ROLES, resolveTokens } from "../../public/leadgen/designs/theme";
 import { FUNNEL_DESIGNS, getFunnelDesign, type FunnelDesign } from "../../public/leadgen/designs/registry";
 import {
   FUNNEL_DESIGN_SCOPE_ATTR,
@@ -524,12 +547,39 @@ function jsonBlob(id: string, payload: unknown): string {
   return `<script type="application/json" id="${id}">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>`;
 }
 
+// §9.1 role → operator label (the UI Label column, verbatim). Locksteps with
+// FUNNEL_TOKEN_ROLES via the Record type — a new role fails the compile.
+export const STUDIO_ROLE_LABELS: Record<(typeof FUNNEL_TOKEN_ROLES)[number], string> = {
+  brand_primary: "Brand primary",
+  brand_secondary: "Brand secondary",
+  accent: "Accent",
+  success: "Success",
+  error: "Error",
+  page_background: "Page background",
+  card_background: "Card background",
+  surface_wash: "Soft fill",
+  border: "Border",
+  text_primary: "Text",
+  text_muted: "Muted text",
+  button_primary_bg: "Button",
+  button_primary_text: "Button text",
+  button_secondary_bg: "Secondary button",
+};
+
 // The two studio bootstrap blobs: the legacy-shaped seed templates + the new
 // studio metadata (max depth rides along so the island never hardcodes it).
+// Wave 2 additions: the 14 §9.1 roles with labels + the DEFAULT design's
+// resolved role values (swatch chips; exact-match Convert for legacy hex).
 export function renderStudioSeedData(): string {
+  const resolved = resolveTokens(getFunnelDesign(null), null, null);
   return (
     jsonBlob("lg-component-seeds", componentSeedTemplates()) +
-    jsonBlob("lg-studio-meta", { max_depth: LEADGEN_MAX_CONTAINER_DEPTH, types: studioTypeMeta() })
+    jsonBlob("lg-studio-meta", {
+      max_depth: LEADGEN_MAX_CONTAINER_DEPTH,
+      types: studioTypeMeta(),
+      roles: resolved.roles,
+      role_labels: STUDIO_ROLE_LABELS,
+    })
   );
 }
 
@@ -810,6 +860,138 @@ function renderFrameHintSkeleton(edge: "top" | "bottom"): string {
   return `<div class="studio-frame-skeleton" data-studio-frame-skeleton="${edge}" hidden aria-hidden="true">${inner}</div>`;
 }
 
+// §6.1.2 / §7.1: ONE scope-pill implementation for BOTH hosts (toolbar +
+// inspector scope header). The island updates every [data-scope-pill]
+// instance document-wide, so the two hosts can never disagree.
+export function renderScopePillsMarkup(): string {
+  return `<div class="studio-scope-pills" role="group" aria-label="Editing scope">
+    <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
+    <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This Section</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>Component</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="choice" aria-pressed="false" disabled>Choice</button>
+  </div>`;
+}
+
+// §9.4 role swatch select — the ONLY color vocabulary on normal surfaces:
+// option VALUES are role names (writes land as roles, never hex); the empty
+// option is the inherited state. Shared by the Design tab, the toolbar
+// clusters and the §9.5 Section-overrides drawer.
+function roleSelectOptions(): string {
+  return FUNNEL_TOKEN_ROLES.map(
+    (role) => `<option value="${escapeHtml(role)}">${escapeHtml(STUDIO_ROLE_LABELS[role])}</option>`,
+  ).join("");
+}
+
+// §6.1.6 toolbar layout cluster: compact per-type control strips over the
+// SAME data-container-prop/data-container-group hooks the inspector Layout
+// tab uses — one populate/collect implementation, two hosts. Toolbar copies
+// carry lg-tb- ids (unique) + aria-labels instead of visible labels.
+const TOOLBAR_LAYOUT_TYPES: ReadonlyArray<{ type: string; keys: readonly string[] }> = [
+  { type: "Stack", keys: ["direction", "gap", "align"] },
+  { type: "GridContainer", keys: ["columnsDesktop", "columnsTablet", "columnsMobile", "gap"] },
+  { type: "Columns", keys: ["ratio", "mobile"] },
+  { type: "CardPanel", keys: ["width", "padding", "radius", "shadow", "background"] },
+];
+
+function renderToolbarLayoutCluster(design: FunnelDesign): string {
+  const groups = TOOLBAR_LAYOUT_TYPES.map((entry) => {
+    const spec = CONTAINER_PROP_CONTROLS.find((g) => g.type === entry.type);
+    const controls = (spec?.controls ?? [])
+      .filter((ctl) => entry.keys.includes(ctl.key))
+      .map(
+        (ctl) =>
+          `<select id="lg-tb-${escapeHtml(entry.type)}-${escapeHtml(ctl.key)}" class="form-input studio-tb-select" data-container-prop="${escapeHtml(ctl.key)}" data-container-kind="${ctl.kind}" aria-label="${escapeHtml(ctl.label)}" title="${escapeHtml(ctl.label)}"><option value="">${escapeHtml(ctl.label)}: default</option>${options(ctl.values ?? [])}</select>`,
+      )
+      .join("");
+    return `<span class="studio-tb-group" data-container-group="${escapeHtml(entry.type)}" hidden>${controls}</span>`;
+  }).join("");
+  // Choice-grid quick layout (§6.5 "layout(columns/gap)") — design_overrides
+  // keys through the SAME data-inspector-override hooks as the Design tab.
+  const gapOptions = (curatedTokenOptions(design)["gridGap"] ?? [])
+    .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+    .join("");
+  const choiceLayout = `<span class="studio-tb-group" data-toolbar-choice-layout hidden>
+    <select id="lg-tb-choice-columns" class="form-input studio-tb-select" data-inspector-override="columns" aria-label="Card columns" title="Card columns"><option value="">Columns: inherit</option>${options([2, 3, 4, 5])}</select>
+    <select id="lg-tb-choice-gap" class="form-input studio-tb-select" data-inspector-override="gridGap" aria-label="Answer-grid gap token" title="Answer-grid gap token"><option value="">Gap: inherit</option>${gapOptions}</select>
+  </span>`;
+  return `<span class="studio-tb-cluster" data-toolbar-cluster="layout" hidden>${groups}${choiceLayout}</span>`;
+}
+
+// §6.1 anatomy 1–9, left → right. The toolbar is ALWAYS visible (§6.5 row 1:
+// nothing selected still shows breadcrumb(root) · pills · undo/redo ·
+// viewport); the island toggles the per-selection clusters (pure
+// toolbarClustersFor — the §6.5 matrix).
+function renderCanvasToolbar(design: FunnelDesign): string {
+  const textRoles: ReadonlyArray<{ value: string; label: string }> = [
+    { value: "QuestionHeadline", label: "Headline" },
+    { value: "Subheadline", label: "Subheadline" },
+    { value: "CategoryLabel", label: "Kicker" },
+    { value: "HelperText", label: "Helper" },
+    { value: "LegalNote", label: "Legal" },
+  ];
+  const textRoleOptions = textRoles
+    .map((r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`)
+    .join("");
+  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar>
+    <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
+    ${renderScopePillsMarkup()}
+    <span class="studio-tb-cluster" data-toolbar-cluster="undo">
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="undo" disabled title="Undo (&#8984;Z)" aria-label="Undo">&#8630;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="redo" disabled title="Redo (&#8679;&#8984;Z)" aria-label="Redo">&#8631;</button>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="viewport" role="group" aria-label="Canvas viewport">
+      <button type="button" class="btn btn-sm btn-secondary active" data-canvas-viewport="desktop" aria-pressed="true">Desktop 1280</button>
+      <button type="button" class="btn btn-sm btn-secondary" data-canvas-viewport="mobile" aria-pressed="false">Mobile 375</button>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="structure" hidden>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-before" aria-pressed="false">+ Before</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-after" aria-pressed="false">+ After</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="duplicate">Duplicate</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-stack">Group &#8594; Stack</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-cardpanel">Group &#8594; Card panel</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-grid">Group &#8594; Grid</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-columns">Group &#8594; Columns</button>
+      <button type="button" class="btn btn-sm btn-outline" data-studio-act="ungroup">Ungroup</button>
+      <button type="button" class="btn btn-sm btn-danger" data-studio-act="delete">Delete</button>
+    </span>
+    ${renderToolbarLayoutCluster(design)}
+    <span class="studio-tb-cluster" data-toolbar-cluster="text" hidden>
+      <select id="lg-tb-text-role" class="form-input studio-tb-select" data-text-role aria-label="Type role" title="Type role (maps to the design type slots)">${textRoleOptions}</select>
+      <span data-toolbar-text-color hidden><select id="lg-tb-text-color" class="form-input studio-tb-select" data-inspector-override="featureColor" aria-label="Text color role" title="Text color role"><option value="">Color: inherited</option>${roleSelectOptions()}</select></span>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="component" hidden>
+      <button type="button" class="btn btn-sm btn-outline" data-toolbar-add-choice hidden>+ Add choice</button>
+      <button type="button" class="studio-chip" data-toolbar-autoadvance hidden aria-pressed="false" title="Reflects the Section&#8217;s Continue behavior — click to toggle">Auto-advance: off</button>
+      <span data-tb-selected-role="button" hidden><select id="lg-tb-selected-button" class="form-input studio-tb-select" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
+      <span data-tb-selected-role="icon" hidden><select id="lg-tb-selected-icon" class="form-input studio-tb-select" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
+      <span data-toolbar-searchable-wrap hidden><button type="button" class="btn btn-sm btn-outline" data-toolbar-searchable aria-pressed="false" title="Searchable dropdown — switches the component type (§5.5)">Searchable: off</button></span>
+      <span data-toolbar-input-quick hidden>
+        <label class="lg-check studio-tb-check"><input type="checkbox" data-inspector-field="required" aria-label="Required" /> Required</label>
+        <input id="lg-tb-placeholder" class="form-input studio-tb-select" type="text" data-inspector-field="placeholder" placeholder="Placeholder" aria-label="Placeholder" />
+        <button type="button" class="btn btn-sm btn-outline" data-toolbar-open-validation title="Open the Validation tab">Validation&#8230;</button>
+      </span>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="choice" hidden>
+      <span class="studio-chip" data-choice-value-chip title="Internal value — opens its Choices row">value</span>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="image">Image / icon&#8230;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="label">Edit label</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="badge" aria-pressed="false">Badge</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="disabled" aria-pressed="false">Disabled</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="duplicate">Duplicate choice</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="left" aria-label="Move choice left">&#8592;</button>
+      <button type="button" class="btn btn-sm btn-outline" data-choice-act="right" aria-label="Move choice right">&#8594;</button>
+      <button type="button" class="btn btn-sm btn-danger" data-choice-act="delete">Delete choice</button>
+    </span>
+    <span class="studio-tb-cluster" data-toolbar-cluster="preset" hidden>
+      <select id="lg-tb-preset-apply" class="form-input studio-tb-select" data-preset-apply aria-label="Apply preset"><option value="">Apply preset&#8230;</option></select>
+      <button type="button" class="btn btn-sm btn-outline" data-preset-save>Save selection as preset&#8230;</button>
+    </span>
+    <span class="studio-toolbar-problems" data-toolbar-problems role="status" aria-live="polite" hidden></span>
+  </div>`;
+}
+
 export function renderStudioCanvas(
   content: LeadgenSectionContent,
   design: FunnelDesign,
@@ -820,21 +1002,11 @@ export function renderStudioCanvas(
   <div class="studio-canvas-head">
     <h3 class="card-title">Canvas</h3>
     <button type="button" class="btn btn-sm btn-outline" data-studio-frame-hint aria-pressed="false" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder">Frame hint</button>
-    <div class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite"></div>
   </div>
-  <div class="studio-toolbar" data-studio-selection-toolbar hidden>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595;</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-before" aria-pressed="false">+ Before</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="add-after" aria-pressed="false">+ After</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="duplicate">Duplicate</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-stack">Group &#8594; Stack</button>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-act="group-cardpanel">Group &#8594; CardPanel</button>
-    <button type="button" class="btn btn-sm btn-danger" data-studio-act="delete">Delete</button>
-  </div>
+  ${renderCanvasToolbar(design)}
   <p class="studio-pending-note" data-studio-pending-note hidden role="status" aria-live="polite"></p>
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
-  <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder">
+  <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder; Delete removes; Escape selects the parent">
     ${renderFrameHintSkeleton("top")}
     <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div>
     ${renderFrameHintSkeleton("bottom")}
@@ -914,19 +1086,46 @@ const TOKEN_CONTROL_LABELS: Record<string, string> = {
   mobileBehavior: "Mobile behavior",
 };
 
+// §9.4 operator labels for the COLOR-typed rows (role swatch rows — no
+// "token" vocabulary on this surface).
+const ROLE_CONTROL_LABELS: Record<string, string> = {
+  iconColor: "Icon color",
+  featureColor: "Feature color",
+  rangeColor: "Range fill",
+  buttonBackground: "Button color",
+  buttonText: "Button text color",
+};
+
 function renderDesignPanel(design: FunnelDesign): string {
   const tokenOptions = curatedTokenOptions(design);
   const curated: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
+  const colorTyped: ReadonlySet<string> = new Set(COLOR_TYPED_OVERRIDE_KEYS);
   const selects = Object.keys(TOKEN_CONTROL_LABELS)
     .filter((key) => curated.has(key))
     .map((key) => {
+      // §9.4 (wave 2): COLOR-typed keys are role swatch rows — option VALUES
+      // are the 14 §9.1 ROLE NAMES (picking writes the role, never hex), an
+      // inheritance tag + source line, "Reset to inherited" once overridden,
+      // and the legacy-hex "Custom color (legacy) — [Convert…]" affordance
+      // (island-populated from the stored value). NO hex text renders here.
+      if (colorTyped.has(key)) {
+        return `<div class="form-group lg-inspector-field studio-role-row" data-override-row="${escapeHtml(key)}">
+  <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(ROLE_CONTROL_LABELS[key] ?? key)}</label>
+  <div class="studio-role-line">
+    <span class="studio-role-swatch" data-override-swatch="${escapeHtml(key)}" aria-hidden="true"></span>
+    <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${roleSelectOptions()}</select>
+    <button type="button" class="btn btn-sm btn-outline" data-override-reset="${escapeHtml(key)}" hidden>Reset to inherited</button>
+  </div>
+  <p class="form-help studio-role-source" data-override-source="${escapeHtml(key)}"></p>
+  <p class="form-help studio-role-legacy" data-override-legacy="${escapeHtml(key)}" hidden>Custom color (legacy) &#8212; <button type="button" class="studio-link-btn" data-override-convert="${escapeHtml(key)}">Convert to a theme color</button></p>
+</div>`;
+      }
       const opts = (tokenOptions[key] ?? [])
         .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(`${o.label} (${o.value})`)}</option>`)
         .join("");
       // §7.4: the no-override state reads as an inherited value ("Inherited
       // (design default)") — re-picking it IS the "Reset to inherited"
-      // affordance (§9.4). Full per-key resolved-value display = wave-2
-      // Design depth.
+      // affordance for the structural keys.
       return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(TOKEN_CONTROL_LABELS[key])}</label>
   <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${opts}</select>
@@ -945,9 +1144,15 @@ function renderDesignPanel(design: FunnelDesign): string {
     <option value="contain">Contain — show the whole image</option>
   </select>
 </div>`;
+  // §6.6 (F3): the preset control is the SAVED-presets dropdown (island fills
+  // it from GET /component-presets, filtered to the selected node's type) +
+  // "(none)". Picking a preset MERGES its overrides/props onto the node and
+  // stores the NAME as provenance (`design_preset`); "(none)" clears the
+  // provenance only. The free-text input is GONE.
   return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="lg-inspector-preset">Component style preset</label>
-  <input id="lg-inspector-preset" class="form-input" type="text" data-inspector-field="design_preset" placeholder="preset name" />
+  <select id="lg-inspector-preset" class="form-input" data-preset-select><option value="">(none)</option></select>
+  <p class="form-help">Saved presets for this component type. Applying merges the preset&#8217;s design/layout values onto this component.</p>
 </div>
 ${imageFit}
 ${selects}`;
@@ -1125,12 +1330,7 @@ function renderLayoutPanel(): string {
 function renderScopeHeaderShell(): string {
   return `<div class="studio-scope-header" data-studio-scope-header aria-live="polite">
   <p class="studio-scope-editing">Editing: <strong data-scope-editing-name>This Section (question unit)</strong></p>
-  <div class="studio-scope-pills" role="group" aria-label="Editing scope">
-    <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
-    <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This Section</button>
-    <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>Component</button>
-    <button type="button" class="studio-scope-pill" data-scope-pill="choice" aria-pressed="false" disabled>Choice</button>
-  </div>
+  ${renderScopePillsMarkup()}
   <p class="studio-scope-affects" data-scope-affects>Affects: changes apply everywhere this Section is used.</p>
 </div>`;
 }
@@ -1193,10 +1393,11 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <label class="lg-check"><input type="checkbox" data-choicedisplay="searchableOther" /> Searchable Other panel</label>
     </div>
     <div class="form-group lg-inspector-field">
-      <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label|value)</label>
-      <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota|toyota&#10;Honda|honda"></textarea>
+      <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label = value)</label>
+      <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota = toyota&#10;Honda = honda"></textarea>
       <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-bulk-apply">Apply bulk paste</button>
     </div>
+    <p class="form-help" data-choices-c1-note>Answer choices own display and normalization only. Provider values are set per Offer in the Mapping tab &#8212; each row&#8217;s chip shows them read-only.</p>
   </div>
 
   <div class="studio-panel" data-studio-panel="layout" role="tabpanel" hidden>
@@ -1235,6 +1436,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <label class="form-label" for="lg-vprop-error">Error text override</label>
       <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
     </div>
+    <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Mapping tab (value transform) &#8212; sliders store the plain number here (§5.5).</p>
   </div>
 
   <div class="studio-panel" data-studio-panel="maps" role="tabpanel" hidden>
@@ -1298,8 +1500,9 @@ export function renderStudioInspector(design: FunnelDesign): string {
     </div>
     <details class="studio-advanced-json">
       <summary>Raw node JSON (Advanced — the only raw JSON surface, §6.14)</summary>
-      <textarea id="lg-node-json" class="form-input" rows="8" data-studio-node-json aria-label="Raw component node JSON"></textarea>
-      <button type="button" class="btn btn-sm btn-secondary" id="lg-node-json-apply">Apply JSON</button>
+      <textarea id="lg-node-json" class="form-input" rows="8" data-studio-node-json aria-label="Raw component node JSON" readonly></textarea>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-node-json-edit" data-node-json-edit>Edit raw&#8230;</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-node-json-apply" hidden>Apply JSON</button>
       <p class="alert alert-error" data-studio-node-json-error hidden role="alert"></p>
     </details>
   </div>
@@ -1322,6 +1525,14 @@ function designPickerOptions(): string {
 // probes and their assertions carry over unchanged.
 function renderPreviewPanel(): string {
   return `<div class="lg-preview-controls" data-lg-preview-controls>
+  <div class="studio-frame-preview" data-studio-frame-preview role="group" aria-label="Preview in Quote frame">
+    <span class="form-help">Preview in Quote frame:</span>
+    <select class="form-input lg-preview-design" data-frame-pick-quote aria-label="Quote"><option value="">&#8212; no frame (unit only) &#8212;</option></select>
+    <select class="form-input lg-preview-design" data-frame-pick-funnel aria-label="Funnel" disabled><option value="">Funnel&#8230;</option></select>
+    <select class="form-input lg-preview-design" data-frame-pick-variant aria-label="Variant" disabled><option value="">Variant&#8230;</option></select>
+    <select class="form-input lg-preview-design" data-frame-pick-site aria-label="Site branding" disabled><option value="">&#8212; no site branding &#8212;</option></select>
+    <p class="form-help studio-frame-empty" data-frame-preview-empty hidden>This Section isn’t used in any Quote yet — previewing in the default frame.</p>
+  </div>
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
     <button type="button" class="btn btn-sm btn-secondary" data-preview-viewport="mobile" aria-pressed="false">Mobile</button>
@@ -1361,6 +1572,36 @@ function renderPreviewPanel(): string {
 </div>`;
 }
 
+// §9.5 Section-level role overrides — the "Design overrides" drawer mode:
+// the same swatch UI vocabulary as the Design tab (role rows over the 14
+// §9.1 roles) writing the sparse {palette?, columnsDefault?, gapDefault?}
+// shape into `design_overrides_json` (applied as layer 4 between theme and
+// component overrides). The banner copy is §9.5-verbatim.
+export const SECTION_OVERRIDES_BANNER =
+  "These apply wherever this Section is used — prefer the Quote theme for funnel-wide changes.";
+
+function renderSectionOverridesPanel(): string {
+  const rows = FUNNEL_TOKEN_ROLES.map(
+    (role) => `<div class="studio-role-row studio-section-role-row" data-section-role-row="${escapeHtml(role)}">
+    <span class="studio-role-swatch" data-section-role-swatch="${escapeHtml(role)}" aria-hidden="true"></span>
+    <label class="form-label" for="lg-section-role-${escapeHtml(role)}">${escapeHtml(STUDIO_ROLE_LABELS[role])}</label>
+    <select id="lg-section-role-${escapeHtml(role)}" class="form-input" data-section-role="${escapeHtml(role)}"><option value="">Inherited</option>${roleSelectOptions()}</select>
+  </div>`,
+  ).join("");
+  return `<div class="studio-section-overrides" data-studio-section-overrides>
+  <p class="alert studio-overrides-banner" data-section-overrides-banner role="note">${escapeHtml(SECTION_OVERRIDES_BANNER)}</p>
+  <div class="studio-section-roles">${rows}</div>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-section-columns-default">Default answer columns</label>
+    <select id="lg-section-columns-default" class="form-input" data-section-columns-default><option value="">Inherited</option>${options([2, 3, 4, 5])}</select>
+  </div>
+  <div class="form-group lg-inspector-field">
+    <label class="form-label" for="lg-section-gap-default">Default answer-grid gap</label>
+    <select id="lg-section-gap-default" class="form-input" data-section-gap-default><option value="">Inherited</option>${options(LEADGEN_GAP_TOKENS)}</select>
+  </div>
+</div>`;
+}
+
 // §8.7 (E2) mapping-panel table columns — the normative order.
 const MAPPING_TABLE_COLUMNS = [
   "Offer",
@@ -1391,6 +1632,7 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
   <div class="studio-tabs" role="tablist" aria-label="Studio drawer tabs">
     <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Offer mapping</button>
     <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
+    <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="design" aria-selected="false">Design overrides</button>
     <button type="button" class="studio-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview &amp; debug</button>
   </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="mapping" hidden>
@@ -1422,8 +1664,33 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <p class="form-help">Structural issues, live from the studio model — the server re-validates on save. Click an issue to focus its component.</p>
     <ul class="studio-issue-list" data-studio-validation-list></ul>
   </div>
+  <div class="studio-drawer-panel" data-studio-drawer-panel="design" hidden>
+    ${renderSectionOverridesPanel()}
+  </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="preview">
     ${renderPreviewPanel()}
+  </div>
+</div>`;
+}
+
+// §5.5 / §6.4 media picker — the SAME reusable affordance idiom the Quote
+// Builder ships (ui-quotes.ts DEV-60 a): one shared in-page Media-library
+// chooser (list + upload via the EXISTING /api/admin/media endpoints); the
+// picked storage_key lands in the requesting choice-row input and flows
+// through the SAME collectChoices path a typed value took.
+function renderStudioMediaPicker(): string {
+  return `<div class="lg-media-picker-overlay lg-hidden" id="lg-media-picker" role="dialog" aria-modal="true" aria-label="Choose from the Media library">
+  <div class="lg-media-picker-panel">
+    <div class="studio-events-head">
+      <span class="form-label">Choose from the Media library</span>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-media-picker-close">Close</button>
+    </div>
+    <div class="studio-pair">
+      <input type="file" id="lg-media-upload-file" accept="image/*" aria-label="Upload an image" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-upload-btn">Upload</button>
+      <span class="form-help" id="lg-media-picker-status" role="status"></span>
+    </div>
+    <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>`;
 }
@@ -1461,6 +1728,7 @@ ${mapsBanner}
   <div class="card studio-cell-inspector">${renderStudioInspector(design)}</div>
 </div>
 ${renderStudioDrawer(summary, answerMapCount)}
+${renderStudioMediaPicker()}
 ${renderStudioSeedData()}`;
 }
 
@@ -1626,6 +1894,54 @@ export const SECTION_STUDIO_STYLES = `
 /* §9.2/§14.9 events probe: the hidden runtime document that keeps the §8.9
    stream alive while a NON-default sim shows a static main preview. */
 .lg-events-probe-frame{position:absolute;left:-9999px;top:0;width:1px;height:1px;border:0}
+/* §6.1 canvas toolbar (wave 2): always-visible bar, per-selection clusters */
+.studio-toolbar{align-items:center}
+.studio-tb-cluster{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap;padding:0 6px;border-left:1px solid var(--c-border)}
+.studio-tb-cluster:first-of-type{border-left:0}
+.studio-tb-group{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
+.studio-tb-select{font-size:11px;padding:2px 4px;max-width:170px}
+.studio-tb-check{font-size:11px}
+.studio-breadcrumb button{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:12px;padding:0 2px;text-decoration:underline}
+.studio-breadcrumb .studio-crumb-current{color:inherit;text-decoration:none;font-weight:600;cursor:default}
+.studio-toolbar-problems{font-size:11px;color:#842029}
+.studio-control-invalid{outline:2px solid #dc3545;outline-offset:1px}
+/* §6.2 inline canvas editing + choice ops + resize */
+.studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
+.studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
+.studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
+.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
+.studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
+/* §9.4 role swatch rows + §9.5 section overrides */
+.studio-role-line{display:flex;gap:6px;align-items:center}
+.studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
+.studio-role-source{margin:2px 0 0}
+.studio-role-legacy{color:#664d03;margin:2px 0 0}
+.studio-link-btn{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline}
+.studio-overrides-banner{color:#055160;background:#cff4fc;border:1px solid #b6effb}
+.studio-section-roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px;margin-bottom:10px}
+.studio-section-role-row{display:flex;gap:6px;align-items:center}
+.studio-section-role-row .form-label{margin:0;flex:0 0 120px;font-size:12px}
+.studio-section-role-row .form-input{font-size:12px;padding:2px 4px}
+/* §5.3 mode 5 frame picker */
+.studio-frame-preview{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border:1px dashed var(--c-border);border-radius:6px;padding:6px 8px}
+.studio-frame-empty{flex-basis:100%;color:#664d03;margin:2px 0 0}
+/* §7.3 provider-values chip (C1) */
+.studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
+.studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
+.studio-provider-rows a{font-size:11px}
+/* §5.4 move-to-frame funnel picker */
+.studio-funnel-picker{flex-basis:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px}
+/* choice rows: depth fields wrap */
+.lg-choice-row{position:relative}
+.lg-choice-row .studio-choice-reorder{display:inline-flex;gap:2px}
+/* media picker (the ui-quotes idiom, studio-scoped) */
+.lg-hidden{display:none !important}
+.lg-media-picker-overlay{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(15,23,42,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
+.lg-media-picker-panel{background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:10px;max-width:720px;width:100%;max-height:80vh;overflow:auto;padding:16px}
+.lg-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:10px}
+.lg-media-item{border:1px solid var(--c-border);border-radius:8px;background:#fff;cursor:pointer;padding:4px;display:flex;flex-direction:column;gap:4px;align-items:center}
+.lg-media-item img{max-width:100%;height:64px;object-fit:contain}
+.lg-media-item span{font-size:10px;color:var(--c-muted);overflow-wrap:anywhere}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1646,6 +1962,8 @@ export const SECTION_STUDIO_SCRIPT = `
   if (!state.content || !state.content.components) { state.content = { components: [] }; }
   if (!state.answer_maps) { state.answer_maps = []; }
   if (!state.selected_offers) { state.selected_offers = []; }
+  if (!state.offer_values) { state.offer_values = []; }
+  if (state.design_overrides === undefined || typeof state.design_overrides !== 'object') { state.design_overrides = state.design_overrides || null; }
 
   var componentSeeds = {};
   var seedEl = document.getElementById('lg-component-seeds');
@@ -1655,6 +1973,10 @@ export const SECTION_STUDIO_SCRIPT = `
   if (metaEl) { try { studioMeta = JSON.parse(metaEl.textContent || '{}'); } catch (e3) { studioMeta = { max_depth: 4, types: {} }; } }
   if (!studioMeta.types) { studioMeta.types = {}; }
   var MAX_DEPTH = studioMeta.max_depth || 4;
+  // §9.1/§9.4: role → resolved default-design value (swatch chips + the
+  // legacy-hex Convert exact match) and role → operator label.
+  var ROLE_VALUES = studioMeta.roles || {};
+  var ROLE_LABELS = studioMeta.role_labels || {};
 
   var selectedQuestionId = null;
   var pendingInsert = null;
@@ -1669,6 +1991,26 @@ export const SECTION_STUDIO_SCRIPT = `
   // "Used in N quotes" (§7.1/§2.4) — from GET /sections/:id/usage; null until
   // loaded (or for a NEW Section).
   var usageQuoteCount = null;
+  // §5.4/§5.3: the raw usage rows (funnels for Move-to-frame; empty state for
+  // the mode-5 frame preview).
+  var usageRows = [];
+  // §6.1.4 canvas viewport (server-rendered param — never CSS-scaled).
+  var canvasViewport = 'desktop';
+  // §6.2/§6.4 per-choice selection: the focused choice VALUE within the
+  // selected choice-bearing component (null = component scope).
+  var selectedChoiceValue = null;
+  // §6.6 loaded named presets (KV-backed via /component-presets).
+  var presetsData = [];
+  // §6.2 inline text editing pauses canvas re-renders until commit.
+  var inlineEditing = false;
+  // §6.1.3 undo/redo: bounded in-memory history of content-tree snapshots per
+  // open editor. ≥30 required; 50 kept. Cleared on Save.
+  var UNDO_LIMIT = 50;
+  var undoStack = [];
+  var redoStack = [];
+  var lastSnapshot = JSON.stringify(state.content);
+  // §7.3 Advanced raw JSON: read-only until the explicit "Edit raw…" confirm.
+  var rawEditArmed = false;
   var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into'];
   var SELECT_CLASS = 'studio-selected-node';
 
@@ -1684,6 +2026,565 @@ export const SECTION_STUDIO_SCRIPT = `
   // Operator words everywhere (07 §7.4): the label from the served meta blob,
   // never a raw type id on a normal surface.
   function typeLabel(type) { return typeMeta(type).label || type; }
+
+  // --- §6.1.3 undo/redo history (content-tree snapshots) -----------------------
+  function updateHistoryButtons() {
+    var u = document.querySelector('[data-studio-act="undo"]');
+    var r = document.querySelector('[data-studio-act="redo"]');
+    if (u) { u.disabled = undoStack.length === 0; }
+    if (r) { r.disabled = redoStack.length === 0; }
+  }
+  // Called AFTER every model mutation (afterModelChange): pushes the PREVIOUS
+  // snapshot, caps the stack, and invalidates the redo branch.
+  function historyPush() {
+    var now = JSON.stringify(state.content);
+    if (now === lastSnapshot) { return false; }
+    undoStack.push(lastSnapshot);
+    if (undoStack.length > UNDO_LIMIT) { undoStack.shift(); }
+    redoStack.length = 0;
+    lastSnapshot = now;
+    updateHistoryButtons();
+    return true;
+  }
+  // Cleared on Save (§6.1.3) — and re-based on the saved content.
+  function historyReset() {
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnapshot = JSON.stringify(state.content);
+    updateHistoryButtons();
+  }
+  function restoreSnapshot(snapshot) {
+    state.content = JSON.parse(snapshot);
+    lastSnapshot = snapshot;
+    if (selectedQuestionId !== null && findRef(selectedQuestionId) === null) { selectedQuestionId = null; }
+    refreshAfterHistory();
+  }
+  function historyUndo() {
+    if (undoStack.length === 0) { return false; }
+    redoStack.push(lastSnapshot);
+    restoreSnapshot(undoStack.pop());
+    return true;
+  }
+  function historyRedo() {
+    if (redoStack.length === 0) { return false; }
+    undoStack.push(lastSnapshot);
+    restoreSnapshot(redoStack.pop());
+    return true;
+  }
+  // The DOM refresh after a history restore — deliberately does NOT call
+  // afterModelChange (that would push a new history entry).
+  function refreshAfterHistory() {
+    markDirty();
+    clearRefusal();
+    renderIssues();
+    renderMapsBanner();
+    renderBoundChips();
+    updatePaletteBindItems();
+    renderBindBanner();
+    updateHistoryButtons();
+    scheduleCanvasRender();
+    selectComponent(selectedQuestionId);
+  }
+
+  // --- §6.5 context matrix (pure function of the selection) --------------------
+  var TEXT_ROLE_TYPES = ['QuestionHeadline', 'Subheadline', 'CategoryLabel', 'HelperText', 'LegalNote'];
+  function isCopyNode(node) {
+    if (!node) { return false; }
+    if (node.bind !== undefined) { return true; }
+    return TEXT_ROLE_TYPES.indexOf(node.type) !== -1;
+  }
+  // The §6.5 rows, EXACT: base (nothing) = breadcrumb(root) · pills ·
+  // undo/redo · viewport; each selection class ADDS its clusters. The preset
+  // menu (§6.1.9) rides every unit-component selection (§6.6 apply needs a
+  // same-type selection; the matrix table itself does not name it).
+  function toolbarClustersFor(node, choiceFocused) {
+    var base = ['breadcrumb', 'pills', 'undo', 'viewport'];
+    if (!node) { return base; }
+    if (choiceFocused) { return base.concat(['choice']); }
+    var meta = typeMeta(node.type);
+    if (meta.scope === 'frame') { return base.concat(['structure']); }
+    if (isCopyNode(node)) { return base.concat(['text', 'structure', 'preset']); }
+    if (meta.choice === true) { return base.concat(['structure', 'layout', 'component', 'preset']); }
+    if (meta.produces) { return base.concat(['structure', 'component', 'preset']); }
+    if (meta.container === true || meta.layout_props === true) { return base.concat(['structure', 'layout', 'preset']); }
+    return base.concat(['structure', 'preset']);
+  }
+
+  // --- choice model helpers (§6.2/§6.4) ----------------------------------------
+  function findChoice(node, value) {
+    if (!node || !node.choices) { return null; }
+    var i;
+    for (i = 0; i < node.choices.length; i++) {
+      if (String(node.choices[i].value) === String(value)) { return node.choices[i]; }
+    }
+    return null;
+  }
+  function choiceIndexOf(node, value) {
+    if (!node || !node.choices) { return -1; }
+    var i;
+    for (i = 0; i < node.choices.length; i++) {
+      if (String(node.choices[i].value) === String(value)) { return i; }
+    }
+    return -1;
+  }
+  function addChoiceToNode(node) {
+    if (!node || typeMeta(node.type).choice !== true) { return null; }
+    var req = typeMeta(node.type).required || {};
+    if (!node.choices) { node.choices = []; }
+    var n = node.choices.length + 1;
+    var c = sampleChoice(req, n);
+    while (findChoice(node, c.value) !== null) {
+      n += 1;
+      c = sampleChoice(req, n);
+    }
+    node.choices.push(c);
+    afterModelChange();
+    return c;
+  }
+  function removeChoiceFromNode(node, value) {
+    var idx = choiceIndexOf(node, value);
+    if (idx === -1) { return false; }
+    node.choices.splice(idx, 1);
+    if (String(selectedChoiceValue) === String(value)) { selectedChoiceValue = null; }
+    afterModelChange();
+    return true;
+  }
+  function moveChoice(node, value, delta) {
+    var idx = choiceIndexOf(node, value);
+    if (idx === -1) { return false; }
+    var to = idx + delta;
+    if (to < 0 || to >= node.choices.length) { return false; }
+    var tmp = node.choices[idx];
+    node.choices[idx] = node.choices[to];
+    node.choices[to] = tmp;
+    afterModelChange();
+    return true;
+  }
+  function reorderChoiceBefore(node, fromValue, targetValue) {
+    var from = choiceIndexOf(node, fromValue);
+    var to = choiceIndexOf(node, targetValue);
+    if (from === -1 || to === -1 || from === to) { return false; }
+    var moved = node.choices.splice(from, 1)[0];
+    if (from < to) { to -= 1; }
+    node.choices.splice(to, 0, moved);
+    afterModelChange();
+    return true;
+  }
+  function duplicateChoice(node, value) {
+    var idx = choiceIndexOf(node, value);
+    if (idx === -1) { return null; }
+    var clone = cloneJson(node.choices[idx]);
+    var base = String(clone.value || 'option') + '_copy';
+    var v = base, n = 2;
+    while (findChoice(node, v) !== null) { v = base + n; n += 1; }
+    clone.value = v;
+    if (clone.analytics_id !== undefined) { clone.analytics_id = v; }
+    node.choices.splice(idx + 1, 0, clone);
+    afterModelChange();
+    return clone;
+  }
+  function setChoiceField(node, value, field, v) {
+    var c = findChoice(node, value);
+    if (!c) { return false; }
+    if (v === undefined || v === null || v === '' || v === false) { delete c[field]; }
+    else { c[field] = v; }
+    afterModelChange();
+    return true;
+  }
+
+  // --- §6.1.5 Ungroup: dissolve a container, children splice into the parent ---
+  function ungroupSelection(qid) {
+    var ref = findRef(qid);
+    if (!ref) { return null; }
+    if (!isContainerType(ref.node.type) || !ref.node.children || ref.node.children.length === 0) {
+      showRefusal('Only a container with children can be ungrouped.');
+      return null;
+    }
+    var children = ref.node.children;
+    var args = [ref.index, 1];
+    var i;
+    for (i = 0; i < children.length; i++) { args.push(children[i]); }
+    Array.prototype.splice.apply(ref.list, args);
+    selectedQuestionId = children[0].question_id;
+    afterModelChange();
+    return children;
+  }
+
+  // --- §6.2 container resize: snapped to the CardPanel width presets ONLY ------
+  var WIDTH_PRESETS = ['s', 'm', 'l', 'full'];
+  function snapWidthPreset(current, deltaPx) {
+    var idx = WIDTH_PRESETS.indexOf(current || 'm');
+    if (idx === -1) { idx = 1; }
+    var next = idx + Math.round(deltaPx / 80);
+    if (next < 0) { next = 0; }
+    if (next > WIDTH_PRESETS.length - 1) { next = WIDTH_PRESETS.length - 1; }
+    return WIDTH_PRESETS[next];
+  }
+
+  // --- §9.4 role-override helpers ------------------------------------------------
+  var COLOR_OVERRIDE_KEYS = ['iconColor', 'featureColor', 'rangeColor', 'buttonBackground', 'buttonText'];
+  var OVERRIDE_BACKING_ROLE = { buttonBackground: 'button_primary_bg', buttonText: 'button_primary_text' };
+  function isHexColor(v) { return typeof v === 'string' && v.charAt(0) === '#'; }
+  function roleLabelOf(role) { return ROLE_LABELS[role] || role; }
+  // The §9.4 inheritance/source line — NO hex text on this surface (§9.6):
+  // roles speak in labels; unmapped slots say "design default".
+  function overrideSourceText(key, cur) {
+    if (cur !== undefined && cur !== null && cur !== '') {
+      if (isHexColor(cur)) { return 'Custom color (legacy) \\u2014 not a theme role.'; }
+      return roleLabelOf(cur) + ' \\u2014 overridden for this component.';
+    }
+    var backing = OVERRIDE_BACKING_ROLE[key] || null;
+    if (backing !== null) {
+      var repointed = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette[backing] : null;
+      if (repointed) {
+        return 'Inherited: ' + (isHexColor(repointed) ? 'Custom color (legacy)' : roleLabelOf(repointed)) + ' \\u2014 from this Section\\u2019s Design overrides.';
+      }
+      return 'Inherited: ' + roleLabelOf(backing) + ' \\u2014 from the base design.';
+    }
+    return 'Inherited: design default \\u2014 from the base design.';
+  }
+  function resolvedOverrideColor(key, cur) {
+    if (isHexColor(cur)) { return cur; }
+    if (cur && ROLE_VALUES[cur]) { return ROLE_VALUES[cur]; }
+    var backing = OVERRIDE_BACKING_ROLE[key] || null;
+    if (backing !== null) {
+      var rep = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette[backing] : null;
+      if (isHexColor(rep)) { return rep; }
+      if (rep && ROLE_VALUES[rep]) { return ROLE_VALUES[rep]; }
+      return ROLE_VALUES[backing] || '';
+    }
+    return '';
+  }
+  // Convert a stored legacy #hex to the role whose DEFAULT-design value is an
+  // exact (case-insensitive) match; no match → the operator picks (§9.4).
+  function legacyHexToRole(hex) {
+    if (!isHexColor(hex)) { return null; }
+    var lower = String(hex).toLowerCase();
+    var r;
+    for (r in ROLE_VALUES) {
+      if (Object.prototype.hasOwnProperty.call(ROLE_VALUES, r) && String(ROLE_VALUES[r]).toLowerCase() === lower) { return r; }
+    }
+    return null;
+  }
+
+  // --- §9.5 Section-level overrides (the Design-overrides drawer mode) ----------
+  function buildSectionOverrides() {
+    var out = {};
+    var palette = {};
+    var any = false, pAny = false;
+    var sels = document.querySelectorAll('[data-section-role]');
+    var i, role, v;
+    for (i = 0; i < sels.length; i++) {
+      role = sels[i].getAttribute('data-section-role');
+      v = trimStr(sels[i].value);
+      if (v !== '') { palette[role] = v; pAny = true; }
+    }
+    if (pAny) { out.palette = palette; any = true; }
+    var colsEl = document.querySelector('[data-section-columns-default]');
+    if (colsEl && trimStr(colsEl.value) !== '') {
+      var n = Number(colsEl.value);
+      if (!isNaN(n)) { out.columnsDefault = n; any = true; }
+    }
+    var gapEl = document.querySelector('[data-section-gap-default]');
+    if (gapEl && trimStr(gapEl.value) !== '') { out.gapDefault = gapEl.value; any = true; }
+    return any ? out : null;
+  }
+
+  // --- §6.6 preset model: capture + apply ---------------------------------------
+  // The layout-prop capture whitelist (mirrors the server's
+  // PRESET_LAYOUT_PROP_KEYS — the POST rejects anything else).
+  var PRESET_PROP_KEYS = ['direction', 'gap', 'align', 'columnsDesktop', 'columnsTablet', 'columnsMobile', 'sizing', 'ratio', 'mobile', 'width', 'background', 'shadow', 'radius', 'padding', 'size', 'gradient', 'layout', 'image_fit'];
+  function presetsForType(type) {
+    var out = [], i;
+    for (i = 0; i < presetsData.length; i++) {
+      if (presetsData[i] && presetsData[i].component_type === type) { out.push(presetsData[i]); }
+    }
+    return out;
+  }
+  function presetByName(name) {
+    var i;
+    for (i = 0; i < presetsData.length; i++) {
+      if (presetsData[i] && presetsData[i].name === name) { return presetsData[i]; }
+    }
+    return null;
+  }
+  // §6.6 capture: type + curated design_overrides + LAYOUT props — NEVER
+  // content/choices/mapping (scalar whitelist).
+  function buildPresetPayload(node) {
+    var overrides = {};
+    var propsSubset = {};
+    var k, v;
+    var ov = node.design_overrides || {};
+    for (k in ov) {
+      if (Object.prototype.hasOwnProperty.call(ov, k)) { overrides[k] = ov[k]; }
+    }
+    var props = node.props || {};
+    for (k in props) {
+      if (!Object.prototype.hasOwnProperty.call(props, k)) { continue; }
+      if (PRESET_PROP_KEYS.indexOf(k) === -1) { continue; }
+      v = props[k];
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') { propsSubset[k] = v; }
+    }
+    return { component_type: node.type, overrides: overrides, props_subset: propsSubset };
+  }
+  // §6.6 apply = MERGE onto the selected node of the SAME type; the stored
+  // design_preset field holds the preset NAME as provenance only.
+  function applyPreset(node, preset) {
+    if (!node || !preset || node.type !== preset.component_type) { return false; }
+    var k;
+    var ov = preset.overrides || {};
+    for (k in ov) {
+      if (Object.prototype.hasOwnProperty.call(ov, k)) { ensureObj(node, 'design_overrides')[k] = ov[k]; }
+    }
+    var ps = preset.props_subset || {};
+    for (k in ps) {
+      if (Object.prototype.hasOwnProperty.call(ps, k)) { ensureObj(node, 'props')[k] = ps[k]; }
+    }
+    node.design_preset = preset.name;
+    cleanupEmpty(node, 'design_overrides');
+    cleanupEmpty(node, 'props');
+    afterModelChange();
+    return true;
+  }
+
+  // --- §7.3 C1: the read-only per-Offer provider-values projection ---------------
+  // Rows = ONE PER SELECTED OFFER (state.offer_values — the DEV-55 SSR blob
+  // projection): the offer's provider value for this choice, or null ("not
+  // set"). No control on the Choices surface writes a provider value.
+  function providerChipRows(internalField, choiceValue) {
+    var rows = [], i, entry, fieldEntry, v;
+    var list = state.offer_values || [];
+    for (i = 0; i < list.length; i++) {
+      entry = list[i];
+      if (!entry) { continue; }
+      fieldEntry = (entry.fields && internalField) ? entry.fields[internalField] : null;
+      v = (fieldEntry && fieldEntry.values) ? fieldEntry.values[choiceValue] : undefined;
+      rows.push({
+        offer_name: String(entry.offer_name || entry.offer_id),
+        offer_public_id: entry.offer_public_id || null,
+        value: (v === undefined || v === null) ? null : String(v),
+        href: entry.offer_public_id ? ('/admin/leadgen/offers/' + encodeURIComponent(entry.offer_public_id) + '/edit#payload') : null
+      });
+    }
+    return rows;
+  }
+  function providerChipLabel(internalField, choiceValue) {
+    var rows = providerChipRows(internalField, choiceValue);
+    var set = 0, i;
+    for (i = 0; i < rows.length; i++) { if (rows[i].value !== null) { set += 1; } }
+    return 'Provider values: ' + set + '/' + rows.length + ' Offers';
+  }
+
+  // --- §5.4 Move to Quote frame: the equivalent frame_config_json group ---------
+  // Legacy frame-scope node → the sparse §3.3 group the funnel frame PUT
+  // accepts (closed enums; role colours; arrays replaced whole).
+  function equivalentFrameGroup(node) {
+    var t = node.type;
+    var p = node.props || {};
+    var i;
+    if (t === 'ProgressBar') { return { progress: { style: p.mode === 'steps' ? 'numbered' : 'percent' } }; }
+    if (t === 'StepIndicator') { return { progress: { style: 'dots' } }; }
+    if (t === 'HeaderLogo') {
+      if (typeof p.logoMediaId === 'string' && p.logoMediaId !== '') {
+        return { header: { enabled: true, logo_source: 'manual', logo_media_id: p.logoMediaId } };
+      }
+      return { header: { enabled: true, logo_source: 'site' } };
+    }
+    if (t === 'BackButton') {
+      return { back: { style: 'text', label: (typeof p.label === 'string' && p.label !== '') ? p.label : 'Back' } };
+    }
+    if (t === 'DisclosureLink') {
+      return { disclosure: { enabled: true, text: typeof p.panelHtml === 'string' ? p.panelHtml : '' } };
+    }
+    if (t === 'HeaderBar') {
+      var header = { enabled: true };
+      if (typeof p.logoMediaId === 'string' && p.logoMediaId !== '') {
+        header.logo_source = 'manual';
+        header.logo_media_id = p.logoMediaId;
+      }
+      if (p.secure === true) {
+        header.secure_badge = { enabled: true, text: (typeof p.secureText === 'string' && p.secureText !== '') ? p.secureText : null };
+      }
+      if (p.cta && typeof p.cta === 'object' && typeof p.cta.label === 'string' && p.cta.label !== '') {
+        header.cta = {
+          enabled: true,
+          label: p.cta.label,
+          href: typeof p.cta.href === 'string' ? p.cta.href : null,
+          tel: typeof p.cta.tel === 'string' ? p.cta.tel : null
+        };
+      }
+      var headerGroup = { header: header };
+      if (typeof p.backLabel === 'string' && p.backLabel !== '') { headerGroup.back = { label: p.backLabel }; }
+      return headerGroup;
+    }
+    if (t === 'FooterBar') {
+      var footer = { enabled: true };
+      if (p.links && p.links.length) {
+        var links = [], l;
+        for (i = 0; i < p.links.length; i++) {
+          l = p.links[i];
+          if (l && typeof l.label === 'string' && typeof l.href === 'string') { links.push({ label: l.label, href: l.href }); }
+        }
+        if (links.length > 0) { footer.links_source = 'manual'; footer.links = links; }
+      }
+      if (p.trustMessages && p.trustMessages.length) { footer.trust_text = p.trustMessages.join(' \\u00B7 '); }
+      if (typeof p.legalHtml === 'string' && p.legalHtml !== '') { footer.description = p.legalHtml; }
+      return { footer: footer };
+    }
+    if (t === 'BackgroundPanel') {
+      return { background: { style: p.gradient ? 'brand_gradient' : 'brand' } };
+    }
+    return null;
+  }
+  // Group-level merge over the STORED sparse config: our group's fields win;
+  // arrays replace whole (§13.2 discipline).
+  function mergeFrameGroups(stored, group) {
+    var out = (stored && typeof stored === 'object') ? cloneJson(stored) : {};
+    var k, gk, sub;
+    for (k in group) {
+      if (!Object.prototype.hasOwnProperty.call(group, k)) { continue; }
+      sub = (out[k] && typeof out[k] === 'object' && !(out[k] instanceof Array)) ? out[k] : {};
+      for (gk in group[k]) {
+        if (Object.prototype.hasOwnProperty.call(group[k], gk)) { sub[gk] = group[k][gk]; }
+      }
+      out[k] = sub;
+    }
+    return out;
+  }
+  // The distinct funnels using this Section (from the usage rows).
+  function usageFunnelsOf() {
+    var seen = {}, out = [], i, r;
+    for (i = 0; i < usageRows.length; i++) {
+      r = usageRows[i];
+      if (!r || !r.funnel_public_id || seen[r.funnel_public_id] === true) { continue; }
+      seen[r.funnel_public_id] = true;
+      out.push({ public_id: r.funnel_public_id, name: r.funnel_name || r.funnel_public_id });
+    }
+    return out;
+  }
+  // §5.4: the explicit confirm NAMES the funnel.
+  function moveConfirmMessage(node, funnelName) {
+    return 'Move this ' + typeLabel(node.type) + ' into the Quote frame of funnel \\u201C' + funnelName + '\\u201D?\\nIt leaves this Section and becomes part of that funnel\\u2019s frame (edited in the Quote Builder). The Section change saves now.';
+  }
+
+  // --- §5.3 mode 5: Preview in Quote frame --------------------------------------
+  var framePick = { quote: '', funnel: '', variant: '', site: '' };
+  var framePickFunnels = [];
+  function frameContextBody() {
+    if (framePick.funnel === '') { return null; }
+    var ctx = { funnel_public_id: framePick.funnel };
+    if (framePick.variant !== '') { ctx.variant_public_id = framePick.variant; }
+    if (framePick.site !== '') { ctx.site_id = framePick.site; }
+    return ctx;
+  }
+
+  // --- §6.7 inline validation problems at the control ---------------------------
+  function issueControlKeyOf(message) {
+    var m = message.match(/needs its ([A-Za-z_]+)$/);
+    if (m) { return m[1]; }
+    m = message.match(/needs a numeric ([A-Za-z_]+)$/);
+    if (m) { return m[1]; }
+    if (message.indexOf('needs an internal field') !== -1) { return 'internal_field'; }
+    if (message.indexOf('needs at least one choice') !== -1) { return 'choices'; }
+    return null;
+  }
+
+  // --- §6.1.7 text cluster: type-role conversion --------------------------------
+  // "Type role" maps to the design type slots = the catalog's copy types.
+  // Converting TO the headline/subheadline roles is refused (§5.2: free-text
+  // extra headlines are not insertable — the BOUND node is the one headline).
+  function convertTextRole(qid, newType) {
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    if (ref.node.bind !== undefined) { return false; }
+    if (TEXT_ROLE_TYPES.indexOf(ref.node.type) === -1 || TEXT_ROLE_TYPES.indexOf(newType) === -1) { return false; }
+    if (ref.node.type === newType) { return false; }
+    if (newType === 'QuestionHeadline' || newType === 'Subheadline') {
+      showRefusal('This Section already shows its ' + (newType === 'Subheadline' ? 'subheadline' : 'headline') + ' \\u2014 use the shared field instead.');
+      return false;
+    }
+    var props = ref.node.props || {};
+    var text = typeof props.text === 'string' ? props.text : (typeof props.html === 'string' ? props.html : '');
+    var key = newType === 'LegalNote' ? 'html' : 'text';
+    var replacement = { type: newType, question_id: ref.node.question_id, props: {} };
+    replacement.props[key] = text !== '' ? text : defaultTextFor(newType, key);
+    ref.list[ref.index] = replacement;
+    afterModelChange();
+    return true;
+  }
+
+  // §5.5: dropdown "searchable" toggle — a pure TYPE swap between the two
+  // dropdown components (same props/choices; the §8.3 searchable variant).
+  function toggleSearchableDropdown(node) {
+    if (!node) { return false; }
+    if (node.type === 'DropdownQuestion') { node.type = 'SearchableDropdownQuestion'; }
+    else if (node.type === 'SearchableDropdownQuestion') { node.type = 'DropdownQuestion'; }
+    else { return false; }
+    afterModelChange();
+    return true;
+  }
+
+  // --- §6.2 inline text editing (dblclick) commit core ---------------------------
+  // Bound nodes write the STRIP store (one store, two views); plain copy nodes
+  // write props.text/label; choice cards write that choice's label.
+  function inlineEditKeyFor(node) {
+    if (node.bind !== undefined) { return 'bind'; }
+    var cp = typeMeta(node.type).content_props || [];
+    if (cp.indexOf('text') !== -1) { return 'text'; }
+    if (cp.indexOf('label') !== -1) { return 'label'; }
+    return null;
+  }
+  function commitInlineText(qid, key, text) {
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    if (key === 'bind') {
+      var strip = stripInputFor(ref.node.bind);
+      if (strip) { strip.value = text; }
+      var mirror = document.querySelector('[data-bound-shared-input]');
+      if (mirror && strip) { mirror.value = strip.value; }
+      markDirty();
+      scheduleCanvasRender();
+      return true;
+    }
+    var props = ensureObj(ref.node, 'props');
+    if (trimStr(text) === '') { delete props[key]; } else { props[key] = text; }
+    cleanupEmpty(ref.node, 'props');
+    afterModelChange();
+    return true;
+  }
+  function commitInlineChoiceLabel(qid, value, text) {
+    var ref = findRef(qid);
+    if (!ref) { return false; }
+    var c = findChoice(ref.node, value);
+    if (!c) { return false; }
+    c.label = text;
+    afterModelChange();
+    return true;
+  }
+  // The contenteditable session: Enter/blur commits, Escape cancels; canvas
+  // re-renders are paused while editing (scheduleCanvasRender re-checks).
+  function startInlineEdit(el, committer) {
+    if (inlineEditing || !el) { return false; }
+    inlineEditing = true;
+    el.setAttribute('contenteditable', 'true');
+    if (el.focus) { el.focus(); }
+    function finish(apply) {
+      if (!inlineEditing) { return; }
+      inlineEditing = false;
+      el.removeAttribute('contenteditable');
+      el.removeEventListener('blur', onBlur);
+      el.removeEventListener('keydown', onKey);
+      if (apply) { committer(el.textContent || ''); } else { scheduleCanvasRender(); }
+    }
+    function onBlur() { finish(true); }
+    function onKey(keyEv) {
+      if (keyEv.key === 'Enter') { keyEv.preventDefault(); finish(true); }
+      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); finish(false); }
+    }
+    el.addEventListener('blur', onBlur);
+    el.addEventListener('keydown', onKey);
+    return true;
+  }
 
   // --- §5.2 canonical headline binding model helpers ---------------------------
   // ONE store, two views: headline_text/subheadline_text live in the strip
@@ -2254,12 +3155,14 @@ export const SECTION_STUDIO_SCRIPT = `
 
   function afterModelChange() {
     markDirty();
+    historyPush();
     clearRefusal();
     renderIssues();
     renderMapsBanner();
     renderBoundChips();
     updatePaletteBindItems();
     renderBindBanner();
+    updateCanvasToolbar();
     scheduleCanvasRender();
   }
 
@@ -2292,7 +3195,12 @@ export const SECTION_STUDIO_SCRIPT = `
   var canvasTimer = null;
   function scheduleCanvasRender() {
     if (canvasTimer) { clearTimeout(canvasTimer); }
-    canvasTimer = setTimeout(function () { canvasTimer = null; renderCanvasNow(); }, 300);
+    canvasTimer = setTimeout(function () {
+      canvasTimer = null;
+      // §6.2: never stomp an in-progress inline edit — re-check after commit.
+      if (inlineEditing) { scheduleCanvasRender(); return; }
+      renderCanvasNow();
+    }, 300);
   }
   function renderCanvasNow() {
     var region = document.getElementById('lg-studio-canvas-render');
@@ -2303,16 +3211,20 @@ export const SECTION_STUDIO_SCRIPT = `
     // sectionCtx). Typing in the strip schedules this re-render.
     var headEl = document.getElementById('lg-section-headline');
     var subEl = document.getElementById('lg-section-subheadline');
+    // §6.1.4: the canvas viewport is SERVER-rendered (viewport param); §9.5:
+    // the Section overrides ride as layer 4 so the canvas shows them live.
+    var canvasBody = {
+      content_json: JSON.stringify(state.content),
+      viewport: canvasViewport,
+      headline: headEl ? headEl.value : '',
+      subheadline: subEl ? subEl.value : ''
+    };
+    if (state.design_overrides) { canvasBody.design_overrides = state.design_overrides; }
     fetch('/api/admin/leadgen/sections/preview', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        content_json: JSON.stringify(state.content),
-        viewport: 'desktop',
-        headline: headEl ? headEl.value : '',
-        subheadline: subEl ? subEl.value : ''
-      })
+      body: JSON.stringify(canvasBody)
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -2337,10 +3249,10 @@ export const SECTION_STUDIO_SCRIPT = `
   // §5.4: session-local "Keep (legacy)" acknowledgements — badge stays hidden
   // for these nodes until reload (Keep = no model change by contract).
   var keptLegacyFrameNodes = {};
-  // §5.4 amber badge for a legacy PAGE-FRAME element found in content. The
-  // Move ACTION itself ships with the next studio wave — this renders the
-  // badge + a disabled/pending Move affordance (wave-2 handoff) + the C2
-  // activation consequence line.
+  // §5.4 amber badge for a legacy PAGE-FRAME element found in content. Wave 2:
+  // the Move action is LIVE — used-by-one funnel → explicit confirm naming
+  // the funnel → real PUT /funnels/:id/frame + node removal persisted on the
+  // same action; used-by-many → funnel picker; the C2 consequence line stays.
   function buildFrameBadge(qid, type) {
     var badge = document.createElement('div');
     badge.className = 'studio-frame-badge';
@@ -2352,8 +3264,7 @@ export const SECTION_STUDIO_SCRIPT = `
     move.type = 'button';
     move.className = 'btn btn-sm btn-outline';
     move.setAttribute('data-frame-move', qid);
-    move.disabled = true;
-    move.title = 'Coming soon \\u2014 will move this ' + typeLabel(type) + ' into the Quote frame (edited in the Quote Builder).';
+    move.title = 'Move this ' + typeLabel(type) + ' into the Quote frame (edited in the Quote Builder).';
     move.appendChild(document.createTextNode('Move to Quote frame'));
     badge.appendChild(move);
     var keep = document.createElement('button');
@@ -2369,13 +3280,63 @@ export const SECTION_STUDIO_SCRIPT = `
     badge.appendChild(note);
     return badge;
   }
+  // §6.2 canvas choice decoration: per-choice selection highlight, the per-
+  // choice ✕, the "+ Add choice" ghost tile at the grid end, choice drag
+  // handles and the selected-CardPanel resize handle. Rebuilt per pass like
+  // the maps chips (the region is server HTML).
+  function decorateChoiceCards(region) {
+    var cards = region.querySelectorAll('[data-lg-choice]');
+    var i, card, host, qid, x;
+    for (i = 0; i < cards.length; i++) {
+      card = cards[i];
+      host = card.closest ? card.closest('[data-question-id]') : null;
+      if (!host) { continue; }
+      qid = host.getAttribute('data-question-id');
+      if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
+      card.setAttribute('draggable', 'true');
+      if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
+        card.className = card.className + ' studio-choice-selected';
+      }
+      x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'studio-choice-x';
+      x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
+      x.setAttribute('data-choice-x-qid', qid);
+      x.setAttribute('aria-label', 'Remove choice');
+      x.appendChild(document.createTextNode('\\u00D7'));
+      if (card.parentNode) { card.parentNode.insertBefore(x, card.nextSibling); }
+    }
+    var nodes = region.querySelectorAll('[data-question-id]');
+    var ghost, handle, type;
+    for (i = 0; i < nodes.length; i++) {
+      qid = nodes[i].getAttribute('data-question-id');
+      type = nodes[i].getAttribute('data-component-type');
+      if (typeMeta(type).choice === true) {
+        ghost = document.createElement('button');
+        ghost.type = 'button';
+        ghost.className = 'lg-card studio-choice-ghost';
+        ghost.setAttribute('data-choice-ghost', qid);
+        ghost.appendChild(document.createTextNode('+ Add choice'));
+        nodes[i].appendChild(ghost);
+      }
+      // §6.2: resize handle on the SELECTED CardPanel — snaps to width presets.
+      if (type === 'CardPanel' && qid === selectedQuestionId) {
+        nodes[i].style.position = 'relative';
+        handle = document.createElement('span');
+        handle.className = 'studio-resize-handle';
+        handle.setAttribute('data-resize-handle', qid);
+        handle.title = 'Drag to resize \\u2014 snaps to the width presets (s / m / l / full)';
+        nodes[i].appendChild(handle);
+      }
+    }
+  }
   function applyCanvasDecoration() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
     // from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge');
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
@@ -2408,6 +3369,7 @@ export const SECTION_STUDIO_SCRIPT = `
         nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
       }
     }
+    decorateChoiceCards(region);
   }
   function clearDropClasses() {
     var region = document.getElementById('lg-studio-canvas-render');
@@ -2450,7 +3412,8 @@ export const SECTION_STUDIO_SCRIPT = `
     var newName = scopeEditingName(node);
     if (nameEl && nameEl.textContent !== newName) { nameEl.textContent = newName; changed = true; }
     if (affectsEl) { affectsEl.textContent = scopeAffectsText(node); }
-    var pills = header.querySelectorAll('[data-scope-pill]');
+    // §6.1.2: ONE pill implementation, two hosts — every instance syncs.
+    var pills = document.querySelectorAll('[data-scope-pill]');
     var i, key, active;
     var meta = node ? typeMeta(node.type) : {};
     for (i = 0; i < pills.length; i++) {
@@ -2475,22 +3438,184 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function setScope(scope) {
     scopeState = scope;
+    if (scope !== 'choice') { selectedChoiceValue = null; }
     renderScopeHeader();
+    updateCanvasToolbar();
   }
 
-  // --- selection --------------------------------------------------------------
+  // --- selection + §6.1 toolbar render layer ------------------------------------
+  // §6.1.1 clickable breadcrumb: root crumb = the scope ("This Section"); each
+  // ancestor crumb re-selects it; a focused choice appends its crumb.
+  function crumbHandler(qid) { return function () { selectComponent(qid); }; }
+  function renderBreadcrumb() {
+    var crumb = document.querySelector('[data-studio-breadcrumb]');
+    if (!crumb) { return; }
+    clearChildren(crumb);
+    var root = document.createElement('button');
+    root.type = 'button';
+    root.setAttribute('data-crumb', '');
+    if (!selectedQuestionId) { root.className = 'studio-crumb-current'; }
+    root.appendChild(document.createTextNode('This Section'));
+    root.addEventListener('click', function () { selectComponent(null); });
+    crumb.appendChild(root);
+    if (!selectedQuestionId) { return; }
+    var ref = findRef(selectedQuestionId);
+    if (!ref) { return; }
+    var i, sep, b;
+    for (i = 0; i < ref.trail.length; i++) {
+      sep = document.createElement('span');
+      sep.appendChild(document.createTextNode(' \\u203A '));
+      crumb.appendChild(sep);
+      b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('data-crumb', ref.trail[i].question_id);
+      if (i === ref.trail.length - 1 && !(scopeState === 'choice' && selectedChoiceValue !== null)) { b.className = 'studio-crumb-current'; }
+      b.appendChild(document.createTextNode(typeLabel(ref.trail[i].type)));
+      b.addEventListener('click', crumbHandler(ref.trail[i].question_id));
+      crumb.appendChild(b);
+    }
+    if (scopeState === 'choice' && selectedChoiceValue !== null) {
+      sep = document.createElement('span');
+      sep.appendChild(document.createTextNode(' \\u203A '));
+      crumb.appendChild(sep);
+      b = document.createElement('span');
+      b.className = 'studio-crumb-current';
+      b.setAttribute('data-crumb-choice', String(selectedChoiceValue));
+      b.appendChild(document.createTextNode('Choice \\u201C' + choiceScopeLabel + '\\u201D'));
+      crumb.appendChild(b);
+    }
+  }
+  // §6.7: the selected node's validation problems inline at the control (red
+  // outline + one sentence in the toolbar).
+  function renderToolbarProblems() {
+    var marked = document.querySelectorAll('.studio-control-invalid');
+    var i;
+    for (i = 0; i < marked.length; i++) { marked[i].className = withoutClasses(marked[i].className, ['studio-control-invalid']); }
+    var el = document.querySelector('[data-toolbar-problems]');
+    if (!el) { return; }
+    var node = selectedNode();
+    if (!node) { el.hidden = true; el.textContent = ''; return; }
+    var issues = computeIssues();
+    var mine = [];
+    for (i = 0; i < issues.length; i++) { if (issues[i].qid === node.question_id) { mine.push(issues[i]); } }
+    if (mine.length === 0) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
+    var key, ctl;
+    for (i = 0; i < mine.length; i++) {
+      key = issueControlKeyOf(mine[i].message);
+      if (key === null) { continue; }
+      if (key === 'choices') { ctl = document.getElementById('lg-choice-add'); }
+      else {
+        ctl = document.querySelector('[data-inspector-field="' + key + '"]') ||
+          document.querySelector('[data-inspector-vprop="' + key + '"]') ||
+          document.querySelector('[data-container-prop="' + key + '"]');
+      }
+      if (ctl && ctl.className.indexOf('studio-control-invalid') === -1) { ctl.className = ctl.className + ' studio-control-invalid'; }
+    }
+  }
+  // §6.5: the toolbar clusters are a PURE function of the selection.
+  function updateCanvasToolbar() {
+    var node = selectedNode();
+    var choiceFocused = scopeState === 'choice' && selectedChoiceValue !== null;
+    var visible = toolbarClustersFor(node, choiceFocused);
+    var clusters = document.querySelectorAll('[data-toolbar-cluster]');
+    var i, key;
+    for (i = 0; i < clusters.length; i++) {
+      key = clusters[i].getAttribute('data-toolbar-cluster');
+      clusters[i].hidden = visible.indexOf(key) === -1;
+    }
+    var meta = node ? typeMeta(node.type) : {};
+    var addChoice = document.querySelector('[data-toolbar-add-choice]');
+    if (addChoice) { addChoice.hidden = !node || meta.choice !== true; }
+    var auto = document.querySelector('[data-toolbar-autoadvance]');
+    if (auto) {
+      auto.hidden = !node || meta.choice !== true;
+      var on = (state.continue_mode || 'button') === 'auto_advance';
+      auto.textContent = on ? 'Auto-advance: on' : 'Auto-advance: off';
+      auto.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    var selButton = document.querySelector('[data-tb-selected-role="button"]');
+    if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
+    var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
+    if (selIcon) { selIcon.hidden = !node || (node.type !== 'IconCardAnswerGrid' && node.type !== 'ImageCardAnswerGrid' && node.type !== 'MultiChoiceCardGroup'); }
+    var inputQuick = document.querySelector('[data-toolbar-input-quick]');
+    if (inputQuick) { inputQuick.hidden = !node || !meta.produces || meta.choice === true; }
+    var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
+    if (choiceLayout) { choiceLayout.hidden = !node || meta.choice !== true; }
+    // §5.5: the dropdown searchable toggle SWITCHES the component type.
+    var searchWrap = document.querySelector('[data-toolbar-searchable-wrap]');
+    var searchBtn = document.querySelector('[data-toolbar-searchable]');
+    var isDropdown = !!node && (node.type === 'DropdownQuestion' || node.type === 'SearchableDropdownQuestion');
+    if (searchWrap) { searchWrap.hidden = !isDropdown; }
+    if (searchBtn && isDropdown) {
+      var searchable = node.type === 'SearchableDropdownQuestion';
+      searchBtn.textContent = searchable ? 'Searchable: on' : 'Searchable: off';
+      searchBtn.setAttribute('aria-pressed', searchable ? 'true' : 'false');
+    }
+    var textRoleSel = document.querySelector('[data-text-role]');
+    if (textRoleSel && node && TEXT_ROLE_TYPES.indexOf(node.type) !== -1) {
+      textRoleSel.value = node.type;
+      textRoleSel.disabled = node.bind !== undefined;
+    }
+    var textColor = document.querySelector('[data-toolbar-text-color]');
+    if (textColor) { textColor.hidden = !node || node.type !== 'CategoryLabel'; }
+    var chip = document.querySelector('[data-choice-value-chip]');
+    var c = (node && choiceFocused) ? findChoice(node, selectedChoiceValue) : null;
+    if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
+    var badgeBtn = document.querySelector('[data-choice-act="badge"]');
+    if (badgeBtn) { badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
+    var disBtn = document.querySelector('[data-choice-act="disabled"]');
+    if (disBtn) { disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    updateHistoryButtons();
+    renderToolbarProblems();
+  }
   function selectComponent(qid) {
     selectedQuestionId = qid || null;
     scopeState = selectedQuestionId ? 'component' : 'section';
+    selectedChoiceValue = null;
     applyCanvasDecoration();
-    var crumb = document.querySelector('[data-studio-breadcrumb]');
-    if (crumb) { crumb.textContent = selectedQuestionId ? breadcrumbText(selectedQuestionId) : ''; }
-    var toolbar = document.querySelector('[data-studio-selection-toolbar]');
-    if (toolbar) { toolbar.hidden = !selectedQuestionId; }
+    renderBreadcrumb();
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
     populateInspector();
     renderInspectorMapping();
     renderScopeHeader();
+    updateCanvasToolbar();
+  }
+  // §6.2/§6.4 per-choice selection: clicking a card/button selects the CHOICE;
+  // the inspector simultaneously opens the Choices tab scrolled to that row.
+  function focusChoiceRow(value) {
+    var rows = document.querySelectorAll('[data-choice-row]');
+    var i, inp, label;
+    for (i = 0; i < rows.length; i++) {
+      inp = rows[i].querySelector('[data-choice-field="value"]');
+      if (inp && String(inp.value) === String(value)) {
+        if (rows[i].scrollIntoView) { rows[i].scrollIntoView({ block: 'nearest' }); }
+        label = rows[i].querySelector('[data-choice-field="label"]');
+        if (label && label.focus) { label.focus(); }
+        return true;
+      }
+    }
+    return false;
+  }
+  function selectChoice(qid, value) {
+    selectedQuestionId = qid || null;
+    var node = selectedNode();
+    if (!node || typeMeta(node.type).choice !== true) { selectComponent(qid); return; }
+    selectedChoiceValue = value;
+    var c = findChoice(node, value);
+    choiceScopeLabel = c && c.label !== undefined ? String(c.label) : '';
+    scopeState = 'choice';
+    applyCanvasDecoration();
+    renderBreadcrumb();
+    populateInspector();
+    renderInspectorMapping();
+    setInspectorTab('choices');
+    // populateInspector/setInspectorTab may have re-scoped — re-assert CHOICE.
+    scopeState = 'choice';
+    focusChoiceRow(value);
+    renderScopeHeader();
+    updateCanvasToolbar();
   }
 
   // --- inspector tabs (§7.3: DYNAMIC per selection — never a fixed strip) -------
@@ -2623,8 +3748,12 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < ovEls.length; i++) {
       k = ovEls[i].getAttribute('data-inspector-override');
       oval = (node && node.design_overrides) ? node.design_overrides[k] : undefined;
+      // §9.4: a stored legacy #hex needs its appended option before .value.
+      if (isHexColor(oval)) { ensureLegacyOption(ovEls[i], String(oval)); }
       ovEls[i].value = (oval === undefined || oval === null) ? '' : String(oval);
     }
+    renderOverrideDecorations(node);
+    renderPresetControls();
     populateValidation(node, meta);
     populateMapsPanel(node);
     populateConditional(node);
@@ -2643,6 +3772,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (bindMarker) { bindMarker.textContent = node && node.bind !== undefined ? node.bind : '\\u2014'; }
     var jsonTa = document.getElementById('lg-node-json');
     if (jsonTa) { jsonTa.value = node ? JSON.stringify(node, null, 2) : ''; }
+    // §7.3: the raw view re-locks per selection — editing needs the explicit
+    // "Edit raw…" confirm again.
+    rawEditArmed = false;
+    syncRawJsonMode();
     var jsonErr = document.querySelector('[data-studio-node-json-error]');
     if (jsonErr) { jsonErr.hidden = true; }
     var warn = document.querySelector('[data-studio-rename-warning]');
@@ -2760,6 +3893,11 @@ export const SECTION_STUDIO_SCRIPT = `
         v = (node && node.props) ? node.props[k] : undefined;
         input.value = (v === undefined || v === null) ? '' : String(v);
       }
+    }
+    // §5.5: the range provider-format note shows for the slider family only.
+    var rangeNote = document.querySelector('[data-range-format-note]');
+    if (rangeNote) {
+      rangeNote.hidden = !node || (node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion');
     }
     var presetSel = document.querySelector('[data-inspector-vprop="pattern_preset"]');
     var patternIn = document.querySelector('[data-inspector-vprop="pattern"]');
@@ -3138,13 +4276,64 @@ export const SECTION_STUDIO_SCRIPT = `
   // the §8.4-required alt (collectChoices rebuilds each choice from the row
   // inputs — a field missing here would be silently dropped). Wave 2 owns the
   // full §7.3 Choices-depth grid (title/subtitle/badge/emoji/picker cells).
-  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'icon', 'imageMediaId', 'image_alt', 'description'];
+  // §7.3 Choices tab rows — SECTION-OWNED fields ONLY (C1): display label,
+  // internal normalized value (auto-suggested from the label), analytics
+  // label, icon/emoji (mutually exclusive), image + REQUIRED alt (media
+  // picker cell), title/subtitle/badge, aria_label, disabled, main/Other
+  // grouping, reorder. There is NO provider-value control here — each row
+  // ends with the read-only "Provider values: k/n Offers" chip (§12.2).
+  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'title', 'subtitle', 'badge', 'icon', 'emoji', 'imageMediaId', 'image_alt', 'aria_label', 'description'];
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
-  function buildChoiceRow(choice, isMain) {
+  // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
+  // that Offer's provider value or "not set", deep-linking into the Offer's
+  // value map. Read-only by construction.
+  function buildProviderChip(node, choice) {
+    var wrap = document.createElement('span');
+    wrap.setAttribute('data-choice-provider', '');
+    var internalField = node && node.internal_field ? String(node.internal_field) : '';
+    var value = choice && choice.value !== undefined ? String(choice.value) : '';
+    var chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'studio-provider-chip';
+    chip.setAttribute('data-choice-provider-chip', value);
+    chip.appendChild(document.createTextNode(providerChipLabel(internalField, value)));
+    wrap.appendChild(chip);
+    var rowsEl = document.createElement('div');
+    rowsEl.className = 'studio-provider-rows';
+    rowsEl.setAttribute('data-choice-provider-rows', value);
+    rowsEl.hidden = true;
+    var rows = providerChipRows(internalField, value);
+    var i, line, a;
+    if (rows.length === 0) {
+      line = document.createElement('div');
+      line.appendChild(document.createTextNode('No Offers selected yet \\u2014 select Offers in the mapping drawer first.'));
+      rowsEl.appendChild(line);
+    }
+    for (i = 0; i < rows.length; i++) {
+      line = document.createElement('div');
+      line.setAttribute('data-provider-offer', rows[i].offer_public_id || '');
+      line.appendChild(document.createTextNode(rows[i].offer_name + ': ' + (rows[i].value === null ? 'not set' : rows[i].value) + ' '));
+      if (rows[i].href !== null) {
+        a = document.createElement('a');
+        a.href = rows[i].href;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.setAttribute('data-provider-valuemap-link', rows[i].offer_public_id || '');
+        a.appendChild(document.createTextNode('Open value map'));
+        line.appendChild(a);
+      }
+      rowsEl.appendChild(line);
+    }
+    chip.addEventListener('click', function () { rowsEl.hidden = !rowsEl.hidden; });
+    wrap.appendChild(rowsEl);
+    return wrap;
+  }
+  function buildChoiceRow(choice, isMain, node) {
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row';
     wrap.setAttribute('data-choice-row', '');
     var i, inp, val;
+    var inputsByField = {};
     for (i = 0; i < CHOICE_FIELDS.length; i++) {
       inp = document.createElement('input');
       inp.className = 'form-input';
@@ -3154,8 +4343,50 @@ export const SECTION_STUDIO_SCRIPT = `
       inp.value = (val === undefined || val === null) ? '' : String(val);
       inp.addEventListener('input', collectChoices);
       inp.addEventListener('change', collectChoices);
+      inputsByField[CHOICE_FIELDS[i]] = inp;
       wrap.appendChild(inp);
+      // §5.5: the image cell is a PICKER cell — Choose… opens the shared
+      // Media-library chooser writing into this input (same collect path).
+      if (CHOICE_FIELDS[i] === 'imageMediaId') {
+        wrap.appendChild(buildChoiceMediaButton(inp));
+      }
     }
+    // §7.3: value auto-suggested from the label while un-edited.
+    var valueInput = inputsByField['value'];
+    if (valueInput) {
+      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
+    var labelInput = inputsByField['label'];
+    if (labelInput && valueInput) {
+      labelInput.addEventListener('input', function () {
+        if (valueInput.getAttribute('data-auto') === 'true') {
+          valueInput.value = slugify(this.value);
+          collectChoices();
+        }
+      });
+    }
+    // §8.4: emoji ⊕ icon are mutually exclusive — setting one clears the other.
+    var iconInput = inputsByField['icon'];
+    var emojiInput = inputsByField['emoji'];
+    if (iconInput && emojiInput) {
+      iconInput.addEventListener('input', function () {
+        if (trimStr(this.value) !== '' && trimStr(emojiInput.value) !== '') { emojiInput.value = ''; collectChoices(); }
+      });
+      emojiInput.addEventListener('input', function () {
+        if (trimStr(this.value) !== '' && trimStr(iconInput.value) !== '') { iconInput.value = ''; collectChoices(); }
+      });
+    }
+    var disabledLabel = document.createElement('label');
+    disabledLabel.className = 'lg-check';
+    var disabledCb = document.createElement('input');
+    disabledCb.type = 'checkbox';
+    disabledCb.setAttribute('data-choice-disabled', '');
+    disabledCb.checked = !!(choice && choice.disabled === true);
+    disabledCb.addEventListener('change', collectChoices);
+    disabledLabel.appendChild(disabledCb);
+    disabledLabel.appendChild(document.createTextNode('disabled'));
+    wrap.appendChild(disabledLabel);
     var mainLabel = document.createElement('label');
     mainLabel.className = 'lg-check';
     var mainCb = document.createElement('input');
@@ -3166,6 +4397,12 @@ export const SECTION_STUDIO_SCRIPT = `
     mainLabel.appendChild(mainCb);
     mainLabel.appendChild(document.createTextNode('main'));
     wrap.appendChild(mainLabel);
+    // §7.3 reorder within the row grid.
+    var reorder = document.createElement('span');
+    reorder.className = 'studio-choice-reorder';
+    reorder.appendChild(choiceRowMoveBtn(wrap, -1));
+    reorder.appendChild(choiceRowMoveBtn(wrap, 1));
+    wrap.appendChild(reorder);
     var rm = document.createElement('button');
     rm.type = 'button';
     rm.className = 'btn btn-sm btn-danger';
@@ -3176,7 +4413,36 @@ export const SECTION_STUDIO_SCRIPT = `
       collectChoices();
     });
     wrap.appendChild(rm);
+    // §12.2 C1: the read-only per-Offer provider-values chip ends the row.
+    wrap.appendChild(buildProviderChip(node || selectedNode(), choice || {}));
     return wrap;
+  }
+  function choiceRowMoveBtn(wrap, delta) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-choice-row-move', delta < 0 ? 'up' : 'down');
+    b.setAttribute('aria-label', delta < 0 ? 'Move choice up' : 'Move choice down');
+    b.appendChild(document.createTextNode(delta < 0 ? '\\u2191' : '\\u2193'));
+    b.addEventListener('click', function () {
+      var parent = wrap.parentNode;
+      if (!parent) { return; }
+      if (delta < 0 && wrap.previousElementSibling) { parent.insertBefore(wrap, wrap.previousElementSibling); }
+      else if (delta > 0 && wrap.nextElementSibling) { parent.insertBefore(wrap.nextElementSibling, wrap); }
+      collectChoices();
+    });
+    return b;
+  }
+  function buildChoiceMediaButton(input) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-choice-media-choose', '');
+    b.textContent = 'Choose\\u2026';
+    b.addEventListener('click', function () {
+      openMediaPicker({ input: input, onpick: collectChoices });
+    });
+    return b;
   }
   function renderChoiceEditor(node) {
     var c = choiceContainer();
@@ -3186,7 +4452,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var mains = (node && node.choiceDisplay && node.choiceDisplay.mainValues) ? node.choiceDisplay.mainValues : [];
     var i;
     for (i = 0; i < choices.length; i++) {
-      c.appendChild(buildChoiceRow(choices[i], mains.indexOf(String(choices[i].value)) !== -1));
+      c.appendChild(buildChoiceRow(choices[i], mains.indexOf(String(choices[i].value)) !== -1, node));
     }
   }
   function populateChoiceDisplay(node) {
@@ -3230,6 +4496,9 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       mainCb = rows[i].querySelector('[data-choice-main]');
       if (mainCb && mainCb.checked && choice.value !== undefined) { mains.push(String(choice.value)); }
+      // §8.4 disabled rides a checkbox (boolean — set only when true).
+      var disabledCb = rows[i].querySelector('[data-choice-disabled]');
+      if (disabledCb && disabledCb.checked) { choice.disabled = true; }
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
@@ -3242,7 +4511,10 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < lines.length; i++) {
       line = trimStr(lines[i]);
       if (line === '') { continue; }
+      // §5.5: "label = value" is the documented idiom; the legacy
+      // "label|value" separator stays accepted.
       at = line.indexOf('|');
+      if (at === -1) { at = line.indexOf('='); }
       label = at === -1 ? line : trimStr(line.slice(0, at));
       value = at === -1 ? slugify(line) : trimStr(line.slice(at + 1));
       if (label === '') { continue; }
@@ -3294,6 +4566,510 @@ export const SECTION_STUDIO_SCRIPT = `
     if (errEl) { errEl.hidden = true; }
     afterModelChange();
     selectComponent(parsed.question_id);
+  }
+
+  // --- §7.3 Advanced raw JSON: read-only + explicit "Edit raw…" confirm ---------
+  function syncRawJsonMode() {
+    var ta = document.getElementById('lg-node-json');
+    var applyBtn = document.getElementById('lg-node-json-apply');
+    var editBtn = document.getElementById('lg-node-json-edit');
+    if (ta) {
+      if (rawEditArmed) { ta.removeAttribute('readonly'); }
+      else { ta.setAttribute('readonly', 'readonly'); }
+    }
+    if (applyBtn) { applyBtn.hidden = !rawEditArmed; }
+    if (editBtn) { editBtn.hidden = rawEditArmed; }
+  }
+  function armRawEdit() {
+    if (rawEditArmed) { return false; }
+    if (!window.confirm('Edit the raw component JSON? Invalid structures are rejected on Apply, but raw edits bypass the guided controls.')) { return false; }
+    rawEditArmed = true;
+    syncRawJsonMode();
+    return true;
+  }
+
+  // --- §9.4 role-override DOM decorations ----------------------------------------
+  function ensureLegacyOption(sel, hex) {
+    var i, has = false;
+    for (i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === hex) { has = true; break; }
+    }
+    if (!has) {
+      var o = document.createElement('option');
+      o.value = hex;
+      o.textContent = 'Custom color (legacy)';
+      sel.appendChild(o);
+    }
+  }
+  function renderOverrideDecorations(node) {
+    var i, key, sel, cur, resetBtn, srcEl, legacyEl, swatch;
+    for (i = 0; i < COLOR_OVERRIDE_KEYS.length; i++) {
+      key = COLOR_OVERRIDE_KEYS[i];
+      sel = document.getElementById('lg-inspector-' + key);
+      cur = (node && node.design_overrides) ? node.design_overrides[key] : undefined;
+      if (sel && isHexColor(cur)) { ensureLegacyOption(sel, String(cur)); sel.value = String(cur); }
+      resetBtn = document.querySelector('[data-override-reset="' + key + '"]');
+      if (resetBtn) { resetBtn.hidden = !node || cur === undefined || cur === null || cur === ''; }
+      srcEl = document.querySelector('[data-override-source="' + key + '"]');
+      if (srcEl) { srcEl.textContent = node ? overrideSourceText(key, cur) : ''; }
+      legacyEl = document.querySelector('[data-override-legacy="' + key + '"]');
+      if (legacyEl) { legacyEl.hidden = !node || !isHexColor(cur); }
+      swatch = document.querySelector('[data-override-swatch="' + key + '"]');
+      if (swatch && swatch.style) { swatch.style.background = node ? resolvedOverrideColor(key, cur) : ''; }
+    }
+  }
+  function resetOverride(key) {
+    var node = selectedNode();
+    if (!node || !node.design_overrides) { return; }
+    delete node.design_overrides[key];
+    cleanupEmpty(node, 'design_overrides');
+    afterModelChange();
+    populateInspector();
+  }
+  // §9.4 "Convert to a theme color": exact default-design match converts in
+  // place; no match → the operator picks from the (focused) role select.
+  function convertLegacyOverride(key) {
+    var node = selectedNode();
+    if (!node || !node.design_overrides) { return null; }
+    var cur = node.design_overrides[key];
+    var role = legacyHexToRole(cur);
+    if (role !== null) {
+      node.design_overrides[key] = role;
+      afterModelChange();
+      populateInspector();
+      return role;
+    }
+    var sel = document.getElementById('lg-inspector-' + key);
+    if (sel && sel.focus) { sel.focus(); }
+    return null;
+  }
+
+  // --- §9.5 Section-overrides drawer mode: populate + collect --------------------
+  function renderSectionOverrideSwatches() {
+    var palette = (state.design_overrides && state.design_overrides.palette) ? state.design_overrides.palette : {};
+    var swatches = document.querySelectorAll('[data-section-role-swatch]');
+    var i, role, v, resolved;
+    for (i = 0; i < swatches.length; i++) {
+      role = swatches[i].getAttribute('data-section-role-swatch');
+      v = palette[role];
+      resolved = isHexColor(v) ? v : (v && ROLE_VALUES[v]) ? ROLE_VALUES[v] : (ROLE_VALUES[role] || '');
+      if (swatches[i].style) { swatches[i].style.background = resolved; }
+    }
+  }
+  function populateSectionOverrides() {
+    var ov = (state.design_overrides && typeof state.design_overrides === 'object') ? state.design_overrides : {};
+    var palette = (ov.palette && typeof ov.palette === 'object') ? ov.palette : {};
+    var sels = document.querySelectorAll('[data-section-role]');
+    var i, role, v;
+    for (i = 0; i < sels.length; i++) {
+      role = sels[i].getAttribute('data-section-role');
+      v = palette[role];
+      if (isHexColor(v)) { ensureLegacyOption(sels[i], String(v)); }
+      sels[i].value = (v === undefined || v === null) ? '' : String(v);
+    }
+    var colsEl = document.querySelector('[data-section-columns-default]');
+    if (colsEl) { colsEl.value = typeof ov.columnsDefault === 'number' ? String(ov.columnsDefault) : ''; }
+    var gapEl = document.querySelector('[data-section-gap-default]');
+    if (gapEl) { gapEl.value = typeof ov.gapDefault === 'string' ? ov.gapDefault : ''; }
+    renderSectionOverrideSwatches();
+  }
+  function collectSectionOverrides() {
+    state.design_overrides = buildSectionOverrides();
+    markDirty();
+    renderSectionOverrideSwatches();
+    scheduleCanvasRender();
+  }
+
+  // --- §6.6 presets: load + Design-tab dropdown + apply + save -------------------
+  function renderPresetControls() {
+    var node = selectedNode();
+    var designSel = document.querySelector('[data-preset-select]');
+    var applySel = document.querySelector('[data-preset-apply]');
+    var list = node ? presetsForType(node.type) : [];
+    var i, o;
+    if (designSel) {
+      clearChildren(designSel);
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = '(none)';
+      designSel.appendChild(o);
+      for (i = 0; i < list.length; i++) {
+        o = document.createElement('option');
+        o.value = list[i].name;
+        o.textContent = list[i].name;
+        designSel.appendChild(o);
+      }
+      var cur = node && node.design_preset ? String(node.design_preset) : '';
+      if (cur !== '' && presetByName(cur) === null) {
+        // provenance for a deleted/renamed preset stays visible, never dropped
+        o = document.createElement('option');
+        o.value = cur;
+        o.textContent = cur + ' (stored)';
+        designSel.appendChild(o);
+      }
+      designSel.value = cur;
+      designSel.disabled = !node;
+    }
+    if (applySel) {
+      clearChildren(applySel);
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = 'Apply preset…';
+      applySel.appendChild(o);
+      for (i = 0; i < list.length; i++) {
+        o = document.createElement('option');
+        o.value = list[i].name;
+        o.textContent = list[i].name;
+        applySel.appendChild(o);
+      }
+      // §6.6: mismatched type (no presets for this type) → disabled.
+      applySel.disabled = !node || list.length === 0;
+    }
+  }
+  function loadComponentPresets() {
+    fetchItems('/api/admin/leadgen/component-presets', function (items) {
+      presetsData = items || [];
+      renderPresetControls();
+    });
+  }
+  function savePresetFromSelection() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var name = trimStr(window.prompt('Preset name'));
+    if (name === '') { return; }
+    var payload = buildPresetPayload(node);
+    payload.name = name;
+    fetch('/api/admin/leadgen/component-presets', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        showRefusal('Preset save failed: ' + ((res.body && res.body.error) || 'error'));
+        return;
+      }
+      presetsData = (res.body && res.body.items) || presetsData;
+      node.design_preset = name;
+      afterModelChange();
+      renderPresetControls();
+    }).catch(function () { showRefusal('Preset save failed: network error'); });
+  }
+
+  // --- §5.5/§6.4 media picker (the shared Media-library chooser) -----------------
+  var mediaPickTarget = null;
+  function mediaSrc(v) {
+    var str = String(v || '');
+    if (str === '') { return ''; }
+    if (str.charAt(0) === '/' || str.indexOf('http://') === 0 || str.indexOf('https://') === 0 || str.indexOf('data:') === 0) { return str; }
+    return '/media/' + str;
+  }
+  function mediaPickerStatus(text) {
+    var el = document.getElementById('lg-media-picker-status');
+    if (el) {
+      clearChildren(el);
+      if (text) { el.appendChild(document.createTextNode(text)); }
+    }
+  }
+  function closeMediaPicker() {
+    var overlay = document.getElementById('lg-media-picker');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay lg-hidden'; }
+    mediaPickTarget = null;
+  }
+  function renderMediaGrid(items) {
+    var grid = document.getElementById('lg-media-picker-grid');
+    if (!grid) { return; }
+    clearChildren(grid);
+    if (!items || items.length === 0) {
+      var pEl = document.createElement('p');
+      pEl.className = 'form-help';
+      pEl.appendChild(document.createTextNode('No images in the Media library yet — upload one above.'));
+      grid.appendChild(pEl);
+      return;
+    }
+    var i, it, btn, img, name;
+    for (i = 0; i < items.length; i++) {
+      it = items[i];
+      if (!it || !it.storage_key) { continue; }
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lg-media-item';
+      btn.setAttribute('data-media-pick', it.storage_key);
+      btn.title = it.filename || it.storage_key;
+      img = document.createElement('img');
+      img.setAttribute('src', mediaSrc(it.storage_key));
+      img.setAttribute('alt', it.alt_text || it.filename || '');
+      btn.appendChild(img);
+      name = document.createElement('span');
+      name.appendChild(document.createTextNode(it.filename || it.storage_key));
+      btn.appendChild(name);
+      grid.appendChild(btn);
+    }
+  }
+  function loadMediaList() {
+    mediaPickerStatus('Loading…');
+    fetch('/api/admin/media', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { mediaPickerStatus('Could not load the Media library.'); return; }
+        mediaPickerStatus('');
+        renderMediaGrid((res.body && res.body.media) || []);
+      })
+      .catch(function () { mediaPickerStatus('Could not load the Media library.'); });
+  }
+  function openMediaPicker(target) {
+    mediaPickTarget = target;
+    var overlay = document.getElementById('lg-media-picker');
+    if (overlay) { overlay.className = 'lg-media-picker-overlay'; }
+    loadMediaList();
+  }
+  function applyMediaPick(storageKey) {
+    var target = mediaPickTarget;
+    closeMediaPicker();
+    if (!target) { return; }
+    if (target.input) {
+      target.input.value = storageKey;
+      if (target.input.setAttribute) { target.input.setAttribute('data-auto', 'false'); }
+      if (target.onpick) { target.onpick(); }
+      return;
+    }
+    if (target.qid) {
+      var ref = findRef(target.qid);
+      if (!ref) { return; }
+      var c = findChoice(ref.node, target.value);
+      if (!c) { return; }
+      c.imageMediaId = storageKey;
+      // A5: image_alt is REQUIRED next to imageMediaId — default to the label.
+      if (!c.image_alt || trimStr(c.image_alt) === '') { c.image_alt = c.label || storageKey; }
+      afterModelChange();
+      renderChoiceEditor(ref.node);
+    }
+  }
+  function uploadMediaFile() {
+    var fileInput = document.getElementById('lg-media-upload-file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) { mediaPickerStatus('Choose an image file first.'); return; }
+    var fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    mediaPickerStatus('Uploading…');
+    fetch('/api/admin/media/upload', { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body || !res.body.item || !res.body.item.storage_key) {
+          mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Upload failed.');
+          return;
+        }
+        mediaPickerStatus('');
+        fileInput.value = '';
+        applyMediaPick(res.body.item.storage_key);
+      })
+      .catch(function () { mediaPickerStatus('Upload failed: network error.'); });
+  }
+
+  // --- §5.4 Move to Quote frame: the LIVE action ---------------------------------
+  function showMoveNote(text) {
+    var note = document.querySelector('[data-studio-pending-note]');
+    if (note) { note.hidden = false; note.textContent = text; }
+  }
+  // Finish: remove the node and persist the removal on the SAME action — a
+  // content-only PATCH (merge-then-revalidate keeps every other stored field;
+  // §5.4 "delete-from-Section only after confirm").
+  function finishMoveToFrame(qid, funnel, wasDirty) {
+    removeNode(qid);
+    if (selectedQuestionId === qid) { selectComponent(null); }
+    if (!state.public_id) {
+      showMoveNote('Moved into the Quote frame of “' + funnel.name + '”. Save the Section to persist the removal.');
+      return;
+    }
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id), {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ content_json: JSON.stringify(state.content) })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        showRefusal('The element moved into the frame, but saving its removal failed: ' + ((res.body && res.body.error) || 'error') + ' — Save the Section to persist it.');
+        return;
+      }
+      if (!wasDirty) { dirty = false; }
+      showMoveNote('Moved into the Quote frame of “' + funnel.name + '” — the Section was saved without the element.');
+    }).catch(function () {
+      showRefusal('The element moved into the frame, but saving its removal failed — Save the Section to persist it.');
+    });
+  }
+  function doMoveToFrame(qid, funnel) {
+    var ref = findRef(qid);
+    if (!ref) { return; }
+    // §5.4: explicit confirm that NAMES the funnel, before any write.
+    if (!window.confirm(moveConfirmMessage(ref.node, funnel.name))) { return; }
+    var group = equivalentFrameGroup(ref.node);
+    if (group === null) {
+      showRefusal('This element has no Quote-frame equivalent — configure it in the Quote Builder instead.');
+      return;
+    }
+    var wasDirty = dirty;
+    fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnel.public_id) + '/frame', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        showRefusal('Could not read the funnel frame — the element stays in this Section.');
+        return null;
+      }
+      var merged = mergeFrameGroups(res.body ? res.body.frame_config : null, group);
+      return fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnel.public_id) + '/frame', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ frame_config_json: merged })
+      }).then(function (r2) {
+        return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; });
+      }).then(function (putRes) {
+        if (!putRes.ok) {
+          showRefusal('Frame save failed: ' + ((putRes.body && putRes.body.error) || 'error') + ' — the element stays in this Section.');
+          return;
+        }
+        finishMoveToFrame(qid, funnel, wasDirty);
+      });
+    }).catch(function () {
+      showRefusal('Frame save failed — the element stays in this Section.');
+    });
+  }
+  function funnelPickBtn(qid, funnel) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-funnel-pick', funnel.public_id);
+    b.textContent = funnel.name;
+    b.addEventListener('click', function () { doMoveToFrame(qid, funnel); });
+    return b;
+  }
+  // §5.4 used-by-many: a picker listing the funnels; applying to the chosen
+  // one (the confirm still names it) and deleting from the Section only after.
+  function renderFunnelPicker(qid, funnels) {
+    var badge = document.querySelector('[data-frame-badge="' + qid + '"]');
+    if (!badge) { return; }
+    var oldPicker = badge.querySelector('[data-funnel-picker]');
+    if (oldPicker) { badge.removeChild(oldPicker); return; }
+    var picker = document.createElement('span');
+    picker.className = 'studio-funnel-picker';
+    picker.setAttribute('data-funnel-picker', qid);
+    var label = document.createElement('span');
+    label.appendChild(document.createTextNode('Used by ' + funnels.length + ' funnels — move to:'));
+    picker.appendChild(label);
+    var i;
+    for (i = 0; i < funnels.length; i++) { picker.appendChild(funnelPickBtn(qid, funnels[i])); }
+    badge.appendChild(picker);
+  }
+  function startMoveToFrame(qid) {
+    var funnels = usageFunnelsOf();
+    if (funnels.length === 0) {
+      showRefusal('This Section isn’t used by any funnel yet — there is no Quote frame to move this element into. Configure the frame in the Quote Builder.');
+      return;
+    }
+    if (funnels.length === 1) { doMoveToFrame(qid, funnels[0]); return; }
+    renderFunnelPicker(qid, funnels);
+  }
+
+  // --- §5.3 mode 5: frame picker loads + empty state ------------------------------
+  function renderFramePreviewEmpty() {
+    var el = document.querySelector('[data-frame-preview-empty]');
+    if (!el) { return; }
+    el.hidden = !(usageQuoteCount !== null && usageQuoteCount === 0);
+  }
+  function populateFramePickSelect(sel, entries, placeholder, current) {
+    if (!sel) { return; }
+    clearChildren(sel);
+    var o = document.createElement('option');
+    o.value = '';
+    o.textContent = placeholder;
+    sel.appendChild(o);
+    var i;
+    for (i = 0; i < entries.length; i++) {
+      o = document.createElement('option');
+      o.value = entries[i].value;
+      o.textContent = entries[i].label;
+      sel.appendChild(o);
+    }
+    sel.value = current || '';
+    sel.disabled = entries.length === 0;
+  }
+  function loadFramePickerQuotes() {
+    var quoteSel = document.querySelector('[data-frame-pick-quote]');
+    if (!quoteSel) { return; }
+    fetchItems('/api/admin/leadgen/quotes', function (items) {
+      var entries = [], i;
+      for (i = 0; i < items.length; i++) {
+        if (items[i] && items[i].public_id) {
+          entries.push({ value: items[i].public_id, label: items[i].quote_name || items[i].public_id });
+        }
+      }
+      populateFramePickSelect(quoteSel, entries, '— no frame (unit only) —', framePick.quote);
+      quoteSel.disabled = false;
+    });
+  }
+  function populateFramePickFunnels() {
+    var funnelSel = document.querySelector('[data-frame-pick-funnel]');
+    var entries = [], i;
+    for (i = 0; i < framePickFunnels.length; i++) {
+      if (framePickFunnels[i] && framePickFunnels[i].public_id) {
+        entries.push({ value: framePickFunnels[i].public_id, label: framePickFunnels[i].funnel_name || framePickFunnels[i].public_id });
+      }
+    }
+    populateFramePickSelect(funnelSel, entries, 'Funnel…', framePick.funnel);
+  }
+  function populateFramePickVariants() {
+    var variantSel = document.querySelector('[data-frame-pick-variant]');
+    var entries = [], i, j, f;
+    for (i = 0; i < framePickFunnels.length; i++) {
+      f = framePickFunnels[i];
+      if (!f || f.public_id !== framePick.funnel || !f.variants) { continue; }
+      for (j = 0; j < f.variants.length; j++) {
+        if (f.variants[j] && f.variants[j].public_id) {
+          entries.push({ value: f.variants[j].public_id, label: f.variants[j].variant_label || f.variants[j].public_id });
+        }
+      }
+    }
+    populateFramePickSelect(variantSel, entries, 'Variant…', framePick.variant);
+  }
+  function loadFramePickSites(quotePublicId) {
+    var siteSel = document.querySelector('[data-frame-pick-site]');
+    if (!siteSel) { return; }
+    fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/activation', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      var sites = (j && j.sites) || [];
+      var entries = [], i;
+      for (i = 0; i < sites.length; i++) {
+        if (sites[i] && sites[i].site_id) {
+          entries.push({ value: sites[i].site_id, label: sites[i].site_name || sites[i].site_id });
+        }
+      }
+      populateFramePickSelect(siteSel, entries, '— no site branding —', framePick.site);
+    }).catch(function () {});
+  }
+  function onFramePickQuote(quotePublicId) {
+    framePick.quote = quotePublicId;
+    framePick.funnel = '';
+    framePick.variant = '';
+    framePick.site = '';
+    framePickFunnels = [];
+    populateFramePickFunnels();
+    populateFramePickVariants();
+    populateFramePickSelect(document.querySelector('[data-frame-pick-site]'), [], '— no site branding —', '');
+    if (quotePublicId === '') { runPreview(); return; }
+    fetchItems('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/funnels', function (items) {
+      framePickFunnels = items || [];
+      populateFramePickFunnels();
+    });
+    loadFramePickSites(quotePublicId);
+    runPreview();
   }
 
   // --- library: search + click-to-add + drag source ------------------------------
@@ -3356,19 +5132,101 @@ export const SECTION_STUDIO_SCRIPT = `
       // §5.4 amber-badge actions (the badge is a sibling of the node, so the
       // component-select path below never fires for it). Keep (legacy) = NO
       // model change — session-local acknowledgement only; the C2 activation
-      // consequence stays named on other badges. Move stays disabled (wave 2).
+      // consequence stays named on other badges. Move is LIVE (wave 2).
       var keepBtn = ev.target && ev.target.closest ? ev.target.closest('[data-frame-keep]') : null;
       if (keepBtn) {
         keptLegacyFrameNodes[keepBtn.getAttribute('data-frame-keep')] = true;
         applyCanvasDecoration();
         return;
       }
+      var moveBtn = ev.target && ev.target.closest ? ev.target.closest('[data-frame-move]') : null;
+      if (moveBtn) {
+        startMoveToFrame(moveBtn.getAttribute('data-frame-move'));
+        return;
+      }
+      // funnel-picker buttons wire their own handlers; don't fall through.
+      if (ev.target && ev.target.closest && ev.target.closest('[data-funnel-picker]')) { return; }
+      // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
+      var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
+      if (xBtn) {
+        var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
+        if (xRef) {
+          removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
+          if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
+        }
+        return;
+      }
+      var ghostBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-ghost]') : null;
+      if (ghostBtn) {
+        var gRef = findRef(ghostBtn.getAttribute('data-choice-ghost'));
+        if (gRef) {
+          var added = addChoiceToNode(gRef.node);
+          if (added) { selectChoice(gRef.node.question_id, String(added.value)); }
+        }
+        return;
+      }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !canvasSurface.contains(el)) { return; }
       ev.preventDefault();
+      // §6.2/§6.4: clicking a card/button selects the CHOICE, not just the
+      // component (the inspector opens the Choices tab at that row).
+      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
+        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'));
+        return;
+      }
       selectComponent(el.getAttribute('data-question-id'));
     });
+    // §6.2 inline text editing on double-click: bound/label/helper text writes
+    // the bound column or props; a choice card edits its label.
+    canvasSurface.addEventListener('dblclick', function (ev) {
+      var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+      if (!host || !canvasSurface.contains(host)) { return; }
+      var qid = host.getAttribute('data-question-id');
+      var ref = findRef(qid);
+      if (!ref) { return; }
+      ev.preventDefault();
+      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      var editEl, committer;
+      if (cardEl && typeMeta(ref.node.type).choice === true) {
+        var choiceValue = cardEl.getAttribute('data-lg-choice');
+        editEl = cardEl.querySelector('.lg-card-title') || cardEl;
+        committer = function (text) { commitInlineChoiceLabel(qid, choiceValue, text); };
+      } else {
+        var key = inlineEditKeyFor(ref.node);
+        if (key === null) { return; }
+        editEl = host;
+        committer = function (text) { commitInlineText(qid, key, text); };
+      }
+      startInlineEdit(editEl, committer);
+    });
+    // §6.2 container resize handles snap to the width presets only.
+    canvasSurface.addEventListener('mousedown', function (ev) {
+      var handle = ev.target && ev.target.closest ? ev.target.closest('[data-resize-handle]') : null;
+      if (!handle) { return; }
+      ev.preventDefault();
+      var qid = handle.getAttribute('data-resize-handle');
+      var startX = ev.clientX;
+      function onUp(upEv) {
+        document.removeEventListener('mouseup', onUp);
+        var ref = findRef(qid);
+        if (!ref) { return; }
+        var props = ensureObj(ref.node, 'props');
+        var next = snapWidthPreset(typeof props.width === 'string' ? props.width : 'm', upEv.clientX - startX);
+        if (next !== props.width) { props.width = next; afterModelChange(); }
+      }
+      document.addEventListener('mouseup', onUp);
+    });
     canvasSurface.addEventListener('dragstart', function (ev) {
+      // §6.2: dragging a CHOICE card reorders choices within its component.
+      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      if (cardEl && ev.dataTransfer) {
+        var cardHost = cardEl.closest ? cardEl.closest('[data-question-id]') : null;
+        if (cardHost && typeMeta(cardHost.getAttribute('data-component-type')).choice === true) {
+          ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + cardEl.getAttribute('data-lg-choice'));
+          return;
+        }
+      }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !ev.dataTransfer) { return; }
       ev.dataTransfer.setData('text/plain', 'move:' + el.getAttribute('data-question-id'));
@@ -3404,6 +5262,19 @@ export const SECTION_STUDIO_SCRIPT = `
       var payload = data.slice(data.indexOf(':') + 1);
       var placed = null;
       var ref;
+      if (kind === 'choice') {
+        // payload = qid:choiceValue → reorder BEFORE the card dropped on.
+        var sepAt = payload.indexOf(':');
+        if (sepAt === -1) { return; }
+        var cQid = payload.slice(0, sepAt);
+        var fromValue = payload.slice(sepAt + 1);
+        var targetCard = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+        var targetHost = targetCard && targetCard.closest ? targetCard.closest('[data-question-id]') : null;
+        if (!targetCard || !targetHost || targetHost.getAttribute('data-question-id') !== cQid) { return; }
+        var cRef = findRef(cQid);
+        if (cRef) { reorderChoiceBefore(cRef.node, fromValue, targetCard.getAttribute('data-lg-choice')); }
+        return;
+      }
       if (kind === 'add') {
         if (hint.mode === 'into') { placed = addComponentAt(payload, hint.qid, null); }
         else if (hint.mode === 'before' || hint.mode === 'after') { placed = insertRelative(hint.qid, hint.mode, payload); }
@@ -3423,16 +5294,126 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!selectedQuestionId) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
+      // §6.2: Del deletes the selection; Esc walks UP the ancestry.
+      else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+        ev.preventDefault();
+        removeNode(selectedQuestionId);
+        selectComponent(null);
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        var upRef = findRef(selectedQuestionId);
+        selectComponent(upRef && upRef.parent ? upRef.parent.question_id : null);
+      }
     });
   }
 
-  // --- selection toolbar -----------------------------------------------------------
+  // --- §6.1 canvas toolbar (always visible; clusters per the §6.5 matrix) --------
   var toolbarEl = document.querySelector('[data-studio-selection-toolbar]');
+  function handleChoiceAct(act) {
+    var node = selectedNode();
+    if (!node || selectedChoiceValue === null) { return; }
+    var value = String(selectedChoiceValue);
+    var c = findChoice(node, value);
+    if (!c) { return; }
+    if (act === 'image') {
+      // §6.4 image/icon swap: image grids open the media picker; icon/emoji
+      // types prompt for the curated glyph.
+      if (node.type === 'ImageCardAnswerGrid') {
+        openMediaPicker({ qid: node.question_id, value: value });
+      } else {
+        var glyph = window.prompt('Icon or emoji character', c.icon || c.emoji || '');
+        if (glyph === null) { return; }
+        glyph = trimStr(glyph);
+        if (glyph === '') { delete c.icon; delete c.emoji; }
+        else { c.icon = glyph; delete c.emoji; }
+        afterModelChange();
+        renderChoiceEditor(node);
+      }
+      return;
+    }
+    if (act === 'label') {
+      setInspectorTab('choices');
+      focusChoiceRow(value);
+      return;
+    }
+    if (act === 'badge') {
+      if (typeof c.badge === 'string' && c.badge !== '') { setChoiceField(node, value, 'badge', null); }
+      else {
+        var badgeText = window.prompt('Badge text', 'Recommended');
+        if (badgeText === null || trimStr(badgeText) === '') { return; }
+        setChoiceField(node, value, 'badge', trimStr(badgeText));
+      }
+      renderChoiceEditor(node);
+      return;
+    }
+    if (act === 'disabled') {
+      setChoiceField(node, value, 'disabled', c.disabled === true ? null : true);
+      renderChoiceEditor(node);
+      return;
+    }
+    if (act === 'duplicate') {
+      var dup = duplicateChoice(node, value);
+      if (dup) { selectChoice(node.question_id, String(dup.value)); }
+      return;
+    }
+    if (act === 'delete') {
+      removeChoiceFromNode(node, value);
+      renderChoiceEditor(node);
+      setScope(selectedQuestionId ? 'component' : 'section');
+      return;
+    }
+    if (act === 'left') { moveChoice(node, value, -1); return; }
+    if (act === 'right') { moveChoice(node, value, 1); return; }
+  }
   if (toolbarEl) {
     toolbarEl.addEventListener('click', function (ev) {
+      // §6.4 choice cluster acts.
+      var choiceBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-act]') : null;
+      if (choiceBtn) { handleChoiceAct(choiceBtn.getAttribute('data-choice-act')); return; }
+      var chipBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-value-chip]') : null;
+      if (chipBtn && selectedChoiceValue !== null) {
+        setInspectorTab('choices');
+        focusChoiceRow(String(selectedChoiceValue));
+        return;
+      }
+      // §6.5 component-cluster quick controls.
+      var addChoiceBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-add-choice]') : null;
+      if (addChoiceBtn) {
+        var acNode = selectedNode();
+        var acAdded = acNode ? addChoiceToNode(acNode) : null;
+        if (acAdded) { selectChoice(acNode.question_id, String(acAdded.value)); }
+        return;
+      }
+      var autoBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-autoadvance]') : null;
+      if (autoBtn) {
+        // reflects + toggles the Section continue mode (§5.5) — writes the
+        // SAME store the Question-strip radios own.
+        state.continue_mode = (state.continue_mode || 'button') === 'auto_advance' ? 'button' : 'auto_advance';
+        var radios = document.querySelectorAll('input[name="continue_mode"]');
+        var ri;
+        for (ri = 0; ri < radios.length; ri++) { radios[ri].checked = radios[ri].value === state.continue_mode; }
+        markDirty();
+        updateCanvasToolbar();
+        return;
+      }
+      var valShortcut = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-open-validation]') : null;
+      if (valShortcut) { setInspectorTab('validation'); return; }
+      var searchToggle = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-searchable]') : null;
+      if (searchToggle) {
+        var sNode = selectedNode();
+        if (sNode) { toggleSearchableDropdown(sNode); }
+        return;
+      }
+      // §6.6 preset menu.
+      var presetSaveBtn = ev.target && ev.target.closest ? ev.target.closest('[data-preset-save]') : null;
+      if (presetSaveBtn) { savePresetFromSelection(); return; }
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-studio-act]') : null;
-      if (!btn || !selectedQuestionId) { return; }
+      if (!btn) { return; }
       var act = btn.getAttribute('data-studio-act');
+      // §6.1.3 undo/redo work with or without a selection.
+      if (act === 'undo') { historyUndo(); return; }
+      if (act === 'redo') { historyRedo(); return; }
+      if (!selectedQuestionId) { return; }
       var out;
       if (act === 'move-up') { moveWithin(selectedQuestionId, -1); }
       else if (act === 'move-down') { moveWithin(selectedQuestionId, 1); }
@@ -3454,6 +5435,49 @@ export const SECTION_STUDIO_SCRIPT = `
       else if (act === 'group-cardpanel') {
         out = wrapSelection(selectedQuestionId, 'CardPanel');
         if (out) { selectComponent(out.question_id); }
+      }
+      // §6.1.5: Group into Grid / Columns + Ungroup (children splice up).
+      else if (act === 'group-grid') {
+        out = wrapSelection(selectedQuestionId, 'GridContainer');
+        if (out) { selectComponent(out.question_id); }
+      }
+      else if (act === 'group-columns') {
+        out = wrapSelection(selectedQuestionId, 'Columns');
+        if (out) { selectComponent(out.question_id); }
+      }
+      else if (act === 'ungroup') {
+        out = ungroupSelection(selectedQuestionId);
+        if (out) { selectComponent(selectedQuestionId); }
+      }
+    });
+  }
+  // §6.1.4 canvas viewport toggle: Desktop 1280 / Mobile 375 — SERVER-rendered
+  // via the existing preview viewport param.
+  var canvasViewportBtns = document.querySelectorAll('[data-canvas-viewport]');
+  var cvb;
+  for (cvb = 0; cvb < canvasViewportBtns.length; cvb++) {
+    canvasViewportBtns[cvb].addEventListener('click', function () {
+      canvasViewport = this.getAttribute('data-canvas-viewport') === 'mobile' ? 'mobile' : 'desktop';
+      var all = document.querySelectorAll('[data-canvas-viewport]');
+      var k;
+      for (k = 0; k < all.length; k++) {
+        var isOn = all[k] === this;
+        all[k].className = isOn ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-secondary';
+        all[k].setAttribute('aria-pressed', isOn ? 'true' : 'false');
+      }
+      renderCanvasNow();
+    });
+  }
+  // §6.1.7 text cluster: type role conversion.
+  var textRoleEl = document.querySelector('[data-text-role]');
+  if (textRoleEl) {
+    textRoleEl.addEventListener('change', function () {
+      if (!selectedQuestionId) { return; }
+      var ok = convertTextRole(selectedQuestionId, this.value);
+      if (ok) { selectComponent(selectedQuestionId); }
+      else {
+        var cur = selectedNode();
+        if (cur) { this.value = cur.type; }
       }
     });
   }
@@ -3539,7 +5563,7 @@ export const SECTION_STUDIO_SCRIPT = `
   if (choiceAdd) {
     choiceAdd.addEventListener('click', function () {
       var c = choiceContainer();
-      if (c) { c.appendChild(buildChoiceRow({}, false)); }
+      if (c) { c.appendChild(buildChoiceRow({}, false, selectedNode())); }
     });
   }
   // B9 §6.4 grouping controls: the three [data-choicedisplay] inputs fold into
@@ -3559,6 +5583,107 @@ export const SECTION_STUDIO_SCRIPT = `
   if (bulkApply) { bulkApply.addEventListener('click', applyBulkPaste); }
   var jsonApply = document.getElementById('lg-node-json-apply');
   if (jsonApply) { jsonApply.addEventListener('click', applyNodeJson); }
+  // §7.3: the explicit "Edit raw…" confirm unlocks the read-only raw view.
+  var jsonEdit = document.getElementById('lg-node-json-edit');
+  if (jsonEdit) { jsonEdit.addEventListener('click', armRawEdit); }
+  // §9.4 role rows: Reset to inherited + Convert-legacy delegation.
+  var inspectorEl = document.querySelector('[data-studio-inspector]');
+  if (inspectorEl) {
+    inspectorEl.addEventListener('click', function (ev) {
+      var resetBtn = ev.target && ev.target.closest ? ev.target.closest('[data-override-reset]') : null;
+      if (resetBtn) { resetOverride(resetBtn.getAttribute('data-override-reset')); return; }
+      var convertBtn = ev.target && ev.target.closest ? ev.target.closest('[data-override-convert]') : null;
+      if (convertBtn) { convertLegacyOverride(convertBtn.getAttribute('data-override-convert')); return; }
+    });
+  }
+  // §6.6: the Design-tab saved-presets dropdown (apply-merge + provenance) +
+  // the toolbar apply select.
+  var presetSelectEl = document.querySelector('[data-preset-select]');
+  if (presetSelectEl) {
+    presetSelectEl.addEventListener('change', function () {
+      var node = selectedNode();
+      if (!node) { return; }
+      var v = trimStr(this.value);
+      if (v === '') {
+        // "(none)" clears the provenance name only — applied values stay.
+        delete node.design_preset;
+        afterModelChange();
+        return;
+      }
+      var preset = presetByName(v);
+      if (preset === null) { return; }
+      if (!applyPreset(node, preset)) { this.value = node.design_preset || ''; return; }
+      populateInspector();
+    });
+  }
+  var presetApplyEl = document.querySelector('[data-preset-apply]');
+  if (presetApplyEl) {
+    presetApplyEl.addEventListener('change', function () {
+      var node = selectedNode();
+      var v = trimStr(this.value);
+      this.value = '';
+      if (!node || v === '') { return; }
+      var preset = presetByName(v);
+      if (preset !== null && applyPreset(node, preset)) { populateInspector(); }
+    });
+  }
+  // §9.5 Section-overrides drawer controls.
+  var sectionRoleEls = document.querySelectorAll('[data-section-role], [data-section-columns-default], [data-section-gap-default]');
+  var sre;
+  for (sre = 0; sre < sectionRoleEls.length; sre++) {
+    sectionRoleEls[sre].addEventListener('change', collectSectionOverrides);
+  }
+  // Media picker chrome.
+  var mediaCloseBtn = document.getElementById('lg-media-picker-close');
+  if (mediaCloseBtn) { mediaCloseBtn.addEventListener('click', closeMediaPicker); }
+  var mediaUploadBtn = document.getElementById('lg-media-upload-btn');
+  if (mediaUploadBtn) { mediaUploadBtn.addEventListener('click', uploadMediaFile); }
+  var mediaGridEl = document.getElementById('lg-media-picker-grid');
+  if (mediaGridEl) {
+    mediaGridEl.addEventListener('click', function (ev) {
+      var pick = ev.target && ev.target.closest ? ev.target.closest('[data-media-pick]') : null;
+      if (pick) { applyMediaPick(pick.getAttribute('data-media-pick')); }
+    });
+  }
+  // §6.1.3 keyboard: ⌘Z / ⇧⌘Z (typing fields keep their native undo).
+  document.addEventListener('keydown', function (ev) {
+    if (!(ev.metaKey || ev.ctrlKey)) { return; }
+    var k = ev.key ? String(ev.key).toLowerCase() : '';
+    if (k !== 'z') { return; }
+    var t = ev.target;
+    var tag = t && t.tagName ? String(t.tagName).toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) { return; }
+    ev.preventDefault();
+    if (ev.shiftKey) { historyRedo(); } else { historyUndo(); }
+  });
+  // §5.3 mode 5: frame-picker wiring (Quote → Funnel → Variant + site).
+  var framePickQuoteEl = document.querySelector('[data-frame-pick-quote]');
+  if (framePickQuoteEl) {
+    framePickQuoteEl.addEventListener('change', function () { onFramePickQuote(trimStr(this.value)); });
+  }
+  var framePickFunnelEl = document.querySelector('[data-frame-pick-funnel]');
+  if (framePickFunnelEl) {
+    framePickFunnelEl.addEventListener('change', function () {
+      framePick.funnel = trimStr(this.value);
+      framePick.variant = '';
+      populateFramePickVariants();
+      runPreview();
+    });
+  }
+  var framePickVariantEl = document.querySelector('[data-frame-pick-variant]');
+  if (framePickVariantEl) {
+    framePickVariantEl.addEventListener('change', function () {
+      framePick.variant = trimStr(this.value);
+      runPreview();
+    });
+  }
+  var framePickSiteEl = document.querySelector('[data-frame-pick-site]');
+  if (framePickSiteEl) {
+    framePickSiteEl.addEventListener('change', function () {
+      framePick.site = trimStr(this.value);
+      runPreview();
+    });
+  }
 
   // --- Desktop/Mobile preview (slice-C wiring, byte-compatible hooks) -------------------
   var previewViewport = 'desktop';
@@ -3603,6 +5728,10 @@ export const SECTION_STUDIO_SCRIPT = `
     };
     if (state.public_id) { requestBody.section_public_id = state.public_id; }
     if (simState !== 'default') { requestBody.sim.answers = sampleAnswers(); }
+    // §5.3 mode 5: a picked Quote frame rides the LANDED frame_context param —
+    // the unit renders inside that funnel's effective frame (13 §13.4).
+    var frameCtx = frameContextBody();
+    if (frameCtx !== null) { requestBody.frame_context = frameCtx; }
     var designSel = document.getElementById('lg-preview-design');
     if (designSel && trimStr(designSel.value) !== '') { requestBody.design_id = trimStr(designSel.value); }
     fetch('/api/admin/leadgen/sections/preview', {
@@ -4657,8 +6786,10 @@ export const SECTION_STUDIO_SCRIPT = `
         q = rows[i] && rows[i].quote_public_id;
         if (q && seen[q] !== true) { seen[q] = true; n += 1; }
       }
+      usageRows = rows;
       usageQuoteCount = n;
       renderScopeHeader();
+      renderFramePreviewEmpty();
     }).catch(function () {});
   }
 
@@ -4697,7 +6828,9 @@ export const SECTION_STUDIO_SCRIPT = `
       address_validation_enabled: !!state.address_validation_enabled,
       content_json: JSON.stringify(state.content),
       answer_maps: state.answer_maps,
-      selected_offers: state.selected_offers
+      selected_offers: state.selected_offers,
+      // §9.5: the Section-level role overrides (null clears the column).
+      design_overrides: state.design_overrides || null
     };
   }
   // §8.2 save-time warning: the (saved) pair matches zero active Offers —
@@ -4736,6 +6869,8 @@ export const SECTION_STUDIO_SCRIPT = `
           return;
         }
         dirty = false;
+        // §6.1.3: the history is per open editor and cleared on Save.
+        historyReset();
         if (res.body && res.body.public_id) {
           window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit';
         } else {
@@ -4782,6 +6917,11 @@ export const SECTION_STUDIO_SCRIPT = `
   updateCanvasEmpty();
   applyCanvasDecoration();
   populateInspector();
+  renderBreadcrumb();
+  updateCanvasToolbar();
+  populateSectionOverrides();
+  loadComponentPresets();
+  loadFramePickerQuotes();
   loadActivities();
   loadVerticals();
   loadOffers();

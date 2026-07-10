@@ -891,6 +891,10 @@ async function runPreviewProbe(opts: {
     `var state = { content: ${JSON.stringify(opts.content)} };`,
     `var simState = ${JSON.stringify(opts.simState)};`,
     `var previewViewport = ${JSON.stringify(opts.viewport)};`,
+    // wave 2 (§5.3 mode 5): runPreview consults the frame picker — slice the
+    // SERVED frameContextBody with its empty default (no frame picked).
+    "var framePick = { quote: '', funnel: '', variant: '', site: '' };",
+    sliceIslandFunction(opts.island, "frameContextBody"),
     sliceIslandFunction(opts.island, "trimStr"),
     sliceIslandFunction(opts.island, "sampleAnswers"),
     sliceIslandFunction(opts.island, "renderDependencyStatus"),

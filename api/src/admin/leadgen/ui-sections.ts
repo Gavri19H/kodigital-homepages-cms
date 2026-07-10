@@ -80,9 +80,20 @@ export interface AvailableOfferRow {
   required_fields_mapped: number;
 }
 
+// v2.5 07 §7.3 / 12 §12.2 (DEV-55): the per-Offer provider-value projection —
+// one row per SELECTED offer; `fields` keys are internal_fields, each carrying
+// that offer's mapping path + parsed output_value_map. Chip data ONLY.
+export interface OfferValueProjectionRow {
+  offer_id: number;
+  offer_public_id: string | null;
+  offer_name: string;
+  fields: Record<string, { path: string; values: Record<string, unknown> | null }>;
+}
+
 type SectionDetail = LeadgenSectionApi & {
   available_offers: AvailableOfferRow[];
   answer_maps: AnswerMapApiRow[];
+  offer_values?: OfferValueProjectionRow[];
 };
 
 // §12.11 / §35: derive the section-level publish verdict + missing-required
@@ -357,6 +368,11 @@ function sectionDataBlob(section: SectionDetail | null): string {
     selected_offers: (section?.available_offers ?? []).filter((o) => o.selected).map((o) => o.offer_id),
     continue_mode: section?.continue_mode ?? "button",
     address_validation_enabled: section?.address_validation_enabled ?? false,
+    // v2.5 wave 2: DEV-55 per-Offer provider-value projection (07 §7.3 chip) +
+    // the §9.5 Section-level overrides (Design-overrides drawer mode) — both
+    // ADDITIVE keys; the island defaults them when absent (legacy blobs).
+    offer_values: section?.offer_values ?? [],
+    design_overrides: section?.design_overrides_json ?? null,
   };
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }

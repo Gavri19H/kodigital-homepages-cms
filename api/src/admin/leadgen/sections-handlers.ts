@@ -38,7 +38,13 @@ import {
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 // §8.5 layout containers: question/mapping/ZIP walks consume the canonical
 // flattened projection; ONLY the renderer receives the full tree (it recurses).
-import { flattenComponents } from "../../public/leadgen/components/content-schema";
+// v2.5 06 §6.6: named component presets validate against the SAME curated
+// override-key set the content schema enforces (never a second list).
+import {
+  CURATED_DESIGN_OVERRIDE_KEYS,
+  flattenComponents,
+} from "../../public/leadgen/components/content-schema";
+import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import type {
   LeadgenComponentNode,
   LeadgenSectionContent,
@@ -816,6 +822,50 @@ async function readAnswerMaps(db: D1Database, sectionId: number): Promise<Leadge
   return rows.results ?? [];
 }
 
+// v2.5 07 §7.3 / 12 §12.2 (DEV-55 C1 data leg): the per-Offer provider-value
+// PROJECTION the Choices tab's read-only "Provider values: k/n Offers" chip
+// consumes. One row per SELECTED offer — offer identity (name + public id for
+// the deep link) + this Section's mapping edges for that offer keyed by
+// internal_field with the edge's parsed output_value_map. Derived ENTIRELY
+// from the existing mapping model (leadgen_section_answer_maps +
+// leadgen_section_available_offers) — no new storage; additive response key.
+async function offerValueProjection(
+  db: D1Database,
+  availableOffers: readonly LeadgenSectionAvailableOfferRow[],
+  answerMaps: readonly LeadgenSectionAnswerMapRow[],
+): Promise<Array<Record<string, unknown>>> {
+  const selectedIds = availableOffers.filter((o) => o.selected !== 0).map((o) => o.offer_id);
+  if (selectedIds.length === 0) return [];
+  const names = new Map<number, { public_id: string; offer_name: string }>();
+  for (const ids of chunk(selectedIds)) {
+    if (ids.length === 0) continue;
+    const rows = await db
+      .prepare(
+        `SELECT id, public_id, offer_name FROM leadgen_offers WHERE id IN (${ids.map(() => "?").join(",")})`,
+      )
+      .bind(...ids)
+      .all<{ id: number; public_id: string; offer_name: string }>();
+    for (const row of rows.results ?? []) names.set(row.id, { public_id: row.public_id, offer_name: row.offer_name });
+  }
+  return selectedIds.map((offerId) => {
+    const identity = names.get(offerId);
+    const fields: Record<string, unknown> = {};
+    for (const edge of answerMaps) {
+      if (edge.offer_id !== offerId || edge.internal_field === "") continue;
+      fields[edge.internal_field] = {
+        path: edge.offer_payload_field_path,
+        values: parseObjectColumn(edge.output_value_map_json),
+      };
+    }
+    return {
+      offer_id: offerId,
+      offer_public_id: identity?.public_id ?? null,
+      offer_name: identity?.offer_name ?? String(offerId),
+      fields,
+    };
+  });
+}
+
 async function sectionDetailJson(db: D1Database, row: LeadgenSectionRow): Promise<Record<string, unknown>> {
   const availableOffers = await readAvailableOffers(db, row.id);
   const answerMaps = await readAnswerMaps(db, row.id);
@@ -823,6 +873,8 @@ async function sectionDetailJson(db: D1Database, row: LeadgenSectionRow): Promis
     ...sectionRowToApi(row),
     available_offers: availableOffers.map(availableOfferRowToApi),
     answer_maps: answerMaps.map(answerMapRowToApi),
+    // DEV-55 (12 §12.2): the studio SSR blob's chip data source.
+    offer_values: await offerValueProjection(db, availableOffers, answerMaps),
   };
 }
 
@@ -2027,4 +2079,168 @@ function parseObjectColumn(raw: string | null): Record<string, unknown> | null {
 function parseTransformColumn(raw: string | null): LeadgenTransformStep[] | null {
   const parsed = parseJsonColumn(raw);
   return Array.isArray(parsed) ? (parsed as LeadgenTransformStep[]) : null;
+}
+
+// ---------------------------------------------------------------------------
+// v2.5 06 §6.6 — named component presets (KV `lg-component-presets`)
+// ---------------------------------------------------------------------------
+//
+// GET/POST /component-presets + DELETE /component-presets/:name. Storage: ONE
+// admin-scoped KV list under the repo's existing CACHE binding — no migration
+// (§6.6 "admin-scoped, no migration"). Each entry:
+//   {name, component_type, overrides, props_subset, created_by, created_at}
+// A preset captures the node's TYPE + curated design_overrides + LAYOUT props
+// — NEVER content/choices/mapping: `overrides` keys are gated by the schema's
+// CURATED_DESIGN_OVERRIDE_KEYS; `props_subset` keys by the layout-prop
+// whitelist below (scalar token/enum values only). Apply-side merge is
+// island-owned (same-type nodes only); `design_preset` on the node holds the
+// NAME as provenance only.
+
+export const COMPONENT_PRESETS_KV_KEY = "lg-component-presets";
+const COMPONENT_PRESETS_MAX = 200;
+
+// The §6.6 "layout props" capture whitelist: the §8.5 container/grid token
+// props + the A6 image-fit component prop. Content/choices/mapping fields can
+// never enter a preset (unknown keys are rejected, the §14.8 discipline).
+export const PRESET_LAYOUT_PROP_KEYS = [
+  "direction",
+  "gap",
+  "align",
+  "columnsDesktop",
+  "columnsTablet",
+  "columnsMobile",
+  "sizing",
+  "ratio",
+  "mobile",
+  "width",
+  "background",
+  "shadow",
+  "radius",
+  "padding",
+  "size",
+  "gradient",
+  "layout",
+  "image_fit",
+] as const;
+
+const PRESET_PROP_KEY_SET: ReadonlySet<string> = new Set(PRESET_LAYOUT_PROP_KEYS);
+const PRESET_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
+
+interface ComponentPresetEntry {
+  name: string;
+  component_type: string;
+  overrides: Record<string, string | number | boolean>;
+  props_subset: Record<string, string | number | boolean>;
+  created_by: string | null;
+  created_at: number;
+}
+
+function isPresetEntry(value: unknown): value is ComponentPresetEntry {
+  return (
+    isRecord(value) &&
+    typeof value["name"] === "string" &&
+    typeof value["component_type"] === "string" &&
+    isRecord(value["overrides"]) &&
+    isRecord(value["props_subset"])
+  );
+}
+
+// Defensive KV read (the D1 JSON-parse rule applied to KV): a corrupt blob
+// yields [] and the next write repairs it.
+async function readComponentPresets(kv: KVNamespace): Promise<ComponentPresetEntry[]> {
+  const raw = await kv.get(COMPONENT_PRESETS_KV_KEY);
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter(isPresetEntry) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Validate one scalar map side of the preset body (overrides / props_subset):
+// keys ⊆ the given whitelist, values scalar token refs (string|number|boolean)
+// — never objects/arrays (no content smuggling), never raw CSS strings beyond
+// what the schema itself would accept on the node.
+function parsePresetScalarMap(
+  raw: unknown,
+  field: string,
+  allowed: ReadonlySet<string>,
+  errors: FieldErrors,
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  if (raw === undefined || raw === null) return out;
+  if (!isRecord(raw)) {
+    errors[field] = `${field} must be an object of token values`;
+    return out;
+  }
+  for (const [key, value] of Object.entries(raw)) {
+    if (!allowed.has(key)) {
+      errors[`${field}.${key}`] = `'${key}' is not a preset-capturable key (§6.6 — layout/design tokens only)`;
+      continue;
+    }
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      errors[`${field}.${key}`] = `${field}.${key} must be a scalar token value`;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+export async function listComponentPresetsHandler(c: AdminContext): Promise<Response> {
+  const items = await readComponentPresets(c.env.CACHE);
+  return c.json({ items });
+}
+
+export async function createComponentPresetHandler(c: AdminContext): Promise<Response> {
+  const body = await readJsonBody(c);
+  if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
+
+  const errors: FieldErrors = {};
+  const name = trimmedString(body["name"]);
+  if (name === null) errors["name"] = "name is required";
+  else if (name.length > 64) errors["name"] = "name must be 64 characters or fewer";
+  const componentType = trimmedString(body["component_type"]);
+  if (componentType === null || !(componentType in COMPONENT_CATALOG)) {
+    errors["component_type"] = "component_type must be a known component type";
+  }
+  const overrides = parsePresetScalarMap(body["overrides"], "overrides", PRESET_OVERRIDE_KEY_SET, errors);
+  const propsSubset = parsePresetScalarMap(body["props_subset"], "props_subset", PRESET_PROP_KEY_SET, errors);
+  if (Object.keys(errors).length > 0) {
+    return c.json({ error: "Validation failed", fields: errors }, 400);
+  }
+
+  const entry: ComponentPresetEntry = {
+    name: name as string,
+    component_type: componentType as string,
+    overrides,
+    props_subset: propsSubset,
+    // Behind Cloudflare Access this header carries the operator identity;
+    // absent (tests / bypass) → null, never a fake value.
+    created_by: trimmedString(c.req.header("cf-access-authenticated-user-email")),
+    created_at: Math.floor(Date.now() / 1000),
+  };
+  const existing = await readComponentPresets(c.env.CACHE);
+  // Upsert by name (an operator re-saving a preset replaces it in place).
+  const others = existing.filter((p) => p.name !== entry.name);
+  if (others.length >= COMPONENT_PRESETS_MAX) {
+    return c.json(
+      { error: "Validation failed", fields: { name: `preset list is full (${COMPONENT_PRESETS_MAX} max) — delete one first` } },
+      400,
+    );
+  }
+  const items = [...others, entry];
+  await c.env.CACHE.put(COMPONENT_PRESETS_KV_KEY, JSON.stringify(items));
+  return c.json({ item: entry, items }, 201);
+}
+
+export async function deleteComponentPresetHandler(c: AdminContext): Promise<Response> {
+  const name = (c.req.param("name") ?? "").trim();
+  if (name === "") return c.json({ error: "Not Found" }, 404);
+  const existing = await readComponentPresets(c.env.CACHE);
+  const items = existing.filter((p) => p.name !== name);
+  if (items.length === existing.length) return c.json({ error: "Not Found" }, 404);
+  await c.env.CACHE.put(COMPONENT_PRESETS_KV_KEY, JSON.stringify(items));
+  return c.json({ ok: true, items });
 }
