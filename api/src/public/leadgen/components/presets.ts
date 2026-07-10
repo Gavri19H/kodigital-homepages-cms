@@ -686,6 +686,13 @@ function renderCardGrid(
   // re-pointed) role; legacy `#hex` renders as-is.
   const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
   const ic = iconCardDepthSlots(design);
+  // A6 (05 §5.5): `image_fit` is a COMPONENT prop on the image grid — the
+  // canonical authoring surface (content-schema optional enum + the studio
+  // Design-tab control). Resolved once for the whole grid; the per-choice
+  // defensive read below stays as the legacy FALLBACK only (§8.4's per-choice
+  // list omits image_fit).
+  const nodeFitRaw = propStr(node, "image_fit");
+  const nodeFit = nodeFitRaw === "cover" || nodeFitRaw === "contain" ? nodeFitRaw : undefined;
   const card = (c: LeadgenChoice): string => {
     // v2.5 08 §8.4 choice depth — every new field is ADDITIVE: a choice
     // carrying none of them renders byte-identically to the v2.4 markup
@@ -696,12 +703,15 @@ function renderCardGrid(
     const iconSlot = (glyph: string | undefined): string =>
       `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(glyph)}</span>`;
     const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
-    // §8.4 image fit (cover|contain — the 05 §5.2 F6 inspector control). Read
-    // DEFENSIVELY off the raw choice (the readChoiceDisplay idiom): the typed
-    // LeadgenChoice field lands with the authoring/schema leg. A curated enum,
-    // not author CSS; absent → today's attribute-free <img> byte-identically.
+    // §8.4/A6 image fit (cover|contain — the 05 §5.5 grid control): the
+    // COMPONENT prop (nodeFit above) is canonical; a legacy PER-CHOICE
+    // image_fit read DEFENSIVELY off the raw choice (the readChoiceDisplay
+    // idiom) applies only when no component prop is authored. A curated enum,
+    // not author CSS; both absent → today's attribute-free <img>
+    // byte-identically.
     const fitRaw = (c as unknown as Record<string, unknown>)["image_fit"];
-    const fit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
+    const choiceFit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
+    const fit = nodeFit ?? choiceFit;
     const media =
       kind === "image"
         ? !hasImage && emoji !== undefined

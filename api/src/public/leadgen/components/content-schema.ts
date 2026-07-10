@@ -457,6 +457,13 @@ export const LEADGEN_PANEL_RADII = ["sm", "md", "lg", "xl"] as const;
 export const LEADGEN_PANEL_PADDINGS = ["s", "m", "l"] as const;
 export const LEADGEN_BG_PANEL_BACKGROUNDS = ["card", "wash", "ghost", "page", "primary"] as const;
 export const LEADGEN_BG_PANEL_GRADIENTS = ["primary", "accent", "wash"] as const;
+// v2.5 05 §5.5 (A6 placement decision): `image_fit` is a COMPONENT prop on
+// ImageCardAnswerGrid (§5.5 lists it among the grid's editor controls; the
+// §8.4 per-choice list omits it). Optional; curated enum, never author CSS.
+// The preset renderer treats a legacy PER-CHOICE `image_fit` as a defensive
+// fallback only (presets.ts renderCardGrid).
+export const LEADGEN_IMAGE_FIT_MODES = ["cover", "contain"] as const;
+export type LeadgenImageFitMode = (typeof LEADGEN_IMAGE_FIT_MODES)[number];
 
 const GAP_SET: ReadonlySet<string> = new Set(LEADGEN_GAP_TOKENS);
 
@@ -485,10 +492,18 @@ type ContainerPropSpec = EnumPropSpec | IntPropSpec | StringPropSpec | BooleanPr
 const enumSpec = (values: readonly string[]): EnumPropSpec => ({ kind: "enum", values });
 const intSpec = (min: number, max: number): IntPropSpec => ({ kind: "int", min, max });
 
-// The per-type §8.5 prop tables (containers + the 3 layout leaves). cta /
-// trustMessages / links have structured shapes checked by dedicated logic in
-// validateContainerProps (not expressible as a scalar spec).
+// The per-type §8.5 prop tables (containers + the 3 layout leaves) PLUS the
+// A6 ImageCardAnswerGrid `image_fit` component prop (05 §5.5) — the
+// non-container walk applies the same optional-prop enum validation for any
+// type listed here. cta / trustMessages / links have structured shapes
+// checked by dedicated logic in validateContainerProps (not expressible as a
+// scalar spec).
 const CONTAINER_PROP_SPECS: Record<string, Record<string, ContainerPropSpec>> = {
+  // A6 (05 §5.5): optional image fit on the image answer grid — a curated
+  // enum resolved by the preset (`object-fit`), absent ⇒ today's markup.
+  ImageCardAnswerGrid: {
+    image_fit: enumSpec(LEADGEN_IMAGE_FIT_MODES),
+  },
   Stack: {
     direction: enumSpec(LEADGEN_STACK_DIRECTIONS),
     gap: enumSpec(LEADGEN_GAP_TOKENS),
@@ -928,8 +943,9 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       );
     }
 
-    // §8.5 layout LEAVES (Spacer / HeaderBar / FooterBar): their structured
-    // props are token-enum validated exactly like container props.
+    // §8.5 layout LEAVES (Spacer / HeaderBar / FooterBar) + the A6
+    // ImageCardAnswerGrid `image_fit` component prop (05 §5.5): their typed
+    // scalar props are enum-validated exactly like container props.
     if (Object.prototype.hasOwnProperty.call(CONTAINER_PROP_SPECS, type)) {
       validateContainerProps(type, props, base, push);
     }

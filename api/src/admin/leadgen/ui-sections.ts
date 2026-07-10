@@ -32,6 +32,7 @@ import {
   SECTION_STUDIO_SCRIPT,
   SECTION_STUDIO_STYLES,
   renderSectionStudio,
+  seededNewSectionContent,
   type StudioMappingSummary as MappingSummary,
   type StudioSectionView,
 } from "./ui-section-studio";
@@ -283,7 +284,7 @@ export async function leadgenSectionsListPage(c: UiContext): Promise<Response> {
   const paging: Paging = listed.ok ? listed.body.paging : EMPTY_PAGING;
   const rows =
     items.length === 0
-      ? `<tr><td colspan="${SECTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No sections yet.</p><p class="form-help">Create a Section to build a quote slide.</p></div></td></tr>`
+      ? `<tr><td colspan="${SECTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No sections yet.</p><p class="form-help">Create a Section to build a reusable question unit.</p></div></td></tr>`
       : items.map(renderSectionListRow).join("");
 
   const headerCells = SECTION_LIST_COLUMNS.map((col) => {
@@ -339,8 +340,16 @@ const EMPTY_SUMMARY: MappingSummary = { publishable: true, status: "ok", require
 // D2 (§8.7): `selected_offers` rides along — the island's save body persists
 // the SELECTED set explicitly (a selected-but-unmapped Offer survives a
 // studio save; the save path's parseAnswerMaps already consumed it).
+// v2.5 §5.2: a NEW Section (null) seeds the BOUND QuestionHeadline +
+// Subheadline pair — the blob and the SSR view use the SAME seed so the
+// island model matches the served canvas.
 function sectionDataBlob(section: SectionDetail | null): string {
-  const contentJson = section !== null && section.content_json !== null ? section.content_json : { components: [] };
+  const contentJson =
+    section === null
+      ? seededNewSectionContent()
+      : section.content_json !== null
+        ? section.content_json
+        : { components: [] };
   const data = {
     public_id: section?.public_id ?? null,
     content: contentJson,
@@ -355,12 +364,15 @@ function sectionDataBlob(section: SectionDetail | null): string {
 // Project the API SectionDetail into the studio's view model. The parsed
 // content_json (already an object from the API) is coerced defensively — a
 // corrupt/absent body renders the empty studio rather than crashing SSR.
+// v2.5 §5.2: NEW Sections seed the bound headline/subheadline nodes.
 function toStudioView(section: SectionDetail | null): StudioSectionView {
   const rawContent = section?.content_json;
   const components =
-    typeof rawContent === "object" && rawContent !== null && Array.isArray((rawContent as { components?: unknown }).components)
-      ? ((rawContent as { components: unknown[] }).components as StudioSectionView["content"]["components"])
-      : [];
+    section === null
+      ? seededNewSectionContent().components
+      : typeof rawContent === "object" && rawContent !== null && Array.isArray((rawContent as { components?: unknown }).components)
+        ? ((rawContent as { components: unknown[] }).components as StudioSectionView["content"]["components"])
+        : [];
   return {
     public_id: section?.public_id ?? null,
     section_name: section?.section_name ?? "",

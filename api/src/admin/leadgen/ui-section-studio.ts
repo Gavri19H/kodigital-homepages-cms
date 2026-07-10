@@ -21,6 +21,24 @@
 // would-fire events arrive by postMessage). §8.8 Maps field-level UI stays a
 // later slice.
 //
+// v2.5 redesign, Section Studio WAVE 1 of 2 (contract-v2.5 05/07/08/02):
+// §5.1 Question strip (canonical headline/subheadline editors + Continue
+// behavior + frame note + hidden-in-unit chips), §5.2 headline binding UX
+// (bound-node seeding for NEW Sections, strip⇄canvas⇄inspector ONE store,
+// palette bound inserts + disable tooltip, legacy link banner — both cases,
+// delete→chip→[Show] re-insert), §5.4 unit-only canvas scope (Frame hint
+// skeleton toggle + the amber page-frame badge with a DISABLED/pending Move
+// affordance), §8.3 intent-first palette groups + Quote-Builder callout + C7
+// trust scope note, §7.1–§7.4 scope-aware inspector (scope header + pills +
+// aria-live retarget, DYNAMIC per-selection tabs, operator-word relabeling,
+// consequence-inline rename copy, Advanced-only ids/bind marker + the §7.5
+// console-only section_advanced_opened event), A5 image_alt sample fixes and
+// the A6 image_fit component prop (Design-tab control).
+// WAVE 2 (same file, follows this one) owns: the badge's real "Move to Quote
+// frame" action (frame_config_json write + funnel picker), Choices/Design
+// depth panels (per-choice picker cells, resolved inherited values), and the
+// §6 canvas-toolbar contract. Search for "wave 2" / "wave-2" markers.
+//
 // House rules carried over from ui-question-builder: ONE strict-ES5 inline
 // island (no arrow/const/let/async/await/backtick — the layout.ts constraint,
 // asserted by the ES5 parse test); bootstrap data rides
@@ -79,11 +97,23 @@ interface StudioGroup {
   types: readonly ComponentType[];
 }
 
-// Every catalog type appears in EXACTLY ONE group (lockstep-guarded by the
-// studio test). HeaderLogo and DisclosureLink are not named in the §8.3 lists;
-// they stay placeable under Layout / Trust & affordance respectively.
+// v2.5 08 §8.3: the six intent-first Section palette groups. The palette
+// carries ONLY `unit`/`both` scope types (§8.2 D5) — every `frame` scope type
+// (ProgressBar, StepIndicator, HeaderLogo, BackButton, DisclosureLink,
+// HeaderBar, FooterBar, BackgroundPanel) is REMOVED from the palette; the
+// dismissible callout in renderStudioLibrary points to the Quote Builder for
+// them. Lockstep-guarded by the studio test: groups = the catalog's
+// unit ∪ both set exactly once; frame types placed ZERO times. Legacy
+// frame-scope nodes already stored in content keep rendering on the canvas
+// (with the §5.4 amber badge, island-side).
+//
+// C6 note (07 §7.4 / 02 §2.4): the §8.3 table names the last group "Slide
+// navigation", but "slide" is FORBIDDEN vocabulary inside the Section Builder
+// (C6 — Quote-Builder-only term); the C6 lint leg scans every emitted studio
+// string. The group renders as "Navigation" here — deviation documented in
+// the slice report.
 export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
-  { key: "questions", label: "Questions", types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText"] },
+  { key: "question-copy", label: "Question copy", types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText"] },
   {
     key: "choices",
     label: "Answer choices",
@@ -118,66 +148,74 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
   },
   {
     key: "layout",
-    label: "Layout",
-    types: ["CardPanel", "Stack", "GridContainer", "Columns", "Spacer", "HeaderBar", "FooterBar", "BackgroundPanel", "HeaderLogo"],
+    label: "Inside-card layout",
+    types: ["CardPanel", "Stack", "GridContainer", "Columns", "Spacer"],
   },
   {
     key: "trust",
-    label: "Trust & affordance",
-    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState", "DisclosureLink"],
+    label: "Trust & help — inside this question unit",
+    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState"],
   },
   {
     key: "navigation",
     label: "Navigation",
-    types: ["ContinueButton", "AutoAdvanceButton", "BackButton", "ProgressBar", "StepIndicator"],
+    types: ["ContinueButton", "AutoAdvanceButton"],
   },
 ];
 
-// §8.3 plain name + one-line description per placeable type.
+// §8.3 C7 scope note under the Trust & help group (verbatim).
+export const STUDIO_TRUST_SCOPE_NOTE =
+  "These travel with this Section, inside the question unit. Funnel-wide trust strips, logo rows and the legal footer are configured in the Quote Builder.";
+
+// §8.3 plain name + one-line "use when" description per type. Display names
+// and quoted descriptions follow the 08 §8.3 table VERBATIM where given;
+// frame-scope types keep operator labels (they are no longer placeable, but
+// legacy nodes still need operator words for the scope header / breadcrumb /
+// badge). C6: no "slide" anywhere on this surface.
 const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: string }> = {
   ProgressBar: { label: "Progress bar", description: "Step or percent progress across the funnel." },
   HeaderLogo: { label: "Header logo", description: "Brand logo slot for the funnel header." },
-  BackButton: { label: "Back / Previous", description: "Returns the visitor to the previous slide." },
+  BackButton: { label: "Back / Previous", description: "Returns the visitor to the previous question." },
   DisclosureLink: { label: "Disclosure link", description: "Expandable legal / advertiser disclosure." },
   StepIndicator: { label: "Step indicator", description: "Multi-step dot indicator with current step." },
   CategoryLabel: { label: "Category label", description: "Uppercase kicker above the question headline." },
-  QuestionHeadline: { label: "Question headline", description: "The main question copy of the slide." },
+  QuestionHeadline: { label: "Question headline", description: "The main question copy of this Section." },
   Subheadline: { label: "Subheadline", description: "Supporting copy under the headline." },
   HelperText: { label: "Helper text", description: "Small reassurance / hint line near a field." },
-  RangeQuestion: { label: "Range slider", description: "Numeric slider between min and max." },
-  CurrencyRangeQuestion: { label: "Currency range", description: "Currency-formatted slider (loan amounts)." },
-  NumberRangeQuestion: { label: "Number range", description: "Plain numeric slider variant." },
-  ButtonAnswerGroup: { label: "Button answer group", description: "One-tap answer buttons, one choice stored." },
-  TwoButtonYesNo: { label: "Two-button yes/no", description: "Yes / No pair storing a boolean answer." },
-  IconCardAnswerGrid: { label: "Icon card grid", description: "Icon cards in a responsive answer grid." },
-  ImageCardAnswerGrid: { label: "Image card grid", description: "Image cards (brand/carrier pickers)." },
-  MultiChoiceCardGroup: { label: "Multi-choice card group", description: "Select several cards (min/max bounded)." },
+  RangeQuestion: { label: "Slider", description: "Numeric slider between min and max." },
+  CurrencyRangeQuestion: { label: "Amount slider", description: "Currency-formatted slider (loan amounts)." },
+  NumberRangeQuestion: { label: "Slider", description: "Plain numeric slider variant." },
+  ButtonAnswerGroup: { label: "Simple answer buttons", description: "One-tap answer choices." },
+  TwoButtonYesNo: { label: "Yes / No", description: "Yes / No pair storing a boolean answer." },
+  IconCardAnswerGrid: { label: "Icon answer cards", description: "Use when each answer has an icon." },
+  ImageCardAnswerGrid: { label: "Image answer cards", description: "Use when each answer has a logo or photo." },
+  MultiChoiceCardGroup: { label: "Multi-select cards", description: "Select several cards (min/max bounded)." },
   DropdownQuestion: { label: "Dropdown", description: "Single-select dropdown of choices." },
   SearchableDropdownQuestion: { label: "Searchable dropdown", description: "Dropdown with a client-side search box." },
-  OtherGroupSelector: { label: "Other-group selector", description: "Main choices as buttons plus an Other panel." },
-  FreeTextQuestion: { label: "Free text", description: "Single-line free text input." },
-  NumberInputQuestion: { label: "Number input", description: "Plain numeric input (not a slider)." },
-  CurrencyInputQuestion: { label: "Currency input", description: "Currency-prefixed plain input." },
+  OtherGroupSelector: { label: "Main + “Other” choices", description: "Main choices as buttons plus an Other panel." },
+  FreeTextQuestion: { label: "Text", description: "Single-line free text input." },
+  NumberInputQuestion: { label: "Number", description: "Plain numeric input (not a slider)." },
+  CurrencyInputQuestion: { label: "Amount ($)", description: "Currency-prefixed plain input." },
   EmailInputQuestion: { label: "Email", description: "Email input with format validation." },
   PhoneInputQuestion: { label: "Phone", description: "Phone input with format validation." },
-  NameFieldsGroup: { label: "Name fields", description: "First + last name field pair." },
-  DateQuestion: { label: "Date input", description: "Date input with an allowed range." },
+  NameFieldsGroup: { label: "Name", description: "First + last name field pair." },
+  DateQuestion: { label: "Date", description: "Date input with an allowed range." },
   ZIPInputQuestion: { label: "ZIP", description: "5-digit ZIP input (Maps validation optional)." },
-  AddressAutocompleteQuestion: { label: "Address autocomplete", description: "Street address with Places autocomplete." },
-  ContinueButton: { label: "Continue button", description: "Validates the slide, then continues." },
+  AddressAutocompleteQuestion: { label: "Address", description: "Street address with Places autocomplete." },
+  ContinueButton: { label: "Continue button", description: "Validates the question unit, then continues." },
   AutoAdvanceButton: { label: "Auto-advance", description: "Advances immediately on answer click." },
-  ReassuranceBadge: { label: "Reassurance badge", description: "Icon + copy trust line under the answers." },
+  ReassuranceBadge: { label: "Reassurance badge", description: "Reassurance line inside this question unit." },
   SuccessState: { label: "Success state", description: "Completion panel with heading + message." },
-  SecureFormBadge: { label: "Secure form badge", description: "Lock badge naming the form security." },
-  TrustBar: { label: "Trust bar", description: "Icon/text trust pairs, horizontal or stacked." },
-  LogoStrip: { label: "Logo strip", description: "Carrier / partner logo row." },
-  ValidationError: { label: "Validation error", description: "Inline error slot for a field." },
+  SecureFormBadge: { label: "Secure-form badge", description: "Lock badge naming the form security." },
+  TrustBar: { label: "Trust points", description: "Icon/text trust pairs, horizontal or stacked." },
+  LogoStrip: { label: "Logo row", description: "Carrier / partner logo row." },
+  ValidationError: { label: "Error message slot", description: "Inline error slot for a field." },
   LegalNote: { label: "Legal note", description: "Small-print legal copy block." },
   Stack: { label: "Stack", description: "Vertical/horizontal token-gap grouping." },
-  GridContainer: { label: "Grid", description: "Per-breakpoint column grid container." },
-  Columns: { label: "Columns", description: "Two-column ratio preset with mobile stacking." },
-  CardPanel: { label: "Card panel", description: "The centered question card container." },
-  BackgroundPanel: { label: "Background panel", description: "Full-background section with token fill." },
+  GridContainer: { label: "Answer grid", description: "Per-breakpoint column grid container." },
+  Columns: { label: "Two columns", description: "Two-column ratio preset with mobile stacking." },
+  CardPanel: { label: "Question card", description: "The centered question card container." },
+  BackgroundPanel: { label: "Background panel", description: "Full-background panel with token fill." },
   Spacer: { label: "Spacer", description: "Token-sized vertical gap." },
   HeaderBar: { label: "Header bar", description: "Header slot: logo, back, secure, call CTA." },
   FooterBar: { label: "Footer bar", description: "Footer slot: legal, trust messages, links." },
@@ -194,7 +232,10 @@ const SAMPLE_CHOICES = [
   { label: "Not yet", value: "no", analytics_id: "smp_no" },
 ];
 const SAMPLE_ICON_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, icon: "★" }));
-const SAMPLE_IMAGE_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, imageMediaId: "media_sample" }));
+// A5: image-card sample choices ALWAYS carry image_alt next to imageMediaId —
+// §8.4 makes image_alt REQUIRED when imageMediaId is present on an
+// ImageCardAnswerGrid choice, so alt-less samples would fail save validation.
+const SAMPLE_IMAGE_CHOICES = SAMPLE_CHOICES.map((c) => ({ ...c, imageMediaId: "media_sample", image_alt: c.label }));
 
 export const STUDIO_SAMPLE_NODES: Record<ComponentType, LeadgenComponentNode> = {
   ProgressBar: { type: "ProgressBar", question_id: "smp", props: { mode: "percent", percent: 60 } },
@@ -433,6 +474,9 @@ export interface StudioTypeMetaBlob {
   // the §8.5 containers/leaves plus the structured-prop affordance/chrome
   // leaves (TrustBar/LogoStrip/StepIndicator). Drives island tab visibility.
   layout_props: boolean;
+  // v2.5 08 §8.2 scope (frame|unit|both) — drives the §5.4 amber page-frame
+  // badge on legacy canvas nodes + the frame-node inspector tab gating.
+  scope: "frame" | "unit" | "both";
   produces: string | null;
   choice: boolean;
   maps: "address" | "zip" | null;
@@ -457,6 +501,7 @@ export function studioTypeMeta(): Record<string, StudioTypeMetaBlob> {
       container: isLayoutContainerType(type),
       layout: COMPONENT_CATALOG[type].category === "layout",
       layout_props: STRUCTURED_PROP_TYPES.has(type),
+      scope: COMPONENT_CATALOG[type].scope,
       produces: COMPONENT_CATALOG[type].produces,
       choice: spec.choices === true,
       maps: type === "AddressAutocompleteQuestion" ? "address" : type === "ZIPInputQuestion" ? "zip" : null,
@@ -503,6 +548,20 @@ export interface StudioSectionView {
   continue_mode: string;
   address_validation_enabled: boolean;
   content: LeadgenSectionContent;
+}
+
+// §5.2 (D1/F1): NEW Sections seed content_json with a BOUND QuestionHeadline
+// + a BOUND Subheadline as nodes 1–2 — the strip inputs and these canvas
+// nodes are ONE store (headline_text / subheadline_text), two views. Consumed
+// by ui-sections.ts for BOTH the /new SSR view and the #lg-section-data blob
+// (so the island model matches the server render byte-for-byte).
+export function seededNewSectionContent(): LeadgenSectionContent {
+  return {
+    components: [
+      { type: "QuestionHeadline", question_id: "q_bound_headline", bind: "section_headline" },
+      { type: "Subheadline", question_id: "q_bound_subheadline", bind: "section_subheadline" },
+    ],
+  };
 }
 
 // Structural twin of ui-question-builder's MappingSummary (kept local so the
@@ -568,26 +627,38 @@ export function renderStudioTopBar(
 </div>`;
 }
 
-// The scalar fields the save path needs beyond the top bar (§12.5 continue
-// mode, §12.8/§30.2 Maps toggle, headline/subheadline columns). Same element
-// ids as the old editor so collectSection + the dirty watcher are unchanged.
+// §5.1 the "Question" strip (AMENDS v2.4 §8.1 settings form): the CANONICAL
+// editors for headline_text / subheadline_text, the Continue-behavior radio
+// (values unchanged: button/auto_advance) with the frame note, and the legacy
+// global Maps checkbox row (compat — per-field config wins, unchanged). Same
+// element ids as before so collectSection + the dirty watcher carry over.
+// Each canonical input carries its §5.2 "Hidden in this question unit ·
+// [Show]" chip (SSR'd hidden; the island shows it when the bound canvas node
+// for that bind is deleted; [Show] re-inserts the bound node at the top).
+// The strip never duplicates canvas content — the bound nodes and these
+// inputs are ONE store, two views (§5.2).
 export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured: boolean): string {
   const mapsKeyNote = mapsKeyConfigured
     ? `<span class="lg-maps-note" data-maps-key="configured">Maps key configured (operator-owned browser key) — autofill available.</span>`
     : `<span class="lg-maps-note" data-maps-key="absent">Maps key not configured — autofill disabled (§30.2 no-op).</span>`;
-  return `<form id="lg-section-form" class="studio-settings" data-studio-settings novalidate>
+  const hiddenChip = (bind: "section_headline" | "section_subheadline"): string =>
+    `<span class="studio-hidden-chip" data-bound-chip="${bind}" hidden>Hidden in this question unit &#183; <button type="button" class="studio-hidden-show" data-bound-show="${bind}">Show</button></span>`;
+  return `<form id="lg-section-form" class="studio-settings" data-studio-settings data-studio-question-strip novalidate>
   <div class="form-group">
-    <label class="form-label" for="lg-section-headline">Headline (the question) *</label>
+    <label class="form-label" for="lg-section-headline">Question headline *</label>
     <input id="lg-section-headline" name="headline_text" class="form-input" required aria-required="true" value="${escapeHtml(view.headline_text)}" />
+    ${hiddenChip("section_headline")}
   </div>
   <div class="form-group">
     <label class="form-label" for="lg-section-subheadline">Subheadline</label>
     <input id="lg-section-subheadline" name="subheadline_text" class="form-input" value="${escapeHtml(view.subheadline_text ?? "")}" />
+    ${hiddenChip("section_subheadline")}
   </div>
   <fieldset class="form-group">
-    <legend class="form-label">Continue mode (§12.5)</legend>
-    <label class="lg-check"><input type="radio" name="continue_mode" value="button"${view.continue_mode === "button" ? " checked" : ""} /> Button (validate, then Continue)</label>
-    <label class="lg-check"><input type="radio" name="continue_mode" value="auto_advance"${view.continue_mode === "auto_advance" ? " checked" : ""} /> Auto-advance (navigate on click)</label>
+    <legend class="form-label">Continue behavior</legend>
+    <label class="lg-check"><input type="radio" name="continue_mode" value="button"${view.continue_mode === "button" ? " checked" : ""} /> Visitor taps Continue (validates first)</label>
+    <label class="lg-check"><input type="radio" name="continue_mode" value="auto_advance"${view.continue_mode === "auto_advance" ? " checked" : ""} /> Advance automatically on answer</label>
+    <span class="form-help" data-continue-frame-note>The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.</span>
   </fieldset>
   <div class="form-group">
     <label class="lg-check"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${view.address_validation_enabled ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
@@ -595,14 +666,45 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
     <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key &#8658; the validation leg no-ops.</span>
     ${mapsKeyNote}
   </div>
-</form>`;
+</form>
+<div class="studio-bind-banner" data-bind-banner hidden role="status" aria-live="polite"></div>`;
 }
 
 // ---------------------------------------------------------------------------
 // §8.3 component library (left rail)
 // ---------------------------------------------------------------------------
 
-function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
+// §5.2: the two bindable palette items insert BOUND nodes; while a bound node
+// for their bind value exists they are disabled with the exact tooltip. The
+// island keeps this live (updatePaletteBindItems); SSR stamps the initial
+// state so the served page is already correct.
+const PALETTE_BIND_OF_TYPE: Partial<Record<ComponentType, "section_headline" | "section_subheadline">> = {
+  QuestionHeadline: "section_headline",
+  Subheadline: "section_subheadline",
+};
+
+function paletteBindTooltip(bind: "section_headline" | "section_subheadline"): string {
+  return bind === "section_subheadline"
+    ? "This Section already shows its subheadline"
+    : "This Section already shows its headline";
+}
+
+function collectExistingBinds(content: LeadgenSectionContent): ReadonlySet<string> {
+  const binds = new Set<string>();
+  const walk = (nodes: unknown, depth: number): void => {
+    if (!Array.isArray(nodes) || depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return;
+    for (const raw of nodes) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const node = raw as { bind?: unknown; children?: unknown };
+      if (typeof node.bind === "string") binds.add(node.bind);
+      walk(node.children, depth + 1);
+    }
+  };
+  walk(content.components, 1);
+  return binds;
+}
+
+function renderLibraryItem(type: ComponentType, design: FunnelDesign, existingBinds: ReadonlySet<string>): string {
   const meta = STUDIO_TYPE_META[type];
   const produces = COMPONENT_CATALOG[type].produces;
   // The thumbnail IS the component's own preset render with sample props,
@@ -619,7 +721,13 @@ function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
   const thumbHtml = renderComponent(STUDIO_SAMPLE_NODES[type], design);
   const answerType = produces === null ? "" : `<span class="studio-item-type">${escapeHtml(String(produces))}</span>`;
   const mapsBadge = produces === null ? "" : `<span class="studio-item-maps" data-maps-badge>maps to Offer fields</span>`;
-  return `<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(type)}" data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}" aria-label="Add ${escapeHtml(meta.label)}">
+  const bind = PALETTE_BIND_OF_TYPE[type];
+  const bindDisabled = bind !== undefined && existingBinds.has(bind);
+  const bindAttrs =
+    bind === undefined
+      ? ""
+      : ` data-bind-item="${bind}" data-bind-disabled="${bindDisabled ? "true" : "false"}" aria-disabled="${bindDisabled ? "true" : "false"}"${bindDisabled ? ` title="${escapeHtml(paletteBindTooltip(bind))}"` : ""}`;
+  return `<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(type)}"${bindAttrs} data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}" aria-label="Add ${escapeHtml(meta.label)}">
   <span class="studio-thumb" aria-hidden="true"><span class="studio-thumb-scale" data-funnel-design="${escapeHtml(design.id)}">${thumbHtml}</span></span>
   <span class="studio-item-body">
     <span class="studio-item-name">${escapeHtml(meta.label)}</span>
@@ -629,13 +737,32 @@ function renderLibraryItem(type: ComponentType, design: FunnelDesign): string {
 </div>`;
 }
 
-export function renderStudioLibrary(design: FunnelDesign): string {
+// §8.3: the dismissible callout that replaced the old Layout group's frame
+// items — page chrome lives in the Quote Builder. Dismissal persists in
+// localStorage (island); [Open] deep-links the Quotes tab.
+function renderFrameCallout(): string {
+  return `<div class="studio-frame-callout" data-studio-frame-callout role="note">
+  <span class="studio-frame-callout-copy">Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong> &#8594; <a href="/admin/leadgen/quotes" class="studio-frame-callout-open" data-studio-callout-open>Open</a></span>
+  <button type="button" class="studio-frame-callout-dismiss" data-studio-callout-dismiss aria-label="Dismiss">&#215;</button>
+</div>`;
+}
+
+export function renderStudioLibrary(design: FunnelDesign, content: LeadgenSectionContent): string {
+  const existingBinds = collectExistingBinds(content);
   const groups = STUDIO_LIBRARY_GROUPS.map((group) => {
-    const items = group.types.map((t) => renderLibraryItem(t, design)).join("");
+    const items = group.types.map((t) => renderLibraryItem(t, design, existingBinds)).join("");
+    // C7 (§8.3): the Trust & help group carries the scope note verbatim.
+    const scopeNote =
+      group.key === "trust"
+        ? `<p class="studio-scope-note" data-trust-scope-note>${escapeHtml(STUDIO_TRUST_SCOPE_NOTE)}</p>`
+        : "";
+    // The callout replaces the old Layout group's frame items — rendered at
+    // the old group's position (after the inside-unit layout group).
+    const callout = group.key === "layout" ? renderFrameCallout() : "";
     return `<div class="studio-library-group" data-library-group="${escapeHtml(group.key)}">
   <h4 class="studio-library-heading">${escapeHtml(group.label)}</h4>
-  <div class="studio-library-items">${items}</div>
-</div>`;
+  ${scopeNote}<div class="studio-library-items">${items}</div>
+</div>${callout}`;
   }).join("");
   return `<div class="studio-library" data-studio-library aria-label="Component library">
   <input type="search" class="form-input studio-library-search" data-studio-library-search placeholder="Search components…" aria-label="Search components" />
@@ -650,11 +777,21 @@ export function renderStudioLibrary(design: FunnelDesign): string {
 // The same wrapper construction the preview endpoint emits (parity by
 // construction): scoped chrome CSS + the desktop preview wrapper. The island
 // re-renders this region from POST /sections/preview on every mutation.
-export function studioCanvasDocument(content: LeadgenSectionContent, design: FunnelDesign): string {
+// §5.2: the OPTIONAL sectionCtx resolves BOUND QuestionHeadline/Subheadline
+// nodes to the Section's canonical columns (strip↔canvas one store) — the
+// island's re-render sends the live strip values the same way (body.headline/
+// body.subheadline → the preview handler's sectionCtx). continue_mode is NOT
+// threaded here on purpose: the Build canvas keeps every authored control
+// visible/selectable; the Preview drawer owns the §11.5 composition.
+export function studioCanvasDocument(
+  content: LeadgenSectionContent,
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
   const nodes = (Array.isArray(content.components) ? content.components : []).filter(
     (n): n is LeadgenComponentNode => typeof n === "object" && n !== null && typeof (n as { type?: unknown }).type === "string",
   );
-  const rendered = renderSectionComponents(nodes, design);
+  const rendered = renderSectionComponents(nodes, design, ctx);
   const css = funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`);
   return (
     `<style>${css}</style>` +
@@ -662,11 +799,27 @@ export function studioCanvasDocument(content: LeadgenSectionContent, design: Fun
   );
 }
 
-export function renderStudioCanvas(content: LeadgenSectionContent, design: FunnelDesign): string {
+// §5.4 "Frame hint": a dimmed, NON-interactive, GENERIC frame skeleton around
+// the unit for spatial context — presentation-only, never editable here (the
+// real frame is Quote-Builder-owned). Toggled by [data-studio-frame-hint].
+function renderFrameHintSkeleton(edge: "top" | "bottom"): string {
+  const inner =
+    edge === "top"
+      ? `<div class="studio-skel-header"><span class="studio-skel-logo"></span><span class="studio-skel-bar"></span></div><div class="studio-skel-progress"></div>`
+      : `<div class="studio-skel-footer"><span class="studio-skel-bar"></span><span class="studio-skel-bar studio-skel-bar-short"></span></div>`;
+  return `<div class="studio-frame-skeleton" data-studio-frame-skeleton="${edge}" hidden aria-hidden="true">${inner}</div>`;
+}
+
+export function renderStudioCanvas(
+  content: LeadgenSectionContent,
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
   const empty = !Array.isArray(content.components) || content.components.length === 0;
   return `<div class="studio-canvas" data-studio-canvas>
   <div class="studio-canvas-head">
     <h3 class="card-title">Canvas</h3>
+    <button type="button" class="btn btn-sm btn-outline" data-studio-frame-hint aria-pressed="false" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder">Frame hint</button>
     <div class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite"></div>
   </div>
   <div class="studio-toolbar" data-studio-selection-toolbar hidden>
@@ -682,7 +835,9 @@ export function renderStudioCanvas(content: LeadgenSectionContent, design: Funne
   <p class="studio-pending-note" data-studio-pending-note hidden role="status" aria-live="polite"></p>
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
   <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder">
-    <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design)}</div>
+    ${renderFrameHintSkeleton("top")}
+    <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div>
+    ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
   </div>
 </div>`;
@@ -768,16 +923,33 @@ function renderDesignPanel(design: FunnelDesign): string {
       const opts = (tokenOptions[key] ?? [])
         .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(`${o.label} (${o.value})`)}</option>`)
         .join("");
+      // §7.4: the no-override state reads as an inherited value ("Inherited
+      // (design default)") — re-picking it IS the "Reset to inherited"
+      // affordance (§9.4). Full per-key resolved-value display = wave-2
+      // Design depth.
       return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(TOKEN_CONTROL_LABELS[key])}</label>
-  <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">inherit</option>${opts}</select>
+  <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${opts}</select>
 </div>`;
     })
     .join("");
+  // A6 (05 §5.5): image fit is a COMPONENT prop on ImageCardAnswerGrid — a
+  // Design-tab control (it is presentation, §7.3 "Design | any visual
+  // selection"), island-gated to the image grid only. Writes props.image_fit
+  // through the standard data-inspector-field collect path.
+  const imageFit = `<div class="form-group lg-inspector-field" data-image-fit-wrap hidden>
+  <label class="form-label" for="lg-inspector-image-fit">Image fit (how card photos fill their box)</label>
+  <select id="lg-inspector-image-fit" class="form-input" data-inspector-field="image_fit">
+    <option value="">Default (browser fit)</option>
+    <option value="cover">Cover — fill the card, may crop</option>
+    <option value="contain">Contain — show the whole image</option>
+  </select>
+</div>`;
   return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="lg-inspector-preset">Component style preset</label>
   <input id="lg-inspector-preset" class="form-input" type="text" data-inspector-field="design_preset" placeholder="preset name" />
 </div>
+${imageFit}
 ${selects}`;
 }
 
@@ -943,10 +1115,33 @@ function renderLayoutPanel(): string {
   return groups;
 }
 
+// §7.1 scope header — ALWAYS visible, the inspector's FIRST element (replaces
+// the static "Select a component" head). Operator words only (labels, never
+// type ids); the pills are the §7.2 scope switcher (Funnel frame is disabled
+// here — the frame is Quote-Builder-owned); the Affects line is the honest
+// blast-radius sentence (Section scope cites the live "Used in N quotes"
+// count from GET /sections/:id/usage). A scope change re-renders this region
+// and announces via aria-live (§7.2).
+function renderScopeHeaderShell(): string {
+  return `<div class="studio-scope-header" data-studio-scope-header aria-live="polite">
+  <p class="studio-scope-editing">Editing: <strong data-scope-editing-name>This Section (question unit)</strong></p>
+  <div class="studio-scope-pills" role="group" aria-label="Editing scope">
+    <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
+    <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This Section</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="component" aria-pressed="false" disabled>Component</button>
+    <button type="button" class="studio-scope-pill" data-scope-pill="choice" aria-pressed="false" disabled>Choice</button>
+  </div>
+  <p class="studio-scope-affects" data-scope-affects>Affects: changes apply everywhere this Section is used.</p>
+</div>`;
+}
+
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
 // toggles tab/panel visibility per the selected node's type metadata and
 // populates/collects values (data-inspector-field / data-inspector-override /
 // data-inspector-cond / data-choice-field / data-container-prop hooks).
+// §7.3: the tab STRIP is dynamic per selection (availableTabsFor island-side)
+// — never a fixed strip; §7.4 relabeling keeps every visible string in
+// operator words.
 export function renderStudioInspector(design: FunnelDesign): string {
   const opOptions = options(CONDITION_OP_OPTIONS);
   const patternOptions = options(PATTERN_PRESETS);
@@ -976,10 +1171,15 @@ export function renderStudioInspector(design: FunnelDesign): string {
     .join("");
 
   return `<aside class="studio-inspector" id="lg-studio-inspector" data-studio-inspector aria-label="Component inspector">
-  <div class="lg-inspector-head"><h3 class="card-title">Inspector</h3><span class="form-help" id="lg-inspector-target">Select a component</span></div>
+  ${renderScopeHeaderShell()}
+  <p class="form-help studio-section-scope-note" data-studio-section-scope-note>Edit the question headline, subheadline and Continue behavior in the Question strip above. Select a component on the canvas to edit its content and design.</p>
   <div class="studio-tabs" role="tablist" aria-label="Inspector tabs">${tabButtons}</div>
 
   <div class="studio-panel" data-studio-panel="content" role="tabpanel">
+    <div class="form-group lg-inspector-field" data-bound-content hidden>
+      <label class="form-label" for="lg-bound-shared-text" data-bound-content-label>Question headline (shared with the Section header above)</label>
+      <input id="lg-bound-shared-text" class="form-input" type="text" data-bound-shared-input />
+    </div>
     ${contentInputs}
     <p class="form-help" data-content-empty hidden>This component has no editable copy — see the Layout / Advanced tabs.</p>
   </div>
@@ -1091,6 +1291,10 @@ export function renderStudioInspector(design: FunnelDesign): string {
     <div class="form-group lg-inspector-field">
       <span class="form-label">Debug ids (read-only)</span>
       <code class="studio-debug-id" data-studio-debug-id></code>
+    </div>
+    <div class="form-group lg-inspector-field">
+      <span class="form-label">Bind marker (read-only, §5.2)</span>
+      <code class="studio-debug-id" data-studio-bind-marker></code>
     </div>
     <details class="studio-advanced-json">
       <summary>Raw node JSON (Advanced — the only raw JSON surface, §6.14)</summary>
@@ -1252,8 +1456,8 @@ export function renderSectionStudio(
 ${renderStudioSettings(view, mapsKeyConfigured)}
 ${mapsBanner}
 <div class="lg-editor-grid studio-grid">
-  <div class="card studio-cell-library">${renderStudioLibrary(design)}</div>
-  <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design)}</div>
+  <div class="card studio-cell-library">${renderStudioLibrary(design, view.content)}</div>
+  <div class="card studio-cell-canvas">${renderStudioCanvas(view.content, design, { headline_text: view.headline_text, subheadline_text: view.subheadline_text })}</div>
   <div class="card studio-cell-inspector">${renderStudioInspector(design)}</div>
 </div>
 ${renderStudioDrawer(summary, answerMapCount)}
@@ -1288,6 +1492,13 @@ export const SECTION_STUDIO_STYLES = `
 .studio-library-item:hover{border-color:var(--c-primary)}
 .studio-library-item:focus-visible{outline:2px solid var(--c-primary);outline-offset:2px}
 .studio-library-item[data-search-hidden="true"]{display:none}
+/* §5.2 bound palette items: disabled while their bound node exists */
+.studio-library-item[data-bind-disabled="true"]{opacity:.45;cursor:not-allowed}
+/* §8.3 frame callout + C7 scope note */
+.studio-frame-callout{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;font-size:12px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:8px;padding:8px 10px;margin:0 0 16px}
+.studio-frame-callout-dismiss{border:0;background:none;cursor:pointer;font-size:14px;line-height:1;color:inherit;padding:0 2px}
+.studio-frame-callout-open{font-weight:600}
+.studio-scope-note{font-size:11px;color:var(--c-muted);margin:0 0 6px}
 .studio-thumb{display:block;flex:0 0 84px;height:56px;overflow:hidden;border:1px solid var(--c-border);border-radius:6px;background:#fff;pointer-events:none;position:relative}
 .studio-thumb-scale{display:block;transform:scale(.38);transform-origin:top left;width:264%;pointer-events:none}
 .studio-item-body{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -1310,9 +1521,39 @@ export const SECTION_STUDIO_STYLES = `
 .studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
 .studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
+/* §5.4 frame-hint skeleton: dimmed, generic, NON-interactive (presentation only) */
+.studio-frame-skeleton{opacity:.35;pointer-events:none;user-select:none;margin:0 0 10px}
+.studio-frame-skeleton[data-studio-frame-skeleton="bottom"]{margin:10px 0 0}
+.studio-skel-header{display:flex;align-items:center;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
+.studio-skel-logo{width:28px;height:12px;border-radius:3px;background:var(--c-border);display:inline-block}
+.studio-skel-bar{flex:1;height:8px;border-radius:4px;background:var(--c-border);display:inline-block}
+.studio-skel-bar-short{flex:0 0 30%}
+.studio-skel-progress{height:4px;border-radius:2px;background:var(--c-border);margin-top:6px}
+.studio-skel-footer{display:flex;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
+/* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
+.studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.studio-frame-badge .btn{pointer-events:auto}
+.studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
+/* §5.1 hidden-in-unit chips next to the strip inputs */
+.studio-hidden-chip{display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px}
+.studio-hidden-show{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:11px;padding:0;text-decoration:underline}
+/* §5.2 legacy headline link banner */
+.studio-bind-banner{font-size:12px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:8px;padding:8px 10px;margin:0 0 12px}
+.studio-bind-banner-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 0}
+.studio-bind-banner-value{font-weight:600}
 /* §8.8 linked-field chips + key-missing banner */
 .studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
 .studio-maps-banner{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:6px 10px;margin:0 0 12px}
+/* §7.1 scope header + §7.2 pills */
+.studio-scope-header{border-bottom:1px solid var(--c-border);padding:0 0 8px;margin:0 0 8px;transition:background-color .3s ease}
+.studio-scope-header.studio-scope-flash{background:#fff3cd}
+.studio-scope-editing{font-size:13px;margin:0 0 6px}
+.studio-scope-affects{font-size:11px;color:var(--c-muted);margin:6px 0 0}
+.studio-scope-pills{display:flex;gap:4px;flex-wrap:wrap}
+.studio-scope-pill{font-size:11px;border-radius:999px;padding:2px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
+.studio-scope-pill.active{border-color:var(--c-primary);color:var(--c-primary);font-weight:600}
+.studio-scope-pill[disabled]{opacity:.5;cursor:not-allowed}
+.studio-section-scope-note{margin:0 0 8px}
 /* inspector + drawer */
 .studio-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--c-border);margin-bottom:10px}
 .studio-tab{border:0;background:none;padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;color:var(--c-muted)}
@@ -1419,6 +1660,15 @@ export const SECTION_STUDIO_SCRIPT = `
   var pendingInsert = null;
   var currentInspectorTab = 'content';
   var dirty = false;
+  // §7.1/§7.2 inspector scope: 'section' (no selection) | 'component' |
+  // 'choice' (a choice row focused / the Choice pill). 'frame' is never an
+  // ACTIVE scope in the Section Builder — the frame is Quote-Builder-owned.
+  var scopeState = 'section';
+  // The focused choice's label for the §7.1 choice header copy.
+  var choiceScopeLabel = '';
+  // "Used in N quotes" (§7.1/§2.4) — from GET /sections/:id/usage; null until
+  // loaded (or for a NEW Section).
+  var usageQuoteCount = null;
   var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into'];
   var SELECT_CLASS = 'studio-selected-node';
 
@@ -1431,6 +1681,67 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function typeMeta(type) { return studioMeta.types[type] || {}; }
   function isContainerType(type) { return typeMeta(type).container === true; }
+  // Operator words everywhere (07 §7.4): the label from the served meta blob,
+  // never a raw type id on a normal surface.
+  function typeLabel(type) { return typeMeta(type).label || type; }
+
+  // --- §5.2 canonical headline binding model helpers ---------------------------
+  // ONE store, two views: headline_text/subheadline_text live in the strip
+  // inputs; a BOUND QuestionHeadline/Subheadline canvas node renders that
+  // store (server-side sectionCtx). These helpers are the island's bind core.
+  function bindForType(type) {
+    if (type === 'QuestionHeadline') { return 'section_headline'; }
+    if (type === 'Subheadline') { return 'section_subheadline'; }
+    return null;
+  }
+  function bindNoun(bindValue) { return bindValue === 'section_subheadline' ? 'subheadline' : 'headline'; }
+  function bindNodeType(bindValue) { return bindValue === 'section_subheadline' ? 'Subheadline' : 'QuestionHeadline'; }
+  function stripInputFor(bindValue) {
+    return document.getElementById(bindValue === 'section_subheadline' ? 'lg-section-subheadline' : 'lg-section-headline');
+  }
+  function findBoundNode(bindValue) {
+    var found = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (found === null && n.bind === bindValue) { found = n; }
+    });
+    return found;
+  }
+  // The FIRST (top-most) unbound node of the bind's type — the legacy-banner
+  // link candidate (§5.2: never auto-mutated; the operator clicks).
+  function unboundCandidate(bindValue) {
+    var type = bindNodeType(bindValue);
+    var found = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (found === null && n.type === type && n.bind === undefined) { found = n; }
+    });
+    return found;
+  }
+  // §5.2 "[Show]" chip action: re-insert the bound node AT THE TOP.
+  function insertBoundNodeAtTop(bindValue) {
+    if (findBoundNode(bindValue) !== null) { return null; }
+    var node = { type: bindNodeType(bindValue), question_id: newQuestionId(), bind: bindValue };
+    state.content.components.splice(0, 0, node);
+    afterModelChange();
+    return node;
+  }
+  // §5.2 legacy-banner action: link an unbound node to the canonical column.
+  // winnerText === null keeps the current strip value (byte-equal case);
+  // otherwise the operator-picked text WINS and is written into the strip
+  // store first. The node drops props.text and gains the bind marker — the
+  // model changes NOW (dirty), persistence happens on Save (never on load).
+  function linkBoundNode(qid, bindValue, winnerText) {
+    var ref = findRef(qid);
+    if (!ref || findBoundNode(bindValue) !== null) { return false; }
+    var strip = stripInputFor(bindValue);
+    if (winnerText !== null && strip) { strip.value = winnerText; }
+    ref.node.bind = bindValue;
+    if (ref.node.props) {
+      delete ref.node.props.text;
+      cleanupEmpty(ref.node, 'props');
+    }
+    afterModelChange();
+    return true;
+  }
 
   // --- model tree helpers ----------------------------------------------------
   function walkTree(list, depth, fn) {
@@ -1467,10 +1778,12 @@ export const SECTION_STUDIO_SCRIPT = `
     return ref ? ref.node : null;
   }
   function breadcrumbText(qid) {
+    // §7.4: the breadcrumb is a normal surface — operator labels, never raw
+    // type ids.
     var ref = findRef(qid);
     if (!ref) { return ''; }
     var parts = [], i;
-    for (i = 0; i < ref.trail.length; i++) { parts.push(ref.trail[i].type); }
+    for (i = 0; i < ref.trail.length; i++) { parts.push(typeLabel(ref.trail[i].type)); }
     return parts.join(' \\u203A ');
   }
   function isInSubtree(node, qid) {
@@ -1586,7 +1899,9 @@ export const SECTION_STUDIO_SCRIPT = `
   function sampleChoice(req, n) {
     var c = { label: 'Option ' + n, value: 'option_' + n, analytics_id: 'option_' + n };
     if (req.choice_icon) { c.icon = '\\u2605'; }
-    if (req.choice_image) { c.imageMediaId = 'media_option_' + n; }
+    // A5: image_alt ALWAYS rides imageMediaId — §8.4 requires it on an
+    // ImageCardAnswerGrid choice, so an alt-less sample would fail save.
+    if (req.choice_image) { c.imageMediaId = 'media_option_' + n; c.image_alt = c.label; }
     return c;
   }
   function defaultTextFor(type, key) {
@@ -1595,6 +1910,14 @@ export const SECTION_STUDIO_SCRIPT = `
     return 'New ' + type + ' text';
   }
   function makeNode(type) {
+    // §5.2: the palette's "Question headline" / "Subheadline" ALWAYS insert
+    // BOUND nodes (no props.text — the text IS the Section column). Free-text
+    // extra headlines are not insertable (CategoryLabel/HelperText cover
+    // kicker/support copy). addComponentAt refuses when a bound node exists.
+    var bindValue = bindForType(type);
+    if (bindValue !== null) {
+      return { type: type, question_id: newQuestionId(), bind: bindValue };
+    }
     var seed = componentSeeds[type];
     var node = seed ? cloneJson(seed) : {};
     var req = typeMeta(type).required || {};
@@ -1621,6 +1944,14 @@ export const SECTION_STUDIO_SCRIPT = `
 
   // --- structural mutations (§8.4) — every mutation flows through here --------
   function addComponentAt(type, parentQid, index) {
+    // §5.2: at most ONE bound node per bind value — a second insert is refused
+    // with the exact palette tooltip copy (the palette item is also disabled;
+    // this guard covers drag-drop and container drops too).
+    var bindValue = bindForType(type);
+    if (bindValue !== null && findBoundNode(bindValue) !== null) {
+      showRefusal('This Section already shows its ' + bindNoun(bindValue));
+      return null;
+    }
     var target = state.content.components;
     var depth = 1;
     var ref;
@@ -1632,7 +1963,7 @@ export const SECTION_STUDIO_SCRIPT = `
       depth = ref.depth + 1;
     }
     if (isContainerType(type) && depth > MAX_DEPTH) {
-      showRefusal('Cannot nest ' + type + ' deeper than ' + MAX_DEPTH + ' container levels — drop refused.');
+      showRefusal('Cannot nest a ' + typeLabel(type) + ' deeper than ' + MAX_DEPTH + ' container levels — drop refused.');
       return null;
     }
     var node = makeNode(type);
@@ -1698,12 +2029,29 @@ export const SECTION_STUDIO_SCRIPT = `
     node.question_id = newQuestionId();
     if (node.question_key !== undefined) { delete node.question_key; }
     if (node.internal_field) { node.internal_field = uniqueFieldName(node.internal_field); }
+    // §5.2/§3.4: at most one node per bind value — a duplicated subtree DETACHES
+    // any bound node into a plain text snapshot of the current canonical value
+    // (the legacy-link banner can re-offer binding if the operator deletes the
+    // original later).
+    if (node.bind !== undefined) {
+      var strip = stripInputFor(node.bind);
+      delete node.bind;
+      if (!node.props) { node.props = {}; }
+      node.props.text = strip ? strip.value : '';
+    }
     var i;
     if (node.children) { for (i = 0; i < node.children.length; i++) { regenerateIds(node.children[i]); } }
   }
   function duplicateNode(qid) {
     var ref = findRef(qid);
     if (!ref) { return null; }
+    // §5.2: the bound headline/subheadline is the Section's ONE canonical
+    // text — duplicating it directly is refused (a duplicate would be a
+    // second free-text headline, which is not insertable).
+    if (ref.node.bind !== undefined) {
+      showRefusal('This Section already shows its ' + bindNoun(ref.node.bind) + ' — the shared ' + bindNoun(ref.node.bind) + ' cannot be duplicated.');
+      return null;
+    }
     var clone = cloneJson(ref.node);
     regenerateIds(clone);
     ref.list.splice(ref.index + 1, 0, clone);
@@ -1735,8 +2083,9 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     walkTree(state.content.components, 1, function (node, depth) {
       var meta = studioMeta.types[node.type];
-      var label = node.type + (node.internal_field ? ' (' + node.internal_field + ')' : '');
       if (!meta) { issues.push({ qid: node.question_id, message: 'Unknown component type ' + node.type }); return; }
+      // §7.4 relabel: issues speak operator words (label), never raw type ids.
+      var label = typeLabel(node.type) + (node.internal_field ? ' (' + node.internal_field + ')' : '');
       var req = meta.required || {};
       if (meta.container && depth > MAX_DEPTH) {
         issues.push({ qid: node.question_id, message: label + ' exceeds the max container depth of ' + MAX_DEPTH });
@@ -1756,12 +2105,15 @@ export const SECTION_STUDIO_SCRIPT = `
       var tp = req.text_props || [];
       for (i = 0; i < tp.length; i++) {
         k = tp[i];
-        if (trimStr(props[k]) === '') { issues.push({ qid: node.question_id, message: label + ' needs props.' + k }); }
+        // §3.4/§5.2: a BOUND node's text IS the Section column — the required-
+        // text rule is waived exactly like the server validator waives it.
+        if (k === 'text' && node.bind !== undefined) { continue; }
+        if (trimStr(props[k]) === '') { issues.push({ qid: node.question_id, message: label + ' needs its ' + k }); }
       }
       var np = req.numeric_props || [];
       for (i = 0; i < np.length; i++) {
         k = np[i];
-        if (typeof props[k] !== 'number' || !isFinite(props[k])) { issues.push({ qid: node.question_id, message: label + ' needs numeric props.' + k }); }
+        if (typeof props[k] !== 'number' || !isFinite(props[k])) { issues.push({ qid: node.question_id, message: label + ' needs a numeric ' + k }); }
       }
     });
     return issues;
@@ -1812,11 +2164,102 @@ export const SECTION_STUDIO_SCRIPT = `
     el.hidden = !enabled;
   }
 
+  // --- §5.2 bind UI: hidden chips, palette disabling, the legacy link banner ---
+  // "Hidden in this question unit · [Show]" — chip visible while the bound
+  // node for its bind value is deleted from the unit (canonical text kept).
+  function renderBoundChips() {
+    var chips = document.querySelectorAll('[data-bound-chip]');
+    var i, b;
+    for (i = 0; i < chips.length; i++) {
+      b = chips[i].getAttribute('data-bound-chip');
+      chips[i].hidden = findBoundNode(b) !== null;
+    }
+  }
+  // Palette "Question headline"/"Subheadline": insert bound nodes while none
+  // exists, else disabled with the exact tooltip (§5.2).
+  function updatePaletteBindItems() {
+    var items = document.querySelectorAll('[data-bind-item]');
+    var i, b, exists;
+    for (i = 0; i < items.length; i++) {
+      b = items[i].getAttribute('data-bind-item');
+      exists = findBoundNode(b) !== null;
+      items[i].setAttribute('data-bind-disabled', exists ? 'true' : 'false');
+      items[i].setAttribute('aria-disabled', exists ? 'true' : 'false');
+      if (exists) { items[i].setAttribute('title', 'This Section already shows its ' + bindNoun(b)); }
+      else { items[i].removeAttribute('title'); }
+    }
+  }
+  function bindBannerButton(label, handler) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-secondary';
+    b.textContent = label;
+    b.addEventListener('click', handler);
+    return b;
+  }
+  function bindBannerLinkHandler(qid, bindValue, winnerText) {
+    return function () { linkBoundNode(qid, bindValue, winnerText); };
+  }
+  // §5.2 legacy Sections: an UNBOUND QuestionHeadline/Subheadline while no
+  // bound node exists gets the link banner — byte-equal text offers the
+  // one-click link; differing text shows BOTH values and the operator picks
+  // which wins. Load alone never mutates; the picked change lands in the
+  // model (dirty) and persists on Save.
+  function renderBindBanner() {
+    var banner = document.querySelector('[data-bind-banner]');
+    if (!banner) { return; }
+    clearChildren(banner);
+    var binds = ['section_headline', 'section_subheadline'];
+    var shown = false;
+    var i, bindValue, node, strip, canonical, nodeText, row, msg, val;
+    for (i = 0; i < binds.length; i++) {
+      bindValue = binds[i];
+      if (findBoundNode(bindValue) !== null) { continue; }
+      node = unboundCandidate(bindValue);
+      if (node === null) { continue; }
+      strip = stripInputFor(bindValue);
+      canonical = strip ? strip.value : '';
+      nodeText = (node.props && typeof node.props.text === 'string') ? node.props.text : '';
+      row = document.createElement('div');
+      row.className = 'studio-bind-banner-row';
+      row.setAttribute('data-bind-banner-row', bindValue);
+      msg = document.createElement('span');
+      if (nodeText === canonical) {
+        row.setAttribute('data-bind-banner-case', 'equal');
+        msg.appendChild(document.createTextNode('This ' + bindNoun(bindValue) + ' matches the Section\\u2019s canonical text.'));
+        row.appendChild(msg);
+        row.appendChild(bindBannerButton('Link ' + bindNoun(bindValue) + ' to the Section\\u2019s canonical ' + bindNoun(bindValue), bindBannerLinkHandler(node.question_id, bindValue, null)));
+      } else {
+        row.setAttribute('data-bind-banner-case', 'differs');
+        msg.appendChild(document.createTextNode('This ' + bindNoun(bindValue) + ' differs from the Section\\u2019s canonical text \\u2014 pick which wins:'));
+        row.appendChild(msg);
+        val = document.createElement('span');
+        val.className = 'studio-bind-banner-value';
+        val.setAttribute('data-bind-banner-canonical', '');
+        val.appendChild(document.createTextNode('\\u201C' + canonical + '\\u201D'));
+        row.appendChild(val);
+        row.appendChild(bindBannerButton('Keep the Section ' + bindNoun(bindValue), bindBannerLinkHandler(node.question_id, bindValue, null)));
+        val = document.createElement('span');
+        val.className = 'studio-bind-banner-value';
+        val.setAttribute('data-bind-banner-node', '');
+        val.appendChild(document.createTextNode('\\u201C' + nodeText + '\\u201D'));
+        row.appendChild(val);
+        row.appendChild(bindBannerButton('Use this component\\u2019s text', bindBannerLinkHandler(node.question_id, bindValue, nodeText)));
+      }
+      banner.appendChild(row);
+      shown = true;
+    }
+    banner.hidden = !shown;
+  }
+
   function afterModelChange() {
     markDirty();
     clearRefusal();
     renderIssues();
     renderMapsBanner();
+    renderBoundChips();
+    updatePaletteBindItems();
+    renderBindBanner();
     scheduleCanvasRender();
   }
 
@@ -1854,11 +2297,22 @@ export const SECTION_STUDIO_SCRIPT = `
   function renderCanvasNow() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
+    // §5.2 one store, two views: the strip values ride every canvas render so
+    // BOUND QuestionHeadline/Subheadline nodes show the live canonical text
+    // (the preview handler threads body.headline/body.subheadline into
+    // sectionCtx). Typing in the strip schedules this re-render.
+    var headEl = document.getElementById('lg-section-headline');
+    var subEl = document.getElementById('lg-section-subheadline');
     fetch('/api/admin/leadgen/sections/preview', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ content_json: JSON.stringify(state.content), viewport: 'desktop' })
+      body: JSON.stringify({
+        content_json: JSON.stringify(state.content),
+        viewport: 'desktop',
+        headline: headEl ? headEl.value : '',
+        subheadline: subEl ? subEl.value : ''
+      })
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -1880,23 +2334,65 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return out.join(' ');
   }
+  // §5.4: session-local "Keep (legacy)" acknowledgements — badge stays hidden
+  // for these nodes until reload (Keep = no model change by contract).
+  var keptLegacyFrameNodes = {};
+  // §5.4 amber badge for a legacy PAGE-FRAME element found in content. The
+  // Move ACTION itself ships with the next studio wave — this renders the
+  // badge + a disabled/pending Move affordance (wave-2 handoff) + the C2
+  // activation consequence line.
+  function buildFrameBadge(qid, type) {
+    var badge = document.createElement('div');
+    badge.className = 'studio-frame-badge';
+    badge.setAttribute('data-frame-badge', qid);
+    var text = document.createElement('span');
+    text.appendChild(document.createTextNode('Page-frame element \\u2014 belongs to the Quote frame \\u00B7'));
+    badge.appendChild(text);
+    var move = document.createElement('button');
+    move.type = 'button';
+    move.className = 'btn btn-sm btn-outline';
+    move.setAttribute('data-frame-move', qid);
+    move.disabled = true;
+    move.title = 'Coming soon \\u2014 will move this ' + typeLabel(type) + ' into the Quote frame (edited in the Quote Builder).';
+    move.appendChild(document.createTextNode('Move to Quote frame'));
+    badge.appendChild(move);
+    var keep = document.createElement('button');
+    keep.type = 'button';
+    keep.className = 'btn btn-sm btn-outline';
+    keep.setAttribute('data-frame-keep', qid);
+    keep.appendChild(document.createTextNode('Keep (legacy)'));
+    badge.appendChild(keep);
+    // C2 consequence (§5.4): the badge NAMES the activation block.
+    var note = document.createElement('span');
+    note.className = 'studio-frame-badge-note';
+    note.appendChild(document.createTextNode('While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel\\u2019s Advanced legacy override allows it.'));
+    badge.appendChild(note);
+    return badge;
+  }
   function applyCanvasDecoration() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
-    // §8.8 linked-field chips REBUILD per pass (the region is server HTML —
-    // every re-render wipes them, so decoration re-derives from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip');
+    // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
+    // is server HTML — every re-render wipes them, so decoration re-derives
+    // from the model).
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
     }
     var nodes = region.querySelectorAll('[data-question-id]');
-    var qid, base, ref, labels, chip;
+    var qid, base, ref, labels, chip, nodeType;
     for (i = 0; i < nodes.length; i++) {
       nodes[i].setAttribute('draggable', 'true');
       qid = nodes[i].getAttribute('data-question-id');
       base = withoutClasses(nodes[i].className, [SELECT_CLASS]);
       nodes[i].className = qid === selectedQuestionId ? base + ' ' + SELECT_CLASS : base;
+      // §5.4: legacy frame-scope node → amber badge (unless Keep-acknowledged
+      // this session). Inserted as a SIBLING above the node element.
+      nodeType = nodes[i].getAttribute('data-component-type');
+      if (typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true && nodes[i].parentNode) {
+        nodes[i].parentNode.insertBefore(buildFrameBadge(qid, nodeType), nodes[i]);
+      }
       // chip: "fills: city, state" from the config's autofill keys. Inserted
       // as a SIBLING (the ZIP node element is the <input> itself — it cannot
       // contain children).
@@ -1921,9 +2417,71 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < marked.length; i++) { marked[i].className = withoutClasses(marked[i].className, DROP_CLASSES); }
   }
 
+  // --- §7.1 scope header + §7.2 pills ------------------------------------------
+  // The blast-radius sentence per scope — Section scope cites the live
+  // "Used in N quotes" reuse line (§2.4); C6 vocabulary only (this comment
+  // ships with the island — keep it token-clean for the copy lint).
+  function scopeAffectsText(node) {
+    if (scopeState === 'choice') { return 'Affects: this card only.'; }
+    if (scopeState === 'component' && node) {
+      if (typeMeta(node.type).scope === 'frame') {
+        return 'Affects: a page-frame element kept inside this Section (legacy) \\u2014 the frame itself is edited in the Quote Builder.';
+      }
+      return 'Affects: this question unit \\u2014 in every quote that uses this Section.';
+    }
+    if (usageQuoteCount === null) { return 'Affects: changes apply everywhere this Section is used.'; }
+    if (usageQuoteCount === 0) { return 'Affects: not used in any quote yet.'; }
+    return 'Affects: used in ' + usageQuoteCount + ' quote' + (usageQuoteCount === 1 ? '' : 's') + '; changes apply everywhere it\\u2019s used.';
+  }
+  function scopeEditingName(node) {
+    if (scopeState === 'choice') { return 'Answer choice \\u201C' + choiceScopeLabel + '\\u201D'; }
+    if (scopeState === 'component' && node) { return typeLabel(node.type); }
+    return 'This Section (question unit)';
+  }
+  var scopeFlashTimer = null;
+  function renderScopeHeader() {
+    var header = document.querySelector('[data-studio-scope-header]');
+    if (!header) { return; }
+    var node = selectedNode();
+    if (scopeState !== 'section' && !node) { scopeState = 'section'; }
+    var nameEl = header.querySelector('[data-scope-editing-name]');
+    var affectsEl = header.querySelector('[data-scope-affects]');
+    var changed = false;
+    var newName = scopeEditingName(node);
+    if (nameEl && nameEl.textContent !== newName) { nameEl.textContent = newName; changed = true; }
+    if (affectsEl) { affectsEl.textContent = scopeAffectsText(node); }
+    var pills = header.querySelectorAll('[data-scope-pill]');
+    var i, key, active;
+    var meta = node ? typeMeta(node.type) : {};
+    for (i = 0; i < pills.length; i++) {
+      key = pills[i].getAttribute('data-scope-pill');
+      active = key === scopeState;
+      pills[i].className = active ? 'studio-scope-pill active' : 'studio-scope-pill';
+      pills[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+      // frame stays disabled here (Quote-Builder-owned); component needs a
+      // selection; choice needs a choice-bearing selection.
+      if (key === 'component') { pills[i].disabled = !node; }
+      if (key === 'choice') { pills[i].disabled = !node || meta.choice !== true; }
+    }
+    // §7.2: the retarget is SEEN — a brief flash on the aria-live region.
+    if (changed) {
+      header.className = 'studio-scope-header studio-scope-flash';
+      if (scopeFlashTimer) { clearTimeout(scopeFlashTimer); }
+      scopeFlashTimer = setTimeout(function () {
+        scopeFlashTimer = null;
+        header.className = 'studio-scope-header';
+      }, 400);
+    }
+  }
+  function setScope(scope) {
+    scopeState = scope;
+    renderScopeHeader();
+  }
+
   // --- selection --------------------------------------------------------------
   function selectComponent(qid) {
     selectedQuestionId = qid || null;
+    scopeState = selectedQuestionId ? 'component' : 'section';
     applyCanvasDecoration();
     var crumb = document.querySelector('[data-studio-breadcrumb]');
     if (crumb) { crumb.textContent = selectedQuestionId ? breadcrumbText(selectedQuestionId) : ''; }
@@ -1932,25 +2490,33 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
     populateInspector();
     renderInspectorMapping();
+    renderScopeHeader();
   }
 
-  // --- inspector tabs ----------------------------------------------------------
+  // --- inspector tabs (§7.3: DYNAMIC per selection — never a fixed strip) -------
   function availableTabsFor(node) {
     if (!node) { return []; }
     var meta = typeMeta(node.type);
     var tabs = [];
-    if (meta.layout) {
-      tabs.push('layout');
-      if ((meta.content_props || []).length > 0) { tabs.push('content'); }
-      tabs.push('dependencies');
+    // Content shows for a COPY-BEARING selection only (§7.3 "Shown when"): a
+    // type with content props, or a §5.2 BOUND node (its shared text field).
+    var hasContent = node.bind !== undefined || (meta.content_props || []).length > 0;
+    // §5.4/§8.2: a legacy PAGE-FRAME element is not a unit component — it gets
+    // its copy/structured props + Advanced, but no unit tabs (design/
+    // validation/dependencies/mapping are unit-scope surfaces).
+    if (meta.scope === 'frame') {
+      if (hasContent) { tabs.push('content'); }
+      if (meta.layout_props) { tabs.push('layout'); }
       tabs.push('advanced');
       return tabs;
     }
-    tabs.push('content');
+    if (hasContent) { tabs.push('content'); }
     if (meta.choice) { tabs.push('choices'); }
-    // Structured-prop affordance/chrome leaves (TrustBar/LogoStrip/
-    // StepIndicator) author their catalog props on the Layout tab too.
+    // Structured-prop containers/leaves (Stack/Grid/…/TrustBar/LogoStrip)
+    // author their token props on the Layout tab (wave-2 folds this into
+    // Design depth per §7.3).
     if (meta.layout_props) { tabs.push('layout'); }
+    // Design: any visual selection (§7.3) — containers included.
     tabs.push('design');
     if (meta.produces) { tabs.push('validation'); }
     if (meta.maps) { tabs.push('maps'); }
@@ -1960,6 +2526,13 @@ export const SECTION_STUDIO_SCRIPT = `
     return tabs;
   }
   function setInspectorTab(key) {
+    // §7.5: opening the Advanced tab is tracked (admin-side, console-only —
+    // no schema change).
+    if (key === 'advanced' && currentInspectorTab !== 'advanced' && window.console && window.console.info) {
+      window.console.info('section_advanced_opened', { section: state.public_id || 'new', component: selectedQuestionId });
+    }
+    // Leaving the Choices tab ends the choice scope (§7.2 retarget).
+    if (key !== 'choices' && scopeState === 'choice') { scopeState = selectedQuestionId ? 'component' : 'section'; renderScopeHeader(); }
     currentInspectorTab = key;
     var tabs = document.querySelectorAll('[data-studio-inspector-tab]');
     var panels = document.querySelectorAll('[data-studio-panel]');
@@ -1986,8 +2559,11 @@ export const SECTION_STUDIO_SCRIPT = `
   function populateInspector() {
     var node = selectedNode();
     var meta = node ? typeMeta(node.type) : {};
-    var target = document.getElementById('lg-inspector-target');
-    if (target) { target.textContent = node ? 'Editing ' + node.question_id + ' (' + node.type + ')' : 'Select a component'; }
+    var isBound = !!node && node.bind !== undefined;
+    // §7.1: the scope header (operator words) replaced the old id/type head;
+    // the Section-scope helper note shows only while nothing is selected.
+    var scopeNote = document.querySelector('[data-studio-section-scope-note]');
+    if (scopeNote) { scopeNote.hidden = !!node; }
     var avail = availableTabsFor(node);
     var tabs = document.querySelectorAll('[data-studio-inspector-tab]');
     var i, k;
@@ -1999,18 +2575,39 @@ export const SECTION_STUDIO_SCRIPT = `
     else if (avail.indexOf(currentInspectorTab) === -1) { setInspectorTab(avail[0]); }
     else { setInspectorTab(currentInspectorTab); }
 
+    // §5.2: a BOUND node's Content tab shows the SAME single shared field —
+    // never a second text store. The generic props.text control is hidden for
+    // it; the shared input mirrors the strip input (one store, two views).
+    var boundWrap = document.querySelector('[data-bound-content]');
+    var boundInput = document.querySelector('[data-bound-shared-input]');
+    var boundLabel = document.querySelector('[data-bound-content-label]');
+    if (boundWrap) { boundWrap.hidden = !isBound; }
+    if (isBound && boundInput) {
+      var boundStrip = stripInputFor(node.bind);
+      boundInput.value = boundStrip ? boundStrip.value : '';
+      if (boundLabel) {
+        boundLabel.textContent = node.bind === 'section_subheadline'
+          ? 'Subheadline (shared with the Section header above)'
+          : 'Question headline (shared with the Section header above)';
+      }
+    }
+
     // content controls: only the selected type's copy fields are visible
     var wraps = document.querySelectorAll('[data-content-prop]');
     var cp = meta.content_props || [];
-    var anyContent = false;
+    var anyContent = isBound;
     for (i = 0; i < wraps.length; i++) {
       k = wraps[i].getAttribute('data-content-prop');
-      var on = !!node && cp.indexOf(k) !== -1;
+      var on = !!node && cp.indexOf(k) !== -1 && !(isBound && k === 'text');
       wraps[i].hidden = !on;
       if (on) { anyContent = true; }
     }
     var emptyNote = document.querySelector('[data-content-empty]');
     if (emptyNote) { emptyNote.hidden = anyContent || !node; }
+
+    // A6: the image-fit Design control shows ONLY for the image answer grid.
+    var fitWrap = document.querySelector('[data-image-fit-wrap]');
+    if (fitWrap) { fitWrap.hidden = !node || node.type !== 'ImageCardAnswerGrid'; }
 
     var fieldEls = document.querySelectorAll('[data-inspector-field]');
     var el, field, val;
@@ -2040,6 +2637,10 @@ export const SECTION_STUDIO_SCRIPT = `
     populateChoiceDisplay(node);
     var dbg = document.querySelector('[data-studio-debug-id]');
     if (dbg) { dbg.textContent = node ? node.question_id : ''; }
+    // §7.3 Advanced: the bind marker (read-only) — ids/raw markers live here
+    // only (§7.4).
+    var bindMarker = document.querySelector('[data-studio-bind-marker]');
+    if (bindMarker) { bindMarker.textContent = node && node.bind !== undefined ? node.bind : '\\u2014'; }
     var jsonTa = document.getElementById('lg-node-json');
     if (jsonTa) { jsonTa.value = node ? JSON.stringify(node, null, 2) : ''; }
     var jsonErr = document.querySelector('[data-studio-node-json-error]');
@@ -2068,8 +2669,19 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-studio-rename-warning]');
     if (!el) { return; }
     if (!oldField || newField === oldField) { el.hidden = true; el.textContent = ''; return; }
+    // §7.4: the destructive control carries its CONSEQUENCE inline, counted
+    // against the live mapping model ("will unlink N Offer mappings").
+    var mapCount = 0, mi;
+    for (mi = 0; mi < state.answer_maps.length; mi++) {
+      if (state.answer_maps[mi] && state.answer_maps[mi].internal_field === oldField) { mapCount += 1; }
+    }
     var refs = findConditionalRefs(oldField);
-    var msg = 'Mapping impact: renaming this internal field can break existing answer-to-Offer mappings that reference "' + oldField + '" (the D2 mapping panel will show exact usage).';
+    var msg;
+    if (mapCount > 0) {
+      msg = 'Renaming the internal field will unlink ' + mapCount + ' Offer mapping' + (mapCount === 1 ? '' : 's') + ' \\u2014 they\\u2019ll need remapping.';
+    } else {
+      msg = 'Renaming this internal field can break Offer mappings that reference "' + oldField + '" (the mapping panel shows exact usage).';
+    }
     if (refs.length > 0) {
       msg += ' ' + refs.length + ' dependency reference(s) still point at it: ' + refs.join(', ') + ' — update them before saving.';
     }
@@ -2522,7 +3134,11 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- choices editor (§8.6: rows + main/Other grouping + bulk paste) -----------
-  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'icon', 'imageMediaId', 'description'];
+  // A5: image_alt rides the row editor so an image-grid choice edit PRESERVES
+  // the §8.4-required alt (collectChoices rebuilds each choice from the row
+  // inputs — a field missing here would be silently dropped). Wave 2 owns the
+  // full §7.3 Choices-depth grid (title/subtitle/badge/emoji/picker cells).
+  var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'icon', 'imageMediaId', 'image_alt', 'description'];
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
   function buildChoiceRow(choice, isMain) {
     var wrap = document.createElement('div');
@@ -2633,7 +3249,9 @@ export const SECTION_STUDIO_SCRIPT = `
       if (value === '') { value = slugify(label); }
       c = { label: label, value: value, analytics_id: value };
       if (req && req.choice_icon) { c.icon = '\\u2605'; }
-      if (req && req.choice_image) { c.imageMediaId = 'media_' + value; }
+      // A5: pasted image-grid choices carry image_alt next to imageMediaId
+      // (§8.4 requirement — see sampleChoice).
+      if (req && req.choice_image) { c.imageMediaId = 'media_' + value; c.image_alt = label; }
       out.push(c);
     }
     return out;
@@ -2697,6 +3315,8 @@ export const SECTION_STUDIO_SCRIPT = `
     libraryEl.addEventListener('click', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn) { return; }
+      // §5.2: a disabled bound item never consumes the armed insertion point.
+      if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
       addFromLibrary(btn.getAttribute('data-add-component'));
     });
     // the items are role="button" divs (nested-button validity) — keep the
@@ -2706,6 +3326,7 @@ export const SECTION_STUDIO_SCRIPT = `
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn) { return; }
       ev.preventDefault();
+      if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
       addFromLibrary(btn.getAttribute('data-add-component'));
     });
     libraryEl.addEventListener('dragstart', function (ev) {
@@ -2732,6 +3353,16 @@ export const SECTION_STUDIO_SCRIPT = `
   var canvasSurface = document.getElementById('lg-studio-canvas');
   if (canvasSurface) {
     canvasSurface.addEventListener('click', function (ev) {
+      // §5.4 amber-badge actions (the badge is a sibling of the node, so the
+      // component-select path below never fires for it). Keep (legacy) = NO
+      // model change — session-local acknowledgement only; the C2 activation
+      // consequence stays named on other badges. Move stays disabled (wave 2).
+      var keepBtn = ev.target && ev.target.closest ? ev.target.closest('[data-frame-keep]') : null;
+      if (keepBtn) {
+        keptLegacyFrameNodes[keepBtn.getAttribute('data-frame-keep')] = true;
+        applyCanvasDecoration();
+        return;
+      }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !canvasSurface.contains(el)) { return; }
       ev.preventDefault();
@@ -3904,6 +4535,133 @@ export const SECTION_STUDIO_SCRIPT = `
     });
   }
 
+  // --- §5.2 binding wiring: strip ⇄ bound-node views of the ONE store ----------
+  // The strip inputs ARE the store (headline_text/subheadline_text). The
+  // inspector's shared field and the canvas render are the other views.
+  function collectBoundShared() {
+    var node = selectedNode();
+    if (!node || node.bind === undefined) { return; }
+    var inputEl = document.querySelector('[data-bound-shared-input]');
+    var strip = stripInputFor(node.bind);
+    if (!inputEl || !strip) { return; }
+    strip.value = inputEl.value;
+    markDirty();
+    scheduleCanvasRender();
+  }
+  var boundSharedInput = document.querySelector('[data-bound-shared-input]');
+  if (boundSharedInput) {
+    boundSharedInput.addEventListener('input', collectBoundShared);
+    boundSharedInput.addEventListener('change', collectBoundShared);
+  }
+  // Typing in the strip live-updates the canvas render (bound nodes) and the
+  // inspector mirror when a bound node is selected.
+  function onStripInput() {
+    var node = selectedNode();
+    if (node && node.bind !== undefined && boundSharedInput) {
+      var strip = stripInputFor(node.bind);
+      if (strip && boundSharedInput.value !== strip.value) { boundSharedInput.value = strip.value; }
+    }
+    scheduleCanvasRender();
+  }
+  var stripHeadline = document.getElementById('lg-section-headline');
+  var stripSubheadline = document.getElementById('lg-section-subheadline');
+  if (stripHeadline) { stripHeadline.addEventListener('input', onStripInput); }
+  if (stripSubheadline) { stripSubheadline.addEventListener('input', onStripInput); }
+  // §5.2 hidden chip "[Show]": re-insert the bound node at the top.
+  var boundShowBtns = document.querySelectorAll('[data-bound-show]');
+  var bs;
+  for (bs = 0; bs < boundShowBtns.length; bs++) {
+    boundShowBtns[bs].addEventListener('click', function () {
+      var node = insertBoundNodeAtTop(this.getAttribute('data-bound-show'));
+      if (node) { selectComponent(node.question_id); }
+    });
+  }
+
+  // --- §7.2 scope pills + choice-scope focus ------------------------------------
+  var scopePills = document.querySelectorAll('[data-scope-pill]');
+  var sp;
+  for (sp = 0; sp < scopePills.length; sp++) {
+    scopePills[sp].addEventListener('click', function () {
+      var key = this.getAttribute('data-scope-pill');
+      if (key === 'section') { selectComponent(null); return; }
+      if (key === 'component') {
+        if (selectedQuestionId) { setScope('component'); }
+        return;
+      }
+      if (key === 'choice') {
+        var node = selectedNode();
+        if (!node || typeMeta(node.type).choice !== true) { return; }
+        var first = (node.choices && node.choices.length) ? node.choices[0] : null;
+        choiceScopeLabel = first && first.label !== undefined ? String(first.label) : '';
+        setInspectorTab('choices');
+        setScope('choice');
+        return;
+      }
+      // 'frame' is disabled markup — nothing to do in the Section Builder.
+    });
+  }
+  // §7.5: focusing a choice row retargets the scope header to that choice
+  // (synchronous — well inside the 100 ms probe budget).
+  var choicesPanelWrap = document.querySelector('[data-inspector-choices]');
+  if (choicesPanelWrap) {
+    choicesPanelWrap.addEventListener('focusin', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-choice-row]') : null;
+      if (!row) { return; }
+      var labelInput = row.querySelector('[data-choice-field="label"]');
+      choiceScopeLabel = labelInput ? labelInput.value : '';
+      setScope('choice');
+    });
+  }
+
+  // --- §5.4 frame hint toggle (presentation-only skeleton) ----------------------
+  var frameHintBtn = document.querySelector('[data-studio-frame-hint]');
+  if (frameHintBtn) {
+    frameHintBtn.addEventListener('click', function () {
+      var on = this.getAttribute('aria-pressed') !== 'true';
+      this.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this.className = on ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
+      var skels = document.querySelectorAll('[data-studio-frame-skeleton]');
+      var i;
+      for (i = 0; i < skels.length; i++) { skels[i].hidden = !on; }
+    });
+  }
+
+  // --- §8.3 frame callout: dismiss persists per browser -------------------------
+  var frameCallout = document.querySelector('[data-studio-frame-callout]');
+  var CALLOUT_DISMISS_KEY = 'lg-studio-frame-callout-dismissed';
+  if (frameCallout) {
+    var calloutDismissed = false;
+    try { calloutDismissed = window.localStorage.getItem(CALLOUT_DISMISS_KEY) === '1'; } catch (e4) { calloutDismissed = false; }
+    if (calloutDismissed) { frameCallout.hidden = true; }
+  }
+  var calloutDismissBtn = document.querySelector('[data-studio-callout-dismiss]');
+  if (calloutDismissBtn) {
+    calloutDismissBtn.addEventListener('click', function () {
+      if (frameCallout) { frameCallout.hidden = true; }
+      try { window.localStorage.setItem(CALLOUT_DISMISS_KEY, '1'); } catch (e5) {}
+    });
+  }
+
+  // --- §7.1/§2.4 "Used in N quotes" (the reuse line) -----------------------------
+  function loadUsage() {
+    if (!state.public_id) { return; }
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/usage', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (r) {
+      return r.json();
+    }).then(function (j) {
+      var rows = (j && j.usage && j.usage.variants) || [];
+      var seen = {}, n = 0, i, q;
+      for (i = 0; i < rows.length; i++) {
+        q = rows[i] && rows[i].quote_public_id;
+        if (q && seen[q] !== true) { seen[q] = true; n += 1; }
+      }
+      usageQuoteCount = n;
+      renderScopeHeader();
+    }).catch(function () {});
+  }
+
   // --- scalar controls (continue mode + Maps toggle) --------------------------------------
   var mapsToggle = document.getElementById('lg-address-validation');
   if (mapsToggle) {
@@ -4017,12 +4775,17 @@ export const SECTION_STUDIO_SCRIPT = `
   updatePendingUi();
   renderIssues();
   renderMapsBanner();
+  renderBoundChips();
+  updatePaletteBindItems();
+  renderBindBanner();
+  renderScopeHeader();
   updateCanvasEmpty();
   applyCanvasDecoration();
   populateInspector();
   loadActivities();
   loadVerticals();
   loadOffers();
+  loadUsage();
   // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
   // quote activation preflight's "Open Section Mapping" link) opens the
   // mapping drawer tab directly.

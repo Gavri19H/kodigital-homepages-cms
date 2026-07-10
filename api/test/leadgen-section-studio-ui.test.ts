@@ -277,15 +277,17 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toContain('id="lg-preview-frame"'); // slice-C preview mounted
   });
 
-  it("the validation chip carries the server-computed issue count (0 for a valid section, 1 for /new)", async () => {
+  it("the validation chip carries the server-computed issue count (0 for a valid section AND for /new — §5.2 seeds bound nodes)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     expect(html).toContain('data-issue-count="0"');
+    // §5.2: /new seeds bound QuestionHeadline + Subheadline as nodes 1–2 —
+    // components are non-empty and validator-CLEAN (bound nodes waive text),
+    // so the chip is 0 and the canvas empty-state is hidden.
     const fresh = await getHtml(env, "/admin/leadgen/sections/new");
-    expect(fresh).toContain('data-issue-count="1"'); // components_empty
-    // the canvas empty state shows on /new only
-    expect(fresh).toMatch(/data-studio-canvas-empty[^>]*>/);
+    expect(fresh).toContain('data-issue-count="0"');
+    expect(fresh).toMatch(/data-studio-canvas-empty[^>]*hidden/);
     expect(html).toMatch(/data-studio-canvas-empty[^>]*hidden/);
   });
 
@@ -318,26 +320,101 @@ function libraryItemBlock(html: string, type: string): string {
 }
 
 describeDb("section studio SSR — §8.3 component library", () => {
-  it("groups by intent, covers EVERY catalog type exactly once (lockstep), searchable", async () => {
+  it("§8.3 six intent-first groups; palette = the catalog's unit∪both types exactly once; frame types NEVER placeable (lockstep), searchable", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
 
-    for (const group of ["questions", "choices", "inputs", "layout", "trust", "navigation"]) {
-      expect(html, `library group ${group}`).toContain(`data-library-group="${group}"`);
-    }
-    for (const label of ["Questions", "Answer choices", "Inputs", "Layout", "Trust &amp; affordance", "Navigation"]) {
+    // the EXACT six groups of the §8.3 table (last group renders "Navigation"
+    // — the table's "Slide navigation" heading loses "slide" per C6, which
+    // forbids the word anywhere in the Section Builder)
+    const expectedGroups: ReadonlyArray<[string, string]> = [
+      ["question-copy", "Question copy"],
+      ["choices", "Answer choices"],
+      ["inputs", "Inputs"],
+      ["layout", "Inside-card layout"],
+      ["trust", "Trust &amp; help — inside this question unit"],
+      ["navigation", "Navigation"],
+    ];
+    expect(STUDIO_LIBRARY_GROUPS.map((g) => g.key)).toEqual(expectedGroups.map(([k]) => k));
+    for (const [key, label] of expectedGroups) {
+      expect(html, `library group ${key}`).toContain(`data-library-group="${key}"`);
       expect(html, `group label ${label}`).toContain(label);
     }
-    // lockstep: the grouping map covers the catalog exactly
+    // §8.2 D5 lockstep: the palette is EXACTLY the catalog's unit ∪ both set…
+    const unitOrBoth = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope !== "frame");
+    const frameTypes = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope === "frame");
+    expect(frameTypes.length).toBeGreaterThanOrEqual(8); // the §8.2 frame row
     const grouped = STUDIO_LIBRARY_GROUPS.flatMap((g) => [...g.types]);
-    expect([...grouped].sort()).toEqual([...ALL_TYPES].sort());
-    // and the SERVED page places each type exactly once
-    for (const type of ALL_TYPES) {
+    expect([...grouped].sort()).toEqual([...unitOrBoth].sort());
+    // …each placeable exactly once on the SERVED page…
+    for (const type of unitOrBoth) {
       const hits = html.split(`data-add-component="${type}"`).length - 1;
       expect(hits, `${type} placed exactly once`).toBe(1);
     }
+    // …and every frame-scope type is GONE from the palette (§8.2 "Removed").
+    for (const type of frameTypes) {
+      expect(html, `${type} not placeable`).not.toContain(`data-add-component="${type}"`);
+    }
     expect(html).toContain("data-studio-library-search");
+  });
+
+  it("§8.3 exact item display names ride the palette (verbatim table names + 'use when' descriptions)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // display names from the §8.3 table (spot set across all six groups)
+    for (const name of [
+      "Category label",
+      "Question headline",
+      "Simple answer buttons",
+      "Yes / No",
+      "Icon answer cards",
+      "Image answer cards",
+      "Multi-select cards",
+      "Main + “Other” choices",
+      "Amount ($)",
+      "Amount slider",
+      "Question card",
+      "Answer grid",
+      "Two columns",
+      "Reassurance badge",
+      "Secure-form badge",
+      "Trust points",
+      "Logo row",
+      "Error message slot",
+      "Continue button",
+      "Auto-advance",
+    ]) {
+      // none of these names carries an HTML-escaped ASCII char — the served
+      // bytes match the table names directly (typographic quotes unescaped)
+      expect(html, `item name ${name}`).toContain(name);
+    }
+    // the table's quoted one-line descriptions, verbatim
+    expect(html).toContain("One-tap answer choices.");
+    expect(html).toContain("Use when each answer has an icon.");
+    expect(html).toContain("Use when each answer has a logo or photo.");
+    expect(html).toContain("Reassurance line inside this question unit.");
+  });
+
+  it("§8.3 the dismissible Quote-Builder callout + the C7 trust scope note render with their exact copy", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the callout replaces the old Layout group's frame items
+    expect(html).toContain("data-studio-frame-callout");
+    expect(html).toContain("Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong>");
+    expect(html).toMatch(/data-studio-callout-open[^>]*>Open</);
+    expect(html).toMatch(/<a href="\/admin\/leadgen\/quotes"[^>]*data-studio-callout-open/);
+    expect(html).toContain("data-studio-callout-dismiss");
+    // the island persists the dismissal (localStorage key)
+    const island = studioIsland(html);
+    expect(island).toContain("lg-studio-frame-callout-dismissed");
+    // C7: the Trust & help scope note, verbatim
+    expect(html).toContain("data-trust-scope-note");
+    expect(html).toContain(
+      "These travel with this Section, inside the question unit. Funnel-wide trust strips, logo rows and the legal footer are configured in the Quote Builder.",
+    );
   });
 
   it("library items are role=button DIVS — preset thumbnails contain real <button>/<input> markup and nested interactive content inside a <button> is invalid HTML that shatters the page tree (D2 browser-exposure regression)", async () => {
@@ -366,11 +443,13 @@ describeDb("section studio SSR — §8.3 component library", () => {
       expect(block, `${type} thumb is preset-rendered`).toContain(`data-component-type="${type}"`);
       expect(block, `${type} has a scaled thumb`).toContain("studio-thumb-scale");
     }
-    // every placeable item carries a thumb
+    // every placeable item carries a thumb (§8.2: placeable = unit ∪ both —
+    // frame types left the palette)
+    const placeable = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope !== "frame");
     const thumbs = html.split("studio-thumb-scale").length - 1;
-    expect(thumbs).toBeGreaterThanOrEqual(ALL_TYPES.length);
-    // copy + metadata per §8.3
-    expect(html).toContain("Two-button yes/no");
+    expect(thumbs).toBeGreaterThanOrEqual(placeable.length);
+    // copy + metadata per §8.3 (v2.5 table display name)
+    expect(html).toContain("Yes / No");
     expect(html).toContain("Yes / No pair storing a boolean answer.");
     const yesno = libraryItemBlock(html, "TwoButtonYesNo");
     expect(yesno).toContain('class="studio-item-type">boolean<');
@@ -468,7 +547,8 @@ describeDb("section studio SSR — §8.6 inspector + §8.5 container props", () 
     const icon = selectBlock(html, "lg-inspector-iconColor");
     expect(icon).toContain("#1B3A5C"); // color.primary
     expect(icon).toContain("#E85D26"); // color.accent
-    expect(icon).toContain('<option value="">inherit</option>');
+    // §7.4: the no-override state reads as an inherited value
+    expect(icon).toContain('<option value="">Inherited (design default)</option>');
     const gap = selectBlock(html, "lg-inspector-gridGap");
     expect(gap).toContain("0.5rem"); // spacing.sm
     const columns = selectBlock(html, "lg-inspector-columns");
@@ -589,6 +669,16 @@ const MODEL_FUNCS = [
   "newQuestionId",
   "typeMeta",
   "isContainerType",
+  "typeLabel",
+  // §5.2 canonical headline binding model core
+  "bindForType",
+  "bindNoun",
+  "bindNodeType",
+  "stripInputFor",
+  "findBoundNode",
+  "unboundCandidate",
+  "insertBoundNodeAtTop",
+  "linkBoundNode",
   "walkTree",
   "findRefIn",
   "findRef",
@@ -787,11 +877,11 @@ describeDb("section studio EXECUTED island — §8.4 model mutations (vm-probe o
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
   });
 
-  it("breadcrumb text walks the ancestor chain: CardPanel › Stack › ButtonAnswerGroup", async () => {
+  it("breadcrumb text walks the ancestor chain in OPERATOR WORDS (§7.4 — labels, never raw type ids)", async () => {
     const probe = await probeHarness(NESTED_CONTENT);
-    expect(probe.run(`breadcrumbText('bag1')`)).toBe("CardPanel › Stack › ButtonAnswerGroup");
-    expect(probe.run(`breadcrumbText('stack1')`)).toBe("CardPanel › Stack");
-    expect(probe.run(`breadcrumbText('panel1')`)).toBe("CardPanel");
+    expect(probe.run(`breadcrumbText('bag1')`)).toBe("Question card › Stack › Simple answer buttons");
+    expect(probe.run(`breadcrumbText('stack1')`)).toBe("Question card › Stack");
+    expect(probe.run(`breadcrumbText('panel1')`)).toBe("Question card");
   });
 
   it("reorder within parent (toolbar/keyboard ↑↓ share moveWithin) — bounded at the edges", async () => {
@@ -2676,5 +2766,947 @@ describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", 
     });
     expect(byId.get("q_logos")!["props"]).toEqual({ logos: [{ mediaId: "media_1", alt: "Acme" }] });
     expect(byId.get("q_steps")!["props"]).toEqual({ steps: 4, current: 2 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — §5.1 Question strip + §5.2 canonical headline binding UX
+// (contract-v2.5 05; the strip and the bound canvas nodes are ONE store)
+// ---------------------------------------------------------------------------
+
+// A tiny recording DOM-element stub for EXECUTED island legs that build DOM
+// (the legacy bind banner, the §5.4 frame badge). Only the members the island
+// touches exist; listeners are recorded and manually invokable.
+interface StubEl {
+  tag: string;
+  className: string;
+  hidden: boolean;
+  disabled: boolean;
+  title: string;
+  type: string;
+  value: string;
+  textContent: string;
+  attrs: Record<string, string>;
+  children: StubEl[];
+  listeners: Record<string, Array<() => void>>;
+  readonly firstChild: StubEl | null;
+  setAttribute(k: string, v: string): void;
+  getAttribute(k: string): string | null;
+  removeAttribute(k: string): void;
+  appendChild(c: StubEl): StubEl;
+  removeChild(c: StubEl): StubEl;
+  insertBefore(c: StubEl, ref: StubEl | null): StubEl;
+  addEventListener(k: string, f: () => void): void;
+  click(): void;
+  allText(): string;
+}
+
+function stubEl(tag: string, text = ""): StubEl {
+  const el: StubEl = {
+    tag,
+    className: "",
+    hidden: false,
+    disabled: false,
+    title: "",
+    type: "",
+    value: "",
+    textContent: text,
+    attrs: {},
+    children: [],
+    listeners: {},
+    get firstChild(): StubEl | null {
+      return el.children[0] ?? null;
+    },
+    setAttribute(k: string, v: string): void {
+      el.attrs[k] = String(v);
+    },
+    getAttribute(k: string): string | null {
+      return Object.prototype.hasOwnProperty.call(el.attrs, k) ? el.attrs[k]! : null;
+    },
+    removeAttribute(k: string): void {
+      delete el.attrs[k];
+    },
+    appendChild(c: StubEl): StubEl {
+      el.children.push(c);
+      return c;
+    },
+    removeChild(c: StubEl): StubEl {
+      const i = el.children.indexOf(c);
+      if (i !== -1) el.children.splice(i, 1);
+      return c;
+    },
+    insertBefore(c: StubEl, ref: StubEl | null): StubEl {
+      const i = ref === null ? el.children.length : el.children.indexOf(ref);
+      el.children.splice(i === -1 ? el.children.length : i, 0, c);
+      return c;
+    },
+    addEventListener(k: string, f: () => void): void {
+      (el.listeners[k] = el.listeners[k] ?? []).push(f);
+    },
+    click(): void {
+      for (const f of el.listeners["click"] ?? []) f();
+    },
+    allText(): string {
+      return el.textContent + el.children.map((c) => c.allText()).join("");
+    },
+  };
+  return el;
+}
+
+const BOUND_SEED_CONTENT = {
+  components: [
+    { type: "QuestionHeadline", question_id: "q_bh", bind: "section_headline" },
+    { type: "Subheadline", question_id: "q_bs", bind: "section_subheadline" },
+    { type: "TwoButtonYesNo", question_id: "q1", internal_field: "currently_insured", answer_type: "boolean" },
+  ],
+};
+
+describeDb("v2.5 §5.1 SSR — the Question strip", () => {
+  it("canonical editors + Continue-behavior radio (values unchanged) + the EXACT frame note + hidden chips + legacy Maps row", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // canonical editors, §5.1 labels (same element ids — save path unchanged)
+    expect(html).toContain(">Question headline *</label>");
+    expect(html).toContain('id="lg-section-headline"');
+    expect(html).toContain(">Subheadline</label>");
+    expect(html).toContain('id="lg-section-subheadline"');
+    // Continue behavior: values unchanged, §5.1 operator labels + the note
+    expect(html).toContain(">Continue behavior</legend>");
+    expect(html).toContain('name="continue_mode" value="button"');
+    expect(html).toContain('name="continue_mode" value="auto_advance"');
+    expect(html).toContain("Visitor taps Continue (validates first)");
+    expect(html).toContain("Advance automatically on answer");
+    // served bytes carry the typographic apostrophes as entities
+    expect(html).toContain(
+      "The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.",
+    );
+    // §5.2 hidden-in-unit chips (SSR'd hidden; island toggles)
+    expect(html).toMatch(/data-bound-chip="section_headline"[^>]*hidden/);
+    expect(html).toMatch(/data-bound-chip="section_subheadline"[^>]*hidden/);
+    expect(html).toContain("Hidden in this question unit");
+    expect(html).toMatch(/data-bound-show="section_headline"[^>]*>Show</);
+    // the legacy global Maps checkbox row stays (compat)
+    expect(html).toContain('id="lg-address-validation"');
+    expect(html).toContain("data-maps-legacy-note");
+    // the legacy-link banner slot ships hidden
+    expect(html).toMatch(/data-bind-banner[^>]*hidden/);
+  });
+
+  it("/new seeds BOUND QuestionHeadline + Subheadline as nodes 1–2 in BOTH the blob and the SSR canvas; palette bind items start disabled", async () => {
+    const { env } = newHarness();
+    const html = await getHtml(env, "/admin/leadgen/sections/new");
+    const data = extractJsonBlob(html, "lg-section-data");
+    const content = data["content"] as { components: Array<Record<string, unknown>> };
+    expect(content.components).toHaveLength(2);
+    expect(content.components[0]).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    expect(content.components[1]).toMatchObject({ type: "Subheadline", bind: "section_subheadline" });
+    expect(content.components[0]!["props"]).toBeUndefined(); // bound = NO props.text
+    // seeded content validates CLEAN against the REAL server validator
+    expect(validateSectionContent(content).errors).toEqual([]);
+    // the SSR canvas rendered the bound nodes (empty text until typed)
+    const start = html.indexOf('id="lg-studio-canvas-render"');
+    const region = html.slice(start, html.indexOf("data-studio-canvas-empty", start));
+    expect(region).toContain('data-component-type="QuestionHeadline"');
+    expect(region).toContain('data-component-type="Subheadline"');
+    // §5.2: while a bound node exists the palette items are disabled with the
+    // EXACT tooltip
+    expect(html).toMatch(
+      /data-add-component="QuestionHeadline"[^>]*data-bind-disabled="true"[^>]*title="This Section already shows its headline"/,
+    );
+    expect(html).toMatch(
+      /data-add-component="Subheadline"[^>]*data-bind-disabled="true"[^>]*title="This Section already shows its subheadline"/,
+    );
+  });
+
+  it("a legacy Section (no bound nodes) serves ENABLED palette bind items and an SSR canvas that resolves bound text when present", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env); // YESNO content — no headline nodes
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(/data-add-component="QuestionHeadline"[^>]*data-bind-disabled="false"/);
+    expect(html).toMatch(/data-add-component="Subheadline"[^>]*data-bind-disabled="false"/);
+
+    // a section WITH a bound node SSRs the canonical column text into the
+    // canvas (studioCanvasDocument threads sectionCtx)
+    const bound = await createSection(env, {
+      section_name: "Bound",
+      headline_text: "Are you currently insured?",
+      content_json: JSON.stringify(BOUND_SEED_CONTENT),
+    });
+    const boundHtml = await studioPage(env, bound.public_id);
+    const start = boundHtml.indexOf('id="lg-studio-canvas-render"');
+    const region = boundHtml.slice(start, boundHtml.indexOf("data-studio-canvas-empty", start));
+    expect(region).toContain('class="lg-headline"');
+    expect(region).toContain("Are you currently insured?");
+  });
+});
+
+describeDb("v2.5 §5.2 EXECUTED — binding model (vm-probe of the served code)", () => {
+  async function boundProbe(content: unknown, docStub?: Record<string, unknown>): Promise<StudioProbe> {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    return studioProbe(html, content, docStub);
+  }
+
+  it("palette insert creates a BOUND node (no props.text); a second insert is REFUSED with the exact tooltip copy", async () => {
+    const probe = await boundProbe({ components: [] });
+    const head = probe.run(`addComponentAt('QuestionHeadline', null, null)`) as Record<string, unknown>;
+    expect(head).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    expect(head["props"]).toBeUndefined();
+    const sub = probe.run(`addComponentAt('Subheadline', null, null)`) as Record<string, unknown>;
+    expect(sub).toMatchObject({ type: "Subheadline", bind: "section_subheadline" });
+    // the pair validates CLEAN against the REAL validator (bound waives text)
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // §5.2: one bound node per bind value — the second insert refuses
+    expect(probe.run(`addComponentAt('QuestionHeadline', null, null)`)).toBeNull();
+    expect(probe.sandbox.refusals).toContain("This Section already shows its headline");
+    expect(probe.run(`addComponentAt('Subheadline', null, null)`)).toBeNull();
+    expect(probe.sandbox.refusals).toContain("This Section already shows its subheadline");
+    expect((probe.sandbox.state.content.components as unknown[]).length).toBe(2);
+  });
+
+  it("delete bound node keeps the canonical store; [Show] re-inserts the bound node AT THE TOP (§5.2 chip semantics)", async () => {
+    const probe = await boundProbe(BOUND_SEED_CONTENT);
+    expect(probe.run(`findBoundNode('section_headline')`)).not.toBeNull();
+    probe.run(`removeNode('q_bh')`);
+    expect(probe.run(`findBoundNode('section_headline')`)).toBeNull();
+    // the strip store is a Section COLUMN — deleting the node never touches it
+    // (model-side: nothing in content carries the text at all)
+    const reinserted = probe.run(`insertBoundNodeAtTop('section_headline')`) as Record<string, unknown>;
+    expect(reinserted).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    const components = probe.sandbox.state.content.components as Array<Record<string, unknown>>;
+    expect(components[0]!["question_id"]).toBe(reinserted["question_id"]); // AT THE TOP
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // idempotent: a second Show is a no-op while the bound node exists
+    expect(probe.run(`insertBoundNodeAtTop('section_headline')`)).toBeNull();
+  });
+
+  it("duplicating the bound node directly is REFUSED; duplicating a container DETACHES the bound child into a text snapshot (no duplicate bind)", async () => {
+    const strip = { value: "Are you insured?" };
+    const docStub = {
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = await boundProbe(
+      {
+        components: [
+          {
+            type: "Stack",
+            question_id: "s1",
+            children: [{ type: "QuestionHeadline", question_id: "q_bh", bind: "section_headline" }],
+          },
+        ],
+      },
+      docStub,
+    );
+    // direct duplicate of the bound node → refusal
+    expect(probe.run(`duplicateNode('q_bh')`)).toBeNull();
+    expect(probe.sandbox.refusals.length).toBe(1);
+    expect(String(probe.sandbox.refusals[0])).toContain("This Section already shows its headline");
+    // container duplicate detaches the clone's bind into the CURRENT canonical text
+    const clone = probe.run(`duplicateNode('s1')`) as { children: Array<Record<string, unknown>> };
+    expect(clone).not.toBeNull();
+    expect(clone.children[0]!["bind"]).toBeUndefined();
+    expect((clone.children[0]!["props"] as Record<string, unknown>)["text"]).toBe("Are you insured?");
+    // still exactly ONE bound node — the whole tree validates CLEAN
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+  });
+
+  it("linkBoundNode: byte-equal one-click link sets bind + drops props.text; differing text lets the picked value WIN into the strip store", async () => {
+    const strip = { value: "Are you insured?" };
+    const docStub = {
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    const probe = await boundProbe(
+      { components: [{ type: "QuestionHeadline", question_id: "q_h", props: { text: "Are you insured?" } }] },
+      docStub,
+    );
+    // byte-equal case: winnerText null keeps the canonical value
+    expect(probe.run(`unboundCandidate('section_headline')`)).not.toBeNull();
+    expect(probe.run(`linkBoundNode('q_h', 'section_headline', null)`)).toBe(true);
+    const linked = probe.run(`findRef('q_h').node`) as Record<string, unknown>;
+    expect(linked["bind"]).toBe("section_headline");
+    expect(linked["props"]).toBeUndefined(); // props.text dropped + cleaned up
+    expect(strip.value).toBe("Are you insured?");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // differing case: the operator picked the COMPONENT's text — it wins into
+    // the strip store before binding
+    const strip2 = { value: "Old canonical" };
+    const probe2 = await boundProbe(
+      { components: [{ type: "QuestionHeadline", question_id: "q_h2", props: { text: "New from node" } }] },
+      {
+        getElementById(id: string) {
+          return id === "lg-section-headline" ? strip2 : null;
+        },
+        querySelector() {
+          return null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+      },
+    );
+    expect(probe2.run(`linkBoundNode('q_h2', 'section_headline', 'New from node')`)).toBe(true);
+    expect(strip2.value).toBe("New from node");
+    const linked2 = probe2.run(`findRef('q_h2').node`) as Record<string, unknown>;
+    expect(linked2["bind"]).toBe("section_headline");
+    expect(linked2["props"]).toBeUndefined();
+  });
+
+  it("computeIssues waives the text requirement for BOUND nodes only (unbound headline still flagged, in operator words)", async () => {
+    const probe = await boundProbe({
+      components: [
+        { type: "QuestionHeadline", question_id: "q_bound", bind: "section_headline" },
+        { type: "QuestionHeadline", question_id: "q_free" }, // missing props.text
+      ],
+    });
+    const issues = probe.run(`computeIssues()`) as Array<{ qid: string; message: string }>;
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.qid).toBe("q_free");
+    expect(issues[0]!.message).toContain("Question headline"); // label, not type id
+    expect(issues[0]!.message).not.toContain("QuestionHeadline");
+  });
+
+  it("the legacy link banner renders BOTH cases from the live model and its buttons run the real link handlers", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const banner = stubEl("div");
+    banner.attrs["data-bind-banner"] = "";
+    const strip = { value: "Are you insured?" };
+    const docStub = {
+      querySelector(sel: string) {
+        return sel === "[data-bind-banner]" ? banner : null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      getElementById(id: string) {
+        return id === "lg-section-headline" ? strip : null;
+      },
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+    };
+    // BYTE-EQUAL case → the one-click link button
+    const probe = studioProbe(
+      html,
+      { components: [{ type: "QuestionHeadline", question_id: "q_h", props: { text: "Are you insured?" } }] },
+      docStub,
+    );
+    probe.run(sliceIslandFunction(island, "clearChildren"));
+    probe.run(sliceIslandFunction(island, "bindBannerButton"));
+    probe.run(sliceIslandFunction(island, "bindBannerLinkHandler"));
+    probe.run(sliceIslandFunction(island, "renderBindBanner"));
+    probe.run("renderBindBanner()");
+    expect(banner.hidden).toBe(false);
+    expect(banner.children).toHaveLength(1);
+    const row = banner.children[0]!;
+    expect(row.getAttribute("data-bind-banner-case")).toBe("equal");
+    const linkBtn = row.children.find((c) => c.tag === "button")!;
+    expect(linkBtn.textContent).toBe("Link headline to the Section’s canonical headline");
+    linkBtn.click(); // the real handler → linkBoundNode
+    const node = probe.run("findRef('q_h').node") as Record<string, unknown>;
+    expect(node["bind"]).toBe("section_headline");
+    expect(node["props"]).toBeUndefined();
+    // linked → the banner re-render empties + hides itself
+    probe.run("renderBindBanner()");
+    expect(banner.hidden).toBe(true);
+    expect(banner.children).toHaveLength(0);
+
+    // DIFFERING case → both values shown; picking the component's text wins
+    const banner2 = stubEl("div");
+    const strip2 = { value: "Old canonical" };
+    const probe2 = studioProbe(
+      html,
+      { components: [{ type: "QuestionHeadline", question_id: "q_h2", props: { text: "New from node" } }] },
+      {
+        querySelector(sel: string) {
+          return sel === "[data-bind-banner]" ? banner2 : null;
+        },
+        querySelectorAll() {
+          return [];
+        },
+        getElementById(id: string) {
+          return id === "lg-section-headline" ? strip2 : null;
+        },
+        createElement(tag: string) {
+          return stubEl(tag);
+        },
+        createTextNode(text: string) {
+          return stubEl("#text", text);
+        },
+      },
+    );
+    probe2.run(sliceIslandFunction(island, "clearChildren"));
+    probe2.run(sliceIslandFunction(island, "bindBannerButton"));
+    probe2.run(sliceIslandFunction(island, "bindBannerLinkHandler"));
+    probe2.run(sliceIslandFunction(island, "renderBindBanner"));
+    probe2.run("renderBindBanner()");
+    const row2 = banner2.children[0]!;
+    expect(row2.getAttribute("data-bind-banner-case")).toBe("differs");
+    // BOTH values are shown
+    expect(row2.allText()).toContain("“Old canonical”");
+    expect(row2.allText()).toContain("“New from node”");
+    const buttons = row2.children.filter((c) => c.tag === "button");
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "Keep the Section headline",
+      "Use this component’s text",
+    ]);
+    buttons[1]!.click();
+    expect(strip2.value).toBe("New from node");
+    expect((probe2.run("findRef('q_h2').node") as Record<string, unknown>)["bind"]).toBe("section_headline");
+  });
+
+  it("SAVE seam: bound content PATCHes through the REAL router and reads back with the bind markers intact", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const probeContent = JSON.parse(JSON.stringify(BOUND_SEED_CONTENT)) as Record<string, unknown>;
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probeContent), headline_text: "Are you currently insured?" }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as {
+      content_json: { components: Array<Record<string, unknown>> };
+    };
+    expect(saved.content_json.components[0]).toMatchObject({ type: "QuestionHeadline", bind: "section_headline" });
+    expect(saved.content_json.components[1]).toMatchObject({ type: "Subheadline", bind: "section_subheadline" });
+  });
+});
+
+describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)", () => {
+  it("renderCanvasNow sends the LIVE strip values (headline/subheadline) and the server resolves them into the bound nodes' markup", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const region = { innerHTML: "" };
+    let captured: { url: string; init: RequestInit } | null = null;
+    const sandbox = {
+      state: { content: JSON.parse(JSON.stringify(BOUND_SEED_CONTENT)) as unknown },
+      document: {
+        getElementById(id: string) {
+          if (id === "lg-studio-canvas-render") return region;
+          if (id === "lg-section-headline") return { value: "Live typed headline" };
+          if (id === "lg-section-subheadline") return { value: "Live sub copy" };
+          return null;
+        },
+      },
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        captured = { url, init };
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      "function applyCanvasDecoration() {}",
+      "function updateCanvasEmpty() {}",
+      sliceIslandFunction(island, "renderCanvasNow"),
+      "renderCanvasNow();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && region.innerHTML === ""; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(captured, "canvas fetch executed").not.toBeNull();
+    const body = JSON.parse(String(captured!.init.body)) as Record<string, unknown>;
+    // §5.2: the strip store rides the render request…
+    expect(body["headline"]).toBe("Live typed headline");
+    expect(body["subheadline"]).toBe("Live sub copy");
+    // …and the REAL preview handler resolved it into the BOUND nodes' markup
+    expect(region.innerHTML).toContain("Live typed headline");
+    expect(region.innerHTML).toContain("Live sub copy");
+    expect(region.innerHTML).toContain('data-component-type="QuestionHeadline"');
+  });
+
+  it("the island wires the one-store views: strip inputs re-render the canvas; the inspector shared field writes the strip (handler source)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // strip → canvas: both canonical inputs schedule the (bound-resolving) re-render
+    expect(island).toContain("stripHeadline.addEventListener('input', onStripInput)");
+    expect(island).toContain("stripSubheadline.addEventListener('input', onStripInput)");
+    expect(sliceIslandFunction(island, "onStripInput")).toContain("scheduleCanvasRender()");
+    // inspector shared field → strip store (ONE store, never a second field)
+    const collect = sliceIslandFunction(island, "collectBoundShared");
+    expect(collect).toContain("strip.value = inputEl.value");
+    expect(collect).toContain("scheduleCanvasRender()");
+    expect(island).toContain("boundSharedInput.addEventListener('input', collectBoundShared)");
+    // the §5.2 inspector label for the shared single field (headline + the
+    // subheadline variant, island-swapped)
+    expect(html).toContain("Question headline (shared with the Section header above)");
+    expect(island).toContain("Subheadline (shared with the Section header above)");
+    // selecting a bound node hides the generic props.text control (no second
+    // text field anywhere)
+    expect(island).toContain("!(isBound && k === 'text')");
+    // the chip [Show] wiring re-inserts at the top and selects it
+    expect(island).toContain("insertBoundNodeAtTop(this.getAttribute('data-bound-show'))");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — §5.4 canvas scope: Frame hint + the amber page-frame badge
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 §5.4 — unit-only canvas scope", () => {
+  it("SSR: the Frame hint toggle + the dimmed non-interactive skeleton (presentation-only) ship in the canvas region", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(/data-studio-frame-hint[^>]*aria-pressed="false"/);
+    expect(html).toContain(">Frame hint</button>");
+    // the two skeleton edges ship HIDDEN, aria-hidden, and the CSS keeps them
+    // dimmed + inert (never editable here)
+    expect(html).toMatch(/data-studio-frame-skeleton="top"[^>]*hidden/);
+    expect(html).toMatch(/data-studio-frame-skeleton="bottom"[^>]*hidden/);
+    expect(html).toContain(".studio-frame-skeleton{opacity:.35;pointer-events:none");
+    // the island toggle flips aria-pressed + unhides both skeletons
+    const island = studioIsland(html);
+    expect(island).toContain("data-studio-frame-hint");
+    expect(island).toContain("skels[i].hidden = !on");
+  });
+
+  it("the meta blob carries §8.2 scope for every type; buildFrameBadge emits the amber badge with a DISABLED Move affordance + Keep + the C2 consequence", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // scope rides the served meta blob (the island's badge decision input)
+    const meta = extractJsonBlob(html, "lg-studio-meta")["types"] as Record<string, Record<string, unknown>>;
+    expect(meta["HeaderBar"]!["scope"]).toBe("frame");
+    expect(meta["ProgressBar"]!["scope"]).toBe("frame");
+    expect(meta["BackgroundPanel"]!["scope"]).toBe("frame");
+    expect(meta["TrustBar"]!["scope"]).toBe("both");
+    expect(meta["TwoButtonYesNo"]!["scope"]).toBe("unit");
+
+    // EXECUTED: the badge builder from the SERVED island
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT, {
+      createElement(tag: string) {
+        return stubEl(tag);
+      },
+      createTextNode(text: string) {
+        return stubEl("#text", text);
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+      getElementById() {
+        return null;
+      },
+    });
+    probe.run(sliceIslandFunction(island, "buildFrameBadge"));
+    const badge = probe.run("buildFrameBadge('q_hb', 'HeaderBar')") as unknown as StubEl;
+    expect(badge.className).toBe("studio-frame-badge");
+    expect(badge.getAttribute("data-frame-badge")).toBe("q_hb");
+    expect(badge.allText()).toContain("Page-frame element — belongs to the Quote frame ·");
+    const move = badge.children.find((c) => c.getAttribute("data-frame-move") !== null)!;
+    expect(move.allText()).toBe("Move to Quote frame");
+    expect(move.disabled, "the Move ACTION is wave 2 — affordance ships disabled/pending").toBe(true);
+    expect(move.title).toContain("Quote frame");
+    const keep = badge.children.find((c) => c.getAttribute("data-frame-keep") !== null)!;
+    expect(keep.allText()).toBe("Keep (legacy)");
+    // C2 (§5.4): the badge NAMES the activation consequence
+    expect(badge.allText()).toContain(
+      "While a funnel using this Section has a configured frame, activation blocks on this element unless that funnel’s Advanced legacy override allows it.",
+    );
+    // the decoration pass gates on scope === 'frame' + the session Keep store,
+    // and the canvas click handler consumes [data-frame-keep] with NO model change
+    expect(island).toContain("typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true");
+    expect(island).toContain("keptLegacyFrameNodes[keepBtn.getAttribute('data-frame-keep')] = true");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — §7.1/§7.2/§7.3 scope-aware inspector
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 §7 — scope header, pills, dynamic tabs", () => {
+  it("§7.1 SSR: the scope header is the inspector's FIRST element — Editing line, four pills (frame disabled here), Affects line, aria-live", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const inspectorStart = html.indexOf("data-studio-inspector");
+    const headerAt = html.indexOf("data-studio-scope-header", inspectorStart);
+    const tabsAt = html.indexOf('role="tablist"', inspectorStart);
+    expect(headerAt).toBeGreaterThan(-1);
+    expect(headerAt, "scope header precedes the tab strip").toBeLessThan(tabsAt);
+    expect(html).toMatch(/data-studio-scope-header[^>]*aria-live="polite"/);
+    expect(html).toContain('data-scope-editing-name>This Section (question unit)<');
+    for (const pill of ["frame", "section", "component", "choice"]) {
+      expect(html, `pill ${pill}`).toContain(`data-scope-pill="${pill}"`);
+    }
+    // §7.2: the frame is Quote-Builder-owned — its pill is inert here
+    expect(html).toMatch(/data-scope-pill="frame"[^>]*disabled[^>]*title="Page-frame elements are edited in the Quote Builder"/);
+    expect(html).toMatch(/data-scope-pill="section"[^>]*aria-pressed="true"/);
+    expect(html).toContain("data-scope-affects");
+    // the old id/type head is GONE (§7.4: no ids on a normal surface)
+    expect(html).not.toContain('id="lg-inspector-target"');
+    // the Section-scope helper note points at the strip
+    expect(html).toContain("data-studio-section-scope-note");
+    // the retarget is announced/animated + the §7.5 Advanced-open event exists
+    const island = studioIsland(html);
+    expect(island).toContain("studio-scope-flash");
+    expect(island).toContain("window.console.info('section_advanced_opened'");
+    // choice-row focus retargets the scope header (§7.5 — synchronous handler)
+    expect(island).toContain("choicesPanelWrap.addEventListener('focusin'");
+    expect(island).toContain("setScope('choice')");
+  });
+
+  it("§7.1 EXECUTED: the header copy patterns per scope (operator words; Section cites the usage count; choice = 'this card only')", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(sliceIslandFunction(island, "scopeEditingName"));
+    probe.run(sliceIslandFunction(island, "scopeAffectsText"));
+    probe.run("var scopeState = 'section'; var choiceScopeLabel = ''; var usageQuoteCount = null;");
+
+    // Section scope + live usage counts
+    expect(probe.run("scopeEditingName(null)")).toBe("This Section (question unit)");
+    expect(probe.run("scopeAffectsText(null)")).toBe("Affects: changes apply everywhere this Section is used.");
+    probe.run("usageQuoteCount = 0");
+    expect(probe.run("scopeAffectsText(null)")).toBe("Affects: not used in any quote yet.");
+    probe.run("usageQuoteCount = 2");
+    expect(probe.run("scopeAffectsText(null)")).toBe(
+      "Affects: used in 2 quotes; changes apply everywhere it’s used.",
+    );
+
+    // Component scope: the LABEL, never the type id (§7.4)
+    probe.run("scopeState = 'component'");
+    expect(probe.run("scopeEditingName({ type: 'ImageCardAnswerGrid' })")).toBe("Image answer cards");
+    expect(probe.run("scopeAffectsText({ type: 'ImageCardAnswerGrid' })")).toBe(
+      "Affects: this question unit — in every quote that uses this Section.",
+    );
+    // a legacy frame node names its real owner
+    expect(probe.run("scopeAffectsText({ type: 'HeaderBar' })")).toContain("edited in the Quote Builder");
+
+    // Choice scope: the §7.1 binding pattern
+    probe.run("scopeState = 'choice'; choiceScopeLabel = 'Sole Proprietor';");
+    expect(probe.run("scopeEditingName({ type: 'IconCardAnswerGrid' })")).toBe("Answer choice “Sole Proprietor”");
+    expect(probe.run("scopeAffectsText({ type: 'IconCardAnswerGrid' })")).toBe("Affects: this card only.");
+  });
+
+  it("§7.3 EXECUTED: tabs are DYNAMIC per selection — copy-bearing Content, frame nodes lose unit tabs, containers gain Design, no inapplicable tab", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, YESNO_CONTENT);
+    probe.run(sliceIslandFunction(island, "availableTabsFor"));
+    const tabsOf = (expr: string): string[] => probe.run(`availableTabsFor(${expr})`) as string[];
+
+    // nothing selected → NO tabs (Section scope edits live in the strip)
+    expect(tabsOf("null")).toEqual([]);
+    // a BOUND node is copy-bearing (the shared field) — Content present
+    expect(tabsOf("{ type: 'QuestionHeadline', bind: 'section_headline' }")).toEqual([
+      "content",
+      "design",
+      "dependencies",
+      "advanced",
+    ]);
+    // answer-producing choice grid: the full §7.3 row
+    expect(tabsOf("{ type: 'ImageCardAnswerGrid' }")).toEqual([
+      "content",
+      "choices",
+      "design",
+      "validation",
+      "dependencies",
+      "mapping",
+      "advanced",
+    ]);
+    // ZIP input adds Maps; no Choices
+    expect(tabsOf("{ type: 'ZIPInputQuestion' }")).toEqual([
+      "content",
+      "design",
+      "validation",
+      "maps",
+      "dependencies",
+      "mapping",
+      "advanced",
+    ]);
+    // containers are a visual selection → Design joins their Layout tab
+    expect(tabsOf("{ type: 'Stack' }")).toEqual(["layout", "design", "dependencies", "advanced"]);
+    expect(tabsOf("{ type: 'Spacer' }")).toEqual(["layout", "design", "dependencies", "advanced"]);
+    // a legacy PAGE-FRAME element is NOT a unit component: no design/
+    // validation/dependencies/mapping — copy/structured props + Advanced only
+    expect(tabsOf("{ type: 'HeaderBar' }")).toEqual(["layout", "advanced"]);
+    expect(tabsOf("{ type: 'ProgressBar' }")).toEqual(["content", "advanced"]);
+    // affordances with copy stay lean
+    expect(tabsOf("{ type: 'ReassuranceBadge' }")).toEqual(["content", "design", "dependencies", "advanced"]);
+  });
+
+  it("§7.4: the rename consequence is inline and counted against the LIVE mapping model; Advanced owns the bind marker", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // consequence copy pattern ("will unlink N Offer mappings — they'll need
+    // remapping") counted from state.answer_maps
+    const warn = sliceIslandFunction(island, "showRenameWarning");
+    expect(warn).toContain("state.answer_maps[mi].internal_field === oldField");
+    expect(warn).toContain("will unlink ' + mapCount + ' Offer mapping");
+    expect(warn).toContain("need remapping");
+    // the Advanced tab carries the read-only bind marker slot
+    expect(html).toContain("data-studio-bind-marker");
+    expect(island).toContain("node.bind !== undefined ? node.bind : '\\u2014'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — C6 language lint: "slide" never appears in the Section Studio
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 C6 — the Section Builder never says 'slide'", () => {
+  it("the FULL served studio page (edit + new) carries no 'slide' word in any casing (SSR copy, island JS, blobs, styles)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const editHtml = await studioPage(env, section.public_id);
+    const newHtml = await getHtml(env, "/admin/leadgen/sections/new");
+    for (const [label, html] of [
+      ["edit", editHtml],
+      ["new", newHtml],
+    ] as const) {
+      // the WORD "slide" (slide/slides/slideshow…) is the forbidden operator
+      // vocabulary. Exempt: "slider" (platform identifiers — ARIA
+      // role="slider", ::-webkit-slider-thumb — and the §8.3 item name
+      // "Slider") and interior identifier fragments (the shell's
+      // toastSlideIn keyframes), neither of which describes a Section as a
+      // "slide" to an operator. Capture ±20 chars so a violation names itself.
+      const hits = [...html.matchAll(/.{0,20}\bslide(?!r)[a-z]*.{0,20}/gi)].map((m) => m[0]);
+      expect(hits, `${label} page says 'slide' ${hits.length}x`).toEqual([]);
+    }
+    // and the sections LIST page empty-state stopped calling a Section a slide
+    const listHtml = await getHtml(env, "/admin/leadgen/sections");
+    expect(listHtml.toLowerCase()).not.toContain("quote slide");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2.5 wave-1 — A5 image_alt samples + A6 image_fit component prop
+// ---------------------------------------------------------------------------
+
+describeDb("v2.5 A5 — image-grid samples always carry image_alt", () => {
+  it("palette insert of ImageCardAnswerGrid is validator-CLEAN and SAVES through the real router (pre-fix: alt-less samples 400'd)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, { components: [] });
+    const node = probe.run(`addComponentAt('ImageCardAnswerGrid', null, null)`) as {
+      choices: Array<Record<string, unknown>>;
+    };
+    expect(node).not.toBeNull();
+    for (const choice of node.choices) {
+      expect(typeof choice["imageMediaId"]).toBe("string");
+      expect(typeof choice["image_alt"], "image_alt rides every sampled image choice").toBe("string");
+      expect(choice["image_alt"]).toBe(choice["label"]);
+    }
+    // the REAL validator accepts the palette-authored grid…
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // …and the REAL save path persists it (the A5 repro: this PATCH failed
+    // save validation while the samples lacked image_alt)
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probe.sandbox.state.content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+  });
+
+  it("bulk paste for an image grid carries image_alt per pasted choice; the choice-row editor PRESERVES image_alt through an edit", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const probe = studioProbe(html, { components: [] });
+    const parsed = probe.run(`parseBulkChoices('Toyota|toyota\\nHonda', { choice_image: true })`) as Array<
+      Record<string, unknown>
+    >;
+    expect(parsed).toEqual([
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_toyota", image_alt: "Toyota" },
+      { label: "Honda", value: "honda", analytics_id: "honda", imageMediaId: "media_honda", image_alt: "Honda" },
+    ]);
+    const content = {
+      components: [{ type: "ImageCardAnswerGrid", question_id: "g1", internal_field: "make", choices: parsed }],
+    };
+    expect(validateSectionContent(content).errors).toEqual([]);
+    // the row editor lists image_alt so collectChoices (which rebuilds each
+    // choice from the row inputs) can never silently drop it
+    const island = studioIsland(html);
+    expect(island).toContain(
+      "var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'icon', 'imageMediaId', 'image_alt', 'description']",
+    );
+    // the SSR thumbnail sample carries alt too (served page renders real alts)
+    expect(html).toContain('alt="Yes, currently"');
+  });
+});
+
+describeDb("v2.5 A6 — image_fit is a COMPONENT prop on ImageCardAnswerGrid", () => {
+  const gridWith = (props: Record<string, unknown> | undefined, choices?: Array<Record<string, unknown>>): Record<string, unknown> => ({
+    type: "ImageCardAnswerGrid",
+    question_id: "g1",
+    internal_field: "make",
+    choices: choices ?? [
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_t", image_alt: "Toyota" },
+    ],
+    ...(props === undefined ? {} : { props }),
+  });
+
+  it("schema: cover/contain validate; any other value is a typed enum violation at the precise path", () => {
+    expect(validateSectionContent({ components: [gridWith({ image_fit: "cover" })] }).errors).toEqual([]);
+    expect(validateSectionContent({ components: [gridWith({ image_fit: "contain" })] }).errors).toEqual([]);
+    expect(validateSectionContent({ components: [gridWith(undefined)] }).errors).toEqual([]);
+    const bad = validateSectionContent({ components: [gridWith({ image_fit: "stretch" })] });
+    expect(bad.errors).toHaveLength(1);
+    expect(bad.errors[0]).toMatchObject({
+      code: "container_prop_invalid",
+      path: "components[0].props.image_fit",
+    });
+    expect(bad.errors[0]!.message).toContain("cover|contain");
+  });
+
+  it("preset: the component prop drives object-fit for EVERY card; a legacy per-choice value stays the fallback; the component prop WINS", () => {
+    const choices = [
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_t", image_alt: "Toyota" },
+      { label: "Honda", value: "honda", analytics_id: "honda", imageMediaId: "media_h", image_alt: "Honda", image_fit: "contain" },
+    ];
+    // component prop → both cards carry it (per-choice legacy is overridden)
+    const withProp = renderComponent(
+      gridWith({ image_fit: "cover" }, choices) as unknown as LeadgenComponentNode,
+      defaultFunnelDesign,
+    );
+    expect((withProp.match(/object-fit:cover/g) ?? []).length).toBe(2);
+    expect(withProp).not.toContain("object-fit:contain");
+    // no component prop → the per-choice defensive read still applies
+    const legacyOnly = renderComponent(gridWith(undefined, choices) as unknown as LeadgenComponentNode, defaultFunnelDesign);
+    expect((legacyOnly.match(/object-fit:contain/g) ?? []).length).toBe(1);
+    expect(legacyOnly).not.toContain("object-fit:cover");
+    // neither → today's attribute-free <img> (byte-compat pin lives in
+    // leadgen-image-card-choice.test.ts)
+    const bare = renderComponent(
+      gridWith(undefined, [choices[0]!]) as unknown as LeadgenComponentNode,
+      defaultFunnelDesign,
+    );
+    expect(bare).not.toContain("object-fit");
+  });
+
+  it("studio: the Design-tab control writes props.image_fit through the standard collect path, gated to the image grid, and PATCHes for real", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // SSR: the control lives on the DESIGN panel (A6 placement decision),
+    // hidden until an image grid is selected
+    const designPanel = html.slice(
+      html.indexOf('data-studio-panel="design"'),
+      html.indexOf('data-studio-panel="validation"'),
+    );
+    expect(designPanel).toMatch(/data-image-fit-wrap[^>]*hidden/);
+    const fitSelect = selectBlock(html, "lg-inspector-image-fit");
+    expect(fitSelect).toContain('data-inspector-field="image_fit"');
+    expect(fitSelect).toContain('<option value="cover">');
+    expect(fitSelect).toContain('<option value="contain">');
+    const island = studioIsland(html);
+    expect(island).toContain("node.type !== 'ImageCardAnswerGrid'");
+
+    // EXECUTED: the sliced generic field collector stores/clears the prop
+    const probe = studioProbe(html, {
+      components: [gridWith(undefined)],
+    });
+    probe.run(sliceIslandFunction(island, "collectInspectorField"));
+    probe.sandbox.selectedQuestionId = "g1";
+    const fitInput = (value: string): Record<string, unknown> => ({
+      type: "select-one",
+      value,
+      getAttribute(k: string): string | null {
+        return k === "data-inspector-field" ? "image_fit" : null;
+      },
+    });
+    probe.sandbox["__fit"] = fitInput("cover");
+    probe.run("collectInspectorField(__fit)");
+    let node = probe.run("findRef('g1').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["image_fit"]).toBe("cover");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+
+    // …and the REAL router round-trips it
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { content_json: JSON.stringify(probe.sandbox.state.content) }),
+      env,
+    );
+    expect(patch.status, await patch.clone().text()).toBe(200);
+    const saved = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as {
+      content_json: { components: Array<Record<string, unknown>> };
+    };
+    expect((saved.content_json.components[0]!["props"] as Record<string, unknown>)["image_fit"]).toBe("cover");
+
+    // clearing the select deletes the prop (back to the default fit)
+    probe.sandbox["__clear"] = fitInput("");
+    probe.run("collectInspectorField(__clear)");
+    node = probe.run("findRef('g1').node") as { props?: Record<string, unknown> };
+    expect(node.props?.["image_fit"]).toBeUndefined();
+  });
+});
+
+describeDb("v2.5 §2.4 — 'Used in N quotes' from the REAL usage endpoint", () => {
+  it("loadUsage counts DISTINCT quotes (3 variant usages across 2 quotes → 2) through GET /sections/:id/usage", async () => {
+    const { sdb, env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // REAL P7 rows: two quotes; quote 1 has two variants using the Section
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, ?, ?, ?)").run("lgq_aaaaaaaaaaaa", "Quote A", "quote_funnel", '["life"]');
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, ?, ?, ?)").run("lgq_bbbbbbbbbbbb", "Quote B", "quote_funnel", '["life"]');
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, 1, ?)").run("lgf_aaaaaaaaaaaa", "Funnel A");
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, 2, ?)").run("lgf_bbbbbbbbbbbb", "Funnel B");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label) VALUES (?, 1, 'A')").run("lgn_aaaaaaaaaaaa");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label) VALUES (?, 1, 'B')").run("lgn_cccccccccccc");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label) VALUES (?, 2, 'A')").run("lgn_bbbbbbbbbbbb");
+    for (const variantId of [1, 2, 3]) {
+      sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 1)").run(variantId, section.id);
+    }
+    // EXECUTED: the island's loadUsage against the live router
+    const sandbox: Record<string, unknown> = {
+      state: { public_id: section.public_id },
+      usageQuoteCount: null,
+      encodeURIComponent,
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      "function renderScopeHeader() {}",
+      sliceIslandFunction(island, "loadUsage"),
+      "loadUsage();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && sandbox["usageQuoteCount"] === null; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(sandbox["usageQuoteCount"], "3 variant rows dedupe to 2 quotes").toBe(2);
   });
 });
