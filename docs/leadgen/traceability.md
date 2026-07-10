@@ -669,7 +669,7 @@ Built (contract 07 §19 + §18 + §20 + 09 §28/§30.3/§30.4):
 #### Phase C gates + row flips (recorded at phase exit)
 
 - Slices: wave C-1 `f078631` · studio wave 1 `7715ab9` · studio wave 2 `52d9222` · C-verify + lint sweep `661a476`. DEV-61…65 registered above.
-- Gates (conductor-run, 2026-07-10): `tsc` 0 · `vitest` **4486/4486 (340 files)** (+99 over Phase B) · `verify:all` PASS (bundle unchanged 39,957/40,960 — no engine edits this phase) · full Playwright ritual: (recorded at PR time).
+- Gates (conductor-run, 2026-07-10): `tsc` 0 · `vitest` **4486/4486 (340 files)** (+99 over Phase B) · `verify:all` PASS (bundle unchanged 39,957/40,960 — no engine edits this phase) · full Playwright ritual (fresh D1, DEV-67 count-integrity): **152/152 passed (2.3m) == `--list` total** — 143 prior + 9 section-builder rows, with the 17 modernized studio-patterns tests green (post-fix suite state: vitest **4501/4501 (340 files)**).
 - Row flips (named executing tests):
   - One canonical headline → **PASS** — binding executed seams (studio suite §5.2 block) + Playwright ① strip↔canvas one-store + no-duplicate-entry; A legs already green.
   - Scope-aware inspector → **PASS** — §7 header/pills/dynamic-tabs executed tests + Playwright ②; glossary-lint green.
