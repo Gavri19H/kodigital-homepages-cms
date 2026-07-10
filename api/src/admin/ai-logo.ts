@@ -16,6 +16,10 @@ import type { Context } from "hono";
 import type { Env } from "../env";
 import { getImageModel } from "../ai/models";
 import { generateLogoImage } from "../ai/generators/image";
+// LeadGen v2.5 10 §10.2: logo_media_id is a BRANDING key — this write path
+// must bump the site's leadgen_site_quotes.updated_at (activation_version
+// cache axis) exactly like the settings PATCH handler does.
+import { bumpLeadGenActivationVersionForBranding } from "../leadgen/branding";
 
 // T24: the admin AI-logo panel posts a LogoRequest — the operator's free-text
 // description (wire field `prompt`), a `style` keyword, and a `colorScheme`.
@@ -114,6 +118,17 @@ export async function handleAdminAiLogo(c: Context<{ Bindings: Env }>) {
     )
       .bind(site_id, LOGO_SETTING_KEY, outcome.storage_key)
       .run();
+
+    // 10 §10.2: the logo setting is a branding key — bump the site's LeadGen
+    // activation rows (updated_at = the shell cache-key's activation_version
+    // segment) so cached funnel shells re-bake the new logo. Guarded like the
+    // settings PATCH bump: the logo write above already succeeded, and a CMS
+    // deployment without the LeadGen tables must not fail the apply.
+    try {
+      await bumpLeadGenActivationVersionForBranding(c.env.DB, site_id);
+    } catch (err) {
+      console.error("leadgen branding activation bump failed (non-fatal):", err);
+    }
 
     return c.json({
       ok: true,

@@ -218,7 +218,7 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(html).toContain('id="lg-inspector-hint"');
   });
 
-  it("left structure panel: ordered slides (name/vertical/reorder/remove), add picker, mapping dot, slide-vocabulary auction marker", async () => {
+  it("left structure panel: ordered slides (name/vertical/reorder/remove), add picker, REAL mapping dot (DEV-59), slide-vocabulary auction marker", async () => {
     const { html } = await harness();
     expect(html).toContain('id="lg-section-list"');
     expect(html).toContain('id="lg-add-section"');
@@ -226,7 +226,11 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     expect(html).toContain("data-move-up");
     expect(html).toContain("data-move-down");
     expect(html).toContain("data-remove-section");
-    expect(html).toContain('data-mapping-status="unknown"');
+    // DEV-59: the dot shows REAL per-section mapping status from the
+    // structure body — these sections have no linked Offers → "none", in
+    // operator words; the placeholder "unknown" state is GONE.
+    expect(html).not.toContain('data-mapping-status="unknown"');
+    expect(html).toMatch(/lg-map-dot" data-mapping-status="none" title="No Offers selected yet"/);
     // §2.4: "slide" is Quote-Builder vocabulary; the §15.3 max-position rule
     // keeps exactly one marker.
     expect(html).toContain("Auction runs after this slide");
@@ -234,6 +238,83 @@ describeDb("Quote Builder frame studio — §4.1 panels", () => {
     // A/B switcher + Rules link out of the structure panel
     expect(html).toContain('data-goto-tab="ab"');
     expect(html).toContain('data-goto-tab="rules"');
+  });
+
+  it("DEV-59: the mapping dot decodes the section's REAL Offer-mapping verdict (complete/incomplete/none) end-to-end from the DB aggregates", async () => {
+    // fresh harness (never the cached one — this seeds offer rows)
+    const h = await studioHarness();
+    const rows = h.sdb
+      .prepare("SELECT s.id, s.public_id, s.section_name FROM leadgen_sections s ORDER BY s.id ASC")
+      .all() as Array<{ id: number; public_id: string; section_name: string }>;
+    const [s1, s2] = [rows[0]!, rows[1]!];
+    // seed one COMPLETE offer link on s1 and one SELECTED/not-started on s2
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, status) VALUES ('lgo_dotcomplete0000000000000000', 'Dot Offer A', 'p', 'quote_funnel', 'life', 's2s_postback', 'cpc', 'active')",
+      )
+      .run();
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_offers (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type, status) VALUES ('lgo_dotselected0000000000000000', 'Dot Offer B', 'p', 'quote_funnel', 'life', 's2s_postback', 'cpc', 'active')",
+      )
+      .run();
+    const offerA = (h.sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = 'lgo_dotcomplete0000000000000000'").get() as { id: number }).id;
+    const offerB = (h.sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = 'lgo_dotselected0000000000000000'").get() as { id: number }).id;
+    h.sdb
+      .prepare("INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state, required_fields_total, required_fields_mapped) VALUES (?, ?, 1, 'complete', 1, 1)")
+      .run(s1.id, offerA);
+    h.sdb
+      .prepare("INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state) VALUES (?, ?, 1, 'selected')")
+      .run(s2.id, offerB);
+
+    // the structure API projects the DEV-59 verdicts…
+    const structure = await admin.request(`${API}/quotes/${h.quotePublicId}/structure`, {}, h.env);
+    expect(structure.status).toBe(200);
+    const body = (await structure.json()) as {
+      funnels: Array<{ variants: Array<{ sections: Array<{ section_id: number; mapping_status: string }> }> }>;
+    };
+    const sections = body.funnels[0]!.variants[0]!.sections;
+    expect(sections.find((s) => s.section_id === s1.id)!.mapping_status).toBe("complete");
+    expect(sections.find((s) => s.section_id === s2.id)!.mapping_status).toBe("incomplete");
+
+    // …and the SSR structure panel paints them (green/amber via the status
+    // attribute; titles in operator words)
+    const page = await admin.request(`/admin/leadgen/quotes/${h.quotePublicId}/edit`, {}, h.env);
+    const html = await page.text();
+    const rowOf = (publicId: string): string => {
+      const at = html.indexOf(`data-section-public-id="${publicId}"`);
+      expect(at, `structure row for ${publicId}`).toBeGreaterThan(-1);
+      return html.slice(at, html.indexOf("</div>", at));
+    };
+    expect(rowOf(s1.public_id)).toContain('data-mapping-status="complete" title="Offer mapping complete"');
+    expect(rowOf(s2.public_id)).toContain('data-mapping-status="incomplete" title="Offer mapping incomplete"');
+    // an edge on a section makes non-complete edges count too (mappingSummaryOf
+    // parity): flip s1's edge set to carry one orphaned edge → incomplete
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, source) VALUES ('lgp_dotschema000000000000000000', ?, 1, '{\"version\":1,\"root\":{\"type\":\"object\",\"children\":[]}}', 'manual')",
+      )
+      .run(offerA);
+    const schemaId = (h.sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = 'lgp_dotschema000000000000000000'").get() as { id: number }).id;
+    h.sdb
+      .prepare(
+        "INSERT INTO leadgen_section_answer_maps (public_id, section_id, offer_id, payload_schema_id, payload_schema_public_id, question_id, question_key, internal_field, answer_type, offer_payload_field_path, provider_expected_type, required_for_offer, mapping_status) VALUES ('lgm_dotorphan000000000000000000', ?, ?, ?, 'lgp_dotschema000000000000000000', 'q1', 'k', 'insured', 'boolean', 'data.gone', 'boolean', 1, 'orphaned')",
+      )
+      .run(s1.id, offerA, schemaId);
+    const structure2 = await admin.request(`${API}/quotes/${h.quotePublicId}/structure`, {}, h.env);
+    const body2 = (await structure2.json()) as {
+      funnels: Array<{ variants: Array<{ sections: Array<{ section_id: number; mapping_status: string }> }> }>;
+    };
+    expect(body2.funnels[0]!.variants[0]!.sections.find((s) => s.section_id === s1.id)!.mapping_status).toBe("incomplete");
+
+    // the add-picker options carry the tri-state for client-side adds (the
+    // island copies it onto the cloned row's dot — wiring below)
+    expect(html).toMatch(/<option value="\d+"[^>]*data-mapping-status="(complete|incomplete|none)"/);
+    const island = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)!.join("\n");
+    expect(island).toContain("opt.getAttribute('data-mapping-status')");
+    expect(island).toContain("'Offer mapping complete'");
+    expect(island).toContain("'Offer mapping incomplete'");
+    expect(island).toContain("'No Offers selected yet'");
   });
 
   it("canvas toolbar: template picker, theme button, 1280/375 toggle, current-slide/all-slides modes, stepper, site + variant mirrors", async () => {
@@ -809,5 +890,129 @@ describeDb("GET /funnels/:id/frame?switch_to (04 §4.3, C5)", () => {
     const plainBody = (await plain.json()) as Record<string, unknown>;
     expect(plainBody["effective_frame"]).toBeDefined();
     expect(plainBody["merged"]).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// 14 §14.2 (C2 LIVE, Phase D) — the Activation tab surfaces problems[] grouped
+// by scope with severity chips + fix_url deep links; blocked ⇔ the activation
+// PUT would 409 (blocks OR any error-severity problem). SSR legs here; the
+// EXECUTED island legs (activation 409 → grouped re-render) live in
+// leadgen-quote-builder-seam.test.ts.
+// ===========================================================================
+
+describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
+  // A section carrying a frame-scope node (StepIndicator) — the C2 offender.
+  function seedChromeSection(sdb: SqliteDb, name: string): { id: number; public_id: string } {
+    const publicId = mintPublicId("section");
+    const content = JSON.stringify({
+      components: [
+        { type: "StepIndicator", question_id: "si1", props: { steps: 3, current: 1 } },
+        { type: "QuestionHeadline", question_id: "h1", props: { text: "Where?" } },
+        { type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f1", answer_type: "boolean" },
+      ],
+    });
+    sdb
+      .prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', ?, ?, 'button', 'active')")
+      .run(publicId, name, "Headline", content);
+    const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+    return { id: row.id, public_id: publicId };
+  }
+
+  async function chromeHarness(compatOn: boolean): Promise<{ html: string; chromePublicId: string }> {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb));
+    const create = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "Chrome Quote", activity: "quote_funnel", verticals: ["life"] }),
+      env,
+    );
+    expect(create.status, `create quote: ${await create.clone().text()}`).toBe(201);
+    const q = (await create.json()) as QuoteDetail;
+    const variantId = q.funnels[0]!.variants[0]!.public_id;
+    const funnelPublicId = q.funnels[0]!.public_id;
+    const chrome = seedChromeSection(sdb, "Chrome slide");
+    const put = await admin.request(
+      `${API}/variants/${variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: chrome.id }] }),
+      env,
+    );
+    expect(put.status, `seed variant: ${await put.clone().text()}`).toBe(200);
+    // Configure the frame through the REAL PUT (compat defaults OFF).
+    const frame = await admin.request(
+      `${API}/funnels/${funnelPublicId}/frame`,
+      jsonInit("PUT", {
+        frame_config_json: compatOn
+          ? { version: 1, template: "centered", compat: { allow_section_chrome: true } }
+          : { version: 1, template: "centered" },
+      }),
+      env,
+    );
+    expect(frame.status, `frame put: ${await frame.clone().text()}`).toBe(200);
+    const page = await admin.request(`/admin/leadgen/quotes/${q.public_id}/edit`, {}, env);
+    expect(page.status).toBe(200);
+    return { html: await page.text(), chromePublicId: chrome.public_id };
+  }
+
+  it("compat OFF: the panel SSRs BLOCKED with the section-scope error group, severity chip, §14.1 copy and the Review-slide fix link; chip says Blocked", async () => {
+    const { html, chromePublicId } = await chromeHarness(false);
+    // blocked state — an error-severity problem alone blocks (zero blocks).
+    expect(html).toContain('data-preflight-state="blocked"');
+    expect(html).toContain("Cannot activate this Quote.");
+    // the problems wrap + the section-scope group with its operator label
+    expect(html).toContain('id="lg-preflight-problems"');
+    expect(html).toContain('data-problem-scope="section"');
+    expect(html).toContain(">Slides</h4>");
+    // the §14.1 row: severity chip + copy + path identity
+    expect(html).toContain('data-problem-severity="error"');
+    expect(html).toContain('data-severity="error"');
+    expect(html).toContain(`data-problem-path="section.${chromePublicId}.content"`);
+    expect(html).toContain("contains page-frame elements");
+    expect(html).toContain("render twice");
+    // the fix_url deep link with the derived label
+    expect(html).toContain(`href="/admin/leadgen/sections/${chromePublicId}/edit"`);
+    expect(html).toContain(">Review slide</a>");
+    // the head publish chip mirrors the verdict (counts include the error)
+    expect(html).toMatch(/data-publish-verdict="blocked"[^>]*>Blocked \(\d+ errors?\)/);
+  });
+
+  it("compat ON: the SAME chrome downgrades to a warning — panel PASS + warning group; chip says Ready (N warnings)", async () => {
+    const { html, chromePublicId } = await chromeHarness(true);
+    expect(html).toContain('data-preflight-state="pass"');
+    expect(html).toContain("Ready to activate — all preflight checks pass.");
+    // the warnings still surface, grouped by scope with their fix links
+    expect(html).toContain('id="lg-preflight-problems"');
+    expect(html).toContain('data-problem-severity="warning"');
+    expect(html).toContain("Legacy override is ON");
+    expect(html).toContain(`href="/admin/leadgen/sections/${chromePublicId}/edit"`);
+    // no error-severity rows anywhere
+    expect(html).not.toContain('data-problem-severity="error"');
+    expect(html).toMatch(/data-publish-verdict="ok"[^>]*>Ready \(\d+ warnings?\)/);
+  });
+
+  it("clean quote: no problems wrap at all — the v2.4 pass panel is byte-unchanged", async () => {
+    const { html } = await harness(); // the clean cached harness
+    expect(html).toContain('data-preflight-state="pass"');
+    expect(html).not.toContain('id="lg-preflight-problems"');
+  });
+});
+
+// ===========================================================================
+// DEV-66 routing (Phase D) — the Quote-Builder canvas mobile toggle drives a
+// REAL iframe: SSR ships the canvas as <iframe id="lg-preview-iframe"> (srcdoc
+// island contract) + both viewport buttons; the EXECUTED 375px-width +
+// media-query legs live in leadgen-quote-builder-seam.test.ts.
+// ===========================================================================
+
+describeDb("Quote Builder canvas mobile = real 375 iframe (DEV-66 routing)", () => {
+  it("the canvas is a REAL <iframe> (not inline injection) and the 1280/375 toggle SSRs beside it", async () => {
+    const { html } = await harness();
+    // one real iframe canvas — srcdoc-driven, same-origin (scripts inert)
+    expect(html).toMatch(/<iframe id="lg-preview-iframe"[^>]*sandbox="allow-same-origin"/);
+    // never an inline-injection mount for the composed page
+    expect(html).not.toContain('id="lg-preview-inline"');
+    // the toggle pair
+    expect(html).toContain('data-viewport-btn="mobile"');
+    expect(html).toContain("Mobile 375");
   });
 });

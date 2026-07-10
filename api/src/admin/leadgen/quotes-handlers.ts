@@ -380,23 +380,65 @@ interface OrderedVariantSection {
   activity: string;
   vertical: string;
   status: string;
+  // v2.5 DEV-59 ADDITIVE: the per-section Offer-mapping verdict the Quote
+  // Builder's structure-panel dot renders (real data, no placeholder).
+  mapping_status: "complete" | "incomplete" | "none";
+}
+
+type VariantSectionRow = Omit<OrderedVariantSection, "mapping_status"> & {
+  mapped_offer_count: number;
+  invalid_offer_count: number;
+  incomplete_offer_count: number;
+  error_edge_count: number;
+};
+
+// DEV-59: decode the aggregate counts into the structure-panel tri-state.
+// Parity contract: this is the SQL form of the ui-sections mappingSummaryOf /
+// sectionValidationStatus verdict — a section is `complete` only when every
+// linked Offer row is mapping_state='complete' AND no answer-map edge is
+// non-complete (type_mismatch / orphaned / incomplete all make the section
+// NOT publishable, i.e. `incomplete` here); no linked Offers at all → `none`.
+function variantSectionMappingStatus(row: VariantSectionRow): OrderedVariantSection["mapping_status"] {
+  if (Number(row.mapped_offer_count ?? 0) === 0) return "none";
+  if (
+    Number(row.invalid_offer_count ?? 0) > 0 ||
+    Number(row.incomplete_offer_count ?? 0) > 0 ||
+    Number(row.error_edge_count ?? 0) > 0
+  ) {
+    return "incomplete";
+  }
+  return "complete";
 }
 
 async function readVariantSections(
   db: D1Database,
   variantId: number,
 ): Promise<OrderedVariantSection[]> {
+  // DEV-59: the three per-section leadgen_section_available_offers aggregates
+  // mirror listSectionsHandler's overallCompleteness derivation; the fourth
+  // (non-complete answer-map edges) mirrors mappingSummaryOf's per-edge leg.
   const result = await db
     .prepare(
       `SELECT fvs.position AS position, s.id AS section_id, s.public_id AS section_public_id,
-              s.section_name AS section_name, s.activity AS activity, s.vertical AS vertical, s.status AS status
+              s.section_name AS section_name, s.activity AS activity, s.vertical AS vertical, s.status AS status,
+              (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id) AS mapped_offer_count,
+              (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id AND sao.mapping_state = 'invalid') AS invalid_offer_count,
+              (SELECT COUNT(*) FROM leadgen_section_available_offers sao WHERE sao.section_id = s.id AND sao.mapping_state IN ('incomplete','selected')) AS incomplete_offer_count,
+              (SELECT COUNT(*) FROM leadgen_section_answer_maps sam WHERE sam.section_id = s.id AND sam.mapping_status != 'complete') AS error_edge_count
        FROM leadgen_funnel_variant_sections fvs
        JOIN leadgen_sections s ON s.id = fvs.section_id
        WHERE fvs.variant_id = ? ORDER BY fvs.position ASC`,
     )
     .bind(variantId)
-    .all<OrderedVariantSection>();
-  return result.results ?? [];
+    .all<VariantSectionRow>();
+  return (result.results ?? []).map((row) => {
+    const { mapped_offer_count, invalid_offer_count, incomplete_offer_count, error_edge_count, ...rest } = row;
+    void mapped_offer_count;
+    void invalid_offer_count;
+    void incomplete_offer_count;
+    void error_edge_count;
+    return { ...rest, mapping_status: variantSectionMappingStatus(row) };
+  });
 }
 
 async function readVariantRules(db: D1Database, variantId: number): Promise<LeadgenFunnelRuleRow[]> {
@@ -1499,6 +1541,8 @@ const V25_PREVIEW_KEYS = [
   "section_public_id",
   "draft_frame_config",
   "draft_theme",
+  "draft_frame_overrides", // DEV-58 (Phase D): per-arm overrides draft
+  "page", // Phase D stepper perf: mode:"all" lazy per-page fetch
 ] as const;
 
 export async function previewVariantHandler(c: AdminContext): Promise<Response> {
@@ -1576,7 +1620,10 @@ export async function previewVariantHandler(c: AdminContext): Promise<Response> 
 // "section" = chosen/current Section visible · "all" = pages[], one composed
 // document per Section with correct per-step progress values), `visibleIndex`,
 // and the C5 `draftFrameConfig`/`draftTheme` substitutions (this render only —
-// nothing persists). Called WITHOUT `mode` (the Phase-A shape) it still
+// nothing persists). Phase-D additive params: `draftFrameOverrides` (DEV-58 —
+// the per-arm overrides draft, substituted for the stored column so re-edited
+// stored overrides preview exactly) and `page` (mode:"all" lazy per-step
+// render). Called WITHOUT `mode` (the Phase-A shape) it still
 // returns null for a legacy/invalid frame; WITH a mode it never returns null —
 // the legacy path composes through the byte-pinned renderLegacyShell, the
 // same fail-safe fork serve.ts takes (§13.1).
@@ -1601,12 +1648,24 @@ export interface ComposedVariantPreviewInput {
   // nothing (renders the legacy path); an object = THIS render only.
   draftFrameConfig?: Record<string, unknown> | null;
   draftTheme?: Record<string, unknown> | null;
+  // DEV-58 (Phase D, additive): the per-arm frame_overrides draft — same
+  // undefined/null/object semantics as the two above, substituted for the
+  // STORED variant.frame_overrides_json in resolveFrameComposition, so
+  // re-editing a field that already has a stored override previews the
+  // WORKING value exactly (render-only; nothing persists).
+  draftFrameOverrides?: Record<string, unknown> | null;
+  // Phase D stepper perf (additive): with mode:"all", a 1-based step — the
+  // renderer composes ONLY that page (returned as `html` + `page`) instead of
+  // the full pages[] (lazy per-step fetch for long funnels). Clamped into
+  // [1..section_count]. Absent → the full pages[] exactly as before.
+  page?: number;
 }
 
 export interface ComposedVariantPreview {
   css: string; // the SAME resolveTokens+funnelChromeCss string the runtime shell embeds
   html?: string; // modes "frame"/"section" (+ the Phase-A default): one composed body
-  pages?: string[]; // mode "all": one composed document per Section
+  pages?: string[]; // mode "all" without `page`: one composed document per Section
+  page?: number; // mode "all" with `page`: the clamped 1-based step `html` composes
   section_count: number;
   config: LeadgenPublicConfig; // the §15.4 config echo (effective design tokens)
 }
@@ -1716,8 +1775,8 @@ export function renderComposedVariantPreview(
   input: ComposedVariantPreviewInput,
 ): ComposedVariantPreview | null {
   const design = getFunnelDesign(input.variant.funnel_design_id);
-  // C5 draft substitution — the resolver consumes strings exactly as serve
-  // does; the stored columns are never written.
+  // C5 + DEV-58 draft substitution — the resolver consumes strings exactly as
+  // serve does; the stored columns are never written.
   const composition = resolveFrameComposition(
     {
       frame_config_json:
@@ -1732,7 +1791,12 @@ export function renderComposedVariantPreview(
           : input.draftTheme === null
             ? null
             : JSON.stringify(input.draftTheme),
-      frame_overrides_json: input.variant.frame_overrides_json,
+      frame_overrides_json:
+        input.draftFrameOverrides === undefined
+          ? input.variant.frame_overrides_json
+          : input.draftFrameOverrides === null
+            ? null
+            : JSON.stringify(input.draftFrameOverrides),
     },
     design,
   );
@@ -1809,6 +1873,22 @@ export function renderComposedVariantPreview(
   );
 
   if (input.mode === "all") {
+    // Phase D stepper perf (additive): `page` asks for ONE composed step —
+    // render it lazily instead of composing every page. Clamped like
+    // visibleIndex below; page-less calls keep the eager pages[] byte-shape.
+    if (input.page !== undefined) {
+      const step = Math.min(
+        Math.max(1, Math.round(input.page)),
+        Math.max(input.sections.length, 1),
+      );
+      return {
+        css,
+        html: renderBody(toggleVisibleSection(allSectionsHtml, input.sections, step - 1), step),
+        page: step,
+        section_count: input.sections.length,
+        config,
+      };
+    }
     // One composed document per Section: section k visible, progress at step
     // k of N — the §4.1 "step through all slides" mode.
     return {
@@ -1907,6 +1987,67 @@ async function composedVariantPreviewResponse(
     }
   }
 
+  // draft_frame_overrides (DEV-58, Phase D): validated EXACTLY like the stored
+  // column (PUT /variants/:id frame_overrides_json) — template/version are
+  // funnel-level and rejected, the frame groups go through
+  // validateFrameConfig-over-sparse, the `theme` part through validateTheme.
+  // Render-only: nothing persists. Errors → 400 + problems; warnings ride.
+  let draftFrameOverrides: Record<string, unknown> | null | undefined;
+  if (body["draft_frame_overrides"] !== undefined) {
+    const raw = body["draft_frame_overrides"];
+    if (raw === null) {
+      draftFrameOverrides = null;
+    } else if (!isRecord(raw)) {
+      fields["draft_frame_overrides"] = "draft_frame_overrides must be a JSON object or null";
+    } else {
+      let structurallyValid = true;
+      for (const funnelLevelKey of ["template", "version"] as const) {
+        if (raw[funnelLevelKey] !== undefined) {
+          structurallyValid = false;
+          problems.push({
+            path: `frame_overrides.${funnelLevelKey}`,
+            scope: "frame",
+            severity: "error",
+            message:
+              funnelLevelKey === "template"
+                ? "Variant overrides can't switch the frame template — the template is a funnel-level setting (change it in the funnel's frame settings)."
+                : "Variant overrides can't carry a version field — it belongs to the funnel-level frame settings.",
+          });
+        }
+      }
+      const { theme: themePart, ...frameParts } = raw;
+      problems.push(...validateFrameConfig(frameParts).problems);
+      if (themePart !== undefined) {
+        if (!isRecord(themePart)) {
+          structurallyValid = false;
+          problems.push({
+            path: "theme",
+            scope: "theme",
+            severity: "error",
+            message: "The variant theme overrides must be a group of palette colours.",
+          });
+        } else {
+          problems.push(...validateTheme(themePart).problems);
+        }
+      }
+      if (structurallyValid) draftFrameOverrides = raw;
+    }
+  }
+
+  // `page` (Phase D stepper perf): a 1-based step for the mode:"all" lazy
+  // per-page protocol. Type errors → 400; range clamps like visibleIndex.
+  let page: number | undefined;
+  if (body["page"] !== undefined && body["page"] !== null) {
+    const raw = body["page"];
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+      fields["page"] = "page must be a positive integer (1-based step)";
+    } else if (mode !== "all") {
+      fields["page"] = 'page is only valid with mode:"all"';
+    } else {
+      page = raw;
+    }
+  }
+
   const siteIdRaw = body["site_id"];
   if (siteIdRaw !== undefined && siteIdRaw !== null) {
     if (typeof siteIdRaw !== "string" || siteIdRaw.trim() === "") {
@@ -1971,6 +2112,8 @@ async function composedVariantPreviewResponse(
     visibleIndex,
     draftFrameConfig,
     draftTheme,
+    draftFrameOverrides,
+    page,
   });
   // With `mode` set the renderer never yields null (legacy funnels compose
   // through the pinned legacy shell) — this guard is type narrowing only.
@@ -1979,7 +2122,16 @@ async function composedVariantPreviewResponse(
   const payload: Record<string, unknown> = {
     preview:
       mode === "all"
-        ? { css: preview.css, pages: preview.pages ?? [], section_count: preview.section_count }
+        ? page !== undefined
+          ? // Phase D lazy leg: ONE composed page + its clamped step echo —
+            // the island stepper fetches per step for long funnels.
+            {
+              css: preview.css,
+              html: preview.html ?? "",
+              page: preview.page ?? 1,
+              section_count: preview.section_count,
+            }
+          : { css: preview.css, pages: preview.pages ?? [], section_count: preview.section_count }
         : { css: preview.css, html: preview.html ?? "", section_count: preview.section_count },
     config: preview.config,
   };
@@ -2249,11 +2401,13 @@ export interface QuoteActivationPreflight {
   funnel_variant_id: string;
   blocks: QuoteActivationBlock[];
   computed_at: number;
-  // v2.5 14 §14.1 (C2 phasing): the ADDITIVE 03 §3.6 problems projection —
-  // every new frame/theme/branding/chrome check row rides here with its
-  // contract severity. `ok` (and therefore the hard-409 gate) stays keyed to
-  // `blocks` ONLY in Phase A; Phase D wires error-severity problems into the
-  // 409. A legacy Quote (NULL frame/theme/overrides) yields [] (14 §14.4).
+  // v2.5 14 §14.1 (C2 LIVE since Phase D): the ADDITIVE 03 §3.6 problems
+  // projection — every new frame/theme/branding/chrome check row rides here
+  // with its contract severity. `ok` stays keyed to `blocks` ONLY (the
+  // historical report input, byte-shape pinned); the activation PUT's 409
+  // gate fires on (blocks) OR (any error-severity problem) — see
+  // putActivationHandler. Warnings never block. A legacy Quote (NULL
+  // frame/theme/overrides) yields [] (14 §14.4).
   problems: Problem[];
 }
 
@@ -2575,8 +2729,9 @@ export async function computeQuoteActivationPreflight(
     if (funnel.status !== "active") continue;
     const variants = await readActiveFunnelVariants(db, funnel.id);
     // v2.5 14 §14.1: the additive problems projection (funnel-level rows once,
-    // variant-level rows per active variant). NEVER touches `blocks`/`ok` in
-    // Phase A (C2 phasing — the 409 inputs are unchanged).
+    // variant-level rows per active variant). NEVER touches `blocks`/`ok`
+    // (the historical report inputs); the activation PUT gates on blocks OR
+    // error-severity problems (C2 LIVE, Phase D).
     const funnelState = readFunnelV25State(funnel);
     problems.push(...(await computeFunnelV25Problems(db, quote, funnel, funnelState, siteId)));
     for (const variant of variants) {
@@ -2604,7 +2759,10 @@ export async function computeQuoteActivationPreflight(
   };
 }
 
-// The EXACT normative 409 body (05 §5.2).
+// The EXACT normative report (05 §5.2) — its key set is BYTE-PINNED by test.
+// Since Phase D the 409 body is this report spread + the additive `problems`
+// key (14 §14.2), composed at the putActivationHandler call site so this
+// shape never changes.
 export function activationBlockedReport(preflight: QuoteActivationPreflight): Record<string, unknown> {
   return {
     error: "quote_activation_blocked",
@@ -2624,10 +2782,11 @@ export function activationBlockedReport(preflight: QuoteActivationPreflight): Re
 }
 
 // ---------------------------------------------------------------------------
-// v2.5 14 §14.1 — the NEW preflight check rows (C2 phasing: COMPUTED here with
-// their contract severities and surfaced ONLY through the additive
-// `problems[]` projection; the existing hard-409 block list is untouched —
-// Phase D wires error-severity problems into the 409).
+// v2.5 14 §14.1 — the NEW preflight check rows, COMPUTED here with their
+// contract severities and surfaced through the additive `problems[]`
+// projection. The existing hard-409 block list is untouched; since Phase D
+// (C2 LIVE) the activation PUT ALSO 409s on any error-severity problem
+// (warnings never block) with the report + `problems` body (§14.2).
 //
 // Every check is conditional on the v2.5 data existing (frame_config_json /
 // theme_json / frame_overrides_json non-NULL — §14.4 "activating a legacy
@@ -3169,14 +3328,22 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
   // missing dependency fields, invalid auction config, §5.1-ineligible
   // participating dynamic Offers). Disabling is never blocked. The verdict is
   // RECOMPUTED here — the stored variant-save copy is advisory only.
-  // v2.5 (C2 phasing): the site rides in so the §14.1 site-logo warning can
-  // resolve THIS site's branding; `problems` stay ADVISORY — the 409 gate and
-  // its report body are keyed to `blocks` only until Phase D.
+  // v2.5 14 §14.1/§14.2 (C2 LIVE, Phase D): error-severity problems join the
+  // blocking decision ADDITIVELY — the 409 fires on (existing blocks) OR (any
+  // error-severity problem: schema-invalid frame/theme/overrides, missing
+  // trust-logo alt, chrome-in-section under a configured frame with
+  // compat.allow_section_chrome=false). Warnings NEVER block. The 409 body is
+  // the EXACT historical normative report (activationBlockedReport, byte-shape
+  // pinned) + the additive `problems` key. §14.4 stays: a legacy Quote (NULL
+  // frame/theme) yields zero problems, so its gate inputs are unchanged. The
+  // site rides in so the §14.1 site-logo warning can resolve THIS site's
+  // branding.
   const preflight = await computeQuoteActivationPreflight(c.env.DB, quote, Date.now(), {
     site_id: siteId,
   });
-  if (enabled && !preflight.ok) {
-    return c.json(activationBlockedReport(preflight), 409);
+  const hasBlockingProblems = preflight.problems.some((p) => p.severity === "error");
+  if (enabled && (!preflight.ok || hasBlockingProblems)) {
+    return c.json({ ...activationBlockedReport(preflight), problems: preflight.problems }, 409);
   }
 
   if (existingForQuote === null) {

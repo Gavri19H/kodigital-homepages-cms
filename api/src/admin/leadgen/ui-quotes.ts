@@ -102,6 +102,10 @@ interface VariantSectionNode {
   activity: string;
   vertical: string;
   status: string;
+  // DEV-59 ADDITIVE (quotes-handlers readVariantSections): the per-section
+  // Offer-mapping verdict for the structure-panel dot. Optional so stale
+  // structure bodies (pre-DEV-59) decode as "none".
+  mapping_status?: "complete" | "incomplete" | "none";
 }
 
 interface VariantNode {
@@ -170,6 +174,10 @@ interface AvailableSection {
   // Present on the sections list body (LeadgenSectionApi) — the B3 rules-
   // builder `fields` derivation reads component internal_fields from it.
   content_json?: unknown;
+  // §9.3 list derivation (listSectionsHandler overallCompleteness) — DEV-59:
+  // the add-picker threads it onto a freshly added row's mapping dot so a
+  // client-side add shows REAL status without a reload.
+  completeness?: "complete" | "incomplete" | "invalid" | "none";
 }
 
 interface AuctionListItem {
@@ -292,6 +300,42 @@ export const PREFLIGHT_BLOCK_CODE_LABELS: Readonly<Record<string, string>> = {
 
 function preflightCodeLabel(code: string): string {
   return PREFLIGHT_BLOCK_CODE_LABELS[code] ?? code.replace(/_/g, " ");
+}
+
+// ---------------------------------------------------------------------------
+// v2.5 14 §14.2 (C2 LIVE, Phase D) — Activation-tab problems[] surfacing: the
+// additive §3.6 rows render GROUPED BY SCOPE with severity chips and each
+// problem's server-provided fix_url as a deep link. Blocking semantics mirror
+// the activation PUT: blocks OR any error-severity problem ⇒ blocked;
+// warnings never block. The ES5 re-renderer mirrors this markup exactly.
+// ---------------------------------------------------------------------------
+
+export const PROBLEM_SCOPE_ORDER: ReadonlyArray<string> = [
+  "frame",
+  "theme",
+  "section",
+  "component",
+  "choice",
+  "mapping",
+];
+
+export const PROBLEM_SCOPE_LABELS: Readonly<Record<string, string>> = {
+  frame: "Page frame",
+  theme: "Theme",
+  section: "Slides",
+  component: "Components",
+  choice: "Choices",
+  mapping: "Offer mapping",
+};
+
+// The deep-link label derives from the server-provided fix_url (§14.1 copy
+// table: [Open Quote Builder] · [Review slide] · site Settings). Kept in
+// lockstep with the island's ES5 problemFixLabel.
+export function problemFixLabel(fixUrl: string): string {
+  if (fixUrl.startsWith("/admin/settings")) return "Open site settings";
+  if (fixUrl.includes("/sections/")) return "Review slide";
+  if (fixUrl.includes("/quotes/")) return "Open Quote Builder";
+  return "Fix";
 }
 
 // The PASS state renders green itemized checks — the §5.2 block conditions,
@@ -436,6 +480,14 @@ const LG_QUOTES_STYLES = `
 .lg-preflight-block{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border:1px solid var(--c-danger,#e5a49a);border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:13px}
 .lg-preflight-pass{list-style:none;margin:0;padding:0}
 .lg-preflight-pass li{color:var(--c-success,#186a3b);font-size:13px;padding:3px 0}
+/* 14 §14.2 problems[] groups (C2 LIVE): scope groups + severity chips */
+.lg-problem-group{margin:10px 0}
+.lg-problem-group-title{margin:0 0 6px;font-size:13px}
+.lg-problem-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--c-border);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:13px}
+.lg-problem-row[data-problem-severity=error]{background:var(--c-danger-bg,#fdecea);border-color:var(--c-danger,#e5a49a);color:var(--c-danger,#8a1f11)}
+.lg-problem-row[data-problem-severity=warning]{background:#fff8e1;border-color:#e6c229;color:#664d03}
+.lg-problem-chip{border-radius:999px;padding:0 8px;font-size:11px;font-weight:600;border:1px solid currentColor;text-transform:uppercase;letter-spacing:.02em}
+.lg-problem-msg{flex:1;min-width:200px}
 .lg-ab-note{color:var(--c-muted);font-size:13px;margin:8px 0}
 .lg-preview-frame{width:100%;height:640px;border:1px solid var(--c-border);border-radius:8px;background:#fff}
 .lg-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -469,7 +521,10 @@ const LG_QUOTES_STYLES = `
 .lg-structure-row button[data-select-slide]{background:none;border:0;padding:0;cursor:pointer;color:var(--c-text);text-align:left;font:inherit}
 .lg-structure-row.lg-slide-current{border-color:var(--c-primary)}
 .lg-map-dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--c-border);flex:none}
-.lg-map-dot[data-mapping-status="unknown"]{background:var(--c-border)}
+/* DEV-59 real tri-state: green complete · amber incomplete · gray none */
+.lg-map-dot[data-mapping-status="complete"]{background:#198754}
+.lg-map-dot[data-mapping-status="incomplete"]{background:#ffc107}
+.lg-map-dot[data-mapping-status="none"]{background:var(--c-border)}
 .lg-template-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
 .lg-template-card{border:1px solid var(--c-border);border-radius:8px;padding:8px;cursor:pointer;background:none;text-align:center}
 .lg-template-card.selected{border-color:var(--c-primary)}
@@ -1111,6 +1166,24 @@ function renderInspectorColumn(isControl: boolean): string {
 
 // --- left structure panel (§4.1) ---------------------------------------------
 
+// DEV-59: the structure-panel mapping dot decodes to a tri-state in operator
+// words — REAL data from the structure body (quotes-handlers
+// variantSectionMappingStatus, the mappingSummaryOf/sectionValidationStatus
+// parity aggregate), never a placeholder. The list API's 4-state
+// `completeness` (add-picker leg) folds invalid→incomplete: both mean "not
+// ready to publish" and the dot vocabulary is the DEV-59 tri-state.
+export function mappingDotStatus(raw: string | undefined | null): "complete" | "incomplete" | "none" {
+  if (raw === "complete") return "complete";
+  if (raw === "incomplete" || raw === "invalid") return "incomplete";
+  return "none";
+}
+
+export const MAPPING_DOT_TITLES: Readonly<Record<"complete" | "incomplete" | "none", string>> = {
+  complete: "Offer mapping complete",
+  incomplete: "Offer mapping incomplete",
+  none: "No Offers selected yet",
+};
+
 function renderSectionRow(
   sectionId: number,
   sectionPublicId: string,
@@ -1118,14 +1191,16 @@ function renderSectionRow(
   vertical: string,
   position: number,
   isAuctionEntry: boolean,
+  mappingStatus?: string,
 ): string {
   const marker = isAuctionEntry
     ? `<div class="lg-auction-entry-mark" data-auction-entry="1">Auction runs after this slide</div>`
     : "";
+  const dot = mappingDotStatus(mappingStatus);
   return `<div class="lg-section-row lg-structure-row" data-section-id="${sectionId}" data-section-public-id="${escapeHtml(sectionPublicId)}">
   <span class="lg-drag-handle" data-drag-handle draggable="true" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
   <span class="lg-pos" data-pos>${position}</span>
-  <span class="lg-map-dot" data-mapping-status="unknown" title="Offer mapping status"></span>
+  <span class="lg-map-dot" data-mapping-status="${dot}" title="${escapeHtml(MAPPING_DOT_TITLES[dot])}"></span>
   <span class="lg-grow"><button type="button" data-select-slide data-section-name>${escapeHtml(name)}</button></span>
   <span class="form-help" data-vertical>${escapeHtml(vertical)}</span>
   <button type="button" class="btn btn-sm btn-outline" data-move-up aria-label="Move up">&#8593;</button>
@@ -1156,12 +1231,12 @@ function renderStructurePanel(
     )
     .join("");
   const addOptions = available
-    .map((s) => `<option value="${s.id}" data-section-name="${escapeHtml(s.section_name)}" data-vertical="${escapeHtml(s.vertical)}">${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`)
+    .map((s) => `<option value="${s.id}" data-section-name="${escapeHtml(s.section_name)}" data-vertical="${escapeHtml(s.vertical)}" data-mapping-status="${mappingDotStatus(s.completeness)}">${escapeHtml(s.section_name)} (${escapeHtml(s.vertical)})</option>`)
     .join("");
 
   const maxPos = variant.auction_entry_position;
   const sectionRows = variant.sections
-    .map((s) => renderSectionRow(s.section_id, s.section_public_id, s.section_name, s.vertical, s.position, s.position === maxPos))
+    .map((s) => renderSectionRow(s.section_id, s.section_public_id, s.section_name, s.vertical, s.position, s.position === maxPos, s.mapping_status))
     .join("");
 
   const funnel =
@@ -1564,28 +1639,64 @@ function renderPreflightBlockCard(b: ActivationPreflightBlock): string {
   return `<div class="lg-preflight-block" data-preflight-code="${escapeHtml(b.code)}"><span>${escapeHtml(parts.join(" · "))}</span>${links.join("")}</div>`;
 }
 
+// One 14 §14.2 problem row: severity chip + operator message + the server
+// fix_url as a deep link.
+function renderProblemRow(p: Problem): string {
+  const fixUrl = typeof p.fix_url === "string" ? p.fix_url : "";
+  const fix =
+    fixUrl !== ""
+      ? `<a class="btn btn-sm btn-secondary" href="${escapeHtml(fixUrl)}">${escapeHtml(problemFixLabel(fixUrl))}</a>`
+      : "";
+  return `<div class="lg-problem-row" data-problem-severity="${escapeHtml(p.severity)}" data-problem-path="${escapeHtml(p.path)}"><span class="lg-problem-chip" data-severity="${escapeHtml(p.severity)}">${p.severity === "error" ? "Error" : "Warning"}</span><span class="lg-problem-msg">${escapeHtml(p.message)}</span>${fix}</div>`;
+}
+
+// The 14 §14.2 problems[] section: rows grouped by scope (frame / theme /
+// section / component …) in the fixed order, unknown scopes appended.
+function renderProblemsSection(problems: Problem[]): string {
+  if (problems.length === 0) return "";
+  const scopes: string[] = [...PROBLEM_SCOPE_ORDER];
+  for (const p of problems) if (!scopes.includes(p.scope)) scopes.push(p.scope);
+  const groups = scopes
+    .map((scope) => {
+      const rows = problems.filter((p) => p.scope === scope);
+      if (rows.length === 0) return "";
+      return `<div class="lg-problem-group" data-problem-scope="${escapeHtml(scope)}"><h4 class="lg-problem-group-title">${escapeHtml(PROBLEM_SCOPE_LABELS[scope] ?? scope)}</h4>${rows.map(renderProblemRow).join("")}</div>`;
+    })
+    .filter((g) => g !== "")
+    .join("");
+  return `<div id="lg-preflight-problems" data-problem-count="${problems.length}">${groups}</div>`;
+}
+
 // The 05 §5.2 UI preflight panel body: blocking cards when the server verdict
-// fails; green itemized checks when clean. Server-verdict-driven only — the
-// same markup the ES5 re-renderer rebuilds after variant save / activation
-// PUT (including the 409 report body).
+// fails; green itemized checks when clean; the 14 §14.2 problems[] groups
+// appended whenever the additive rows exist (C2 LIVE: an error-severity
+// problem is blocking — same rule as the activation PUT's 409).
+// Server-verdict-driven only — the same markup the ES5 re-renderer rebuilds
+// after variant save / activation PUT (including the 409 report body).
 function renderPreflightPanelBody(preflight: ActivationPreflight | null): string {
   if (preflight === null) {
     return `<p class="form-help">Activation preflight is unavailable.</p>`;
   }
-  if (preflight.ok) {
+  const problems = preflight.problems ?? [];
+  const problemsHtml = renderProblemsSection(problems);
+  const hasErrorProblems = problems.some((p) => p.severity === "error");
+  if (preflight.ok && !hasErrorProblems) {
     const items = PREFLIGHT_PASS_CHECKS.map(
       (check) => `<li data-preflight-check="${escapeHtml(check.id)}">&#10003; ${escapeHtml(check.label)}</li>`,
     ).join("");
     return `<p class="lg-preflight-ok-title">Ready to activate — all preflight checks pass.</p>
-<ul class="lg-preflight-pass">${items}</ul>`;
+<ul class="lg-preflight-pass">${items}</ul>${problemsHtml}`;
   }
   const cards = preflight.blocks.map(renderPreflightBlockCard).join("");
-  return `<p class="lg-preflight-blocked-title">Cannot activate this Quote.</p>${cards}`;
+  return `<p class="lg-preflight-blocked-title">Cannot activate this Quote.</p>${cards}${problemsHtml}`;
 }
 
+// blocked ⇔ the activation PUT would 409: blocks OR any error-severity
+// problem (C2 LIVE); warnings never block.
 function preflightStateAttr(preflight: ActivationPreflight | null): string {
   if (preflight === null) return "unknown";
-  return preflight.ok ? "pass" : "blocked";
+  const hasErrorProblems = (preflight.problems ?? []).some((p) => p.severity === "error");
+  return preflight.ok && !hasErrorProblems ? "pass" : "blocked";
 }
 
 // The head publish chip (05 §5.2 advisory → authoritative verdict, re-labeled
@@ -1934,6 +2045,8 @@ const QUOTE_EDITOR_SCRIPT = `
   var REGION_LABELS = ${JSON.stringify(FRAME_REGION_LABELS)};
   var OVERRIDE_LABELS = ${JSON.stringify(OVERRIDE_GROUP_LABELS)};
   var TOKEN_ROLES = ${JSON.stringify(FUNNEL_TOKEN_ROLES)};
+  var PROBLEM_SCOPES = ${JSON.stringify(PROBLEM_SCOPE_ORDER)};
+  var PROBLEM_SCOPE_NAMES = ${JSON.stringify(PROBLEM_SCOPE_LABELS)};
 
   function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
   function preflightCodeLabel(code) { return PREFLIGHT_CODE_LABELS[code] || String(code || '').replace(/_/g, ' '); }
@@ -1998,14 +2111,82 @@ const QUOTE_EDITOR_SCRIPT = `
     return card;
   }
 
+  // 14 14.2 (C2 LIVE): the fix-link label derives from the server fix_url —
+  // the SAME rule as the SSR problemFixLabel.
+  function problemFixLabel(url) {
+    var u = String(url || '');
+    if (u.indexOf('/admin/settings') === 0) { return 'Open site settings'; }
+    if (u.indexOf('/sections/') !== -1) { return 'Review slide'; }
+    if (u.indexOf('/quotes/') !== -1) { return 'Open Quote Builder'; }
+    return 'Fix';
+  }
+
+  function problemRowNode(p) {
+    var row = document.createElement('div');
+    row.className = 'lg-problem-row';
+    row.setAttribute('data-problem-severity', p.severity || '');
+    row.setAttribute('data-problem-path', p.path || '');
+    var chip = document.createElement('span');
+    chip.className = 'lg-problem-chip';
+    chip.setAttribute('data-severity', p.severity || '');
+    chip.appendChild(document.createTextNode(p.severity === 'error' ? 'Error' : 'Warning'));
+    row.appendChild(chip);
+    var msg = document.createElement('span');
+    msg.className = 'lg-problem-msg';
+    msg.appendChild(document.createTextNode(p.message || ''));
+    row.appendChild(msg);
+    if (p.fix_url) { row.appendChild(preflightFixLink(p.fix_url, problemFixLabel(p.fix_url))); }
+    return row;
+  }
+
+  // 14 14.2: problems[] grouped by scope (fixed order, unknown scopes
+  // appended) — the SSR renderProblemsSection markup, DOM-built.
+  function appendProblemGroups(panel, problems) {
+    if (!problems || problems.length === 0) { return; }
+    var wrap = document.createElement('div');
+    wrap.id = 'lg-preflight-problems';
+    wrap.setAttribute('data-problem-count', String(problems.length));
+    var scopes = [];
+    var i, j, s;
+    for (i = 0; i < PROBLEM_SCOPES.length; i++) { scopes.push(PROBLEM_SCOPES[i]); }
+    for (i = 0; i < problems.length; i++) {
+      s = problems[i] && problems[i].scope ? problems[i].scope : '';
+      if (s && scopes.indexOf(s) === -1) { scopes.push(s); }
+    }
+    for (i = 0; i < scopes.length; i++) {
+      var rows = [];
+      for (j = 0; j < problems.length; j++) {
+        if (problems[j] && problems[j].scope === scopes[i]) { rows.push(problems[j]); }
+      }
+      if (rows.length === 0) { continue; }
+      var group = document.createElement('div');
+      group.className = 'lg-problem-group';
+      group.setAttribute('data-problem-scope', scopes[i]);
+      var title = document.createElement('h4');
+      title.className = 'lg-problem-group-title';
+      title.appendChild(document.createTextNode(PROBLEM_SCOPE_NAMES[scopes[i]] || scopes[i]));
+      group.appendChild(title);
+      for (j = 0; j < rows.length; j++) { group.appendChild(problemRowNode(rows[j])); }
+      wrap.appendChild(group);
+    }
+    panel.appendChild(wrap);
+  }
+
   function renderPreflight(preflight) {
     var panel = byId('lg-preflight-panel');
     if (!panel || !preflight) { return; }
     clearChildren(panel);
-    panel.setAttribute('data-preflight-state', preflight.ok ? 'pass' : 'blocked');
-    updatePublishBadge(preflight);
+    var problems = preflight.problems || [];
+    var hasErrorProblems = false;
     var i;
-    if (preflight.ok) {
+    for (i = 0; i < problems.length; i++) {
+      if (problems[i] && problems[i].severity === 'error') { hasErrorProblems = true; }
+    }
+    // C2 LIVE: blocked exactly when the activation PUT would 409 (blocks OR
+    // any error-severity problem); warnings never block.
+    panel.setAttribute('data-preflight-state', (preflight.ok && !hasErrorProblems) ? 'pass' : 'blocked');
+    updatePublishBadge(preflight);
+    if (preflight.ok && !hasErrorProblems) {
       var okTitle = document.createElement('p');
       okTitle.className = 'lg-preflight-ok-title';
       okTitle.appendChild(document.createTextNode('Ready to activate \\u2014 all preflight checks pass.'));
@@ -2019,6 +2200,7 @@ const QUOTE_EDITOR_SCRIPT = `
         ul.appendChild(li);
       }
       panel.appendChild(ul);
+      appendProblemGroups(panel, problems);
       return;
     }
     var title = document.createElement('p');
@@ -2027,6 +2209,7 @@ const QUOTE_EDITOR_SCRIPT = `
     panel.appendChild(title);
     var blocks = preflight.blocks || [];
     for (i = 0; i < blocks.length; i++) { panel.appendChild(preflightBlockCard(blocks[i])); }
+    appendProblemGroups(panel, problems);
   }
 
   // --- variant switch: reload the editor scoped to the chosen variant -------
@@ -2161,6 +2344,18 @@ const QUOTE_EDITOR_SCRIPT = `
       if (nameEl) { nameEl.textContent = opt.getAttribute('data-section-name') || ''; }
       var vEl = row.querySelector('[data-vertical]');
       if (vEl) { vEl.textContent = opt.getAttribute('data-vertical') || ''; }
+      // DEV-59: the add-option carries the section's REAL mapping verdict
+      // (sections-list completeness, server-decoded) — thread it onto the
+      // fresh row's dot so a client-side add never shows a placeholder.
+      var dotEl = row.querySelector('.lg-map-dot');
+      if (dotEl) {
+        var dotStatus = opt.getAttribute('data-mapping-status') || 'none';
+        if (dotStatus !== 'complete' && dotStatus !== 'incomplete') { dotStatus = 'none'; }
+        dotEl.setAttribute('data-mapping-status', dotStatus);
+        dotEl.title = dotStatus === 'complete' ? 'Offer mapping complete'
+          : dotStatus === 'incomplete' ? 'Offer mapping incomplete'
+          : 'No Offers selected yet';
+      }
       sectionList.appendChild(row);
       renumber();
       markVariantDirty();
@@ -2490,6 +2685,16 @@ const QUOTE_EDITOR_SCRIPT = `
   var currentSlideId = slideList.length > 0 ? slideList[0].public_id : null;
   var pages = [];
   var pageIndex = 0;
+  // Phase D stepper perf (16 "all-slides stepper perf"): above this slide
+  // count, mode:'all' fetches ONE composed page per step (the additive
+  // page:k protocol) instead of the full pages[]; at or below it the eager
+  // pages[] flow is byte-identical to Phase B. pageCount is the stepper's
+  // authoritative total in BOTH flows; knownSectionCount tracks the server's
+  // section_count echo (boot value = the SSR slide list).
+  var LAZY_SLIDES_THRESHOLD = 8;
+  var pageCount = 0;
+  var knownSectionCount = slideList.length;
+  function lazyAllMode() { return knownSectionCount > LAZY_SLIDES_THRESHOLD; }
   var lastCss = '';
   var selectedRegion = null;
   var siteId = '';
@@ -3125,33 +3330,30 @@ const QUOTE_EDITOR_SCRIPT = `
   // --- the canvas (server-rendered composed page in a srcdoc iframe) ---------
   var canvas = byId('lg-preview-iframe');
   var previewTimer = null;
-  // The §13.4 draft params carry funnel-frame + theme drafts only; UNSAVED
-  // per-arm override edits are folded into the draft group-wise here. Known
-  // approximation: the server still merges the arm's STORED overrides last,
-  // so re-editing a field that ALREADY has a stored override shows the stored
-  // value until Save (the draft API has no overrides param by contract). The
-  // canvas is exact after Save.
+  // DEV-58 (Phase D): the draft params mirror the STORED columns 1:1 —
+  // draft_frame_config = the working FUNNEL frame, draft_theme = the working
+  // funnel theme, and UNSAVED per-arm override edits ride the ADDITIVE
+  // draft_frame_overrides param (the same frame+theme split as the stored
+  // column). The server substitutes the WORKING overrides for the stored
+  // ones in the same composition slot, so re-editing a field that ALREADY
+  // has a stored override previews the WORKING value exactly (render-only;
+  // nothing persists).
   function draftFrameConfig() {
     var d = deepClone(workingFrame);
     if (d.template === undefined) { d.template = currentTemplateId(); }
     d.version = 1;
-    var g;
-    for (g in workingOverrides) {
-      if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
-      if (g === 'theme' || g === 'template' || g === 'version') { continue; }
-      if (!isRecordVal(workingOverrides[g])) { continue; }
-      if (!isRecordVal(d[g])) { d[g] = {}; }
-      deepMerge(d[g], workingOverrides[g]);
-    }
     return d;
   }
   function draftTheme() {
-    var t = deepClone(workingTheme);
-    if (workingOverrides.theme && isRecordVal(workingOverrides.theme.palette)) {
-      if (!isRecordVal(t.palette)) { t.palette = {}; }
-      deepMerge(t.palette, workingOverrides.theme.palette);
-    }
-    return t;
+    return deepClone(workingTheme);
+  }
+  // Attach the per-arm overrides draft ONLY while the arm has unsaved
+  // override edits ({} substitutes "no overrides" for this render — the
+  // preview mirror of the save payload's null). Untouched arms keep the
+  // server-side STORED merge.
+  function draftOverridesParam(body) {
+    if (overridesDirty) { body.draft_frame_overrides = deepClone(workingOverrides); }
+    return body;
   }
   function canvasStatus(text) {
     var el = byId('lg-canvas-status');
@@ -3175,18 +3377,20 @@ const QUOTE_EDITOR_SCRIPT = `
     return false;
   }
   function previewBody(draftF) {
-    var body = {
+    var body = draftOverridesParam({
       mode: previewMode,
       viewport: viewport,
       draft_frame_config: draftF === undefined ? draftFrameConfig() : draftF,
       draft_theme: draftTheme()
-    };
+    });
     if (siteId) { body.site_id = siteId; }
     // a removed/unsaved slide must not ride the POST (the server 400s on a
     // public id outside the PERSISTED order) — fall back to the first slide.
     if (previewMode === 'section' && currentSlideId && slideStillPresent(currentSlideId)) {
       body.section_public_id = currentSlideId;
     }
+    // Phase D stepper perf: long funnels fetch ONE composed page per step.
+    if (previewMode === 'all' && lazyAllMode()) { body.page = pageIndex + 1; }
     return body;
   }
   // ONE preview endpoint for the canvas AND the theme mini preview (13 §13.4).
@@ -3214,11 +3418,22 @@ const QUOTE_EDITOR_SCRIPT = `
       canvasStatus('');
       var p = res.body.preview || {};
       lastCss = p.css || '';
+      if (typeof p.section_count === 'number') { knownSectionCount = p.section_count; }
       if (previewMode === 'all') {
-        pages = p.pages || [];
-        if (pageIndex >= pages.length) { pageIndex = 0; }
-        setCanvasDoc(pages[pageIndex] || '', lastCss);
-        updateStepLabel();
+        if (typeof p.page === 'number') {
+          // Phase D lazy leg: ONE composed page (html) for step p.page.
+          pages = [];
+          pageCount = typeof p.section_count === 'number' ? p.section_count : 0;
+          if (pageIndex >= pageCount) { pageIndex = pageCount > 0 ? pageCount - 1 : 0; }
+          setCanvasDoc(p.html || '', lastCss);
+          updateStepLabel();
+        } else {
+          pages = p.pages || [];
+          pageCount = pages.length;
+          if (pageIndex >= pages.length) { pageIndex = 0; }
+          setCanvasDoc(pages[pageIndex] || '', lastCss);
+          updateStepLabel();
+        }
       } else {
         setCanvasDoc(p.html || '', lastCss);
       }
@@ -3253,12 +3468,12 @@ const QUOTE_EDITOR_SCRIPT = `
     fetch(previewUrl(), {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
+      body: JSON.stringify(draftOverridesParam({
         mode: mount.getAttribute('data-mini-preview-mode') || 'frame',
         viewport: 'desktop',
         draft_frame_config: draftFrameConfig(),
         draft_theme: draftTheme()
-      })
+      }))
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
       if (seq !== miniSeq) { return; }
       if (!res.ok) { miniStatus('Theme preview failed.'); return; }
@@ -3370,14 +3585,24 @@ const QUOTE_EDITOR_SCRIPT = `
     var label = byId('lg-step-label');
     if (label) {
       clearChildren(label);
-      label.appendChild(document.createTextNode('Slide ' + (pages.length === 0 ? 0 : pageIndex + 1) + ' of ' + pages.length));
+      // pageCount == pages.length in the eager flow (byte-identical label);
+      // in the lazy flow it is the server's section_count echo.
+      label.appendChild(document.createTextNode('Slide ' + (pageCount === 0 ? 0 : pageIndex + 1) + ' of ' + pageCount));
     }
   }
   (function () {
     var prev = byId('lg-step-prev');
     var next = byId('lg-step-next');
-    if (prev) { prev.addEventListener('click', function () { if (pageIndex > 0) { pageIndex--; setCanvasDoc(pages[pageIndex] || '', lastCss); updateStepLabel(); } }); }
-    if (next) { next.addEventListener('click', function () { if (pageIndex < pages.length - 1) { pageIndex++; setCanvasDoc(pages[pageIndex] || '', lastCss); updateStepLabel(); } }); }
+    // Eager flow (≤ threshold): swap the already-fetched page locally.
+    // Lazy flow (> threshold): fetch the ONE composed page for the new step
+    // (renderPreview reads pageIndex through previewBody's page param).
+    function showStep() {
+      if (lazyAllMode()) { updateStepLabel(); renderPreview(); return; }
+      setCanvasDoc(pages[pageIndex] || '', lastCss);
+      updateStepLabel();
+    }
+    if (prev) { prev.addEventListener('click', function () { if (pageIndex > 0) { pageIndex--; showStep(); } }); }
+    if (next) { next.addEventListener('click', function () { if (pageIndex < pageCount - 1) { pageIndex++; showStep(); } }); }
   }());
   (function () {
     var selects = root.querySelectorAll('[data-site-select]');
@@ -3669,10 +3894,11 @@ const QUOTE_EDITOR_SCRIPT = `
             if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
             return;
           }
-          // 05 5.2: the activation gate 409s with the normative report —
-          // render it in the preflight panel (operator copy), never raw JSON.
+          // 05 5.2 + 14 14.2: the activation gate 409s with the normative
+          // report + the additive problems[] (C2 LIVE) — render BOTH in the
+          // preflight panel (operator copy), never raw JSON.
           if (res.status === 409 && res.body && res.body.error === 'quote_activation_blocked') {
-            renderPreflight({ ok: false, blocks: res.body.blocks || [] });
+            renderPreflight({ ok: false, blocks: res.body.blocks || [], problems: res.body.problems || [] });
             showMsg('lg-quote-error', 'Cannot activate this Quote \\u2014 fix the blocking issues listed in the Activation preflight panel.');
             return;
           }

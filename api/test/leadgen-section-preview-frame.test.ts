@@ -14,13 +14,14 @@
 // BYTE-PIN PROTOCOL (legacy unit-only capture): the two fixtures under
 // test/fixtures/leadgen-section-preview-frame/ were minted from the
 // PRE-CHANGE handler (before the frame_context branch and the sectionCtx
-// thread landed). Every response field must stay byte-identical, with ONE
-// documented exception: `preview.css` moved the `.lg-card-subtitle` /
-// `.lg-card{position:relative}` / `.lg-card-badge` rules from the
-// frameRegions-gated block into the base sheet (DEV-57 Phase-C item; the
-// coordinated legacy-pin re-pin covers the shell/variant surfaces) — so the
-// css assertion is: live css MINUS exactly those three rules == captured css,
-// plus producer equality with funnelChromeCss. Re-mint deliberately with
+// thread landed). Every response field must stay byte-identical, with TWO
+// documented exceptions: `preview.css` moved (a) the `.lg-card-subtitle` /
+// `.lg-card{position:relative}` / `.lg-card-badge` rules (DEV-57 Phase-C
+// item) and (b) the FIX-4a `--lg-sel-bg` consuming rule (DEV-68) from the
+// frameRegions-gated block into the base sheet (each carried by a
+// coordinated legacy-pin re-pin on the shell/variant surfaces) — so the
+// css assertion is: live css MINUS exactly those moved chunks == captured
+// css, plus producer equality with funnelChromeCss. Re-mint deliberately with
 //   LEADGEN_PIN_UPDATE=1 npx vitest run test/leadgen-section-preview-frame.test.ts
 // (an update run fails on purpose; rerun without the flag to verify).
 
@@ -443,6 +444,13 @@ const MOVED_CARD_RULES =
   `${DEFAULT_FUNNEL_SCOPE} .lg-card{position:relative}\n` +
   `${DEFAULT_FUNNEL_SCOPE} .lg-card-badge{position:absolute;top:${defaultFunnelDesign.spacing.xs};right:${defaultFunnelDesign.spacing.xs};line-height:1.2;white-space:nowrap}\n`;
 
+// The DEV-68 base-sheet move (FIX 4a follow-through), byte-exact: the
+// --lg-sel-bg consuming rule left the frameRegions-gated block for the base
+// sheet (the same coordinated legacy-pin re-pin), so it is the SECOND legal
+// css delta chunk against the pre-change capture (same lockstep discipline).
+const MOVED_SEL_BG_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[aria-checked="true"], ${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[data-selected="true"]{background:var(--lg-sel-bg, ${defaultFunnelDesign.iconCard.selectedBackground})}\n`;
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -504,9 +512,14 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     if (key === "css") continue;
     expect(actualPreview[key], `preview.${key}`).toEqual(expectedPreview[key]);
   }
-  // css: the ONLY legal delta is the three moved card rules (byte-exact).
-  const cssMinusMove = (actualPreview["css"] as string).split(MOVED_CARD_RULES).join("");
-  expect(cssMinusMove, "preview.css modulo the DEV-57 moved rules").toBe(expectedPreview["css"]);
+  // css: the ONLY legal deltas are the moved base-sheet chunks (byte-exact):
+  // the three DEV-57 card rules + the DEV-68 --lg-sel-bg consumer.
+  const cssMinusMove = (actualPreview["css"] as string)
+    .split(MOVED_CARD_RULES)
+    .join("")
+    .split(MOVED_SEL_BG_RULE)
+    .join("");
+  expect(cssMinusMove, "preview.css modulo the DEV-57 + DEV-68 moved rules").toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));
   if (expected["dependencies"] !== undefined) {

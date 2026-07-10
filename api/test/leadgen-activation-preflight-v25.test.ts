@@ -594,6 +594,10 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
     expect(body.activation_preflight.problems).toEqual([]);
   });
 
+  // NOTE (Phase D, C2 LIVE): this pins the activationBlockedReport FUNCTION —
+  // the normative report SHAPE is frozen forever. The Phase-D activation PUT
+  // composes its 409 body as {...report, problems} at the call site (see the
+  // "C2 LIVE" describe below), so this byte-pin holds unchanged.
   it("C2 phasing: the 409 report body keeps its EXACT historical keys — no problems key rides it", () => {
     const preflight: QuoteActivationPreflight = {
       ok: false,
@@ -626,6 +630,108 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
     ]);
     expect("problems" in report).toBe(false);
     expect(report["error"]).toBe("quote_activation_blocked");
+  });
+});
+
+// ===========================================================================
+// C2 LIVE (Phase D — 14 §14.1/§14.2): error-severity problems join the
+// activation-blocking decision ADDITIVELY. The 409 fires on (existing blocks)
+// OR (any error-severity problem); the 409 body = the EXACT historical
+// normative report + the additive `problems` key. Warnings never block. The
+// §14.4 legacy guarantee is re-proven by the untouched test above.
+// ===========================================================================
+
+describeDb("C2 LIVE (Phase D) — error-severity problems block the activation PUT", () => {
+  // A structurally VALID centered frame with compat OFF (the §3.3 default).
+  const COMPAT_OFF_FRAME = JSON.stringify({ version: 1, template: "centered" });
+
+  it("configured frame + chrome section (compat OFF) → 409 with the report byte-shape + additive problems; nothing persists; disabling stays 200", async () => {
+    const h = newHarness();
+    const s1 = seedSection(h.sdb, { contentJson: CHROME_ONLY_CONTENT });
+    const seeded = await seedQuote(h, "C2 Chrome Quote", [s1.id]);
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = ?")
+      .run(COMPAT_OFF_FRAME, seeded.funnelId);
+
+    const put = await admin.request(
+      `${API}/quotes/${seeded.quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "c2-blocked" }),
+      h.env,
+    );
+    expect(put.status, await put.clone().text()).toBe(409);
+    const body = (await put.json()) as Record<string, unknown>;
+
+    // §14.2: the EXISTING normative report byte-shape + additive `problems`.
+    expect(Object.keys(body).sort()).toEqual([
+      "blocks",
+      "error",
+      "funnel_id",
+      "funnel_variant_id",
+      "problems",
+      "quote_id",
+    ]);
+    expect(body["error"]).toBe("quote_activation_blocked");
+    // The pure C2 leg: ZERO legacy blocks — the error-severity problem alone
+    // fired the 409 (the OR's new arm).
+    expect(body["blocks"]).toEqual([]);
+    const problems = body["problems"] as Problem[];
+    const chrome = firstMatch(
+      problems,
+      (p) => p.path === `section.${s1.public_id}.content`,
+      "C2 chrome row in the 409 body",
+    );
+    expect(chrome.severity).toBe("error");
+    expect(chrome.message).toContain("contains page-frame elements");
+    expect(chrome.message).toContain("render twice");
+    expect(chrome.message).toContain("legacy override under Advanced");
+    // §14.2 fix link: the [Review slide] deep link the copy table names.
+    expect(chrome.fix_url).toBe(`/admin/leadgen/sections/${s1.public_id}/edit`);
+
+    // The blocked PUT persisted NOTHING.
+    const row = h.sdb.prepare("SELECT id FROM leadgen_site_quotes WHERE site_id = 'site-1'").get();
+    expect(row ?? null).toBeNull();
+
+    // Disabling is never blocked — even with the error problem standing.
+    const off = await admin.request(
+      `${API}/quotes/${seeded.quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: false, slug: "c2-off" }),
+      h.env,
+    );
+    expect(off.status, await off.clone().text()).toBe(200);
+  });
+
+  it("compat.allow_section_chrome=true downgrades the SAME chrome to a warning → activation 200 (warnings never block)", async () => {
+    const h = newHarness();
+    const s1 = seedSection(h.sdb, { contentJson: CHROME_ONLY_CONTENT });
+    const seeded = await seedQuote(h, "C2 Compat Quote", [s1.id]);
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = ?")
+      .run(COMPAT_ON_FRAME, seeded.funnelId);
+
+    const put = await admin.request(
+      `${API}/quotes/${seeded.quotePublicId}/activation/site-1`,
+      jsonInit("PUT", { enabled: true, slug: "c2-compat-on" }),
+      h.env,
+    );
+    expect(put.status, await put.clone().text()).toBe(200);
+    const body = (await put.json()) as {
+      enabled: boolean;
+      activation_preflight: QuoteActivationPreflight;
+    };
+    expect(body.enabled).toBe(true);
+    const chrome = firstMatch(
+      body.activation_preflight.problems,
+      (p) => p.path === `section.${s1.public_id}.content`,
+      "compat-ON chrome row on the 200 body",
+    );
+    expect(chrome.severity).toBe("warning");
+    expect(chrome.message).toContain("Legacy override is ON");
+    // …and the row really persisted.
+    const row = h.sdb
+      .prepare("SELECT enabled, slug FROM leadgen_site_quotes WHERE site_id = 'site-1'")
+      .get() as { enabled: number; slug: string };
+    expect(row.enabled).toBe(1);
+    expect(row.slug).toBe("c2-compat-on");
   });
 });
 

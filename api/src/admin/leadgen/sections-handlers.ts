@@ -91,6 +91,7 @@ import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   buildPaging,
+  deriveFieldLabel,
   escapeLike,
   idSelector,
   parseDateRange,
@@ -1678,6 +1679,10 @@ export interface SectionOfferAnswerField {
   required: boolean;
   internal_field: string | null;
   label: string | null;
+  // v2.5 12 §12.5 ADDITIVE: the operator display label the §12.1 mapping
+  // panel's Field column shows — authored schema label, else the humanized
+  // leaf segment. Derived at projection time; no storage change.
+  field_label: string;
   valid_values: Array<string | number | boolean> | null;
 }
 
@@ -1709,6 +1714,7 @@ function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswer
       required: node["required"] === true,
       internal_field: trimmedString(node["internal_field"]),
       label: trimmedString(node["label"]),
+      field_label: deriveFieldLabel(node["label"], path),
       valid_values: validValues !== null && validValues.length > 0 ? validValues : null,
     });
   }

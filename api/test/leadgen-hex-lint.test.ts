@@ -172,7 +172,13 @@ const FIXTURE_CONTENT = {
 
 // --- surface extraction (the glossary-lint model) -------------------------------
 
-function removeContainers(html: string, opener: RegExp, tag: string): string {
+// DEV-66a (mirrors the glossary lint — one mechanism, two suites): with
+// `keepSummary` the container's FIRST <summary> is re-emitted in place of the
+// removed container — a collapsed <details> still RENDERS its summary, so the
+// label is always-visible operator copy the hex scan must cover. Details
+// containers strip first; a summary nested inside an enclosing Advanced div
+// panel is removed with that panel (correct: it only shows on the Advanced tab).
+function removeContainers(html: string, opener: RegExp, tag: string, keepSummary = false): string {
   let out = html;
   for (;;) {
     const start = out.search(new RegExp(opener.source, "i"));
@@ -192,7 +198,10 @@ function removeContainers(html: string, opener: RegExp, tag: string): string {
       }
     }
     if (end === -1) throw new Error(`unbalanced <${tag}> for Advanced-container strip`);
-    out = out.slice(0, start) + out.slice(end);
+    const summary = keepSummary
+      ? (out.slice(start, end).match(/<summary\b[^>]*>[\s\S]*?<\/summary>/i)?.[0] ?? "")
+      : "";
+    out = out.slice(0, start) + summary + out.slice(end);
   }
 }
 
@@ -200,16 +209,17 @@ function removeContainers(html: string, opener: RegExp, tag: string): string {
 // §7.3 Advanced disclosures (lg-advanced / lg-rb-advanced /
 // studio-advanced-json), the studio inspector's Advanced tab panel, and the
 // "Preview & debug" drawer — 12 §12.3 declares the debug drawer an Advanced
-// surface.
-const ADVANCED_CONTAINERS: ReadonlyArray<{ opener: RegExp; tag: string }> = [
-  { opener: /<details\b[^>]*class="[^"]*(?:lg-advanced|lg-rb-advanced|studio-advanced-json)[^"]*"[^>]*>/, tag: "details" },
+// surface. The details entries keep their always-visible <summary> labels on
+// the normal surface (DEV-66a).
+const ADVANCED_CONTAINERS: ReadonlyArray<{ opener: RegExp; tag: string; keepSummary?: boolean }> = [
+  { opener: /<details\b[^>]*class="[^"]*(?:lg-advanced|lg-rb-advanced|studio-advanced-json)[^"]*"[^>]*>/, tag: "details", keepSummary: true },
   { opener: /<div\b[^>]*data-studio-panel="advanced"[^>]*>/, tag: "div" },
   { opener: /<div\b[^>]*data-studio-drawer-panel="preview"[^>]*>/, tag: "div" },
 ];
 
 function stripAdvanced(html: string): string {
   let out = html;
-  for (const c of ADVANCED_CONTAINERS) out = removeContainers(out, c.opener, c.tag);
+  for (const c of ADVANCED_CONTAINERS) out = removeContainers(out, c.opener, c.tag, c.keepSummary === true);
   return out;
 }
 
@@ -267,9 +277,15 @@ function inlineIslands(html: string): string[] {
   return blocks;
 }
 
-function stringLiterals(islands: string[]): string[] {
-  const out: string[] = [];
-  for (const src of islands) {
+interface IslandLiteral {
+  text: string;
+  index: number; // position of the literal's OPENING quote in its island source
+  island: number;
+}
+
+function stringLiterals(islands: string[]): IslandLiteral[] {
+  const out: IslandLiteral[] = [];
+  islands.forEach((src, island) => {
     let i = 0;
     while (i < src.length) {
       const ch = src[i];
@@ -294,14 +310,14 @@ function stringLiterals(islands: string[]): string[] {
           j += 1;
         }
         if (closed) {
-          out.push(text);
+          out.push({ text, index: i, island });
           i = j + 1;
           continue;
         }
       }
       i += 1;
     }
-  }
+  });
   return out;
 }
 
@@ -314,8 +330,19 @@ function isCssRuleLiteral(text: string): boolean {
   return text.includes("{") && text.includes("}") && text.includes(":");
 }
 
-// Documented island allowlist — each entry names its reason.
-const ISLAND_HEX_ALLOW: ReadonlyArray<{ re: RegExp; reason: string }> = [
+// Documented island allowlist — each entry names its reason. DEV-66c: an
+// entry may additionally be CONTEXT-SCOPED via `context(lit, islandSrc)` —
+// the exemption then applies ONLY where the literal originates (its usage
+// site inside the island source), never globally by value. The 4 admin-shell
+// toast hexes are the scoped class: the SAME hex string anywhere else (an
+// option label, a chip, a different island) is a violation.
+interface IslandHexAllowEntry {
+  re: RegExp;
+  reason: string;
+  context?: (lit: IslandLiteral, islandSrc: string) => boolean;
+}
+
+const ISLAND_HEX_ALLOW: ReadonlyArray<IslandHexAllowEntry> = [
   {
     re: /^Custom colors must be a color value like #1a2b3c\.$/,
     reason: "09 §9.3 Advanced custom-color validation message — the ONLY hex entry point names a hex EXAMPLE (Advanced surface)",
@@ -326,8 +353,19 @@ const ISLAND_HEX_ALLOW: ReadonlyArray<{ re: RegExp; reason: string }> = [
       "admin-shell toast background values (templates/layout.ts showToast: toast.style.background = '#…') — style-property " +
       "assignments in the SHARED shell script that rides every admin page; presentation, never an option label " +
       "(the 'toastSlideIn' class of platform identifier)",
+    // DEV-66c context scope: the literal's own usage site must BE the
+    // showToast style assignment — `toast.style.background = ` immediately
+    // precedes the opening quote in the originating shell script.
+    context: (lit, islandSrc) => /toast\.style\.background\s*=\s*$/.test(islandSrc.slice(0, lit.index)),
   },
 ];
+
+// True when an island hex literal is exempt — value match AND (when the entry
+// is context-scoped) the originating-context predicate. Exposed as a function
+// so the calibration test can probe the scoping directly.
+function isAllowedIslandHex(lit: IslandLiteral, islandSrc: string): boolean {
+  return ISLAND_HEX_ALLOW.some((a) => a.re.test(lit.text) && (a.context === undefined || a.context(lit, islandSrc)));
+}
 
 interface PageCorpus {
   label: string;
@@ -335,7 +373,8 @@ interface PageCorpus {
   visible: string;
   attrs: Array<{ attr: string; value: string }>;
   options: string[];
-  literals: string[];
+  islands: string[];
+  literals: IslandLiteral[];
 }
 
 async function getHtml(env: Env, path: string): Promise<string> {
@@ -400,13 +439,15 @@ async function buildPages(): Promise<PageCorpus[]> {
   for (const def of pageDefs) {
     const raw = await getHtml(env, def.path);
     const normal = stripAdvanced(raw);
+    const islands = inlineIslands(raw);
     out.push({
       label: def.label,
       normal,
       visible: visibleText(normal),
       attrs: operatorAttrs(normal),
       options: optionLabels(normal),
-      literals: stringLiterals(inlineIslands(raw)),
+      islands,
+      literals: stringLiterals(islands),
     });
   }
   return out;
@@ -473,21 +514,60 @@ describeDb("15 §15.2 hex-lint — no hex literals on normal-mode operator surfa
     expect(violations).toEqual([]);
   });
 
-  it("no hex literals in island-emitted UI strings (CSS-rule literals + the documented Advanced allowlist exempt)", async () => {
+  it("no hex literals in island-emitted UI strings (CSS-rule literals + the documented CONTEXT-SCOPED allowlist exempt)", async () => {
     const all = await pages();
     const violations: string[] = [];
     for (const p of all) {
       for (const lit of p.literals) {
-        if (!HEX_RE.test(lit)) {
+        if (!HEX_RE.test(lit.text)) {
           HEX_RE.lastIndex = 0;
           continue;
         }
         HEX_RE.lastIndex = 0;
-        if (isCssRuleLiteral(lit)) continue; // style injection, not copy
-        if (ISLAND_HEX_ALLOW.some((a) => a.re.test(lit))) continue;
-        violations.push(`${p.label} :: island-literal :: '${lit.slice(0, 90)}'`);
+        if (isCssRuleLiteral(lit.text)) continue; // style injection, not copy
+        // DEV-66c: the allowlist is value + ORIGINATING-CONTEXT scoped — the
+        // toast hexes pass only at their showToast assignment site.
+        if (isAllowedIslandHex(lit, p.islands[lit.island] ?? "")) continue;
+        violations.push(`${p.label} :: island-literal :: '${lit.text.slice(0, 90)}'`);
       }
     }
     expect(violations).toEqual([]);
+  });
+
+  it("DEV-66c: the toast-hex exemption is context-scoped — the SAME hex outside its showToast assignment site is a violation", async () => {
+    // positive probe: the literal at its REAL originating site is exempt
+    const toastSrc = "function showToast(m){var toast=document.createElement('div');toast.style.background = '#10b981';}";
+    const toastLit = stringLiterals([toastSrc]).find((l) => l.text === "#10b981")!;
+    expect(toastLit, "probe extracted the toast literal").toBeTruthy();
+    expect(isAllowedIslandHex(toastLit, toastSrc)).toBe(true);
+
+    // counter-probes: the SAME value with NO toast context — a plain variable,
+    // an option label, a different style property — is NOT exempt.
+    for (const src of [
+      "var accent = '#10b981';",
+      "opt.textContent = '#10b981';",
+      "el.style.color = '#10b981';",
+    ]) {
+      const lit = stringLiterals([src]).find((l) => l.text === "#10b981")!;
+      expect(lit, `counter-probe extracted from ${src}`).toBeTruthy();
+      expect(isAllowedIslandHex(lit, src), `NOT exempt in: ${src}`).toBe(false);
+    }
+
+    // …and on the LIVE pages every occurrence of the 4 toast hexes sits at the
+    // showToast assignment site (the exemption never fires anywhere else).
+    const all = await pages();
+    let liveToastSites = 0;
+    for (const p of all) {
+      for (const lit of p.literals) {
+        if (!/^#(?:10b981|ef4444|f59e0b|3b82f6)$/.test(lit.text)) continue;
+        liveToastSites += 1;
+        const src = p.islands[lit.island] ?? "";
+        expect(
+          /toast\.style\.background\s*=\s*$/.test(src.slice(0, lit.index)),
+          `${p.label}: '${lit.text}' rides its showToast assignment site`,
+        ).toBe(true);
+      }
+    }
+    expect(liveToastSites, "the admin-shell toast hexes are actually present (probe grounded)").toBeGreaterThan(0);
   });
 });

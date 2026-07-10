@@ -417,7 +417,9 @@ describeDb("§15.3 variant PUT — section-order replace-set (contiguous, auctio
     // re-save with only s2
     const res = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { sections: [{ section_id: s2.id }] }), env);
     const body = (await res.json()) as { sections: Array<{ section_id: number; position: number }>; auction_entry_position: number };
-    expect(body.sections).toEqual([{ position: 0, section_id: s2.id, section_public_id: s2.public_id, section_name: expect.any(String), activity: "quote_funnel", vertical: "life", status: "active" }]);
+    // (mapping_status is the DEV-59 ADDITIVE per-section verdict — no linked
+    // Offers on this fixture → "none")
+    expect(body.sections).toEqual([{ position: 0, section_id: s2.id, section_public_id: s2.public_id, section_name: expect.any(String), activity: "quote_funnel", vertical: "life", status: "active", mapping_status: "none" }]);
     expect(body.auction_entry_position).toBe(0);
     const count = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_funnel_variant_sections WHERE variant_id = (SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)").get(variantId) as { n: number };
     expect(count.n).toBe(1);

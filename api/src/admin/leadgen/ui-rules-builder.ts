@@ -673,7 +673,7 @@ function renderCard(view: RuleView, fields: readonly RulesBuilderField[]): strin
       header +
       `<div class="lg-rb-warning" role="alert" data-lg-rb-warning>${RAW_FALLBACK_COPY}</div>` +
       `<details class="lg-rb-advanced" data-lg-rb-advanced open>` +
-      `<summary>Advanced: raw conditions JSON (read-only)</summary>` +
+      `<summary>Advanced</summary>` +
       `<pre class="lg-rb-json" data-lg-rb-json>${escapeHtml(view.raw)}</pre>` +
       `</details>` +
       `<input type="hidden" data-rule-conditions data-lg-rb-out data-rule-index="${view.index}" value="${escapeHtml(view.raw)}" />` +
@@ -698,7 +698,7 @@ function renderCard(view: RuleView, fields: readonly RulesBuilderField[]): strin
     `<div class="lg-rb-clusters" data-lg-rb-clusters>${renderClusters(rows, fields)}</div>` +
     `<div class="lg-rb-cardactions"><button type="button" class="btn btn-sm btn-secondary" data-lg-rb-add>+ Add condition</button></div>` +
     `<details class="lg-rb-advanced" data-lg-rb-advanced>` +
-    `<summary>Advanced: raw conditions JSON (read-only)</summary>` +
+    `<summary>Advanced</summary>` +
     `<pre class="lg-rb-json" data-lg-rb-json>${escapeHtml(pretty)}</pre>` +
     `</details>` +
     `<input type="hidden" data-rule-conditions data-lg-rb-out data-rule-index="${view.index}" value="${escapeHtml(serialized)}" />` +
@@ -1582,7 +1582,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       var details = el('details', 'lg-rb-advanced');
       details.setAttribute('open', 'open');
       var summary = el('summary');
-      summary.textContent = 'Advanced: raw conditions JSON (read-only)';
+      summary.textContent = 'Advanced';
       var pre = el('pre', 'lg-rb-json');
       pre.textContent = rawString;
       details.appendChild(summary);
@@ -1603,7 +1603,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     actions.appendChild(addBtn);
     var details2 = el('details', 'lg-rb-advanced');
     var summary2 = el('summary');
-    summary2.textContent = 'Advanced: raw conditions JSON (read-only)';
+    summary2.textContent = 'Advanced';
     var pre2 = el('pre', 'lg-rb-json');
     details2.appendChild(summary2);
     details2.appendChild(pre2);

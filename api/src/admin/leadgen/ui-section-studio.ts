@@ -1594,6 +1594,7 @@ function renderPreviewPanel(): string {
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
     <button type="button" class="btn btn-sm btn-secondary" data-preview-viewport="mobile" aria-pressed="false">Mobile</button>
+    <button type="button" class="btn btn-sm btn-outline" data-studio-overlay-toggle aria-pressed="false" title="Chip every answer component on the canvas with its Offer-mapping status">Offer mapping overlay</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-preview-refresh">Refresh preview</button>
     <label class="form-help" for="lg-preview-design">Design:</label>
     <select id="lg-preview-design" class="form-input lg-preview-design" data-preview-design aria-label="Preview under a funnel design (§8.9)">
@@ -1660,16 +1661,22 @@ function renderSectionOverridesPanel(): string {
 </div>`;
 }
 
-// §8.7 (E2) mapping-panel table columns — the normative order.
+// v2.5 12 §12.1 mapping-panel COLUMN CONTRACT — the normative order. One row
+// per (Offer × payload field): Offer (+ provider chip) · Provider · Placement
+// (default starred) · Field (schema field LABEL; raw path in tooltip +
+// Advanced) · Expected type (plain words) · Required ✓/— · Mapped component
+// (display name + position chip — §2.4: NEVER "slide" in the Section
+// Builder) · Status (operator words) · Fix (ONE action per row).
 const MAPPING_TABLE_COLUMNS = [
   "Offer",
   "Provider",
   "Placement",
-  "Payload schema version",
-  "Required fields",
-  "Mapped fields",
-  "Mapping status",
-  "Action",
+  "Field",
+  "Expected type",
+  "Required",
+  "Mapped component",
+  "Status",
+  "Fix",
 ] as const;
 
 export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount: number): string {
@@ -1710,6 +1717,11 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
         <tbody data-studio-offers-body></tbody>
       </table>
     </div>
+    <details class="lg-advanced studio-mapping-advanced" data-studio-mapping-advanced>
+      <summary>Advanced: raw field paths</summary>
+      <p class="form-help">Each Offer payload field&#8217;s raw dotted path &#8212; the table shows the field&#8217;s label; the raw path also rides each Field cell&#8217;s tooltip.</p>
+      <ul class="studio-mapping-advanced-list" data-studio-mapping-advanced-list></ul>
+    </details>
     <div class="studio-map-grid" data-studio-map-grid hidden></div>
     <div class="studio-bulk-review" data-studio-bulk-review hidden></div>
     <div class="studio-payload-preview" data-studio-payload-preview-wrap hidden>
@@ -1997,6 +2009,24 @@ export const SECTION_STUDIO_STYLES = `
 /* §5.3 mode 5 frame picker */
 .studio-frame-preview{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border:1px dashed var(--c-border);border-radius:6px;padding:6px 8px}
 .studio-frame-empty{flex-basis:100%;color:#664d03;margin:2px 0 0}
+/* §12.1 mapping-panel field rows */
+.studio-offer-head td{background:var(--c-surface);border-top:2px solid var(--c-border)}
+.studio-offer-name{font-weight:600}
+.studio-provider-tag{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);margin-left:6px;white-space:nowrap}
+.studio-pos-chip{font-size:10px;border-radius:999px;padding:1px 6px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);margin-left:6px;white-space:nowrap}
+.studio-row-status{font-size:11px;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.studio-row-status[data-row-status="complete"]{color:#0f5132;background:#d1e7dd}
+.studio-row-status[data-row-status="needs-values"]{color:#664d03;background:#fff3cd}
+.studio-row-status[data-row-status="type-mismatch"]{color:#842029;background:#f8d7da}
+.studio-row-status[data-row-status="unlinked"]{color:#842029;background:#f8d7da}
+.studio-row-status[data-row-status="not-mapped"]{color:var(--c-muted);background:var(--c-surface);border:1px solid var(--c-border)}
+.studio-row-status[data-row-status="not-mapped"][data-row-required="true"]{color:#842029;background:#f8d7da;border:0}
+.studio-mapping-advanced{margin:8px 0}
+.studio-mapping-advanced-list{font-size:11px;color:var(--c-muted);margin:4px 0;padding-left:18px}
+/* §12.3 canvas mapping overlay chips */
+.studio-mapoverlay-chip{font-size:10px;border-radius:999px;padding:2px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);cursor:pointer;display:inline-block;margin:2px 0}
+.studio-mapoverlay-chip[data-overlay-state="mapped"]{color:#0f5132;background:#d1e7dd;border-color:#badbcc}
+.studio-mapoverlay-chip[data-overlay-state="required-missing"]{color:#842029;background:#f8d7da;border-color:#f5c2c7}
 /* §7.3 provider-values chip (C1) */
 .studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
 .studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
@@ -3492,13 +3522,42 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
   }
+  // §12.3 canvas mapping OVERLAY (toggle in the preview drawer): every answer
+  // component gets a chip — mapped (n Offers) or a red required-missing —
+  // clicking one opens the inspector Mapping tab scoped to that component.
+  // Rebuilt per decoration pass like every other canvas chip.
+  var mappingOverlayOn = false;
+  function decorateMappingOverlay(region) {
+    if (!mappingOverlayOn) { return; }
+    var nodes = region.querySelectorAll('[data-question-id]');
+    var i, qid, ref, info, chip;
+    for (i = 0; i < nodes.length; i++) {
+      qid = nodes[i].getAttribute('data-question-id');
+      ref = findRef(qid);
+      if (!ref || !ref.node || !typeMeta(ref.node.type).produces || trimStr(ref.node.internal_field) === '') { continue; }
+      info = overlayChipInfo(ref.node.internal_field);
+      chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'studio-mapoverlay-chip';
+      chip.setAttribute('data-mapping-overlay-chip', qid);
+      chip.setAttribute('data-overlay-state', info.required_missing ? 'required-missing' : 'mapped');
+      chip.setAttribute('data-overlay-count', String(info.count));
+      chip.title = 'Open the Mapping tab for this component';
+      chip.appendChild(document.createTextNode(info.required_missing ? 'Required \\u2014 missing' : 'Mapped \\u00B7 ' + info.count + ' Offer' + (info.count === 1 ? '' : 's')));
+      chip.addEventListener('click', function () {
+        selectComponent(this.getAttribute('data-mapping-overlay-chip'));
+        setInspectorTab('mapping');
+      });
+      if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(chip, nodes[i]); }
+    }
+  }
   function applyCanvasDecoration() {
     var region = document.getElementById('lg-studio-canvas-render');
     if (!region) { return; }
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
     // from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle');
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
@@ -3532,6 +3591,7 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
     decorateChoiceCards(region);
+    decorateMappingOverlay(region);
   }
   function clearDropClasses() {
     var region = document.getElementById('lg-studio-canvas-render');
@@ -5969,6 +6029,16 @@ export const SECTION_STUDIO_SCRIPT = `
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
   if (openMapping) { openMapping.addEventListener('click', function () { setDrawerTab('mapping'); }); }
+  // §12.3: the preview-drawer overlay toggle repaints the canvas decoration.
+  var overlayToggle = document.querySelector('[data-studio-overlay-toggle]');
+  if (overlayToggle) {
+    overlayToggle.addEventListener('click', function () {
+      mappingOverlayOn = !mappingOverlayOn;
+      this.setAttribute('aria-pressed', mappingOverlayOn ? 'true' : 'false');
+      this.className = mappingOverlayOn ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
+      applyCanvasDecoration();
+    });
+  }
 
   // --- inspector input wiring: every edit flows back into the selected node ------------
   var fieldEls = document.querySelectorAll('[data-inspector-field]');
@@ -6671,6 +6741,99 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return field && field.required === true ? 'required \\u2014 not mapped' : 'not mapped';
   }
+  // §12.1/§12.5: the Field column shows the schema's field LABEL — the server
+  // projects field_label (authored label > humanized leaf); the island
+  // derives the SAME fallback for pre-§12.5 offers responses. The raw dotted
+  // path retreats to the cell tooltip + the Advanced disclosure.
+  function fieldDisplayLabel(f) {
+    if (!f) { return ''; }
+    if (typeof f.field_label === 'string' && trimStr(f.field_label) !== '') { return f.field_label; }
+    if (typeof f.label === 'string' && trimStr(f.label) !== '') { return trimStr(f.label); }
+    var leaf = String(f.path || '').split('.').pop() || String(f.path || '');
+    var words = trimStr(leaf.replace(/[_-]+/g, ' '));
+    if (words === '') { return String(f.path || ''); }
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  // §12.1 "Expected type in plain words" — operator vocabulary, never a bare
+  // storage enum ("text", "number", "one of: …").
+  function plainTypeWords(f) {
+    if (!f) { return ''; }
+    if (f.valid_values && f.valid_values.length > 0) { return 'one of: ' + f.valid_values.join(', '); }
+    if (f.type === 'string') { return 'text'; }
+    if (f.type === 'number') { return 'number'; }
+    if (f.type === 'boolean') { return 'yes or no'; }
+    if (f.type === 'enum') { return 'one of the allowed values'; }
+    if (f.type === 'array') { return 'list'; }
+    if (f.type === 'object') { return 'group of fields'; }
+    return String(f.type || '');
+  }
+  // §12.1 Status column decode — operator words over the LIVE model:
+  //   complete → complete · orphaned → unlinked · type_mismatch splits into a
+  //   stored-vs-schema type drift ("type mismatch") vs a value-coercion gap a
+  //   per-Offer value map would close ("needs values") · no edge or an edge
+  //   with no linked component reads "not mapped".
+  function fieldRowStatus(offer, field, edge) {
+    if (!edge) {
+      return { key: 'not-mapped', label: field && field.required === true ? 'required — not mapped' : 'not mapped' };
+    }
+    var st = edgeMapState(edge, offer);
+    if (st === 'complete') { return { key: 'complete', label: 'complete' }; }
+    if (st === 'orphaned') { return { key: 'unlinked', label: 'unlinked' }; }
+    if (st === 'type_mismatch') {
+      if (field && edge.provider_expected_type !== field.type) { return { key: 'type-mismatch', label: 'type mismatch' }; }
+      return { key: 'needs-values', label: 'needs values' };
+    }
+    return { key: 'not-mapped', label: 'required — not mapped' };
+  }
+  // §12.1 Fix column — ONE action per row, each opening the exact editor
+  // scoped to the row; a complete row needs none.
+  function fixActionFor(offer, field, edge) {
+    var st = fieldRowStatus(offer, field, edge);
+    if (st.key === 'complete') { return null; }
+    if (st.key === 'needs-values') { return { kind: 'values', label: 'Fill provider values…', offer_id: offer ? offer.id : 0 }; }
+    if (st.key === 'type-mismatch') { return { kind: 'type', label: 'Fix type…', offer_id: offer ? offer.id : 0 }; }
+    if (st.key === 'unlinked') { return { kind: 'relink', label: 'Re-link…', offer_id: offer ? offer.id : 0 }; }
+    return { kind: 'map', label: 'Map…', offer_id: offer ? offer.id : 0 };
+  }
+  // §2.4/C6: the Mapped-component chip carries the component's POSITION among
+  // this question unit's answer components ('#N', 1-based, tree order) — the
+  // Section Builder never borrows the Quote Builder's step vocabulary.
+  function answerComponentPosition(internalField) {
+    var pos = 0, found = 0;
+    walkTree(state.content.components, 1, function (n) {
+      if (typeMeta(n.type).produces) {
+        pos += 1;
+        if (found === 0 && n.internal_field === internalField) { found = pos; }
+      }
+    });
+    return found;
+  }
+  // §12.3 overlay decode for ONE answer component: how many live-selected
+  // Offers its answer feeds + whether a REQUIRED Offer field is unsatisfied
+  // (a required edge that is not complete, or a required schema field naming
+  // this internal field with no edge at all).
+  function overlayChipInfo(internalField) {
+    var offers = offersList();
+    var count = 0, requiredMissing = false;
+    var i, j, e, live, fields, has;
+    for (i = 0; i < offers.length; i++) {
+      live = offerLiveState(offers[i]);
+      if (live.state === 'not_selected') { continue; }
+      has = false;
+      for (j = 0; j < state.answer_maps.length; j++) {
+        e = state.answer_maps[j];
+        if (!e || e.offer_id !== offers[i].id || e.internal_field !== internalField) { continue; }
+        has = true;
+        if (e.required_for_offer === true && edgeMapState(e, offers[i]) !== 'complete') { requiredMissing = true; }
+      }
+      if (has) { count += 1; continue; }
+      fields = offers[i].answer_fields || [];
+      for (j = 0; j < fields.length; j++) {
+        if (fields[j].required === true && fields[j].internal_field === internalField && findEdgeIndex(offers[i].id, fields[j].path) === -1) { requiredMissing = true; }
+      }
+    }
+    return { count: count, required_missing: requiredMissing };
+  }
   function offerDeepLink(offer) { return '/admin/leadgen/offers/' + encodeURIComponent(offer.public_id) + '/edit#payload'; }
   function btn(label, attr, offerId, cls) {
     var b = document.createElement('button');
@@ -6679,6 +6842,200 @@ export const SECTION_STUDIO_SCRIPT = `
     b.setAttribute(attr, String(offerId));
     b.textContent = label;
     return b;
+  }
+  // One provider chip idiom for the §12.1 Offer cells.
+  function providerTag(provider) {
+    var tag = document.createElement('span');
+    tag.className = 'studio-provider-tag';
+    tag.setAttribute('data-offer-provider-chip', provider || '');
+    tag.appendChild(document.createTextNode(provider || '\\u2014'));
+    return tag;
+  }
+  // The §12.1 Fix cell: ONE action per row. "Fill provider values…" is the C1
+  // deep link into that Offer's value-map surface (an anchor); the other
+  // kinds are buttons the delegated handler routes to the exact editor.
+  function buildFixCell(offer, field, edge) {
+    var td = document.createElement('td');
+    var action = fixActionFor(offer, field, edge);
+    if (action === null) {
+      td.appendChild(document.createTextNode('\\u2014'));
+      return td;
+    }
+    var el;
+    if (action.kind === 'values') {
+      el = document.createElement('a');
+      el.href = offerDeepLink(offer);
+      el.target = '_blank';
+      el.rel = 'noopener';
+    } else {
+      el = document.createElement('button');
+      el.type = 'button';
+    }
+    el.className = 'btn btn-sm btn-outline';
+    el.setAttribute('data-studio-fix', action.kind);
+    el.setAttribute('data-fix-offer', String(offer.id));
+    el.setAttribute('data-fix-path', field ? field.path : (edge ? edge.offer_payload_field_path : ''));
+    el.setAttribute('data-fix-field', edge && edge.internal_field ? String(edge.internal_field) : '');
+    el.appendChild(document.createTextNode(action.label));
+    td.appendChild(el);
+    return td;
+  }
+  // §12.1 field row — the nine contract columns for ONE (Offer × field) pair.
+  // field is null for an ORPHANED edge (its path left the active schema).
+  function buildFieldRow(offer, field, edge) {
+    var tr = document.createElement('tr');
+    var path = field ? field.path : (edge ? edge.offer_payload_field_path : '');
+    tr.setAttribute('data-studio-field-row', offer.id + ':' + path);
+    var td, span, node, pos, st;
+    // Offer (+ provider chip)
+    td = document.createElement('td');
+    span = document.createElement('span');
+    span.appendChild(document.createTextNode(offer.offer_name));
+    td.appendChild(span);
+    td.appendChild(providerTag(offer.provider));
+    tr.appendChild(td);
+    // Provider (plain)
+    td = document.createElement('td');
+    td.appendChild(document.createTextNode(offer.provider || '\\u2014'));
+    tr.appendChild(td);
+    // Placement (the default placement, starred)
+    td = document.createElement('td');
+    if (offer.default_placement_id) {
+      td.title = 'Default placement';
+      td.setAttribute('data-default-placement', offer.default_placement_id);
+      td.appendChild(document.createTextNode('\\u2605 ' + offer.default_placement_id));
+    } else {
+      td.appendChild(document.createTextNode('\\u2014'));
+    }
+    tr.appendChild(td);
+    // Field — the schema's LABEL; the raw path rides the tooltip (+ Advanced)
+    td = document.createElement('td');
+    span = document.createElement('span');
+    span.setAttribute('data-field-label', '');
+    span.setAttribute('data-field-path', path);
+    span.title = path;
+    span.appendChild(document.createTextNode(field ? fieldDisplayLabel(field) : fieldDisplayLabel({ path: path })));
+    td.appendChild(span);
+    tr.appendChild(td);
+    // Expected type in plain words
+    td = document.createElement('td');
+    td.appendChild(document.createTextNode(field ? plainTypeWords(field) : '\\u2014'));
+    tr.appendChild(td);
+    // Required ✓ / —
+    td = document.createElement('td');
+    td.setAttribute('data-field-required', field && field.required === true ? 'true' : 'false');
+    td.appendChild(document.createTextNode(field && field.required === true ? '\\u2713' : '\\u2014'));
+    tr.appendChild(td);
+    // Mapped component — display name + '#N' position chip (§2.4/C6: the
+    // Section Builder speaks positions, never the Quote Builder's step word)
+    td = document.createElement('td');
+    node = edge && trimStr(edge.internal_field) !== '' ? questionByField(edge.internal_field) : null;
+    if (node) {
+      td.appendChild(document.createTextNode(typeLabel(node.type)));
+      pos = answerComponentPosition(edge.internal_field);
+      if (pos > 0) {
+        span = document.createElement('span');
+        span.className = 'studio-pos-chip';
+        span.setAttribute('data-component-position', String(pos));
+        span.title = 'Position in this question unit';
+        span.appendChild(document.createTextNode('#' + pos));
+        td.appendChild(span);
+      }
+    } else if (edge && trimStr(edge.internal_field) !== '') {
+      td.appendChild(document.createTextNode('not on this question unit'));
+    } else {
+      td.appendChild(document.createTextNode('\\u2014 not mapped \\u2014'));
+    }
+    tr.appendChild(td);
+    // Status — operator words, colored chip
+    td = document.createElement('td');
+    st = fieldRowStatus(offer, field, edge);
+    span = document.createElement('span');
+    span.className = 'studio-row-status';
+    span.setAttribute('data-row-status', st.key);
+    span.setAttribute('data-row-required', field && field.required === true ? 'true' : 'false');
+    span.appendChild(document.createTextNode(st.label));
+    td.appendChild(span);
+    tr.appendChild(td);
+    // Fix — ONE action per row
+    tr.appendChild(buildFixCell(offer, field, edge));
+    return tr;
+  }
+  // The per-Offer header row: selection + live summary + the offer-scoped
+  // affordances (Map fields · Bulk-map · Payload · Schema) the §8.7 flows keep.
+  function buildOfferHeadRow(offer) {
+    var live = offerLiveState(offer);
+    var tr = document.createElement('tr');
+    tr.className = 'studio-offer-head';
+    tr.setAttribute('data-studio-offer-row', offer.public_id);
+    var td = document.createElement('td');
+    var name = document.createElement('span');
+    name.className = 'studio-offer-name';
+    name.title = offer.public_id;
+    name.appendChild(document.createTextNode(offer.offer_name));
+    td.appendChild(name);
+    td.appendChild(providerTag(offer.provider));
+    tr.appendChild(td);
+    td = document.createElement('td');
+    td.colSpan = 8;
+    var actions = document.createElement('div');
+    actions.className = 'studio-pair';
+    var selLabel = document.createElement('label');
+    selLabel.className = 'lg-check';
+    var sel = document.createElement('input');
+    sel.type = 'checkbox';
+    sel.setAttribute('data-studio-offer-select', String(offer.id));
+    sel.checked = live.selected;
+    selLabel.appendChild(sel);
+    selLabel.appendChild(document.createTextNode('selected'));
+    actions.appendChild(selLabel);
+    var stateEl = document.createElement('span');
+    stateEl.className = 'studio-offer-state';
+    stateEl.setAttribute('data-offer-mapping-state', live.state);
+    stateEl.appendChild(document.createTextNode(offerStateLabel(live.state)));
+    actions.appendChild(stateEl);
+    var summary = document.createElement('span');
+    summary.className = 'form-help';
+    summary.setAttribute('data-offer-required-mapped', String(live.required_mapped));
+    summary.appendChild(document.createTextNode(live.required_mapped + '/' + live.required_total + ' required fields mapped'));
+    actions.appendChild(summary);
+    var version = document.createElement('span');
+    version.className = 'form-help';
+    version.setAttribute('data-offer-schema-version', offer.payload_schema_version === null || offer.payload_schema_version === undefined ? '' : String(offer.payload_schema_version));
+    version.appendChild(document.createTextNode(offer.has_active_schema ? 'payload v' + offer.payload_schema_version : 'no payload yet'));
+    actions.appendChild(version);
+    actions.appendChild(btn('Map fields', 'data-studio-offer-map', offer.id, 'btn btn-sm btn-secondary'));
+    actions.appendChild(btn('Bulk-map', 'data-studio-offer-bulkmap', offer.id));
+    actions.appendChild(btn('Payload', 'data-studio-offer-payload', offer.id));
+    var schemaLink = document.createElement('a');
+    schemaLink.className = 'btn btn-sm btn-outline';
+    schemaLink.href = offerDeepLink(offer);
+    schemaLink.target = '_blank';
+    schemaLink.rel = 'noopener';
+    schemaLink.setAttribute('data-studio-offer-schema-link', offer.public_id);
+    schemaLink.textContent = 'Schema';
+    actions.appendChild(schemaLink);
+    td.appendChild(actions);
+    tr.appendChild(td);
+    return tr;
+  }
+  // §12.1/§12.5: the Advanced disclosure lists every raw dotted path the
+  // normal table replaced with labels (one line per Offer × field).
+  function renderMappingAdvancedPaths() {
+    var listEl = document.querySelector('[data-studio-mapping-advanced-list]');
+    if (!listEl) { return; }
+    clearChildren(listEl);
+    var list = offersList();
+    var i, j, fields, li;
+    for (i = 0; i < list.length; i++) {
+      fields = list[i].answer_fields || [];
+      for (j = 0; j < fields.length; j++) {
+        li = document.createElement('li');
+        li.setAttribute('data-advanced-path', fields[j].path);
+        li.appendChild(document.createTextNode(list[i].offer_name + ' \\u00B7 ' + fieldDisplayLabel(fields[j]) + ' \\u2014 ' + fields[j].path));
+        listEl.appendChild(li);
+      }
+    }
   }
   function renderOffersTable() {
     var body = document.querySelector('[data-studio-offers-body]');
@@ -6695,66 +7052,38 @@ export const SECTION_STUDIO_SCRIPT = `
       return;
     }
     clearChildren(body);
-    var i, offer, live, tr, td, stateEl, sel, selLabel, actions;
+    var i, j, k, offer, fields, edge, edges, tr, td, note, seenPaths;
     for (i = 0; i < list.length; i++) {
       offer = list[i];
-      live = offerLiveState(offer);
-      tr = document.createElement('tr');
-      tr.setAttribute('data-studio-offer-row', offer.public_id);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(offer.offer_name));
-      td.title = offer.public_id;
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(offer.provider || '\\u2014'));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(offer.default_placement_id || '\\u2014'));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.setAttribute('data-offer-schema-version', offer.payload_schema_version === null || offer.payload_schema_version === undefined ? '' : String(offer.payload_schema_version));
-      td.appendChild(document.createTextNode(offer.has_active_schema ? 'v' + offer.payload_schema_version : 'no schema'));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(String(live.required_total)));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.setAttribute('data-offer-required-mapped', String(live.required_mapped));
-      td.appendChild(document.createTextNode(live.required_mapped + '/' + live.required_total));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      stateEl = document.createElement('span');
-      stateEl.className = 'studio-offer-state';
-      stateEl.setAttribute('data-offer-mapping-state', live.state);
-      stateEl.appendChild(document.createTextNode(offerStateLabel(live.state)));
-      td.appendChild(stateEl);
-      tr.appendChild(td);
-      td = document.createElement('td');
-      actions = document.createElement('div');
-      actions.className = 'studio-pair';
-      selLabel = document.createElement('label');
-      selLabel.className = 'lg-check';
-      sel = document.createElement('input');
-      sel.type = 'checkbox';
-      sel.setAttribute('data-studio-offer-select', String(offer.id));
-      sel.checked = live.selected;
-      selLabel.appendChild(sel);
-      selLabel.appendChild(document.createTextNode('selected'));
-      actions.appendChild(selLabel);
-      actions.appendChild(btn('Map fields', 'data-studio-offer-map', offer.id, 'btn btn-sm btn-secondary'));
-      actions.appendChild(btn('Bulk-map', 'data-studio-offer-bulkmap', offer.id));
-      actions.appendChild(btn('Payload', 'data-studio-offer-payload', offer.id));
-      var schemaLink = document.createElement('a');
-      schemaLink.className = 'btn btn-sm btn-outline';
-      schemaLink.href = offerDeepLink(offer);
-      schemaLink.target = '_blank';
-      schemaLink.rel = 'noopener';
-      schemaLink.setAttribute('data-studio-offer-schema-link', offer.public_id);
-      schemaLink.textContent = 'Schema';
-      actions.appendChild(schemaLink);
-      td.appendChild(actions);
-      tr.appendChild(td);
-      body.appendChild(tr);
+      body.appendChild(buildOfferHeadRow(offer));
+      fields = offer.answer_fields || [];
+      seenPaths = {};
+      if (fields.length === 0) {
+        tr = document.createElement('tr');
+        tr.setAttribute('data-studio-field-row', offer.id + ':');
+        td = document.createElement('td');
+        td.colSpan = 9;
+        note = document.createElement('span');
+        note.className = 'form-help';
+        note.appendChild(document.createTextNode(offer.has_active_schema ? 'The active payload schema has no answer-source fields to map.' : 'This Offer has no ACTIVE payload schema \\u2014 create one in the payload builder first.'));
+        td.appendChild(note);
+        tr.appendChild(td);
+        body.appendChild(tr);
+      }
+      for (j = 0; j < fields.length; j++) {
+        seenPaths[fields[j].path] = true;
+        edge = null;
+        k = findEdgeIndex(offer.id, fields[j].path);
+        if (k !== -1) { edge = state.answer_maps[k]; }
+        body.appendChild(buildFieldRow(offer, fields[j], edge));
+      }
+      // ORPHANED edges (paths no longer in the active schema) stay visible —
+      // they decode to "unlinked" with the Re-link… fix.
+      edges = edgesForOffer(offer.id);
+      for (j = 0; j < edges.length; j++) {
+        if (seenPaths[edges[j].offer_payload_field_path] === true) { continue; }
+        body.appendChild(buildFieldRow(offer, null, edges[j]));
+      }
     }
   }
   function questionOptions(select, field, current) {
@@ -6787,8 +7116,11 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     select.value = current;
   }
+  // DEV-65(c)/§12.1: picker options speak the schema field LABEL + plain-word
+  // type — never a raw dotted path (the path stays the option VALUE and the
+  // row tooltip / Advanced list).
   function pathOptionLabel(f) {
-    return f.path + ' \\u2014 ' + f.type + (f.required === true ? ' (required)' : '') + (f.valid_values && f.valid_values.length > 0 ? ' [' + f.valid_values.join('|') + ']' : '');
+    return fieldDisplayLabel(f) + ' \\u2014 ' + plainTypeWords(f) + (f.required === true ? ' (required)' : '');
   }
   function renderMapGrid() {
     var grid = document.querySelector('[data-studio-map-grid]');
@@ -6826,7 +7158,9 @@ export const SECTION_STUDIO_SCRIPT = `
       pathSel = document.createElement('select');
       pathSel.className = 'form-input';
       pathSel.setAttribute('data-map-path', f.path);
-      pathSel.setAttribute('aria-label', 'Offer schema field');
+      pathSel.setAttribute('aria-label', 'Offer payload field');
+      // §12.1: options carry the field LABEL; the raw path rides the tooltip.
+      pathSel.title = f.path;
       for (j = 0; j < fields.length; j++) {
         o = document.createElement('option');
         o.value = fields[j].path;
@@ -6977,11 +7311,15 @@ export const SECTION_STUDIO_SCRIPT = `
   function renderOffersPanel() {
     if (!offersData) { return; }
     renderOffersTable();
+    renderMappingAdvancedPaths();
     renderMapGrid();
     renderInspectorMapping();
     renderMappingCount();
     updateMappingBadge();
     renderOffersStaleNote();
+    // §12.3: the canvas overlay chips derive from the SAME live model — every
+    // mapping edit repaints them (decoration is rebuild-per-pass idempotent).
+    applyCanvasDecoration();
   }
   function loadOffers() {
     if (!state.public_id) {
@@ -7039,12 +7377,68 @@ export const SECTION_STUDIO_SCRIPT = `
     }).catch(function () { pre.textContent = 'validate-payload request failed'; });
   }
 
+  // --- §12.1 Fix-action routing: each kind opens the EXACT editor scoped to
+  // the row ------------------------------------------------------------------
+  // "Map…" → the per-Offer Map-fields editor with the row's quick-map
+  // question select focused (its '+ Create question for this field' option
+  // keeps Direction B one step away for unmapped rows).
+  function openFixMapGrid(offer, path) {
+    openMapOfferId = offer.id;
+    renderBulkReview(null);
+    renderMapGrid();
+    var sel = document.querySelector('[data-map-question="' + path + '"]');
+    if (sel) {
+      if (sel.scrollIntoView) { sel.scrollIntoView({ block: 'nearest' }); }
+      if (sel.focus) { sel.focus(); }
+    }
+  }
+  // "Fix type…" → the mapped component's internal-field surface (the
+  // Advanced-tab input) — the place the answer identity is authored.
+  function openFixTypeSurface(internalField) {
+    var node = questionByField(internalField);
+    if (!node) { return false; }
+    selectComponent(node.question_id);
+    setInspectorTab('advanced');
+    var inp = document.getElementById('lg-inspector-internal-field');
+    if (inp && inp.focus) { inp.focus(); }
+    return true;
+  }
+  // "Re-link…" → the component's quick-map on the inspector Mapping tab
+  // (picking a field there drops the stale edge for this Offer + component
+  // and upserts the new one); a component-less edge falls back to the
+  // Map-fields editor.
+  function openFixRelink(offer, internalField, path) {
+    var node = trimStr(internalField) === '' ? null : questionByField(internalField);
+    if (!node) { openFixMapGrid(offer, path); return; }
+    selectComponent(node.question_id);
+    setInspectorTab('mapping');
+    var sel = document.querySelector('[data-inspector-quickmap="' + offer.id + '"]');
+    if (sel) {
+      if (sel.scrollIntoView) { sel.scrollIntoView({ block: 'nearest' }); }
+      if (sel.focus) { sel.focus(); }
+    }
+  }
+
   // Delegated wiring for the whole mapping drawer panel.
   var mappingPanel = document.querySelector('[data-studio-drawer-panel="mapping"]');
   if (mappingPanel) {
     mappingPanel.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target : null;
       if (!t) { return; }
+      // §12.1 Fix column (the 'values' kind is an anchor — the C1 deep link
+      // navigates by itself and never reaches this leg's routing).
+      var fixEl = t.closest('[data-studio-fix]');
+      if (fixEl && fixEl.getAttribute('data-studio-fix') !== 'values') {
+        var fixOffer = offerById(Number(fixEl.getAttribute('data-fix-offer')));
+        if (!fixOffer) { return; }
+        var fixKind = fixEl.getAttribute('data-studio-fix');
+        var fixPath = fixEl.getAttribute('data-fix-path') || '';
+        var fixField = fixEl.getAttribute('data-fix-field') || '';
+        if (fixKind === 'map') { openFixMapGrid(fixOffer, fixPath); }
+        else if (fixKind === 'type') { if (!openFixTypeSurface(fixField)) { openFixMapGrid(fixOffer, fixPath); } }
+        else if (fixKind === 'relink') { openFixRelink(fixOffer, fixField, fixPath); }
+        return;
+      }
       var el = t.closest('[data-studio-offer-map]');
       if (el) { openMapOfferId = Number(el.getAttribute('data-studio-offer-map')); renderBulkReview(null); renderMapGrid(); return; }
       el = t.closest('[data-studio-map-close]');

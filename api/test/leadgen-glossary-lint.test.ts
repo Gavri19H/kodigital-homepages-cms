@@ -29,7 +29,14 @@
 //                    by balanced-tag scan: <details class="studio-advanced-json">,
 //                    <details class="lg-advanced" …> and the inspector's
 //                    <div … data-studio-panel="advanced"> panel. Content inside
-//                    those containers is Advanced BY CONSTRUCTION (07 §7.3).
+//                    those containers is Advanced BY CONSTRUCTION (07 §7.3) —
+//                    EXCEPT a <details> disclosure's <summary> label (DEV-66a):
+//                    a collapsed disclosure still RENDERS its summary, so that
+//                    label is ALWAYS-VISIBLE operator copy and stays on the
+//                    normal surface (re-emitted in place of the stripped
+//                    container; a details nested inside another Advanced
+//                    container is stripped WITH that container — details run
+//                    first, the enclosing div panels after).
 //   visible(html)  = normal minus <script>/<style> bodies, tags stripped,
 //                    entities decoded — the operator-READABLE text.
 //   attrs(html)    = operator-FACING attribute values on normal markup
@@ -201,7 +208,14 @@ const FIXTURE_CONTENT = {
 
 // Balanced removal of an element whose OPEN tag matches `opener`. Our own SSR
 // is well-formed; an unbalanced container is itself a bug worth failing on.
-function removeContainers(html: string, opener: RegExp, tag: string): string {
+// DEV-66a: with `keepSummary` the container's FIRST <summary>…</summary> is
+// re-emitted in place of the removed container — a <details> disclosure
+// renders COLLAPSED, so its summary label is ALWAYS-VISIBLE operator copy and
+// must stay on the normal-mode surface. Nesting resolves itself by ordering:
+// details containers strip FIRST (their summaries preserved), the enclosing
+// Advanced div panels after (taking any preserved summary inside them along —
+// a label that only shows inside the Advanced tab is Advanced, not normal).
+function removeContainers(html: string, opener: RegExp, tag: string, keepSummary = false): string {
   let out = html;
   for (;;) {
     const start = out.search(new RegExp(opener.source, "i"));
@@ -221,7 +235,10 @@ function removeContainers(html: string, opener: RegExp, tag: string): string {
       }
     }
     if (end === -1) throw new Error(`unbalanced <${tag}> for Advanced-container strip`);
-    out = out.slice(0, start) + out.slice(end);
+    const summary = keepSummary
+      ? (out.slice(start, end).match(/<summary\b[^>]*>[\s\S]*?<\/summary>/i)?.[0] ?? "")
+      : "";
+    out = out.slice(0, start) + summary + out.slice(end);
   }
 }
 
@@ -231,23 +248,28 @@ function removeContainers(html: string, opener: RegExp, tag: string): string {
 //   · details.lg-advanced / details.studio-advanced-json — 07 §7.3 "Advanced |
 //     always, collapsed" (quote regions, funnel settings, theme admin, studio
 //     raw-node editor);
-//   · details.lg-rb-advanced — the rules-builder's per-card "Advanced: raw
-//     conditions" disclosure (same §7.3 pattern, rules-builder class);
+//   · details.lg-rb-advanced — the rules-builder's per-card "Advanced"
+//     disclosure (same §7.3 pattern, rules-builder class; its summary label
+//     was DEV-66a-fixed to the operator word);
 //   · div[data-studio-panel="advanced"] — the studio inspector's Advanced tab
 //     panel (07 §7.3);
 //   · div[data-studio-drawer-panel="preview"] — the studio "Preview & debug"
 //     drawer: 12 §12.3 declares the debug drawer AN ADVANCED SURFACE ("renders
 //     the redacted JSON in the debug drawer (Advanced surface — JSON allowed
 //     there)").
-const ADVANCED_CONTAINERS: ReadonlyArray<{ opener: RegExp; tag: string }> = [
-  { opener: /<details\b[^>]*class="[^"]*(?:lg-advanced|lg-rb-advanced|studio-advanced-json)[^"]*"[^>]*>/, tag: "details" },
+// DEV-66a: the details entries keep their <summary> labels on the normal
+// surface (always-visible while collapsed); the div panels have no summary —
+// their visible affordance is the tab/drawer BUTTON, which lives outside the
+// panel and is already scanned.
+const ADVANCED_CONTAINERS: ReadonlyArray<{ opener: RegExp; tag: string; keepSummary?: boolean }> = [
+  { opener: /<details\b[^>]*class="[^"]*(?:lg-advanced|lg-rb-advanced|studio-advanced-json)[^"]*"[^>]*>/, tag: "details", keepSummary: true },
   { opener: /<div\b[^>]*data-studio-panel="advanced"[^>]*>/, tag: "div" },
   { opener: /<div\b[^>]*data-studio-drawer-panel="preview"[^>]*>/, tag: "div" },
 ];
 
 function stripAdvanced(html: string): string {
   let out = html;
-  for (const c of ADVANCED_CONTAINERS) out = removeContainers(out, c.opener, c.tag);
+  for (const c of ADVANCED_CONTAINERS) out = removeContainers(out, c.opener, c.tag, c.keepSummary === true);
   return out;
 }
 
@@ -293,6 +315,22 @@ function inlineIslands(html: string): string[] {
     blocks.push(match[1] ?? "");
   }
   return blocks;
+}
+
+// DEV-66b: the <script type="application/json"> bootstrap blobs (id in either
+// attribute order — the studio emits type-first, the rules-builder id-first).
+// Their LABEL fields render client-side as operator copy, so the documented
+// registry below scans them like any normal surface.
+function jsonBlobs(html: string): Map<string, unknown> {
+  const out = new Map<string, unknown>();
+  for (const match of html.matchAll(SCRIPT_RE)) {
+    const tag = match[0] ?? "";
+    if (!tag.includes('type="application/json"')) continue;
+    const id = /\bid="([^"]+)"/.exec(tag)?.[1];
+    if (id === undefined) continue;
+    out.set(id, JSON.parse(match[1] ?? "null"));
+  }
+  return out;
 }
 
 interface IslandLiteral {
@@ -456,6 +494,7 @@ interface PageCorpus {
   attrs: Array<{ attr: string; value: string }>;
   islands: string[];
   literals: IslandLiteral[];
+  blobs: Map<string, unknown>;
 }
 
 async function getHtml(env: Env, path: string): Promise<string> {
@@ -532,6 +571,7 @@ async function buildPages(): Promise<PageCorpus[]> {
       attrs: operatorAttrs(normal),
       islands,
       literals: stringLiterals(islands),
+      blobs: jsonBlobs(raw),
     });
   }
   return out;
@@ -566,11 +606,66 @@ const ISLAND_JSON_ALLOW: ReadonlyArray<{ re: RegExp; reason: string }> = [
   { re: /^Invalid JSON: $/, reason: "Advanced raw-node editor parse error (§7.3 Advanced)" },
   { re: /node JSON must be an object/, reason: "Advanced raw-node editor shape error (§7.3 Advanced)" },
   { re: /^Edit the raw component JSON\?/, reason: "the §7.3 explicit Edit-raw confirm (Advanced)" },
-  // the rules-builder island rebuilds its per-card Advanced disclosure (the
-  // SSR twin is the stripped details.lg-rb-advanced container).
-  { re: /^Advanced: raw conditions JSON \(read-only\)$/, reason: "rules-builder Advanced-disclosure summary (island twin of details.lg-rb-advanced)" },
   // FIX 6a: the raw-fallback warning entry is GONE — the banner now speaks
   // operator words ("advanced settings"), so it needs no exemption.
+  // DEV-66a: the rules-builder disclosure-summary entry is GONE too — the
+  // summary label is ALWAYS-VISIBLE copy (it renders collapsed), so the copy
+  // itself was fixed to "Advanced" (SSR + island twin) instead of exempting.
+];
+
+// --- DEV-66b: label-carrying application/json blob fields (documented) ----------
+//
+// The bootstrap blobs are PLUMBING by default (public ids, schema meta, seed
+// templates) — but specific fields are LABELS the islands later render as
+// operator copy. The canonical class is the studio's
+// `typeLabel(type) = typeMeta(type).label || type`: an identifier-shaped or
+// EMPTY label falls back to the RAW TYPE on the canvas path bar, scope
+// header, nesting refusals and the move-to-frame confirm. Each entry names
+// the blob id, the exact fields, and the client-side render site that makes
+// those values operator copy; only these DOCUMENTED fields are scanned —
+// plumbing keys (ids, paths, seeds) stay out of scope by design.
+interface BlobLabelEntry {
+  blob: string;
+  pages: readonly string[]; // page labels that MUST carry the blob (calibration)
+  why: string;
+  extract(data: unknown): Array<{ field: string; value: string }>;
+}
+
+const BLOB_LABEL_FIELDS: readonly BlobLabelEntry[] = [
+  {
+    blob: "lg-studio-meta",
+    pages: ["studio-edit", "studio-new"],
+    why:
+      "types.<T>.label renders via typeLabel() (canvas path bar, scope header, drop refusals, move-to-frame confirm); " +
+      "role_labels.<role> renders as the §9.4 Design-tab role-row labels",
+    extract(data) {
+      const d = data as {
+        types: Record<string, { label: string }>;
+        role_labels: Record<string, string>;
+      };
+      return [
+        ...Object.entries(d.types).map(([t, m]) => ({ field: `types.${t}.label`, value: m.label })),
+        ...Object.entries(d.role_labels).map(([r, label]) => ({ field: `role_labels.${r}`, value: label })),
+      ];
+    },
+  },
+  {
+    blob: "lg-quote-data",
+    pages: ["quotes-edit"],
+    why:
+      "templates[].label renders as the §8.3 frame-template picker names; " +
+      "sites[].badge renders as the C4 preview-site status badges",
+    extract(data) {
+      const d = data as {
+        templates: Array<{ id: string; label: string }>;
+        sites: Array<{ badge?: string }>;
+      };
+      return [
+        ...d.templates.map((t) => ({ field: `templates[${t.id}].label`, value: t.label })),
+        ...d.sites.map((s, i) => ({ field: `sites[${i}].badge`, value: String(s.badge ?? "") })),
+      ];
+    },
+  },
 ];
 
 describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted builder surfaces", () => {
@@ -598,6 +693,15 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
     const quotes = all.find((x) => x.label === "quotes-edit")!;
     expect(quotes.raw).toContain('<details class="lg-advanced"');
     expect(quotes.normal).not.toContain('<details class="lg-advanced"');
+    // DEV-66a: the disclosures' <summary> labels stay ON the normal surface —
+    // a collapsed <details> still renders its summary (always-visible copy)…
+    expect(quotes.normal).toContain("<summary>Advanced</summary>");
+    expect(quotes.visible).toContain("Advanced token administration");
+    // …while a details nested INSIDE another Advanced container is stripped
+    // WITH it: the studio raw-node editor's summary lives inside the Advanced
+    // tab panel, so it is Advanced (raw carries it; normal must not).
+    expect(studio.raw).toContain("Raw node JSON");
+    expect(studio.normal).not.toContain("Raw node JSON");
   });
 
   it("C6: 'slide' never appears ANYWHERE in the served Section-Builder pages (full page — supersedes the wave-1 studio lint)", async () => {
@@ -712,6 +816,58 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
       }
     }
     expect(violations.map(fmt)).toEqual([]);
+  });
+
+  it("DEV-66b: label-carrying application/json blob fields are operator-clean copy (the typeLabel raw-type fallback class)", async () => {
+    const all = await pages();
+    const columns = derivedColumnIdentifiers();
+    const violations: Violation[] = [];
+    for (const entry of BLOB_LABEL_FIELDS) {
+      for (const pageLabel of entry.pages) {
+        const page = all.find((p) => p.label === pageLabel)!;
+        // calibration: the documented blob EXISTS on its page and yields a
+        // non-trivial label corpus (the scan cannot silently no-op)
+        expect(page.blobs.has(entry.blob), `${pageLabel} carries #${entry.blob}`).toBe(true);
+        const labels = entry.extract(page.blobs.get(entry.blob));
+        expect(labels.length, `${pageLabel} #${entry.blob} label corpus`).toBeGreaterThan(0);
+        for (const { field, value } of labels) {
+          const surface = `blob:${entry.blob}:${field}`;
+          // the raw-type fallback class: an EMPTY label falls back to the raw
+          // identifier at render time — an empty documented label is a red.
+          if (value.trim() === "") {
+            violations.push({ page: pageLabel, surface, term: "(empty label)", context: field });
+            continue;
+          }
+          for (const t of COMPOUND_TYPE_NAMES) {
+            for (const hit of findTerm(value, new RegExp(`\\b${t}\\b`))) {
+              violations.push({ page: pageLabel, surface, term: `type:${t}`, context: hit.context });
+            }
+          }
+          for (const col of columns) {
+            for (const hit of findTerm(value, new RegExp(`\\b${col}\\b`, "i"))) {
+              violations.push({ page: pageLabel, surface, term: `column:${col}`, context: hit.context });
+            }
+          }
+          for (const key of TOKEN_KEY_IDENTIFIERS) {
+            for (const hit of findTerm(value, new RegExp(`\\b${key}\\b`))) {
+              violations.push({ page: pageLabel, surface, term: `token:${key}`, context: hit.context });
+            }
+          }
+          for (const hit of findTerm(value, /\bJSON\b/i)) {
+            violations.push({ page: pageLabel, surface, term: "JSON", context: hit.context });
+          }
+          for (const hit of findTerm(value, /\bquestion[\s-]key\b|\bschema[\s-]path\b/i)) {
+            violations.push({ page: pageLabel, surface, term: "phrase", context: hit.context });
+          }
+        }
+      }
+    }
+    expect(violations.map(fmt)).toEqual([]);
+    // grounding: the studio meta corpus covers EVERY catalog type (the
+    // typeLabel fallback has zero uncovered types to fall back on)
+    const studio = all.find((p) => p.label === "studio-edit")!;
+    const meta = studio.blobs.get("lg-studio-meta") as { types: Record<string, { label: string }> };
+    expect(Object.keys(meta.types).length).toBe(Object.keys(COMPONENT_CATALOG).length);
   });
 
   it("'slot' never appears on Section-Builder surfaces (12 §12.4: 'slot' is the banned PLACEMENT synonym — placements surface Section-side)", async () => {

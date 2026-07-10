@@ -438,6 +438,24 @@ export function funnelChromeCss(
       outline: `2px solid ${color.primary}`,
       "outline-offset": "2px",
     }),
+    // ---- v2.5 answer-group selected-state override consumption (FIX 4a,
+    // DEV-68 coordinated re-pin) ---------------------------------------------
+    // The curated §14.8 `buttonBackground` override on ButtonAnswerGroup /
+    // TwoButtonYesNo / OtherGroupSelector rides the GROUP root as the
+    // --lg-sel-bg custom property (presets.ts answerGroupSelectedVar —
+    // additive markup; absent override emits nothing). This rule re-states
+    // the §14.6 selected background THROUGH the var with the SAME iconCard
+    // token as the fallback: var unset ⇒ identical computed style; set ⇒
+    // the resolved role/hex wins (later source order at equal specificity
+    // beats the §14.6 base rule above). The --lg-sel-bg markup emission is
+    // ungated and frame-independent, so the consumer belongs in the BASE
+    // sheet — moved here from the frameRegions-gated block (DEV-68; the
+    // coordinated legacy-pin re-pin carries the byte change; with no
+    // override the var fallback keeps legacy rendering pixel-identical).
+    rule(
+      `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
+      { background: `var(--lg-sel-bg, ${iconCard.selectedBackground})` },
+    ),
   );
 
   // ---- reassurance badge (§14.2 reassuranceBadge / §14.7) -----------------
@@ -1164,29 +1182,13 @@ export function funnelChromeCss(
       // It stays in THIS frameRegions-gated block on purpose: the slot exists
       // only under a frame's `continue_placement:"below_unit"`, so a legacy
       // funnel never renders it. (The `.lg-card-subtitle`/`.lg-card-badge`
-      // choice-depth rules moved to the BASE sheet — DEV-57 Phase C: the
-      // subtitle/badge markup is frame-independent.)
+      // choice-depth rules moved to the BASE sheet — DEV-57 Phase C — and the
+      // FIX-4a `--lg-sel-bg` consumer followed under DEV-68: both style
+      // frame-independent markup, unlike this slot.)
       rule(`${scope} .lg-continue-slot`, {
         "margin-top": spacing.lg,
         "text-align": "center",
       }),
-      // ---- FIX 4a: answer-group selected-state override consumption -----------
-      // The curated §14.8 `buttonBackground` override on ButtonAnswerGroup /
-      // TwoButtonYesNo / OtherGroupSelector rides the GROUP root as the
-      // --lg-sel-bg custom property (presets.ts answerGroupSelectedVar —
-      // additive markup; absent override emits nothing). This rule re-states
-      // the §14.6 selected background THROUGH the var with the SAME iconCard
-      // token as the fallback: var unset ⇒ identical computed style; set ⇒
-      // the resolved role/hex wins (later source order at equal specificity
-      // beats the §14.6 base rule). It sits in THIS gated block — the
-      // moved-card-rules region story above — because a BASE-sheet emission
-      // changes the pinned legacy-CSS bytes; consumption on frame-null legacy
-      // rendering lands with a coordinated legacy-pin re-pin (REGISTER item:
-      // move this rule to the base choice-depth region + re-pin fixtures).
-      rule(
-        `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
-        { background: `var(--lg-sel-bg, ${iconCard.selectedBackground})` },
-      ),
     );
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.

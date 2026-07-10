@@ -142,6 +142,56 @@ async function loadSiteSettings(
   return settings;
 }
 
+// ---------------------------------------------------------------------------
+// §10.2 branding-edit cache refresh (Phase D integration hardening)
+// ---------------------------------------------------------------------------
+
+// The site_settings keys the SiteBranding projection reads (resolveSiteBranding
+// above): identity (site_name, tagline), the §10.4 logo ladder (logo_media_id,
+// site_logo_url), the legal/contact keys deriveLegalLinks consumes
+// (contact_email, privacy_email) and the §11.3 trust-logo set
+// (trust_logo_media_ids). A settings save touching ANY of these changes what a
+// served funnel shell bakes in — the §10.2 bump below must follow it.
+export const LEADGEN_BRANDING_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
+  "site_name",
+  "logo_media_id",
+  "site_logo_url",
+  "tagline",
+  "contact_email",
+  "privacy_email",
+  "trust_logo_media_ids",
+]);
+
+// True when a settings save touches at least one SiteBranding input key.
+export function touchesLeadGenBranding(keys: Iterable<string>): boolean {
+  for (const key of keys) {
+    if (LEADGEN_BRANDING_SETTINGS_KEYS.has(key)) return true;
+  }
+  return false;
+}
+
+// §10.2 cache correctness: the funnel shell is cached per site with
+// `leadgen_site_quotes.updated_at` as the activation_version key segment
+// (cache-keys.ts leadgenShellKey; serve.ts reads resolved.site_quote
+// .updated_at). The shell BAKES the resolved site branding (header logo,
+// site-name text mark, footer legal links, trust logos), and a branding-only
+// settings edit moves NO other axis — so the settings save handler touches
+// updated_at for that site's activation rows. ONE parameterized UPDATE, rows
+// for that site_id only; zero activation rows → 0 changes (a no-op — exactly
+// the "when a LeadGen activation exists" contract clause). This RIDES the
+// existing activation_version axis (the same unixepoch() stamp the activation
+// PUT/DELETE handlers write) — no new cache axis.
+export async function bumpLeadGenActivationVersionForBranding(
+  db: D1Database,
+  siteId: string,
+): Promise<number> {
+  const result = await db
+    .prepare("UPDATE leadgen_site_quotes SET updated_at = unixepoch() WHERE site_id = ?")
+    .bind(siteId)
+    .run();
+  return Number(result.meta?.changes ?? 0);
+}
+
 // resolveSiteBranding — the §10.1 projection for one site_id. Never throws:
 // a failed read logs and degrades down the §10.4 ladder (branding must never
 // block a funnel serve; minimal-schema test harnesses without a

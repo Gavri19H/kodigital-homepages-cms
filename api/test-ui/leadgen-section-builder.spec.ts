@@ -12,7 +12,9 @@
 //     select a CHOICE → the choice scope header ("this card only");
 //   ③ C1: the Choices tab has NO universal provider-value control; each row's
 //     read-only chip lists ONE row PER SELECTED OFFER and deep-links to that
-//     Offer's value map;
+//     Offer's value map — TWO Offers are seeded with DIVERGENT values for the
+//     same choice (DEV-66d, §12.2: the chip shows both rows with their
+//     distinct per-Offer values);
 //   ④ image card grid: add an image per card via the PICKER (the real
 //     Media-library dialog), set alt/title/subtitle/value; SAVE; re-open →
 //     intact (UI + API read-back);
@@ -39,6 +41,7 @@ import {
   seedSectionBuilder,
   IMAGE_CHOICES,
   PROVIDER_VALUE_MAP,
+  PROVIDER_VALUE_MAP_B,
   IMAGE_SECTION_HEADLINE,
   type SectionBuilderSeed,
 } from "./leadgen-c-seed";
@@ -185,7 +188,7 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-02b-component-scope-tabs.png` });
   });
 
-  test("③ C1: Choices tab has NO universal provider-value control; the per-choice chip lists one row per selected Offer + deep-links", async ({ page }) => {
+  test("③ C1: Choices tab has NO universal provider-value control; the per-choice chip lists one row per selected Offer (TWO Offers, DIVERGENT values) + deep-links", async ({ page }) => {
     test.setTimeout(120_000);
     await openImageSection(page);
     await page.locator(`${CANVAS} [data-lg-choice="${IMAGE_CHOICES[0].value}"]`).click();
@@ -206,18 +209,36 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
       expect.arrayContaining(["label", "value", "analytics_id", "title", "subtitle", "imageMediaId", "image_alt"]),
     );
 
-    // each row ENDS with the read-only chip: ONE row per selected Offer (we
-    // selected exactly ONE), the per-Offer value, and the deep link
+    // DEV-66d (§12.2 at browser level): TWO Offers are selected and their
+    // value maps DIVERGE per choice — each row ENDS with the read-only chip
+    // listing ONE row PER Offer, each with ITS OWN provider value + deep link.
     for (const choice of IMAGE_CHOICES) {
+      // the fixture is genuinely divergent (the leg cannot degenerate)
+      expect(PROVIDER_VALUE_MAP[choice.value]).not.toBe(PROVIDER_VALUE_MAP_B[choice.value]);
+
       const chip = panel.locator(`[data-choice-provider-chip="${choice.value}"]`);
-      await expect(chip).toHaveText("Provider values: 1/1 Offers");
+      await expect(chip).toHaveText("Provider values: 2/2 Offers");
       await chip.click();
       const chipRows = panel.locator(`[data-choice-provider-rows="${choice.value}"] [data-provider-offer]`);
-      await expect(chipRows).toHaveCount(1); // one row per selected Offer
-      await expect(chipRows.first()).toContainText(`${seed.offer.name}: ${PROVIDER_VALUE_MAP[choice.value]}`);
-      const link = chipRows.first().locator(`[data-provider-valuemap-link="${seed.offer.publicId}"]`);
-      await expect(link).toHaveText("Open value map");
-      await expect(link).toHaveAttribute("href", `/admin/leadgen/offers/${seed.offer.publicId}/edit#payload`);
+      await expect(chipRows).toHaveCount(2); // one row per selected Offer
+
+      // Offer A's row: its own name, ITS value, ITS deep link
+      const rowA = chipRows.filter({ hasText: `${seed.offer.name}:` });
+      await expect(rowA).toHaveCount(1);
+      await expect(rowA).toContainText(`${seed.offer.name}: ${PROVIDER_VALUE_MAP[choice.value]}`);
+      const linkA = rowA.locator(`[data-provider-valuemap-link="${seed.offer.publicId}"]`);
+      await expect(linkA).toHaveText("Open value map");
+      await expect(linkA).toHaveAttribute("href", `/admin/leadgen/offers/${seed.offer.publicId}/edit#payload`);
+
+      // Offer B's row: the DIVERGENT value for the SAME choice + its own link
+      const rowB = chipRows.filter({ hasText: `${seed.offerB.name}:` });
+      await expect(rowB).toHaveCount(1);
+      await expect(rowB).toContainText(`${seed.offerB.name}: ${PROVIDER_VALUE_MAP_B[choice.value]}`);
+      // A's value never bleeds into B's row (distinct per-Offer values)
+      await expect(rowB).not.toContainText(PROVIDER_VALUE_MAP[choice.value]);
+      const linkB = rowB.locator(`[data-provider-valuemap-link="${seed.offerB.publicId}"]`);
+      await expect(linkB).toHaveText("Open value map");
+      await expect(linkB).toHaveAttribute("href", `/admin/leadgen/offers/${seed.offerB.publicId}/edit#payload`);
     }
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-03-provider-chip-per-offer.png` });
   });
@@ -350,7 +371,12 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     expect(await wrap.innerText()).not.toMatch(/\bJSON\b/i);
 
     const quickmap = offerRow.locator(`select[data-inspector-quickmap="${seed.offer.id}"]`);
-    await expect(quickmap.locator('option[value="lead.company_zip"]')).toContainText("lead.company_zip — string");
+    // §12.1 (DEV-65c mapping-panel work): the option LABEL is the schema
+    // field's operator label + plain-words type; the raw dotted path stays
+    // the option VALUE (plumbing) and never renders as the visible label.
+    const zipOption = quickmap.locator('option[value="lead.company_zip"]');
+    await expect(zipOption).toContainText("Company zip — text");
+    await expect(zipOption).not.toContainText("lead.company_zip");
     await quickmap.selectOption("lead.company_zip");
     await expect(
       page.locator(`[data-inspector-map-offer="${seed.offer.publicId}"] [data-map-state]`),

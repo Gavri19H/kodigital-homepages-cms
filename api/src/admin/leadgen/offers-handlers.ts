@@ -233,6 +233,20 @@ function schemaRowToApi(row: LeadgenOfferPayloadSchemaRow): Record<string, unkno
   };
 }
 
+// v2.5 12 §12.5: the ADDITIVE `field_label` on schema-field projections —
+// DERIVED from the schema, no storage change. The schema node's authored
+// `label` wins; absent one, the leaf path segment is humanized (snake/kebab →
+// spaces, first letter capitalized: `loan_amount` → "Loan amount") so the
+// §12.1 mapping panel always has an operator-readable Field cell and the raw
+// path can retreat to tooltip + Advanced.
+export function deriveFieldLabel(label: unknown, path: string): string {
+  if (typeof label === "string" && label.trim() !== "") return label.trim();
+  const leaf = path.split(".").pop() ?? path;
+  const words = leaf.replace(/[_-]+/g, " ").trim();
+  if (words === "") return path;
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export async function readOfferHeaders(db: D1Database, offerId: number): Promise<LeadgenOfferHeaderRow[]> {
   const result = await db
     .prepare(
@@ -427,10 +441,16 @@ async function offerBuilderContext(
       .first<{ id: number; public_id: string; version: number; schema_json: string }>();
     if (schemaRow) {
       const parsed = parseJsonColumn(schemaRow.schema_json);
-      const nodes: LeadgenPayloadNode[] =
+      const rawNodes: LeadgenPayloadNode[] =
         isRecord(parsed) && isRecord(parsed["root"]) && Array.isArray(parsed["root"]["children"])
           ? (parsed["root"]["children"].filter(isRecord) as unknown as LeadgenPayloadNode[])
           : [];
+      // 12 §12.5: every projected schema node rides an ADDITIVE `field_label`
+      // (authored label > humanized leaf) — derived, never stored.
+      const nodes = rawNodes.map((node) => ({
+        ...node,
+        field_label: deriveFieldLabel(node.label, typeof node.path === "string" ? node.path : ""),
+      }));
       activeSchema = {
         id: schemaRow.id,
         public_id: schemaRow.public_id,

@@ -245,7 +245,9 @@ interface Fixture {
   sections: Array<{ id: number; public_id: string }>;
 }
 
-async function seedFixture(withFrame = true): Promise<Fixture> {
+// `sectionCount` (Phase D, additive — default keeps every existing call
+// byte-identical): >3 grows the variant for the lazy-pages protocol legs.
+async function seedFixture(withFrame = true, sectionCount = 3): Promise<Fixture> {
   const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
   const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
   const createRes = await admin.request(
@@ -261,12 +263,14 @@ async function seedFixture(withFrame = true): Promise<Fixture> {
   const funnelPublicId = created.funnels[0]!.public_id;
   const variantPublicId = created.funnels[0]!.variants[0]!.public_id;
 
-  const s1 = seedSection(sdb, "Are you insured?", "q1");
-  const s2 = seedSection(sdb, "What is your ZIP?", "q2");
-  const s3 = seedSection(sdb, "Your age band?", "q3");
+  const headlines = ["Are you insured?", "What is your ZIP?", "Your age band?"];
+  const sections: Array<{ id: number; public_id: string }> = [];
+  for (let i = 0; i < sectionCount; i++) {
+    sections.push(seedSection(sdb, headlines[i] ?? `Question ${i + 1}?`, `q${i + 1}`));
+  }
   const putRes = await admin.request(
     `${API}/variants/${variantPublicId}`,
-    jsonInit("PUT", { sections: [{ section_id: s1.id }, { section_id: s2.id }, { section_id: s3.id }] }),
+    jsonInit("PUT", { sections: sections.map((s) => ({ section_id: s.id })) }),
     env,
   );
   expect(putRes.status, `put sections: ${await putRes.clone().text()}`).toBe(200);
@@ -282,7 +286,7 @@ async function seedFixture(withFrame = true): Promise<Fixture> {
     quotePublicId: created.public_id,
     funnelPublicId,
     variantPublicId,
-    sections: [s1, s2, s3],
+    sections,
   };
 }
 
@@ -560,5 +564,186 @@ describeDb("preview modes — POST /variants/:id/preview (13 §13.4)", () => {
     // viewport is accepted when valid (shape-compat; render is width-neutral).
     const ok = await postPreview(fx, { mode: "section", viewport: "mobile" });
     expect(ok.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// DEV-58 (Phase D) — draft_frame_overrides: the ADDITIVE per-arm overrides
+// draft. Substituted for the STORED variant.frame_overrides_json in the same
+// composition slot (render-only, nothing persists), validated EXACTLY like
+// the stored column (template/version rejected; frame-part via
+// validateFrameConfig, theme-part via validateTheme).
+// ===========================================================================
+
+describeDb("draft_frame_overrides (DEV-58, Phase D) — render-only per-arm overrides draft", () => {
+  const STORED_OVERRIDES = JSON.stringify({ progress: { style: "numbered" } });
+
+  async function overriddenFixture(): Promise<Fixture> {
+    const fx = await seedFixture();
+    fx.sdb
+      .prepare("UPDATE leadgen_funnel_variants SET frame_overrides_json = ? WHERE public_id = ?")
+      .run(STORED_OVERRIDES, fx.variantPublicId);
+    return fx;
+  }
+
+  it("substitutes the STORED overrides for THIS render only — the working value wins over a stored override; nothing persists", async () => {
+    const fx = await overriddenFixture();
+
+    // Baseline: WITHOUT the draft the STORED override renders (numbered).
+    const stored = await postPreview(fx, { mode: "section" });
+    expect(stored.status, await stored.clone().text()).toBe(200);
+    expect(((await stored.json()) as V25Preview).preview.html).toContain("lg-frame-progress--numbered");
+
+    // The DEV-58 case: re-editing the STORED override — the WORKING value
+    // (dots) must render, not the stored one (the old fold could never win
+    // because the server merged the stored column last).
+    const working = await postPreview(fx, {
+      mode: "section",
+      draft_frame_overrides: { progress: { style: "dots" } },
+    });
+    expect(working.status, await working.clone().text()).toBe(200);
+    const workingBody = (await working.json()) as V25Preview;
+    expect(workingBody.preview.html).toContain("lg-steps"); // the dots preset
+    expect(workingBody.preview.html).not.toContain("lg-frame-progress--numbered");
+
+    // {} substitutes "no overrides" (the inherit preview): funnel truth = bar.
+    const cleared = await postPreview(fx, { mode: "section", draft_frame_overrides: {} });
+    const clearedBody = (await cleared.json()) as V25Preview;
+    expect(clearedBody.preview.html).not.toContain("lg-frame-progress--numbered");
+    expect(clearedBody.preview.html).toContain("lg-progress"); // the funnel's bar style
+
+    // null: same "no overrides" semantics as a NULL column.
+    const nulled = await postPreview(fx, { mode: "section", draft_frame_overrides: null });
+    expect(((await nulled.json()) as V25Preview).preview.html).not.toContain("lg-frame-progress--numbered");
+
+    // The theme part rides the stored-column split: the drafted palette
+    // reaches the effective css.
+    const themed = await postPreview(fx, {
+      mode: "section",
+      draft_frame_overrides: { theme: { palette: { accent: "#116611" } } },
+    });
+    expect(((await themed.json()) as V25Preview).preview.css).toContain("#116611");
+
+    // NOTHING persisted by any of the renders above.
+    const after = fx.sdb
+      .prepare("SELECT frame_overrides_json AS o FROM leadgen_funnel_variants WHERE public_id = ?")
+      .get(fx.variantPublicId) as { o: string | null };
+    expect(after.o).toBe(STORED_OVERRIDES);
+  });
+
+  it("validated like the stored column: template/version rejected, bad enums + bad theme 400 with §3.6 problems; non-object 400 fields", async () => {
+    const fx = await overriddenFixture();
+
+    const template = await postPreview(fx, {
+      mode: "section",
+      draft_frame_overrides: { template: "minimal" },
+    });
+    expect(template.status).toBe(400);
+    const templateBody = (await template.json()) as { problems: Array<{ path: string; severity: string }> };
+    expect(
+      templateBody.problems.some((p) => p.path === "frame_overrides.template" && p.severity === "error"),
+    ).toBe(true);
+
+    const version = await postPreview(fx, { mode: "section", draft_frame_overrides: { version: 1 } });
+    expect(version.status).toBe(400);
+
+    const badEnum = await postPreview(fx, {
+      mode: "section",
+      draft_frame_overrides: { header: { logo_size: "xxl" } },
+    });
+    expect(badEnum.status).toBe(400);
+    const badEnumBody = (await badEnum.json()) as { problems: Array<{ path: string }> };
+    expect(badEnumBody.problems.some((p) => p.path === "frame.header.logo_size")).toBe(true);
+
+    const badTheme = await postPreview(fx, { mode: "section", draft_frame_overrides: { theme: "nope" } });
+    expect(badTheme.status).toBe(400);
+
+    const nonObject = await postPreview(fx, { mode: "section", draft_frame_overrides: "x" });
+    expect(nonObject.status).toBe(400);
+    expect(
+      ((await nonObject.json()) as { fields: Record<string, string> }).fields["draft_frame_overrides"],
+    ).toBeTruthy();
+
+    // A body carrying ONLY the new key routes composed (it IS a v2.5 trigger)
+    // — the mode-less composed default, never the legacy shape.
+    const only = await postPreview(fx, { draft_frame_overrides: { progress: { style: "dots" } } });
+    expect(only.status, await only.clone().text()).toBe(200);
+    const onlyBody = (await only.json()) as V25Preview & { preview: { desktop?: unknown } };
+    expect(onlyBody.preview.html).toBeTruthy();
+    expect(onlyBody.preview.desktop).toBeUndefined();
+
+    // …and the stored column is byte-untouched after every request above.
+    const after = fx.sdb
+      .prepare("SELECT frame_overrides_json AS o FROM leadgen_funnel_variants WHERE public_id = ?")
+      .get(fx.variantPublicId) as { o: string | null };
+    expect(after.o).toBe(STORED_OVERRIDES);
+  });
+});
+
+// ===========================================================================
+// Phase D stepper perf — the mode:"all" lazy per-page protocol: `page: k`
+// returns ONE composed page (byte-identical to the eager pages[k-1]) +
+// section_count; page-less calls keep the eager pages[] byte-shape for ANY
+// section count (the ≤8 flow is untouched — the ISLAND opts into laziness
+// above its threshold).
+// ===========================================================================
+
+describeDb("mode:'all' lazy pages protocol (Phase D stepper perf)", () => {
+  it(">8 sections: page:k ≡ the eager pages[k-1] byte-for-byte, with section_count + clamping", async () => {
+    const fx = await seedFixture(true, 9);
+    const eager = await postPreview(fx, { mode: "all" });
+    expect(eager.status, await eager.clone().text()).toBe(200);
+    const eagerBody = (await eager.json()) as V25Preview & { preview: { page?: unknown } };
+    expect(eagerBody.preview.pages).toHaveLength(9);
+    expect(eagerBody.preview.page).toBeUndefined(); // page-less = the Phase-B shape
+    expect(eagerBody.preview.section_count).toBe(9);
+
+    for (const k of [1, 5, 9]) {
+      const lazy = await postPreview(fx, { mode: "all", page: k });
+      expect(lazy.status, await lazy.clone().text()).toBe(200);
+      const lazyBody = (await lazy.json()) as V25Preview & { preview: { page?: number } };
+      expect(lazyBody.preview.html, `page ${k} ≡ eager pages[${k - 1}]`).toBe(
+        eagerBody.preview.pages![k - 1],
+      );
+      expect(lazyBody.preview.page).toBe(k);
+      expect(lazyBody.preview.section_count).toBe(9);
+      expect(lazyBody.preview.pages).toBeUndefined();
+      expect(lazyBody.preview.css).toBe(eagerBody.preview.css);
+      expect(lazyBody.preview.html).toContain(`Step ${k} of 9`);
+    }
+
+    // Out-of-range clamps to the last page (the visibleIndex idiom).
+    const over = await postPreview(fx, { mode: "all", page: 99 });
+    const overBody = (await over.json()) as V25Preview & { preview: { page?: number } };
+    expect(overBody.preview.page).toBe(9);
+    expect(overBody.preview.html).toBe(eagerBody.preview.pages![8]);
+  });
+
+  it("≤8 sections: the eager pages[] shape is byte-identical (no page key) and page:k still equals its eager page", async () => {
+    const fx = await seedFixture(); // the 3-section fixture
+    const eager = await postPreview(fx, { mode: "all" });
+    const eagerBody = (await eager.json()) as V25Preview & { preview: { page?: unknown } };
+    expect(eagerBody.preview.pages).toHaveLength(3);
+    expect(eagerBody.preview.page).toBeUndefined();
+
+    const lazy = await postPreview(fx, { mode: "all", page: 2 });
+    const lazyBody = (await lazy.json()) as V25Preview & { preview: { page?: number } };
+    expect(lazyBody.preview.html).toBe(eagerBody.preview.pages![1]);
+    expect(lazyBody.preview.page).toBe(2);
+  });
+
+  it("rejects malformed page params: non-integer / <1 / wrong mode → 400 fields", async () => {
+    const fx = await seedFixture();
+    for (const bad of [0, -1, 1.5, "2", true]) {
+      const res = await postPreview(fx, { mode: "all", page: bad });
+      expect(res.status, `page=${JSON.stringify(bad)}`).toBe(400);
+      expect(
+        ((await res.json()) as { fields: Record<string, string> }).fields["page"],
+        `page=${JSON.stringify(bad)} fields`,
+      ).toBeTruthy();
+    }
+    const wrongMode = await postPreview(fx, { mode: "section", page: 1 });
+    expect(wrongMode.status).toBe(400);
+    expect(((await wrongMode.json()) as { fields: Record<string, string> }).fields["page"]).toBeTruthy();
   });
 });
