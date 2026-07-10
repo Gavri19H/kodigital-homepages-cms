@@ -637,3 +637,21 @@ Built (contract 07 §19 + §18 + §20 + 09 §28/§30.3/§30.4):
   - Preserve list → green umbrellas (mapping/auction/mirrors suites in the 4247; no migration beyond 0041).
   - C2 → **A computation legs PASS** (all 14 §14.1 rows fire with contract severities; legacy Quote zero problems; 409 inputs byte-pinned) — activation 409-wiring = D. C3 → **PASS** (continue-single-dom). C1 data legs → DEV-55 (deferred to C).
 - Non-regression: legacy pin (shell + {}-body preview) green through every slice; `frame=null` serves byte-identical markup (pin `ce2a1c8` + serve fork test).
+
+### Phase B — Quote Builder (branch `leadgen/redesign-pB-quote-builder`)
+
+- Slices: B1 API layer + B5 runtime obligations (`9f2977d`) · B2 frame studio + B3 rules builder (`2fa11b9`, conductor stub→module swap) · B4 seams + Playwright rows (`296f8a0`).
+- Gates (conductor-run, 2026-07-10): `tsc` 0 · `vitest` **4377/4377 (336 files)** (+130 over Phase A) · `verify:all` PASS (bundle **39,957/40,960 B = 97.6%** after B5 footer show_on engine leg) · full Playwright ritual (fresh D1): **143/143 passed (2.2m)** — 135 baseline + 8 new Quote Builder rows.
+- Row status flips (named executing tests):
+  - Quote Builder modeling → **Implemented (B PASS)** — `leadgen-frame-routes.test.ts` (17), `leadgen-quote-builder-ui.test.ts` (29, §4.4 control-by-control + C2 sentence + C7 labels), `leadgen-quote-builder-seam.test.ts` (7 executed-island seams), Playwright rows ①–⑧.
+  - API contract → **PASS** — routes 04 §4.8 complete (`leadgen-frame-routes`, `leadgen-preview-modes` 8) + §3.6 problems on every surface.
+  - Auto site logo → **Implemented (A+B legs PASS)** — serve-bake (A) + Playwright ② logo auto-appear + ③ swap; manual override Advanced-gated.
+  - Footer/disclosure/trust → **Implemented (A+B legs PASS)** — Playwright ⑤ chrome-around-every-slide (all-slides mode); B5 footer `show_on` engine consumer (`leadgen-frame-engine-sim` +3, `leadgen-frame-obligations` 21).
+  - Preview contract → **B legs PASS** — mode frame/section/all + drafts + site_id (`leadgen-preview-modes`), all-slides stepper Playwright ④; Section in-frame preview = C; endpoint parity completion = D.
+  - Pattern capability → **B foundation** — A–E frames configurable via studio (template picker + inspectors); pattern FIXTURES = E.
+  - C4 → **PASS** — Playwright ① all-sites badges + unactivated-site branding preview; zero-activation servability unchanged (`leadgen-frame-routes` C4 leg).
+  - C5 → **PASS** — `leadgen-template-switch.test.ts` (11, template-switch-merge describe) + seam (c) confirmations-verbatim + Playwright ⑥ preview-before-apply/cancel-untouched.
+  - No raw JSON normal flows → **B legs PASS** — Rules visual builder replaces the conditions textarea (raw JSON behind Advanced, byte-exact fallback: `leadgen-rules-builder.test.ts` 26); no-hex/no-JSON SSR lint legs in `leadgen-quote-builder-ui`; full lints = C.
+- DEV-58 (B2 deviation, review-queued): stored-override re-edit preview approximation — the frozen §13.4 draft API carries no overrides param; the canvas shows a STORED override's value until Save when re-editing that field. First-time overrides preview exactly. Candidate: additive `draft_frame_overrides` param in D.
+- DEV-59: legacy lander/base-design/auction controls preserved under a collapsed "Funnel settings" disclosure (not in §4.1's panel list; removal would regress live features + the variant save path). Mapping-status dot = placeholder until D's mapping panel.
+- B4 verified two designed behaviors (not defects): variant-save preflight is arm-scoped vs activation GET aggregating all arms; row-9 headline warning checks nodes/bindings not the column (§3.4-correct).
