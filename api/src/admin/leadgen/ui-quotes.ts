@@ -1430,7 +1430,7 @@ function renderRuleRow(rule: RuleNode | null, index = -1): string {
   </div>
   <div class="lg-rule-grid">
     <div class="form-group"><label class="form-label">Raw redirect URL (allowlist-gated)</label><input class="form-input" data-rule-redirect-url value="${escapeHtml(rule?.redirect_url ?? "")}" /></div>
-    <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> redirect_url_allowlisted</label></div>
+    <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-allowlisted${rule?.redirect_url_allowlisted ? " checked" : ""} /> Redirect URL is on the approved list</label></div>
     <div class="form-group"><label class="lg-check"><input type="checkbox" data-rule-enabled${rule === null || rule.enabled ? " checked" : ""} /> enabled</label></div>
   </div>
   <details class="lg-advanced"><summary>Advanced &#8212; raw conditions (visual builder pending)</summary>
@@ -1653,7 +1653,10 @@ function renderAnalyticsPanel(): string {
 // the island points it at the [data-media-field] that opened it. List +
 // upload both ride the EXISTING admin media endpoints (GET /api/admin/media,
 // POST /api/admin/media/upload) — no new API surface.
-function renderMediaPickerModal(): string {
+// FIX 8c (§8.4): the SAME "Generate with AI" idiom the Section Studio picker
+// ships — the EXISTING POST /api/admin/ai/image endpoint (R2 + media row);
+// server-hidden when the route is unavailable (no key ⇒ 501).
+function renderMediaPickerModal(aiImageAvailable: boolean): string {
   return `<div class="lg-media-picker-overlay lg-hidden" id="lg-media-picker" role="dialog" aria-modal="true" aria-label="Choose from the Media library">
   <div class="lg-media-picker-panel">
     <div class="lg-editor-head">
@@ -1665,6 +1668,10 @@ function renderMediaPickerModal(): string {
       <input type="file" id="lg-media-upload-file" accept="image/*" aria-label="Upload a new image" />
       <button type="button" class="btn btn-sm btn-secondary" id="lg-media-upload-btn">Upload &amp; use</button>
       <span class="form-help" id="lg-media-picker-status" role="status"></span>
+    </div>
+    <div class="toolbar" data-media-ai-generate data-ai-image-available="${aiImageAvailable ? "true" : "false"}"${aiImageAvailable ? "" : " hidden"}>
+      <input type="text" id="lg-media-ai-prompt" class="form-input" placeholder="Describe the image to generate&#8230;" aria-label="Describe the image to generate" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-ai-generate">Generate with AI</button>
     </div>
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
@@ -1716,6 +1723,9 @@ function quoteEditorHtml(
   templates: FrameTemplateItem[],
   rulesBuilderData: RulesBuilderData,
   brand: { userEmail?: string },
+  // FIX 8c: whether POST /api/admin/ai/image is usable — false hides the
+  // picker's "Generate with AI" affordance (§8.4).
+  aiImageAvailable = false,
 ): string {
   const q = structure.quote;
   const sites = previewSiteOptions(activation);
@@ -1778,7 +1788,7 @@ function quoteEditorHtml(
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}
-  ${renderMediaPickerModal()}
+  ${renderMediaPickerModal(aiImageAvailable)}
   <script type="application/json" id="lg-quote-data">${quoteDataBlob(structure, selected, funnelPublicId, frame, theme, templates, sites, activation)}</script>
 </div>`;
 
@@ -1882,6 +1892,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       templatesRes.ok ? templatesRes.body.items : [],
       rulesBuilderData,
       branding(c),
+      typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
     ),
   );
 }
@@ -2818,6 +2829,32 @@ const QUOTE_EDITOR_SCRIPT = `
       })
       .catch(function () { mediaPickerStatus('Upload failed: network error.'); });
   }
+  // FIX 8c (§8.4): "Generate with AI" — the EXISTING admin generation
+  // endpoint (POST /api/admin/ai/image writes R2 + the media row); the
+  // resulting storage_key flows through the SAME applyMediaPick path an
+  // upload takes. Server-hidden when the route is unavailable.
+  function generateMediaWithAi() {
+    var promptEl = byId('lg-media-ai-prompt');
+    var prompt = promptEl && promptEl.value ? String(promptEl.value).replace(/^\\s+|\\s+$/g, '') : '';
+    if (prompt === '') { mediaPickerStatus('Describe the image to generate first.'); return; }
+    mediaPickerStatus('Generating\\u2026');
+    fetch('/api/admin/ai/image', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ prompt: prompt })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.storage_key) {
+        mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Image generation failed.');
+        return;
+      }
+      mediaPickerStatus('');
+      if (promptEl) { promptEl.value = ''; }
+      applyMediaPick(res.body.storage_key);
+    }).catch(function () { mediaPickerStatus('Image generation failed: network error.'); });
+  }
   root.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
@@ -2842,6 +2879,8 @@ const QUOTE_EDITOR_SCRIPT = `
     if (closeBtn) { closeBtn.addEventListener('click', closeMediaPicker); }
     var uploadBtn = byId('lg-media-upload-btn');
     if (uploadBtn) { uploadBtn.addEventListener('click', uploadMediaFile); }
+    var aiBtn = byId('lg-media-ai-generate');
+    if (aiBtn) { aiBtn.addEventListener('click', generateMediaWithAi); }
   }());
 
   // --- role swatches (frame keys + theme palette + theme role picks) ---------

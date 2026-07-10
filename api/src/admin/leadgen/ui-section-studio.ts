@@ -754,6 +754,25 @@ function collectExistingBinds(content: LeadgenSectionContent): ReadonlySet<strin
   return binds;
 }
 
+// MINOR 11 (07 §7.4 operator words): the library answer-type chip speaks
+// PLAIN WORDS derived from the catalog `produces` — never the raw identifier
+// (enum/boolean/array/object are code vocabulary). One label per produces
+// value; an unknown future value falls back to a neutral phrase rather than
+// leaking the identifier.
+const PRODUCES_CHIP_LABELS: Record<string, string> = {
+  enum: "stores one choice",
+  boolean: "stores one choice",
+  array: "stores several choices",
+  number: "stores a number",
+  currency: "stores a number",
+  string: "stores text/number/date",
+  object: "stores grouped fields",
+};
+
+function producesChipLabel(produces: string): string {
+  return PRODUCES_CHIP_LABELS[produces] ?? "stores an answer";
+}
+
 function renderLibraryItem(type: ComponentType, design: FunnelDesign, existingBinds: ReadonlySet<string>): string {
   const meta = STUDIO_TYPE_META[type];
   const produces = COMPONENT_CATALOG[type].produces;
@@ -769,7 +788,8 @@ function renderLibraryItem(type: ComponentType, design: FunnelDesign, existingBi
   // role="button" div keeps click-to-add + drag + a11y; the thumb itself is
   // pointer-events:none so the inner preset controls are inert.
   const thumbHtml = renderComponent(STUDIO_SAMPLE_NODES[type], design);
-  const answerType = produces === null ? "" : `<span class="studio-item-type">${escapeHtml(String(produces))}</span>`;
+  const answerType =
+    produces === null ? "" : `<span class="studio-item-type">${escapeHtml(producesChipLabel(String(produces)))}</span>`;
   const mapsBadge = produces === null ? "" : `<span class="studio-item-maps" data-maps-badge>maps to Offer fields</span>`;
   const bind = PALETTE_BIND_OF_TYPE[type];
   const bindDisabled = bind !== undefined && existingBinds.has(bind);
@@ -864,6 +884,10 @@ function renderFrameHintSkeleton(edge: "top" | "bottom"): string {
 // inspector scope header). The island updates every [data-scope-pill]
 // instance document-wide, so the two hosts can never disagree.
 export function renderScopePillsMarkup(): string {
+  // MINOR 9: the "Funnel frame" pill DEEP-LINKS to the using funnel's Quote
+  // Builder (the island enables it once usage loads; many funnels → a picker;
+  // zero usage keeps it disabled). SSR ships it disabled — usage is not known
+  // at render time.
   return `<div class="studio-scope-pills" role="group" aria-label="Editing scope">
     <button type="button" class="studio-scope-pill" data-scope-pill="frame" disabled title="Page-frame elements are edited in the Quote Builder">Funnel frame</button>
     <button type="button" class="studio-scope-pill active" data-scope-pill="section" aria-pressed="true">This Section</button>
@@ -1068,13 +1092,13 @@ export function curatedTokenOptions(design: FunnelDesign): Record<string, TokenO
     buttonBackground: colorList,
     buttonText: colorList,
     gridGap: gapList,
-    mobileBehavior: [
-      { value: "stack", label: "stack" },
-      { value: "keep", label: "keep" },
-    ],
   };
 }
 
+// FIX 4b: `mobileBehavior` is NOT listed — no renderer consumes it, so its
+// Design-tab control was a dead write and is REMOVED. The schema key stays
+// legal (content-schema CURATED_DESIGN_OVERRIDE_KEYS unchanged) so stored
+// legacy data keeps validating.
 const TOKEN_CONTROL_LABELS: Record<string, string> = {
   iconColor: "Icon color token",
   columns: "Card columns (2–5)",
@@ -1083,7 +1107,6 @@ const TOKEN_CONTROL_LABELS: Record<string, string> = {
   buttonBackground: "Button background token",
   buttonText: "Button text token",
   gridGap: "Answer-grid gap token",
-  mobileBehavior: "Mobile behavior",
 };
 
 // §9.4 operator labels for the COLOR-typed rows (role swatch rows — no
@@ -1125,8 +1148,10 @@ function renderDesignPanel(design: FunnelDesign): string {
         .join("");
       // §7.4: the no-override state reads as an inherited value ("Inherited
       // (design default)") — re-picking it IS the "Reset to inherited"
-      // affordance for the structural keys.
-      return `<div class="form-group lg-inspector-field">
+      // affordance for the structural keys. The row wrapper carries
+      // data-override-row so the island can GATE dead-write rows per type
+      // (FIX 4b: columns/gridGap render only for the card grids).
+      return `<div class="form-group lg-inspector-field" data-override-row="${escapeHtml(key)}">
   <label class="form-label" for="lg-inspector-${escapeHtml(key)}">${escapeHtml(TOKEN_CONTROL_LABELS[key])}</label>
   <select id="lg-inspector-${escapeHtml(key)}" class="form-input" data-inspector-override="${escapeHtml(key)}"><option value="">Inherited (design default)</option>${opts}</select>
 </div>`;
@@ -1381,6 +1406,25 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <input id="lg-bound-shared-text" class="form-input" type="text" data-bound-shared-input />
     </div>
     ${contentInputs}
+    <div class="form-group lg-inspector-field" data-default-wrap="yesno" hidden>
+      <label class="form-label" for="lg-default-yesno">Default answer (§5.5)</label>
+      <select id="lg-default-yesno" class="form-input" data-default-control="yesno">
+        <option value="">No default — the visitor picks</option>
+        <option value="true">Yes (pre-selected)</option>
+        <option value="false">No (pre-selected)</option>
+      </select>
+      <p class="form-help">A default pre-selects the answer — the visitor must still confirm it before continuing (§5.5).</p>
+    </div>
+    <div class="form-group lg-inspector-field" data-default-wrap="range" hidden>
+      <label class="form-label" for="lg-default-range">Default value (§5.5)</label>
+      <input id="lg-default-range" class="form-input" type="number" data-default-control="range" placeholder="Starts at the minimum when empty" />
+      <p class="form-help">Where the slider starts. Leave empty to start at the minimum.</p>
+    </div>
+    <div class="form-group lg-inspector-field" data-default-wrap="dropdown" hidden>
+      <label class="form-label" for="lg-default-dropdown">Default choice (§5.5)</label>
+      <select id="lg-default-dropdown" class="form-input" data-default-control="dropdown"><option value="">No default — the visitor picks</option></select>
+      <p class="form-help">Pre-selects one of this component&#8217;s choices.</p>
+    </div>
     <p class="form-help" data-content-empty hidden>This component has no editable copy — see the Layout / Advanced tabs.</p>
   </div>
 
@@ -1463,6 +1507,7 @@ export function renderStudioInspector(design: FunnelDesign): string {
   <div class="studio-panel" data-studio-panel="dependencies" role="tabpanel" hidden>
     <fieldset class="form-group lg-inspector-field lg-inspector-conditional">
       <legend class="form-label">Show this component IF (§6.10)</legend>
+      <p class="form-help studio-cond-sentence" data-cond-sentence aria-live="polite"></p>
       <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
       <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
       <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
@@ -1471,6 +1516,19 @@ export function renderStudioInspector(design: FunnelDesign): string {
       <input class="form-input" type="number" data-inspector-cond="from" placeholder="from" aria-label="Range from" hidden />
       <input class="form-input" type="number" data-inspector-cond="to" placeholder="to" aria-label="Range to" hidden />
       <input class="form-input" type="text" data-inspector-cond="values" placeholder="values, comma-separated" aria-label="Condition values" hidden />
+    </fieldset>
+    <fieldset class="form-group lg-inspector-field lg-inspector-conditional" data-reqcond-wrap hidden>
+      <legend class="form-label">Require this component IF (§7.3)</legend>
+      <p class="form-help studio-cond-sentence" data-reqcond-sentence aria-live="polite"></p>
+      <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
+      <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
+      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-reqcond="value-enum" aria-label="Required-when choice value" hidden></select>
+      <input class="form-input" type="text" data-inspector-reqcond="value" placeholder="value" aria-label="Required-when value" />
+      <input class="form-input" type="number" data-inspector-reqcond="from" placeholder="from" aria-label="Required-when range from" hidden />
+      <input class="form-input" type="number" data-inspector-reqcond="to" placeholder="to" aria-label="Required-when range to" hidden />
+      <input class="form-input" type="text" data-inspector-reqcond="values" placeholder="values, comma-separated" aria-label="Required-when values" hidden />
+      <p class="form-help">An answer becomes required only while the condition holds. A component marked Required is always required.</p>
     </fieldset>
   </div>
 
@@ -1678,7 +1736,12 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
 // chooser (list + upload via the EXISTING /api/admin/media endpoints); the
 // picked storage_key lands in the requesting choice-row input and flows
 // through the SAME collectChoices path a typed value took.
-function renderStudioMediaPicker(): string {
+// FIX 8c (§8.4): the picker additionally offers "Generate with AI" — ONE
+// shared idiom with the Quote Builder's picker (ui-quotes.ts twin). It reuses
+// the EXISTING admin generation endpoint (POST /api/admin/ai/image — writes
+// R2 + a media row) and is HIDDEN when that route is unavailable (no key ⇒
+// the endpoint 501s; the server stamps availability at render time).
+function renderStudioMediaPicker(aiImageAvailable: boolean): string {
   return `<div class="lg-media-picker-overlay lg-hidden" id="lg-media-picker" role="dialog" aria-modal="true" aria-label="Choose from the Media library">
   <div class="lg-media-picker-panel">
     <div class="studio-events-head">
@@ -1689,6 +1752,10 @@ function renderStudioMediaPicker(): string {
       <input type="file" id="lg-media-upload-file" accept="image/*" aria-label="Upload an image" />
       <button type="button" class="btn btn-sm btn-secondary" id="lg-media-upload-btn">Upload</button>
       <span class="form-help" id="lg-media-picker-status" role="status"></span>
+    </div>
+    <div class="studio-pair" data-media-ai-generate data-ai-image-available="${aiImageAvailable ? "true" : "false"}"${aiImageAvailable ? "" : " hidden"}>
+      <input type="text" id="lg-media-ai-prompt" class="form-input" placeholder="Describe the image to generate&#8230;" aria-label="Describe the image to generate" />
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-media-ai-generate">Generate with AI</button>
     </div>
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
@@ -1712,6 +1779,9 @@ export function renderSectionStudio(
   statusPillHtml: string,
   mapsKeyConfigured: boolean,
   answerMapCount: number,
+  // FIX 8c: whether POST /api/admin/ai/image is usable (OPENAI_API_KEY set).
+  // false hides the picker's "Generate with AI" affordance (§8.4).
+  aiImageAvailable = false,
 ): string {
   const design = getFunnelDesign(null);
   // §8.8 key-missing warning banner: SSR'd hidden; the island shows it ONLY
@@ -1728,7 +1798,7 @@ ${mapsBanner}
   <div class="card studio-cell-inspector">${renderStudioInspector(design)}</div>
 </div>
 ${renderStudioDrawer(summary, answerMapCount)}
-${renderStudioMediaPicker()}
+${renderStudioMediaPicker(aiImageAvailable)}
 ${renderStudioSeedData()}`;
 }
 
@@ -1821,6 +1891,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-scope-pill{font-size:11px;border-radius:999px;padding:2px 10px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
 .studio-scope-pill.active{border-color:var(--c-primary);color:var(--c-primary);font-weight:600}
 .studio-scope-pill[disabled]{opacity:.5;cursor:not-allowed}
+.studio-frame-pill-picker{display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:6px}
+.studio-cond-sentence{font-weight:600;color:var(--c-text,#1a1f36)}
 .studio-section-scope-note{margin:0 0 8px}
 /* inspector + drawer */
 .studio-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--c-border);margin-bottom:10px}
@@ -2086,6 +2158,19 @@ export const SECTION_STUDIO_SCRIPT = `
     selectComponent(selectedQuestionId);
   }
 
+  // --- FIX 4b: pure per-type gates for the dead-write style controls -------------
+  // Only renderCardGrid consumes columns/gridGap (the two card grids); the
+  // multi-choice group renders NO icon slot, so its iconColor was a dead
+  // write. Pure of the DOM so the gating semantics are directly executable.
+  function isCardGridType(node) {
+    return !!node && (node.type === 'IconCardAnswerGrid' || node.type === 'ImageCardAnswerGrid');
+  }
+  function overrideRowHidden(rowKey, node) {
+    if (rowKey === 'columns' || rowKey === 'gridGap') { return !isCardGridType(node); }
+    if (rowKey === 'iconColor') { return !!node && node.type === 'MultiChoiceCardGroup'; }
+    return false;
+  }
+
   // --- §6.5 context matrix (pure function of the selection) --------------------
   var TEXT_ROLE_TYPES = ['QuestionHeadline', 'Subheadline', 'CategoryLabel', 'HelperText', 'LegalNote'];
   function isCopyNode(node) {
@@ -2268,10 +2353,25 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- §9.5 Section-level overrides (the Design-overrides drawer mode) ----------
+  // FIX 2: this editor owns ONLY the §9.5 keys (palette / columnsDefault /
+  // gapDefault). Every OTHER key on the LOADED design_overrides — the legacy
+  // curated Section-level bag (§14.8) and any stored key this editor does not
+  // model — is preserved VERBATIM (stored key order first), so a save with
+  // untouched §9.5 controls round-trips a pure-legacy bag byte-identically.
   function buildSectionOverrides() {
     var out = {};
     var palette = {};
     var any = false, pAny = false;
+    var loaded = (state.design_overrides && typeof state.design_overrides === 'object') ? state.design_overrides : null;
+    var k;
+    if (loaded) {
+      for (k in loaded) {
+        if (!Object.prototype.hasOwnProperty.call(loaded, k)) { continue; }
+        if (k === 'palette' || k === 'columnsDefault' || k === 'gapDefault') { continue; }
+        out[k] = loaded[k];
+        any = true;
+      }
+    }
     var sels = document.querySelectorAll('[data-section-role]');
     var i, role, v;
     for (i = 0; i < sels.length; i++) {
@@ -2382,7 +2482,14 @@ export const SECTION_STUDIO_SCRIPT = `
     var t = node.type;
     var p = node.props || {};
     var i;
-    if (t === 'ProgressBar') { return { progress: { style: p.mode === 'steps' ? 'numbered' : 'percent' } }; }
+    if (t === 'ProgressBar') {
+      // FIX 3: the REAL legacy mode value is 'step' (the preset's enum —
+      // props: mode(step|percent)); 'steps' never existed, so the numbered
+      // mapping was dead. A label on the legacy node carries as show_label.
+      var progress = { style: p.mode === 'step' ? 'numbered' : 'percent' };
+      if (typeof p.label === 'string' && p.label !== '') { progress.show_label = true; }
+      return { progress: progress };
+    }
     if (t === 'StepIndicator') { return { progress: { style: 'dots' } }; }
     if (t === 'HeaderLogo') {
       if (typeof p.logoMediaId === 'string' && p.logoMediaId !== '') {
@@ -2432,7 +2539,11 @@ export const SECTION_STUDIO_SCRIPT = `
       return { footer: footer };
     }
     if (t === 'BackgroundPanel') {
-      return { background: { style: p.gradient ? 'brand_gradient' : 'brand' } };
+      // FIX 1b: a background image on the legacy panel moves WITH it — the
+      // frame group carries image_media_id (frames.ts background.fields).
+      var background = { style: p.gradient ? 'brand_gradient' : 'brand' };
+      if (typeof p.imageMediaId === 'string' && p.imageMediaId !== '') { background.image_media_id = p.imageMediaId; }
+      return { background: background };
     }
     return null;
   }
@@ -2452,26 +2563,73 @@ export const SECTION_STUDIO_SCRIPT = `
     return out;
   }
   // The distinct funnels using this Section (from the usage rows).
+  // quote_public_id rides along (ADDITIVE) — the MINOR-9 frame-pill deep link
+  // targets the owning Quote's builder page.
   function usageFunnelsOf() {
     var seen = {}, out = [], i, r;
     for (i = 0; i < usageRows.length; i++) {
       r = usageRows[i];
       if (!r || !r.funnel_public_id || seen[r.funnel_public_id] === true) { continue; }
       seen[r.funnel_public_id] = true;
-      out.push({ public_id: r.funnel_public_id, name: r.funnel_name || r.funnel_public_id });
+      out.push({ public_id: r.funnel_public_id, name: r.funnel_name || r.funnel_public_id, quote_public_id: r.quote_public_id || null });
     }
     return out;
   }
-  // §5.4: the explicit confirm NAMES the funnel.
+  // MINOR 9: the "Funnel frame" pill deep-links to the using funnel's Quote
+  // Builder page (frames are Quote-Builder-owned).
+  function funnelQuoteUrl(funnel) {
+    if (funnel && funnel.quote_public_id) { return '/admin/leadgen/quotes/' + encodeURIComponent(funnel.quote_public_id) + '/edit'; }
+    return '/admin/leadgen/quotes';
+  }
+  function framePillPickBtn(funnel) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline';
+    b.setAttribute('data-frame-pill-pick', funnel.public_id);
+    b.appendChild(document.createTextNode(funnel.name));
+    b.addEventListener('click', function () { window.location.href = funnelQuoteUrl(funnel); });
+    return b;
+  }
+  // Many using funnels → a picker next to the clicked pill (toggle on
+  // re-click); one → direct navigation; zero → the pill stays disabled.
+  function renderFramePillPicker(host, funnels) {
+    var parent = host.parentNode;
+    if (!parent) { return; }
+    var existing = parent.querySelector ? parent.querySelector('[data-frame-pill-picker]') : null;
+    if (existing) { parent.removeChild(existing); return; }
+    var wrap = document.createElement('span');
+    wrap.setAttribute('data-frame-pill-picker', '');
+    wrap.className = 'studio-frame-pill-picker';
+    var i;
+    for (i = 0; i < funnels.length; i++) {
+      wrap.appendChild(framePillPickBtn(funnels[i]));
+    }
+    parent.appendChild(wrap);
+  }
+  // §5.4: the explicit confirm NAMES the funnel — and, for a container with
+  // children, NAMES what happens to them (FIX 1c: the contents are NOT
+  // deleted; they splice into this Section where the container stood).
   function moveConfirmMessage(node, funnelName) {
-    return 'Move this ' + typeLabel(node.type) + ' into the Quote frame of funnel \\u201C' + funnelName + '\\u201D?\\nIt leaves this Section and becomes part of that funnel\\u2019s frame (edited in the Quote Builder). The Section change saves now.';
+    var contentsNote = '';
+    if (isContainerType(node.type) && node.children && node.children.length > 0) {
+      contentsNote = ' Its contents stay in this Section.';
+    }
+    return 'Move this ' + typeLabel(node.type) + ' into the Quote frame of funnel \\u201C' + funnelName + '\\u201D?\\nIt leaves this Section and becomes part of that funnel\\u2019s frame (edited in the Quote Builder).' + contentsNote + ' The Section change saves now.';
   }
 
   // --- §5.3 mode 5: Preview in Quote frame --------------------------------------
   var framePick = { quote: '', funnel: '', variant: '', site: '' };
   var framePickFunnels = [];
   function frameContextBody() {
-    if (framePick.funnel === '') { return null; }
+    if (framePick.funnel === '') {
+      // §5.3 mode-5 empty state (MINOR 15): the Section is used by ZERO
+      // Quotes — the unit previews inside the DEFAULT template frame
+      // (frame_context {default:true} — template defaults, no branding),
+      // exactly what the empty-state copy promises. The typeof guard keeps
+      // the function pure of load order (usage may not be loaded yet).
+      if (typeof usageQuoteCount !== 'undefined' && usageQuoteCount === 0) { return { 'default': true }; }
+      return null;
+    }
     var ctx = { funnel_public_id: framePick.funnel };
     if (framePick.variant !== '') { ctx.variant_public_id = framePick.variant; }
     if (framePick.site !== '') { ctx.site_id = framePick.site; }
@@ -3425,8 +3583,11 @@ export const SECTION_STUDIO_SCRIPT = `
       active = key === scopeState;
       pills[i].className = active ? 'studio-scope-pill active' : 'studio-scope-pill';
       pills[i].setAttribute('aria-pressed', active ? 'true' : 'false');
-      // frame stays disabled here (Quote-Builder-owned); component needs a
+      // MINOR 9: frame is never an ACTIVE scope here (Quote-Builder-owned) —
+      // the pill is a DEEP LINK to the using funnel's Quote Builder, disabled
+      // only while ZERO funnels use this Section; component needs a
       // selection; choice needs a choice-bearing selection.
+      if (key === 'frame') { pills[i].disabled = usageFunnelsOf().length === 0; }
       if (key === 'component') { pills[i].disabled = !node; }
       if (key === 'choice') { pills[i].disabled = !node || meta.choice !== true; }
     }
@@ -3541,12 +3702,17 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     var selButton = document.querySelector('[data-tb-selected-role="button"]');
     if (selButton) { selButton.hidden = !node || (node.type !== 'ButtonAnswerGroup' && node.type !== 'TwoButtonYesNo' && node.type !== 'OtherGroupSelector'); }
+    // FIX 4b: MultiChoiceCardGroup has NO icon slot — its iconColor swatch was
+    // a dead write; the selected-icon role shows only for the two card grids.
     var selIcon = document.querySelector('[data-tb-selected-role="icon"]');
-    if (selIcon) { selIcon.hidden = !node || (node.type !== 'IconCardAnswerGrid' && node.type !== 'ImageCardAnswerGrid' && node.type !== 'MultiChoiceCardGroup'); }
+    if (selIcon) { selIcon.hidden = !isCardGridType(node); }
     var inputQuick = document.querySelector('[data-toolbar-input-quick]');
     if (inputQuick) { inputQuick.hidden = !node || !meta.produces || meta.choice === true; }
+    // FIX 4b: only renderCardGrid consumes columns/gridGap overrides — the
+    // quick layout cluster is gated to the two card grids (ButtonAnswerGroup /
+    // dropdowns / MultiChoiceCardGroup wrote dead keys).
     var choiceLayout = document.querySelector('[data-toolbar-choice-layout]');
-    if (choiceLayout) { choiceLayout.hidden = !node || meta.choice !== true; }
+    if (choiceLayout) { choiceLayout.hidden = !isCardGridType(node); }
     // §5.5: the dropdown searchable toggle SWITCHES the component type.
     var searchWrap = document.querySelector('[data-toolbar-searchable-wrap]');
     var searchBtn = document.querySelector('[data-toolbar-searchable]');
@@ -3756,11 +3922,22 @@ export const SECTION_STUDIO_SCRIPT = `
       if (isHexColor(oval)) { ensureLegacyOption(ovEls[i], String(oval)); }
       ovEls[i].value = (oval === undefined || oval === null) ? '' : String(oval);
     }
+    // FIX 4b: dead-write Design rows are GATED per type (overrideRowHidden —
+    // columns/gridGap are consumed by renderCardGrid only; iconColor has no
+    // consumer on MultiChoiceCardGroup).
+    var rowEls = document.querySelectorAll('[data-override-row]');
+    var rowKey;
+    for (i = 0; i < rowEls.length; i++) {
+      rowKey = rowEls[i].getAttribute('data-override-row');
+      rowEls[i].hidden = overrideRowHidden(rowKey, node);
+    }
     renderOverrideDecorations(node);
     renderPresetControls();
     populateValidation(node, meta);
     populateMapsPanel(node);
     populateConditional(node);
+    populateRequiredWhen(node);
+    populateDefaultControls(node);
     var groups = document.querySelectorAll('[data-container-group]');
     for (i = 0; i < groups.length; i++) {
       groups[i].hidden = !node || groups[i].getAttribute('data-container-group') !== node.type;
@@ -4272,6 +4449,233 @@ export const SECTION_STUDIO_SCRIPT = `
     var cond = buildConditional(whenVal, op, parts, info.type);
     if (cond === null) { delete node.conditional; } else { node.conditional = cond; }
     updateCondValueInputs(node);
+    renderConditionSentences(node);
+    afterModelChange();
+  }
+
+  // --- FIX 7: "Require this component IF" — props.requiredWhen -------------------
+  // The runtime already consumes props.requiredWhen (runtime/dependencies.ts
+  // requiredNow + the server twin) — these rows are the authoring side. The
+  // SAME typed IF builder (buildConditional) produces the SAME conditional
+  // shape; the pickers stay the controls, the sentence is the readable text.
+  function readReqCond(key) {
+    var el = document.querySelector('[data-inspector-reqcond="' + key + '"]');
+    return el ? el.value : '';
+  }
+  function reqCondPartValue(info, op) {
+    if (op === 'range' || op === 'in' || op === 'not_in') { return ''; }
+    if (info.type === 'boolean') { return readReqCond('value-bool'); }
+    if (info.choices && (op === 'eq' || op === 'neq')) { return readReqCond('value-enum'); }
+    return readReqCond('value');
+  }
+  function nodeRequiredWhen(node) {
+    if (!node || !node.props || !node.props.requiredWhen || typeof node.props.requiredWhen !== 'object') { return null; }
+    return node.props.requiredWhen;
+  }
+  function updateReqCondValueInputs(node) {
+    var whenSel = document.querySelector('[data-inspector-reqcond="when"]');
+    var opSel = document.querySelector('[data-inspector-reqcond="op"]');
+    var boolSel = document.querySelector('[data-inspector-reqcond="value-bool"]');
+    var enumSel = document.querySelector('[data-inspector-reqcond="value-enum"]');
+    var valIn = document.querySelector('[data-inspector-reqcond="value"]');
+    var fromIn = document.querySelector('[data-inspector-reqcond="from"]');
+    var toIn = document.querySelector('[data-inspector-reqcond="to"]');
+    var valuesIn = document.querySelector('[data-inspector-reqcond="values"]');
+    if (!whenSel || !opSel) { return; }
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenSel.value);
+    var cond = nodeRequiredWhen(node) || {};
+    var isRange = op === 'range';
+    var isList = op === 'in' || op === 'not_in';
+    var scalarKind = 'text';
+    if (!isRange && !isList) {
+      if (info.type === 'boolean') { scalarKind = 'bool'; }
+      else if (info.choices && (op === 'eq' || op === 'neq')) { scalarKind = 'enum'; }
+    }
+    if (boolSel) {
+      boolSel.hidden = scalarKind !== 'bool';
+      boolSel.value = cond.value === false ? 'false' : 'true';
+    }
+    if (enumSel) {
+      enumSel.hidden = scalarKind !== 'enum';
+      clearChildren(enumSel);
+      var i, o;
+      if (info.choices) {
+        for (i = 0; i < info.choices.length; i++) {
+          o = document.createElement('option');
+          o.value = String(info.choices[i].value);
+          o.textContent = String(info.choices[i].label || info.choices[i].value);
+          enumSel.appendChild(o);
+        }
+      }
+      if (scalarKind === 'enum' && cond.value !== undefined && cond.value !== null) { enumSel.value = String(cond.value); }
+    }
+    if (valIn) {
+      valIn.hidden = isRange || isList || scalarKind !== 'text';
+      valIn.value = (cond.value === undefined || cond.value === null) ? '' : String(cond.value);
+    }
+    if (fromIn) { fromIn.hidden = !isRange; fromIn.value = (cond.from === undefined) ? '' : String(cond.from); }
+    if (toIn) { toIn.hidden = !isRange; toIn.value = (cond.to === undefined) ? '' : String(cond.to); }
+    if (valuesIn) {
+      valuesIn.hidden = !isList;
+      valuesIn.value = (cond.values && cond.values.length) ? cond.values.join(', ') : '';
+    }
+  }
+  function populateRequiredWhen(node) {
+    var wrap = document.querySelector('[data-reqcond-wrap]');
+    var meta = node ? typeMeta(node.type) : {};
+    // requiredWhen is meaningful for answer-PRODUCING components only.
+    if (wrap) { wrap.hidden = !node || !meta.produces; }
+    var whenSel = document.querySelector('[data-inspector-reqcond="when"]');
+    var opSel = document.querySelector('[data-inspector-reqcond="op"]');
+    if (!whenSel || !opSel) { return; }
+    clearChildren(whenSel);
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '\\u2014 only when marked Required \\u2014';
+    whenSel.appendChild(opt);
+    var fields = internalFieldsOf();
+    var i;
+    for (i = 0; i < fields.length; i++) {
+      if (node && node.internal_field && fields[i] === node.internal_field) { continue; }
+      opt = document.createElement('option');
+      opt.value = fields[i];
+      opt.textContent = fields[i];
+      whenSel.appendChild(opt);
+    }
+    var cond = nodeRequiredWhen(node);
+    whenSel.value = (cond && cond.when) ? cond.when : '';
+    opSel.value = (cond && cond.op) ? cond.op : 'eq';
+    updateReqCondValueInputs(node);
+    renderConditionSentences(node);
+  }
+  function collectRequiredWhen() {
+    var node = selectedNode();
+    if (!node) { return; }
+    var whenSel = document.querySelector('[data-inspector-reqcond="when"]');
+    var opSel = document.querySelector('[data-inspector-reqcond="op"]');
+    if (!whenSel || !opSel) { return; }
+    var whenVal = trimStr(whenSel.value);
+    var op = opSel.value || 'eq';
+    var info = refFieldInfo(whenVal);
+    var parts = {
+      value: reqCondPartValue(info, op),
+      values: readReqCond('values'),
+      from: readReqCond('from'),
+      to: readReqCond('to')
+    };
+    var cond = buildConditional(whenVal, op, parts, info.type);
+    var props = ensureObj(node, 'props');
+    if (cond === null) { delete props.requiredWhen; } else { props.requiredWhen = cond; }
+    cleanupEmpty(node, 'props');
+    updateReqCondValueInputs(node);
+    renderConditionSentences(node);
+    afterModelChange();
+  }
+
+  // §7.3 sentence pattern: the row's READABLE text — "Show this question when
+  // <field> is <value>" — rendered from the stored conditional; the pickers
+  // stay the controls.
+  function conditionSentence(prefix, cond) {
+    var field = cond.when;
+    var op = cond.op || 'eq';
+    if (op === 'range') { return prefix + ' when ' + field + ' is between ' + String(cond.from) + ' and ' + String(cond.to); }
+    if (op === 'in') { return prefix + ' when ' + field + ' is one of: ' + (cond.values || []).join(', '); }
+    if (op === 'not_in') { return prefix + ' when ' + field + ' is none of: ' + (cond.values || []).join(', '); }
+    var rel = 'is';
+    if (op === 'neq') { rel = 'is not'; }
+    else if (op === 'gt') { rel = 'is more than'; }
+    else if (op === 'lt') { rel = 'is less than'; }
+    else if (op === 'gte') { rel = 'is at least'; }
+    else if (op === 'lte') { rel = 'is at most'; }
+    return prefix + ' when ' + field + ' ' + rel + ' ' + String(cond.value);
+  }
+  function renderConditionSentences(node) {
+    var showEl = document.querySelector('[data-cond-sentence]');
+    var reqEl = document.querySelector('[data-reqcond-sentence]');
+    var cond = (node && node.conditional) ? node.conditional : null;
+    var rw = nodeRequiredWhen(node);
+    if (showEl) {
+      showEl.textContent = (cond && cond.when) ? conditionSentence('Show this question', cond) : 'This question is always shown.';
+    }
+    if (reqEl) {
+      if (rw && rw.when) { reqEl.textContent = conditionSentence('Require this question', rw); }
+      else if (node && node.required === true) { reqEl.textContent = 'This question is always required (Validation tab).'; }
+      else { reqEl.textContent = 'No requirement condition \\u2014 add one below.'; }
+    }
+  }
+
+  // --- §5.5 defaults (FIX 8a/8b) --------------------------------------------------
+  // yes/no → props.defaultValue (boolean) — the config-dto default_answer /
+  // runtime default_applied path; the visitor still confirms it (§5.5).
+  // range → props.default (number); dropdowns → props.default (choice value)
+  // — both consumed by the presets (renderRange / the dropdown renderers).
+  var RANGE_DEFAULT_TYPES = ['RangeQuestion', 'CurrencyRangeQuestion', 'NumberRangeQuestion'];
+  var DROPDOWN_DEFAULT_TYPES = ['DropdownQuestion', 'SearchableDropdownQuestion'];
+  function defaultKindOf(node) {
+    if (!node) { return null; }
+    if (node.type === 'TwoButtonYesNo') { return 'yesno'; }
+    if (RANGE_DEFAULT_TYPES.indexOf(node.type) !== -1) { return 'range'; }
+    if (DROPDOWN_DEFAULT_TYPES.indexOf(node.type) !== -1) { return 'dropdown'; }
+    return null;
+  }
+  function populateDefaultControls(node) {
+    var kind = defaultKindOf(node);
+    var wraps = document.querySelectorAll('[data-default-wrap]');
+    var i, w;
+    for (i = 0; i < wraps.length; i++) {
+      w = wraps[i].getAttribute('data-default-wrap');
+      wraps[i].hidden = w !== kind;
+    }
+    if (kind === null) { return; }
+    var props = node.props || {};
+    var el;
+    if (kind === 'yesno') {
+      el = document.querySelector('[data-default-control="yesno"]');
+      if (el) { el.value = props.defaultValue === true ? 'true' : (props.defaultValue === false ? 'false' : ''); }
+      return;
+    }
+    if (kind === 'range') {
+      el = document.querySelector('[data-default-control="range"]');
+      if (el) { el.value = typeof props.default === 'number' ? String(props.default) : ''; }
+      return;
+    }
+    el = document.querySelector('[data-default-control="dropdown"]');
+    if (!el) { return; }
+    clearChildren(el);
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No default \\u2014 the visitor picks';
+    el.appendChild(opt);
+    var choices = node.choices || [];
+    for (i = 0; i < choices.length; i++) {
+      if (!choices[i]) { continue; }
+      opt = document.createElement('option');
+      opt.value = String(choices[i].value);
+      opt.textContent = String(choices[i].label || choices[i].value);
+      el.appendChild(opt);
+    }
+    el.value = (props.default === undefined || props.default === null) ? '' : String(props.default);
+  }
+  function collectDefaultControl(input) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var kind = input.getAttribute('data-default-control');
+    if (kind !== defaultKindOf(node)) { return; }
+    var props = ensureObj(node, 'props');
+    var v = trimStr(input.value);
+    if (kind === 'yesno') {
+      if (v === '') { delete props.defaultValue; }
+      else { props.defaultValue = v === 'true'; }
+    } else if (kind === 'range') {
+      var n = Number(v);
+      if (v === '' || isNaN(n)) { delete props.default; }
+      else { props.default = n; }
+    } else {
+      if (v === '') { delete props.default; }
+      else { props.default = v; }
+    }
+    cleanupEmpty(node, 'props');
     afterModelChange();
   }
 
@@ -4872,17 +5276,62 @@ export const SECTION_STUDIO_SCRIPT = `
       })
       .catch(function () { mediaPickerStatus('Upload failed: network error.'); });
   }
+  // FIX 8c (§8.4): "Generate with AI" — the EXISTING admin generation
+  // endpoint (POST /api/admin/ai/image writes R2 + the media row); the
+  // resulting storage_key flows through the SAME applyMediaPick path an
+  // upload takes. The control is server-hidden when the route is unavailable.
+  function generateMediaWithAi() {
+    var promptEl = document.getElementById('lg-media-ai-prompt');
+    var prompt = promptEl ? trimStr(promptEl.value) : '';
+    if (prompt === '') { mediaPickerStatus('Describe the image to generate first.'); return; }
+    mediaPickerStatus('Generating\\u2026');
+    fetch('/api/admin/ai/image', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ prompt: prompt })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.storage_key) {
+        mediaPickerStatus((res.body && res.body.error) ? res.body.error : 'Image generation failed.');
+        return;
+      }
+      mediaPickerStatus('');
+      if (promptEl) { promptEl.value = ''; }
+      applyMediaPick(res.body.storage_key);
+    }).catch(function () { mediaPickerStatus('Image generation failed: network error.'); });
+  }
 
   // --- §5.4 Move to Quote frame: the LIVE action ---------------------------------
   function showMoveNote(text) {
     var note = document.querySelector('[data-studio-pending-note]');
     if (note) { note.hidden = false; note.textContent = text; }
   }
+  // FIX 1a (BLOCKER): removing the MOVED node must never destroy its
+  // children — a container (BackgroundPanel) dissolves exactly like Ungroup
+  // (§6.1.5): its children splice into the parent list at the node's index,
+  // order preserved. Leaf frame nodes remove exactly as before.
+  function removeMovedFrameNode(qid) {
+    var ref = findRef(qid);
+    if (!ref) { return; }
+    if (isContainerType(ref.node.type) && ref.node.children && ref.node.children.length > 0) {
+      var children = ref.node.children;
+      var args = [ref.index, 1];
+      var i;
+      for (i = 0; i < children.length; i++) { args.push(children[i]); }
+      Array.prototype.splice.apply(ref.list, args);
+      if (selectedQuestionId === qid) { selectedQuestionId = null; }
+      afterModelChange();
+      return;
+    }
+    removeNode(qid);
+  }
   // Finish: remove the node and persist the removal on the SAME action — a
   // content-only PATCH (merge-then-revalidate keeps every other stored field;
   // §5.4 "delete-from-Section only after confirm").
   function finishMoveToFrame(qid, funnel, wasDirty) {
-    removeNode(qid);
+    removeMovedFrameNode(qid);
     if (selectedQuestionId === qid) { selectComponent(null); }
     if (!state.public_id) {
       showMoveNote('Moved into the Quote frame of “' + funnel.name + '”. Save the Section to persist the removal.');
@@ -5553,6 +6002,20 @@ export const SECTION_STUDIO_SCRIPT = `
     condEls[ce].addEventListener('input', collectConditional);
     condEls[ce].addEventListener('change', collectConditional);
   }
+  // FIX 7: the "Require this component IF" pickers (props.requiredWhen).
+  var reqCondEls = document.querySelectorAll('[data-inspector-reqcond]');
+  var rce;
+  for (rce = 0; rce < reqCondEls.length; rce++) {
+    reqCondEls[rce].addEventListener('input', collectRequiredWhen);
+    reqCondEls[rce].addEventListener('change', collectRequiredWhen);
+  }
+  // §5.5 (FIX 8a/8b): the typed default controls.
+  var defaultEls = document.querySelectorAll('[data-default-control]');
+  var dce;
+  for (dce = 0; dce < defaultEls.length; dce++) {
+    defaultEls[dce].addEventListener('input', function () { collectDefaultControl(this); });
+    defaultEls[dce].addEventListener('change', function () { collectDefaultControl(this); });
+  }
   var containerEls = document.querySelectorAll('[data-container-prop]');
   var cpe;
   for (cpe = 0; cpe < containerEls.length; cpe++) {
@@ -5644,6 +6107,10 @@ export const SECTION_STUDIO_SCRIPT = `
   if (mediaCloseBtn) { mediaCloseBtn.addEventListener('click', closeMediaPicker); }
   var mediaUploadBtn = document.getElementById('lg-media-upload-btn');
   if (mediaUploadBtn) { mediaUploadBtn.addEventListener('click', uploadMediaFile); }
+  // FIX 8c: the picker's AI-generation affordance (server-hidden when the
+  // route is unavailable — §8.4).
+  var mediaAiBtn = document.getElementById('lg-media-ai-generate');
+  if (mediaAiBtn) { mediaAiBtn.addEventListener('click', generateMediaWithAi); }
   var mediaGridEl = document.getElementById('lg-media-picker-grid');
   if (mediaGridEl) {
     mediaGridEl.addEventListener('click', function (ev) {
@@ -6732,7 +7199,16 @@ export const SECTION_STUDIO_SCRIPT = `
         setScope('choice');
         return;
       }
-      // 'frame' is disabled markup — nothing to do in the Section Builder.
+      if (key === 'frame') {
+        // MINOR 9: the frame is Quote-Builder-owned — the pill DEEP-LINKS to
+        // the using funnel's Quote Builder. One funnel → navigate; many → a
+        // picker; zero → the pill is disabled (this handler never fires).
+        var funnels = usageFunnelsOf();
+        if (funnels.length === 0) { return; }
+        if (funnels.length === 1) { window.location.href = funnelQuoteUrl(funnels[0]); return; }
+        renderFramePillPicker(this, funnels);
+        return;
+      }
     });
   }
   // §7.5: focusing a choice row retargets the scope header to that choice
@@ -6852,11 +7328,93 @@ export const SECTION_STUDIO_SCRIPT = `
       warn.textContent = '';
     }
   }
+  // --- FIX 5: save-response problems[] + 400 field-error inline routing -----------
+  // A §3.6 problem path (components[i]…, children[j]…) resolves to its node so
+  // a clicked row FOCUSES the offending component (the §6.7 inline idiom).
+  function componentByProblemPath(path) {
+    var segs = String(path).match(/components\\[(\\d+)\\]|children\\[(\\d+)\\]/g) || [];
+    if (segs.length === 0 || String(path).indexOf('components[') !== 0) { return null; }
+    var list = state.content.components;
+    var node = null;
+    var i, idx;
+    for (i = 0; i < segs.length; i++) {
+      idx = Number(segs[i].replace(/[^0-9]/g, ''));
+      if (!list || !list[idx]) { return node; }
+      node = list[idx];
+      list = node.children;
+    }
+    return node;
+  }
+  function saveProblemFocusHandler(path) {
+    return function () {
+      var node = componentByProblemPath(path);
+      if (node && node.question_id) { selectComponent(node.question_id); }
+    };
+  }
+  function renderSaveProblems(problems) {
+    var box = document.querySelector('[data-studio-save-problems]');
+    if (!box) { return; }
+    clearChildren(box);
+    if (!problems || problems.length === 0) { box.hidden = true; return; }
+    box.hidden = false;
+    var head = document.createElement('p');
+    head.setAttribute('data-save-problems-summary', '');
+    head.appendChild(document.createTextNode('Saved \\u2014 with ' + problems.length + ' thing' + (problems.length === 1 ? '' : 's') + ' worth checking:'));
+    box.appendChild(head);
+    var list = document.createElement('ul');
+    var i, li, btn;
+    for (i = 0; i < problems.length; i++) {
+      if (!problems[i]) { continue; }
+      li = document.createElement('li');
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'studio-link-btn';
+      btn.setAttribute('data-save-problem-path', String(problems[i].path || ''));
+      btn.appendChild(document.createTextNode(String(problems[i].message || '')));
+      btn.addEventListener('click', saveProblemFocusHandler(problems[i].path));
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+    box.appendChild(list);
+  }
+  // Scalar strip fields → their strip inputs (the save-path controls).
+  var SAVE_FIELD_CONTROL_IDS = {
+    section_name: 'lg-section-name',
+    activity: 'lg-section-activity',
+    vertical: 'lg-section-vertical',
+    headline_text: 'lg-section-headline',
+    subheadline_text: 'lg-section-subheadline'
+  };
+  function markSaveFieldControl(key) {
+    var ctl = SAVE_FIELD_CONTROL_IDS[key] ? document.getElementById(SAVE_FIELD_CONTROL_IDS[key]) : null;
+    if (!ctl) {
+      ctl = document.querySelector('[data-inspector-field="' + key + '"]') ||
+        document.querySelector('[data-inspector-vprop="' + key + '"]') ||
+        document.querySelector('[data-container-prop="' + key + '"]');
+    }
+    if (ctl && ctl.className.indexOf('studio-control-invalid') === -1) { ctl.className = ctl.className + ' studio-control-invalid'; }
+  }
+  function routeSaveFieldErrors(fields) {
+    if (!fields || typeof fields !== 'object') { return; }
+    var k, focused = false, node, key;
+    for (k in fields) {
+      if (!Object.prototype.hasOwnProperty.call(fields, k)) { continue; }
+      // content.components[i]….<key> → focus the FIRST offending component,
+      // then mark the matching control (the §6.7 inline idiom).
+      if (k.indexOf('content.components[') === 0 && !focused) {
+        node = componentByProblemPath(k.slice('content.'.length));
+        if (node && node.question_id) { selectComponent(node.question_id); focused = true; }
+      }
+      key = k.replace(/^.*\\./, '');
+      markSaveFieldControl(key);
+    }
+  }
   var saveBtn = document.getElementById('lg-section-save');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       var errEl = document.getElementById('lg-section-error');
       if (errEl) { errEl.hidden = true; }
+      renderSaveProblems([]);
       renderZeroOffersWarning();
       saveBtn.disabled = true;
       var isNew = !state.public_id;
@@ -6872,11 +7430,23 @@ export const SECTION_STUDIO_SCRIPT = `
         saveBtn.disabled = false;
         if (!res.ok) {
           if (errEl) { errEl.hidden = false; errEl.textContent = (res.body && res.body.error) || 'Save failed'; }
+          // FIX 5: server-side FIELD errors route inline where a control
+          // matches (400 body: { error, fields }).
+          routeSaveFieldErrors(res.body && res.body.fields);
           return;
         }
         dirty = false;
         // §6.1.3: the history is per open editor and cleared on Save.
         historyReset();
+        // FIX 5: the save landed — non-blocking problems[] surface as the
+        // summary + click-to-focus rows. An EXISTING Section stays on the
+        // page so the rows are readable; a NEW Section must still navigate
+        // to its minted URL.
+        var problems = (res.body && res.body.problems) ? res.body.problems : [];
+        if (!isNew && problems.length > 0) {
+          renderSaveProblems(problems);
+          return;
+        }
         if (res.body && res.body.public_id) {
           window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit';
         } else {

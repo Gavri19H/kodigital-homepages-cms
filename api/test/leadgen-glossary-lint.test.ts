@@ -58,6 +58,7 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
+import { CURATED_DESIGN_OVERRIDE_KEYS } from "../src/public/leadgen/components/content-schema";
 import { FUNNEL_TOKEN_ROLES } from "../src/public/leadgen/designs/theme";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 
@@ -350,7 +351,19 @@ const COMPOUND_TYPE_NAMES: readonly string[] = Object.keys(COMPONENT_CATALOG).fi
 
 // Storage column identifiers (12 §12.4 "column names"): snake_case storage
 // vocabulary — never operator copy outside Advanced.
-const COLUMN_IDENTIFIERS: readonly string[] = [
+//
+// FIX 6b: the matrix is DERIVED at test time from the REAL migration chain —
+// every leadgen_* table's PRAGMA table_info over the SAME migrations the
+// harness applies — so a new column is linted the day its migration lands
+// (the old hand-list missed redirect_url_allowlisted). Filtered to COMPOUND
+// (underscore-bearing) identifiers: single-English-word columns (status,
+// label, weight, priority…) double as real operator copy by the SAME
+// documented principle the type-name and token matrices use. The curated
+// §14.8 design-override keys ride along under the same compound principle
+// (camelCase compounds; `columns` is a real English word used by legit copy
+// — "Card columns (2–5)"). The previous hand-list is kept as an API-shape
+// supplement so nothing previously linted is dropped (STRENGTHEN-only).
+const API_FIELD_IDENTIFIERS: readonly string[] = [
   "headline_text",
   "subheadline_text",
   "content_json",
@@ -376,6 +389,30 @@ const COLUMN_IDENTIFIERS: readonly string[] = [
   "selected_offers",
   "active_payload_schema_id",
 ];
+
+let columnIdentifiersCache: readonly string[] | null = null;
+function derivedColumnIdentifiers(): readonly string[] {
+  if (columnIdentifiersCache !== null) return columnIdentifiersCache;
+  const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+  const names = new Set<string>(API_FIELD_IDENTIFIERS);
+  const tables = sdb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'leadgen_%'")
+    .all() as Array<{ name: string }>;
+  expect(tables.length, "leadgen_* tables present after the migration chain").toBeGreaterThan(10);
+  for (const t of tables) {
+    const cols = sdb.prepare(`PRAGMA table_info(${t.name})`).all() as Array<{ name: string }>;
+    expect(cols.length, `${t.name} has columns`).toBeGreaterThan(0);
+    for (const col of cols) {
+      if (col.name.includes("_")) names.add(col.name);
+    }
+  }
+  sdb.close();
+  for (const key of CURATED_DESIGN_OVERRIDE_KEYS) {
+    if (/[a-z][A-Z]/.test(key)) names.add(key);
+  }
+  columnIdentifiersCache = [...names].sort();
+  return columnIdentifiersCache;
+}
 
 // Design-token keys (07 §7.4 "token keys like primaryWash") — grounded in the
 // REAL registries: camelCase compound color-token keys of the default design +
@@ -532,7 +569,8 @@ const ISLAND_JSON_ALLOW: ReadonlyArray<{ re: RegExp; reason: string }> = [
   // the rules-builder island rebuilds its per-card Advanced disclosure (the
   // SSR twin is the stripped details.lg-rb-advanced container).
   { re: /^Advanced: raw conditions JSON \(read-only\)$/, reason: "rules-builder Advanced-disclosure summary (island twin of details.lg-rb-advanced)" },
-  { re: /advanced JSON this visual builder/, reason: "rules-builder raw-fallback warning naming the Advanced JSON escape hatch it preserves" },
+  // FIX 6a: the raw-fallback warning entry is GONE — the banner now speaks
+  // operator words ("advanced settings"), so it needs no exemption.
 ];
 
 describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted builder surfaces", () => {
@@ -596,9 +634,20 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
 
   it("storage column identifiers never appear as normal-mode operator copy (both builders)", async () => {
     const all = await pages();
+    // FIX 6b grounding: the derived matrix is non-trivial, carries the REAL
+    // columns (including the one the hand-list missed) and the compound
+    // curated override keys.
+    const columns = derivedColumnIdentifiers();
+    expect(columns.length, "derived matrix size").toBeGreaterThan(60);
+    for (const known of ["headline_text", "frame_config_json", "redirect_url_allowlisted", "internal_field", "rule_type", "target_offer_id"]) {
+      expect(columns, `derived matrix carries ${known}`).toContain(known);
+    }
+    for (const key of ["iconColor", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap", "mobileBehavior"]) {
+      expect(columns, `curated key ${key} rides the matrix`).toContain(key);
+    }
     const violations: Violation[] = [];
     for (const p of all) {
-      for (const col of COLUMN_IDENTIFIERS) {
+      for (const col of columns) {
         violations.push(...scanNormalSurfaces(p, `column:${col}`, new RegExp(`\\b${col}\\b`, "i")));
       }
     }

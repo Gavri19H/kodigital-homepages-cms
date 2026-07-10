@@ -703,19 +703,23 @@ interface SaveOutcome {
   rebuild: RebuildResult | null;
   value: ReturnType<typeof validateSection>["value"];
   contentHtml: string;
+  // FIX 5 (03 §3.6): the content validator's non-blocking warnings as
+  // Problem rows — threaded into the POST/PATCH SUCCESS response so a save
+  // never silently swallows a frame_scope_component / duplicate_continue.
+  problems: ReturnType<typeof validateSection>["problems"];
 }
 
 // Validate scalars + content, parse + resolve answer maps, block §12.4
 // archived/mismatched mappings, and rebuild the derived indexes. Pure of any
 // write — the caller commits the batch.
 async function prepareSave(c: AdminContext, body: Record<string, unknown>): Promise<SaveOutcome> {
-  const { errors, value } = validateSection(body);
-  if (value === null) return { errors, rebuild: null, value: null, contentHtml: "" };
+  const { errors, value, problems } = validateSection(body);
+  if (value === null) return { errors, rebuild: null, value: null, contentHtml: "", problems: [] };
 
   const parsed = await parseAnswerMaps(c.env.DB, body, value.content);
   const mergedErrors: FieldErrors = { ...parsed.errors };
   if (Object.keys(mergedErrors).length > 0) {
-    return { errors: mergedErrors, rebuild: null, value: null, contentHtml: "" };
+    return { errors: mergedErrors, rebuild: null, value: null, contentHtml: "", problems: [] };
   }
 
   const offerSchemas = await loadOfferSchemas(
@@ -742,7 +746,7 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     }
   }
   if (Object.keys(refErrors).length > 0) {
-    return { errors: refErrors, rebuild: null, value: null, contentHtml: "" };
+    return { errors: refErrors, rebuild: null, value: null, contentHtml: "", problems: [] };
   }
 
   const rebuild = rebuildDerivedIndexes({
@@ -751,7 +755,7 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
     offerSchemas,
     selectedOfferIds: parsed.selectedOfferIds,
   });
-  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value) };
+  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value), problems };
 }
 
 // ---------------------------------------------------------------------------
@@ -799,7 +803,10 @@ export async function createSectionHandler(c: AdminContext): Promise<Response> {
     .bind(publicId)
     .first<LeadgenSectionRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
-  return c.json(await sectionDetailJson(c.env.DB, row), 201);
+  // FIX 5 (03 §3.6): the success response carries the save's non-blocking
+  // validation problems (frame_scope_component / duplicate_continue) so the
+  // editor can surface them inline — the save itself is unaffected.
+  return c.json({ ...(await sectionDetailJson(c.env.DB, row)), problems: prepared.problems }, 201);
 }
 
 // ---------------------------------------------------------------------------
@@ -990,7 +997,9 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     .bind(existing.id)
     .first<LeadgenSectionRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);
-  return c.json(await sectionDetailJson(c.env.DB, updated));
+  // FIX 5 (03 §3.6): non-blocking validation problems ride the PATCH success
+  // response (same shape as the POST leg — the island surfaces them inline).
+  return c.json({ ...(await sectionDetailJson(c.env.DB, updated)), problems: prepared.problems });
 }
 
 // The stored derived answer-map rows re-expressed as authored edge inputs, so a
@@ -1060,10 +1069,13 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
 // byte-pinned legacy shell — the same §13.1 fail-safe fork serve.ts and the
 // variant preview take.
 
-// The resolved §13.4 frame context for one preview render.
+// The resolved §13.4 frame context for one preview render. Identity fields
+// are ID-LEVEL (not rows) so the §5.3 mode-5 DEFAULT-frame leg — no funnel at
+// all — composes with the established honest lg?_preview placeholders.
 interface SectionPreviewFrame {
-  funnel: LeadgenFunnelRow;
-  variant: LeadgenFunnelVariantRow | null;
+  funnelPublicId: string;
+  variantPublicId: string | null;
+  variantContentVersion: number | null;
   quotePublicId: string;
   branding: SiteBranding | null;
   // null = NULL/invalid stored frame → the legacy-shell fork.
@@ -1094,6 +1106,37 @@ async function resolveSectionPreviewFrame(
     return {
       kind: "invalid",
       fields: { frame_context: "frame_context must be a JSON object" },
+    };
+  }
+  // §5.3 mode-5 empty state (ADDITIVE): `frame_context: { default: true }` —
+  // no funnel exists (the Section is used by zero Quotes), so the unit
+  // composes inside the DEFAULT template frame (effectiveFrame("centered")
+  // via the same resolveFrameComposition path), template defaults only: no
+  // theme, no variant overrides, no site branding. Identity fields are the
+  // honest lg?_preview placeholders (the events-doc idiom — never faked live
+  // ids).
+  if (raw["default"] === true && raw["funnel_public_id"] === undefined) {
+    const defaultDesign = getFunnelDesign(explicitDesignId);
+    const composition = resolveFrameComposition(
+      {
+        frame_config_json: JSON.stringify({ version: 1, template: "centered" }),
+        theme_json: null,
+        frame_overrides_json: null,
+      },
+      defaultDesign,
+    );
+    return {
+      kind: "ok",
+      frame: {
+        funnelPublicId: "lgf_preview",
+        variantPublicId: null,
+        variantContentVersion: null,
+        quotePublicId: "lgq_preview",
+        branding: null,
+        composition,
+        design: defaultDesign,
+        sectionCount: 1,
+      },
     };
   }
   const fields: FieldErrors = {};
@@ -1176,8 +1219,9 @@ async function resolveSectionPreviewFrame(
   return {
     kind: "ok",
     frame: {
-      funnel,
-      variant,
+      funnelPublicId: funnel.public_id,
+      variantPublicId: variant?.public_id ?? null,
+      variantContentVersion: variant?.content_version ?? null,
       quotePublicId: quote.public_id,
       branding,
       composition,
@@ -1399,10 +1443,10 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       frame.composition === null
         ? renderLegacyShell({
             designId: frame.design.id,
-            funnelId: frame.funnel.public_id,
-            funnelVariantId: frame.variant?.public_id ?? "lgn_preview",
+            funnelId: frame.funnelPublicId,
+            funnelVariantId: frame.variantPublicId ?? "lgn_preview",
             quoteId: frame.quotePublicId,
-            contentVersion: frame.variant?.content_version ?? 0,
+            contentVersion: frame.variantContentVersion ?? 0,
             sectionsHtml,
             bannersMountHtml: LG_BANNERS_MOUNT_HTML,
           })
@@ -1414,10 +1458,10 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
             bannersMountHtml: LG_BANNERS_MOUNT_HTML,
             sectionCount: frame.sectionCount,
             root: {
-              funnelId: frame.funnel.public_id,
-              funnelVariantId: frame.variant?.public_id ?? "lgn_preview",
+              funnelId: frame.funnelPublicId,
+              funnelVariantId: frame.variantPublicId ?? "lgn_preview",
               quoteId: frame.quotePublicId,
-              contentVersion: frame.variant?.content_version ?? 0,
+              contentVersion: frame.variantContentVersion ?? 0,
             },
           });
     const { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } = await import(

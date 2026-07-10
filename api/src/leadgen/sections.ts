@@ -31,7 +31,9 @@ import {
   flattenComponents,
   validateSectionContent,
   type LeadgenSectionContent,
+  type SectionContentError,
 } from "../public/leadgen/components/content-schema";
+import type { Problem } from "../public/leadgen/designs/theme";
 import { providerNodeType } from "./answers";
 import type { FieldErrors } from "./validation";
 import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "./payload";
@@ -165,6 +167,23 @@ export interface LeadgenSectionInput {
 export interface LeadgenSectionValidationResult {
   errors: FieldErrors;
   value: LeadgenSectionInput | null;
+  // FIX 5 (03 §3.6 + 08 §8.6): the content validator's NON-BLOCKING warnings
+  // (frame_scope_component / duplicate_continue), projected to the shared
+  // Problem shape — path-precise, scope "component" for a `components[…]`
+  // path, "section" otherwise. Empty on a blocked save (`value === null`);
+  // the handlers thread it into the PATCH/POST success response as
+  // `problems[]` so a save is never silently warning-swallowing.
+  problems: Problem[];
+}
+
+// Project one content-validator warning to the 03 §3.6 Problem shape.
+function contentWarningToProblem(warning: SectionContentError): Problem {
+  return {
+    path: warning.path,
+    scope: warning.path.startsWith("components[") ? "component" : "section",
+    severity: "warning",
+    message: warning.message,
+  };
 }
 
 // Parse a `content_json` value that arrived as either a JSON string or an
@@ -189,8 +208,9 @@ function parseContentJson(raw: unknown): { content: unknown } | string {
 // validateMappingReferences's job.
 export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   const errors: FieldErrors = {};
+  const problems: Problem[] = [];
   if (!isRecord(raw)) {
-    return { errors: { body: "request body must be a JSON object" }, value: null };
+    return { errors: { body: "request body must be a JSON object" }, value: null, problems: [] };
   }
 
   const sectionName = trimmedString(raw["section_name"]);
@@ -304,12 +324,18 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
     } else {
       content = parsedContent.content as LeadgenSectionContent;
       contentJson = JSON.stringify(content);
+      // FIX 5: the validator's non-blocking warnings ride the result as §3.6
+      // problems (a warning never blocks — `ok` is errors-keyed).
+      for (const warning of verdict.warnings) {
+        problems.push(contentWarningToProblem(warning));
+      }
     }
   }
 
-  if (Object.keys(errors).length > 0 || content === null) return { errors, value: null };
+  if (Object.keys(errors).length > 0 || content === null) return { errors, value: null, problems: [] };
   return {
     errors,
+    problems,
     value: {
       section_name: sectionName as string,
       activity: activity as string,

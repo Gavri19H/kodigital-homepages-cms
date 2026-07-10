@@ -310,11 +310,9 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     // picking writes the ROLE (never hex)
     await select.selectOption("brand_primary");
     await expect(select).toHaveValue("brand_primary");
-    // KNOWN GAP (documented in the slice report, NOT patched here): the §9.4
-    // source line / Reset affordance / swatch repaint refresh on the next
-    // populateInspector (re-selection), not on the change event itself
-    // (afterModelChange omits renderOverrideDecorations). Re-select the node —
-    // the decorations then reflect the stored ROLE.
+    // afterModelChange re-renders the §9.4 decorations on the SAME tick
+    // (renderOverrideDecorations); re-selecting exercises the populate path
+    // over the stored ROLE as well.
     await page.locator(`${CANVAS} [data-lg-choice]`).first().click();
     await page.locator('[data-scope-pill="component"]').first().click();
     await page.locator('[data-studio-inspector-tab="design"]').click();

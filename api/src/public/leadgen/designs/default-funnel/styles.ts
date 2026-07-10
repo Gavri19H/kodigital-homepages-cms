@@ -1170,6 +1170,23 @@ export function funnelChromeCss(
         "margin-top": spacing.lg,
         "text-align": "center",
       }),
+      // ---- FIX 4a: answer-group selected-state override consumption -----------
+      // The curated §14.8 `buttonBackground` override on ButtonAnswerGroup /
+      // TwoButtonYesNo / OtherGroupSelector rides the GROUP root as the
+      // --lg-sel-bg custom property (presets.ts answerGroupSelectedVar —
+      // additive markup; absent override emits nothing). This rule re-states
+      // the §14.6 selected background THROUGH the var with the SAME iconCard
+      // token as the fallback: var unset ⇒ identical computed style; set ⇒
+      // the resolved role/hex wins (later source order at equal specificity
+      // beats the §14.6 base rule). It sits in THIS gated block — the
+      // moved-card-rules region story above — because a BASE-sheet emission
+      // changes the pinned legacy-CSS bytes; consumption on frame-null legacy
+      // rendering lands with a coordinated legacy-pin re-pin (REGISTER item:
+      // move this rule to the base choice-depth region + re-pin fixtures).
+      rule(
+        `${scope} .lg-btn.lg-btn-answer[aria-checked="true"], ${scope} .lg-btn.lg-btn-answer[data-selected="true"]`,
+        { background: `var(--lg-sel-bg, ${iconCard.selectedBackground})` },
+      ),
     );
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.

@@ -673,7 +673,12 @@ describe("rules builder — raw fallback preserves the original JSON byte-exactl
     const html = panelFor(RAW_UNSUPPORTED);
     expect(html).toContain('data-mode="raw"');
     expect(html).toContain("data-lg-rb-warning");
-    expect(html).toContain("The original JSON is preserved exactly as saved");
+    // FIX 6a (15 §15.2): the banner speaks OPERATOR words — the preservation
+    // promise stays, "JSON" lives only inside the Advanced details below.
+    expect(html).toContain("The original settings are preserved exactly.");
+    const warningText = html.match(/data-lg-rb-warning>([^<]*)</)?.[1] ?? "";
+    expect(warningText, "banner copy present").not.toBe("");
+    expect(warningText, "no 'JSON' outside Advanced").not.toMatch(/\bJSON\b/i);
     expect(html).toContain("<details class=\"lg-rb-advanced\" data-lg-rb-advanced open>");
     expect(advancedPre(html)).toBe(RAW_UNSUPPORTED);
     expect(hiddenInputValue(html)).toBe(RAW_UNSUPPORTED);

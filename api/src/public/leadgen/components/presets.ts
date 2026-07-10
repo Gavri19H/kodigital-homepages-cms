@@ -610,9 +610,26 @@ function iconCardDepthSlots(design: DefaultFunnelDesign): LeadgenIconCardDepthSl
 // rules live in the scoped chrome CSS (.lg-btn.lg-btn-answer, styles.ts) — never
 // inline — so the "selected animation" state wins by cascade (no !important; the
 // compound .lg-btn.lg-btn-answer outranks the .lg-btn primary base/hover). Only
-// class + role/aria + hydration data attrs are emitted here (no per-instance
-// style at all), so `design` is unused (kept for the uniform dispatcher shape).
-export function renderButtonAnswerGroup(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+// class + role/aria + hydration data attrs are emitted per BUTTON.
+//
+// FIX 4a (§14.8 render-back): a curated `buttonBackground` override on the
+// GROUP node resolves through the SAME §9.4 ovColor path (role-or-hex, layer-4
+// Section re-pointing honored) and rides the group ROOT as the --lg-sel-bg
+// custom property; the base sheet's selected rule consumes it with the token
+// fallback. ADDITIVE: no override ⇒ style() emits nothing ⇒ byte-identical.
+function answerGroupSelectedVar(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  return style({ "--lg-sel-bg": ovColor(node, "buttonBackground", design, ctx) });
+}
+
+export function renderButtonAnswerGroup(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const autoAdvance = propBool(node, "auto_advance");
   const btn = (c: LeadgenChoice): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
@@ -639,25 +656,30 @@ export function renderButtonAnswerGroup(node: LeadgenComponentNode, _design: Def
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
     `</div>`
   );
 }
 
-export function renderTwoButtonYesNo(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+export function renderTwoButtonYesNo(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const yes = propStr(node, "yesLabel") ?? "Yes";
   const no = propStr(node, "noLabel") ?? "No";
   const autoAdvance = propBool(node, "auto_advance");
   // Same discipline as renderButtonAnswerGroup: base + state chrome is fully
   // class-driven (.lg-btn.lg-btn-answer) so the §14.6 selected/hover states apply;
-  // no inline background/color/border to defeat them.
+  // no inline background/color/border to defeat them. FIX 4a: the curated
+  // buttonBackground override rides the group root as --lg-sel-bg (additive).
   const btn = (label: string, value: boolean): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
     // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
     ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${esc(label)}</button>`;
   return (
-    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     btn(yes, true) +
     btn(no, false) +
     `</div>`
@@ -865,8 +887,20 @@ export function renderMultiChoiceCardGroup(
   );
 }
 
+// §5.5 (FIX 8b): the authored dropdown default — `props.default` names a
+// choice VALUE; the matching <option> gets the `selected` marker and the
+// placeholder loses it. Unmatched/absent default → undefined → the legacy
+// placeholder-selected markup renders byte-identically.
+function dropdownDefaultValue(node: LeadgenComponentNode): string | undefined {
+  const raw = node.props?.["default"];
+  const def = typeof raw === "string" || typeof raw === "number" ? String(raw) : undefined;
+  if (def === undefined) return undefined;
+  return choiceList(node).some((c) => String(c.value) === def) ? def : undefined;
+}
+
 export function renderDropdownQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
+  const def = dropdownDefaultValue(node);
   // 03 §3.3: each <option> is a selectable choice → data-lg-choice. A dropdown
   // with B9 choiceDisplay renders ALL values flat (main + secondary as plain
   // options — real values only, so the §6.4 "never literal Other" invariant
@@ -875,7 +909,7 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   const options = choiceList(node)
     .map(
       (c) =>
-        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}${def !== undefined && String(c.value) === def ? " selected" : ""}>${esc(c.label)}</option>`,
     )
     .join("");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
@@ -883,7 +917,7 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
   return (
     `<select class="lg-input lg-dropdown"${hydration(node)}` +
     `>` +
-    `<option value="" disabled selected>${esc(placeholder)}</option>` +
+    `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>`
   );
@@ -898,10 +932,13 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
 // (.lg-input / .lg-dropdown) — no inline style.
 export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
   const placeholder = propStr(node, "placeholder") ?? "Select…";
+  // §5.5 (FIX 8b): the SAME props.default semantics as DropdownQuestion — the
+  // two dropdown shapes may never disagree on what a default means.
+  const def = dropdownDefaultValue(node);
   const options = choiceList(node)
     .map(
       (c) =>
-        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}>${esc(c.label)}</option>`,
+        `<option value="${esc(c.value)}"${attr("data-lg-choice", c.value)}${attr("data-analytics-id", c.analytics_id)}${def !== undefined && String(c.value) === def ? " selected" : ""}>${esc(c.label)}</option>`,
     )
     .join("");
   return (
@@ -909,7 +946,7 @@ export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _de
     `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search` +
     ` placeholder="Search…" aria-label="Search options">` +
     `<select class="lg-input lg-dropdown">` +
-    `<option value="" disabled selected>${esc(placeholder)}</option>` +
+    `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>` +
     `</div>`
@@ -924,8 +961,14 @@ export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _de
 // otherGroupEnabled:false) it renders all choices flat — defensive, and the
 // §6.4 "literal 'Other' is never a stored value" invariant holds throughout.
 // Base + state chrome is fully class-driven (.lg-btn.lg-btn-answer) — no
-// inline style (the renderButtonAnswerGroup discipline).
-export function renderOtherGroupSelector(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+// inline style per button (the renderButtonAnswerGroup discipline). FIX 4a:
+// the curated buttonBackground override rides the group root as --lg-sel-bg
+// (additive — absent override renders byte-identically).
+export function renderOtherGroupSelector(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const btn = (c: LeadgenChoice): string =>
     `<button type="button" class="lg-btn lg-btn-answer" role="radio" aria-checked="false"` +
     attr("data-value", c.value) +
@@ -948,7 +991,7 @@ export function renderOtherGroupSelector(node: LeadgenComponentNode, _design: De
     body = choiceList(node).map(btn).join("");
   }
   return (
-    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}>` +
+    `<div class="lg-answer-group lg-other-group" role="radiogroup"${hydration(node)}${answerGroupSelectedVar(node, design, ctx)}>` +
     body +
     `</div>`
   );
@@ -1731,13 +1774,13 @@ export function renderComponent(
     case "NumberRangeQuestion":
       return renderNumberRangeQuestion(node, design, state?.ctx);
     case "ButtonAnswerGroup":
-      return renderButtonAnswerGroup(node, design);
+      return renderButtonAnswerGroup(node, design, state?.ctx);
     case "IconCardAnswerGrid":
       return renderIconCardAnswerGrid(node, design, state?.ctx);
     case "ImageCardAnswerGrid":
       return renderImageCardAnswerGrid(node, design, state?.ctx);
     case "TwoButtonYesNo":
-      return renderTwoButtonYesNo(node, design);
+      return renderTwoButtonYesNo(node, design, state?.ctx);
     case "MultiChoiceCardGroup":
       return renderMultiChoiceCardGroup(node, design, state?.ctx);
     case "DropdownQuestion":
@@ -1745,7 +1788,7 @@ export function renderComponent(
     case "SearchableDropdownQuestion":
       return renderSearchableDropdownQuestion(node, design);
     case "OtherGroupSelector":
-      return renderOtherGroupSelector(node, design);
+      return renderOtherGroupSelector(node, design, state?.ctx);
     case "FreeTextQuestion":
       return renderFreeTextQuestion(node, design);
     case "NumberInputQuestion":

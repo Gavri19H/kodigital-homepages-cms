@@ -305,11 +305,14 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain('data-question-id="q1"');
 
     // RIGHT: the §8.6 Design tab — curated token DROPDOWNS only (§14.8; the
-    // free-text token inputs are gone, values come from the design's slots)
-    for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap", "mobileBehavior"]) {
+    // free-text token inputs are gone, values come from the design's slots).
+    // FIX 4b: mobileBehavior is NOT rendered (zero renderer consumers — a
+    // dead write); the schema key stays legal for stored legacy data.
+    for (const key of ["iconColor", "columns", "featureColor", "rangeColor", "buttonBackground", "buttonText", "gridGap"]) {
       expect(html, `token control ${key}`).toContain(`data-inspector-override="${key}"`);
       expect(html, `token control ${key} is a select`).toContain(`<select id="lg-inspector-${key}"`);
     }
+    expect(html, "the dead mobileBehavior control is gone").not.toContain('<select id="lg-inspector-mobileBehavior"');
     // BOTTOM drawer: the D2 §8.7 mapping panel skeleton + the summary derived
     // from the seeded (complete) mapping — data preserved untouched.
     expect(html).toContain('data-studio-drawer-tab="mapping"');

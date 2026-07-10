@@ -341,6 +341,9 @@ interface EditorData {
   // §30.2: whether the operator-owned browser Maps key is configured. false ⇒
   // the editor shows "Maps key not configured — autofill disabled".
   mapsKeyConfigured: boolean;
+  // FIX 8c (§8.4): whether the admin AI image route is usable — false hides
+  // the media picker's "Generate with AI" affordance.
+  aiImageAvailable: boolean;
 }
 
 // An empty summary for the /new editor (no offers, nothing to publish yet).
@@ -416,7 +419,8 @@ function sectionEditorHtml(data: EditorData, brand: { userEmail?: string }): str
 <div id="lg-section-editor"${isNew ? "" : ` data-section-id="${(s as SectionDetail).id}" data-section-public-id="${escapeHtml((s as SectionDetail).public_id)}"`}>
   ${isNew ? `<span class="lg-editor-pubid">New Section</span>` : ""}
   <p id="lg-section-error" class="alert alert-error" hidden role="alert"></p>
-  ${renderSectionStudio(view, data.summary, statusPillHtml, data.mapsKeyConfigured, s !== null ? (s.answer_maps ?? []).length : 0)}
+  <div class="alert alert-warning" data-studio-save-problems hidden role="status" aria-live="polite"></div>
+  ${renderSectionStudio(view, data.summary, statusPillHtml, data.mapsKeyConfigured, s !== null ? (s.answer_maps ?? []).length : 0, data.aiImageAvailable)}
   <script type="application/json" id="lg-section-data">${sectionDataBlob(s)}</script>
 </div>`;
 
@@ -452,6 +456,7 @@ export async function leadgenSectionsNewPage(c: UiContext): Promise<Response> {
         section: null,
         summary: EMPTY_SUMMARY,
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
+        aiImageAvailable: typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
       },
       branding(c),
     ),
@@ -478,6 +483,7 @@ export async function leadgenSectionEditorPage(c: UiContext): Promise<Response> 
         section,
         summary: mappingSummaryOf(section.available_offers ?? [], section.answer_maps ?? []),
         mapsKeyConfigured: resolveBrowserMapsKey(c.env) !== null,
+        aiImageAvailable: typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
       },
       branding(c),
     ),
