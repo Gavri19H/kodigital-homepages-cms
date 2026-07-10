@@ -49,10 +49,36 @@ import {
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen/payload";
 import { getFunnelDesign, FUNNEL_DESIGNS } from "../../public/leadgen/designs/registry";
-import { funnelChromeCss } from "../../public/leadgen/designs/default-funnel/styles";
+import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "../../public/leadgen/designs/default-funnel/styles";
 import { renderSectionComponents } from "../../public/leadgen/components/presets";
 import { flattenComponents, type LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
+import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import { buildPublicConfig, type LeadgenPublicConfig } from "../../public/leadgen/config-dto";
+// v2.5 A7 (13 §13.1/§13.3 + 14 §14.1): the composed-variant preview renders
+// through the SAME serve-owned pieces as the live /lg frame path
+// (resolveFrameComposition + renderVariantSectionsHtml + renderQuoteFrame —
+// parity by construction, never a fork), and the activation preflight adopts
+// the 03 §3.6 problems[] projection over the frozen frame/theme validators.
+import {
+  renderVariantSectionsHtml,
+  resolveFrameComposition,
+} from "../../public/leadgen/serve";
+import { renderQuoteFrame, LG_BANNERS_MOUNT_HTML } from "../../public/leadgen/designs/frame";
+import { validateFrameConfig, effectiveFrame } from "../../public/leadgen/designs/frames";
+import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
+import {
+  contrastRatioAA,
+  resolveTokens,
+  validateTheme,
+  WCAG_AA_MIN_CONTRAST,
+} from "../../public/leadgen/designs/theme";
+import type {
+  FunnelTokenRole,
+  Problem,
+  ThemeJson,
+  VariantThemeOverrides,
+} from "../../public/leadgen/designs/theme";
+import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 import {
   invalidateOnQuoteActivation,
   invalidateOnVariantPublish,
@@ -1386,6 +1412,103 @@ export async function previewVariantHandler(c: AdminContext): Promise<Response> 
 }
 
 // ---------------------------------------------------------------------------
+// v2.5 A7 — the COMPOSED variant preview (13 §13.4 core; DEV-54 phasing).
+//
+// The legacy previewVariantHandler path above stays BYTE-IDENTICAL (the
+// committed leadgen-frame-legacy-pin fixture enforces it, `<h2 class=
+// "lg-section-headline">` duplicate included). THIS function is the internal
+// composed renderer the Phase-B preview routes (`mode:"frame"|"section"|"all"`)
+// will consume: it renders the variant's sections WITH the 03 §3.4 sectionCtx
+// (bound headline text from the Section columns, NO h2 duplicate — the §3.4
+// h2 removal applies to the NEW composed paths) inside the funnel's effective
+// frame via the SAME serve-owned composition pieces the live /lg frame path
+// uses (resolveFrameComposition + renderVariantSectionsHtml + renderQuoteFrame
+// + funnelChromeCss{frameRegions} — parity by construction, 13 §13.5 legs
+// 1+3). Returns null when the funnel has NO configured frame (legacy funnels
+// have no composed preview in Phase A).
+// ---------------------------------------------------------------------------
+
+export interface ComposedVariantPreviewInput {
+  quote: LeadgenQuoteRow;
+  funnel: LeadgenFunnelRow;
+  variant: LeadgenFunnelVariantRow;
+  sections: LeadgenSectionRow[]; // ordered (variant section order)
+  siteBranding?: SiteBranding | null;
+}
+
+export interface ComposedVariantPreview {
+  css: string; // the SAME resolveTokens+funnelChromeCss string the runtime shell embeds
+  html: string; // the full composed #lg-funnel-root body (renderQuoteFrame output)
+  section_count: number;
+}
+
+export function renderComposedVariantPreview(
+  input: ComposedVariantPreviewInput,
+): ComposedVariantPreview | null {
+  const design = getFunnelDesign(input.variant.funnel_design_id);
+  const composition = resolveFrameComposition(
+    {
+      frame_config_json: input.funnel.frame_config_json,
+      theme_json: input.funnel.theme_json,
+      frame_overrides_json: input.variant.frame_overrides_json,
+    },
+    design,
+  );
+  if (composition === null) return null;
+
+  const resolvedSections: ResolvedFunnelSection[] = input.sections.map((section, index) => ({
+    position: index,
+    section,
+  }));
+  const sectionsHtml = renderVariantSectionsHtml(
+    resolvedSections,
+    composition.effectiveTokens.design,
+    composition.frame,
+  );
+  const scope = `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`;
+  return {
+    css: funnelChromeCss(composition.effectiveTokens.design, scope, { frameRegions: true }),
+    html: renderQuoteFrame({
+      effectiveTokens: composition.effectiveTokens,
+      frame: composition.frame,
+      siteBranding: input.siteBranding ?? null,
+      sectionsHtml,
+      bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+      sectionCount: input.sections.length,
+      root: {
+        funnelId: toFunnelId(input.funnel.public_id),
+        funnelVariantId: toFunnelVariantId(input.variant.public_id),
+        quoteId: input.quote.public_id,
+        contentVersion: input.variant.content_version,
+      },
+    }),
+    section_count: input.sections.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// v2.5 03 §3.1 — the frame/theme cache-propagation helper. Saving a funnel's
+// frame_config_json/theme_json MUST bump `content_version` on every ACTIVE
+// variant of that funnel: the existing shell/config cache keys + ETags already
+// carry the content_version axis, so the bump is what makes a frame/theme edit
+// reach visitors (NO new cache axis). The Phase-B PUT /funnels/:id/frame|theme
+// routes call this after a successful persist. Returns the bumped-row count.
+// ---------------------------------------------------------------------------
+
+export async function bumpActiveVariantContentVersions(
+  db: D1Database,
+  funnelId: number,
+): Promise<number> {
+  const result = await db
+    .prepare(
+      "UPDATE leadgen_funnel_variants SET content_version = content_version + 1 WHERE funnel_id = ? AND status = 'active'",
+    )
+    .bind(funnelId)
+    .run();
+  return Number(result.meta?.changes ?? 0);
+}
+
+// ---------------------------------------------------------------------------
 // GET /quotes/:id/structure — the full builder tree (§15.3)
 // funnel_id (lgf_) ≠ funnel_variant_id (lgn_) stamped on every node (G4).
 // ---------------------------------------------------------------------------
@@ -1625,6 +1748,12 @@ export interface QuoteActivationPreflight {
   funnel_variant_id: string;
   blocks: QuoteActivationBlock[];
   computed_at: number;
+  // v2.5 14 §14.1 (C2 phasing): the ADDITIVE 03 §3.6 problems projection —
+  // every new frame/theme/branding/chrome check row rides here with its
+  // contract severity. `ok` (and therefore the hard-409 gate) stays keyed to
+  // `blocks` ONLY in Phase A; Phase D wires error-severity problems into the
+  // 409. A legacy Quote (NULL frame/theme/overrides) yields [] (14 §14.4).
+  problems: Problem[];
 }
 
 // KV key for the stored (advisory) per-variant verdict — the activation gate
@@ -1929,14 +2058,26 @@ export async function computeQuoteActivationPreflight(
   db: D1Database,
   quote: LeadgenQuoteRow,
   now: number = Date.now(),
+  // v2.5 (additive): the activation site in scope, when there is one — the
+  // PUT /quotes/:id/activation/:site_id leg threads it so the §14.1
+  // site-logo-unresolvable warning can resolve THAT site's branding. The
+  // site-agnostic surfaces (GET activation panel, variant-save store) omit it.
+  opts?: { site_id?: string | null },
 ): Promise<QuoteActivationPreflight> {
   const funnels = await readQuoteFunnels(db, quote.id);
   let firstFunnelId = "";
   let firstVariantId = "";
   const blocks: QuoteActivationBlock[] = [];
+  const problems: Problem[] = [];
+  const siteId = opts?.site_id ?? null;
   for (const funnel of funnels) {
     if (funnel.status !== "active") continue;
     const variants = await readActiveFunnelVariants(db, funnel.id);
+    // v2.5 14 §14.1: the additive problems projection (funnel-level rows once,
+    // variant-level rows per active variant). NEVER touches `blocks`/`ok` in
+    // Phase A (C2 phasing — the 409 inputs are unchanged).
+    const funnelState = readFunnelV25State(funnel);
+    problems.push(...(await computeFunnelV25Problems(db, quote, funnel, funnelState, siteId)));
     for (const variant of variants) {
       const variantBlocks = await computeVariantPreflightBlocks(db, variant);
       if (variantBlocks.length > 0 && firstVariantId === "") {
@@ -1944,6 +2085,7 @@ export async function computeQuoteActivationPreflight(
         firstVariantId = variant.public_id;
       }
       blocks.push(...variantBlocks);
+      problems.push(...(await computeVariantV25Problems(db, quote, funnel, funnelState, variant)));
     }
     if (firstFunnelId === "" && variants.length > 0) {
       firstFunnelId = funnel.public_id;
@@ -1957,6 +2099,7 @@ export async function computeQuoteActivationPreflight(
     funnel_variant_id: firstVariantId,
     blocks,
     computed_at: now,
+    problems,
   };
 }
 
@@ -1979,6 +2122,439 @@ export function activationBlockedReport(preflight: QuoteActivationPreflight): Re
   };
 }
 
+// ---------------------------------------------------------------------------
+// v2.5 14 §14.1 — the NEW preflight check rows (C2 phasing: COMPUTED here with
+// their contract severities and surfaced ONLY through the additive
+// `problems[]` projection; the existing hard-409 block list is untouched —
+// Phase D wires error-severity problems into the 409).
+//
+// Every check is conditional on the v2.5 data existing (frame_config_json /
+// theme_json / frame_overrides_json non-NULL — §14.4 "activating a legacy
+// Quote produces zero NEW errors or warnings"; the section-level chrome/
+// continue/headline/hex rows require a CONFIGURED frame, exactly like the C2
+// chrome block). Schema rows reuse the FROZEN validators (validateFrameConfig
+// / validateTheme); the site-logo row reuses resolveSiteBranding; contrast
+// reuses resolveTokens + theme.ts contrastRatioAA.
+// ---------------------------------------------------------------------------
+
+const QUOTE_BUILDER_LINK = (quotePublicId: string): string =>
+  `/admin/leadgen/quotes/${quotePublicId}/edit`;
+const SECTION_EDIT_LINK = (sectionPublicId: string): string =>
+  `/admin/leadgen/sections/${sectionPublicId}/edit`;
+const SITE_SETTINGS_LINK = (siteId: string): string =>
+  `/admin/settings?site_id=${encodeURIComponent(siteId)}`;
+
+// The funnel's parsed v2.5 columns, shared by the funnel- and variant-level
+// rows below. `frameConfigured` = a non-NULL, JSON-object frame column (the
+// §14.4 conditionality switch); `allowSectionChrome` reads the RAW compat flag
+// (readable even when another group is schema-invalid).
+interface FunnelV25State {
+  frameConfigured: boolean;
+  rawFrame: Record<string, unknown> | null;
+  effectiveFrameConfig: EffectiveFrameConfig | null; // null when schema-invalid
+  allowSectionChrome: boolean;
+  theme: ThemeJson | null; // validated theme (null when absent/invalid)
+}
+
+function readFunnelV25State(funnel: LeadgenFunnelRow): FunnelV25State {
+  const state: FunnelV25State = {
+    frameConfigured: false,
+    rawFrame: null,
+    effectiveFrameConfig: null,
+    allowSectionChrome: false,
+    theme: null,
+  };
+  const frameRaw = funnel.frame_config_json;
+  if (typeof frameRaw === "string" && frameRaw.trim() !== "") {
+    const parsed = parseJsonColumn(frameRaw);
+    if (isRecord(parsed)) {
+      state.frameConfigured = true;
+      state.rawFrame = parsed;
+      const compat = parsed["compat"];
+      state.allowSectionChrome = isRecord(compat) && compat["allow_section_chrome"] === true;
+      const validation = validateFrameConfig(parsed);
+      if (validation.config !== null) {
+        state.effectiveFrameConfig = effectiveFrame(validation.config, null, null).frame;
+      }
+    }
+  }
+  const themeRaw = funnel.theme_json;
+  if (typeof themeRaw === "string" && themeRaw.trim() !== "") {
+    const parsed = parseJsonColumn(themeRaw);
+    if (isRecord(parsed)) state.theme = validateTheme(parsed).theme;
+  }
+  return state;
+}
+
+// Funnel-level rows: frame schema (error) · theme schema (error) · trust-strip
+// alt (error, dedicated a11y row) · site-logo-unresolvable (warning; only when
+// an activation site is in scope).
+async function computeFunnelV25Problems(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  funnel: LeadgenFunnelRow,
+  state: FunnelV25State,
+  siteId: string | null,
+): Promise<Problem[]> {
+  const problems: Problem[] = [];
+  const fixQuote = QUOTE_BUILDER_LINK(quote.public_id);
+
+  // --- frame_config_json schema validation (14 §14.1 row 1, error) ----------
+  const frameRaw = funnel.frame_config_json;
+  if (typeof frameRaw === "string" && frameRaw.trim() !== "") {
+    if (state.rawFrame === null) {
+      problems.push({
+        path: "frame",
+        scope: "frame",
+        severity: "error",
+        message:
+          "The funnel's page frame has an invalid setting: the stored frame settings are not readable. Open the Quote Builder and re-save the frame.",
+        fix_url: fixQuote,
+      });
+    } else {
+      const validation = validateFrameConfig(state.rawFrame);
+      // --- trust-strip logo missing alt (row 12, error — dedicated
+      // accessibility copy). The generic schema validation flags the SAME
+      // path (`alt` is a required_text field), so collect the a11y rows FIRST
+      // and dedupe by path — one problem per path, the a11y copy wins.
+      const trustAltRows: Problem[] = [];
+      const trust = state.rawFrame["trust_strip"];
+      if (isRecord(trust) && Array.isArray(trust["logos"])) {
+        (trust["logos"] as unknown[]).forEach((logo, i) => {
+          if (!isRecord(logo)) return;
+          const alt = logo["alt"];
+          if (typeof alt !== "string" || alt.trim() === "") {
+            trustAltRows.push({
+              path: `frame.trust_strip.logos[${i}].alt`,
+              scope: "frame",
+              severity: "error",
+              message: `Trust logo ${i + 1} needs alt text so screen readers can announce it.`,
+              fix_url: fixQuote,
+            });
+          }
+        });
+      }
+      const trustAltPaths = new Set(trustAltRows.map((row) => row.path));
+      for (const p of validation.problems) {
+        if (trustAltPaths.has(p.path)) continue; // deduped: the a11y row below wins
+        problems.push({
+          ...p,
+          message:
+            p.severity === "error"
+              ? `The funnel's page frame has an invalid setting: ${p.message}`
+              : p.message,
+          fix_url: fixQuote,
+        });
+      }
+      problems.push(...trustAltRows);
+    }
+  }
+
+  // --- theme_json schema validation (row 2, error) ---------------------------
+  const themeRaw = funnel.theme_json;
+  if (typeof themeRaw === "string" && themeRaw.trim() !== "") {
+    const parsed = parseJsonColumn(themeRaw);
+    if (!isRecord(parsed)) {
+      problems.push({
+        path: "theme",
+        scope: "theme",
+        severity: "error",
+        message:
+          "The funnel theme has an invalid value: the stored theme settings are not readable. Open the Quote Builder and re-save the theme.",
+        fix_url: fixQuote,
+      });
+    } else {
+      const validation = validateTheme(parsed);
+      for (const p of validation.problems) {
+        problems.push({
+          ...p,
+          message:
+            p.severity === "error" ? `The funnel theme has an invalid value: ${p.message}` : p.message,
+          fix_url: fixQuote,
+        });
+      }
+    }
+  }
+
+  // --- site logo unresolvable while header.logo_source="site" (row 4, warning;
+  // 10 §10.4 copy + fix link to that site's Settings). Needs a site in scope
+  // (the activation PUT threads it; the site-agnostic GET surface skips it).
+  if (
+    siteId !== null &&
+    state.effectiveFrameConfig !== null &&
+    state.effectiveFrameConfig.header.enabled &&
+    state.effectiveFrameConfig.header.logo_source === "site"
+  ) {
+    const branding = await resolveSiteBranding(db, siteId);
+    if (branding.logo_url === null) {
+      problems.push({
+        path: "frame.header.logo_source",
+        scope: "frame",
+        severity: "warning",
+        message: `Site '${branding.site_name}' has no logo — the funnel will show the site name as text.`,
+        fix_url: SITE_SETTINGS_LINK(siteId),
+      });
+    }
+  }
+
+  return problems;
+}
+
+// Section-content projection for the variant-level rows: EVERY node of the
+// whole tree, containers INCLUDED (flattenComponents projects leaves only —
+// it would miss the container-shaped chrome types HeaderBar/FooterBar/
+// BackgroundPanel, which are exactly the §8.2 scope:"frame" offenders the C2
+// rows exist for). Depth-capped like the canonical walks.
+function allContentNodes(contentJson: string): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const walk = (nodes: readonly unknown[], depth: number): void => {
+    if (depth > 6) return; // corrupt over-deep data — validator is the gate
+    for (const node of nodes) {
+      if (!isRecord(node)) continue;
+      out.push(node);
+      const children = node["children"];
+      if (Array.isArray(children)) walk(children, depth + 1);
+    }
+  };
+  walk(parseSectionNodes(contentJson) as unknown[], 1);
+  return out;
+}
+
+function isFrameScopeType(type: unknown): boolean {
+  return (
+    typeof type === "string" &&
+    Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, type) &&
+    COMPONENT_CATALOG[type as keyof typeof COMPONENT_CATALOG].scope === "frame"
+  );
+}
+
+// Count legacy `#hex` literal values in a section's override surfaces: the
+// section-level design_overrides_json palette + every node's design_overrides
+// values (09 §9.4 legacy-literal rule).
+function countLegacyHexOverrides(
+  sectionRow: Pick<LeadgenSectionRow, "design_overrides_json">,
+  nodes: readonly Record<string, unknown>[],
+): number {
+  let count = 0;
+  const sectionOverrides = parseJsonColumn(sectionRow.design_overrides_json);
+  if (isRecord(sectionOverrides) && isRecord(sectionOverrides["palette"])) {
+    for (const value of Object.values(sectionOverrides["palette"] as Record<string, unknown>)) {
+      if (typeof value === "string" && value.startsWith("#")) count++;
+    }
+  }
+  for (const node of nodes) {
+    const overrides = node["design_overrides"];
+    if (!isRecord(overrides)) continue;
+    for (const value of Object.values(overrides)) {
+      if (typeof value === "string" && value.startsWith("#")) count++;
+    }
+  }
+  return count;
+}
+
+// Variant-level rows: overrides schema (error, per-variant message) · contrast
+// lint (warning) · and — when the funnel HAS a configured frame (§14.4) — the
+// per-section chrome (error/warning per compat, C2) · local progress/back ·
+// duplicate Continue · missing headline · legacy-hex rows.
+async function computeVariantV25Problems(
+  db: D1Database,
+  quote: LeadgenQuoteRow,
+  funnel: LeadgenFunnelRow,
+  state: FunnelV25State,
+  variant: LeadgenFunnelVariantRow,
+): Promise<Problem[]> {
+  const problems: Problem[] = [];
+  const fixQuote = QUOTE_BUILDER_LINK(quote.public_id);
+
+  // --- variant frame_overrides_json invalid (row 3, error — per-variant) ----
+  let overridesTheme: VariantThemeOverrides | null = null;
+  const overridesRaw = variant.frame_overrides_json;
+  if (typeof overridesRaw === "string" && overridesRaw.trim() !== "") {
+    const parsed = parseJsonColumn(overridesRaw);
+    if (!isRecord(parsed)) {
+      problems.push({
+        path: "frame",
+        scope: "frame",
+        severity: "error",
+        message: `Variant '${variant.variant_label}' has unreadable frame overrides — re-save its overrides in the Quote Builder.`,
+        fix_url: fixQuote,
+      });
+    } else {
+      const { theme: themePart, ...frameParts } = parsed;
+      const validation = validateFrameConfig(frameParts);
+      for (const p of validation.problems) {
+        problems.push({
+          ...p,
+          message: `Variant '${variant.variant_label}': ${p.message}`,
+          fix_url: fixQuote,
+        });
+      }
+      if (themePart !== undefined) {
+        if (!isRecord(themePart)) {
+          problems.push({
+            path: "theme",
+            scope: "theme",
+            severity: "error",
+            message: `Variant '${variant.variant_label}': the theme overrides must be a group of palette colours.`,
+            fix_url: fixQuote,
+          });
+        } else {
+          const tv = validateTheme(themePart);
+          for (const p of tv.problems) {
+            problems.push({
+              ...p,
+              message: `Variant '${variant.variant_label}': ${p.message}`,
+              fix_url: fixQuote,
+            });
+          }
+          const palette = themePart["palette"];
+          if (tv.theme !== null && isRecord(palette)) {
+            overridesTheme = { palette: palette as VariantThemeOverrides["palette"] };
+          }
+        }
+      }
+    }
+  }
+
+  // --- contrast lint (row 11, warning — 09 §9.3 role pairs, resolved through
+  // the REAL resolveTokens pipeline for THIS variant's base design). Gated on
+  // v2.5 theme data existing (funnel theme or variant palette overrides).
+  if (state.theme !== null || overridesTheme !== null) {
+    const design = getFunnelDesign(variant.funnel_design_id);
+    const tokens = resolveTokens(design, state.theme, overridesTheme);
+    const pairs: Array<[fg: FunnelTokenRole, bg: FunnelTokenRole, label: string]> = [
+      ["button_primary_text", "button_primary_bg", "Button text on the button background"],
+      ["text_primary", "page_background", "Text on the page background"],
+    ];
+    for (const [fg, bg, label] of pairs) {
+      const verdict = contrastRatioAA(tokens.roles[fg], tokens.roles[bg]);
+      if (verdict !== null && !verdict.passes) {
+        problems.push({
+          path: `theme.palette.${bg}`,
+          scope: "theme",
+          severity: "warning",
+          message: `${label} (${fg} on ${bg}) is ${verdict.ratio}:1 — below the WCAG AA ${WCAG_AA_MIN_CONTRAST}:1 minimum.`,
+          fix_url: fixQuote,
+        });
+      }
+    }
+  }
+
+  // --- section rows — ONLY when the funnel has a configured frame (§14.4:
+  // every new check is conditional on the new data existing; with a NULL
+  // frame, chrome-in-section stays the save-time warning it is today).
+  if (!state.frameConfigured) return problems;
+
+  const orderedRefs = await readVariantSections(db, variant.id);
+  for (let i = 0; i < orderedRefs.length; i++) {
+    const ref = orderedRefs[i];
+    if (ref === undefined || ref.status !== "active") continue;
+    const row = await db
+      .prepare(
+        "SELECT public_id, section_name, content_json, design_overrides_json FROM leadgen_sections WHERE id = ? LIMIT 1",
+      )
+      .bind(ref.section_id)
+      .first<Pick<LeadgenSectionRow, "public_id" | "section_name" | "content_json" | "design_overrides_json">>();
+    if (row === null) continue;
+    const slide = i + 1;
+    const fixSection = SECTION_EDIT_LINK(row.public_id);
+    const nodes = allContentNodes(row.content_json);
+
+    // rows 5/6 — frame-scope components (C2): error by default, warning under
+    // the per-funnel Advanced legacy override.
+    const chromeTypes = [
+      ...new Set(
+        nodes.map((n) => n["type"]).filter(isFrameScopeType) as string[],
+      ),
+    ];
+    if (chromeTypes.length > 0) {
+      problems.push(
+        state.allowSectionChrome
+          ? {
+              path: `section.${row.public_id}.content`,
+              scope: "section",
+              severity: "warning",
+              message: `Legacy override is ON for this funnel: slide ${slide} '${row.section_name}' keeps its own page chrome (${chromeTypes.join(", ")}) — it may appear twice.`,
+              fix_url: fixSection,
+            }
+          : {
+              path: `section.${row.public_id}.content`,
+              scope: "section",
+              severity: "error",
+              message: `Slide ${slide} '${row.section_name}' contains page-frame elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them or enable the legacy override under Advanced.`,
+              fix_url: fixSection,
+            },
+      );
+    }
+
+    // row 8 — Section-local progress/back (11 §11.1 Advanced escapes).
+    if (nodes.some((n) => n["type"] === "ProgressBar" || n["type"] === "StepIndicator")) {
+      problems.push({
+        path: `section.${row.public_id}.progress`,
+        scope: "section",
+        severity: "warning",
+        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the Quote frame already shows progress on every slide.`,
+        fix_url: fixSection,
+      });
+    }
+    if (nodes.some((n) => n["type"] === "BackButton")) {
+      problems.push({
+        path: `section.${row.public_id}.back`,
+        scope: "section",
+        severity: "warning",
+        message: `Slide ${slide} '${row.section_name}' renders its own back link — the Quote frame already shows back navigation.`,
+        fix_url: fixSection,
+      });
+    }
+
+    // row 7 — duplicate Continue buttons (11 §11.5 duplicate_continue).
+    const continueCount = nodes.filter((n) => n["type"] === "ContinueButton").length;
+    if (continueCount > 1) {
+      problems.push({
+        path: `section.${row.public_id}.continue`,
+        scope: "section",
+        severity: "warning",
+        message: `Slide ${slide} has more than one Continue button — only the first is shown.`,
+        fix_url: fixSection,
+      });
+    }
+
+    // row 9 — bound headline missing AND no visible headline node.
+    const hasBoundHeadline = nodes.some((n) => n["bind"] === "section_headline");
+    const hasVisibleHeadline = nodes.some(
+      (n) =>
+        n["type"] === "QuestionHeadline" &&
+        (n["bind"] === "section_headline" ||
+          (isRecord(n["props"]) &&
+            typeof n["props"]["text"] === "string" &&
+            n["props"]["text"].trim() !== "")),
+    );
+    if (!hasBoundHeadline && !hasVisibleHeadline) {
+      problems.push({
+        path: `section.${row.public_id}.headline`,
+        scope: "section",
+        severity: "warning",
+        message: `Slide ${slide} shows no question headline.`,
+        fix_url: fixSection,
+      });
+    }
+
+    // row 10 — legacy hex literals in overrides (count + convert prompt).
+    const hexCount = countLegacyHexOverrides(row, nodes);
+    if (hexCount > 0) {
+      problems.push({
+        path: `section.${row.public_id}.design_overrides`,
+        scope: "section",
+        severity: "warning",
+        message: `Slide ${slide} uses ${hexCount} custom ${hexCount === 1 ? "color" : "colors"} — convert to theme colors.`,
+        fix_url: fixSection,
+      });
+    }
+  }
+
+  return problems;
+}
+
 // Store the advisory per-variant verdict (variant-save leg — fail-open: KV
 // hiccups never break the save; the activation gate recomputes regardless).
 async function storeVariantPreflight(
@@ -1987,9 +2563,19 @@ async function storeVariantPreflight(
   quote: LeadgenQuoteRow,
 ): Promise<QuoteActivationPreflight> {
   const blocks = await computeVariantPreflightBlocks(c.env.DB, variant);
-  const funnel = await c.env.DB.prepare("SELECT public_id FROM leadgen_funnels WHERE id = ? LIMIT 1")
+  const funnel = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE id = ? LIMIT 1")
     .bind(variant.funnel_id)
-    .first<{ public_id: string }>();
+    .first<LeadgenFunnelRow>();
+  // v2.5 14 §14.1: the advisory verdict carries the additive problems too
+  // (site-agnostic here — the site-logo row is the activation PUT's leg).
+  let problems: Problem[] = [];
+  if (funnel !== null) {
+    const funnelState = readFunnelV25State(funnel);
+    problems = [
+      ...(await computeFunnelV25Problems(c.env.DB, quote, funnel, funnelState, null)),
+      ...(await computeVariantV25Problems(c.env.DB, quote, funnel, funnelState, variant)),
+    ];
+  }
   const preflight: QuoteActivationPreflight = {
     ok: blocks.length === 0,
     quote_id: quote.public_id,
@@ -1997,6 +2583,7 @@ async function storeVariantPreflight(
     funnel_variant_id: variant.public_id,
     blocks,
     computed_at: Date.now(),
+    problems,
   };
   try {
     await c.env.CACHE.put(preflightKvKey(variant.public_id), JSON.stringify(preflight));
@@ -2058,7 +2645,12 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
   // missing dependency fields, invalid auction config, §5.1-ineligible
   // participating dynamic Offers). Disabling is never blocked. The verdict is
   // RECOMPUTED here — the stored variant-save copy is advisory only.
-  const preflight = await computeQuoteActivationPreflight(c.env.DB, quote);
+  // v2.5 (C2 phasing): the site rides in so the §14.1 site-logo warning can
+  // resolve THIS site's branding; `problems` stay ADVISORY — the 409 gate and
+  // its report body are keyed to `blocks` only until Phase D.
+  const preflight = await computeQuoteActivationPreflight(c.env.DB, quote, Date.now(), {
+    site_id: siteId,
+  });
   if (enabled && !preflight.ok) {
     return c.json(activationBlockedReport(preflight), 409);
   }

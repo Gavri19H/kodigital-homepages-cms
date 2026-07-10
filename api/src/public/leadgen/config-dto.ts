@@ -25,12 +25,21 @@
 
 import type { ResolvedActivatedFunnel, ResolvedFunnelSection } from "./resolver";
 import type { FunnelDesign } from "./designs/registry";
+// v2.5 09 §9.2: on the FRAME path the config bakes the EFFECTIVE design
+// (resolveTokens(...).design — same structure, widened leaves) so #lg-config
+// and /lg/config carry the tokens the composed page actually renders with;
+// the legacy path keeps passing the registry design (byte-identical bytes).
+import type { EffectiveFunnelDesign } from "./designs/theme";
 import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
 // B9 (fix-contract v2.4 06 §6.4): the DTO and the server renderer share ONE
 // normalizing choiceDisplay reader so /lg/config metadata and the rendered
 // Other-group markup can never disagree (09 §9.1 parity by construction).
-import { readChoiceDisplay, type LeadgenChoiceDisplay } from "./components/presets";
+import {
+  readChoiceDisplay,
+  type LeadgenChoiceDisplay,
+  type LeadgenSectionDesignOverrides,
+} from "./components/presets";
 // §8.5 layout containers: the config projects the canonical FLATTENED
 // component list — containers are a server-side rendering concern and never
 // appear in /lg/config (the client engine keeps consuming a flat list; the
@@ -153,6 +162,43 @@ export function parseSectionComponents(contentJson: string): LeadgenComponentNod
   return Array.isArray(components) ? (components as LeadgenComponentNode[]) : [];
 }
 
+// v2.5 09 §9.5 / 03 §3.4: parse a section row's `design_overrides_json` into
+// the LeadgenSectionRenderCtx.design_overrides shape. Dedicated try/catch → a
+// corrupt/non-object blob yields null (never throws; D1 JSON-parse rule), and
+// only the three §9.5 keys are projected (each defensively typed — the preset
+// consumers read entries defensively too). Exported: serve.ts + both admin
+// preview/persist call sites (03 §3.4) build their sectionCtx through THIS one
+// parser, so the layer-4 input can never drift between preview and runtime.
+export function parseSectionDesignOverrides(
+  raw: string | null | undefined,
+): LeadgenSectionDesignOverrides | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const rec = parsed as Record<string, unknown>;
+  const out: LeadgenSectionDesignOverrides = {};
+  const palette = rec["palette"];
+  if (typeof palette === "object" && palette !== null && !Array.isArray(palette)) {
+    const roles: Record<string, string> = {};
+    for (const [role, value] of Object.entries(palette as Record<string, unknown>)) {
+      if (typeof value === "string" && value !== "") roles[role] = value;
+    }
+    if (Object.keys(roles).length > 0) out.palette = roles;
+  }
+  if (typeof rec["columnsDefault"] === "number" && Number.isFinite(rec["columnsDefault"])) {
+    out.columnsDefault = rec["columnsDefault"];
+  }
+  if (typeof rec["gapDefault"] === "string" && rec["gapDefault"] !== "") {
+    out.gapDefault = rec["gapDefault"];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // Client-safe validation rules for a component: `required`, the enum domain,
 // and any bounded numeric/length/pattern props authored on the node. These are
 // UI-validation hints only (no server/provider data).
@@ -266,13 +312,17 @@ export async function loadAnswerMapVersions(
 
 // Build the public `/lg/config` DTO from a resolved funnel + its resolved
 // visual design. `design` is the output of getFunnelDesign(variant.funnel_
-// design_id); `answerMapVersions` (keyed by section public_id) is the output
-// of loadAnswerMapVersions — both passed in so the builder stays pure. The
+// design_id) — OR, on the v2.5 frame path (09 §9.2), the EFFECTIVE design
+// from resolveTokens(base, theme, overrides).design, so the baked
+// `design_tokens` are the ones the composed shell renders with (the legacy
+// path keeps passing the registry design: identity requirement, pin-proven).
+// `answerMapVersions` (keyed by section public_id) is the output of
+// loadAnswerMapVersions — both passed in so the builder stays pure. The
 // optional third arg keeps the admin quote-preview call site (2-arg) valid:
 // preview has no activation context and honestly reports "".
 export function buildPublicConfig(
   resolved: ResolvedActivatedFunnel,
-  design: FunnelDesign,
+  design: FunnelDesign | EffectiveFunnelDesign,
   answerMapVersions?: Readonly<Record<string, string>>,
 ): LeadgenPublicConfig {
   // G4: brand the two ids through prefix-validating constructors — a variant id

@@ -15,6 +15,12 @@
 // leak into the surrounding admin/page CSS.
 
 import type { DefaultFunnelDesign } from "./tokens";
+// v2.5 (13 §13.1): the theme module's widened design (EffectiveFunnelDesign =
+// the SAME FunnelDesign structure with resolved/scaled leaf values) + the role
+// vocabulary the frame-region rules resolve through. theme.ts has no runtime
+// import back into this module (its registry import is type-only) — no cycle.
+import { FUNNEL_TOKEN_ROLES, baseTokenForRole } from "../theme";
+import type { EffectiveFunnelDesign } from "../theme";
 
 // The scope every rule is nested under. Stage B sets this attribute on the
 // funnel shell root; the same attribute value is the design id.
@@ -32,11 +38,23 @@ function rule(selector: string, pairs: Record<string, string>): string {
   return body === "" ? "" : `${selector}{${body}}`;
 }
 
+// v2.5 13 §13.1 chrome-CSS extension switch. `frameRegions: true` appends the
+// frame-region rules (`.lg-frame-*`, emitted by designs/frame.ts markup) into
+// the SAME stylesheet — still one <style> block in the shell. Default OFF:
+// every existing caller gets byte-identical output (the legacy shell pin +
+// the render/parity regression suites embed the current CSS).
+export interface FunnelChromeCssOpts {
+  frameRegions?: boolean;
+}
+
 // tokens → the full scoped chrome stylesheet for one funnel design. `scope`
 // defaults to the default-funnel scope; a different design passes its own.
+// Accepts the registry's literal design OR a resolveTokens() EffectiveTokens
+// `design` (widened leaves, same structure — 09 §9.2).
 export function funnelChromeCss(
-  design: DefaultFunnelDesign,
+  design: DefaultFunnelDesign | EffectiveFunnelDesign,
   scope: string = DEFAULT_FUNNEL_SCOPE,
+  opts?: FunnelChromeCssOpts,
 ): string {
   const out: string[] = [];
   const mobile: string[] = [];
@@ -905,6 +923,259 @@ export function funnelChromeCss(
       "line-height": "1.4",
     }),
   );
+
+  // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
+  // Every value is a design token or a role resolved through the §9.1 mapping;
+  // the only hand-written bits are structural (positioning/z-index/step sizes
+  // around a token midpoint — the existing "44px"/z-index precedent). The two
+  // `!important`s exist ONLY to override preset-emitted INLINE token styles
+  // (logo img max-height, progress fill background) from a frame class —
+  // presets are frozen, so the class rules must outrank the style attribute.
+  if (opts?.frameRegions === true) {
+    // region stacking: content regions sit above the fixed background layer.
+    out.push(
+      rule(`${scope} .lg-frame-region`, { position: "relative", "z-index": "1" }),
+      rule(`${scope} .lg-frame-background`, {
+        position: "fixed",
+        inset: "0",
+        "z-index": "0",
+        "pointer-events": "none",
+      }),
+    );
+    // background role classes — one rule per §9.1 role, resolved from the
+    // (possibly themed) design through the SAME role→token mapping.
+    for (const role of FUNNEL_TOKEN_ROLES) {
+      out.push(
+        rule(`${scope} .lg-frame-background.lg-frame-bg-role-${role}`, {
+          background: baseTokenForRole(design, role),
+        }),
+      );
+    }
+    out.push(
+      // brand_gradient resolves via roles (§3.3 — no raw CSS at the config
+      // layer); flat/brand use the role class value above.
+      rule(`${scope} .lg-frame-background.lg-frame-bg-style-brand_gradient`, {
+        background: `linear-gradient(160deg,${baseTokenForRole(design, "brand_primary")},${baseTokenForRole(design, "brand_secondary")})`,
+      }),
+      rule(`${scope} .lg-frame-bg-img`, {
+        position: "absolute",
+        inset: "0",
+        width: "100%",
+        height: "100%",
+        "object-fit": "cover",
+      }),
+      // ---- header/logo region --------------------------------------------
+      rule(`${scope} .lg-frame-header--static .lg-header`, { position: "static" }),
+      rule(`${scope} .lg-frame-header--left .lg-header-inner`, { "justify-content": "flex-start" }),
+      rule(`${scope} .lg-frame-header--center .lg-header-inner`, { "justify-content": "center" }),
+      // logo sizes: m = the token values; s/l are structural steps around them.
+      rule(`${scope} .lg-frame-header--logo-s .lg-logo`, { "font-size": "0.95rem" }),
+      rule(`${scope} .lg-frame-header--logo-m .lg-logo`, { "font-size": header.logoFontSize }),
+      rule(`${scope} .lg-frame-header--logo-l .lg-logo`, { "font-size": "1.35rem" }),
+      rule(`${scope} .lg-frame-header--logo-s .lg-logo-img`, { "max-height": "24px!important" }),
+      rule(`${scope} .lg-frame-header--logo-m .lg-logo-img`, {
+        "max-height": `${headerBar.logoMaxHeight}!important`,
+      }),
+      rule(`${scope} .lg-frame-header--logo-l .lg-logo-img`, { "max-height": "44px!important" }),
+      rule(`${scope} .lg-frame-header-extras`, {
+        background: header.backgroundColor,
+        display: "flex",
+        "flex-wrap": "wrap",
+        "align-items": "center",
+        "justify-content": "center",
+        gap: spacing.md,
+        padding: `0 ${header.paddingX} ${spacing.sm}`,
+      }),
+      rule(`${scope} .lg-frame-tagline`, {
+        margin: "0",
+        color: page.textSecondaryColor,
+        "font-size": subheadline.fontSize,
+      }),
+      rule(`${scope} .lg-frame-header-cta`, {
+        display: "inline-block",
+        background: headerBar.ctaBackground,
+        color: headerBar.ctaColor,
+        "border-radius": headerBar.ctaRadius,
+        "font-size": headerBar.ctaFontSize,
+        padding: headerBar.ctaPadding,
+        "text-decoration": "none",
+        "font-weight": primaryButton.fontWeight,
+      }),
+      rule(`${scope} .lg-frame-header-disclosure .lg-disclosure-panel`, {
+        "font-size": "0.75rem",
+        color: page.textSecondaryColor,
+      }),
+      // ---- progress region -------------------------------------------------
+      rule(`${scope} .lg-frame-progress`, {
+        "margin-top": spacing.md,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+      }),
+      rule(`${scope} .lg-frame-progress--w-content`, {
+        "max-width": content.maxWidth,
+        "margin-left": "auto",
+        "margin-right": "auto",
+      }),
+      rule(`${scope} .lg-frame-progress--w-full`, { "max-width": "100%", padding: "0" }),
+      // thickness: m = the progress.height token; s/l structural steps.
+      rule(`${scope} .lg-frame-progress--th-s .lg-progress-track`, { height: "4px" }),
+      rule(`${scope} .lg-frame-progress--th-m .lg-progress-track`, { height: progress.height }),
+      rule(`${scope} .lg-frame-progress--th-l .lg-progress-track`, { height: "12px" }),
+      rule(`${scope} .lg-frame-progress--no-label .lg-progress-text`, { display: "none" }),
+      rule(`${scope} .lg-frame-progress .lg-progress`, { "margin-bottom": "0" }),
+      rule(`${scope} .lg-frame-progress .lg-steps`, { "margin-bottom": "0" }),
+    );
+    // progress color_role classes — the fill is preset-inline (token
+    // fillColor), so the frame's role override must win over that style attr.
+    for (const role of FUNNEL_TOKEN_ROLES) {
+      out.push(
+        rule(`${scope} .lg-frame-progress--role-${role} .lg-progress-fill`, {
+          background: `${baseTokenForRole(design, role)}!important`,
+        }),
+      );
+    }
+    out.push(
+      // ---- back region -------------------------------------------------------
+      rule(`${scope} .lg-frame-back`, {
+        "max-width": content.maxWidth,
+        margin: `${spacing.sm} auto 0`,
+        padding: `0 ${content.paddingDesktop}`,
+        "box-sizing": "border-box",
+      }),
+      rule(`${scope} .lg-frame-back--pos-below_card`, { "text-align": "center" }),
+      // style "text": label-only (the preset's arrow span hides).
+      rule(`${scope} .lg-frame-back--text .lg-back span[aria-hidden]`, { display: "none" }),
+      rule(`${scope} .lg-frame-back--button .lg-back`, {
+        background: color.card,
+        border: input.border,
+        "border-radius": primaryButton.borderRadius,
+        padding: `${spacing.sm} ${spacing.md}`,
+      }),
+      // ---- section slot -------------------------------------------------------
+      rule(`${scope} .lg-frame-slot`, {
+        width: "100%",
+        margin: `${spacing.lg} auto 0`,
+        "box-sizing": "border-box",
+      }),
+      rule(`${scope} .lg-frame-slot--w-s`, { "max-width": cardPanel.widthS }),
+      rule(`${scope} .lg-frame-slot--w-m`, { "max-width": cardPanel.widthM }),
+      rule(`${scope} .lg-frame-slot--w-l`, { "max-width": cardPanel.widthL }),
+      rule(`${scope} .lg-frame-slot--card`, {
+        background: color.card,
+        border: cardPanel.border,
+        "border-radius": content.cardRadius,
+        "box-shadow": shadow.md,
+      }),
+      rule(`${scope} .lg-frame-slot--card.lg-frame-slot--pad-s`, { padding: cardPanel.paddingS }),
+      rule(`${scope} .lg-frame-slot--card.lg-frame-slot--pad-m`, { padding: cardPanel.paddingM }),
+      rule(`${scope} .lg-frame-slot--card.lg-frame-slot--pad-l`, { padding: cardPanel.paddingL }),
+      rule(`${scope} .lg-frame-slot--off-s`, { "margin-top": spacing.xl }),
+      rule(`${scope} .lg-frame-slot--off-m`, { "margin-top": spacing.xxl }),
+      // ---- trust strip / benefit bar ------------------------------------------
+      rule(`${scope} .lg-frame-trust`, { padding: `0 ${content.paddingDesktop}` }),
+      rule(`${scope} .lg-frame-benefit`, {
+        background: color.primaryGhost,
+        padding: `${spacing.sm} ${content.paddingDesktop}`,
+      }),
+      // ---- footer region --------------------------------------------------------
+      rule(`${scope} .lg-frame-footer-logo`, {
+        display: "block",
+        margin: `${spacing.md} auto 0`,
+        "max-height": logoStrip.logoMaxHeight,
+        width: "auto",
+      }),
+      rule(`${scope} .lg-frame-footer-logo-text`, {
+        display: "block",
+        "text-align": "center",
+        "margin-top": spacing.md,
+        "font-family": header.logoFontFamily,
+        "font-weight": header.logoFontWeight,
+        color: header.logoColor,
+      }),
+      rule(`${scope} .lg-frame-footer-disclosure`, {
+        background: footerBar.background,
+        color: validation.helperColor,
+        "font-size": "0.75rem",
+        "line-height": "1.4",
+        "text-align": "center",
+        padding: `0 ${footerBar.padding} ${footerBar.padding}`,
+      }),
+      // ---- disclosure region -----------------------------------------------------
+      rule(`${scope} .lg-frame-disclosure--top_bar`, {
+        background: color.primaryGhost,
+        "border-bottom": `1px solid ${color.borderLight}`,
+        "text-align": "center",
+        padding: `${spacing.xs} ${content.paddingDesktop}`,
+      }),
+      rule(`${scope} .lg-frame-disclosure--top_bar .lg-disclosure-panel`, {
+        "max-width": content.maxWidth,
+        margin: "0 auto",
+        "text-align": "left",
+        color: page.textSecondaryColor,
+        "font-size": "0.75rem",
+        padding: `${spacing.xs} 0`,
+      }),
+      rule(`${scope} .lg-frame-disclosure--modal`, { "text-align": "center", padding: spacing.sm }),
+      // §11.4 modal: the SAME disclosure panel markup, overlay-styled (hidden
+      // toggle unchanged — no new runtime dependency).
+      rule(`${scope} .lg-frame-disclosure--modal .lg-disclosure-panel`, {
+        position: "fixed",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%,-50%)",
+        "z-index": "40",
+        width: "90%",
+        "max-width": cardPanel.widthM,
+        background: color.card,
+        "border-radius": content.cardRadius,
+        "box-shadow": shadow.xl,
+        padding: cardPanel.paddingM,
+        color: page.textColor,
+        "font-size": "0.875rem",
+        "text-align": "left",
+      }),
+      // ---- v2.5 A7: choice-depth + continue-slot base rules ------------------
+      // The three token-driven class rules for markup the presets emit
+      // inline-token-styled (08 §8.4 subtitle/badge; 11 §11.5 continue slot).
+      // They live in THIS frameRegions-gated block on purpose: the legacy
+      // shell pin embeds the base stylesheet byte-exactly, and a legacy
+      // funnel never renders `.lg-continue-slot` anyway (the slot exists only
+      // under a frame's `continue_placement:"below_unit"`).
+      // .lg-card-subtitle base — structural complement of the inline
+      // iconCard.subtitle* tokens (font-size/color ride inline).
+      rule(`${scope} .lg-card-subtitle`, {
+        display: "block",
+        "margin-top": spacing.xs,
+        "line-height": "1.3",
+      }),
+      // .lg-card-badge positioning — top-right pill over the card corner
+      // (the badge colours/typography ride inline via iconCard.badge*).
+      rule(`${scope} .lg-card`, { position: "relative" }),
+      rule(`${scope} .lg-card-badge`, {
+        position: "absolute",
+        top: spacing.xs,
+        right: spacing.xs,
+        "line-height": "1.2",
+        "white-space": "nowrap",
+      }),
+      // .lg-continue-slot spacing — the §11.5 below_unit end-of-section slot.
+      rule(`${scope} .lg-continue-slot`, {
+        "margin-top": spacing.lg,
+        "text-align": "center",
+      }),
+    );
+    // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
+    // trust_strip.mobile scroll/hide) — same single media query.
+    mobile.push(
+      rule(`${scope} .lg-frame-footer--m-hide`, { display: "none" }),
+      rule(`${scope} .lg-frame-trust--hide`, { display: "none" }),
+      rule(`${scope} .lg-frame-trust--scroll .lg-logo-strip`, {
+        "flex-wrap": "nowrap",
+        "overflow-x": "auto",
+        "justify-content": "flex-start",
+      }),
+    );
+  }
 
   // ---- assemble: base rules + a single mobile media query -----------------
   const base = out.filter((r) => r !== "").join("\n");

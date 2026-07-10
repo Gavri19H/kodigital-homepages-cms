@@ -61,9 +61,15 @@ import {
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
   type ResolvedActivatedFunnel,
+  type ResolvedFunnelSection,
   type FunnelAssignment,
 } from "./resolver";
-import { buildPublicConfig, parseSectionComponents, loadAnswerMapVersions } from "./config-dto";
+import {
+  buildPublicConfig,
+  parseSectionComponents,
+  parseSectionDesignOverrides,
+  loadAnswerMapVersions,
+} from "./config-dto";
 import { flattenComponents } from "./components/content-schema";
 import { mintFunnelAttempt } from "./attempt";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
@@ -72,7 +78,23 @@ import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-fun
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
 // server-rendered body stays variant-invariant under the cache-key axes.
-import { renderSectionComponents } from "./components/presets";
+import { renderSectionComponents, type LeadgenSectionRenderCtx } from "./components/presets";
+// v2.5 redesign §13.3 composition swap: `frame_config_json` NULL → the
+// byte-pinned legacy shell (renderLegacyShell mirrors the historical inline
+// root construction 1:1); non-NULL → the ONE composition path renderQuoteFrame
+// over resolveTokens + effectiveFrame (13 §13.1 "same functions, never a
+// fork"). Cache keys / sentinels / config blob mechanics are UNCHANGED — a
+// frame/theme edit reaches visitors via the 03 §3.1 content_version bump.
+import { renderLegacyShell, renderQuoteFrame, LG_BANNERS_MOUNT_HTML } from "./designs/frame";
+import { effectiveFrame, validateFrameConfig } from "./designs/frames";
+import type { EffectiveFrameConfig, FrameOverrides, StoredFrameConfig } from "./designs/frames";
+import { resolveTokens, validateTheme } from "./designs/theme";
+import type {
+  EffectiveFunnelDesign,
+  EffectiveTokens,
+  ThemeJson,
+  VariantThemeOverrides,
+} from "./designs/theme";
 import { toFunnelId, toFunnelVariantId } from "../../leadgen/funnel";
 import { resolveBrowserMapsKey } from "../../leadgen/maps";
 // §16.2 sticky assignment reads the SAME ko_sid session cookie the listicle
@@ -319,6 +341,145 @@ function injectAssignment(
 }
 
 // ---------------------------------------------------------------------------
+// v2.5 §13.3 frame composition inputs (per-request, cold path only)
+// ---------------------------------------------------------------------------
+
+// Dedicated try/catch JSON-object read of a 0041 column (D1 JSON-parse safety:
+// a corrupt blob yields null — the legacy path — never a thrown funnel serve).
+function parseJsonRecordColumn(raw: string | null | undefined): Record<string, unknown> | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
+
+// The raw 0041 columns for one (funnel, variant) — the exact fields
+// resolveFrameComposition consumes. Both the runtime callers (a
+// ResolvedActivatedFunnel) and the admin composed-variant preview
+// (quotes-handlers, plain funnel/variant rows) satisfy it structurally.
+export interface LeadgenFrameSource {
+  frame_config_json: string | null | undefined;
+  theme_json: string | null | undefined;
+  frame_overrides_json: string | null | undefined;
+}
+
+// The resolved v2.5 composition bundle for one (funnel, variant): the effective
+// frame + effective tokens, or null on the legacy path. NULL/absent/corrupt/
+// structurally-invalid stored config degrades to null (fail-safe: an invalid
+// stored frame must never break a revenue-serving page — activation preflight
+// is where the invalidity is REPORTED, 14 §14.1). Shared by the shell renderer,
+// /lg/config, and the admin composed preview so all three resolve the SAME
+// frame + tokens from the same columns (§13.4 parity by construction).
+export interface LeadgenFrameComposition {
+  frame: EffectiveFrameConfig;
+  effectiveTokens: EffectiveTokens;
+}
+
+export function resolveFrameComposition(
+  source: LeadgenFrameSource,
+  design: FunnelDesign,
+): LeadgenFrameComposition | null {
+  const rawFrame = parseJsonRecordColumn(source.frame_config_json ?? null);
+  if (rawFrame === null) return null; // legacy funnel — exact current behavior (03 §3.1)
+  const frameValidation = validateFrameConfig(rawFrame);
+  if (frameValidation.config === null) return null; // invalid stored frame → fail-safe legacy render
+
+  // theme_json: applied only when structurally valid (validateTheme is the
+  // save-time gate; serve re-checks so drifted/corrupt json can never feed
+  // resolveTokens junk scales). Invalid → base design (theme = null).
+  const rawTheme = parseJsonRecordColumn(source.theme_json ?? null);
+  let theme: ThemeJson | null = null;
+  if (rawTheme !== null) {
+    theme = validateTheme(rawTheme).theme;
+  }
+
+  // Variant frame_overrides_json (§13.2): the frame groups deep-merge; the
+  // `theme.palette` part rides resolveTokens layer 3 (§9.2). An invalid
+  // overrides patch is dropped whole (preflight reports it; the funnel-level
+  // frame still renders).
+  const rawOverrides = parseJsonRecordColumn(source.frame_overrides_json ?? null);
+  let frameOverrides: FrameOverrides | null = null;
+  let overridesTheme: VariantThemeOverrides | null = null;
+  if (rawOverrides !== null) {
+    const { theme: overridesThemeRaw, ...frameParts } = rawOverrides;
+    const overridesValidation = validateFrameConfig(frameParts);
+    if (overridesValidation.config !== null) {
+      frameOverrides = overridesValidation.config as FrameOverrides;
+    }
+    if (
+      typeof overridesThemeRaw === "object" &&
+      overridesThemeRaw !== null &&
+      !Array.isArray(overridesThemeRaw)
+    ) {
+      const palette = (overridesThemeRaw as Record<string, unknown>)["palette"];
+      if (typeof palette === "object" && palette !== null && !Array.isArray(palette)) {
+        overridesTheme = { palette: palette as VariantThemeOverrides["palette"] };
+      }
+    }
+  }
+
+  const effectiveTokens = resolveTokens(design, theme, overridesTheme);
+  const { frame } = effectiveFrame(frameValidation.config as StoredFrameConfig, null, frameOverrides);
+  return { frame, effectiveTokens };
+}
+
+// A ResolvedActivatedFunnel's frame source columns (funnel + assigned variant).
+function frameSourceOf(resolved: ResolvedActivatedFunnel): LeadgenFrameSource {
+  return {
+    frame_config_json: resolved.funnel.frame_config_json,
+    theme_json: resolved.funnel.theme_json,
+    frame_overrides_json: resolved.variant.frame_overrides_json,
+  };
+}
+
+// The ordered `<section data-lg-section …>` list — wrapper contract EXACTLY
+// per 03 §3.2 (data-lg-section + data-lg-section-id + data-lg-index +
+// data-screen-label="{i+1:02d} · {headline}", first section not hidden), each
+// body through the ONE shared preset renderer with the 03 §3.4 sectionCtx
+// (canonical headline/subheadline columns, continue_mode, §9.5 Section
+// overrides; plus the frame's §11.5 continue placement fields when a frame is
+// configured). EXPORTED: the admin composed-variant preview (quotes-handlers
+// renderComposedVariantPreview) renders its slot content through THIS function
+// — preview and runtime section markup can never drift (13 §13.5 leg 1).
+export function renderVariantSectionsHtml(
+  sections: readonly ResolvedFunnelSection[],
+  design: FunnelDesign | EffectiveFunnelDesign,
+  frame: EffectiveFrameConfig | null,
+): string {
+  const presetDesign = design as FunnelDesign;
+  return sections
+    .map((rs, i) => {
+      const nodes = parseSectionComponents(
+        typeof rs.section.content_json === "string" ? rs.section.content_json : "",
+      );
+      const ctx: LeadgenSectionRenderCtx = {
+        headline_text: rs.section.headline_text,
+        subheadline_text: rs.section.subheadline_text ?? null,
+        continue_mode: rs.section.continue_mode,
+        design_overrides: parseSectionDesignOverrides(rs.section.design_overrides_json),
+      };
+      if (frame !== null) {
+        ctx.continue_placement = frame.section_slot.continue_placement;
+        ctx.continue_style_role = frame.section_slot.continue_style_role;
+      }
+      const label = `${String(i + 1).padStart(2, "0")} · ${rs.section.headline_text}`;
+      return (
+        `<section data-lg-section data-lg-section-id="${escapeHtml(rs.section.public_id)}"` +
+        ` data-lg-index="${i}" data-screen-label="${escapeHtml(label)}"${i === 0 ? "" : " hidden"}>` +
+        renderSectionComponents(nodes, presetDesign, ctx) +
+        `</section>`
+      );
+    })
+    .join("");
+}
+
+// ---------------------------------------------------------------------------
 // Shell render (pristine, cacheable — visitor-invariant, no secrets)
 // ---------------------------------------------------------------------------
 
@@ -363,35 +524,64 @@ function renderFunnelShell(
   const quoteId = resolved.quote.public_id;
   const designId = design.id;
   const scope = `[${FUNNEL_DESIGN_SCOPE_ATTR}="${designId}"]`;
-  const chromeCss = funnelChromeCss(design, scope);
   const contentVersion = resolved.variant.content_version;
 
-  // (a) all Sections server-rendered in ORDER via the shared preset renderer;
-  // wrapper contract EXACTLY per 03 §3.2: data-lg-section + data-lg-section-id
-  // + data-lg-index + data-screen-label="{i+1:02d} · {headline}", first section
-  // not hidden.
-  const sectionsHtml = resolved.sections
-    .map((rs, i) => {
-      const nodes = parseSectionComponents(
-        typeof rs.section.content_json === "string" ? rs.section.content_json : "",
-      );
-      const label = `${String(i + 1).padStart(2, "0")} · ${rs.section.headline_text}`;
-      return (
-        `<section data-lg-section data-lg-section-id="${escapeHtml(rs.section.public_id)}"` +
-        ` data-lg-index="${i}" data-screen-label="${escapeHtml(label)}"${i === 0 ? "" : " hidden"}>` +
-        renderSectionComponents(nodes, design) +
-        `</section>`
-      );
-    })
-    .join("");
+  // v2.5 §13.3: the ONE fork — a configured frame composes through
+  // renderQuoteFrame over the EFFECTIVE tokens; NULL/invalid frame renders the
+  // byte-pinned legacy shell over the base design (resolveTokens is identity-
+  // free on that path: the pin proves css/config/design_tokens bytes
+  // unchanged). resolveTokens keeps design.id, so the scope selector is the
+  // same string on both paths.
+  const composition = resolveFrameComposition(frameSourceOf(resolved), design);
+  const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
+    composition === null ? design : composition.effectiveTokens.design;
+  const chromeCss =
+    composition === null
+      ? funnelChromeCss(design, scope)
+      : funnelChromeCss(composition.effectiveTokens.design, scope, { frameRegions: true });
 
-  // (b) the SAME LeadgenPublicConfig JSON /lg/config serves, baked in-request.
-  // `<` → < (the injectAssignment pattern) so an authored value can never
-  // forge </script> out of the JSON block.
-  const configJson = JSON.stringify(buildPublicConfig(resolved, design, answerMapVersions)).replace(
-    /</g,
-    "\\u003c",
+  // (a) all Sections server-rendered in ORDER via the shared preset renderer
+  // (renderVariantSectionsHtml — wrapper contract exactly per 03 §3.2), with
+  // the 03 §3.4 sectionCtx; the frame path additionally threads the §11.5
+  // continue placement fields from the effective frame's section_slot.
+  const sectionsHtml = renderVariantSectionsHtml(
+    resolved.sections,
+    effectiveDesign,
+    composition === null ? null : composition.frame,
   );
+
+  // (b) the SAME LeadgenPublicConfig JSON /lg/config serves, baked in-request
+  // (the frame path bakes the EFFECTIVE design tokens — the ones this page
+  // renders with, 09 §9.2). `<` → < (the injectAssignment pattern) so an
+  // authored value can never forge </script> out of the JSON block.
+  const configJson = JSON.stringify(
+    buildPublicConfig(resolved, effectiveDesign, answerMapVersions),
+  ).replace(/</g, "\\u003c");
+
+  // The full body inside #lg-funnel-root: legacy = the pinned 1:1 mirror of
+  // the historical inline construction; frame = the 13 §13.1 composed page
+  // (regions + engine hooks + the sections UNTOUCHED inside the section slot).
+  const rootHtml =
+    composition === null
+      ? renderLegacyShell({
+          designId,
+          funnelId,
+          funnelVariantId,
+          quoteId,
+          contentVersion,
+          sectionsHtml,
+          bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+        })
+      : renderQuoteFrame({
+          effectiveTokens: composition.effectiveTokens,
+          frame: composition.frame,
+          siteBranding: resolved.site_branding ?? null,
+          sectionsHtml,
+          bannersMountHtml: LG_BANNERS_MOUNT_HTML,
+          // 11 §11.1: progress totals = the Funnel Variant's section order.
+          sectionCount: resolved.sections.length,
+          root: { funnelId, funnelVariantId, quoteId, contentVersion },
+        });
 
   return (
     "<!doctype html>" +
@@ -407,18 +597,7 @@ function renderFunnelShell(
     MAPS_KEY_SENTINEL +
     "</head>" +
     "<body>" +
-    `<div id="lg-funnel-root" ${FUNNEL_DESIGN_SCOPE_ATTR}="${escapeHtml(designId)}"` +
-    ` data-funnel-id="${escapeHtml(funnelId)}"` +
-    ` data-funnel-variant-id="${escapeHtml(funnelVariantId)}"` +
-    ` data-quote-id="${escapeHtml(quoteId)}"` +
-    ` data-content-version="${escapeHtml(String(contentVersion))}">` +
-    '<main class="lg-content" data-lg-mount>' +
-    sectionsHtml +
-    // The 03 §3.3 auction mount — the engine injects banners_html here after
-    // the final Section's /lg/auction call; hidden until filled.
-    '<div class="lg-banners" data-lg-banners hidden></div>' +
-    "</main>" +
-    "</div>" +
+    rootHtml +
     // (b) the inline config the engine parses FIRST (03 §3.5 init).
     `<script type="application/json" id="lg-config">${configJson}</script>` +
     // Per-request §16.3 assignment dims are spliced here (injectAssignment)
@@ -562,11 +741,16 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
     // R6 (v2.4 03 §3.8): per-section answer_mapping_version markers, read at
     // resolve time on the COLD path (the cached body already bakes them).
     const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
+    // v2.5 §13.3: the config route carries the SAME design tokens the shell
+    // bakes — the EFFECTIVE design on the frame path, the base design on the
+    // legacy path (one resolver, no drift).
+    const composition = resolveFrameComposition(frameSourceOf(resolved), design);
+    const effectiveDesign = composition === null ? design : composition.effectiveTokens.design;
     // buildPublicConfig is the RED-LINE strip point: it copies only whitelisted
     // public fields, so no provider endpoint / token ref / bid strategy / raw
     // schema / signed token / attempt id can appear (proven in
     // leadgen-config-dto.test.ts; re-proven over HTTP in the runtime test).
-    body = JSON.stringify(buildPublicConfig(resolved, design, answerMapVersions));
+    body = JSON.stringify(buildPublicConfig(resolved, effectiveDesign, answerMapVersions));
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     await putCachedHtml(c.env, key, body, { expirationTtl: ttl, etag });
   }

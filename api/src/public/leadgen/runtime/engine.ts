@@ -111,6 +111,18 @@ function resolveSessionId(): string {
   return sid;
 }
 
+// 11 §11.2 history_fallback leg: true iff document.referrer is a same-origin
+// URL (the only case a browser history.back() stays on this site). Guarded —
+// a malformed referrer / sandboxed context yields false, never a throw.
+function sameOriginReferrer(): boolean {
+  try {
+    const ref = document.referrer;
+    return ref !== "" && new URL(ref).origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
 // sessionStorage behind the adapter (private-mode access can throw — every
 // call is guarded; a throwing storage degrades to "no persistence").
 function sessionStorageAdapter(): LgStorageAdapter {
@@ -824,9 +836,29 @@ export class LgEngine {
     this.advance();
   }
 
+  // 11 §11.2 history_fallback (v2.5, additive + default-safe): armed ONLY when
+  // a frame-rendered back region carries data-history-fallback="true" (legacy
+  // shells emit none → both legs below behave exactly as before) AND the
+  // referrer is same-origin AND this is not the Studio preview iframe.
+  private historyFallbackArmed(): boolean {
+    if (this.preview) return false;
+    if (this.root.querySelector('[data-history-fallback="true"]') === null) return false;
+    return sameOriginReferrer();
+  }
+
   private handleBack(): void {
     const previous = this.store.popBack();
-    if (previous === undefined) return;
+    if (previous === undefined) {
+      // §11.2: empty back stack + same-origin referrer → browser history.
+      if (this.historyFallbackArmed()) {
+        try {
+          history.back();
+        } catch {
+          /* best-effort */
+        }
+      }
+      return;
+    }
     this.store.setSectionIndex(previous);
     this.enterSection(previous, "back");
     this.persist();
@@ -879,7 +911,16 @@ export class LgEngine {
           render.applySelectionClasses(questionEl, entry.value);
         }
       }
-      render.setBackVisible(sectionEl, this.store.state.back_stack.length > 0);
+      // 11 §11.6: back mounts may be FRAME-level (outside the swapped section
+      // elements) since v2.5 — scope the visibility toggle to the funnel ROOT
+      // so one state drives every [data-lg-back] mount (per-section legacy
+      // mounts toggle identically; hidden sections make it a no-op visually).
+      // §11.2: an armed history fallback keeps the affordance visible on an
+      // empty stack (the click walks browser history instead).
+      render.setBackVisible(
+        this.root,
+        this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
+      );
       render.focusSection(sectionEl);
     }
     this.updateProgressUi();

@@ -37,13 +37,23 @@
 import { escapeHtml } from "../../../editor/sanitize";
 import { COMPONENT_CATALOG } from "./registry";
 import type { ComponentType } from "./registry";
-import type { DefaultFunnelDesign } from "../designs/default-funnel/tokens";
+import {
+  defaultFunnelDesign,
+  defaultFunnelIconCardDepthSlots,
+} from "../designs/default-funnel/tokens";
+import type {
+  DefaultFunnelDesign,
+  LeadgenIconCardDepthSlots,
+} from "../designs/default-funnel/tokens";
 import { isLayoutContainerType, LEADGEN_MAX_CONTAINER_DEPTH } from "./content-schema";
 import type {
   LeadgenChoice,
   LeadgenComponentNode,
   LeadgenDesignOverrides,
 } from "./content-schema";
+import { baseTokenForRole, isFunnelTokenRole } from "../designs/theme";
+import type { FunnelTokenRole } from "../designs/theme";
+import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -125,6 +135,151 @@ function hydration(node: LeadgenComponentNode): string {
       : attr("data-lg-question", node.question_id) + attr("data-lg-field", node.internal_field)) +
     (node.required === true ? ` data-required="true"` : "")
   );
+}
+
+// ---------------------------------------------------------------------------
+// v2.5 Section render context (03 §3.4 headline binding · 13 §13.1 bullet 4 ·
+// 11 §11.5 Continue single-control rule)
+// ---------------------------------------------------------------------------
+
+// 11 §11.5 frame-owned default Continue placement (section_slot vocabulary,
+// 03 §3.3): inside_unit = the authored node position (today's behavior);
+// below_unit = suppress the in-node visual, emit ONE control at the END of
+// the section subtree in a frame-styled slot.
+export type LeadgenContinuePlacement = "inside_unit" | "below_unit";
+
+// 09 §9.5 Section-level design overrides — the parsed
+// `leadgen_sections.design_overrides_json` (sparse; priority LAYER 4 in the
+// §9.2 pipeline, applied between the themed design (layers 1–3) and per-node
+// `design_overrides` (layer 5)). `palette` re-points semantic ROLES for this
+// Section's rendering: keyed by a §9.1 role name, each value is
+// role-name-or-#hex (§9.5 "role-or-hex"). columnsDefault/gapDefault supply
+// Section-local answer-grid defaults, consumed only where the grid
+// columns/gap would otherwise fall back to the design tokens.
+export interface LeadgenSectionDesignOverrides {
+  palette?: Record<string, string>;
+  columnsDefault?: number;
+  gapDefault?: string;
+}
+
+// The per-Section context the composition layer (serve.ts, both preview
+// handlers, content_html persist, studio canvas) passes as the OPTIONAL third
+// renderSectionComponents argument (03 §3.4). A legacy call site that omits
+// it renders byte-identically to the pre-v2.5 output.
+export interface LeadgenSectionRenderCtx {
+  // §3.4 canonical text — the Section row's headline/subheadline columns. A
+  // BOUND QuestionHeadline/Subheadline node renders THIS text (escaped exactly
+  // like props.text is), never its own props.
+  headline_text: string;
+  subheadline_text: string | null;
+  // 11 §11.5 Section-owned "is a Continue needed": auto_advance renders ZERO
+  // continue controls in either placement.
+  continue_mode?: LeadgenContinueMode;
+  // 13 §13.1 bullet 4: frame-owned default placement (single-control rule C3).
+  continue_placement?: LeadgenContinuePlacement;
+  // 03 §3.3 section_slot.continue_style_role ("button_primary") — stamped on
+  // the below_unit slot wrapper so frame/theme CSS can key on it; label /
+  // loading copy still comes from the Section's ContinueButton node when
+  // present, else the preset's theme defaults (§11.5).
+  continue_style_role?: string;
+  // 09 §9.5 / §9.2 LAYER 4: the Section row's parsed design_overrides_json.
+  // Absent or null ⇒ this Section renders byte-identically to a no-overrides
+  // call (the compat invariant the pin/parity suites hold).
+  design_overrides?: LeadgenSectionDesignOverrides | null;
+}
+
+// Mutable per-render state threading the §11.5 single-control rule through
+// the container recursion of ONE renderSectionComponents call: the FIRST
+// ContinueButton provides props (later ones render NOTHING — the C3 dedupe is
+// a contracted rendering change that applies to pathological legacy content
+// too), below_unit captures the winning node for the end-of-subtree slot, and
+// auto_advance suppresses every [data-lg-continue] emitter. Created ONCE per
+// top-level renderSectionComponents call. renderComponent invoked WITHOUT
+// state (single-node paths: parity/per-node tests, the studio per-node
+// canvas, the §12.3 Visible filter's leaves) keeps today's per-node behavior
+// byte-identically.
+interface SectionRenderState {
+  ctx: LeadgenSectionRenderCtx | undefined;
+  suppressContinue: boolean;
+  deferContinue: boolean;
+  continueSeen: boolean;
+  deferredContinue: LeadgenComponentNode | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// v2.5 token-priority LAYERS 4–5 (09 §9.2/§9.4/§9.5) — per-node color/grid
+// resolution. Layers 1–3 arrive BAKED INTO `design` (resolveTokens feeds the
+// effective design object); layer 6 (runtime state) stays CSS-class-driven.
+//
+//   LAYER 4 — Section design_overrides (ctx.design_overrides): `palette`
+//   re-points ROLES for this Section's rendering; columnsDefault/gapDefault
+//   fill the answer-grid slots that would otherwise fall back to design
+//   tokens. Defaults consult the Section palette ONLY where the design
+//   default IS a role's base token (primaryButton.background/color =
+//   button_primary_bg/button_primary_text per ROLE_TO_BASE_TOKEN); the other
+//   color-typed defaults (iconCard.iconColor, categoryLabel.color,
+//   rangeQuestion.filledTrackColor) are role-less design tokens — a Section
+//   palette entry reaches them only through a role-VALUED per-node override.
+//
+//   LAYER 5 — per-node design_overrides VALUES (§9.4, the 5 color-typed keys
+//   in COLOR_TYPED_OVERRIDE_KEYS): a value is looked up as a role FIRST —
+//   resolved against the design via baseTokenForRole, AFTER applying any
+//   Section palette re-pointing; a value starting `#` is a LEGACY LITERAL
+//   rendered as-is (existing stored hex keeps rendering byte-identically);
+//   any other string renders as-is (defensive — validation rejects it
+//   upstream via `invalid_override_value`).
+// ---------------------------------------------------------------------------
+
+// §9.4 value semantics: role → the design's value for that role; `#…` legacy
+// literal — and any other string (defensive) — pass through as-is.
+function roleOrLiteral(design: DefaultFunnelDesign, value: string): string {
+  if (value.startsWith("#")) return value;
+  if (isFunnelTokenRole(value)) return baseTokenForRole(design, value);
+  return value;
+}
+
+// LAYER 4 palette re-point: the Section's value for `role` — resolved to a
+// CSS color via the §9.4 role-or-hex semantics — or undefined when this
+// Section re-points nothing for that role (entries read defensively; the
+// palette is parsed JSON).
+function sectionRoleValue(
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+  role: FunnelTokenRole,
+): string | undefined {
+  const entry = ctx?.design_overrides?.palette?.[role];
+  if (typeof entry !== "string" || entry === "") return undefined;
+  return roleOrLiteral(design, entry);
+}
+
+// LAYER 5: resolve a per-node COLOR-TYPED override value (§9.4). The node
+// picks a ROLE (or a legacy `#hex` literal); a role consults the Section
+// re-pointing FIRST (layer 4 may re-point where the role resolves for this
+// Section), then the effective design (layers 1–3).
+function ovColor(
+  node: LeadgenComponentNode,
+  key: keyof LeadgenDesignOverrides,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string | undefined {
+  const raw = ov(node, key);
+  if (raw === undefined) return undefined;
+  if (raw.startsWith("#")) return raw; // legacy literal — byte-preserved compat path
+  if (isFunnelTokenRole(raw)) {
+    return sectionRoleValue(design, ctx, raw) ?? baseTokenForRole(design, raw);
+  }
+  return raw; // defensive as-is (validation rejects upstream)
+}
+
+// LAYER 4 grid defaults (§9.5) — consumed only where the node left the slot
+// unset (per-node design_overrides/props win over Section wins over design).
+function sectionColumnsDefault(ctx: LeadgenSectionRenderCtx | undefined): number | undefined {
+  const v = ctx?.design_overrides?.columnsDefault;
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+function sectionGapDefault(ctx: LeadgenSectionRenderCtx | undefined): string | undefined {
+  const v = ctx?.design_overrides?.gapDefault;
+  return typeof v === "string" && v !== "" ? v : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,26 +469,48 @@ export function renderStepIndicator(node: LeadgenComponentNode, _design: Default
 // affordances (copy)
 // ---------------------------------------------------------------------------
 
-export function renderCategoryLabel(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  const color = ov(node, "featureColor") ?? design.categoryLabel.color;
+export function renderCategoryLabel(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  // §9.4 layer 5: a role-valued featureColor resolves via the (possibly
+  // Section-re-pointed) role; legacy `#hex` renders as-is.
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.categoryLabel.color;
   return (
     `<div class="lg-category"${hydration(node)}${style({ color, "letter-spacing": design.categoryLabel.letterSpacing })}>` +
     `${esc(propStr(node, "text"))}</div>`
   );
 }
 
-export function renderQuestionHeadline(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderQuestionHeadline(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  // 03 §3.4: a BOUND node's text IS the Section headline column (sectionCtx),
+  // escaped exactly like props.text — bound vs unbound differ ONLY in the text
+  // source. ctx absent + bound node → empty text (never a throw). An UNBOUND
+  // legacy node with props.text renders byte-identically to v2.4.
+  const text = node.bind === "section_headline" ? ctx?.headline_text : propStr(node, "text");
   return (
     `<h1 class="lg-headline"${hydration(node)}` +
     style({ "font-family": design.headline.fontFamily, color: design.headline.color }) +
-    `>${esc(propStr(node, "text"))}</h1>`
+    `>${esc(text)}</h1>`
   );
 }
 
-export function renderSubheadline(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderSubheadline(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  // 03 §3.4 — same rule as renderQuestionHeadline for the subheadline column
+  // (a NULL column renders as empty text, exactly like an absent props.text).
+  const text = node.bind === "section_subheadline" ? ctx?.subheadline_text : propStr(node, "text");
   return (
     `<p class="lg-subheadline"${hydration(node)}${style({ color: design.subheadline.color })}>` +
-    `${esc(propStr(node, "text"))}</p>`
+    `${esc(text)}</p>`
   );
 }
 
@@ -350,6 +527,7 @@ function renderRange(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   format: "number" | "currency",
+  ctx?: LeadgenSectionRenderCtx,
 ): string {
   const rq = design.rangeQuestion;
   const min = propNum(node, "min") ?? 0;
@@ -359,7 +537,9 @@ function renderRange(
   const span = max - min;
   const pct = span > 0 ? clampInt(((value - min) / span) * 100, 0, 100) : 0;
   const currency = propStr(node, "currency") ?? "$";
-  const filled = ov(node, "rangeColor") ?? rq.filledTrackColor;
+  // §9.4 layer 5: role-valued rangeColor resolves via the (possibly Section-
+  // re-pointed) role; legacy `#hex` renders as-is.
+  const filled = ovColor(node, "rangeColor", design, ctx) ?? rq.filledTrackColor;
   const displayValue = formatRangeValue(value, format, currency);
   const minLabel = propStr(node, "minLabel") ?? formatRangeValue(min, format, currency);
   const maxLabel = propStr(node, "maxLabel") ?? formatRangeValue(max, format, currency);
@@ -380,14 +560,26 @@ function renderRange(
   );
 }
 
-export function renderRangeQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderRange(node, design, propStr(node, "format") === "currency" ? "currency" : "number");
+export function renderRangeQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderRange(node, design, propStr(node, "format") === "currency" ? "currency" : "number", ctx);
 }
-export function renderCurrencyRangeQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderRange(node, design, "currency");
+export function renderCurrencyRangeQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderRange(node, design, "currency", ctx);
 }
-export function renderNumberRangeQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderRange(node, design, "number");
+export function renderNumberRangeQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderRange(node, design, "number", ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +588,21 @@ export function renderNumberRangeQuestion(node: LeadgenComponentNode, design: De
 
 function choiceList(node: LeadgenComponentNode): LeadgenChoice[] {
   return Array.isArray(node.choices) ? node.choices : [];
+}
+
+// v2.5 08 §8.4 — per-design iconCard depth slots (`iconCard.subtitle*` +
+// `iconCard.badge*`), resolved by design id with the default-design fallback
+// (the getFunnelDesign rule). A sibling lookup rather than design.iconCard
+// keys because the design object serializes byte-exactly into the pinned
+// public config (see the tokens.ts export note). Resolution by `design.id`
+// also survives the §9.2 resolveTokens JSON deep-clone (the effective design
+// keeps its id).
+const ICON_CARD_DEPTH_SLOTS: Record<string, LeadgenIconCardDepthSlots> = {
+  [defaultFunnelDesign.id]: defaultFunnelIconCardDepthSlots,
+};
+
+function iconCardDepthSlots(design: DefaultFunnelDesign): LeadgenIconCardDepthSlots {
+  return ICON_CARD_DEPTH_SLOTS[design.id] ?? defaultFunnelIconCardDepthSlots;
 }
 
 // Answer buttons are a "pick-one" affordance (like the icon card), NOT the navy
@@ -461,33 +668,91 @@ function renderCardGrid(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   kind: "icon" | "image",
+  ctx?: LeadgenSectionRenderCtx,
 ): string {
+  // §9.5 layer 4: Section columnsDefault/gapDefault fill the slots the node
+  // left unset — per-node (design_overrides/props) wins over Section wins
+  // over the design tokens.
   const cols = clampInt(
-    ovNum(node, "columns") ?? propNum(node, "columns") ?? design.iconCardGrid.columnsDesktop,
+    ovNum(node, "columns") ??
+      propNum(node, "columns") ??
+      sectionColumnsDefault(ctx) ??
+      design.iconCardGrid.columnsDesktop,
     2,
     5,
   );
-  const gap = ov(node, "gridGap") ?? design.iconCardGrid.gap;
-  const iconColor = ov(node, "iconColor") ?? design.iconCard.iconColor;
+  const gap = ov(node, "gridGap") ?? sectionGapDefault(ctx) ?? design.iconCardGrid.gap;
+  // §9.4 layer 5: role-valued iconColor resolves via the (possibly Section-
+  // re-pointed) role; legacy `#hex` renders as-is.
+  const iconColor = ovColor(node, "iconColor", design, ctx) ?? design.iconCard.iconColor;
+  const ic = iconCardDepthSlots(design);
   const card = (c: LeadgenChoice): string => {
+    // v2.5 08 §8.4 choice depth — every new field is ADDITIVE: a choice
+    // carrying none of them renders byte-identically to the v2.4 markup
+    // (attribute/class order unchanged; empty style()/attr() emit nothing).
+    // §8.4: emoji renders where the icon would (emoji ⊕ icon per validator);
+    // an image card falls to the emoji slot only when it has no image.
+    const emoji = typeof c.emoji === "string" && c.emoji !== "" ? c.emoji : undefined;
+    const iconSlot = (glyph: string | undefined): string =>
+      `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(glyph)}</span>`;
+    const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
+    // §8.4 image fit (cover|contain — the 05 §5.2 F6 inspector control). Read
+    // DEFENSIVELY off the raw choice (the readChoiceDisplay idiom): the typed
+    // LeadgenChoice field lands with the authoring/schema leg. A curated enum,
+    // not author CSS; absent → today's attribute-free <img> byte-identically.
+    const fitRaw = (c as unknown as Record<string, unknown>)["image_fit"];
+    const fit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
     const media =
       kind === "image"
-        ? `<img class="lg-card-img" src="${esc(c.imageMediaId)}" alt="${esc(c.label)}" loading="lazy">`
-        : `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${esc(c.icon)}</span>`;
+        ? !hasImage && emoji !== undefined
+          ? iconSlot(emoji)
+          : `<img class="lg-card-img" src="${esc(c.imageMediaId)}"` +
+            ` alt="${esc(typeof c.image_alt === "string" && c.image_alt !== "" ? c.image_alt : c.label)}"` +
+            style({ "object-fit": fit }) +
+            ` loading="lazy">`
+        : iconSlot(emoji ?? c.icon);
+    // §8.4: title renders in the card-title slot when present (label stays the
+    // stored/a11y base); subtitle SUPERSEDES description and renders the NEW
+    // iconCard.subtitle* token slots inline (the lg-card-icon idiom — chrome
+    // CSS may later add a .lg-card-subtitle rule); a description-only legacy
+    // choice renders today's markup byte-identically (read alias).
+    const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
     const desc =
-      c.description !== undefined && c.description !== ""
-        ? `<span class="lg-card-desc">${esc(c.description)}</span>`
+      typeof c.subtitle === "string" && c.subtitle !== ""
+        ? `<span class="lg-card-desc lg-card-subtitle"${style({
+            "font-size": ic.subtitleFontSize,
+            color: ic.subtitleColor,
+          })}>${esc(c.subtitle)}</span>`
+        : c.description !== undefined && c.description !== ""
+          ? `<span class="lg-card-desc">${esc(c.description)}</span>`
+          : "";
+    // §8.4 badge — the NEW iconCard.badge* token slots, token-driven inline.
+    const badge =
+      typeof c.badge === "string" && c.badge !== ""
+        ? `<span class="lg-card-badge"${style({
+            background: ic.badgeBackground,
+            color: ic.badgeColor,
+            "font-size": ic.badgeFontSize,
+            "font-weight": ic.badgeFontWeight,
+            "border-radius": ic.badgeRadius,
+            padding: ic.badgePadding,
+          })}>${esc(c.badge)}</span>`
         : "";
     // Base border/background live in the scoped chrome CSS (.lg-card) — NOT
     // inline — so the §14.4 selected/hover/focus/error state rules win by
     // cascade (no !important). Only class + hydration attrs are emitted here.
+    // §8.4 disabled rides the native attribute + aria-disabled (the §14.4
+    // .lg-card:disabled/[aria-disabled] chrome rules style it).
     return (
       `<button type="button" class="lg-card" role="radio" aria-checked="false"` +
+      (c.disabled === true ? ` disabled aria-disabled="true"` : "") +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
       attr("data-analytics-id", c.analytics_id) +
-      `>${media}<span class="lg-card-title">${esc(c.label)}</span>${desc}</button>`
+      // §8.4 aria_label — explicit accessible-name override when authored.
+      attr("aria-label", c.aria_label) +
+      `>${badge}${media}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
     );
   };
   const display = readChoiceDisplay(node);
@@ -514,14 +779,26 @@ function renderCardGrid(
   );
 }
 
-export function renderIconCardAnswerGrid(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderCardGrid(node, design, "icon");
+export function renderIconCardAnswerGrid(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderCardGrid(node, design, "icon", ctx);
 }
-export function renderImageCardAnswerGrid(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderCardGrid(node, design, "image");
+export function renderImageCardAnswerGrid(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderCardGrid(node, design, "image", ctx);
 }
 
-export function renderMultiChoiceCardGroup(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderMultiChoiceCardGroup(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const min = propNum(node, "min");
   const max = propNum(node, "max");
   const card = (c: LeadgenChoice): string =>
@@ -551,7 +828,10 @@ export function renderMultiChoiceCardGroup(node: LeadgenComponentNode, design: D
   }
   return (
     `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}` +
-    style({ "--lg-cols": "2", gap: design.iconCardGrid.gap }) +
+    // §9.5 layer 4: the multi grid's gap falls back to the design token —
+    // Section gapDefault applies between them. Columns stay the structural
+    // "2" (not a design default; columnsDefault does not apply).
+    style({ "--lg-cols": "2", gap: sectionGapDefault(ctx) ?? design.iconCardGrid.gap }) +
     attr("data-min", min) +
     attr("data-max", max) +
     `>${cards}</div>`
@@ -805,7 +1085,11 @@ export function renderAddressAutocompleteQuestion(node: LeadgenComponentNode, de
 // controls
 // ---------------------------------------------------------------------------
 
-export function renderContinueButton(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderContinueButton(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const label = propStr(node, "label") ?? "Continue";
   const loadingLabel = propStr(node, "loadingLabel") ?? label;
   // §14.6: navy primary (NOT blue), full-width pill. The base navy background
@@ -814,8 +1098,17 @@ export function renderContinueButton(node: LeadgenComponentNode, design: Default
   // override rides the --lg-btn-bg custom property (the .lg-continue chrome rule
   // reads it) — NOT an inline background that would defeat :hover. buttonText
   // has no state variant, so it stays a per-instance inline value.
-  const bgOverride = ov(node, "buttonBackground");
-  const fg = ov(node, "buttonText") ?? design.primaryButton.color;
+  // §9.2 layers 4–5: per-node value (role-resolved, §9.4) wins over the
+  // Section palette re-point of the button roles (these defaults ARE the
+  // button_primary_bg/button_primary_text base tokens) wins over the themed
+  // design. No Section entry + no per-node bg ⇒ no --lg-btn-bg (today's bytes).
+  const bgOverride =
+    ovColor(node, "buttonBackground", design, ctx) ??
+    sectionRoleValue(design, ctx, "button_primary_bg");
+  const fg =
+    ovColor(node, "buttonText", design, ctx) ??
+    sectionRoleValue(design, ctx, "button_primary_text") ??
+    design.primaryButton.color;
   return (
     // 03 §3.3: data-lg-continue is the engine's advance hook.
     `<button type="submit" class="lg-btn lg-continue"${hydration(node)} data-lg-continue` +
@@ -828,13 +1121,23 @@ export function renderContinueButton(node: LeadgenComponentNode, design: Default
   );
 }
 
-export function renderAutoAdvanceButton(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderAutoAdvanceButton(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const label = propStr(node, "label") ?? "Continue";
   // Same discipline as renderContinueButton: the navy base lives in the chrome
   // CSS (.lg-btn) so :hover applies; the §14.8 buttonBackground override rides
   // the --lg-btn-bg custom property (read by the .lg-auto-advance chrome rule).
-  const bgOverride = ov(node, "buttonBackground");
-  const fg = ov(node, "buttonText") ?? design.primaryButton.color;
+  // §9.2 layers 4–5 resolve exactly like renderContinueButton.
+  const bgOverride =
+    ovColor(node, "buttonBackground", design, ctx) ??
+    sectionRoleValue(design, ctx, "button_primary_bg");
+  const fg =
+    ovColor(node, "buttonText", design, ctx) ??
+    sectionRoleValue(design, ctx, "button_primary_text") ??
+    design.primaryButton.color;
   return (
     // 03 §3.3: an AutoAdvanceButton is a manual advance control too → it
     // carries the same data-lg-continue hook (auto-advance sections advance on
@@ -842,6 +1145,29 @@ export function renderAutoAdvanceButton(node: LeadgenComponentNode, design: Defa
     `<button type="button" class="lg-btn lg-auto-advance"${hydration(node)} data-lg-continue` +
     style({ "--lg-btn-bg": bgOverride, color: fg }) +
     ` data-auto-advance="true">${esc(label)}</button>`
+  );
+}
+
+// 11 §11.5 below_unit — the frame-styled slot carrying the ONE continue
+// control at the END of the section subtree (DOM-wise still inside the
+// section element, so the engine's per-section [data-lg-continue] show/hide +
+// validation binding is untouched). `node` is the Section's FIRST
+// ContinueButton (it provides label/loading props + curated overrides); a
+// Section without one renders the preset's theme copy ("Continue") on a
+// default node. The slot wrapper stamps the §3.3 continue_style_role so
+// frame/theme chrome CSS can key on it; it deliberately carries NO
+// data-lg-* attribute (the control inside is the engine hook).
+function renderContinueSlot(
+  node: LeadgenComponentNode | undefined,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  // ctx threads through so the slot control honours the §9.5 Section palette.
+  const control = renderContinueButton(node ?? { type: "ContinueButton", question_id: "" }, design, ctx);
+  return (
+    `<div class="lg-continue-slot"` +
+    attr("data-continue-style-role", ctx?.continue_style_role) +
+    `>${control}</div>`
   );
 }
 
@@ -996,9 +1322,10 @@ export function renderLegalNote(node: LeadgenComponentNode, design: DefaultFunne
 
 // ---------------------------------------------------------------------------
 // §8.5 layout containers (fix-contract v2.4 08, E4) — SERVER-side rendering.
-// The 5 children-bearing containers recurse via renderSectionComponents(
-// node.children ?? [], design, depth + 1) inside their wrapper markup; the 3
-// layout leaves (Spacer / HeaderBar / FooterBar) render structured props only.
+// The 5 children-bearing containers recurse via renderNodes(node.children ??
+// [], design, depth + 1, state) inside their wrapper markup (threading the ONE
+// §3.4/§11.5 SectionRenderState across the whole tree); the 3 layout leaves
+// (Spacer / HeaderBar / FooterBar) render structured props only.
 // House rules hold throughout: esc() every author value, style({…}) carries
 // token values ONLY (the §8.5 enum → design-token lookup below), hydration(
 // node) rides the container WRAPPER, and no preset emits <style>/<script>.
@@ -1117,6 +1444,7 @@ export function renderStack(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   depth = 1,
+  state?: SectionRenderState,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
   const direction = propStr(node, "direction") === "horizontal" ? "horizontal" : "vertical";
@@ -1127,7 +1455,7 @@ export function renderStack(
     `<div class="lg-stack"${hydration(node)} data-direction="${direction}" data-align="${align}"` +
     style({ gap: stackGapValue(design, propStr(node, "gap")) }) +
     `>` +
-    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    renderNodes(containerChildren(node), design, depth + 1, state) +
     `</div>`
   );
 }
@@ -1140,6 +1468,7 @@ export function renderGridContainer(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   depth = 1,
+  state?: SectionRenderState,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
   const cols = (key: string, fallback: number, lo: number, hi: number): number =>
@@ -1154,7 +1483,7 @@ export function renderGridContainer(
       gap: gridGapValue(design, propStr(node, "gap")),
     }) +
     `>` +
-    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    renderNodes(containerChildren(node), design, depth + 1, state) +
     `</div>`
   );
 }
@@ -1166,6 +1495,7 @@ export function renderColumns(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   depth = 1,
+  state?: SectionRenderState,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
   const ratioProp = propStr(node, "ratio");
@@ -1174,7 +1504,7 @@ export function renderColumns(
   const mobile = propStr(node, "mobile") === "keep" ? "keep" : "stack";
   return (
     `<div class="lg-columns"${hydration(node)} data-ratio="${ratio}" data-mobile="${mobile}">` +
-    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    renderNodes(containerChildren(node), design, depth + 1, state) +
     `</div>`
   );
 }
@@ -1187,6 +1517,7 @@ export function renderCardPanel(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   depth = 1,
+  state?: SectionRenderState,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
   const width = propStr(node, "width") ?? "full";
@@ -1200,7 +1531,7 @@ export function renderCardPanel(
       padding: cardPanelPaddingValue(design, propStr(node, "padding")),
     }) +
     `>` +
-    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    renderNodes(containerChildren(node), design, depth + 1, state) +
     `</div>`
   );
 }
@@ -1214,6 +1545,7 @@ export function renderBackgroundPanel(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   depth = 1,
+  state?: SectionRenderState,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH) return "";
   const gradient = bgPanelGradientValue(design, propStr(node, "gradient"));
@@ -1227,7 +1559,7 @@ export function renderBackgroundPanel(
     `<div class="lg-bg-panel"${hydration(node)}${style({ background })}>` +
     image +
     `<div class="lg-bg-panel-inner">` +
-    renderSectionComponents(containerChildren(node), design, depth + 1) +
+    renderNodes(containerChildren(node), design, depth + 1, state) +
     `</div>` +
     `</div>`
   );
@@ -1337,11 +1669,14 @@ export function renderFooterBar(node: LeadgenComponentNode, _design: DefaultFunn
 // typecheck at the `never` guard); unknown types are unreachable given
 // validateSectionContent, but are handled defensively with an empty render.
 // `depth` is the §8.5 container-nesting level (root = 1) — only the container
-// cases consume it (their recursion + the defensive depth guard).
+// cases consume it (their recursion + the defensive depth guard). `state` is
+// the per-renderSectionComponents §3.4/§11.5 context thread — absent (the
+// single-node/Visible paths), every case renders exactly as before v2.5.
 export function renderComponent(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   depth = 1,
+  state?: SectionRenderState,
 ): string {
   switch (node.type) {
     case "ProgressBar":
@@ -1355,27 +1690,29 @@ export function renderComponent(
     case "StepIndicator":
       return renderStepIndicator(node, design);
     case "CategoryLabel":
-      return renderCategoryLabel(node, design);
+      // §9.2 layers 4–5: state.ctx carries the Section design_overrides —
+      // absent (single-node paths) every consumer renders exactly as before.
+      return renderCategoryLabel(node, design, state?.ctx);
     case "QuestionHeadline":
-      return renderQuestionHeadline(node, design);
+      return renderQuestionHeadline(node, design, state?.ctx);
     case "Subheadline":
-      return renderSubheadline(node, design);
+      return renderSubheadline(node, design, state?.ctx);
     case "RangeQuestion":
-      return renderRangeQuestion(node, design);
+      return renderRangeQuestion(node, design, state?.ctx);
     case "CurrencyRangeQuestion":
-      return renderCurrencyRangeQuestion(node, design);
+      return renderCurrencyRangeQuestion(node, design, state?.ctx);
     case "NumberRangeQuestion":
-      return renderNumberRangeQuestion(node, design);
+      return renderNumberRangeQuestion(node, design, state?.ctx);
     case "ButtonAnswerGroup":
       return renderButtonAnswerGroup(node, design);
     case "IconCardAnswerGrid":
-      return renderIconCardAnswerGrid(node, design);
+      return renderIconCardAnswerGrid(node, design, state?.ctx);
     case "ImageCardAnswerGrid":
-      return renderImageCardAnswerGrid(node, design);
+      return renderImageCardAnswerGrid(node, design, state?.ctx);
     case "TwoButtonYesNo":
       return renderTwoButtonYesNo(node, design);
     case "MultiChoiceCardGroup":
-      return renderMultiChoiceCardGroup(node, design);
+      return renderMultiChoiceCardGroup(node, design, state?.ctx);
     case "DropdownQuestion":
       return renderDropdownQuestion(node, design);
     case "SearchableDropdownQuestion":
@@ -1400,10 +1737,30 @@ export function renderComponent(
       return renderNameFieldsGroup(node, design);
     case "DateQuestion":
       return renderDateQuestion(node, design);
-    case "ContinueButton":
-      return renderContinueButton(node, design);
+    case "ContinueButton": {
+      // 11 §11.5 single-control rule (C3) — active only inside a
+      // renderSectionComponents call (state present):
+      if (state === undefined) return renderContinueButton(node, design);
+      // auto_advance → ZERO continue controls in either placement.
+      if (state.suppressContinue) return "";
+      // Duplicate ContinueButton nodes: the FIRST provides props; later ones
+      // render NOTHING (save emits the duplicate_continue warning upstream).
+      if (state.continueSeen) return "";
+      state.continueSeen = true;
+      if (state.deferContinue) {
+        // below_unit: suppress the in-node visual; the captured node feeds the
+        // single end-of-subtree slot control (renderSectionComponents emits it).
+        state.deferredContinue = node;
+        return "";
+      }
+      return renderContinueButton(node, design, state.ctx);
+    }
     case "AutoAdvanceButton":
-      return renderAutoAdvanceButton(node, design);
+      // 11 §11.5: an auto_advance Section renders NO [data-lg-continue]
+      // control in either placement — the manual-fallback button included.
+      return state !== undefined && state.suppressContinue
+        ? ""
+        : renderAutoAdvanceButton(node, design, state?.ctx);
     case "ReassuranceBadge":
       return renderReassuranceBadge(node, design);
     case "SuccessState":
@@ -1420,17 +1777,18 @@ export function renderComponent(
       return renderValidationError(node, design);
     case "LegalNote":
       return renderLegalNote(node, design);
-    // §8.5 layout containers (recursive) + layout leaves
+    // §8.5 layout containers (recursive) + layout leaves — `state` threads
+    // through so the §11.5 single-control rule spans the WHOLE section tree.
     case "Stack":
-      return renderStack(node, design, depth);
+      return renderStack(node, design, depth, state);
     case "GridContainer":
-      return renderGridContainer(node, design, depth);
+      return renderGridContainer(node, design, depth, state);
     case "Columns":
-      return renderColumns(node, design, depth);
+      return renderColumns(node, design, depth, state);
     case "CardPanel":
-      return renderCardPanel(node, design, depth);
+      return renderCardPanel(node, design, depth, state);
     case "BackgroundPanel":
-      return renderBackgroundPanel(node, design, depth);
+      return renderBackgroundPanel(node, design, depth, state);
     case "Spacer":
       return renderSpacer(node, design);
     case "HeaderBar":
@@ -1446,17 +1804,55 @@ export function renderComponent(
   }
 }
 
+// Internal ordered walk — threads the ONE per-call SectionRenderState through
+// the container recursion so the §11.5 single-control rule and the §3.4 bound
+// text resolve over the WHOLE section tree, not per nesting level.
+function renderNodes(
+  nodes: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+  depth: number,
+  state: SectionRenderState | undefined,
+): string {
+  return nodes.map((n) => renderComponent(n, design, depth, state)).join("");
+}
+
 // Ordered render of a full Section: each component's preset markup, in order.
-// §8.5: pass the FULL tree — container presets recurse into their children via
-// this same function at depth + 1 (renderComponent threads the depth; the
-// container renderers stop past LEADGEN_MAX_CONTAINER_DEPTH). A flat legacy
-// array (zero containers) renders byte-identically to the pre-§8.5 output.
+// §8.5: pass the FULL tree — container presets recurse into their children at
+// depth + 1 (renderComponent threads depth + state; the container renderers
+// stop past LEADGEN_MAX_CONTAINER_DEPTH). A flat legacy array (zero
+// containers) renders byte-identically to the pre-§8.5 output.
+//
+// v2.5 03 §3.4 / 13 §13.1: the OPTIONAL third arg is the Section render
+// context — bound QuestionHeadline/Subheadline text + the §11.5 Continue
+// ownership fields. Call sites that omit it (legacy) render byte-identically
+// to today for content without duplicate ContinueButton nodes (the C3 dedupe
+// is the ONE contracted change for pathological legacy duplicates). With
+// ctx.continue_placement="below_unit" the single control renders at the END
+// of the subtree in the frame-styled slot; ctx.continue_mode="auto_advance"
+// renders ZERO continue controls.
 export function renderSectionComponents(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
+  sectionCtx?: LeadgenSectionRenderCtx,
   depth = 1,
 ): string {
-  return nodes.map((n) => renderComponent(n, design, depth)).join("");
+  const suppressContinue = sectionCtx?.continue_mode === "auto_advance";
+  const state: SectionRenderState = {
+    ctx: sectionCtx,
+    suppressContinue,
+    deferContinue: !suppressContinue && sectionCtx?.continue_placement === "below_unit",
+    continueSeen: false,
+    deferredContinue: undefined,
+  };
+  let out = renderNodes(nodes, design, depth, state);
+  // 11 §11.5 below_unit: emit the ONE end-of-subtree control (top-level call
+  // only) — the Section's first ContinueButton provides props when present,
+  // else the theme-default copy renders (a below_unit Section always shows
+  // exactly one control unless it is auto_advance).
+  if (depth === 1 && state.deferContinue) {
+    out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
+  }
+  return out;
 }
 
 // Dependency-filtered render (the admin preview's §12.3/§14.9 simulator): keep

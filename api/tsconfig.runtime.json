@@ -8,7 +8,8 @@
   },
   "include": [
     "src/public/leadgen/runtime/**/*.ts",
-    "test/leadgen-runtime-hydration.test.ts"
+    "test/leadgen-runtime-hydration.test.ts",
+    "test/leadgen-frame-engine-sim.test.ts"
   ],
   "exclude": ["src/public/leadgen/runtime/engine-bundle.generated.ts"]
 }

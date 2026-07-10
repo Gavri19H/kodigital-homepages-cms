@@ -46,3 +46,35 @@ export const defaultFunnelDesign = {
   footerBar:{background:"#F2F6FA",borderTop:"1px solid #E8ECF2",padding:"1.5rem",gap:"0.5rem",marginTop:"2rem",textColor:"#718096",fontSize:"0.75rem",linkColor:"#1B3A5C",trustColor:"#4A5568",trustFontSize:"0.8125rem"},
 } as const;
 export type DefaultFunnelDesign = typeof defaultFunnelDesign;
+
+// v2.5 08 §8.4 — the TWO NEW iconCard slot groups (`iconCard.subtitle*` +
+// `iconCard.badge*`) for per-choice depth (title/subtitle/badge). SIBLING
+// export rather than keys on defaultFunnelDesign.iconCard: the design object
+// serializes VERBATIM into the public config (`design_tokens`, config-dto.ts
+// buildPublicConfig) and the A0 legacy byte-identity pin freezes those bytes
+// — depth slots are render-side token inputs only, so they ride NEXT TO the
+// design (same token file, same measured vocabulary) and presets.ts resolves
+// them by design id (unknown id → default, the getFunnelDesign rule). Every
+// value reuses the measured palette 1:1 — no new values invented:
+//   subtitle* = the .lg-card-desc pair (subheadline.fontSize 0.825rem +
+//               page.textSecondaryColor #4A5568);
+//   badge*    = the recommended-badge navy/white pill (banner
+//               .recommendedBadgeBg #1B3A5C / .recommendedBadgeColor #FFFFFF,
+//               categoryLabel fontWeight 700, footerBar.fontSize 0.75rem,
+//               radius.full 9999px, compact pill padding).
+export const defaultFunnelIconCardDepthSlots = {
+  subtitleFontSize: "0.825rem",
+  subtitleColor: "#4A5568",
+  badgeBackground: "#1B3A5C",
+  badgeColor: "#FFFFFF",
+  badgeFontSize: "0.75rem",
+  badgeFontWeight: "700",
+  badgeRadius: "9999px",
+  badgePadding: "2px 8px",
+} as const;
+
+// The slot-group shape every design's token file provides (widened to string
+// so additional designs supply their own measured values).
+export type LeadgenIconCardDepthSlots = {
+  readonly [K in keyof typeof defaultFunnelIconCardDepthSlots]: string;
+};

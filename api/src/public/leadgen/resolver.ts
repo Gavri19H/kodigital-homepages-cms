@@ -37,6 +37,7 @@ import {
   type LeadgenAssignmentReason,
 } from "./ab-hash";
 import { isFunnelVariantId } from "../../leadgen/funnel";
+import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 
 // One ordered section of the resolved variant (position + the full section
 // row). Ordered ascending by position; the auction runs after the MAX position
@@ -75,6 +76,14 @@ export interface ResolvedActivatedFunnel {
   ga4_measurement_id: string | null;
   // The §16.3 A/B assignment metadata for `variant` (contract 06 §16.2/§16.3).
   assignment: FunnelAssignment;
+  // Redesign v2.5 §10.2 (D4): the resolved site's branding projection
+  // (leadgen/branding.ts resolveSiteBranding — site_name / logo ladder /
+  // tagline / legal links) so the frame can bake per-site chrome into the
+  // (already site-scoped, lg-shell:{site_id}:…) cached shell. Optional in the
+  // TYPE only so hand-built minimal bundles (the auction dry-run in
+  // admin/leadgen/auctions-handlers.ts + test fixtures) stay valid; BOTH
+  // resolver functions below always populate it.
+  site_branding?: SiteBranding;
 }
 
 export interface ResolveFunnelArgs {
@@ -183,11 +192,18 @@ async function getQuoteById(db: D1Database, quoteId: number): Promise<LeadgenQuo
 // The quote's active stable funnel. P8 seam: when a running A/B test spans
 // multiple funnels, P8 selects among them; P7 takes the single active funnel
 // deterministically (oldest by id).
+//
+// v2.5 §13.3 projection note: the funnel + variant reads below are SELECT * so
+// the resolved rows carry the 0041 columns (funnels.frame_config_json/
+// theme_json, variants.frame_overrides_json — the LeadgenFunnelRow/
+// LeadgenFunnelVariantRow types already declare them; the admin handlers read
+// these tables the same way). SELECT * is also what keeps pre-0041 harness
+// DBs serveable: an absent column simply yields `undefined` on the row (read
+// as NULL → the exact legacy path) instead of erroring the whole resolve.
 async function getActiveFunnelForQuote(db: D1Database, quoteId: number): Promise<LeadgenFunnelRow | null> {
   const row = await db
     .prepare(
-      `SELECT id, public_id, quote_id, funnel_name, active_ab_test_id, status, created_at, updated_at
-       FROM leadgen_funnels
+      `SELECT * FROM leadgen_funnels
        WHERE quote_id = ? AND status = 'active' ORDER BY id ASC LIMIT 1`,
     )
     .bind(quoteId)
@@ -200,8 +216,7 @@ async function getActiveFunnelForQuote(db: D1Database, quoteId: number): Promise
 async function getActiveFunnelById(db: D1Database, funnelId: number): Promise<LeadgenFunnelRow | null> {
   const row = await db
     .prepare(
-      `SELECT id, public_id, quote_id, funnel_name, active_ab_test_id, status, created_at, updated_at
-       FROM leadgen_funnels
+      `SELECT * FROM leadgen_funnels
        WHERE id = ? AND status = 'active' LIMIT 1`,
     )
     .bind(funnelId)
@@ -209,13 +224,10 @@ async function getActiveFunnelById(db: D1Database, funnelId: number): Promise<Le
   return row ?? null;
 }
 
-// The full variant column list (shared by the control-variant + arms queries so
-// both hydrate an identical LeadgenFunnelVariantRow).
-const VARIANT_COLUMNS =
-  `id, public_id, funnel_id, ab_test_id, variant_label, is_control, traffic_allocation_bp,
-   funnel_design_id, auction_id, lander_enabled, lander_headline, lander_subheadline,
-   lander_body_json, lander_hero_media_id, lander_hero_media_url, lander_cta_json,
-   content_version, status, created_at`;
+// The variant projection (shared by the control-variant + arms queries so both
+// hydrate an identical LeadgenFunnelVariantRow). `*` since 0041 — see the
+// projection note above (the row type is the authoritative field list).
+const VARIANT_COLUMNS = "*";
 
 // The funnel's CONTROL variant — the single_control path when no test runs.
 // is_control=1 wins; the oldest active variant is the defensive fallback.
@@ -351,6 +363,10 @@ export async function resolveActivatedFunnel(
 
   const sections = await getOrderedVariantSections(db, variant.id);
 
+  // §10.2: site branding rides the resolved bundle (this resolver runs on the
+  // cache-miss serve path only — one extra read; never throws).
+  const siteBranding = await resolveSiteBranding(db, args.site_id);
+
   return {
     site_quote: siteQuote,
     quote,
@@ -359,6 +375,7 @@ export async function resolveActivatedFunnel(
     sections,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
+    site_branding: siteBranding,
   };
 }
 
@@ -423,6 +440,10 @@ export async function resolveActivatedFunnelByVariant(
 
   const sections = await getOrderedVariantSections(db, variant.id);
 
+  // §10.2: same branding field as resolveActivatedFunnel so preview/config/
+  // attempt callers see one consistent bundle shape (never throws).
+  const siteBranding = await resolveSiteBranding(db, siteId);
+
   return {
     site_quote: siteQuote,
     quote,
@@ -431,5 +452,6 @@ export async function resolveActivatedFunnelByVariant(
     sections,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
+    site_branding: siteBranding,
   };
 }
