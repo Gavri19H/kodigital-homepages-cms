@@ -77,6 +77,8 @@ function buildResolved(): ResolvedActivatedFunnel {
     status: "active",
     created_at: 0,
     updated_at: 0,
+    frame_config_json: null,
+    theme_json: null,
   };
   const variant: LeadgenFunnelVariantRow = {
     id: 9,
@@ -98,6 +100,7 @@ function buildResolved(): ResolvedActivatedFunnel {
     content_version: 4,
     status: "active",
     created_at: 0,
+    frame_overrides_json: null,
   };
   const site_quote: LeadgenSiteQuoteRow = {
     id: 2,

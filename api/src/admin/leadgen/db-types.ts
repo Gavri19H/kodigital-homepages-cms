@@ -1,6 +1,7 @@
 // LeadGen DB/API type layer — generated from migrations 0036_leadgen_core.sql,
-// 0037_leadgen_analytics_mirror.sql, 0038_leadgen_revenue_infra.sql and
-// 0039_leadgen_conversion_dedupe.sql per contract 02 §7 (D1 schema) + 03 §8.5
+// 0037_leadgen_analytics_mirror.sql, 0038_leadgen_revenue_infra.sql,
+// 0039_leadgen_conversion_dedupe.sql and 0041_leadgen_frame_theme.sql (v2.5
+// redesign contract 03 §3.1) per contract 02 §7 (D1 schema) + 03 §8.5
 // (Row vs API shape split). Every table gets a Row type and an API type.
 //
 // Convention (mirrors the admin/listicles row typing):
@@ -466,7 +467,7 @@ export interface LeadgenSectionAnswerMapApi {
 }
 
 // ---------------------------------------------------------------------------
-// §7.3 Quotes / Funnels / Variants / Activation (0036)
+// §7.3 Quotes / Funnels / Variants / Activation (0036 + 0041)
 // ---------------------------------------------------------------------------
 
 // leadgen_quotes
@@ -494,7 +495,7 @@ export interface LeadgenQuoteApi {
   updated_at: number;
 }
 
-// leadgen_funnels — row shape is already API-stable.
+// leadgen_funnels
 export interface LeadgenFunnelRow {
   id: number;
   public_id: string;
@@ -504,9 +505,23 @@ export interface LeadgenFunnelRow {
   status: LeadgenFunnelStatus;
   created_at: number;
   updated_at: number;
+  // 0041 (v2.5 redesign contract 03 §3.1): NULL = legacy frame / base design only.
+  frame_config_json: string | null;
+  theme_json: string | null;
 }
 
-export type LeadgenFunnelApi = LeadgenFunnelRow;
+export interface LeadgenFunnelApi {
+  id: number;
+  public_id: string;
+  quote_id: number;
+  funnel_name: string;
+  active_ab_test_id: number | null;
+  status: LeadgenFunnelStatus;
+  created_at: number;
+  updated_at: number;
+  frame_config_json: unknown;
+  theme_json: unknown;
+}
 
 // leadgen_funnel_ab_tests — row shape is already API-stable.
 export interface LeadgenFunnelAbTestRow {
@@ -544,6 +559,9 @@ export interface LeadgenFunnelVariantRow {
   content_version: number;
   status: LeadgenFunnelVariantStatus;
   created_at: number;
+  // 0041 (v2.5 redesign contract 03 §3.1): sparse frame/theme override patch
+  // (13 §13.2); NULL = no overrides.
+  frame_overrides_json: string | null;
 }
 
 export interface LeadgenFunnelVariantApi {
@@ -566,6 +584,7 @@ export interface LeadgenFunnelVariantApi {
   content_version: number;
   status: LeadgenFunnelVariantStatus;
   created_at: number;
+  frame_overrides_json: unknown;
 }
 
 // leadgen_funnel_variant_sections — row shape is already API-stable.

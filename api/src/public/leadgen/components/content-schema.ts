@@ -12,6 +12,7 @@
 // against Offers (answer→payload mapping) are a Stage-B/handler concern —
 // this validator is content-internal only.
 
+import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
 import { COMPONENT_CATALOG } from "./registry";
 import type { ComponentType } from "./registry";
 import type { LeadgenConditionOp } from "../../../admin/leadgen/db-types";
@@ -33,13 +34,27 @@ export type LeadgenAnswerType =
 
 // One authorable answer choice (§13.1 per-choice fields). `value` is the
 // normalized UI value; `analytics_id` is its stable tracking id (§22).
+//
+// v2.5 08 §8.4 ADDITIVE extension: `title`/`subtitle`/`badge`/`emoji`/
+// `image_alt`/`disabled`/`aria_label`. `subtitle` SUPERSEDES `description`
+// (which stays as a read alias — no migration). Validator rules (§8.4):
+// `image_alt` REQUIRED when `imageMediaId` is present on ImageCardAnswerGrid
+// (reuses `invalid_choice`); `emoji` and `icon` are mutually exclusive.
 export interface LeadgenChoice {
   label: string;
   value: string | number | boolean;
   analytics_id: string;
   icon?: string;
+  // legacy read alias — superseded by `subtitle` (v2.5 §8.4)
   description?: string;
   imageMediaId?: string;
+  title?: string;
+  subtitle?: string;
+  badge?: string;
+  emoji?: string;
+  image_alt?: string;
+  disabled?: boolean;
+  aria_label?: string;
 }
 
 // B9 Other-group display metadata MIRROR (fix-contract v2.4 06 §6.4) — the
@@ -69,6 +84,26 @@ export interface LeadgenComponentConditional {
   from?: number;
   to?: number;
 }
+
+// ---------------------------------------------------------------------------
+// v2.5 03 §3.4 canonical headline binding — the bind VALUE vocabulary and the
+// ONE component type each value is legal on (`bind_type_mismatch` otherwise).
+// A bound node's text is the Section's headline/subheadline COLUMN, resolved
+// at render — so a bound node must NOT carry props.text
+// (`bound_node_carries_text`), and each bind value may appear at most once
+// per Section, whole tree (`duplicate_bind`). flattenComponents ignores
+// `bind` entirely (a bound node projects like any other affordance leaf).
+// ---------------------------------------------------------------------------
+
+export const LEADGEN_COMPONENT_BINDS = ["section_headline", "section_subheadline"] as const;
+export type LeadgenComponentBind = (typeof LEADGEN_COMPONENT_BINDS)[number];
+
+const BIND_SET: ReadonlySet<string> = new Set(LEADGEN_COMPONENT_BINDS);
+
+const BIND_EXPECTED_TYPE: Record<LeadgenComponentBind, ComponentType> = {
+  section_headline: "QuestionHeadline",
+  section_subheadline: "Subheadline",
+};
 
 // The curated design-override key set (§14.8 "safe, tokenized — no arbitrary
 // CSS"). §14.8 enumerates the inspector's tokenized style controls; the ones
@@ -102,6 +137,47 @@ export type LeadgenDesignOverrides = Partial<
   Record<CuratedDesignOverrideKey, string | number | boolean>
 >;
 
+// ---------------------------------------------------------------------------
+// v2.5 09 §9.4 — color-typed design_overrides VALUE vocabulary.
+// ---------------------------------------------------------------------------
+
+// The 14 semantic color roles (09 §9.1) — the ONLY color vocabulary in normal
+// flows. Canonical list: designs/theme.ts (ROLE_TO_BASE_TOKEN keys); re-exported
+// here under the schema-local name so validation and the theme layer can never
+// drift.
+
+export const LEADGEN_THEME_ROLES = FUNNEL_TOKEN_ROLES;
+
+export type LeadgenThemeRole = (typeof LEADGEN_THEME_ROLES)[number];
+
+const THEME_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_THEME_ROLES);
+
+// The curated override keys whose VALUE is a color (per how presets.ts
+// consumes them: featureColor → categoryLabel color, rangeColor → range fill
+// background-color, iconColor → card icon color, buttonBackground →
+// --lg-btn-bg, buttonText → button color). The other keys (columns, gridGap,
+// mobileBehavior) are structural/spacing-typed — the §9.4 rule does NOT apply
+// to them.
+export const COLOR_TYPED_OVERRIDE_KEYS = [
+  "iconColor",
+  "featureColor",
+  "rangeColor",
+  "buttonBackground",
+  "buttonText",
+] as const satisfies readonly CuratedDesignOverrideKey[];
+
+const COLOR_TYPED_KEY_SET: ReadonlySet<string> = new Set(COLOR_TYPED_OVERRIDE_KEYS);
+
+// §9.4/§9.6: a legacy raw `#hex` literal stays VALID (existing stored/seeded
+// content carries raw design-token hex from curatedTokenOptions — rendered
+// as-is, surfaced in the UI as "Custom color (legacy)"). Anything that is
+// neither a known role nor a #hex literal → `invalid_override_value`.
+const LEGACY_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
+
+function isValidColorOverrideValue(value: unknown): boolean {
+  return typeof value === "string" && (THEME_ROLE_SET.has(value) || LEGACY_HEX_RE.test(value));
+}
+
 // One component node in a Section's `content_json`.
 //
 // LAYOUT CONTAINERS (fix-contract v2.4 08 §8.5, issue E4): a node whose type
@@ -126,6 +202,12 @@ export interface LeadgenComponentNode {
   // B9 §6.4 mirrored Other-group display metadata (choice components only).
   choiceDisplay?: LeadgenComponentChoiceDisplay;
   conditional?: LeadgenComponentConditional;
+  // §3.4 canonical headline binding: "section_headline" is legal ONLY on a
+  // QuestionHeadline, "section_subheadline" ONLY on a Subheadline; at most one
+  // node per bind value per Section; a bound node carries NO props.text (its
+  // text is the Section column, resolved at render). Ignored by
+  // flattenComponents and every non-renderer consumer.
+  bind?: LeadgenComponentBind;
   design_preset?: string;
   design_overrides?: LeadgenDesignOverrides;
   // Per-type authorable extras (min/max/step/labels/placeholder/text/html/
@@ -230,7 +312,15 @@ export type SectionContentErrorCode =
   | "container_depth_exceeded"
   | "children_not_allowed"
   | "container_answer_field_forbidden"
-  | "container_prop_invalid";
+  | "container_prop_invalid"
+  // v2.5 §3.4 canonical headline binding errors
+  | "bind_type_mismatch"
+  | "duplicate_bind"
+  | "bound_node_carries_text"
+  // v2.5 §9.4 color-typed override VALUE vocabulary (role name or legacy #hex)
+  | "invalid_override_value"
+  // v2.5 §3.5/§8.2 WARNING code (emitted into `warnings`, never `errors`)
+  | "frame_scope_component";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -241,6 +331,11 @@ export interface SectionContentError {
 export interface SectionContentValidation {
   ok: boolean;
   errors: SectionContentError[];
+  // v2.5 08 §8.6 ADDITIVE: non-blocking problems (`frame_scope_component`).
+  // `ok` stays keyed to `errors` ONLY — a Section with warnings saves fine
+  // (severity escalation to a blocking error happens at Quote
+  // publish/activation, 14 §14.1 — outside this validator).
+  warnings: SectionContentError[];
 }
 
 // ---------------------------------------------------------------------------
@@ -593,22 +688,27 @@ function isKnownComponentType(type: unknown): type is ComponentType {
 // (zero containers) takes exactly the pre-§8.5 code path node-for-node.
 export function validateSectionContent(content: unknown): SectionContentValidation {
   const errors: SectionContentError[] = [];
+  const warnings: SectionContentError[] = [];
   const push = (code: SectionContentErrorCode, path: string, message: string): void => {
     errors.push({ code, path, message });
+  };
+  // §8.6 warnings channel: same {code, path, message} shape, NEVER affects `ok`.
+  const warn = (code: SectionContentErrorCode, path: string, message: string): void => {
+    warnings.push({ code, path, message });
   };
 
   if (!isRecord(content)) {
     push("content_not_object", "content", "content_json must be a JSON object");
-    return { ok: false, errors };
+    return { ok: false, errors, warnings };
   }
   const rawComponents = content["components"];
   if (!Array.isArray(rawComponents)) {
     push("components_not_array", "components", "content_json.components must be an array");
-    return { ok: false, errors };
+    return { ok: false, errors, warnings };
   }
   if (rawComponents.length === 0) {
     push("components_empty", "components", "a Section requires at least one component");
-    return { ok: false, errors };
+    return { ok: false, errors, warnings };
   }
 
   // Pass 1: collect the known-field universe (internal_field / question_key /
@@ -638,6 +738,8 @@ export function validateSectionContent(content: unknown): SectionContentValidati
   const seenQuestionIds = new Set<string>();
   const seenQuestionKeys = new Set<string>();
   const seenInternalFields = new Set<string>();
+  // §3.4: each bind VALUE may be claimed at most once per Section, whole tree.
+  const seenBinds = new Set<string>();
 
   // Pass 2: per-node validation, recursive over container children.
   const validateNode = (raw: unknown, base: string, depth: number): void => {
@@ -684,6 +786,60 @@ export function validateSectionContent(content: unknown): SectionContentValidati
     }
 
     const props = isRecord(raw["props"]) ? raw["props"] : {};
+
+    // §3.5/§8.2 frame-scope component inside a Section: legal in stored
+    // content (legacy renders unchanged) — path-precise save-time WARNING,
+    // never a blocking error here. Applies at every tree level (HeaderBar /
+    // FooterBar layout leaves, the BackgroundPanel container, chrome types).
+    if (catalog.scope === "frame") {
+      warn(
+        "frame_scope_component",
+        base,
+        `${type} is a funnel-frame component (§8.2 scope "frame") — it belongs to the Quote frame, not a Section unit`,
+      );
+    }
+
+    // §3.4 canonical headline binding. Checked for EVERY known-typed node
+    // (a container claiming a bind is a type mismatch like any other node).
+    const bindRaw = raw["bind"];
+    let boundHere = false; // valid bind on the matching type → props.text is Section-column-resolved
+    if (bindRaw !== undefined) {
+      if (typeof bindRaw !== "string" || !BIND_SET.has(bindRaw)) {
+        push(
+          "bind_type_mismatch",
+          `${base}.bind`,
+          `bind must be one of ${LEADGEN_COMPONENT_BINDS.join("|")} (§3.4)`,
+        );
+      } else {
+        const bind = bindRaw as LeadgenComponentBind;
+        const expected = BIND_EXPECTED_TYPE[bind];
+        if (seenBinds.has(bind)) {
+          push(
+            "duplicate_bind",
+            `${base}.bind`,
+            `duplicate bind '${bind}' — at most one node per bind value per Section (§3.4)`,
+          );
+        } else {
+          seenBinds.add(bind);
+        }
+        if (type !== expected) {
+          push(
+            "bind_type_mismatch",
+            `${base}.bind`,
+            `bind '${bind}' is only legal on type ${expected} (§3.4)`,
+          );
+        } else {
+          boundHere = true;
+          if (props["text"] !== undefined) {
+            push(
+              "bound_node_carries_text",
+              `${base}.props.text`,
+              `a bound ${type} must not carry props.text — its text is the Section column, resolved at render (§3.4)`,
+            );
+          }
+        }
+      }
+    }
 
     if (isContainer) {
       // §8.5 container node: depth cap, no answer fields, token-enum props,
@@ -785,6 +941,10 @@ export function validateSectionContent(content: unknown): SectionContentValidati
       );
     }
     for (const key of spec.textProps ?? []) {
+      // §3.4: a BOUND QuestionHeadline/Subheadline must NOT carry props.text —
+      // its text is the Section headline/subheadline column, so the legacy
+      // required-text rule is waived for it (presence is the error instead).
+      if (boundHere && key === "text") continue;
       if (!isNonEmptyString(props[key])) {
         push("missing_required_field", `${base}.props.${key}`, `${type} requires props.${key}`);
       }
@@ -822,6 +982,36 @@ export function validateSectionContent(content: unknown): SectionContentValidati
           }
           if (spec.choiceImage === true && !isNonEmptyString(choice["imageMediaId"])) {
             push("invalid_choice", `${cp}.imageMediaId`, `${type} requires a per-choice imageMediaId`);
+          }
+          // v2.5 §8.4 additive per-choice fields — typed when present.
+          for (const key of ["title", "subtitle", "badge", "emoji", "image_alt", "aria_label"] as const) {
+            if (choice[key] !== undefined && typeof choice[key] !== "string") {
+              push("invalid_choice", `${cp}.${key}`, `choice.${key} must be a string (§8.4)`);
+            }
+          }
+          if (choice["disabled"] !== undefined && typeof choice["disabled"] !== "boolean") {
+            push("invalid_choice", `${cp}.disabled`, "choice.disabled must be a boolean (§8.4)");
+          }
+          // §8.4: emoji and icon are mutually exclusive per choice.
+          if (isNonEmptyString(choice["emoji"]) && isNonEmptyString(choice["icon"])) {
+            push(
+              "invalid_choice",
+              `${cp}.emoji`,
+              "choice.emoji and choice.icon are mutually exclusive (§8.4)",
+            );
+          }
+          // §8.4: image_alt is REQUIRED when imageMediaId is present on an
+          // ImageCardAnswerGrid choice (accessible name for the image card).
+          if (
+            type === "ImageCardAnswerGrid" &&
+            isNonEmptyString(choice["imageMediaId"]) &&
+            !isNonEmptyString(choice["image_alt"])
+          ) {
+            push(
+              "invalid_choice",
+              `${cp}.image_alt`,
+              "image_alt is required when imageMediaId is present (§8.4)",
+            );
           }
         }
       }
@@ -885,6 +1075,15 @@ export function validateSectionContent(content: unknown): SectionContentValidati
               `${base}.design_overrides.${key}`,
               `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`,
             );
+          } else if (COLOR_TYPED_KEY_SET.has(key) && !isValidColorOverrideValue(value)) {
+            // v2.5 §9.4: a color-typed override VALUE must be a known theme
+            // role (09 §9.1) or a legacy raw `#hex` literal (tolerated —
+            // existing stored content). Never any other string/scalar.
+            push(
+              "invalid_override_value",
+              `${base}.design_overrides.${key}`,
+              `design_overrides.${key} must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")}) or a legacy #hex literal (§9.4)`,
+            );
           }
         }
       }
@@ -895,7 +1094,8 @@ export function validateSectionContent(content: unknown): SectionContentValidati
     validateNode(rawComponents[i], `components[${i}]`, 1);
   }
 
-  return { ok: errors.length === 0, errors };
+  // §8.6: `ok` is keyed to ERRORS only — warnings never block a save.
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 // B9 §6.4 mirrored-choiceDisplay check (mirrors payload.ts

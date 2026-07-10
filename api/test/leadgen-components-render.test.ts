@@ -281,7 +281,9 @@ const CHOICES = [
   { label: "Partnership", value: "partnership", analytics_id: "biz_partner" },
 ];
 const ICON_CHOICES = CHOICES.map((c) => ({ ...c, icon: "🏢" }));
-const IMAGE_CHOICES = CHOICES.map((c) => ({ ...c, imageMediaId: "media_123" }));
+// v2.5 §8.4: image_alt is REQUIRED alongside imageMediaId on ImageCardAnswerGrid
+// — the minimal-VALID fixture must carry it.
+const IMAGE_CHOICES = CHOICES.map((c) => ({ ...c, imageMediaId: "media_123", image_alt: `${c.label} logo` }));
 
 // A minimal VALID node per catalog type (covers required fields). The count
 // guard below asserts this map stays in lockstep with the catalog.

@@ -117,6 +117,8 @@ function buildResolved(overrides?: {
     status: "active",
     created_at: 0,
     updated_at: 0,
+    frame_config_json: null,
+    theme_json: null,
   };
   const variant: LeadgenFunnelVariantRow = {
     id: 9,
@@ -138,6 +140,7 @@ function buildResolved(overrides?: {
     content_version: 3,
     status: "active",
     created_at: 0,
+    frame_overrides_json: null,
   };
   const site_quote: LeadgenSiteQuoteRow = {
     id: 2,

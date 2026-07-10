@@ -37,6 +37,7 @@ import {
   type LeadgenAssignmentReason,
 } from "./ab-hash";
 import { isFunnelVariantId } from "../../leadgen/funnel";
+import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 
 // One ordered section of the resolved variant (position + the full section
 // row). Ordered ascending by position; the auction runs after the MAX position
@@ -75,6 +76,14 @@ export interface ResolvedActivatedFunnel {
   ga4_measurement_id: string | null;
   // The §16.3 A/B assignment metadata for `variant` (contract 06 §16.2/§16.3).
   assignment: FunnelAssignment;
+  // Redesign v2.5 §10.2 (D4): the resolved site's branding projection
+  // (leadgen/branding.ts resolveSiteBranding — site_name / logo ladder /
+  // tagline / legal links) so the frame can bake per-site chrome into the
+  // (already site-scoped, lg-shell:{site_id}:…) cached shell. Optional in the
+  // TYPE only so hand-built minimal bundles (the auction dry-run in
+  // admin/leadgen/auctions-handlers.ts + test fixtures) stay valid; BOTH
+  // resolver functions below always populate it.
+  site_branding?: SiteBranding;
 }
 
 export interface ResolveFunnelArgs {
@@ -351,6 +360,10 @@ export async function resolveActivatedFunnel(
 
   const sections = await getOrderedVariantSections(db, variant.id);
 
+  // §10.2: site branding rides the resolved bundle (this resolver runs on the
+  // cache-miss serve path only — one extra read; never throws).
+  const siteBranding = await resolveSiteBranding(db, args.site_id);
+
   return {
     site_quote: siteQuote,
     quote,
@@ -359,6 +372,7 @@ export async function resolveActivatedFunnel(
     sections,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
+    site_branding: siteBranding,
   };
 }
 
@@ -423,6 +437,10 @@ export async function resolveActivatedFunnelByVariant(
 
   const sections = await getOrderedVariantSections(db, variant.id);
 
+  // §10.2: same branding field as resolveActivatedFunnel so preview/config/
+  // attempt callers see one consistent bundle shape (never throws).
+  const siteBranding = await resolveSiteBranding(db, siteId);
+
   return {
     site_quote: siteQuote,
     quote,
@@ -431,5 +449,6 @@ export async function resolveActivatedFunnelByVariant(
     sections,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
+    site_branding: siteBranding,
   };
 }

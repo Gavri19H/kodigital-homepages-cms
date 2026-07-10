@@ -390,12 +390,12 @@ export function makeResolved(sections: Array<{ public_id: string; content_versio
   return {
     site_quote: { id: 1, site_id: "site-1", quote_id: 1, enabled: 1, slug: null, settings_overrides_json: null, created_at: 0, updated_at: 0 },
     quote: { id: 1, public_id: "lgq_x", quote_name: "Q", activity: "quote_funnel", verticals_json: "[]", status: "active", created_by: null, created_at: 0, updated_at: 0 },
-    funnel: { id: 1, public_id: "lgf_test0000000000000000000000", quote_id: 1, funnel_name: "F", active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0 },
+    funnel: { id: 1, public_id: "lgf_test0000000000000000000000", quote_id: 1, funnel_name: "F", active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0, frame_config_json: null, theme_json: null },
     variant: {
       id: 1, public_id: "lgn_test0000000000000000000000", funnel_id: 1, ab_test_id: null, variant_label: "A", is_control: 1,
       traffic_allocation_bp: 10000, funnel_design_id: "default", auction_id: 1, lander_enabled: 0, lander_headline: null,
       lander_subheadline: null, lander_body_json: null, lander_hero_media_id: null, lander_hero_media_url: null, lander_cta_json: null,
-      content_version: 1, status: "active", created_at: 0,
+      content_version: 1, status: "active", created_at: 0, frame_overrides_json: null,
     },
     sections: sectionRows,
     ga4_measurement_id: null,

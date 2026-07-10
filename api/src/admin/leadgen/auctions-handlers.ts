@@ -1577,10 +1577,12 @@ async function buildSimulateResolved(
     traffic_allocation_bp: 10000, funnel_design_id: "default", auction_id: auction.id, lander_enabled: 0,
     lander_headline: null, lander_subheadline: null, lander_body_json: null, lander_hero_media_id: null,
     lander_hero_media_url: null, lander_cta_json: null, content_version: 1, status: "active", created_at: 0,
+    frame_overrides_json: null,
   };
   const funnelRow: LeadgenFunnelRow = funnel ?? {
     id: 0, public_id: "", quote_id: auction.quote_id ?? 0, funnel_name: auction.auction_name,
     active_ab_test_id: null, status: "active", created_at: 0, updated_at: 0,
+    frame_config_json: null, theme_json: null,
   };
   const siteQuote: LeadgenSiteQuoteRow = {
     id: 0, site_id: "", quote_id: funnelRow.quote_id, enabled: 1, slug: null, settings_overrides_json: null,
