@@ -26,7 +26,10 @@
 //       same served page) serializes a picker-built condition into the hidden
 //       carrier, the quote island's collectRules() reads that carrier, the
 //       REAL PUT /variants/:id round-trips it, and the stored conditions_json
-//       evaluates IDENTICALLY via the real evaluator (conditionsMatch).
+//       evaluates IDENTICALLY via the real evaluator (conditionsMatch);
+//   (f) DEV-60 (b) quote-name inline edit: the island's rename PATCH — its
+//       own save path, outside the §4.7 chain — replayed through the live
+//       router (persistence + title re-render + no dirty-flag arming).
 //
 // NOTE (C2 phasing): the §15.3 "publishing with chrome-in-section blocks with
 // a fix link; Advanced legacy override downgrades it to a warning" row is
@@ -1319,5 +1322,62 @@ describeDb("quote builder EXECUTED island — FIX 9: overlapping preview respons
     const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
     expect(srcdoc).toContain('data-frame-template="white-trust"');
     expect(srcdoc).not.toContain('data-frame-template="minimal"');
+  });
+});
+
+// ===========================================================================
+// DEV-60 (b) — quote-name inline edit. The rename is a NEW save path (its own
+// immediate PATCH /quotes/:id, outside the §4.7 Save chain) — replay it from
+// the booted island through the LIVE router.
+// ===========================================================================
+
+describeDb("Quote Builder studio seams — DEV-60 (b) quote-name rename PATCH", () => {
+  it("Save name PATCHes /quotes/:id {quote_name} (trimmed), persists, re-renders the title, and arms NO dirty flag", async () => {
+    const h = await studioHarness();
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+
+    studio.byId("lg-quote-rename-input").value = "  Renamed by seam  "; // the island trims
+    const before = studio.calls.length;
+    studio.fire(studio.byId("lg-quote-rename-save"), "click");
+    await studio.settle();
+
+    const patches = studio.calls.slice(before).filter((c) => c.method === "PATCH");
+    expect(patches.map((c) => `${c.url} ${c.status}`)).toEqual([
+      `/api/admin/leadgen/quotes/${h.quotePublicId} 200`,
+    ]);
+    expect(patches[0]!.body).toEqual({ quote_name: "Renamed by seam" });
+
+    // persisted server-side (live-router read-back)
+    const detail = await getJson<{ quote_name: string }>(h.env, `${API}/quotes/${h.quotePublicId}`);
+    expect(detail.quote_name).toBe("Renamed by seam");
+
+    // the title re-renders from the server response; the rename's OWN save
+    // path never arms the §4.7 dirty flags (beforeunload stays quiet)
+    expect(textOf(studio.byId("lg-quote-title"))).toBe("Renamed by seam");
+    expect(studio.byId("lg-quote-ok").textContent).toBe("Quote renamed.");
+    expect(studio.probe.dirty).toBe(false);
+    expect(studio.probe.variantDirty).toBe(false);
+    expect(studio.probe.frameDirty).toBe(false);
+    expect(studio.probe.themeDirty).toBe(false);
+    expect(studio.probe.overridesDirty).toBe(false);
+  });
+
+  it("an all-whitespace name never issues a PATCH — the island surfaces the error locally", async () => {
+    const h = await studioHarness();
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+
+    studio.byId("lg-quote-rename-input").value = "   ";
+    const before = studio.calls.length;
+    studio.fire(studio.byId("lg-quote-rename-save"), "click");
+    await studio.settle();
+
+    expect(studio.calls.slice(before).filter((c) => c.method === "PATCH")).toEqual([]);
+    expect(studio.byId("lg-quote-error").textContent).toBe("Quote name cannot be empty.");
+
+    // the stored name is untouched
+    const detail = await getJson<{ quote_name: string }>(h.env, `${API}/quotes/${h.quotePublicId}`);
+    expect(detail.quote_name).toBe("Seam Quote");
   });
 });

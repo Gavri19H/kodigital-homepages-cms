@@ -21,7 +21,12 @@
 //     Advanced disclosure) and NO hex color text outside Advanced-marked
 //     containers in normal-mode SSR (the first no-raw-json/no-hex lint leg);
 //   * GET /funnels/:id/frame?switch_to=<id> — the read-only C5 template-
-//     switch leg: {merged, confirmations}, nothing persisted.
+//     switch leg: {merged, confirmations}, nothing persisted;
+//   * DEV-60 Phase C polish: (a) media-picker affordances replace the raw
+//     media-path inputs + the benefit-bar icon is a curated closed dropdown,
+//     (b) quote-name inline edit, (c) drag handles beside the ↑/↓ buttons,
+//     (d) §9.3 harmony steps (labels, not hex) + the preset-backed
+//     mini-preview mount wired to the real preview endpoint.
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -32,6 +37,7 @@ import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
+import { BENEFIT_BAR_ICONS } from "../src/admin/leadgen/ui-quotes";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -573,6 +579,122 @@ describeDb("Quote Builder frame studio — overrides, Rules mount, lint legs", (
     const text = withoutScripts.replace(/<[^>]*>/g, " ");
     // (?<!&) — numeric character references (&#8212; …) are not hex colors
     expect(text).not.toMatch(/(?<!&)#[0-9a-fA-F]{3,8}\b/);
+  });
+});
+
+// ===========================================================================
+// DEV-60 Phase C polish — media pickers · icon dropdown · inline rename ·
+// drag handles · §9.3 harmonies + preset-backed mini preview
+// ===========================================================================
+
+describeDb("Quote Builder studio — DEV-60 Phase C polish", () => {
+  it("(a) media fields are picker affordances, not raw text inputs: hidden carrier + Choose… + thumb + Clear (manual logo, background image, trust-logo rows)", async () => {
+    const { html } = await harness();
+    // hidden carriers keep the exact save keys
+    expect(html).toContain('<input type="hidden" data-frame-key="header.logo_media_id"');
+    expect(html).toContain('<input type="hidden" data-frame-key="background.image_media_id"');
+    expect(html).toContain('<input type="hidden" data-list-field="media_id"');
+    // no bare text input remains for any media path
+    expect(html).not.toMatch(/<input class="form-input" data-frame-key="header\.logo_media_id"/);
+    expect(html).not.toMatch(/<input class="form-input" data-frame-key="background\.image_media_id"/);
+    expect(html).not.toMatch(/<input class="form-input" data-list-field="media_id"/);
+    // the affordance shell: field span + Choose… + thumb + Clear per field
+    expect((html.match(/data-media-field/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(html).toContain("data-media-choose");
+    expect(html).toContain("data-media-thumb");
+    expect(html).toContain("data-media-clear");
+    expect(html).toContain(">Choose&#8230;</button>");
+  });
+
+  it("(a) the shared Media-library chooser SSRs once; the island reuses the EXISTING media endpoints (list + upload) — no new API surface", async () => {
+    const { html } = await harness();
+    expect((html.match(/id="lg-media-picker"/g) ?? []).length).toBe(1);
+    expect(html).toContain('id="lg-media-picker-grid"');
+    expect(html).toContain('id="lg-media-upload-file"');
+    expect(html).toContain('id="lg-media-upload-btn"');
+    expect(html).toContain('id="lg-media-picker-close"');
+    const script = extractScripts(html).join("\n");
+    expect(script).toContain("'/api/admin/media'");
+    expect(script).toContain("'/api/admin/media/upload'");
+  });
+
+  it("(a) benefit-bar icon is a curated CLOSED dropdown — exactly the exported vocabulary, no free-text input", async () => {
+    const { html } = await harness();
+    expect(html).toMatch(/<select class="form-select" data-list-field="icon"/);
+    expect(html).not.toMatch(/<input[^>]*data-list-field="icon"/);
+    const selectAt = html.indexOf('data-list-field="icon"');
+    expect(selectAt).toBeGreaterThan(-1);
+    const select = html.slice(html.lastIndexOf("<select", selectAt), html.indexOf("</select>", selectAt));
+    expect(select).toContain('<option value="" disabled>Choose an icon</option>');
+    const values = [...select.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(values).toEqual(["", ...BENEFIT_BAR_ICONS.map((i) => i.value)]);
+    for (const icon of BENEFIT_BAR_ICONS) {
+      expect(select, `icon ${icon.label}`).toContain(`${icon.value} ${icon.label}</option>`);
+    }
+  });
+
+  it("(b) quote-name inline edit: pencil affordance beside the title + editor controls; the island saves via the real rename PATCH", async () => {
+    const { html } = await harness();
+    expect(html).toMatch(/<h2 class="lg-editor-title" id="lg-quote-title">Studio Quote<\/h2>/);
+    expect(html).toContain('id="lg-quote-rename"');
+    expect(html).toContain('aria-label="Rename this quote"');
+    expect(html).toContain('id="lg-quote-rename-input"');
+    expect(html).toContain('id="lg-quote-rename-save"');
+    expect(html).toContain('id="lg-quote-rename-cancel"');
+    const script = extractScripts(html).join("\n");
+    expect(script).toContain("method: 'PATCH'");
+    expect(script).toContain("quote_name: name");
+  });
+
+  it("(c) drag handles on Section rows (slides + template clone) with the ↑/↓ buttons INTACT as the keyboard path", async () => {
+    const { html } = await harness();
+    // 2 seeded slides + the SSR <template> clone row
+    expect((html.match(/data-drag-handle draggable="true"/g) ?? []).length).toBe(3);
+    expect(html).toContain("data-move-up");
+    expect(html).toContain("data-move-down");
+    const script = extractScripts(html).join("\n");
+    expect(script).toContain("'dragstart'");
+    expect(script).toContain("'dragover'");
+    expect(script).toContain("'drop'");
+    expect(script).toContain("'dragend'");
+  });
+
+  it("(d) §9.3 harmonies: every role edit offers base/wash/darker/lighter steps as LABELS (chips painted client-side; base writes the ROLE alias, derived steps route through the Advanced hex path)", async () => {
+    const { html } = await harness();
+    const roleCount = 14;
+    expect((html.match(/data-harmony-row="/g) ?? []).length).toBe(roleCount);
+    for (const step of ["base", "wash", "darker", "lighter"]) {
+      expect((html.match(new RegExp(`data-harmony-step="${step}"`, "g")) ?? []).length, `step ${step}`).toBe(roleCount);
+    }
+    expect(html).toContain(">Base</button>");
+    expect(html).toContain("Soft wash</button>");
+    expect(html).toContain("Darker</button>");
+    expect(html).toContain("Lighter</button>");
+    // the island derives from the BASE design's tokens (SSR blob carries them)
+    const blobAt = html.indexOf('id="lg-quote-data"');
+    const blob = JSON.parse(html.slice(html.indexOf(">", blobAt) + 1, html.indexOf("</script>", blobAt))) as {
+      base_tokens?: Record<string, string>;
+    };
+    expect(Object.keys(blob.base_tokens ?? {}).length).toBe(roleCount);
+    const script = extractScripts(html).join("\n");
+    expect(script).toContain("applyPaletteValue(role, role)"); // base = the role-VALUE alias
+    expect(script).toContain("applyAdvancedHex()"); // derived = the Advanced custom-color path
+  });
+
+  it("(d) mini preview is preset-backed: iframe mount wired to the SAME preview endpoint in frame-only mode; hand-rolled spans gone", async () => {
+    const { html } = await harness();
+    expect(html).toContain('id="lg-theme-minipreview"');
+    expect(html).toContain('data-mini-preview-mode="frame"');
+    expect(html).toContain('id="lg-theme-minipreview-frame"');
+    expect(html).not.toContain("data-mini-button");
+    expect(html).not.toContain("data-mini-card");
+    expect(html).not.toContain("data-mini-input");
+    expect(html).not.toContain("data-mini-progress");
+    const script = extractScripts(html).join("\n");
+    expect(script).toContain("function previewUrl()"); // ONE endpoint constant serves canvas + mini
+    expect(script).toContain("function renderMiniPreview()");
+    expect(script).toContain("scheduleMiniPreview");
+    expect(script).toContain("data-mini-preview-mode");
   });
 });
 

@@ -27,6 +27,7 @@
 
 import {
   CURATED_DESIGN_OVERRIDE_KEYS,
+  LEADGEN_THEME_ROLES,
   flattenComponents,
   validateSectionContent,
   type LeadgenSectionContent,
@@ -68,6 +69,76 @@ function asToggle(value: unknown): boolean | null {
 // src/public/leadgen/components/content-schema.ts.
 const CSS_ESCAPE_RE = /[;{}<>()"'`\\]|url\(|expression|@import|\/\*/i;
 const CURATED_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
+
+// --- v2.5 09 §9.5 Section-level layer-4 override keys (Phase C) --------------
+// `design_overrides_json` additionally accepts the sparse §9.5 shape:
+//   palette?        role → role-or-#hex map over the 14 §9.1 roles
+//   columnsDefault? integer 2..5 (the presets' renderCardGrid clampInt range)
+//   gapDefault?     fixed spacing-token value (never arbitrary CSS)
+// The renderer side already consumes them (config-dto parseSectionDesignOverrides
+// → presets layer 4); this is the WRITER that was blocked by the curated-key
+// check below. Unknown keys — top-level and palette roles — stay rejected with
+// path-precise field errors.
+const SECTION_LEVEL_OVERRIDE_KEYS: ReadonlySet<string> = new Set([
+  "palette",
+  "columnsDefault",
+  "gapDefault",
+]);
+const THEME_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_THEME_ROLES);
+// MUST stay byte-identical to LEGACY_HEX_RE in content-schema.ts (§9.4 value
+// vocabulary: known role OR raw #hex literal).
+const LEGACY_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
+// The presets clamp answer-grid columns to 2..5 (renderCardGrid clampInt) —
+// the save gate accepts exactly the renderable range.
+const SECTION_COLUMNS_MIN = 2;
+const SECTION_COLUMNS_MAX = 5;
+
+// Validate the §9.5 `palette` map into `errors` (path-precise per role).
+function validateSectionPaletteOverride(value: unknown, errors: FieldErrors): void {
+  if (!isRecord(value)) {
+    errors["design_overrides.palette"] =
+      "palette must be an object mapping theme colour roles to a role or #hex value (§9.5)";
+    return;
+  }
+  for (const [role, entry] of Object.entries(value)) {
+    if (!THEME_ROLE_SET.has(role)) {
+      errors[`design_overrides.palette.${role}`] =
+        `'${role}' is not a theme colour role (§9.5). Roles are: ${LEADGEN_THEME_ROLES.join(", ")}.`;
+    } else if (typeof entry !== "string" || (!THEME_ROLE_SET.has(entry) && !LEGACY_HEX_RE.test(entry))) {
+      errors[`design_overrides.palette.${role}`] =
+        `palette.${role} must be a theme colour role (${LEADGEN_THEME_ROLES.join(", ")}) or a #hex colour (§9.5)`;
+    }
+  }
+}
+
+// Validate one §9.5 section-level key into `errors`. Caller guarantees the key
+// is a member of SECTION_LEVEL_OVERRIDE_KEYS.
+function validateSectionLevelOverride(key: string, value: unknown, errors: FieldErrors): void {
+  if (key === "palette") {
+    validateSectionPaletteOverride(value, errors);
+    return;
+  }
+  if (key === "columnsDefault") {
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < SECTION_COLUMNS_MIN ||
+      value > SECTION_COLUMNS_MAX
+    ) {
+      errors["design_overrides.columnsDefault"] =
+        `columnsDefault must be an integer between ${SECTION_COLUMNS_MIN} and ${SECTION_COLUMNS_MAX} (the answer-grid clamp, §9.5)`;
+    }
+    return;
+  }
+  // gapDefault — a fixed spacing token (the design spacing scale values), the
+  // same §14.10 no-arbitrary-CSS rule the per-node gridGap value passes.
+  if (typeof value !== "string" || value.trim() === "") {
+    errors["design_overrides.gapDefault"] = "gapDefault must be a spacing token string (§9.5)";
+  } else if (CSS_ESCAPE_RE.test(value)) {
+    errors["design_overrides.gapDefault"] =
+      "gapDefault must be a fixed spacing token value, not arbitrary CSS (§14.10)";
+  }
+}
 
 export const LEADGEN_CONTINUE_MODES = ["button", "auto_advance"] as const satisfies readonly LeadgenContinueMode[];
 export const LEADGEN_SECTION_STATUSES = ["active", "archived"] as const satisfies readonly LeadgenSectionStatus[];
@@ -181,8 +252,10 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
     else errors["status"] = "status must be one of active|archived";
   }
 
-  // design_overrides_json (§14.8): Section-level curated-token bag. Only the
-  // curated keys, never arbitrary CSS.
+  // design_overrides_json (§14.8 + v2.5 09 §9.5): Section-level token bag —
+  // the curated per-node keys (unchanged) PLUS the §9.5 layer-4 shape
+  // ({palette?, columnsDefault?, gapDefault?}). Unknown keys stay rejected;
+  // never arbitrary CSS.
   let designOverridesJson: string | null = null;
   const rawOverrides = raw["design_overrides_json"] ?? raw["design_overrides"];
   if (rawOverrides !== undefined && rawOverrides !== null) {
@@ -200,13 +273,16 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
         errors["design_overrides_json"] = "design_overrides must be an object of curated token keys";
       } else {
         for (const [key, val] of Object.entries(parsed)) {
-          if (!CURATED_OVERRIDE_KEY_SET.has(key)) {
+          if (SECTION_LEVEL_OVERRIDE_KEYS.has(key)) {
+            validateSectionLevelOverride(key, val, errors);
+          } else if (!CURATED_OVERRIDE_KEY_SET.has(key)) {
             errors[`design_overrides.${key}`] = `'${key}' is not a curated design-override token key (§14.8)`;
           } else if (typeof val === "string" && CSS_ESCAPE_RE.test(val)) {
             errors[`design_overrides.${key}`] = `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`;
           }
         }
-        if (errors["design_overrides_json"] === undefined) designOverridesJson = JSON.stringify(parsed);
+        const hasOverrideError = Object.keys(errors).some((k) => k.startsWith("design_overrides"));
+        if (!hasOverrideError) designOverridesJson = JSON.stringify(parsed);
       }
     }
   }

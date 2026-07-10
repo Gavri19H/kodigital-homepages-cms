@@ -1864,11 +1864,53 @@ export function renderSectionComponents(
 // the dependency state and always keep their wrapper (an emptied container
 // renders as an empty wrapper, exactly how the live runtime keeps the nested
 // DOM and toggles [data-question-id] leaves in place).
+//
+// v2.5 Phase C (DEV-57): the OPTIONAL `sectionCtx` threads the §3.4/§11.5/§9.5
+// context EXACTLY like renderSectionComponents — one per-call state (bound
+// text, single-control dedupe, auto_advance suppression, below_unit deferral,
+// Section design_overrides), threaded through the visible-leaf walk and the
+// depth-1 end-of-subtree slot. LEGACY IDENTITY: a call WITHOUT sectionCtx
+// creates NO state, so every no-ctx call renders byte-identically to the
+// pre-thread output (the components-render/parity suites hold the pin).
 export function renderSectionComponentsVisible(
   nodes: readonly LeadgenComponentNode[],
   design: DefaultFunnelDesign,
   visibleIds: ReadonlySet<string>,
+  sectionCtx?: LeadgenSectionRenderCtx,
   depth = 1,
+): string {
+  let state: SectionRenderState | undefined;
+  if (sectionCtx !== undefined) {
+    // Mirror renderSectionComponents' per-call state construction 1:1.
+    const suppressContinue = sectionCtx.continue_mode === "auto_advance";
+    state = {
+      ctx: sectionCtx,
+      suppressContinue,
+      deferContinue: !suppressContinue && sectionCtx.continue_placement === "below_unit",
+      continueSeen: false,
+      deferredContinue: undefined,
+    };
+  }
+  let out = renderVisibleNodes(nodes, design, visibleIds, depth, state);
+  // 11 §11.5 below_unit (top-level call only): the ONE end-of-subtree control
+  // — the Section's first VISIBLE ContinueButton provides props when present,
+  // else the theme-default copy renders (same rule as renderSectionComponents).
+  if (depth === 1 && state !== undefined && state.deferContinue) {
+    out += renderContinueSlot(state.deferredContinue, design, sectionCtx);
+  }
+  return out;
+}
+
+// The visible-leaf walk renderSectionComponentsVisible drives — extracted so
+// the recursion threads the SAME per-call state object across every nesting
+// level (never re-created per container). With `state === undefined` this is
+// byte-for-byte the pre-v2.5-C walk.
+function renderVisibleNodes(
+  nodes: readonly LeadgenComponentNode[],
+  design: DefaultFunnelDesign,
+  visibleIds: ReadonlySet<string>,
+  depth: number,
+  state: SectionRenderState | undefined,
 ): string {
   if (depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return "";
   let out = "";
@@ -1876,23 +1918,19 @@ export function renderSectionComponentsVisible(
     if (typeof node !== "object" || node === null) continue;
     if (isLayoutContainerType(node.type)) {
       if (depth > LEADGEN_MAX_CONTAINER_DEPTH) continue; // defensive (validator is the gate)
-      const inner = renderSectionComponentsVisible(
-        containerChildren(node),
-        design,
-        visibleIds,
-        depth + 1,
-      );
+      const inner = renderVisibleNodes(containerChildren(node), design, visibleIds, depth + 1, state);
       // Re-render the container wrapper with the FILTERED children: emit the
       // container via its own preset around the filtered inner markup by
       // rendering a children-less clone and splicing the inner HTML into the
       // wrapper. The wrapper close tag is always the last `</…>` emitted by
       // the container preset, and every container preset nests children as
       // the LAST element before its closing tag(s), so the splice point is
-      // the recursion output of the empty clone.
+      // the recursion output of the empty clone. (Wrapper markup never reads
+      // the render state — state feeds only the children walk above.)
       out += renderContainerWrapper(node, design, depth, inner);
     } else {
       if (typeof node.question_id === "string" && visibleIds.has(node.question_id)) {
-        out += renderComponent(node, design, depth);
+        out += renderComponent(node, design, depth, state);
       }
     }
   }
