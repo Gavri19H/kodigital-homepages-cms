@@ -98,7 +98,7 @@ function propBool(node: LeadgenComponentNode, key: string): boolean {
 }
 
 // Curated design-override reads (§14.8). Only string overrides feed inline
-// style; the rest (columns, mobileBehavior) are consumed structurally.
+// mobileBehavior: schema-legal LEGACY key — zero renderer consumers; the Design-tab control was removed in Phase C (DEV-64/FIX-4b). Kept valid so stored content keeps validating.
 function ov(node: LeadgenComponentNode, key: keyof LeadgenDesignOverrides): string | undefined {
   const v = node.design_overrides?.[key];
   return typeof v === "string" ? v : undefined;
