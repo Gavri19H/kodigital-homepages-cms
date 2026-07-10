@@ -332,6 +332,54 @@ describeDb("frame routes — GET/PUT /funnels/:id/frame (04 §4.8)", () => {
     expect(variantVersion(h, extraId)).toBe(archivedBefore); // archived: untouched
   });
 
+  it("no-op save (DEV-57): a byte-identical re-PUT skips the UPDATE + bump (200, bumped_variants 0, content_version UNCHANGED); a changed config bumps", async () => {
+    const h = newHarness();
+    const seed = await seedQuote(h);
+    const config = { version: 1, template: "header-footer", header: { tagline: "Fast quotes" } };
+
+    const first = await admin.request(
+      `${API}/funnels/${seed.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: config }),
+      h.env,
+    );
+    expect(first.status, await first.clone().text()).toBe(200);
+    expect(((await first.json()) as { bumped_variants: number }).bumped_variants).toBe(1);
+    const versionAfterFirst = variantVersion(h, seed.controlPublicId);
+    const storedAfterFirst = funnelColumn(h, seed.funnelId, "frame_config_json");
+
+    // IDENTICAL second save: 200 with the normal projection shape, zero bump,
+    // stored column byte-untouched.
+    const second = await admin.request(
+      `${API}/funnels/${seed.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: config }),
+      h.env,
+    );
+    expect(second.status, await second.clone().text()).toBe(200);
+    const secondBody = (await second.json()) as {
+      frame_config: Record<string, unknown>;
+      effective_frame: { header: { tagline: string } };
+      template_defaults: unknown;
+      bumped_variants: number;
+    };
+    expect(secondBody.bumped_variants).toBe(0);
+    expect(secondBody.frame_config).toEqual(config);
+    expect(secondBody.effective_frame.header.tagline).toBe("Fast quotes");
+    expect(secondBody.template_defaults).toBeDefined();
+    expect(variantVersion(h, seed.controlPublicId)).toBe(versionAfterFirst);
+    expect(funnelColumn(h, seed.funnelId, "frame_config_json")).toBe(storedAfterFirst);
+
+    // a CHANGED config takes the normal write path and bumps again
+    const changed = await admin.request(
+      `${API}/funnels/${seed.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: { ...config, header: { tagline: "New tagline" } } }),
+      h.env,
+    );
+    expect(changed.status, await changed.clone().text()).toBe(200);
+    expect(((await changed.json()) as { bumped_variants: number }).bumped_variants).toBe(1);
+    expect(variantVersion(h, seed.controlPublicId)).toBe(versionAfterFirst + 1);
+    expect(funnelColumn(h, seed.funnelId, "frame_config_json")).toContain("New tagline");
+  });
+
   it("PUT with a schema-invalid config → 400 + §3.6 problems; nothing persisted; no bump (14 §14.3)", async () => {
     const h = newHarness();
     const seed = await seedQuote(h);
@@ -458,6 +506,37 @@ describeDb("theme routes — GET/PUT /funnels/:id/theme (04 §4.8 + 09 §9.2)", 
     expect(body.bumped_variants).toBe(1);
     expect(funnelColumn(h, seed.funnelId, "theme_json")).toContain("#0B5FFF");
     expect(variantVersion(h, seed.controlPublicId)).toBe(before + 1);
+
+    // no-op save (DEV-57): the identical theme re-PUT skips the UPDATE + bump
+    // and keeps the normal response shape (warnings still ride it).
+    const versionAfterFirst = variantVersion(h, seed.controlPublicId);
+    const second = await admin.request(
+      `${API}/funnels/${seed.funnelPublicId}/theme`,
+      jsonInit("PUT", { theme_json: { version: 1, palette: { brand_primary: "#0B5FFF" } } }),
+      h.env,
+    );
+    expect(second.status, await second.clone().text()).toBe(200);
+    const secondBody = (await second.json()) as {
+      theme: { palette: { brand_primary: string } };
+      effective_tokens: Record<string, string>;
+      problems: Problem[];
+      bumped_variants: number;
+    };
+    expect(secondBody.bumped_variants).toBe(0);
+    expect(secondBody.theme.palette.brand_primary).toBe("#0B5FFF");
+    expect(secondBody.effective_tokens["brand_primary"]).toBe("#0B5FFF");
+    expect(secondBody.problems.some((p) => p.path === "theme.palette.brand_primary" && p.severity === "warning")).toBe(true);
+    expect(variantVersion(h, seed.controlPublicId)).toBe(versionAfterFirst);
+
+    // a CHANGED theme bumps again
+    const changed = await admin.request(
+      `${API}/funnels/${seed.funnelPublicId}/theme`,
+      jsonInit("PUT", { theme_json: { version: 1, palette: { brand_primary: "#0B5FFF" }, scales: { radius: "round" } } }),
+      h.env,
+    );
+    expect(changed.status, await changed.clone().text()).toBe(200);
+    expect(((await changed.json()) as { bumped_variants: number }).bumped_variants).toBe(1);
+    expect(variantVersion(h, seed.controlPublicId)).toBe(versionAfterFirst + 1);
   });
 
   it("PUT with an invalid theme → 400 + problems; not persisted (14 §14.3)", async () => {
@@ -625,6 +704,50 @@ describeDb("PUT /variants/:id — additive frame_overrides_json (04 §4.5/§4.7)
       .prepare("SELECT frame_overrides_json AS v FROM leadgen_funnel_variants WHERE public_id = ?")
       .get(seed.controlPublicId) as { v: string | null };
     expect(row.v).toBeNull();
+  });
+
+  it("frame_overrides_json.template / .version are REJECTED with path-precise problems (§4.5 — overrides may not switch templates); nothing persisted", async () => {
+    const h = newHarness();
+    const seed = await seedQuote(h);
+    const storedOverrides = (): string | null =>
+      (h.sdb
+        .prepare("SELECT frame_overrides_json AS v FROM leadgen_funnel_variants WHERE public_id = ?")
+        .get(seed.controlPublicId) as { v: string | null }).v;
+
+    // template inside overrides — even a VALID template id is rejected
+    const badTemplate = await admin.request(
+      `${API}/variants/${seed.controlPublicId}`,
+      jsonInit("PUT", { frame_overrides_json: { template: "minimal", progress: { style: "dots" } } }),
+      h.env,
+    );
+    expect(badTemplate.status).toBe(400);
+    const templateBody = (await badTemplate.json()) as { error: string; fields: Record<string, string>; problems: Problem[] };
+    expect(templateBody.error).toBe("Validation failed");
+    expect(templateBody.fields["frame_overrides_json"]).toBeTruthy();
+    const templateProblem = templateBody.problems.find((p) => p.path === "frame_overrides.template");
+    expect(templateProblem, JSON.stringify(templateBody.problems)).toBeDefined();
+    expect(templateProblem!.severity).toBe("error");
+    expect(storedOverrides()).toBeNull();
+
+    // version inside overrides — same funnel-level rejection
+    const badVersion = await admin.request(
+      `${API}/variants/${seed.controlPublicId}`,
+      jsonInit("PUT", { frame_overrides_json: { version: 1, progress: { style: "dots" } } }),
+      h.env,
+    );
+    expect(badVersion.status).toBe(400);
+    const versionBody = (await badVersion.json()) as { problems: Problem[] };
+    expect(versionBody.problems.some((p) => p.path === "frame_overrides.version" && p.severity === "error")).toBe(true);
+    expect(storedOverrides()).toBeNull();
+
+    // the SAME patch without the funnel-level keys persists fine
+    const good = await admin.request(
+      `${API}/variants/${seed.controlPublicId}`,
+      jsonInit("PUT", { frame_overrides_json: { progress: { style: "dots" } } }),
+      h.env,
+    );
+    expect(good.status, await good.clone().text()).toBe(200);
+    expect(JSON.parse(storedOverrides()!)).toEqual({ progress: { style: "dots" } });
   });
 
   it("warning-severity overrides persist WITH the save and ride the response", async () => {

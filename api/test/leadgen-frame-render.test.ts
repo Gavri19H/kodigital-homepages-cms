@@ -529,3 +529,39 @@ describe("frame-plus-unit-composition — funnelChromeCss frame-region extension
     expect(bgTag).not.toContain("#");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7. footer show_on SSR bake (DEV-57) — the rendered page IS step 1, so
+//    renderQuoteFrame bakes the engine's step-1 verdict into the footer
+//    region: "final" arrives `hidden` whenever the funnel has more than one
+//    Section (step 1 is never final) and visible for a single-Section funnel
+//    (step 1 IS final); "first"/"all" arrive visible (step 1 IS first). No
+//    pre-hydration flash, correct no-JS truth; the engine
+//    (updateFooterVisibility) re-derives visibility on every step change.
+// ---------------------------------------------------------------------------
+
+describe("frame-plus-unit-composition — footer show_on SSR bake (step-1 truth)", () => {
+  it('show_on:"final" with multiple sections bakes `hidden` at SSR', () => {
+    const html = composed("centered", { footer: { show_on: "final" } }); // sectionCount 2
+    expect(html).toContain(' data-show-on="final" hidden>');
+    expect(html).not.toContain(' data-show-on="final">');
+  });
+
+  it('show_on:"final" with a SINGLE section stays visible (step 1 IS the final step)', () => {
+    const html = composed("centered", { footer: { show_on: "final" } }, { sectionCount: 1 });
+    expect(html).toContain(' data-show-on="final">');
+    expect(html).not.toContain(' data-show-on="final" hidden>');
+  });
+
+  it('show_on:"first" stays visible at SSR (step 1 IS first)', () => {
+    const html = composed("centered", { footer: { show_on: "first" } });
+    expect(html).toContain(' data-show-on="first">');
+    expect(html).not.toContain(' data-show-on="first" hidden>');
+  });
+
+  it('show_on:"all" stays visible at SSR', () => {
+    const html = composed("centered", { footer: { show_on: "all" } });
+    expect(html).toContain(' data-show-on="all">');
+    expect(html).not.toContain(' data-show-on="all" hidden>');
+  });
+});

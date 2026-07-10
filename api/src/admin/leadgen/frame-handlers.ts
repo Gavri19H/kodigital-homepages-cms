@@ -135,10 +135,24 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", problems: validation.problems }, 400);
   }
 
+  // No-op save guard (DEV-57): the Quote Builder's one-Save chain re-PUTs the
+  // frame on every Save, and the content_version bump is a full visitor-cache
+  // invalidation (03 §3.1). A byte-identical config — the EXACT stored TEXT
+  // versus the same serialization this handler persists — skips the UPDATE
+  // and the bump; the response keeps the normal projection shape with
+  // `bumped_variants: 0` so the island flow is unchanged.
+  const serialized = JSON.stringify(raw);
+  if (funnel.frame_config_json === serialized) {
+    const projection = frameProjection(raw);
+    projection["problems"] = [...validation.problems, ...(projection["problems"] as Problem[])];
+    projection["bumped_variants"] = 0;
+    return c.json(projection);
+  }
+
   await c.env.DB.prepare(
     "UPDATE leadgen_funnels SET frame_config_json = ?, updated_at = unixepoch() WHERE id = ?",
   )
-    .bind(JSON.stringify(raw), funnel.id)
+    .bind(serialized, funnel.id)
     .run();
   // 03 §3.1: the bump is what makes a frame edit reach visitors.
   const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
@@ -202,10 +216,20 @@ export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", problems: validation.problems }, 400);
   }
 
+  // No-op save guard (DEV-57) — the same byte-identical skip as the frame
+  // PUT: no row rewrite, no content_version bump, normal response shape with
+  // `bumped_variants: 0` (warnings still ride the projection).
+  const serialized = JSON.stringify(raw);
+  if (funnel.theme_json === serialized) {
+    const projection = await themeProjection(c.env.DB, funnel, raw);
+    projection["bumped_variants"] = 0;
+    return c.json(projection);
+  }
+
   await c.env.DB.prepare(
     "UPDATE leadgen_funnels SET theme_json = ?, updated_at = unixepoch() WHERE id = ?",
   )
-    .bind(JSON.stringify(raw), funnel.id)
+    .bind(serialized, funnel.id)
     .run();
   const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
 

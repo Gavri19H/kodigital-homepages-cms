@@ -380,6 +380,9 @@ interface IslandProbe {
   workingOverrides: Record<string, unknown>;
   frameDirty: boolean;
   themeDirty: boolean;
+  variantDirty: boolean;
+  overridesDirty: boolean;
+  allocDirty: boolean;
   dirty: boolean;
   isControl: boolean;
   pendingSwitch: { id: string; merged: Record<string, unknown> } | null;
@@ -399,6 +402,9 @@ const SEAM_EXPORTER = `
   get workingOverrides() { return workingOverrides; },
   get frameDirty() { return frameDirty; },
   get themeDirty() { return themeDirty; },
+  get variantDirty() { return variantDirty; },
+  get overridesDirty() { return overridesDirty; },
+  get allocDirty() { return allocDirty; },
   get dirty() { return dirty; },
   get isControl() { return isControl; },
   get pendingSwitch() { return pendingSwitch; },
@@ -415,6 +421,8 @@ interface Studio {
   registry: Map<string, FakeNode>;
   root: FakeNode;
   calls: CapturedCall[];
+  issued: Array<{ url: string; body: string }>; // fetch ISSUANCE order (calls[] records completion order)
+  setResponseDelay: (fn: ((url: string, init?: RequestInit) => number) | null) => void;
   windowObj: Record<string, unknown>;
   probe: IslandProbe;
   settle: () => Promise<void>;
@@ -547,10 +555,18 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
   };
 
   const calls: CapturedCall[] = [];
+  const issued: Array<{ url: string; body: string }> = [];
+  // Optional per-response delay (ms) — lets a test hold ONE response back so
+  // two live-router requests genuinely resolve out of order (the FIX 9 stale-
+  // response race). null = no delays.
+  let responseDelay: ((url: string, init?: RequestInit) => number) | null = null;
   const fetchImpl = (url: string, init?: RequestInit): Promise<Response> => {
     pendingFetches += 1;
+    issued.push({ url, body: init !== undefined && typeof init.body === "string" ? init.body : "" });
     return Promise.resolve(admin.request(url, init ?? {}, env)).then(
       async (res: Response) => {
+        const delayMs = responseDelay === null ? 0 : responseDelay(url, init);
+        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
         let parsedResponse: unknown = null;
         try { parsedResponse = await res.clone().json(); } catch { /* non-JSON */ }
         let parsedBody: unknown = null;
@@ -599,7 +615,28 @@ async function bootStudio(env: Env, html: string, opts: { rulesIsland?: boolean 
     for (const h of [...(node.handlers[type] ?? [])]) h(ev);
   };
 
-  return { registry, root, calls, windowObj, probe: probeRef!, settle, fire, byId };
+  return {
+    registry,
+    root,
+    calls,
+    issued,
+    setResponseDelay: (fn) => { responseDelay = fn; },
+    windowObj,
+    probe: probeRef!,
+    settle,
+    fire,
+    byId,
+  };
+}
+
+// Poll until `cond` holds (the FIX 9 test waits for a specific request to be
+// ISSUED before firing the competing one — never a blind sleep).
+async function waitFor(cond: () => boolean, label: string): Promise<void> {
+  for (let i = 0; i < 400; i += 1) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  expect(cond(), label).toBe(true);
 }
 
 // A minimal event target for delegated root handlers: answers ONE attribute.
@@ -735,8 +772,12 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     expect(studio.probe.frameDirty).toBe(true);
     expect(studio.probe.themeDirty).toBe(true);
 
-    // SSR-faithful funnel-settings value for collectPayload()
+    // SSR-faithful funnel-settings value for collectPayload() + the change
+    // event a real operator interaction bubbles — the variant PUT rides ONLY
+    // when variant-scoped state is dirty (FIX 6 gating)
     studio.byId("lg-funnel-design").value = variantNode.funnel_design_id;
+    studio.fire(studio.root, "change", studio.byId("lg-funnel-design"));
+    expect(studio.probe.variantDirty).toBe(true);
 
     const before = studio.calls.length;
     studio.fire(studio.byId("lg-variant-save"), "click");
@@ -777,7 +818,96 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     // the island reset its dirty state + showed the saved note
     expect(studio.probe.frameDirty).toBe(false);
     expect(studio.probe.themeDirty).toBe(false);
+    expect(studio.probe.variantDirty).toBe(false);
     expect(studio.probe.dirty).toBe(false);
+    expect(studio.byId("lg-quote-ok").hidden).toBe(false);
+  });
+
+  it("FIX 6: a second Save with nothing changed issues ZERO PUTs (no re-bump, no cache thrash)", async () => {
+    const h = await studioHarness();
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+    const structure = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
+    studio.byId("lg-funnel-design").value = structure.funnels[0]!.variants[0]!.funnel_design_id;
+
+    // dirty all three scopes through the island's real handlers
+    studio.fire(studio.root, "change", fakeTarget("data-frame-key", "header.tagline", { value: "Zero-PUT tagline" }));
+    studio.fire(studio.root, "change", fakeTarget("data-theme-key", "typography.size", { value: "l" }));
+    studio.fire(studio.root, "change", studio.byId("lg-funnel-design"));
+    await studio.settle();
+
+    const before = studio.calls.length;
+    studio.fire(studio.byId("lg-variant-save"), "click");
+    await studio.settle();
+    const firstSaves = studio.calls.slice(before).filter((c) => c.method === "PUT");
+    expect(firstSaves.map((c) => c.url)).toEqual([
+      `/api/admin/leadgen/funnels/${h.funnelPublicId}/frame`,
+      `/api/admin/leadgen/funnels/${h.funnelPublicId}/theme`,
+      `/api/admin/leadgen/variants/${h.variantId}`,
+    ]);
+    for (const save of firstSaves) expect(save.status, `${save.url} → ${JSON.stringify(save.response)}`).toBe(200);
+    expect(studio.probe.frameDirty).toBe(false);
+    expect(studio.probe.themeDirty).toBe(false);
+    expect(studio.probe.variantDirty).toBe(false);
+    expect(studio.probe.overridesDirty).toBe(false);
+
+    // SECOND save with NOTHING changed → ZERO PUTs; content_version untouched;
+    // still a success note (everything already saved IS saved).
+    const contentVersion = (): number =>
+      (h.sdb.prepare("SELECT content_version AS v FROM leadgen_funnel_variants WHERE public_id = ?").get(h.variantId) as { v: number }).v;
+    const versionAfterFirst = contentVersion();
+    const mid = studio.calls.length;
+    studio.fire(studio.byId("lg-variant-save"), "click");
+    await studio.settle();
+    expect(studio.calls.slice(mid).filter((c) => c.method === "PUT")).toEqual([]);
+    expect(contentVersion()).toBe(versionAfterFirst);
+    expect(studio.byId("lg-quote-ok").hidden).toBe(false);
+  });
+
+  it("FIX 6a: a mid-chain theme failure leaves ONLY theme+variant dirty — Retry re-PUTs just those, never the already-saved frame", async () => {
+    const h = await studioHarness();
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+    const structure = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
+    studio.byId("lg-funnel-design").value = structure.funnels[0]!.variants[0]!.funnel_design_id;
+
+    // frame edit + a theme edit the SERVER rejects (§9.3 closed set) + a
+    // variant-scoped edit
+    studio.fire(studio.root, "change", fakeTarget("data-frame-key", "header.tagline", { value: "Retry tagline" }));
+    studio.fire(studio.root, "change", fakeTarget("data-theme-key", "scales.radius", { value: "circle" }));
+    studio.fire(studio.root, "change", studio.byId("lg-funnel-design"));
+    await studio.settle();
+
+    const before = studio.calls.length;
+    studio.fire(studio.byId("lg-variant-save"), "click");
+    await studio.settle();
+    const firstSaves = studio.calls.slice(before).filter((c) => c.method === "PUT");
+    // chain aborted at the theme 400 — the variant PUT never rode
+    expect(firstSaves.map((c) => `${c.url} ${c.status}`)).toEqual([
+      `/api/admin/leadgen/funnels/${h.funnelPublicId}/frame 200`,
+      `/api/admin/leadgen/funnels/${h.funnelPublicId}/theme 400`,
+    ]);
+    expect(studio.byId("lg-quote-error").hidden).toBe(false);
+    // per-step clearing: the SAVED frame is clean; the failed + later steps stay dirty
+    expect(studio.probe.frameDirty).toBe(false);
+    expect(studio.probe.themeDirty).toBe(true);
+    expect(studio.probe.variantDirty).toBe(true);
+
+    // fix the theme, Retry → ONLY theme + variant PUTs (the frame is not
+    // re-sent, so it can never double-bump content_version)
+    studio.fire(studio.root, "change", fakeTarget("data-theme-key", "scales.radius", { value: "round" }));
+    await studio.settle();
+    const mid = studio.calls.length;
+    studio.fire(studio.byId("lg-variant-save"), "click");
+    await studio.settle();
+    const retrySaves = studio.calls.slice(mid).filter((c) => c.method === "PUT");
+    expect(retrySaves.map((c) => c.url)).toEqual([
+      `/api/admin/leadgen/funnels/${h.funnelPublicId}/theme`,
+      `/api/admin/leadgen/variants/${h.variantId}`,
+    ]);
+    for (const save of retrySaves) expect(save.status, `${save.url} → ${JSON.stringify(save.response)}`).toBe(200);
+    expect(studio.probe.themeDirty).toBe(false);
+    expect(studio.probe.variantDirty).toBe(false);
     expect(studio.byId("lg-quote-ok").hidden).toBe(false);
   });
 
@@ -957,6 +1087,9 @@ describeDb("quote builder EXECUTED island — (d) publish chip equals the server
     };
 
     // --- save #1: blocked -----------------------------------------------------
+    // FIX 6 gating: the variant PUT rides only when variant-scoped state is
+    // dirty — touch the design select (a variant field) before each save.
+    studio.fire(studio.root, "change", studio.byId("lg-funnel-design"));
     let before = studio.calls.length;
     studio.fire(studio.byId("lg-variant-save"), "click");
     await studio.settle();
@@ -983,6 +1116,7 @@ describeDb("quote builder EXECUTED island — (d) publish chip equals the server
     // --- fix (deselect the offer through the REAL section PATCH), save #2 -----
     const patch = await admin.request(`${API}/sections/${section.public_id}`, jsonInit("PATCH", { selected_offers: [] }), env);
     expect(patch.status, await patch.clone().text()).toBe(200);
+    studio.fire(studio.root, "change", studio.byId("lg-funnel-design")); // re-arm the variant scope (FIX 6 gating)
     before = studio.calls.length;
     studio.fire(studio.byId("lg-variant-save"), "click");
     await studio.settle();
@@ -1081,6 +1215,14 @@ describeDb("quote builder EXECUTED island — (e) rules builder round-trips thro
     ruleRow.sel["[data-rule-enabled]"] = { checked: true };
     studio.byId("lg-rule-list").sel["[data-rule-row]"] = [ruleRow];
 
+    // the REAL DOM bubbles the builder's edits up through #lg-rule-list —
+    // mirror that parent chain and fire the bubbled input so the island's
+    // container-scoped dirty tracking arms the variant PUT (FIX 6 gating)
+    ruleRow.parentNode = studio.byId("lg-rule-list");
+    carrier.parentNode = ruleRow;
+    studio.fire(studio.root, "input", carrier);
+    expect(studio.probe.variantDirty).toBe(true);
+
     // the quote island's REAL collector reads the builder's carrier
     const collected = studio.probe.collectRules();
     expect(collected).toHaveLength(1);
@@ -1119,5 +1261,63 @@ describeDb("quote builder EXECUTED island — (e) rules builder round-trips thro
       expect(conditionsMatch(stored, contexts[i]!), `stored ctx ${i}`).toBe(expected[i]);
       expect(conditionsMatch(built, contexts[i]!), `carrier ctx ${i}`).toBe(expected[i]);
     }
+  });
+});
+
+// ===========================================================================
+// FIX 9 — renderPreview response race: two OVERLAPPING preview requests
+// through the LIVE router resolve out of order (the older response is held
+// back); the canvas must reflect the LAST-ISSUED request, never the stale one.
+// ===========================================================================
+
+describeDb("quote builder EXECUTED island — FIX 9: overlapping preview responses land last-issued-wins", () => {
+  it("a stale (slower) preview response is dropped — the canvas shows the LAST-issued render", async () => {
+    const h = await studioHarness();
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+
+    // Hold back ONLY the minimal-draft preview response, so it resolves AFTER
+    // the later-issued white-trust one (a genuine out-of-order interleave).
+    studio.setResponseDelay((url, init) => {
+      if (!url.endsWith("/preview")) return 0;
+      const body = init !== undefined && typeof init.body === "string" ? init.body : "";
+      return body.includes('"template":"minimal"') ? 150 : 0;
+    });
+
+    // Two template picks drive two DIRECT renderPreview calls through the
+    // island's real ?switch_to= flow (no debounce between them). Fire the
+    // second pick only after the first preview request is genuinely ISSUED.
+    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "minimal"));
+    await waitFor(
+      () => studio.issued.some((i) => i.url.endsWith("/preview") && i.body.includes('"template":"minimal"')),
+      "minimal preview request issued",
+    );
+    studio.fire(studio.root, "click", fakeTarget("data-template-pick", "white-trust"));
+    await studio.settle();
+
+    // issuance order: minimal FIRST, white-trust SECOND (last-issued)
+    const issueIdx = (template: string): number =>
+      studio.issued.findIndex((i) => i.url.endsWith("/preview") && i.body.includes(`"template":"${template}"`));
+    expect(issueIdx("minimal")).toBeGreaterThan(-1);
+    expect(issueIdx("white-trust"), "white-trust preview issued after minimal").toBeGreaterThan(issueIdx("minimal"));
+
+    // completion order: the DELAYED minimal response resolved LAST — the
+    // overlap really happened (calls[] records completion order)
+    const completionIdx = (template: string): number =>
+      studio.calls.findIndex((c) => {
+        if (!c.url.endsWith(`/variants/${h.variantId}/preview`) || c.method !== "POST") return false;
+        const draft = (c.body as Record<string, unknown>)["draft_frame_config"] as Record<string, unknown> | undefined;
+        return draft !== undefined && draft["template"] === template;
+      });
+    expect(completionIdx("white-trust")).toBeGreaterThan(-1);
+    expect(completionIdx("minimal"), "stale minimal response resolved AFTER white-trust").toBeGreaterThan(
+      completionIdx("white-trust"),
+    );
+
+    // last-ISSUED wins: the canvas holds the white-trust document; the stale
+    // minimal response that landed last was dropped by the seq guard.
+    const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
+    expect(srcdoc).toContain('data-frame-template="white-trust"');
+    expect(srcdoc).not.toContain('data-frame-template="minimal"');
   });
 });

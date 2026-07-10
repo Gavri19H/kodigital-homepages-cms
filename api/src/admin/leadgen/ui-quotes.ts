@@ -1770,7 +1770,15 @@ const QUOTE_EDITOR_SCRIPT = `
   var root = document.getElementById('lg-quote-editor');
   if (!root) { return; }
   var dirty = false;
+  // Scoped dirty flags (4.7 save-chain semantics): variantDirty gates the
+  // variant PUT (section order / lander / design / auction / rules edits);
+  // allocDirty tracks the A/B allocation side-save and is cleared by THAT
+  // save alone, independent of the main chain. The frame/theme/overrides
+  // flags live with the studio state below. beforeunload arms on ANY of them.
+  var variantDirty = false;
+  var allocDirty = false;
   function markDirty() { dirty = true; }
+  function markVariantDirty() { variantDirty = true; dirty = true; }
 
   var quotePublicId = root.getAttribute('data-quote-public-id') || '';
   var variantPublicId = root.getAttribute('data-variant-public-id') || '';
@@ -1962,7 +1970,7 @@ const QUOTE_EDITOR_SCRIPT = `
       if (vEl) { vEl.textContent = opt.getAttribute('data-vertical') || ''; }
       sectionList.appendChild(row);
       renumber();
-      markDirty();
+      markVariantDirty();
     });
   }
 
@@ -1976,19 +1984,19 @@ const QUOTE_EDITOR_SCRIPT = `
       if (el.getAttribute('data-remove-section') !== null && el.getAttribute('data-remove-section') !== undefined && el.hasAttribute('data-remove-section')) {
         row.parentNode.removeChild(row);
         renumber();
-        markDirty();
+        markVariantDirty();
         return;
       }
       if (el.hasAttribute('data-move-up')) {
         var prev = row.previousElementSibling;
         while (prev && String(prev.className).indexOf('lg-section-row') < 0) { prev = prev.previousElementSibling; }
-        if (prev) { row.parentNode.insertBefore(row, prev); renumber(); markDirty(); }
+        if (prev) { row.parentNode.insertBefore(row, prev); renumber(); markVariantDirty(); }
         return;
       }
       if (el.hasAttribute('data-move-down')) {
         var next = row.nextElementSibling;
         while (next && String(next.className).indexOf('lg-section-row') < 0) { next = next.nextElementSibling; }
-        if (next) { row.parentNode.insertBefore(next, row); renumber(); markDirty(); }
+        if (next) { row.parentNode.insertBefore(next, row); renumber(); markVariantDirty(); }
         return;
       }
     });
@@ -2002,7 +2010,7 @@ const QUOTE_EDITOR_SCRIPT = `
       var tpl = byId('lg-rule-row-tpl');
       var frag = tpl.content ? document.importNode(tpl.content, true) : null;
       var row = frag ? frag.querySelector('[data-rule-row]') : null;
-      if (row) { ruleList.appendChild(row); markDirty(); }
+      if (row) { ruleList.appendChild(row); markVariantDirty(); }
       var empty = ruleList.querySelector('[data-empty-rules]');
       if (empty) { empty.parentNode.removeChild(empty); }
     });
@@ -2013,7 +2021,7 @@ const QUOTE_EDITOR_SCRIPT = `
       if (el && el.hasAttribute && el.hasAttribute('data-remove-rule')) {
         var row = el;
         while (row && row.getAttribute && !row.hasAttribute('data-rule-row')) { row = row.parentNode; }
-        if (row && row.parentNode) { row.parentNode.removeChild(row); markDirty(); }
+        if (row && row.parentNode) { row.parentNode.removeChild(row); markVariantDirty(); }
       }
     });
   }
@@ -2098,8 +2106,12 @@ const QUOTE_EDITOR_SCRIPT = `
   }
 
   // --- 4.7 one-Save: frame PUT (when edited) -> theme PUT (when edited) ->
-  // variant PUT (order + lander + design + rules + sparse overrides). The
-  // variant PUT's recomputed preflight refreshes the panel + publish chip.
+  // variant PUT (ONLY when order/lander/design/auction/rules or the sparse
+  // overrides changed). Each step's dirty flag clears THE MOMENT its own PUT
+  // succeeds, so a mid-chain failure leaves only the failed + not-yet-run
+  // steps dirty — a Retry re-PUTs just those and can never re-send (and
+  // re-bump) an already-saved step. A skipped step resolves {ok, body: null};
+  // its flag was already false and stays untouched.
   var saveBtn = byId('lg-variant-save');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
@@ -2112,21 +2124,29 @@ const QUOTE_EDITOR_SCRIPT = `
         : Promise.resolve({ ok: true, body: null });
       step1.then(function (res1) {
         if (!res1.ok) { throw new Error(saveFailureText(res1, 'Frame save')); }
+        if (res1.body !== null) { frameDirty = false; }
         if (res1.body && res1.body.problems) { warned += res1.body.problems.length; }
         return themeDirty
           ? putJson(funnelBase + '/theme', { theme_json: workingTheme })
           : Promise.resolve({ ok: true, body: null });
       }).then(function (res2) {
         if (!res2.ok) { throw new Error(saveFailureText(res2, 'Theme save')); }
+        if (res2.body !== null) { themeDirty = false; }
         if (res2.body && res2.body.problems) { warned += res2.body.problems.length; }
-        return putJson('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), collectPayload());
+        return (variantDirty || overridesDirty)
+          ? putJson('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), collectPayload())
+          : Promise.resolve({ ok: true, body: null });
       }).then(function (res3) {
         saveBtn.disabled = false;
         if (!res3.ok) { showMsg('lg-quote-error', saveFailureText(res3, 'Save')); return; }
-        dirty = false; frameDirty = false; themeDirty = false; overridesDirty = false;
+        if (res3.body !== null) { variantDirty = false; overridesDirty = false; }
+        dirty = false;
         showMsg('lg-quote-ok', warned > 0 ? 'Saved. ' + warned + ' validation note' + (warned === 1 ? '' : 's') + ' \\u2014 see the Activation tab.' : 'Saved.');
-        // 05 5.2 + 14 14.2: the variant PUT recomputes + returns the
-        // preflight verdict — refresh the panel + the head publish chip.
+        // 05 5.2 + 14 14.2: a RUN variant PUT recomputes + returns the
+        // preflight verdict — refresh the panel + the head publish chip. A
+        // SKIPPED variant PUT deliberately leaves both untouched: nothing
+        // variant-scoped changed, so the last server-computed verdict (the
+        // SSR panel or the previous refresh) still holds — no staleness.
         if (res3.body && res3.body.activation_preflight) { renderPreflight(res3.body.activation_preflight); }
       }).catch(function (err) {
         saveBtn.disabled = false;
@@ -2652,7 +2672,14 @@ const QUOTE_EDITOR_SCRIPT = `
     }
     return body;
   }
+  // Monotonic render-request sequence: two overlapping preview POSTs can
+  // resolve out of order, and a stale (older) response must never overwrite
+  // the newer render. Every renderPreview call takes the next seq; a response
+  // (or failure) applies only while its seq is still the latest issued.
+  var previewSeq = 0;
   function renderPreview(draftF) {
+    previewSeq += 1;
+    var seq = previewSeq;
     fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/preview', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
@@ -2660,6 +2687,7 @@ const QUOTE_EDITOR_SCRIPT = `
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
+      if (seq !== previewSeq) { return; } // stale — a newer request owns the canvas
       if (!res.ok) {
         canvasStatus(res.body && res.body.error ? 'Preview failed: ' + res.body.error : 'Preview failed');
         return;
@@ -2675,7 +2703,10 @@ const QUOTE_EDITOR_SCRIPT = `
       } else {
         setCanvasDoc(p.html || '', lastCss);
       }
-    }).catch(function () { canvasStatus('Preview failed: network error'); });
+    }).catch(function () {
+      if (seq !== previewSeq) { return; } // stale failure — never clobber the newer render's status
+      canvasStatus('Preview failed: network error');
+    });
   }
   function schedulePreview() {
     if (previewTimer) { window.clearTimeout(previewTimer); }
@@ -2962,7 +2993,13 @@ const QUOTE_EDITOR_SCRIPT = `
         var failed = null;
         for (k = 0; k < results.length; k++) { if (!results[k].ok) { failed = results[k].body; break; } }
         if (failed) { showMsg('lg-quote-error', (failed && failed.fields && failed.fields.traffic_allocation_bp) ? failed.fields.traffic_allocation_bp : 'Allocation save failed'); }
-        else { showMsg('lg-quote-ok', 'Allocations saved.'); recomputeAllocSum(); }
+        else {
+          // this side-save owns the allocation inputs' dirty contribution —
+          // a full success clears it (no spurious beforeunload afterwards)
+          allocDirty = false;
+          showMsg('lg-quote-ok', 'Allocations saved.');
+          recomputeAllocSum();
+        }
       });
     });
   }
@@ -3125,13 +3162,36 @@ const QUOTE_EDITOR_SCRIPT = `
   }
 
   // --- dirty tracking + unsaved-changes guard -------------------------------
-  root.addEventListener('input', markDirty);
-  root.addEventListener('change', function (ev) {
-    if (ev.target && ev.target.id === 'lg-variant-select') { return; }
+  // Only PERSISTED controls mark unsaved state. Preview/navigation-only
+  // widgets never arm beforeunload: the A/B assignment-preview session id,
+  // the preview site selectors, the variant switchers, the add-slide picker
+  // (the Add button marks dirty itself) and the staged custom-hex pair
+  // (persisted only through its Apply button, which marks the theme dirty).
+  // Scope routing: allocation inputs feed ONLY the A/B side-save
+  // (allocDirty); the lander/design/auction fields and anything inside the
+  // section or rules lists are variant-PUT payload (variantDirty); every
+  // other persisted control (activation rows, frame/theme controls — whose
+  // own handlers set their scoped flags) keeps the blanket flag.
+  var VARIANT_FIELD_IDS = { 'lg-lander-enabled': 1, 'lg-lander-headline': 1, 'lg-lander-sub': 1, 'lg-lander-hero': 1, 'lg-funnel-design': 1, 'lg-auction-id': 1 };
+  var NON_PERSISTED_IDS = { 'lg-variant-select': 1, 'lg-canvas-variant-select': 1, 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1 };
+  function markDirtyFor(el) {
+    if (!el || !el.getAttribute) { return; }
+    var id = el.id || '';
+    if (NON_PERSISTED_IDS[id] === 1) { return; }
+    if (el.getAttribute('data-site-select') !== null) { return; }
+    if (el.getAttribute('data-alloc-input') !== null) { allocDirty = true; return; }
+    if (VARIANT_FIELD_IDS[id] === 1) { markVariantDirty(); return; }
+    var node = el;
+    while (node && node.getAttribute) {
+      if (node.id === 'lg-rule-list' || node.id === 'lg-section-list') { markVariantDirty(); return; }
+      node = node.parentNode;
+    }
     markDirty();
-  });
+  }
+  root.addEventListener('input', function (ev) { markDirtyFor(ev.target); });
+  root.addEventListener('change', function (ev) { markDirtyFor(ev.target); });
   window.addEventListener('beforeunload', function (e) {
-    if (dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+    if (dirty || variantDirty || allocDirty || frameDirty || themeDirty || overridesDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
   });
 }());
 `;

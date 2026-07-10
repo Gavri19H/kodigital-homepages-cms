@@ -1145,6 +1145,24 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     } else if (!isRecord(raw)) {
       errors["frame_overrides_json"] = "frame_overrides_json must be a JSON object or null";
     } else {
+      // §4.5: `template`/`version` are funnel-level fields — the overrides
+      // merge DROPS them (effectiveFrame layer 3), so accepting them here
+      // would silently ignore operator intent (an overrides patch may never
+      // switch templates). REJECT with a path-precise problem rather than
+      // stripping.
+      for (const funnelLevelKey of ["template", "version"] as const) {
+        if (raw[funnelLevelKey] !== undefined) {
+          overridesProblems.push({
+            path: `frame_overrides.${funnelLevelKey}`,
+            scope: "frame",
+            severity: "error",
+            message:
+              funnelLevelKey === "template"
+                ? "Variant overrides can't switch the frame template — the template is a funnel-level setting (change it in the funnel's frame settings)."
+                : "Variant overrides can't carry a version field — it belongs to the funnel-level frame settings.",
+          });
+        }
+      }
       const { theme: themePart, ...frameParts } = raw;
       overridesProblems.push(...validateFrameConfig(frameParts).problems);
       if (themePart !== undefined) {
@@ -1664,6 +1682,36 @@ function toggleVisibleSection(
     .replace(marker(index, true), () => marker(index, false));
 }
 
+// Mirror the ENGINE's footer show_on rule per composed page (13 §13.4 parity
+// with render.ts updateFooterVisibility): page k shows a show_on:"final"
+// footer only on the LAST page and a show_on:"first" footer only on page 1.
+// renderQuoteFrame always bakes the STEP-1 truth ("final" arrives hidden when
+// the funnel has more than one Section; everything else arrives visible —
+// frame.ts renderFooterRegion), so this swaps the baked state only when page
+// k disagrees with it. Same exact-substring idiom as advanceFrameProgress:
+// the ` data-show-on="…"` attribute suffix is emitted ONLY by
+// renderFooterRegion (authored content renders escaped), so the swap can
+// never collide. show_on:"all" needs no per-page toggle; a disabled/"never"
+// footer renders no [data-show-on] node at all.
+function setFrameFooterVisibility(
+  pageHtml: string,
+  frame: EffectiveFrameConfig,
+  step: number,
+  sectionCount: number,
+): string {
+  const f = frame.footer;
+  if (!f.enabled || (f.show_on !== "final" && f.show_on !== "first")) return pageHtml;
+  const total = Math.max(1, Math.round(sectionCount));
+  const target = Math.min(Math.max(1, Math.round(step)), total);
+  const ssrHidden = f.show_on === "final" && total > 1; // the frame.ts step-1 bake
+  const pageHidden = f.show_on === "final" ? target !== total : target !== 1;
+  if (pageHidden === ssrHidden) return pageHtml;
+  const attrs = (hidden: boolean): string => ` data-show-on="${f.show_on}"${hidden ? " hidden" : ""}>`;
+  const from = attrs(ssrHidden);
+  const at = pageHtml.indexOf(from);
+  return at === -1 ? pageHtml : pageHtml.slice(0, at) + attrs(pageHidden) + pageHtml.slice(at + from.length);
+}
+
 export function renderComposedVariantPreview(
   input: ComposedVariantPreviewInput,
 ): ComposedVariantPreview | null {
@@ -1736,10 +1784,9 @@ export function renderComposedVariantPreview(
         contentVersion: input.variant.content_version,
       },
     });
-    return advanceFrameProgress(
-      page,
+    return setFrameFooterVisibility(
+      advanceFrameProgress(page, composition.frame, effectiveDesign as FunnelDesign, step, input.sections.length),
       composition.frame,
-      effectiveDesign as FunnelDesign,
       step,
       input.sections.length,
     );

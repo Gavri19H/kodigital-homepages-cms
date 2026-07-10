@@ -367,15 +367,19 @@ function buildFrameDom(
   root.appendChild(mount);
 
   // Frame footer region (11 §11.3): renderFooterRegion emits it ONCE with
-  // data-show-on riding the region wrapper; SSR leaves it VISIBLE (initial
-  // per-step visibility is engine-owned — the same doctrine as the back
-  // affordance above). "never" renders nothing at all, so it has no sim leg.
+  // data-show-on riding the region wrapper. SSR bakes the step-1 verdict
+  // (DEV-57): show_on:"final" arrives `hidden` whenever the funnel has more
+  // than one section (this 3-section sim: hidden); "first"/"all" arrive
+  // visible. The engine re-derives visibility on every step change, so the
+  // per-step assertions below are engine-owned truth either way. "never"
+  // renders nothing at all, so it has no sim leg.
   let footer: FakeElement | null = null;
   if (opts.footerShowOn !== undefined) {
     footer = new FakeElement("div", {
       class: `lg-frame-region lg-frame-footer lg-frame-footer--show-${opts.footerShowOn}`,
       "data-frame-region": "footer",
       "data-show-on": opts.footerShowOn,
+      ...(opts.footerShowOn === "final" ? { hidden: "" } : {}),
     });
     root.appendChild(footer);
   }

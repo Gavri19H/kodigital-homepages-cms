@@ -416,6 +416,43 @@ describeDb("preview modes — POST /variants/:id/preview (13 §13.4)", () => {
     expect(pages[2]).toContain("width:100%");
   });
 
+  it("footer show_on mirrors the ENGINE per page (DEV-57): 'final' hidden until the last page, 'first' visible only on page 1", async () => {
+    const fx = await seedFixture();
+    const setFooter = (showOn: string): void => {
+      fx.sdb
+        .prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE public_id = ?")
+        .run(JSON.stringify({ ...FRAME_CONFIG, footer: { show_on: showOn } }), fx.funnelPublicId);
+    };
+
+    // --- show_on:"final" — hidden on pages 1..N-1, visible on page N --------
+    setFooter("final");
+    const finalRes = await postPreview(fx, { mode: "all" });
+    expect(finalRes.status, await finalRes.clone().text()).toBe(200);
+    const finalPages = ((await finalRes.json()) as V25Preview).preview.pages!;
+    expect(finalPages).toHaveLength(3);
+    expect(finalPages[0], "final: page 1 hidden").toContain(' data-show-on="final" hidden>');
+    expect(finalPages[1], "final: page 2 hidden").toContain(' data-show-on="final" hidden>');
+    expect(finalPages[2], "final: page 3 visible").toContain(' data-show-on="final">');
+    expect(finalPages[2]).not.toContain(' data-show-on="final" hidden>');
+
+    // mode:"section" mirrors the same rule for the CHOSEN slide
+    const lastChosen = await postPreview(fx, { mode: "section", section_public_id: fx.sections[2]!.public_id });
+    expect(lastChosen.status).toBe(200);
+    expect(((await lastChosen.json()) as V25Preview).preview.html).toContain(' data-show-on="final">');
+    const midChosen = await postPreview(fx, { mode: "section", section_public_id: fx.sections[1]!.public_id });
+    expect(((await midChosen.json()) as V25Preview).preview.html).toContain(' data-show-on="final" hidden>');
+
+    // --- show_on:"first" — visible only on page 1 ----------------------------
+    setFooter("first");
+    const firstRes = await postPreview(fx, { mode: "all" });
+    expect(firstRes.status, await firstRes.clone().text()).toBe(200);
+    const firstPages = ((await firstRes.json()) as V25Preview).preview.pages!;
+    expect(firstPages[0], "first: page 1 visible").toContain(' data-show-on="first">');
+    expect(firstPages[0]).not.toContain(' data-show-on="first" hidden>');
+    expect(firstPages[1], "first: page 2 hidden").toContain(' data-show-on="first" hidden>');
+    expect(firstPages[2], "first: page 3 hidden").toContain(' data-show-on="first" hidden>');
+  });
+
   it("site_id threads ANY CMS site's branding — including an UNACTIVATED site (C4)", async () => {
     const fx = await seedFixture();
     // C4 precondition: no activation rows exist for ANY site.

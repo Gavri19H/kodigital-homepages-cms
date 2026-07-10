@@ -452,14 +452,24 @@ function renderFooterLogo(branding: SiteBranding | null): string {
 // 11 §11.3 footer — the FooterBar preset over config-derived props.
 // links_source:"site" renders siteBranding.legal_links; a missing/empty
 // source OMITS the links group (never empty anchors, 10 §10.2). show_on rides
-// as a data attribute + class (the engine's per-step visibility leg is the
-// integration slice; "never" renders nothing at all). `extraInner` carries
-// the footer-placed sub-regions (trust strip / disclosure text / back link).
+// as a data attribute + class ("never" renders nothing at all). `extraInner`
+// carries the footer-placed sub-regions (trust strip / disclosure text /
+// back link).
+//
+// SSR visibility bake (DEV-57): the rendered page IS step 1, so the engine's
+// step-1 verdict is baked into the markup — show_on:"final" arrives `hidden`
+// whenever the funnel has more than one Section (step 1 is never final);
+// a single-Section funnel's step 1 IS final, so it stays visible.
+// show_on:"first"/"all" stay visible (step 1 IS first). Without the bake a
+// "final" footer flashes until hydration and shows permanently with JS off.
+// The engine (render.ts updateFooterVisibility) re-derives visibility on
+// every step change exactly as before.
 function renderFooterRegion(
   frame: EffectiveFrameConfig,
   design: DefaultFunnelDesign,
   branding: SiteBranding | null,
   extraInner: string,
+  sectionCount: number,
 ): string {
   const f = frame.footer;
   if (!f.enabled || f.show_on === "never") return "";
@@ -475,7 +485,8 @@ function renderFooterRegion(
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
   const classes =
     `lg-frame-footer lg-frame-footer--show-${f.show_on}` + (hideMobile ? " lg-frame-footer--m-hide" : "");
-  return region("footer", classes, logo + bar + extraInner, ` data-show-on="${f.show_on}"`);
+  const bakedHidden = f.show_on === "final" && sectionCount > 1 ? " hidden" : "";
+  return region("footer", classes, logo + bar + extraInner, ` data-show-on="${f.show_on}"${bakedHidden}`);
 }
 
 // §3.3 background — the page-background layer, selected by ROLE + STYLE
@@ -587,7 +598,13 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
       ? `<div class="lg-frame-footer-disclosure" data-frame-region="disclosure">${escapeHtml(d.text)}</div>`
       : "";
 
-  const footer = renderFooterRegion(frame, design, branding, trustAt.footer + discFooter + backAt.footer);
+  const footer = renderFooterRegion(
+    frame,
+    design,
+    branding,
+    trustAt.footer + discFooter + backAt.footer,
+    sectionCount,
+  );
   // A footer-positioned back/trust must not vanish with a disabled footer —
   // exactly one affordance per config (§11.2): fall back to standalone regions
   // at the footer slot position.
