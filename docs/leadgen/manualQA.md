@@ -920,3 +920,386 @@ N).
 | MQA-25 | S2S dispatch — enabled fires, disabled silent, no double-fire | `test/leadgen-s2s-dispatch.test.ts`; `test/leadgen-pixel-route.test.ts`; `test/leadgen-media-platforms-admin.test.ts` |  |  |  |
 | MQA-26 | GA4 pass-through keeps dataLayer/gtag working | `test-ui/leadgen-ga4.spec.ts` |  |  |  |
 | MQA-27 | Off-ADMIN_HOST → 404; unauth → 401/403 | `test/leadgen-admin-shell.test.ts`; `test/leadgen-runtime-guard.test.ts` |  |  |  |
+
+---
+
+# Part C — v2.5.1 Quote & Section Authoring Redesign scenarios (MQA-V25-1 … MQA-V25-4)
+
+The four manual-QA scenarios mandated by redesign contract v2.5.1
+`15-testing-qa-contract.md` §15.5 (Phase E). They are **designer-comprehension
+and authoring-UX** scenarios: the automated v2.5 suites (cited per scenario)
+already prove the mechanics in CI; what CI cannot prove is that a **human
+designer** can drive the shipped surfaces without raw JSON, without code
+labels, and with the correct Quote-vs-Section mental model. That human leg is
+**operator-owned** — every row of the Part C sign-off table is
+**BLOCKED(operator, manual_qa_visual)** until a real designer executes it.
+The same evidence rules as Parts A/B apply (E1/E2/E4/E6; blank = FAIL;
+results are never fabricated).
+
+Every named button, tab, control and copy string in the steps below was
+verified against the shipped SSR surfaces (`api/src/admin/leadgen/ui-quotes.ts`,
+`api/src/admin/leadgen/ui-section-studio.ts`, `api/src/admin/leadgen/ui-sections.ts`,
+frame templates in `api/src/public/leadgen/designs/frames.ts`) — the steps are
+executable verbatim.
+
+**Who runs it:** a designer/operator who did **not** build this product.
+Scenario 2 in particular must be asked cold (no coaching, no tour of the
+answer sheet beforehand).
+
+**Prerequisites (Part C):**
+
+- CF Access admin credentials for `ADMIN_HOST` (all four scenarios are
+  admin-surface scenarios; no live tenant is required — the preview stack is
+  the runtime composition, proven byte-equal by
+  `test/leadgen-endpoint-parity.test.ts`).
+- An activity/vertical with at least **one active Offer** that has an
+  **active payload schema** (mapping + activation preflight need it), and an
+  **Auction** configured for that activity (the §5.2 preflight validates it).
+- At least **two CMS sites**, at least one with a **logo** set in its site
+  settings (the branding-swap legs of MQA-V25-3; one site may stay
+  unactivated — the selector must list it too).
+- DevTools open for the console + screenshot evidence; responsive/mobile
+  checks use the builder's own `Mobile 375` viewport buttons (true 375px
+  iframes, not scaled desktop).
+
+## Part C scenario index
+
+| ID | Title | Surface | Status |
+|---|---|---|---|
+| MQA-V25-1 | Designer builds a complete 4-slide Quote (frame + theme + Sections + mapping + activation) — zero raw JSON, zero code labels | Admin (Quote Builder + Section Builder) | BLOCKED(operator, manual_qa_visual) |
+| MQA-V25-2 | The unprompted ownership question: "what belongs to the Quote vs the Section?" | Interview + Admin | BLOCKED(operator, manual_qa_visual) |
+| MQA-V25-3 | Preview all slides in one frame; switch site branding; confirm logo swap | Admin (Quote Builder preview) | BLOCKED(operator, manual_qa_visual) |
+| MQA-V25-4 | Break-it pass: page chrome in a Section / type hex / duplicate headlines — impossible or clearly redirected | Admin (adversarial) | BLOCKED(operator, manual_qa_visual) |
+
+---
+
+### MQA-V25-1: Designer builds a complete 4-slide Quote touching zero raw JSON and zero code labels
+
+- **Objective:** Prove a designer can assemble a complete, activatable 4-slide
+  Quote — question units, page frame, funnel theme, Offer mapping, activation —
+  entirely through the shipped UI: no raw JSON is ever typed or read outside a
+  collapsed "Advanced" disclosure, and no control exposes a code identifier as
+  its primary label.
+- **Steps (every step through the shipped UI, in order):**
+
+  **Build the four Sections (repeat 1–9 per slide; vary the answer component):**
+  1. Open `/admin/leadgen/sections` → click **+ Create a Section** (the studio
+     opens at `/admin/leadgen/sections/new`).
+  2. Top bar: fill **Section name ***; pick **Activity *** and **Vertical ***
+     from the dropdowns (they are Offer-derived; **+ New activity…** /
+     **+ New vertical…** exist behind an explicit confirm).
+  3. Question strip: type the question into **Question headline *** and watch
+     the canvas headline update live (it is a bound node — one store, two
+     views); type the **Subheadline**; pick a **Continue behavior** radio —
+     *Visitor taps Continue (validates first)* or *Advance automatically on
+     answer*. Note the strip's own note: the Continue button's default style
+     and position come from the Quote's frame.
+  4. Left palette — exactly six groups: **Question copy** · **Answer choices**
+     · **Inputs** · **Inside-card layout** · **Trust & help — inside this
+     question unit** · **Navigation**. Add the slide's answer component from
+     **Answer choices** — use a different type per slide to exercise depth,
+     e.g. slide 1 an icon-card grid, slide 2 an **image-card grid**, slide 3 a
+     yes/no pair, slide 4 a dropdown or input.
+  5. Select the new component on the canvas → the right inspector header
+     flashes **Editing: <component>** with scope pills, and shows only the
+     tabs that apply (of: Content · Choices · Layout · Design · Validation ·
+     Maps · Dependencies · Mapping · Advanced). Select a single choice card →
+     the header re-scopes to the choice.
+  6. Choices tab (slide 2, the image-card grid): per card set the image via
+     the **real media picker dialog** (library pick, upload, or **Generate
+     with AI**), the REQUIRED **alt text**, title, subtitle, and value. Confirm
+     the C1 note on this tab: *"Answer choices own display and normalization
+     only. Provider values are set per Offer in the Mapping tab — each row's
+     chip shows them read-only."*
+  7. Design tab: set a color through the **palette swatch strip** — swatches
+     carry role names (e.g. *Brand primary*, *Soft fill*), never hex text.
+  8. Bottom drawer → **Offer mapping** tab: map the answer to the Offer's
+     payload field using the pickers only (fields appear by their human
+     LABEL; raw paths live in tooltips/Advanced); where the Offer needs
+     per-answer provider values, use the row's value-map editor (the
+     *Fill provider values…* action) — then confirm the per-choice chip reads
+     **Provider values: k/n Offers** and the top-bar badge reads **Mapping k/n
+     Offers complete** (or **Mapping ready**).
+  9. Top bar **Save** → the issues chip must read **No issues** (if not, open
+     the drawer's **Validation** tab and fix by clicking each issue to focus
+     its component). Repeat for all four Sections.
+
+  **Assemble the Quote:**
+  10. Open `/admin/leadgen/quotes` → click **+ Create a Quote** → the **New
+      Quote** editor: set the quote name, activity and vertical(s); create.
+  11. On the **Funnel builder** tab, left **Funnel structure** panel: pick
+      each Section in the **Add section** select → **+ Add Section**, four
+      times; reorder with the drag handle (⋮⋮ *Drag to reorder*) or the
+      **↑/↓** buttons; confirm the **"Auction runs after this slide"** marker
+      sits after the LAST slide (v2.5 model: the auction entry is the final
+      slide — there is no separate flag to manage). Open the collapsed
+      **Funnel settings** disclosure → pick the **Auction**.
+  12. Canvas toolbar → **Template**: the **Frame template** picker offers six
+      named cards — *Centered card* · *Site header + footer* · *Header + call
+      CTA* · *Full background* · *White + trust bar* · *Minimal* — each with a
+      thumbnail and an arrangement tooltip. Pick one. Note the picker's
+      promise: *"Your copy, images and colors are kept. Layout comes from the
+      template. Nothing changes until you Save."*
+  13. Click each frame region directly on the canvas (or via the inspector
+      panels): **Header** (logo, tagline, secure badge, header CTA),
+      **Progress**, **Back**, **Disclosure**, **Footer**, **Trust strip**,
+      **Benefit bar**, **Background**, **Section slot**. Every region
+      inspector opens under a scope line — **"Editing: Funnel frame —
+      <Region> · affects every slide of this funnel"**. Configure at minimum:
+      Progress **Style** (radio: bar / dots / numbered / percent / hidden) and
+      note *"Progress counts the slides of this funnel variant
+      automatically"*; Back (note *"Hidden automatically on the first
+      slide"*); Footer **Show on** (*Every slide / First slide / Final slide /
+      Never*); Disclosure text.
+  14. Toolbar → **Theme**: the **Funnel theme** drawer (*"affects every slide
+      and every component default of this funnel"*): pick palette roles by
+      swatch (the 14 named roles: *Brand primary*, *Accent*, *Page
+      background*, *Card background*, *Button*, …), typography and scale
+      selects. Confirm hex entry exists ONLY inside the collapsed **Advanced
+      token administration** disclosure (*"Custom colors skip the design
+      system — check contrast."*) — and do NOT use it in this scenario.
+  15. Toolbar preview: flip **Desktop 1280** ⇄ **Mobile 375**; flip **Current
+      slide** ⇄ **Step through all slides**; confirm the composed page (frame
+      + first question unit) renders on both viewports.
+  16. Click **Save** (one Save persists frame + theme + variant structure
+      together) → the publish chip refreshes to the server verdict.
+  17. Click **Publish…** → the **Activation** tab: the **Activation preflight
+      (§5.2)** panel must show the green itemized checks (selected-offer
+      mappings complete · required provider fields mapped · no orphaned
+      provider fields · type conversions valid · payload schema versions
+      present · visibility conditions resolve · auction configuration valid ·
+      participating offers eligible). In the per-site row: tick the site's
+      checkbox, set a slug (*"slug (blank = root /lg)"*), click **Save**; the
+      preview URL link appears on the row.
+  18. Sign-off sweep with the designer: at no point did any step require
+      typing or reading raw JSON (JSON and hex surfaces exist only behind
+      collapsed **Advanced** disclosures), and no control's primary label was
+      a code identifier (ids like `lgs_…` appear only as secondary/Advanced
+      metadata).
+- **Expected:** the full flow completes exactly as written above using only
+  the named controls; the Quote reaches an activated state through the green
+  preflight; the designer confirms (and the screenshots show) zero raw-JSON
+  and zero code-label touchpoints.
+- **Automated-test proof (CI):** `test-ui/leadgen-quote-builder.spec.ts`
+  (rows ①–⑨: badges/logo/progress/all-slides/footer/template-switch/override
+  badge/one-Save/C2 publish block); `test-ui/leadgen-section-builder.spec.ts`
+  (rows ①–⑨: binding, inspector scope, C1 chip, image-card picker round-trip,
+  role swatches, picker-only mapping, real-width round-trip, chrome-free
+  palette, move-to-frame); `test-ui/leadgen-studio-patterns.spec.ts` (v2.5.1
+  patterns 1–4 + §8.12 flows); `test/leadgen-quote-builder-ui.test.ts` (§4.4
+  control-by-control key mapping + SSR no-raw-JSON/no-hex legs);
+  `test/leadgen-section-studio-ui.test.ts` (§8.7: the only raw-JSON control is
+  the Advanced node editor); `test/leadgen-frame-routes.test.ts`;
+  `test/leadgen-activation-preflight-v25.test.ts`;
+  `test/leadgen-glossary-lint.test.ts` + `test/leadgen-hex-lint.test.ts`
+  (no code terms / no hex in normal-mode copy, enforced over every emitted
+  `ui-*.ts` string).
+- **Evidence:** screenshots per major station (studio with mapping badge
+  complete; frame canvas with a region inspector open; theme drawer; template
+  picker; all-slides preview desktop + 375; green preflight + activated site
+  row); the designer's zero-JSON / zero-code-label confirmation; console clean.
+
+### MQA-V25-2: The unprompted ownership question — "what belongs to the Quote vs the Section?" (with answer sheet)
+
+- **Objective:** Prove the shipped UX **teaches** the composition model. After
+  (or during) the MQA-V25-1 build, the designer is asked cold — no coaching —
+  to sort concerns between the Quote and the Section. Per contract §15.5-2:
+  **a wrong answer fails the UX, not the designer** — a miss is a product
+  finding against the surface that misled them, never a tester failure.
+- **Steps:**
+  1. Ask, verbatim: *"You're looking at slide 3 of your funnel. What belongs
+     to the Quote, and what belongs to the Section?"* Let the designer answer
+     free-form first.
+  2. Then probe the specific rows of the answer sheet below (ask each item:
+     "Quote or Section?"). Record every answer verbatim.
+  3. Score against the answer sheet. For any miss, ask the designer to show
+     you *where the UI told them otherwise* — record that surface in the
+     findings.
+- **Answer sheet (from contract `02 §2.2` — operator words):**
+
+  | The designer is asked about… | Correct owner | The UI cue that teaches it |
+  |---|---|---|
+  | Site logo, header, tagline, secure badge, header call-CTA | **Quote** (the funnel's Page frame) | Header region inspector: "Editing: Funnel frame — Header · affects every slide of this funnel" |
+  | Advertising disclosure, legal links, footer, funnel-wide trust/logo strips, benefit bar | **Quote** (frame) | Footer/Disclosure/Trust strip/Benefit bar region inspectors; the studio palette carries none of them |
+  | Progress bar / step indicator | **Quote** (frame; counts the variant's slide order automatically) | Progress inspector note: "Progress counts the slides of this funnel variant automatically." |
+  | Previous/Back control | **Quote** (frame; auto-hidden on the first slide) | Back inspector note: "Hidden automatically on the first slide." |
+  | Page background, overall colors/typography/spacing, button + card defaults | **Quote** (Funnel theme) | Theme drawer: "affects every slide and every component default of this funnel" |
+  | Slot geometry — card vs bare, width, padding, transition, default Continue placement | **Quote** (frame — Section slot region) | Section slot region inspector |
+  | Question headline + subheadline (the canonical text) | **Section** (stored once, on the Section itself) | The Question strip is THE editor; the canvas node is the same value (one store, two views) |
+  | Answer components, inputs, local media, helper/reassurance copy, error lines | **Section** (the question unit) | The six palette groups — all unit-scoped |
+  | Answer normalization (internal field) + per-Offer payload mapping + provider values | **Section** (mapping is per-Offer, in the Mapping tab) | Choices-tab C1 note + "Provider values: k/n Offers" chip |
+  | Validation rules, IF/THEN dependencies, whether Continue is needed (button vs auto-advance) | **Section** | Continue behavior radios in the Question strip; Validation/Dependencies tabs |
+  | Per-choice content — label, value, icon/image/emoji, title/subtitle, badge, alt text | **Section** (the component/choice) | Choices tab per-card editors |
+  | Containers INSIDE the unit (card panel, answer grid, columns, spacer) | **Section** | "Inside-card layout" palette group |
+  | The Continue button itself | **Both, split**: the frame styles/places it by default; the Section decides *need* (button vs auto-advance) and may restyle its copy locally | The Question-strip note + the frame's Section-slot inspector |
+  | Trust badges/logo rows/legal notes | **Both, split by scope**: "Trust & help — inside this question unit" (Section) vs funnel-wide strips in the Quote Builder | The palette group name itself + the C7 scope note under it |
+
+- **Expected:** the free-form answer lands the core split (frame = what stays
+  identical on every slide; Section = the question unit that changes), and
+  every probed row is answered correctly — including the two "both, split"
+  nuance rows. Any miss = **the UX failed**: file a finding naming the
+  misleading surface (the row still records FAIL-with-finding, not
+  tester error).
+- **Automated-test proof (CI):** none can exist for human comprehension — the
+  supporting floor is the language discipline the answer sheet leans on:
+  `test/leadgen-glossary-lint.test.ts` (C6 — "slide" is Quote-Builder-only
+  vocabulary; the Section Builder always says Section / question unit) and the
+  C7 scope labels asserted in `test/leadgen-quote-builder-ui.test.ts` +
+  `test/leadgen-section-studio-ui.test.ts`.
+- **Evidence:** the designer's verbatim answers per row; the scored sheet;
+  findings (if any) naming the misleading surface with a screenshot.
+
+### MQA-V25-3: Preview all slides in one frame; switch site branding; confirm the logo swap
+
+- **Objective:** Prove the one-frame promise and the per-site branding ladder
+  are visible to a human: all four slides step inside ONE constant frame, and
+  switching the preview site swaps the logo (including for a not-yet-activated
+  site).
+- **Steps:**
+  1. Open the MQA-V25-1 Quote in the Quote Builder (**Funnel builder** tab).
+  2. In the canvas toolbar set **Step through all slides**; use the **←/→**
+     steppers to walk slides 1→4. On EVERY slide confirm the frame is
+     IDENTICAL — same header/logo, same disclosure, same footer, same trust
+     strip — while only the question unit inside the slot changes.
+  3. Watch the progress region while stepping: the value/step advances with
+     the slide position (1 of 4 … 4 of 4) in the style you configured
+     (dots/bar/numbered/percent).
+  4. Confirm the Back affordance is absent on slide 1 and present from
+     slide 2 on.
+  5. Flip to **Mobile 375** and re-step all four slides: same frame constancy,
+     no horizontal overflow inside the canvas iframe.
+  6. Open the **Preview site** selector: it must list **ALL** CMS sites, each
+     suffixed with its badge — *Active* · *Activation off* · *Not activated
+     yet* (Active sites sort first).
+  7. Pick a second site that has a different logo (an unactivated site is
+     valid — pre-activation branding preview is a feature): the header logo
+     swaps to that site's logo immediately, on every slide of the all-slides
+     walk.
+  8. Confirmation steps: switch back to the first site → the original logo
+     returns; re-step slides 1→4 once more → frame constancy holds after the
+     swap.
+- **Expected:** four slides, one constant frame (header/disclosure/footer/
+  trust identical on every step); progress advances by slide position; Back
+  hidden only on slide 1; the site selector lists every CMS site with the
+  correct badge; the logo swaps per selected site (both directions) including
+  an unactivated site; mobile behaves identically at a true 375px.
+- **Automated-test proof (CI):** `test-ui/leadgen-quote-builder.spec.ts` ①
+  (all sites + badges + unactivated-site branding preview), ② (logo
+  auto-appears), ③ (switch site → logo swaps), ④ (all-slides stepping
+  advances progress), ⑤ (footer/disclosure/trust around EVERY slide);
+  `test/leadgen-preview-modes.test.ts`; `test/leadgen-branding.test.ts`
+  (resolver ladder) + `test/leadgen-branding-bump.test.ts` (served-shell
+  staleness); `test/leadgen-endpoint-parity.test.ts` (the preview composition
+  the designer is looking at byte-equals the runtime composition).
+- **Evidence:** screenshots of slides 1 and 4 in the all-slides walk (desktop
+  + 375) showing the identical frame; the site selector open with its badge
+  list; before/after logo-swap screenshots; console clean.
+
+### MQA-V25-4: Break-it pass — page chrome in a Section, hex, duplicate headlines
+
+- **Objective:** Adversarial pass (per the repo manual-QA doctrine: try to
+  break it). Attempt the three classic v2.4-era mistakes; each must be
+  **impossible or clearly redirected** by the shipped UX — the named
+  refusal/redirect below is the expected behavior.
+- **Steps + expected behavior per attempt:**
+
+  **(a) Try to put page chrome in a Section.**
+  1. Open any Section in the studio. Search the palette for a header, footer,
+     progress bar or page-background item: the six groups (**Question copy /
+     Answer choices / Inputs / Inside-card layout / Trust & help — inside this
+     question unit / Navigation**) contain none of them.
+  2. EXPECTED redirect: the dismissible palette callout reads *"Looking for
+     the page header, footer, progress bar or background? Those live in the
+     **Quote Builder** → Open"* — and the Open link lands on
+     `/admin/leadgen/quotes`.
+  3. In the inspector scope pills, the **Funnel frame** pill is disabled with
+     the tooltip *"Page-frame elements are edited in the Quote Builder"*. The
+     optional **Frame hint** toolbar toggle draws only a dimmed,
+     non-interactive frame skeleton (*"presentation-only, edited in the Quote
+     Builder"*).
+  4. Legacy escape-hatch check (only if a pre-v2.5 Section with an embedded
+     chrome node is available): the node renders under an amber badge —
+     *"Page-frame element — belongs to the Quote frame"* — with exactly two
+     actions, **[Move to Quote frame]** (confirm names the target funnel; the
+     node leaves the Section and the funnel's frame gains the group) and
+     **[Keep (legacy)]**; and publishing that funnel with the chrome kept is
+     BLOCKED by the Activation preflight with the §14.1 copy + a fix link,
+     downgrading to a warning only via the Advanced *"Allow slides to keep
+     their own page chrome (legacy)"* override in the Quote Builder.
+  5. FAIL condition: any palette/insert path places a header, footer,
+     progress or background element inside the question unit with no refusal
+     and no redirect.
+
+  **(b) Try to type a hex color.**
+  1. In the studio, select a component → **Design** tab: every color control
+     is a swatch strip of named roles (e.g. *Brand primary*, *Soft fill*) —
+     there is **no free-text color field** anywhere on the tab. Attempt to
+     paste `#ff0000` into each visible control: nothing accepts it.
+  2. In the Quote Builder → **Theme** drawer: palette editing is role
+     swatches + named presets; typography/scales are selects.
+  3. EXPECTED redirect: the ONLY hex entry in the product is inside the
+     collapsed **Advanced token administration** disclosure of the Theme
+     drawer, which warns *"Custom colors skip the design system — check
+     contrast."* — i.e. hex exists exactly where the contract permits
+     (Advanced/theme administration) and nowhere else.
+  4. FAIL condition: any normal-mode control accepts or displays a raw hex
+     string.
+
+  **(c) Try to enter a duplicate headline.**
+  1. In a Section whose bound headline is on the canvas, open the palette's
+     **Question copy** group: the **Question headline** item is disabled with
+     the tooltip *"This Section already shows its headline"* (same for
+     **Subheadline**).
+  2. Try to convert another text node into a question headline: the studio
+     refuses with the toast *"This Section already shows its headline — use
+     the shared field instead."*
+  3. Type in the strip's **Question headline *** field, then double-click the
+     canvas headline and edit inline: both edits land in the SAME value (one
+     store, two views) — there is no second text field anywhere to diverge.
+  4. Delete the bound headline node on the canvas: EXPECTED redirect — the
+     canonical text is KEPT and a persistent chip appears next to the strip
+     input: *"Hidden in this question unit · [Show]"*; **Show** re-inserts the
+     bound node at the top. (Free-text extra headlines are not insertable —
+     kicker/support copy is covered by the Category label / Helper text
+     items.)
+  5. FAIL condition: any path yields two independently-stored headline texts,
+     or deleting the bound node loses the canonical text.
+
+- **Expected (roll-up):** all three attack classes are impossible or clearly
+  redirected exactly as named above; the refusal copy matches; nothing
+  silently succeeds.
+- **Automated-test proof (CI):** `test-ui/leadgen-section-builder.spec.ts` ⑧
+  (chrome-free palette + callout) and ⑨ (legacy amber badge + move-to-frame
+  end-to-end); `test/leadgen-component-scope.test.ts` (scope sets +
+  `frame_scope_component` warning); `test-ui/leadgen-quote-builder.spec.ts` ⑨
+  (C2 publish block + Advanced downgrade); `test/leadgen-hex-lint.test.ts`
+  (no hex in normal-mode labels) + `test-ui/leadgen-section-builder.spec.ts`
+  ⑤ (swatches store roles); `test/leadgen-headline-binding.test.ts` +
+  `test-ui/leadgen-section-builder.spec.ts` ① (single store) +
+  `test/leadgen-frame-serve.test.ts` (bound+props.text rejected at the API);
+  `test/leadgen-activation-preflight-v25.test.ts` (chrome-block severities).
+- **Evidence:** screenshots of: the palette + callout; the disabled Funnel
+  frame pill tooltip; the Design-tab swatch strip; the Advanced token
+  administration disclosure (collapsed and open); the disabled palette
+  headline item tooltip; the refusal toast; the "Hidden in this question
+  unit · Show" chip; (legacy leg, if run) the amber badge + the C2 publish
+  block. Console clean throughout.
+
+---
+
+## Part C sign-off — MQA-V25-1 … MQA-V25-4 (contract v2.5.1 §15.5 / `18` box 20)
+
+> **Operator-owned; BLOCKED, never PASS, until a real designer executes it
+> (consent kind: `manual_qa_visual`).** These four rows are the human leg of
+> `18` box 20 — the v2.5.1 program is code-complete without them, but final
+> acceptance box 20 stays open until this table is signed. The agent prepared
+> the scenarios and did NOT run them. The operator fills Operator / Date /
+> Result (∈ {PASS, FAIL, BLOCKED}); a blank row is a FAIL state for §15.5
+> sign-off, and a fabricated Result is a red-line violation.
+
+| Scenario | Objective | Automated-test floor (CI, already green) | Status | Operator | Date | Result |
+|---|---|---|---|---|---|---|
+| MQA-V25-1 | Complete 4-slide Quote built through the UI — zero raw JSON, zero code labels | `leadgen-quote-builder.spec.ts` ①–⑨; `leadgen-section-builder.spec.ts` ①–⑨; `leadgen-studio-patterns.spec.ts` (v2.5.1); glossary + hex lints | BLOCKED(operator, manual_qa_visual) |  |  |  |
+| MQA-V25-2 | Unprompted Quote-vs-Section ownership answers match the `02 §2.2` sheet (a miss = UX finding) | — (human comprehension; language floor: `leadgen-glossary-lint.test.ts` C6/C7 legs) | BLOCKED(operator, manual_qa_visual) |  |  |  |
+| MQA-V25-3 | All-slides preview in ONE constant frame; site-branding switch; logo swap both directions | `leadgen-quote-builder.spec.ts` ①–⑤; `leadgen-preview-modes.test.ts`; `leadgen-branding.test.ts`; `leadgen-endpoint-parity.test.ts` | BLOCKED(operator, manual_qa_visual) |  |  |  |
+| MQA-V25-4 | Break-it pass: chrome-in-Section / hex / duplicate headline — each impossible or redirected with the named copy | `leadgen-section-builder.spec.ts` ⑤⑧⑨ + ①; `leadgen-quote-builder.spec.ts` ⑨; `leadgen-hex-lint.test.ts`; `leadgen-headline-binding.test.ts` | BLOCKED(operator, manual_qa_visual) |  |  |  |
