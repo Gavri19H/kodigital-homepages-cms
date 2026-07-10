@@ -724,7 +724,9 @@ describeDb("quote builder EXECUTED island — (a) boot decode equals server trut
     expect(studio.probe.currentTemplateId()).toBe("header-cta");
 
     // the boot preview went through the LIVE composed endpoint with the
-    // island's draft fold + the first slide of the PERSISTED order
+    // island's frame draft + the first slide of the PERSISTED order; a clean
+    // boot (no unsaved override edits) sends NO draft_frame_overrides —
+    // the server keeps its stored merge (DEV-58 conditionality)
     const boot = studio.calls.find((c) => c.url.endsWith(`/variants/${h.variantId}/preview`));
     expect(boot, "boot preview POST captured").toBeDefined();
     expect(boot!.status).toBe(200);
@@ -732,6 +734,7 @@ describeDb("quote builder EXECUTED island — (a) boot decode equals server trut
     expect(bootBody["mode"]).toBe("section");
     expect(bootBody["section_public_id"]).toBe(h.sections[0]!.public_id);
     expect(bootBody["draft_frame_config"]).toEqual(studio.probe.draftFrameConfig());
+    expect(bootBody["draft_frame_overrides"]).toBeUndefined();
     // …and the canvas iframe received the server document
     const canvas = studio.byId("lg-preview-iframe");
     expect(canvas.attrs["srcdoc"]).toContain("data-frame-region");
@@ -936,12 +939,18 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     expect(badge.className).toBe("lg-chip lg-override-badge");
     expect(textOf(studio.byId("lg-override-badge-list"))).toBe("Progress");
 
-    // the preview draft folds the unsaved override group in (client fold →
-    // server render 200)
+    // DEV-58 (Phase D): the unsaved override rides the ADDITIVE
+    // draft_frame_overrides param in the stored-column shape; the funnel
+    // frame draft NO LONGER folds it (the stored-merge approximation is
+    // gone — the server substitutes the WORKING overrides exactly).
     const previews = studio.calls.filter((c) => c.url.endsWith(`/variants/${forked.public_id}/preview`));
     const lastPreview = previews[previews.length - 1]!;
     expect(lastPreview.status).toBe(200);
-    expect(((lastPreview.body as Record<string, unknown>)["draft_frame_config"] as Record<string, unknown>)["progress"]).toEqual({ style: "dots" });
+    const lastPreviewBody = lastPreview.body as Record<string, unknown>;
+    expect(lastPreviewBody["draft_frame_overrides"]).toEqual({ progress: { style: "dots" } });
+    expect((lastPreviewBody["draft_frame_config"] as Record<string, unknown>)["progress"]).toBeUndefined();
+    // …and the composed render REALLY shows the working override (dots).
+    expect((lastPreview.response as { preview: { html: string } }).preview.html).toContain("lg-steps");
 
     const structure = await getJson<StructureBody>(h.env, `${API}/quotes/${h.quotePublicId}/structure`);
     const arm = structure.funnels[0]!.variants.find((v) => v.public_id === forked.public_id)!;
@@ -1379,5 +1388,291 @@ describeDb("Quote Builder studio seams — DEV-60 (b) quote-name rename PATCH", 
     // the stored name is untouched
     const detail = await getJson<{ quote_name: string }>(h.env, `${API}/quotes/${h.quotePublicId}`);
     expect(detail.quote_name).toBe("Seam Quote");
+  });
+});
+
+// ===========================================================================
+// Phase D — 14 §14.2 (C2 LIVE) EXECUTED island: the activation PUT 409 body
+// (report + additive problems) re-renders the preflight panel with problem
+// groups + fix links; flipping compat via the REAL frame PUT downgrades the
+// chrome to a warning and the SAME island save succeeds.
+// ===========================================================================
+
+// One chrome-bearing section (StepIndicator — a §8.2 scope:"frame" type).
+function seedChromeSection(sdb: SqliteDb, name: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({
+    components: [
+      { type: "StepIndicator", question_id: "si1", props: { steps: 3, current: 1 } },
+      { type: "QuestionHeadline", question_id: "h1", props: { text: "Where?" } },
+      { type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f1", answer_type: "boolean" },
+    ],
+  });
+  sdb
+    .prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', 'life', ?, ?, 'button', 'active')")
+    .run(publicId, name, "Headline", content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
+// The activation-row target the island's delegated handler walks: a fake row
+// carrying data-site-id + the enable/slug controls, with the Save button as
+// the event target.
+function activationSaveTarget(siteId: string, slug: string): FakeNode {
+  const row = makeNode("div");
+  row.attrs["data-site-id"] = siteId;
+  row.sel["[data-site-enabled]"] = { checked: true };
+  row.sel["[data-site-slug]"] = { value: slug };
+  const save = makeNode("button");
+  save.attrs["data-save-activation"] = "";
+  save.parentNode = row;
+  return save;
+}
+
+// Depth-first id lookup over a built fake DOM subtree (the problem groups are
+// createElement children, not registry ids).
+function findById(root: unknown, id: string): FakeNode | null {
+  const rec = root as { id?: string; children?: unknown[] };
+  if (rec.id === id) return root as FakeNode;
+  for (const c of rec.children ?? []) {
+    if (c !== null && typeof c === "object") {
+      const hit = findById(c, id);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+
+function findByAttr(root: unknown, attr: string, value: string, out: FakeNode[] = []): FakeNode[] {
+  const rec = root as { attrs?: Record<string, string>; children?: unknown[] };
+  if (rec.attrs !== undefined && rec.attrs[attr] === value) out.push(root as FakeNode);
+  for (const c of rec.children ?? []) {
+    if (c !== null && typeof c === "object") findByAttr(c, attr, value, out);
+  }
+  return out;
+}
+
+describeDb("quote builder EXECUTED island — Phase D C2 LIVE activation 409 → grouped problems render", () => {
+  it("blocked PUT re-renders the panel from the 409 report+problems; the REAL compat flip downgrades to warning and the same island save succeeds", async () => {
+    const h = await studioHarness();
+    // grow the variant with a chrome slide + configure the frame (compat OFF)
+    const chrome = seedChromeSection(h.sdb, "Chrome slide");
+    const putSections = await admin.request(
+      `${API}/variants/${h.variantId}`,
+      jsonInit("PUT", { sections: [{ section_id: h.sections[0]!.id }, { section_id: chrome.id }] }),
+      h.env,
+    );
+    expect(putSections.status, await putSections.clone().text()).toBe(200);
+    const putFrame = await admin.request(
+      `${API}/funnels/${h.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: { version: 1, template: "centered" } }),
+      h.env,
+    );
+    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
+
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+
+    // --- the island's activation Save → LIVE 409 -----------------------------
+    const before = studio.calls.length;
+    studio.fire(studio.byId("lg-activation-list"), "click", activationSaveTarget("site-1", "seam-blocked"));
+    await studio.settle();
+    const put = studio.calls.slice(before).find((c) => c.method === "PUT" && c.url.includes("/activation/site-1"));
+    expect(put, "activation PUT captured").toBeDefined();
+    expect(put!.status).toBe(409);
+    const res = put!.response as Record<string, unknown>;
+    // §14.2 endpoint shape: the EXACT historical report keys + problems.
+    expect(Object.keys(res).sort()).toEqual(["blocks", "error", "funnel_id", "funnel_variant_id", "problems", "quote_id"]);
+    expect(res["blocks"]).toEqual([]); // the pure C2 leg — no legacy blocks
+
+    // the 409 did NOT change the stored activation row (slug untouched)
+    const stored = h.sdb.prepare("SELECT slug FROM leadgen_site_quotes WHERE site_id = 'site-1'").get() as { slug: string };
+    expect(stored.slug).toBe("seam");
+
+    // --- the panel re-rendered BLOCKED with grouped problems + fix link ------
+    const panel = studio.byId("lg-preflight-panel");
+    expect(panel.attrs["data-preflight-state"]).toBe("blocked");
+    const wrap = findById(panel, "lg-preflight-problems");
+    expect(wrap, "problems wrap rendered").not.toBeNull();
+    const sectionGroups = findByAttr(wrap!, "data-problem-scope", "section");
+    expect(sectionGroups).toHaveLength(1);
+    const errorRows = findByAttr(sectionGroups[0]!, "data-problem-severity", "error");
+    expect(errorRows.length).toBeGreaterThan(0);
+    const chromeRow = errorRows.find((r) => r.attrs["data-problem-path"] === `section.${chrome.public_id}.content`);
+    expect(chromeRow, "the C2 chrome row rendered").toBeDefined();
+    expect(textOf(chromeRow)).toContain("contains page-frame elements");
+    // the fix_url deep link with the derived label
+    const link = (chromeRow!.children as FakeNode[]).find((c) => c.tag === "a");
+    expect(link, "fix link rendered").toBeDefined();
+    expect(link!.attrs["href"]).toBe(`/admin/leadgen/sections/${chrome.public_id}/edit`);
+    expect(textOf(link)).toBe("Review slide");
+    // the publish chip flipped to the blocked verdict with the error count
+    expect(studio.byId("lg-publish-badge").attrs["data-publish-verdict"]).toBe("blocked");
+
+    // --- the REAL compat flip (Advanced legacy override) → warning + 200 -----
+    const compatPut = await admin.request(
+      `${API}/funnels/${h.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: { version: 1, template: "centered", compat: { allow_section_chrome: true } } }),
+      h.env,
+    );
+    expect(compatPut.status, await compatPut.clone().text()).toBe(200);
+
+    const mid = studio.calls.length;
+    studio.fire(studio.byId("lg-activation-list"), "click", activationSaveTarget("site-1", "seam-compat"));
+    await studio.settle();
+    const put2 = studio.calls.slice(mid).find((c) => c.method === "PUT" && c.url.includes("/activation/site-1"));
+    expect(put2!.status, JSON.stringify(put2!.response)).toBe(200);
+    // persisted now (the warning never blocks)
+    const stored2 = h.sdb.prepare("SELECT slug, enabled FROM leadgen_site_quotes WHERE site_id = 'site-1'").get() as { slug: string; enabled: number };
+    expect(stored2.slug).toBe("seam-compat");
+    expect(stored2.enabled).toBe(1);
+    // panel: PASS + the downgraded warning row still surfaced in its group
+    expect(panel.attrs["data-preflight-state"]).toBe("pass");
+    const wrap2 = findById(panel, "lg-preflight-problems");
+    expect(wrap2, "warning groups still rendered").not.toBeNull();
+    const warnRows = findByAttr(wrap2!, "data-problem-severity", "warning");
+    expect(warnRows.some((r) => textOf(r).includes("Legacy override is ON"))).toBe(true);
+    expect(findByAttr(wrap2!, "data-problem-severity", "error")).toHaveLength(0);
+    expect(studio.byId("lg-publish-badge").attrs["data-publish-verdict"]).toBe("ok");
+  });
+});
+
+// ===========================================================================
+// Phase D — the mode:"all" lazy stepper (EXECUTED): >8 slides fetch ONE page
+// per step (page:k protocol); ≤8 slides keep the eager pages[] flow with
+// LOCAL stepping (no extra fetches — byte-identical Phase-B behavior).
+// ===========================================================================
+
+describeDb("quote builder EXECUTED island — Phase D lazy all-slides stepper", () => {
+  const STEP_FRAME = { version: 1, template: "centered", progress: { style: "bar", show_label: true } };
+
+  it(">8 slides: mode:'all' fetches page:1; Next fetches page:2 — one composed page per step, canvas + label follow", async () => {
+    const h = await studioHarness();
+    const extra: Array<{ id: number; public_id: string }> = [];
+    for (let i = 3; i <= 9; i++) extra.push(seedSection(h.sdb, `Slide ${i}`));
+    const putSections = await admin.request(
+      `${API}/variants/${h.variantId}`,
+      jsonInit("PUT", { sections: [...h.sections, ...extra].map((s) => ({ section_id: s.id })) }),
+      h.env,
+    );
+    expect(putSections.status, await putSections.clone().text()).toBe(200);
+    const putFrame = await admin.request(
+      `${API}/funnels/${h.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: STEP_FRAME }),
+      h.env,
+    );
+    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
+
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+
+    const before = studio.calls.length;
+    studio.fire(studio.root, "click", fakeTarget("data-preview-mode-btn", "all"));
+    await studio.settle();
+    const first = studio.calls.slice(before).filter((c) => c.url.endsWith("/preview"));
+    expect(first).toHaveLength(1);
+    const firstBody = first[0]!.body as Record<string, unknown>;
+    expect(firstBody["mode"]).toBe("all");
+    expect(firstBody["page"]).toBe(1); // 9 slides > the 8-slide threshold → lazy
+    const firstPreview = (first[0]!.response as { preview: Record<string, unknown> }).preview;
+    expect(firstPreview["page"]).toBe(1);
+    expect(firstPreview["pages"]).toBeUndefined(); // ONE page, not all nine
+    expect(firstPreview["section_count"]).toBe(9);
+    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 1 of 9");
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 9");
+
+    // Next → a NEW lazy fetch for page 2 (the eager flow would swap locally)
+    const mid = studio.calls.length;
+    studio.fire(studio.byId("lg-step-next"), "click");
+    // label-after-response ordering: the click issues the per-step fetch but
+    // the label must NOT move optimistically — a promise can never resolve
+    // synchronously, so right here the page-2 response has not landed and
+    // the label still names the CURRENT step (it updates in renderPreview's
+    // completion path, together with the canvas).
+    expect(textOf(studio.byId("lg-step-label")), "label unchanged while the page-2 fetch is in flight").toBe(
+      "Slide 1 of 9",
+    );
+    await studio.settle();
+    const second = studio.calls.slice(mid).filter((c) => c.url.endsWith("/preview"));
+    expect(second).toHaveLength(1);
+    expect((second[0]!.body as Record<string, unknown>)["page"]).toBe(2);
+    const secondPreview = (second[0]!.response as { preview: Record<string, unknown> }).preview;
+    expect(secondPreview["page"]).toBe(2);
+    const srcdoc = studio.byId("lg-preview-iframe").attrs["srcdoc"] ?? "";
+    expect(srcdoc).toContain("Step 2 of 9");
+    expect(srcdoc).toContain(String(secondPreview["html"]).slice(0, 120)); // the canvas holds the served page
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 9");
+  });
+
+  it("≤8 slides: the eager pages[] flow is untouched — no page param, Next steps LOCALLY with zero extra fetches", async () => {
+    const h = await studioHarness(); // 2 slides
+    const putFrame = await admin.request(
+      `${API}/funnels/${h.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: STEP_FRAME }),
+      h.env,
+    );
+    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
+
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+
+    const before = studio.calls.length;
+    studio.fire(studio.root, "click", fakeTarget("data-preview-mode-btn", "all"));
+    await studio.settle();
+    const first = studio.calls.slice(before).filter((c) => c.url.endsWith("/preview"));
+    expect(first).toHaveLength(1);
+    expect((first[0]!.body as Record<string, unknown>)["page"]).toBeUndefined(); // eager — byte-identical Phase B
+    const preview = (first[0]!.response as { preview: { pages?: string[] } }).preview;
+    expect(preview.pages).toHaveLength(2);
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 1 of 2");
+
+    // Next swaps the LOCAL page — zero additional fetches
+    const count = studio.calls.length;
+    studio.fire(studio.byId("lg-step-next"), "click");
+    await studio.settle();
+    expect(studio.calls.length).toBe(count);
+    expect(textOf(studio.byId("lg-step-label"))).toBe("Slide 2 of 2");
+    expect(studio.byId("lg-preview-iframe").attrs["srcdoc"]).toContain("Step 2 of 2");
+  });
+});
+
+// ===========================================================================
+// Phase D — DEV-66 routing (EXECUTED): the Quote-Builder canvas mobile toggle
+// drives the REAL 375px iframe (the preview-drawer idiom) — the composed
+// document rides srcdoc inside an iframe whose element width becomes 375px,
+// so the design's @media (max-width: 480px) block genuinely fires at mobile
+// width (an inline injection into the wide admin DOM never could).
+// ===========================================================================
+
+describeDb("quote builder EXECUTED island — DEV-66 canvas mobile = real 375 iframe", () => {
+  it("the mobile toggle re-renders the srcdoc iframe at width 375px (desktop 1280px) with the mobile media query aboard", async () => {
+    const h = await studioHarness();
+    const putFrame = await admin.request(
+      `${API}/funnels/${h.funnelPublicId}/frame`,
+      jsonInit("PUT", { frame_config_json: { version: 1, template: "centered" } }),
+      h.env,
+    );
+    expect(putFrame.status, await putFrame.clone().text()).toBe(200);
+
+    const html = await editorPage(h.env, h.quotePublicId);
+    const studio = await bootStudio(h.env, html);
+    const canvas = studio.byId("lg-preview-iframe");
+
+    // boot renders desktop
+    expect(canvas.style["width"]).toBe("1280px");
+
+    studio.fire(studio.root, "click", fakeTarget("data-viewport-btn", "mobile"));
+    await studio.settle();
+    // the REAL iframe narrows to 375 — its internal viewport is 375px, so the
+    // srcdoc's own media query evaluates true at mobile width
+    expect(canvas.style["width"]).toBe("375px");
+    const srcdoc = canvas.attrs["srcdoc"] ?? "";
+    expect(srcdoc).toContain("<style>"); // srcdoc is a full document with the style block
+    expect(srcdoc).toMatch(/@media \(max-width: ?480px\)/); // the design's mobile block rides INSIDE the iframe
+
+    // back to desktop — unchanged behavior
+    studio.fire(studio.root, "click", fakeTarget("data-viewport-btn", "desktop"));
+    await studio.settle();
+    expect(canvas.style["width"]).toBe("1280px");
   });
 });

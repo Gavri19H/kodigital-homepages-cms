@@ -799,9 +799,12 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
       expect(typeof node["source"]).toBe("string"); // per-node source present
       expect(typeof node["path"]).toBe("string");
     }
-    // spot-check a node passes through verbatim (choiceDisplay included)
+    // spot-check a node passes through verbatim (choiceDisplay included) plus
+    // the ONE v2.5 12 §12.5 ADDITIVE projection field: field_label (authored
+    // label wins here) — derived at read, never stored.
     const carrierNode = ctx.active_schema?.nodes.find((n) => n["path"] === "applicant.carrier");
-    expect(carrierNode).toEqual(children.find((n) => n["path"] === "applicant.carrier"));
+    const storedCarrier = children.find((n) => n["path"] === "applicant.carrier")!;
+    expect(carrierNode).toEqual({ ...storedCarrier, field_label: storedCarrier["label"] });
 
     // linked-field inventory: EXACTLY the pinned 6 keys per row (F-1 added
     // choices — the Section choices feeding the §6.10 typed condition inputs)

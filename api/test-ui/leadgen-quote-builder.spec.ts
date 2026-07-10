@@ -20,11 +20,12 @@
 //   ⑧ 04 §4.7: ONE Save persists frame + theme + overrides and the publish
 //     chip refreshes to the server verdict.
 //
-// DEFERRED (not a gap): the C2 "publishing with chrome-in-section blocks
-// with a fix link; the Advanced legacy override downgrades it to a warning"
-// row is Phase D per the contract's own phasing (16-implementation-phases.md
-// "Phase D — activation chrome block (C2)") — its 409 wiring does not exist
-// in Phase B.
+//   ⑨ (Phase D — the B4-deferred C2 row, now LIVE): publishing a Quote whose
+//     Section carries a raw-API-inserted legacy chrome node BLOCKS with the
+//     §14.1 copy + a Review-slide fix link (409, nothing persists); enabling
+//     the Advanced legacy override (compat.allow_section_chrome) downgrades
+//     it to a warning and the SAME activation succeeds. Real UI driving;
+//     API read-backs at every step.
 //
 // Local D1 must be migrated + seeded once:
 // `rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run seed:local`.
@@ -329,5 +330,102 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     expect(await chip.textContent(), "chip re-rendered after Save").not.toBe(chipBefore);
     // …and the preflight panel reflects the same verdict
     await expect(page.locator("#lg-preflight-panel")).toHaveAttribute("data-preflight-state", putBody.activation_preflight.ok && errors === 0 ? "pass" : "blocked");
+  });
+
+  test("⑨ C2 LIVE: chrome-in-a-section BLOCKS publish with the §14.1 copy + fix link; the Advanced legacy override downgrades it to a warning and activation succeeds", async ({ page }) => {
+    test.setTimeout(120_000);
+    const cq = seed.chromeQuote;
+
+    // open the chrome quote's editor (composed canvas boots — frame configured)
+    await page.goto(`/admin/leadgen/quotes/${cq.quotePublicId}/edit`, { waitUntil: "domcontentloaded" });
+    await expect(canvas(page).locator("[data-frame-region='section_slot']")).toBeVisible({ timeout: 20_000 });
+
+    // --- attempt to publish on site A → the C2 BLOCK -------------------------
+    await page.locator('.lg-qtab[data-tab="activation"]').click();
+    const row = page.locator(`.lg-activation-row[data-site-id="${seed.siteA.id}"]`);
+    await row.locator("[data-site-enabled]").check();
+    await row.locator("[data-site-slug]").fill(`lg-d-chrome-${uniq}`);
+    const blockedResponse = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes(`/quotes/${cq.quotePublicId}/activation/`),
+    );
+    await row.locator("[data-save-activation]").click();
+    const blocked = await blockedResponse;
+    expect(blocked.status()).toBe(409);
+    const blockedBody = (await blocked.json()) as {
+      error: string; blocks: unknown[];
+      problems: Array<{ path: string; scope: string; severity: string; message: string; fix_url?: string }>;
+    };
+    // §14.2: the historical report + the additive problems — the C2 error is
+    // the ONLY blocker (zero legacy blocks)
+    expect(blockedBody.error).toBe("quote_activation_blocked");
+    expect(blockedBody.blocks).toEqual([]);
+    const chromeProblem = blockedBody.problems.find((p) => p.path === `section.${cq.sectionPublicId}.content`);
+    expect(chromeProblem?.severity).toBe("error");
+
+    // the Activation panel renders the §14.1 copy grouped under Slides with
+    // the severity chip + the Review-slide fix link
+    await expect(page.locator("#lg-quote-error")).toContainText("Cannot activate this Quote");
+    await expect(page.locator("#lg-preflight-panel")).toHaveAttribute("data-preflight-state", "blocked");
+    const problemRow = page.locator(`#lg-preflight-problems [data-problem-scope="section"] [data-problem-path="section.${cq.sectionPublicId}.content"]`);
+    await expect(problemRow).toBeVisible();
+    await expect(problemRow.locator('.lg-problem-chip[data-severity="error"]')).toHaveText("Error");
+    await expect(problemRow).toContainText(`'${cq.sectionName}' contains page-frame elements`);
+    await expect(problemRow).toContainText("would render twice on the live page");
+    await expect(problemRow).toContainText("enable the legacy override under Advanced");
+    const fixLink = problemRow.locator("a", { hasText: "Review slide" });
+    await expect(fixLink).toHaveAttribute("href", `/admin/leadgen/sections/${cq.sectionPublicId}/edit`);
+    await page.screenshot({ path: `${SHOT_DIR}/leadgen-d-09a-c2-blocked.png` });
+
+    // API read-back: the 409 persisted NOTHING for this quote on site A
+    const afterBlock = await page.request.get(`${LG_API}/quotes/${cq.quotePublicId}/activation`).then((r) => r.json()) as {
+      sites: Array<{ site_id: string; activated: boolean; enabled: boolean }>;
+    };
+    const siteRow = afterBlock.sites.find((s) => s.site_id === seed.siteA.id)!;
+    expect(siteRow.activated, "blocked PUT persisted no activation row").toBe(false);
+    expect(siteRow.enabled).toBe(false);
+
+    // --- enable the Advanced legacy override through the REAL UI -------------
+    await page.locator('.lg-qtab[data-tab="builder"]').click();
+    await page.locator("[data-region-panel-compat] summary").click();
+    await page.locator('[data-region-panel-compat] input[data-frame-key="compat.allow_section_chrome"]').check();
+    const framePutResponse = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes(`/funnels/${cq.funnelPublicId}/frame`),
+    );
+    await page.locator("#lg-variant-save").click();
+    expect((await framePutResponse).status()).toBe(200);
+    await expect(page.locator("#lg-quote-ok")).toBeVisible({ timeout: 20_000 });
+    // API read-back: the override persisted on the funnel frame
+    const frame = await page.request.get(`${LG_API}/funnels/${cq.funnelPublicId}/frame`).then((r) => r.json()) as {
+      frame_config: { compat?: { allow_section_chrome?: boolean } };
+    };
+    expect(frame.frame_config.compat?.allow_section_chrome).toBe(true);
+
+    // --- the SAME publish now succeeds with the downgraded warning -----------
+    await page.locator('.lg-qtab[data-tab="activation"]').click();
+    await row.locator("[data-site-enabled]").check();
+    await row.locator("[data-site-slug]").fill(`lg-d-chrome-${uniq}`);
+    const okResponse = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes(`/quotes/${cq.quotePublicId}/activation/`),
+    );
+    await row.locator("[data-save-activation]").click();
+    expect((await okResponse).status()).toBe(200);
+    await expect(page.locator("#lg-quote-ok")).toContainText("Activation saved");
+    await expect(page.locator("#lg-preflight-panel")).toHaveAttribute("data-preflight-state", "pass");
+    const warningRow = page.locator(`#lg-preflight-problems [data-problem-path="section.${cq.sectionPublicId}.content"]`);
+    await expect(warningRow.locator('.lg-problem-chip[data-severity="warning"]')).toHaveText("Warning");
+    await expect(warningRow).toContainText("Legacy override is ON");
+    await expect(warningRow).toContainText("keeps its own page chrome");
+    // the publish chip flipped to the ok verdict (warnings never block)
+    await expect(page.locator("#lg-publish-badge")).toHaveAttribute("data-publish-verdict", "ok");
+    await expect(page.locator("#lg-publish-badge")).toContainText("Ready (");
+    await page.screenshot({ path: `${SHOT_DIR}/leadgen-d-09b-c2-compat-warning.png` });
+
+    // API read-back: activation persisted this time
+    const afterOk = await page.request.get(`${LG_API}/quotes/${cq.quotePublicId}/activation`).then((r) => r.json()) as {
+      sites: Array<{ site_id: string; enabled: boolean; slug: string | null }>;
+    };
+    const okRow = afterOk.sites.find((s) => s.site_id === seed.siteA.id)!;
+    expect(okRow.enabled).toBe(true);
+    expect(okRow.slug).toBe(`lg-d-chrome-${uniq}`);
   });
 });

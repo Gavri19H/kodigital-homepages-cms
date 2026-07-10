@@ -63,11 +63,16 @@
 // asserted by the ES5 parse test); bootstrap data rides
 // <script type="application/json"> blobs (`<`-escaped); every author value is
 // escapeHtml-escaped; the PREVIEW renders into a sandboxed srcdoc iframe.
-// The CANVAS deliberately injects the preview endpoint's HTML into a live DOM
-// region (§8.1 "rendering via the REAL preset renderer — same srcdoc pipeline
-// as preview, parity by construction"): the markup is OUR OWN server render
-// (presets escape all author content) and the canvas needs real elements for
-// selection hit-targets — the srcdoc-only rule stays for the preview iframe.
+// The CANVAS renders into its OWN same-origin srcdoc iframe as well (DEV-66
+// routed fix): an inline parent-document region can never re-evaluate the
+// design's @media rules, so the mobile block of funnelChromeCss NEVER fired
+// in a wide admin window even when the Mobile toggle server-rendered the
+// mobile wrap. The frame document is a REAL viewport (Desktop 1280 / Mobile
+// 375 — §6.1.4 semantics, the ui-quotes canvas idiom), the markup inside is
+// still OUR OWN preset render (parity by construction), and the island
+// re-binds the §6.2 canvas delegation onto iframe.contentDocument
+// (sandbox="allow-same-origin", scripts inert — the ui-quotes onCanvasClick
+// idiom), so every selection hit-target keeps working.
 //
 // Save path is UNCHANGED from the old island: POST /sections (new) or PATCH
 // /sections/:id with {section_name, activity, vertical, headline_text,
@@ -869,6 +874,67 @@ export function studioCanvasDocument(
   );
 }
 
+// The canvas-frame document's OWN stylesheet (DEV-66): the decoration classes
+// the island injects live INSIDE the srcdoc document now, so their rules must
+// ride the frame shell — the admin page's stylesheet cannot reach into the
+// iframe. Single source: these rules MOVED here from SECTION_STUDIO_STYLES
+// (the parent page keeps only parent-side canvas chrome: surface, skeleton,
+// empty state, frame sizing). The :root block pins the admin custom
+// properties the rules consume; the minimal .btn set styles the §5.4 badge
+// buttons the decoration pass creates.
+export const SECTION_STUDIO_CANVAS_FRAME_CSS = `
+:root{--c-primary:#2563eb;--c-border:#e5e7eb;--c-muted:#6b7280;--c-surface:#fff}
+html,body{margin:0;padding:0;background:#fff}
+.studio-canvas-render [data-question-id]{cursor:pointer}
+.studio-canvas-render .studio-selected-node{outline:2px solid var(--c-primary);outline-offset:2px;border-radius:4px}
+.studio-canvas-render .studio-drop-before{box-shadow:0 -3px 0 0 var(--c-primary)}
+.studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
+.studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
+/* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
+.studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.studio-frame-badge .btn{pointer-events:auto}
+.studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
+/* §8.8 linked-field chips */
+.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+/* §6.2 inline canvas editing + per-choice decoration: selection ring, ghost
+   tile, remove, resize */
+.studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
+.studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
+.studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
+.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
+.studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
+/* §12.3 mapping-overlay chips */
+.studio-mapoverlay-chip{font-size:10px;border-radius:999px;padding:2px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);cursor:pointer;display:inline-block;margin:2px 0}
+.studio-mapoverlay-chip[data-overlay-state="mapped"]{color:#0f5132;background:#d1e7dd;border-color:#badbcc}
+.studio-mapoverlay-chip[data-overlay-state="required-missing"]{color:#842029;background:#f8d7da;border-color:#f5c2c7}
+/* §5.4 move-to-frame funnel picker (renders inside the badge) */
+.studio-funnel-picker{flex-basis:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px}
+/* minimal admin-button skin for the badge affordances inside the frame */
+.btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--c-border);border-radius:6px;background:#fff;color:#111827;cursor:pointer}
+.btn-sm{font-size:11px;padding:2px 8px}
+.btn-outline{background:#fff}
+.btn-danger{background:#dc2626;border-color:#dc2626;color:#fff}
+`;
+
+// §6.1.4 canvas srcdoc shell (DEV-66): a COMPLETE same-origin document whose
+// body mounts the SAME #lg-studio-canvas-render region the island re-renders
+// (the island replaces the mount's markup with style + html per render — the
+// DOCUMENT persists, so the contentDocument delegation bound once per load
+// survives every re-render). The initial content is the SSR
+// studioCanvasDocument — the design css (funnelChromeCss WITH its @media
+// mobile block) rides inside, so the mobile rules can genuinely fire once
+// the frame is sized to 375.
+export function studioCanvasFrameSrcdoc(
+  content: LeadgenSectionContent,
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
+  return (
+    `<!doctype html><html><head><meta charset="utf-8"><style>${SECTION_STUDIO_CANVAS_FRAME_CSS}</style></head>` +
+    `<body><div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div></body></html>`
+  );
+}
+
 // §5.4 "Frame hint": a dimmed, NON-interactive, GENERIC frame skeleton around
 // the unit for spatial context — presentation-only, never editable here (the
 // real frame is Quote-Builder-owned). Toggled by [data-studio-frame-hint].
@@ -1032,7 +1098,7 @@ export function renderStudioCanvas(
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
   <div class="studio-canvas-surface" id="lg-studio-canvas" tabindex="0" aria-label="Section canvas — click a component to select; arrow keys reorder; Delete removes; Escape selects the parent">
     ${renderFrameHintSkeleton("top")}
-    <div class="studio-canvas-render" id="lg-studio-canvas-render">${studioCanvasDocument(content, design, ctx)}</div>
+    <iframe id="lg-studio-canvas-frame" class="studio-canvas-frame" title="Section canvas" sandbox="allow-same-origin" data-canvas-frame-viewport="desktop" srcdoc="${escapeHtml(studioCanvasFrameSrcdoc(content, design, ctx))}"></iframe>
     ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
   </div>
@@ -1594,6 +1660,7 @@ function renderPreviewPanel(): string {
   <div class="lg-viewport-toggle" role="group" aria-label="Preview viewport">
     <button type="button" class="btn btn-sm btn-secondary active" data-preview-viewport="desktop" aria-pressed="true">Desktop</button>
     <button type="button" class="btn btn-sm btn-secondary" data-preview-viewport="mobile" aria-pressed="false">Mobile</button>
+    <button type="button" class="btn btn-sm btn-outline" data-studio-overlay-toggle aria-pressed="false" title="Chip every answer component on the canvas with its Offer-mapping status">Offer mapping overlay</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-preview-refresh">Refresh preview</button>
     <label class="form-help" for="lg-preview-design">Design:</label>
     <select id="lg-preview-design" class="form-input lg-preview-design" data-preview-design aria-label="Preview under a funnel design (§8.9)">
@@ -1660,16 +1727,22 @@ function renderSectionOverridesPanel(): string {
 </div>`;
 }
 
-// §8.7 (E2) mapping-panel table columns — the normative order.
+// v2.5 12 §12.1 mapping-panel COLUMN CONTRACT — the normative order. One row
+// per (Offer × payload field): Offer (+ provider chip) · Provider · Placement
+// (default starred) · Field (schema field LABEL; raw path in tooltip +
+// Advanced) · Expected type (plain words) · Required ✓/— · Mapped component
+// (display name + position chip — §2.4: NEVER "slide" in the Section
+// Builder) · Status (operator words) · Fix (ONE action per row).
 const MAPPING_TABLE_COLUMNS = [
   "Offer",
   "Provider",
   "Placement",
-  "Payload schema version",
-  "Required fields",
-  "Mapped fields",
-  "Mapping status",
-  "Action",
+  "Field",
+  "Expected type",
+  "Required",
+  "Mapped component",
+  "Status",
+  "Fix",
 ] as const;
 
 export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount: number): string {
@@ -1710,6 +1783,11 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
         <tbody data-studio-offers-body></tbody>
       </table>
     </div>
+    <details class="lg-advanced studio-mapping-advanced" data-studio-mapping-advanced>
+      <summary>Advanced: raw field paths</summary>
+      <p class="form-help">Each Offer payload field&#8217;s raw dotted path &#8212; the table shows the field&#8217;s label; the raw path also rides each Field cell&#8217;s tooltip.</p>
+      <ul class="studio-mapping-advanced-list" data-studio-mapping-advanced-list></ul>
+    </details>
     <div class="studio-map-grid" data-studio-map-grid hidden></div>
     <div class="studio-bulk-review" data-studio-bulk-review hidden></div>
     <div class="studio-payload-preview" data-studio-payload-preview-wrap hidden>
@@ -1853,11 +1931,10 @@ export const SECTION_STUDIO_STYLES = `
 .studio-refusal{margin:8px 0}
 .studio-canvas-surface{border:1px dashed var(--c-border);border-radius:8px;min-height:320px;padding:12px;position:relative;background:#fff;overflow:auto}
 .studio-canvas-surface:focus-visible{outline:2px solid var(--c-primary);outline-offset:2px}
-.studio-canvas-render [data-question-id]{cursor:pointer}
-.studio-canvas-render .studio-selected-node{outline:2px solid var(--c-primary);outline-offset:2px;border-radius:4px}
-.studio-canvas-render .studio-drop-before{box-shadow:0 -3px 0 0 var(--c-primary)}
-.studio-canvas-render .studio-drop-after{box-shadow:0 3px 0 0 var(--c-primary)}
-.studio-canvas-render .studio-drop-into{outline:2px dashed var(--c-primary);outline-offset:-2px}
+/* DEV-66: the render region lives in the canvas srcdoc iframe — its viewport
+   IS the §6.1.4 width (island swaps 1280/375); the region-decoration rules
+   moved into SECTION_STUDIO_CANVAS_FRAME_CSS (inside the frame document). */
+.studio-canvas-frame{display:block;border:0;width:1280px;max-width:none;height:320px;margin:0 auto;background:#fff}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
 /* §5.4 frame-hint skeleton: dimmed, generic, NON-interactive (presentation only) */
 .studio-frame-skeleton{opacity:.35;pointer-events:none;user-select:none;margin:0 0 10px}
@@ -1868,10 +1945,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-skel-bar-short{flex:0 0 30%}
 .studio-skel-progress{height:4px;border-radius:2px;background:var(--c-border);margin-top:6px}
 .studio-skel-footer{display:flex;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
-/* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
-.studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.studio-frame-badge .btn{pointer-events:auto}
-.studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
+/* §5.4 amber badge rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §5.1 hidden-in-unit chips next to the strip inputs */
 .studio-hidden-chip{display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px}
 .studio-hidden-show{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:11px;padding:0;text-decoration:underline}
@@ -1879,8 +1953,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-bind-banner{font-size:12px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:8px;padding:8px 10px;margin:0 0 12px}
 .studio-bind-banner-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 0}
 .studio-bind-banner-value{font-weight:600}
-/* §8.8 linked-field chips + key-missing banner */
-.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+/* §8.8 key-missing banner (the linked-field CHIP rule moved into the frame css) */
 .studio-maps-banner{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:6px 10px;margin:0 0 12px}
 /* §7.1 scope header + §7.2 pills */
 .studio-scope-header{border-bottom:1px solid var(--c-border);padding:0 0 8px;margin:0 0 8px;transition:background-color .3s ease}
@@ -1977,12 +2050,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb .studio-crumb-current{color:inherit;text-decoration:none;font-weight:600;cursor:default}
 .studio-toolbar-problems{font-size:11px;color:#842029}
 .studio-control-invalid{outline:2px solid #dc3545;outline-offset:1px}
-/* §6.2 inline canvas editing + choice ops + resize */
-.studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
-.studio-choice-selected{outline:2px solid #e85d26 !important;outline-offset:2px}
-.studio-choice-ghost{border:1px dashed var(--c-border);background:var(--c-surface);color:var(--c-muted);border-radius:8px;min-height:44px;cursor:pointer;font-size:12px}
-.studio-choice-x{position:relative;border:0;background:#f8d7da;color:#842029;border-radius:999px;width:16px;height:16px;line-height:1;font-size:10px;cursor:pointer;margin-left:-14px;vertical-align:top}
-.studio-resize-handle{position:absolute;right:-6px;top:50%;width:10px;height:32px;margin-top:-16px;border-radius:4px;background:var(--c-primary);opacity:.6;cursor:ew-resize}
+/* §6.2 inline-edit + choice-op rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §9.4 role swatch rows + §9.5 section overrides */
 .studio-role-line{display:flex;gap:6px;align-items:center}
 .studio-role-swatch{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--c-border);flex:0 0 16px}
@@ -1997,12 +2065,26 @@ export const SECTION_STUDIO_STYLES = `
 /* §5.3 mode 5 frame picker */
 .studio-frame-preview{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border:1px dashed var(--c-border);border-radius:6px;padding:6px 8px}
 .studio-frame-empty{flex-basis:100%;color:#664d03;margin:2px 0 0}
+/* §12.1 mapping-panel field rows */
+.studio-offer-head td{background:var(--c-surface);border-top:2px solid var(--c-border)}
+.studio-offer-name{font-weight:600}
+.studio-provider-tag{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);margin-left:6px;white-space:nowrap}
+.studio-pos-chip{font-size:10px;border-radius:999px;padding:1px 6px;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-muted);margin-left:6px;white-space:nowrap}
+.studio-row-status{font-size:11px;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.studio-row-status[data-row-status="complete"]{color:#0f5132;background:#d1e7dd}
+.studio-row-status[data-row-status="needs-values"]{color:#664d03;background:#fff3cd}
+.studio-row-status[data-row-status="type-mismatch"]{color:#842029;background:#f8d7da}
+.studio-row-status[data-row-status="unlinked"]{color:#842029;background:#f8d7da}
+.studio-row-status[data-row-status="not-mapped"]{color:var(--c-muted);background:var(--c-surface);border:1px solid var(--c-border)}
+.studio-row-status[data-row-status="not-mapped"][data-row-required="true"]{color:#842029;background:#f8d7da;border:0}
+.studio-mapping-advanced{margin:8px 0}
+.studio-mapping-advanced-list{font-size:11px;color:var(--c-muted);margin:4px 0;padding-left:18px}
+/* §12.3 overlay-chip rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §7.3 provider-values chip (C1) */
 .studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
 .studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
 .studio-provider-rows a{font-size:11px}
-/* §5.4 move-to-frame funnel picker */
-.studio-funnel-picker{flex-basis:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px}
+/* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* choice rows: depth fields wrap */
 .lg-choice-row{position:relative}
 .lg-choice-row .studio-choice-reorder{display:inline-flex;gap:2px}
@@ -2736,8 +2818,13 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     function onBlur() { finish(true); }
     function onKey(keyEv) {
-      if (keyEv.key === 'Enter') { keyEv.preventDefault(); finish(true); }
-      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); finish(false); }
+      // The terminating keys are consumed HERE — stop propagation so the
+      // doc-level onCanvasKeyDown never sees them: finish() clears
+      // inlineEditing BEFORE the event bubbles up, so under that handler's
+      // flag guard alone the Escape that cancels the edit would ALSO walk
+      // the selection to the parent.
+      if (keyEv.key === 'Enter') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(true); }
+      else if (keyEv.key === 'Escape') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(false); }
     }
     el.addEventListener('blur', onBlur);
     el.addEventListener('keydown', onKey);
@@ -3354,6 +3441,53 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- canvas: server re-render (debounced) + selection overlay ---------------
+  // DEV-66: the render region lives inside the canvas srcdoc iframe (a REAL
+  // viewport — the design's mobile @media block can genuinely fire at 375).
+  // The document persists across re-renders (only the mount's markup is
+  // replaced), so the delegation bound once per LOADED document survives.
+  function canvasFrameEl() { return document.getElementById('lg-studio-canvas-frame'); }
+  function canvasFrameDoc() {
+    var frame = canvasFrameEl();
+    if (!frame) { return null; }
+    try {
+      if (frame.contentDocument) { return frame.contentDocument; }
+      if (frame.contentWindow && frame.contentWindow.document) { return frame.contentWindow.document; }
+    } catch (eDoc) { return null; }
+    return null;
+  }
+  function canvasRegion() {
+    var doc = canvasFrameDoc();
+    if (!doc || !doc.getElementById) { return null; }
+    return doc.getElementById('lg-studio-canvas-render');
+  }
+  // §6.1.4: the frame element IS the canvas viewport — Desktop 1280 /
+  // Mobile 375 (the ui-quotes setCanvasDoc idiom).
+  function updateCanvasFrameViewport() {
+    var frame = canvasFrameEl();
+    if (!frame) { return; }
+    frame.style.width = canvasViewport === 'mobile' ? '375px' : '1280px';
+    frame.setAttribute('data-canvas-frame-viewport', canvasViewport);
+  }
+  // The iframe cannot auto-size to its content — track the document height
+  // after every render/decoration pass (320px floor = the surface min-height).
+  function updateCanvasFrameHeight() {
+    var frame = canvasFrameEl();
+    var doc = canvasFrameDoc();
+    if (!frame || !doc || !doc.body) { return; }
+    var h = doc.body.scrollHeight || 0;
+    frame.style.height = (h > 320 ? h : 320) + 'px';
+  }
+  // In-frame images finish loading AFTER the render pass measured the
+  // document, so the pass-time height misses their laid-out size. One
+  // DELEGATED listener per loaded frame document (bound in
+  // bindCanvasFrameDoc, the same lifetime as the surface delegation):
+  // img 'load' events do not bubble, so it rides the CAPTURE phase.
+  function onFrameDocLoadCapture(ev) {
+    var t = ev ? ev.target : null;
+    if (t && t.tagName && String(t.tagName).toUpperCase() === 'IMG') {
+      updateCanvasFrameHeight();
+    }
+  }
   var canvasTimer = null;
   function scheduleCanvasRender() {
     if (canvasTimer) { clearTimeout(canvasTimer); }
@@ -3365,8 +3499,10 @@ export const SECTION_STUDIO_SCRIPT = `
     }, 300);
   }
   function renderCanvasNow() {
-    var region = document.getElementById('lg-studio-canvas-render');
-    if (!region) { return; }
+    var region = canvasRegion();
+    // the srcdoc document may not have loaded yet — retry on the debounce
+    // cadence; the load binding (bindCanvasFrameDoc) restores decoration.
+    if (!region) { scheduleCanvasRender(); return; }
     // §5.2 one store, two views: the strip values ride every canvas render so
     // BOUND QuestionHeadline/Subheadline nodes show the live canonical text
     // (the preview handler threads body.headline/body.subheadline into
@@ -3492,13 +3628,42 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
   }
+  // §12.3 canvas mapping OVERLAY (toggle in the preview drawer): every answer
+  // component gets a chip — mapped (n Offers) or a red required-missing —
+  // clicking one opens the inspector Mapping tab scoped to that component.
+  // Rebuilt per decoration pass like every other canvas chip.
+  var mappingOverlayOn = false;
+  function decorateMappingOverlay(region) {
+    if (!mappingOverlayOn) { return; }
+    var nodes = region.querySelectorAll('[data-question-id]');
+    var i, qid, ref, info, chip;
+    for (i = 0; i < nodes.length; i++) {
+      qid = nodes[i].getAttribute('data-question-id');
+      ref = findRef(qid);
+      if (!ref || !ref.node || !typeMeta(ref.node.type).produces || trimStr(ref.node.internal_field) === '') { continue; }
+      info = overlayChipInfo(ref.node.internal_field);
+      chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'studio-mapoverlay-chip';
+      chip.setAttribute('data-mapping-overlay-chip', qid);
+      chip.setAttribute('data-overlay-state', info.required_missing ? 'required-missing' : 'mapped');
+      chip.setAttribute('data-overlay-count', String(info.count));
+      chip.title = 'Open the Mapping tab for this component';
+      chip.appendChild(document.createTextNode(info.required_missing ? 'Required \\u2014 missing' : 'Mapped \\u00B7 ' + info.count + ' Offer' + (info.count === 1 ? '' : 's')));
+      chip.addEventListener('click', function () {
+        selectComponent(this.getAttribute('data-mapping-overlay-chip'));
+        setInspectorTab('mapping');
+      });
+      if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(chip, nodes[i]); }
+    }
+  }
   function applyCanvasDecoration() {
-    var region = document.getElementById('lg-studio-canvas-render');
+    var region = canvasRegion();
     if (!region) { return; }
     // §8.8 linked-field chips + §5.4 frame badges REBUILD per pass (the region
     // is server HTML — every re-render wipes them, so decoration re-derives
     // from the model).
-    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle');
+    var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip');
     var i;
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
@@ -3532,9 +3697,12 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
     decorateChoiceCards(region);
+    decorateMappingOverlay(region);
+    // badges/chips/handles change the document height — keep the frame sized.
+    updateCanvasFrameHeight();
   }
   function clearDropClasses() {
-    var region = document.getElementById('lg-studio-canvas-render');
+    var region = canvasRegion();
     if (!region) { return; }
     var marked = region.querySelectorAll('.studio-drop-before, .studio-drop-after, .studio-drop-into');
     var i;
@@ -5407,7 +5575,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // §5.4 used-by-many: a picker listing the funnels; applying to the chosen
   // one (the confirm still names it) and deleting from the Section only after.
   function renderFunnelPicker(qid, funnels) {
-    var badge = document.querySelector('[data-frame-badge="' + qid + '"]');
+    // the badge is a canvas decoration — it lives INSIDE the frame document.
+    var region = canvasRegion();
+    var badge = region ? region.querySelector('[data-frame-badge="' + qid + '"]') : null;
     if (!badge) { return; }
     var oldPicker = badge.querySelector('[data-funnel-picker]');
     if (oldPicker) { badge.removeChild(oldPicker); return; }
@@ -5580,10 +5750,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- canvas events: select / drag-drop / keyboard reorder -----------------------
+  // DEV-66: the SAME named handlers bind TWICE — on the parent surface (frame
+  // hint gutter, palette drops past the frame, keyboard on the focused
+  // surface) AND on the srcdoc iframe's contentDocument (every node/choice
+  // hit-target now lives there — the ui-quotes onCanvasClick idiom). The
+  // document persists across region re-renders, so one binding per loaded
+  // document is enough.
   var dropHint = null;
   var canvasSurface = document.getElementById('lg-studio-canvas');
-  if (canvasSurface) {
-    canvasSurface.addEventListener('click', function (ev) {
+  // ownership check that spans BOTH roots (contains() never crosses the
+  // document boundary).
+  function canvasOwns(el) {
+    if (!el) { return false; }
+    if (canvasSurface && canvasSurface.contains && canvasSurface.contains(el)) { return true; }
+    var region = canvasRegion();
+    return !!(region && region.contains && region.contains(el));
+  }
+  function onCanvasClick(ev) {
       // §5.4 amber-badge actions (the badge is a sibling of the node, so the
       // component-select path below never fires for it). Keep (legacy) = NO
       // model change — session-local acknowledgement only; the C2 activation
@@ -5621,7 +5804,7 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!el || !canvasSurface.contains(el)) { return; }
+      if (!el || !canvasOwns(el)) { return; }
       ev.preventDefault();
       // §6.2/§6.4: clicking a card/button selects the CHOICE, not just the
       // component (the inspector opens the Choices tab at that row).
@@ -5631,12 +5814,12 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       selectComponent(el.getAttribute('data-question-id'));
-    });
-    // §6.2 inline text editing on double-click: bound/label/helper text writes
-    // the bound column or props; a choice card edits its label.
-    canvasSurface.addEventListener('dblclick', function (ev) {
+  }
+  // §6.2 inline text editing on double-click: bound/label/helper text writes
+  // the bound column or props; a choice card edits its label.
+  function onCanvasDblClick(ev) {
       var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!host || !canvasSurface.contains(host)) { return; }
+      if (!host || !canvasOwns(host)) { return; }
       var qid = host.getAttribute('data-question-id');
       var ref = findRef(qid);
       if (!ref) { return; }
@@ -5654,25 +5837,39 @@ export const SECTION_STUDIO_SCRIPT = `
         committer = function (text) { commitInlineText(qid, key, text); };
       }
       startInlineEdit(editEl, committer);
-    });
-    // §6.2 container resize handles snap to the width presets only.
-    canvasSurface.addEventListener('mousedown', function (ev) {
+  }
+  // §6.2 container resize handles snap to the width presets only. The handle
+  // lives in the frame document; the release may land in EITHER document
+  // (pointer dragged out of the iframe) — listen on both, translate a
+  // parent-side clientX into frame coordinates via the frame's rect.
+  function onCanvasMouseDown(ev) {
       var handle = ev.target && ev.target.closest ? ev.target.closest('[data-resize-handle]') : null;
       if (!handle) { return; }
       ev.preventDefault();
       var qid = handle.getAttribute('data-resize-handle');
       var startX = ev.clientX;
-      function onUp(upEv) {
-        document.removeEventListener('mouseup', onUp);
+      var innerDoc = canvasFrameDoc();
+      var startedInFrame = !!(innerDoc && handle.ownerDocument === innerDoc);
+      function finishUp(upEv, viaParent) {
+        if (innerDoc && innerDoc.removeEventListener) { innerDoc.removeEventListener('mouseup', onUpInner); }
+        document.removeEventListener('mouseup', onUpOuter);
+        var endX = upEv.clientX;
+        var frame = canvasFrameEl();
+        if (startedInFrame && viaParent && frame && frame.getBoundingClientRect) {
+          endX = upEv.clientX - frame.getBoundingClientRect().left;
+        }
         var ref = findRef(qid);
         if (!ref) { return; }
         var props = ensureObj(ref.node, 'props');
-        var next = snapWidthPreset(typeof props.width === 'string' ? props.width : 'm', upEv.clientX - startX);
+        var next = snapWidthPreset(typeof props.width === 'string' ? props.width : 'm', endX - startX);
         if (next !== props.width) { props.width = next; afterModelChange(); }
       }
-      document.addEventListener('mouseup', onUp);
-    });
-    canvasSurface.addEventListener('dragstart', function (ev) {
+      function onUpInner(upEv) { finishUp(upEv, false); }
+      function onUpOuter(upEv) { finishUp(upEv, true); }
+      if (innerDoc && innerDoc.addEventListener) { innerDoc.addEventListener('mouseup', onUpInner); }
+      document.addEventListener('mouseup', onUpOuter);
+  }
+  function onCanvasDragStart(ev) {
       // §6.2: dragging a CHOICE card reorders choices within its component.
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && ev.dataTransfer) {
@@ -5685,12 +5882,12 @@ export const SECTION_STUDIO_SCRIPT = `
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
       if (!el || !ev.dataTransfer) { return; }
       ev.dataTransfer.setData('text/plain', 'move:' + el.getAttribute('data-question-id'));
-    });
-    canvasSurface.addEventListener('dragover', function (ev) {
+  }
+  function onCanvasDragOver(ev) {
       ev.preventDefault();
       clearDropClasses();
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
-      if (!el || !canvasSurface.contains(el)) { dropHint = { qid: null, mode: 'append' }; return; }
+      if (!el || !canvasOwns(el)) { dropHint = { qid: null, mode: 'append' }; return; }
       var qid = el.getAttribute('data-question-id');
       var type = el.getAttribute('data-component-type');
       var rect = el.getBoundingClientRect();
@@ -5705,8 +5902,8 @@ export const SECTION_STUDIO_SCRIPT = `
         dropHint = { qid: qid, mode: 'after' };
         el.className = withoutClasses(el.className, DROP_CLASSES) + ' studio-drop-after';
       }
-    });
-    canvasSurface.addEventListener('drop', function (ev) {
+  }
+  function onCanvasDrop(ev) {
       ev.preventDefault();
       clearDropClasses();
       var data = ev.dataTransfer ? ev.dataTransfer.getData('text/plain') : '';
@@ -5744,9 +5941,15 @@ export const SECTION_STUDIO_SCRIPT = `
         } else { moveNodeTo(payload, null, null); }
         selectComponent(payload);
       }
-    });
-    canvasSurface.addEventListener('keydown', function (ev) {
+  }
+  function onCanvasKeyDown(ev) {
       if (!selectedQuestionId) { return; }
+      // §6.2 inline editing owns the keys: this flag skips keys typed
+      // MID-edit; the session-TERMINATING Enter/Escape never reach here at
+      // all — onKey stops their propagation at the element (finish() clears
+      // the flag before the bubble arrives, so the flag alone could not stop
+      // the cancelling Escape from ALSO walking the selection).
+      if (inlineEditing) { return; }
       if (ev.key === 'ArrowUp') { ev.preventDefault(); moveWithin(selectedQuestionId, -1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); moveWithin(selectedQuestionId, 1); }
       // §6.2: Del deletes the selection; Esc walks UP the ancestry.
@@ -5759,8 +5962,42 @@ export const SECTION_STUDIO_SCRIPT = `
         var upRef = findRef(selectedQuestionId);
         selectComponent(upRef && upRef.parent ? upRef.parent.question_id : null);
       }
-    });
   }
+  // ONE binder, two roots: the parent surface and (per load) the frame doc.
+  function bindCanvasSurface(target) {
+    if (!target || !target.addEventListener) { return; }
+    target.addEventListener('click', onCanvasClick);
+    target.addEventListener('dblclick', onCanvasDblClick);
+    target.addEventListener('mousedown', onCanvasMouseDown);
+    target.addEventListener('dragstart', onCanvasDragStart);
+    target.addEventListener('dragover', onCanvasDragOver);
+    target.addEventListener('drop', onCanvasDrop);
+    target.addEventListener('keydown', onCanvasKeyDown);
+  }
+  if (canvasSurface) { bindCanvasSurface(canvasSurface); }
+  // Bind the frame document exactly once per LOADED srcdoc document: the
+  // 'load' listener catches a late load, the immediate call an already-loaded
+  // one; the mount check skips the transient about:blank document.
+  var canvasDocBound = null;
+  function bindCanvasFrameDoc() {
+    var doc = canvasFrameDoc();
+    if (!doc || doc === canvasDocBound) { return; }
+    if (!doc.getElementById || !doc.getElementById('lg-studio-canvas-render')) { return; }
+    canvasDocBound = doc;
+    bindCanvasSurface(doc);
+    // DEV-66 height tracker: recompute when in-frame images load (capture —
+    // img 'load' does not bubble). Bound once per LOADED document, like the
+    // surface delegation above.
+    doc.addEventListener('load', onFrameDocLoadCapture, true);
+    applyCanvasDecoration();
+    updateCanvasFrameViewport();
+    updateCanvasFrameHeight();
+  }
+  (function () {
+    var frame = canvasFrameEl();
+    if (frame && frame.addEventListener) { frame.addEventListener('load', bindCanvasFrameDoc); }
+    bindCanvasFrameDoc();
+  })();
 
   // --- §6.1 canvas toolbar (always visible; clusters per the §6.5 matrix) --------
   var toolbarEl = document.querySelector('[data-studio-selection-toolbar]');
@@ -5920,6 +6157,10 @@ export const SECTION_STUDIO_SCRIPT = `
         all[k].className = isOn ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-secondary';
         all[k].setAttribute('aria-pressed', isOn ? 'true' : 'false');
       }
+      // DEV-66: the frame element IS the viewport — size it FIRST so the
+      // design's @media rules evaluate at the real width (375/1280), then
+      // fetch the server render for that viewport.
+      updateCanvasFrameViewport();
       renderCanvasNow();
     });
   }
@@ -5969,6 +6210,16 @@ export const SECTION_STUDIO_SCRIPT = `
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
   if (openMapping) { openMapping.addEventListener('click', function () { setDrawerTab('mapping'); }); }
+  // §12.3: the preview-drawer overlay toggle repaints the canvas decoration.
+  var overlayToggle = document.querySelector('[data-studio-overlay-toggle]');
+  if (overlayToggle) {
+    overlayToggle.addEventListener('click', function () {
+      mappingOverlayOn = !mappingOverlayOn;
+      this.setAttribute('aria-pressed', mappingOverlayOn ? 'true' : 'false');
+      this.className = mappingOverlayOn ? 'btn btn-sm btn-outline active' : 'btn btn-sm btn-outline';
+      applyCanvasDecoration();
+    });
+  }
 
   // --- inspector input wiring: every edit flows back into the selected node ------------
   var fieldEls = document.querySelectorAll('[data-inspector-field]');
@@ -6671,6 +6922,99 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return field && field.required === true ? 'required \\u2014 not mapped' : 'not mapped';
   }
+  // §12.1/§12.5: the Field column shows the schema's field LABEL — the server
+  // projects field_label (authored label > humanized leaf); the island
+  // derives the SAME fallback for pre-§12.5 offers responses. The raw dotted
+  // path retreats to the cell tooltip + the Advanced disclosure.
+  function fieldDisplayLabel(f) {
+    if (!f) { return ''; }
+    if (typeof f.field_label === 'string' && trimStr(f.field_label) !== '') { return f.field_label; }
+    if (typeof f.label === 'string' && trimStr(f.label) !== '') { return trimStr(f.label); }
+    var leaf = String(f.path || '').split('.').pop() || String(f.path || '');
+    var words = trimStr(leaf.replace(/[_-]+/g, ' '));
+    if (words === '') { return String(f.path || ''); }
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  // §12.1 "Expected type in plain words" — operator vocabulary, never a bare
+  // storage enum ("text", "number", "one of: …").
+  function plainTypeWords(f) {
+    if (!f) { return ''; }
+    if (f.valid_values && f.valid_values.length > 0) { return 'one of: ' + f.valid_values.join(', '); }
+    if (f.type === 'string') { return 'text'; }
+    if (f.type === 'number') { return 'number'; }
+    if (f.type === 'boolean') { return 'yes or no'; }
+    if (f.type === 'enum') { return 'one of the allowed values'; }
+    if (f.type === 'array') { return 'list'; }
+    if (f.type === 'object') { return 'group of fields'; }
+    return String(f.type || '');
+  }
+  // §12.1 Status column decode — operator words over the LIVE model:
+  //   complete → complete · orphaned → unlinked · type_mismatch splits into a
+  //   stored-vs-schema type drift ("type mismatch") vs a value-coercion gap a
+  //   per-Offer value map would close ("needs values") · no edge or an edge
+  //   with no linked component reads "not mapped".
+  function fieldRowStatus(offer, field, edge) {
+    if (!edge) {
+      return { key: 'not-mapped', label: field && field.required === true ? 'required — not mapped' : 'not mapped' };
+    }
+    var st = edgeMapState(edge, offer);
+    if (st === 'complete') { return { key: 'complete', label: 'complete' }; }
+    if (st === 'orphaned') { return { key: 'unlinked', label: 'unlinked' }; }
+    if (st === 'type_mismatch') {
+      if (field && edge.provider_expected_type !== field.type) { return { key: 'type-mismatch', label: 'type mismatch' }; }
+      return { key: 'needs-values', label: 'needs values' };
+    }
+    return { key: 'not-mapped', label: 'required — not mapped' };
+  }
+  // §12.1 Fix column — ONE action per row, each opening the exact editor
+  // scoped to the row; a complete row needs none.
+  function fixActionFor(offer, field, edge) {
+    var st = fieldRowStatus(offer, field, edge);
+    if (st.key === 'complete') { return null; }
+    if (st.key === 'needs-values') { return { kind: 'values', label: 'Fill provider values…', offer_id: offer ? offer.id : 0 }; }
+    if (st.key === 'type-mismatch') { return { kind: 'type', label: 'Fix type…', offer_id: offer ? offer.id : 0 }; }
+    if (st.key === 'unlinked') { return { kind: 'relink', label: 'Re-link…', offer_id: offer ? offer.id : 0 }; }
+    return { kind: 'map', label: 'Map…', offer_id: offer ? offer.id : 0 };
+  }
+  // §2.4/C6: the Mapped-component chip carries the component's POSITION among
+  // this question unit's answer components ('#N', 1-based, tree order) — the
+  // Section Builder never borrows the Quote Builder's step vocabulary.
+  function answerComponentPosition(internalField) {
+    var pos = 0, found = 0;
+    walkTree(state.content.components, 1, function (n) {
+      if (typeMeta(n.type).produces) {
+        pos += 1;
+        if (found === 0 && n.internal_field === internalField) { found = pos; }
+      }
+    });
+    return found;
+  }
+  // §12.3 overlay decode for ONE answer component: how many live-selected
+  // Offers its answer feeds + whether a REQUIRED Offer field is unsatisfied
+  // (a required edge that is not complete, or a required schema field naming
+  // this internal field with no edge at all).
+  function overlayChipInfo(internalField) {
+    var offers = offersList();
+    var count = 0, requiredMissing = false;
+    var i, j, e, live, fields, has;
+    for (i = 0; i < offers.length; i++) {
+      live = offerLiveState(offers[i]);
+      if (live.state === 'not_selected') { continue; }
+      has = false;
+      for (j = 0; j < state.answer_maps.length; j++) {
+        e = state.answer_maps[j];
+        if (!e || e.offer_id !== offers[i].id || e.internal_field !== internalField) { continue; }
+        has = true;
+        if (e.required_for_offer === true && edgeMapState(e, offers[i]) !== 'complete') { requiredMissing = true; }
+      }
+      if (has) { count += 1; continue; }
+      fields = offers[i].answer_fields || [];
+      for (j = 0; j < fields.length; j++) {
+        if (fields[j].required === true && fields[j].internal_field === internalField && findEdgeIndex(offers[i].id, fields[j].path) === -1) { requiredMissing = true; }
+      }
+    }
+    return { count: count, required_missing: requiredMissing };
+  }
   function offerDeepLink(offer) { return '/admin/leadgen/offers/' + encodeURIComponent(offer.public_id) + '/edit#payload'; }
   function btn(label, attr, offerId, cls) {
     var b = document.createElement('button');
@@ -6679,6 +7023,200 @@ export const SECTION_STUDIO_SCRIPT = `
     b.setAttribute(attr, String(offerId));
     b.textContent = label;
     return b;
+  }
+  // One provider chip idiom for the §12.1 Offer cells.
+  function providerTag(provider) {
+    var tag = document.createElement('span');
+    tag.className = 'studio-provider-tag';
+    tag.setAttribute('data-offer-provider-chip', provider || '');
+    tag.appendChild(document.createTextNode(provider || '\\u2014'));
+    return tag;
+  }
+  // The §12.1 Fix cell: ONE action per row. "Fill provider values…" is the C1
+  // deep link into that Offer's value-map surface (an anchor); the other
+  // kinds are buttons the delegated handler routes to the exact editor.
+  function buildFixCell(offer, field, edge) {
+    var td = document.createElement('td');
+    var action = fixActionFor(offer, field, edge);
+    if (action === null) {
+      td.appendChild(document.createTextNode('\\u2014'));
+      return td;
+    }
+    var el;
+    if (action.kind === 'values') {
+      el = document.createElement('a');
+      el.href = offerDeepLink(offer);
+      el.target = '_blank';
+      el.rel = 'noopener';
+    } else {
+      el = document.createElement('button');
+      el.type = 'button';
+    }
+    el.className = 'btn btn-sm btn-outline';
+    el.setAttribute('data-studio-fix', action.kind);
+    el.setAttribute('data-fix-offer', String(offer.id));
+    el.setAttribute('data-fix-path', field ? field.path : (edge ? edge.offer_payload_field_path : ''));
+    el.setAttribute('data-fix-field', edge && edge.internal_field ? String(edge.internal_field) : '');
+    el.appendChild(document.createTextNode(action.label));
+    td.appendChild(el);
+    return td;
+  }
+  // §12.1 field row — the nine contract columns for ONE (Offer × field) pair.
+  // field is null for an ORPHANED edge (its path left the active schema).
+  function buildFieldRow(offer, field, edge) {
+    var tr = document.createElement('tr');
+    var path = field ? field.path : (edge ? edge.offer_payload_field_path : '');
+    tr.setAttribute('data-studio-field-row', offer.id + ':' + path);
+    var td, span, node, pos, st;
+    // Offer (+ provider chip)
+    td = document.createElement('td');
+    span = document.createElement('span');
+    span.appendChild(document.createTextNode(offer.offer_name));
+    td.appendChild(span);
+    td.appendChild(providerTag(offer.provider));
+    tr.appendChild(td);
+    // Provider (plain)
+    td = document.createElement('td');
+    td.appendChild(document.createTextNode(offer.provider || '\\u2014'));
+    tr.appendChild(td);
+    // Placement (the default placement, starred)
+    td = document.createElement('td');
+    if (offer.default_placement_id) {
+      td.title = 'Default placement';
+      td.setAttribute('data-default-placement', offer.default_placement_id);
+      td.appendChild(document.createTextNode('\\u2605 ' + offer.default_placement_id));
+    } else {
+      td.appendChild(document.createTextNode('\\u2014'));
+    }
+    tr.appendChild(td);
+    // Field — the schema's LABEL; the raw path rides the tooltip (+ Advanced)
+    td = document.createElement('td');
+    span = document.createElement('span');
+    span.setAttribute('data-field-label', '');
+    span.setAttribute('data-field-path', path);
+    span.title = path;
+    span.appendChild(document.createTextNode(field ? fieldDisplayLabel(field) : fieldDisplayLabel({ path: path })));
+    td.appendChild(span);
+    tr.appendChild(td);
+    // Expected type in plain words
+    td = document.createElement('td');
+    td.appendChild(document.createTextNode(field ? plainTypeWords(field) : '\\u2014'));
+    tr.appendChild(td);
+    // Required ✓ / —
+    td = document.createElement('td');
+    td.setAttribute('data-field-required', field && field.required === true ? 'true' : 'false');
+    td.appendChild(document.createTextNode(field && field.required === true ? '\\u2713' : '\\u2014'));
+    tr.appendChild(td);
+    // Mapped component — display name + '#N' position chip (§2.4/C6: the
+    // Section Builder speaks positions, never the Quote Builder's step word)
+    td = document.createElement('td');
+    node = edge && trimStr(edge.internal_field) !== '' ? questionByField(edge.internal_field) : null;
+    if (node) {
+      td.appendChild(document.createTextNode(typeLabel(node.type)));
+      pos = answerComponentPosition(edge.internal_field);
+      if (pos > 0) {
+        span = document.createElement('span');
+        span.className = 'studio-pos-chip';
+        span.setAttribute('data-component-position', String(pos));
+        span.title = 'Position in this question unit';
+        span.appendChild(document.createTextNode('#' + pos));
+        td.appendChild(span);
+      }
+    } else if (edge && trimStr(edge.internal_field) !== '') {
+      td.appendChild(document.createTextNode('not on this question unit'));
+    } else {
+      td.appendChild(document.createTextNode('\\u2014 not mapped \\u2014'));
+    }
+    tr.appendChild(td);
+    // Status — operator words, colored chip
+    td = document.createElement('td');
+    st = fieldRowStatus(offer, field, edge);
+    span = document.createElement('span');
+    span.className = 'studio-row-status';
+    span.setAttribute('data-row-status', st.key);
+    span.setAttribute('data-row-required', field && field.required === true ? 'true' : 'false');
+    span.appendChild(document.createTextNode(st.label));
+    td.appendChild(span);
+    tr.appendChild(td);
+    // Fix — ONE action per row
+    tr.appendChild(buildFixCell(offer, field, edge));
+    return tr;
+  }
+  // The per-Offer header row: selection + live summary + the offer-scoped
+  // affordances (Map fields · Bulk-map · Payload · Schema) the §8.7 flows keep.
+  function buildOfferHeadRow(offer) {
+    var live = offerLiveState(offer);
+    var tr = document.createElement('tr');
+    tr.className = 'studio-offer-head';
+    tr.setAttribute('data-studio-offer-row', offer.public_id);
+    var td = document.createElement('td');
+    var name = document.createElement('span');
+    name.className = 'studio-offer-name';
+    name.title = offer.public_id;
+    name.appendChild(document.createTextNode(offer.offer_name));
+    td.appendChild(name);
+    td.appendChild(providerTag(offer.provider));
+    tr.appendChild(td);
+    td = document.createElement('td');
+    td.colSpan = 8;
+    var actions = document.createElement('div');
+    actions.className = 'studio-pair';
+    var selLabel = document.createElement('label');
+    selLabel.className = 'lg-check';
+    var sel = document.createElement('input');
+    sel.type = 'checkbox';
+    sel.setAttribute('data-studio-offer-select', String(offer.id));
+    sel.checked = live.selected;
+    selLabel.appendChild(sel);
+    selLabel.appendChild(document.createTextNode('selected'));
+    actions.appendChild(selLabel);
+    var stateEl = document.createElement('span');
+    stateEl.className = 'studio-offer-state';
+    stateEl.setAttribute('data-offer-mapping-state', live.state);
+    stateEl.appendChild(document.createTextNode(offerStateLabel(live.state)));
+    actions.appendChild(stateEl);
+    var summary = document.createElement('span');
+    summary.className = 'form-help';
+    summary.setAttribute('data-offer-required-mapped', String(live.required_mapped));
+    summary.appendChild(document.createTextNode(live.required_mapped + '/' + live.required_total + ' required fields mapped'));
+    actions.appendChild(summary);
+    var version = document.createElement('span');
+    version.className = 'form-help';
+    version.setAttribute('data-offer-schema-version', offer.payload_schema_version === null || offer.payload_schema_version === undefined ? '' : String(offer.payload_schema_version));
+    version.appendChild(document.createTextNode(offer.has_active_schema ? 'payload v' + offer.payload_schema_version : 'no payload yet'));
+    actions.appendChild(version);
+    actions.appendChild(btn('Map fields', 'data-studio-offer-map', offer.id, 'btn btn-sm btn-secondary'));
+    actions.appendChild(btn('Bulk-map', 'data-studio-offer-bulkmap', offer.id));
+    actions.appendChild(btn('Payload', 'data-studio-offer-payload', offer.id));
+    var schemaLink = document.createElement('a');
+    schemaLink.className = 'btn btn-sm btn-outline';
+    schemaLink.href = offerDeepLink(offer);
+    schemaLink.target = '_blank';
+    schemaLink.rel = 'noopener';
+    schemaLink.setAttribute('data-studio-offer-schema-link', offer.public_id);
+    schemaLink.textContent = 'Schema';
+    actions.appendChild(schemaLink);
+    td.appendChild(actions);
+    tr.appendChild(td);
+    return tr;
+  }
+  // §12.1/§12.5: the Advanced disclosure lists every raw dotted path the
+  // normal table replaced with labels (one line per Offer × field).
+  function renderMappingAdvancedPaths() {
+    var listEl = document.querySelector('[data-studio-mapping-advanced-list]');
+    if (!listEl) { return; }
+    clearChildren(listEl);
+    var list = offersList();
+    var i, j, fields, li;
+    for (i = 0; i < list.length; i++) {
+      fields = list[i].answer_fields || [];
+      for (j = 0; j < fields.length; j++) {
+        li = document.createElement('li');
+        li.setAttribute('data-advanced-path', fields[j].path);
+        li.appendChild(document.createTextNode(list[i].offer_name + ' \\u00B7 ' + fieldDisplayLabel(fields[j]) + ' \\u2014 ' + fields[j].path));
+        listEl.appendChild(li);
+      }
+    }
   }
   function renderOffersTable() {
     var body = document.querySelector('[data-studio-offers-body]');
@@ -6695,66 +7233,38 @@ export const SECTION_STUDIO_SCRIPT = `
       return;
     }
     clearChildren(body);
-    var i, offer, live, tr, td, stateEl, sel, selLabel, actions;
+    var i, j, k, offer, fields, edge, edges, tr, td, note, seenPaths;
     for (i = 0; i < list.length; i++) {
       offer = list[i];
-      live = offerLiveState(offer);
-      tr = document.createElement('tr');
-      tr.setAttribute('data-studio-offer-row', offer.public_id);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(offer.offer_name));
-      td.title = offer.public_id;
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(offer.provider || '\\u2014'));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(offer.default_placement_id || '\\u2014'));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.setAttribute('data-offer-schema-version', offer.payload_schema_version === null || offer.payload_schema_version === undefined ? '' : String(offer.payload_schema_version));
-      td.appendChild(document.createTextNode(offer.has_active_schema ? 'v' + offer.payload_schema_version : 'no schema'));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.appendChild(document.createTextNode(String(live.required_total)));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      td.setAttribute('data-offer-required-mapped', String(live.required_mapped));
-      td.appendChild(document.createTextNode(live.required_mapped + '/' + live.required_total));
-      tr.appendChild(td);
-      td = document.createElement('td');
-      stateEl = document.createElement('span');
-      stateEl.className = 'studio-offer-state';
-      stateEl.setAttribute('data-offer-mapping-state', live.state);
-      stateEl.appendChild(document.createTextNode(offerStateLabel(live.state)));
-      td.appendChild(stateEl);
-      tr.appendChild(td);
-      td = document.createElement('td');
-      actions = document.createElement('div');
-      actions.className = 'studio-pair';
-      selLabel = document.createElement('label');
-      selLabel.className = 'lg-check';
-      sel = document.createElement('input');
-      sel.type = 'checkbox';
-      sel.setAttribute('data-studio-offer-select', String(offer.id));
-      sel.checked = live.selected;
-      selLabel.appendChild(sel);
-      selLabel.appendChild(document.createTextNode('selected'));
-      actions.appendChild(selLabel);
-      actions.appendChild(btn('Map fields', 'data-studio-offer-map', offer.id, 'btn btn-sm btn-secondary'));
-      actions.appendChild(btn('Bulk-map', 'data-studio-offer-bulkmap', offer.id));
-      actions.appendChild(btn('Payload', 'data-studio-offer-payload', offer.id));
-      var schemaLink = document.createElement('a');
-      schemaLink.className = 'btn btn-sm btn-outline';
-      schemaLink.href = offerDeepLink(offer);
-      schemaLink.target = '_blank';
-      schemaLink.rel = 'noopener';
-      schemaLink.setAttribute('data-studio-offer-schema-link', offer.public_id);
-      schemaLink.textContent = 'Schema';
-      actions.appendChild(schemaLink);
-      td.appendChild(actions);
-      tr.appendChild(td);
-      body.appendChild(tr);
+      body.appendChild(buildOfferHeadRow(offer));
+      fields = offer.answer_fields || [];
+      seenPaths = {};
+      if (fields.length === 0) {
+        tr = document.createElement('tr');
+        tr.setAttribute('data-studio-field-row', offer.id + ':');
+        td = document.createElement('td');
+        td.colSpan = 9;
+        note = document.createElement('span');
+        note.className = 'form-help';
+        note.appendChild(document.createTextNode(offer.has_active_schema ? 'The active payload schema has no answer-source fields to map.' : 'This Offer has no ACTIVE payload schema \\u2014 create one in the payload builder first.'));
+        td.appendChild(note);
+        tr.appendChild(td);
+        body.appendChild(tr);
+      }
+      for (j = 0; j < fields.length; j++) {
+        seenPaths[fields[j].path] = true;
+        edge = null;
+        k = findEdgeIndex(offer.id, fields[j].path);
+        if (k !== -1) { edge = state.answer_maps[k]; }
+        body.appendChild(buildFieldRow(offer, fields[j], edge));
+      }
+      // ORPHANED edges (paths no longer in the active schema) stay visible —
+      // they decode to "unlinked" with the Re-link… fix.
+      edges = edgesForOffer(offer.id);
+      for (j = 0; j < edges.length; j++) {
+        if (seenPaths[edges[j].offer_payload_field_path] === true) { continue; }
+        body.appendChild(buildFieldRow(offer, null, edges[j]));
+      }
     }
   }
   function questionOptions(select, field, current) {
@@ -6787,8 +7297,11 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     select.value = current;
   }
+  // DEV-65(c)/§12.1: picker options speak the schema field LABEL + plain-word
+  // type — never a raw dotted path (the path stays the option VALUE and the
+  // row tooltip / Advanced list).
   function pathOptionLabel(f) {
-    return f.path + ' \\u2014 ' + f.type + (f.required === true ? ' (required)' : '') + (f.valid_values && f.valid_values.length > 0 ? ' [' + f.valid_values.join('|') + ']' : '');
+    return fieldDisplayLabel(f) + ' \\u2014 ' + plainTypeWords(f) + (f.required === true ? ' (required)' : '');
   }
   function renderMapGrid() {
     var grid = document.querySelector('[data-studio-map-grid]');
@@ -6826,7 +7339,9 @@ export const SECTION_STUDIO_SCRIPT = `
       pathSel = document.createElement('select');
       pathSel.className = 'form-input';
       pathSel.setAttribute('data-map-path', f.path);
-      pathSel.setAttribute('aria-label', 'Offer schema field');
+      pathSel.setAttribute('aria-label', 'Offer payload field');
+      // §12.1: options carry the field LABEL; the raw path rides the tooltip.
+      pathSel.title = f.path;
       for (j = 0; j < fields.length; j++) {
         o = document.createElement('option');
         o.value = fields[j].path;
@@ -6977,11 +7492,15 @@ export const SECTION_STUDIO_SCRIPT = `
   function renderOffersPanel() {
     if (!offersData) { return; }
     renderOffersTable();
+    renderMappingAdvancedPaths();
     renderMapGrid();
     renderInspectorMapping();
     renderMappingCount();
     updateMappingBadge();
     renderOffersStaleNote();
+    // §12.3: the canvas overlay chips derive from the SAME live model — every
+    // mapping edit repaints them (decoration is rebuild-per-pass idempotent).
+    applyCanvasDecoration();
   }
   function loadOffers() {
     if (!state.public_id) {
@@ -7039,12 +7558,68 @@ export const SECTION_STUDIO_SCRIPT = `
     }).catch(function () { pre.textContent = 'validate-payload request failed'; });
   }
 
+  // --- §12.1 Fix-action routing: each kind opens the EXACT editor scoped to
+  // the row ------------------------------------------------------------------
+  // "Map…" → the per-Offer Map-fields editor with the row's quick-map
+  // question select focused (its '+ Create question for this field' option
+  // keeps Direction B one step away for unmapped rows).
+  function openFixMapGrid(offer, path) {
+    openMapOfferId = offer.id;
+    renderBulkReview(null);
+    renderMapGrid();
+    var sel = document.querySelector('[data-map-question="' + path + '"]');
+    if (sel) {
+      if (sel.scrollIntoView) { sel.scrollIntoView({ block: 'nearest' }); }
+      if (sel.focus) { sel.focus(); }
+    }
+  }
+  // "Fix type…" → the mapped component's internal-field surface (the
+  // Advanced-tab input) — the place the answer identity is authored.
+  function openFixTypeSurface(internalField) {
+    var node = questionByField(internalField);
+    if (!node) { return false; }
+    selectComponent(node.question_id);
+    setInspectorTab('advanced');
+    var inp = document.getElementById('lg-inspector-internal-field');
+    if (inp && inp.focus) { inp.focus(); }
+    return true;
+  }
+  // "Re-link…" → the component's quick-map on the inspector Mapping tab
+  // (picking a field there drops the stale edge for this Offer + component
+  // and upserts the new one); a component-less edge falls back to the
+  // Map-fields editor.
+  function openFixRelink(offer, internalField, path) {
+    var node = trimStr(internalField) === '' ? null : questionByField(internalField);
+    if (!node) { openFixMapGrid(offer, path); return; }
+    selectComponent(node.question_id);
+    setInspectorTab('mapping');
+    var sel = document.querySelector('[data-inspector-quickmap="' + offer.id + '"]');
+    if (sel) {
+      if (sel.scrollIntoView) { sel.scrollIntoView({ block: 'nearest' }); }
+      if (sel.focus) { sel.focus(); }
+    }
+  }
+
   // Delegated wiring for the whole mapping drawer panel.
   var mappingPanel = document.querySelector('[data-studio-drawer-panel="mapping"]');
   if (mappingPanel) {
     mappingPanel.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target : null;
       if (!t) { return; }
+      // §12.1 Fix column (the 'values' kind is an anchor — the C1 deep link
+      // navigates by itself and never reaches this leg's routing).
+      var fixEl = t.closest('[data-studio-fix]');
+      if (fixEl && fixEl.getAttribute('data-studio-fix') !== 'values') {
+        var fixOffer = offerById(Number(fixEl.getAttribute('data-fix-offer')));
+        if (!fixOffer) { return; }
+        var fixKind = fixEl.getAttribute('data-studio-fix');
+        var fixPath = fixEl.getAttribute('data-fix-path') || '';
+        var fixField = fixEl.getAttribute('data-fix-field') || '';
+        if (fixKind === 'map') { openFixMapGrid(fixOffer, fixPath); }
+        else if (fixKind === 'type') { if (!openFixTypeSurface(fixField)) { openFixMapGrid(fixOffer, fixPath); } }
+        else if (fixKind === 'relink') { openFixRelink(fixOffer, fixField, fixPath); }
+        return;
+      }
       var el = t.closest('[data-studio-offer-map]');
       if (el) { openMapOfferId = Number(el.getAttribute('data-studio-offer-map')); renderBulkReview(null); renderMapGrid(); return; }
       el = t.closest('[data-studio-map-close]');

@@ -12,6 +12,11 @@
 // router (client-vs-server seam). NOTE on the canvas-region stub: the island
 // injects ONLY our own preview-endpoint output (server-rendered presets that
 // escapeHtml every author value) — the stub here is a plain object, no DOM.
+// DEV-66: the render region now lives INSIDE the canvas srcdoc iframe (a
+// REAL viewport, so the design's @media mobile block can genuinely fire at
+// 375); the executed probes model iframe.contentDocument — the document stub
+// serves 'lg-studio-canvas-frame' as a frame object whose contentDocument
+// owns the '#lg-studio-canvas-render' mount.
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -40,8 +45,8 @@ import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.
 // importing runtime/maps.ts HERE would drag DOM types into the worker
 // program. Same suite-pairing the M5 progress-bar regressions use.
 import { renderComponent, renderSectionComponents } from "../src/public/leadgen/components/presets";
-// review FIX 4a seam: the selected-state override consumer rides the
-// frameRegions sheet ONLY (the base sheet is the pinned legacy bytes).
+// review FIX 4a seam (DEV-68 re-pin): the selected-state override consumer
+// rides the BASE sheet (frame-independent markup; the legacy pins carry it).
 import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
 // wave-2 seam: equivalentFrameGroup output must pass the REAL frame PUT gate.
 import { validateFrameConfig } from "../src/public/leadgen/designs/frames";
@@ -221,6 +226,21 @@ async function studioPage(env: Env, publicId: string): Promise<string> {
   return getHtml(env, `/admin/leadgen/sections/${publicId}/edit`);
 }
 
+// DEV-66: the SSR canvas document rides the canvas iframe's srcdoc attribute
+// (escapeHtml-escaped). Unescape it so the region pins keep asserting the
+// REAL preset markup byte-for-byte (adjusted for the new mount, never
+// weakened). &amp; decodes LAST — the inverse of escapeHtml's order.
+function canvasSrcdoc(html: string): string {
+  const m = html.match(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*srcdoc="([^"]*)"/);
+  expect(m, "canvas srcdoc iframe present").not.toBeNull();
+  return m![1]!
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 function studioIsland(html: string): string {
   const island = extractScripts(html).find((s) => s.includes("function renderCanvasNow("));
   expect(island, "studio island present").toBeDefined();
@@ -261,9 +281,14 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toContain("data-studio-library");
     expect(html).toContain("data-studio-library-search");
 
-    // 3) center: canvas + breadcrumb + selection toolbar + refusal note
+    // 3) center: canvas + breadcrumb + selection toolbar + refusal note.
+    // DEV-66: the render region mounts INSIDE the canvas srcdoc iframe (a
+    // real viewport — same-origin, scripts inert) — the parent page hosts
+    // the frame element; the mount id lives in the frame document.
     expect(html).toContain("data-studio-canvas");
-    expect(html).toContain('id="lg-studio-canvas-render"');
+    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*sandbox="allow-same-origin"/);
+    expect(html).toMatch(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*data-canvas-frame-viewport="desktop"/);
+    expect(canvasSrcdoc(html)).toContain('id="lg-studio-canvas-render"');
     expect(html).toContain("data-studio-breadcrumb");
     expect(html).toContain("data-studio-selection-toolbar");
     expect(html).toContain("data-studio-drop-refusal");
@@ -300,19 +325,298 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     expect(html).toMatch(/data-studio-canvas-empty[^>]*hidden/);
   });
 
-  it("SSR canvas renders the section tree via the REAL preset renderer inside the scoped chrome CSS", async () => {
+  it("SSR canvas renders the section tree via the REAL preset renderer inside the scoped chrome CSS (in the canvas srcdoc)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    const start = html.indexOf('id="lg-studio-canvas-render"');
-    const end = html.indexOf("data-studio-canvas-empty", start);
-    const region = html.slice(start, end);
+    const region = canvasSrcdoc(html);
     // scoped chrome css + the preview-parity wrapper + the REAL preset markup
     expect(region).toContain("<style>");
     expect(region).toContain('data-funnel-design="default-funnel"');
     expect(region).toContain("lg-preview-desktop");
     expect(region).toContain('data-component-type="TwoButtonYesNo"');
     expect(region).toContain('data-question-id="q1"');
+    // DEV-66: the srcdoc is a COMPLETE document carrying the mount + the
+    // design css INCLUDING its mobile media block — the reason the canvas is
+    // an iframe at all (the block can now genuinely fire at the 375 viewport)
+    expect(region).toContain("<!doctype html>");
+    expect(region).toContain('id="lg-studio-canvas-render"');
+    expect(region).toContain("@media (max-width: 480px)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DEV-66 — the Build canvas is a REAL srcdoc iframe (viewport-faithful media
+// queries): the design's mobile block NEVER fired in the inline region no
+// matter the admin window; the frame document is an actual 375/1280 viewport.
+// ---------------------------------------------------------------------------
+
+describeDb("DEV-66 — canvas srcdoc iframe (§6.1.4 real viewports)", () => {
+  it("SSR: the frame is same-origin + script-inert; its srcdoc carries the REAL scoped design css whose mobile block can fire at 375", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const tag = html.match(/<iframe[^>]*id="lg-studio-canvas-frame"[^>]*>/)?.[0];
+    expect(tag, "canvas frame tag present").toBeDefined();
+    expect(tag!).toContain('sandbox="allow-same-origin"'); // parent reaches contentDocument; preview scripts stay inert
+    expect(tag!).toContain('class="studio-canvas-frame"');
+    expect(tag!).toContain('data-canvas-frame-viewport="desktop"');
+    const doc = canvasSrcdoc(html);
+    // the srcdoc document embeds the BYTE-IDENTICAL scoped chrome css the
+    // design module emits — including its @media mobile block (the leg cannot
+    // degenerate: the reference css is asserted to carry the block first)
+    const scopedCss = funnelChromeCss(defaultFunnelDesign, `[data-funnel-design="${defaultFunnelDesign.id}"]`);
+    expect(scopedCss).toContain("@media (max-width: 480px)");
+    expect(doc).toContain(scopedCss);
+    // decoration rules live INSIDE the frame document now (the parent page's
+    // stylesheet cannot cross the boundary)
+    expect(doc).toContain(".studio-canvas-render .studio-selected-node");
+    expect(doc).toContain(".studio-frame-badge");
+    expect(doc).toContain(".studio-mapoverlay-chip");
+    // the island wires the frame: load-time delegation re-bind + region
+    // resolution THROUGH contentDocument + the §6.1.4 width swap
+    const island = studioIsland(html);
+    expect(island).toContain("function canvasFrameDoc() {");
+    expect(island).toContain("frame.contentDocument");
+    expect(island).toContain("frame.addEventListener('load', bindCanvasFrameDoc);");
+    expect(island).toContain("frame.style.width = canvasViewport === 'mobile' ? '375px' : '1280px';");
+  });
+
+  it("EXECUTED: the Mobile toggle sizes the frame to 375 (back to 1280) and the live mobile re-render carries the media block INTO the frame document", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const region = { innerHTML: "" };
+    const frameAttrs: Record<string, string> = {};
+    const frame = {
+      style: {} as Record<string, string>,
+      setAttribute(k: string, v: string) {
+        frameAttrs[k] = v;
+      },
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+        body: { scrollHeight: 912 },
+      },
+    };
+    let captured: { url: string; init: RequestInit } | null = null;
+    const sandbox = {
+      state: { content: JSON.parse(JSON.stringify(YESNO_CONTENT)) as unknown },
+      canvasViewport: "mobile",
+      document: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-frame" ? frame : null;
+        },
+      },
+      fetch(url: string, init: RequestInit): Promise<Response> {
+        captured = { url, init };
+        return Promise.resolve(admin.request(url, init, env));
+      },
+    };
+    const source = [
+      "function applyCanvasDecoration() {}",
+      "function updateCanvasEmpty() {}",
+      "function scheduleCanvasRender() {}",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "canvasRegion"),
+      sliceIslandFunction(island, "updateCanvasFrameViewport"),
+      sliceIslandFunction(island, "updateCanvasFrameHeight"),
+      sliceIslandFunction(island, "renderCanvasNow"),
+      // the §6.1.4 toggle path: size the frame viewport FIRST, then re-render
+      "updateCanvasFrameViewport();",
+      "renderCanvasNow();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+    for (let i = 0; i < 200 && region.innerHTML.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // the frame IS the mobile viewport
+    expect(frame.style["width"]).toBe("375px");
+    expect(frameAttrs["data-canvas-frame-viewport"]).toBe("mobile");
+    // the REAL endpoint round-trip: viewport=mobile rode the POST; the mobile
+    // wrap AND the design css (with the block that can now fire at 375)
+    // landed in the frame document
+    expect(captured, "canvas fetch executed").not.toBeNull();
+    const body = JSON.parse(String(captured!.init.body)) as Record<string, unknown>;
+    expect(body["viewport"]).toBe("mobile");
+    expect(region.innerHTML).toContain("lg-preview-mobile");
+    expect(region.innerHTML).toContain("@media (max-width: 480px)");
+    // the height tracker sizes the frame element to the frame document
+    runInNewContext("updateCanvasFrameHeight();", sandbox);
+    expect(frame.style["height"]).toBe("912px");
+    // desktop round-trip restores the 1280 viewport
+    runInNewContext("canvasViewport = 'desktop'; updateCanvasFrameViewport();", sandbox);
+    expect(frame.style["width"]).toBe("1280px");
+    expect(frameAttrs["data-canvas-frame-viewport"]).toBe("desktop");
+  });
+
+  it("EXECUTED: in-frame image loads re-run the height tracker — bindCanvasFrameDoc binds ONE capture-phase load delegate per loaded document", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the wiring point is bindCanvasFrameDoc (same lifetime as the surface
+    // delegation) and it MUST ride the capture phase — img 'load' never bubbles
+    expect(island).toContain("doc.addEventListener('load', onFrameDocLoadCapture, true);");
+
+    const region = { innerHTML: "" };
+    const loadListeners: Array<{ fn: (ev: unknown) => unknown; capture: boolean }> = [];
+    let docHeight = 480;
+    const doc = {
+      getElementById(id: string) {
+        return id === "lg-studio-canvas-render" ? region : null;
+      },
+      addEventListener(type: string, fn: (ev: unknown) => unknown, capture?: boolean) {
+        if (type === "load") loadListeners.push({ fn, capture: capture === true });
+      },
+      body: {
+        get scrollHeight() {
+          return docHeight;
+        },
+      },
+    };
+    const frame = {
+      style: {} as Record<string, string>,
+      setAttribute() {
+        /* viewport attr — not under test */
+      },
+      contentDocument: doc,
+    };
+    const sandbox = {
+      canvasViewport: "desktop",
+      document: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-frame" ? frame : null;
+        },
+      },
+    };
+    const source = [
+      "function bindCanvasSurface() {}",
+      "function applyCanvasDecoration() {}",
+      "var canvasDocBound = null;",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "updateCanvasFrameViewport"),
+      sliceIslandFunction(island, "updateCanvasFrameHeight"),
+      sliceIslandFunction(island, "onFrameDocLoadCapture"),
+      sliceIslandFunction(island, "bindCanvasFrameDoc"),
+      "bindCanvasFrameDoc();",
+    ].join("\n");
+    runInNewContext(source, sandbox);
+
+    // bound exactly once, capture phase, and the pass-time height was applied
+    expect(loadListeners).toHaveLength(1);
+    expect(loadListeners[0]!.capture, "img load does not bubble — capture required").toBe(true);
+    expect(frame.style["height"]).toBe("480px");
+    // re-binding the SAME loaded document is a no-op (once per document)
+    runInNewContext("bindCanvasFrameDoc();", sandbox);
+    expect(loadListeners).toHaveLength(1);
+
+    // an in-frame <img> finishes loading AFTER the render pass → the document
+    // grows → the delegated capture listener re-runs the tracker
+    docHeight = 912;
+    loadListeners[0]!.fn({ target: { tagName: "IMG" } });
+    expect(frame.style["height"]).toBe("912px");
+    // a non-image subresource load never recomputes (the delegate filters)
+    docHeight = 1500;
+    loadListeners[0]!.fn({ target: { tagName: "LINK" } });
+    expect(frame.style["height"]).toBe("912px");
+    // …and the lowercase tagName shape (foreign-doc defensiveness) still counts
+    loadListeners[0]!.fn({ target: { tagName: "img" } });
+    expect(frame.style["height"]).toBe("1500px");
+  });
+
+  it("EXECUTED: dragover/drop delegation operates on FRAME-document nodes — insertion hint + palette drop mutate the model through the re-bound path", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // a frame-document-resident canvas node: canvasOwns() must resolve it
+    // through canvasRegion().contains (the parent surface is ABSENT — the
+    // exact contentDocument leg)
+    const target = {
+      className: "",
+      closest(sel: string) {
+        return sel === "[data-question-id]" ? target : null;
+      },
+      getAttribute(k: string) {
+        if (k === "data-question-id") return "q1";
+        if (k === "data-component-type") return "TwoButtonYesNo";
+        return null;
+      },
+      getBoundingClientRect() {
+        return { top: 0, height: 100 };
+      },
+    };
+    const region = {
+      contains(el: unknown) {
+        return el === target;
+      },
+    };
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
+    const probe = studioProbe(html, YESNO_CONTENT, {
+      getElementById(id: string) {
+        return id === "lg-studio-canvas-frame" ? frame : null;
+      },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    });
+    probe.run(
+      [
+        "var canvasSurface = null;",
+        "var dropHint = null;",
+        "var selected = [];",
+        "function selectComponent(qid) { selected.push(qid); }",
+        "function clearDropClasses() {}",
+        sliceIslandArray(island, "DROP_CLASSES"),
+        sliceIslandFunction(island, "withoutClasses"),
+        sliceIslandFunction(island, "canvasFrameEl"),
+        sliceIslandFunction(island, "canvasFrameDoc"),
+        sliceIslandFunction(island, "canvasRegion"),
+        sliceIslandFunction(island, "canvasOwns"),
+        sliceIslandFunction(island, "onCanvasDragOver"),
+        sliceIslandFunction(island, "onCanvasDrop"),
+      ].join("\n"),
+    );
+    // dragover over the TOP half of the frame-doc node → 'before' hint + the
+    // insertion-indicator class on the node
+    probe.sandbox["dragEv"] = { preventDefault() {}, target, clientY: 10 };
+    probe.run("onCanvasDragOver(dragEv)");
+    expect(probe.run("dropHint.qid")).toBe("q1");
+    expect(probe.run("dropHint.mode")).toBe("before");
+    expect(target.className).toContain("studio-drop-before");
+    // the palette drop (dataTransfer text 'add:<type>' — the library
+    // dragstart payload) lands the component BEFORE q1 in the model
+    probe.sandbox["dropEv"] = {
+      preventDefault() {},
+      target,
+      dataTransfer: {
+        getData() {
+          return "add:HelperText";
+        },
+      },
+    };
+    probe.run("onCanvasDrop(dropEv)");
+    expect(probe.run("state.content.components.map(function (c) { return c.type; })")).toEqual([
+      "HelperText",
+      "TwoButtonYesNo",
+    ]);
+    expect(probe.run("selected.length")).toBe(1); // the drop selected the new node
+    // the mutated model stays valid against the REAL server validator
+    expect(validateSectionContent(probe.sandbox.state.content as never).errors).toEqual([]);
   });
 });
 
@@ -1140,14 +1444,23 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
+    // DEV-66: the region lives in the canvas iframe — the stub models the
+    // contentDocument the sliced canvasRegion() resolves through.
     const region = { innerHTML: "" };
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
     let captured: { url: string; init: RequestInit } | null = null;
     const sandbox = {
       state: { content: JSON.parse(JSON.stringify(YESNO_CONTENT)) as unknown },
       canvasViewport: "desktop", // wave-2 §6.1.4 island state the fn reads
       document: {
         getElementById(id: string) {
-          return id === "lg-studio-canvas-render" ? region : null;
+          return id === "lg-studio-canvas-frame" ? frame : null;
         },
       },
       fetch(url: string, init: RequestInit): Promise<Response> {
@@ -1158,6 +1471,10 @@ describeDb("section studio EXECUTED island — live server seams", () => {
     const source = [
       "function applyCanvasDecoration() {}",
       "function updateCanvasEmpty() {}",
+      "function scheduleCanvasRender() {}",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "canvasRegion"),
       sliceIslandFunction(island, "renderCanvasNow"),
       "renderCanvasNow();",
     ].join("\n");
@@ -1272,6 +1589,8 @@ interface SchemaFieldSeed {
   required?: boolean;
   internal_field?: string;
   valid_values?: Array<string | number | boolean>;
+  // §12.5: the authored schema label — field_label derivation source.
+  label?: string;
 }
 
 async function createOfferWithSchema(
@@ -1308,6 +1627,7 @@ async function createOfferWithSchema(
       source: "answer",
       internal_field: f.internal_field ?? f.path.split(".").pop(),
       ...(f.valid_values !== undefined ? { valid_values: f.valid_values } : {}),
+      ...(f.label !== undefined ? { label: f.label } : {}),
     }));
     // one macro node rides along — it must NEVER appear in answer_fields
     children.push({ path: "meta.click_id", name: "click_id", type: "string", source: "macro", macro: "click_id" } as never);
@@ -1343,6 +1663,14 @@ const MAPPING_FUNCS = [
   "createQuestionForField",
   "bulkProposals",
   "mapStateNote",
+  // §12.1 panel decode core (slice D-studio)
+  "fieldDisplayLabel",
+  "plainTypeWords",
+  "fieldRowStatus",
+  "fixActionFor",
+  "answerComponentPosition",
+  "overlayChipInfo",
+  "pathOptionLabel",
 ] as const;
 
 interface OffersResponse {
@@ -1451,14 +1779,32 @@ describeDb("section studio SSR — §8.2 Activity/Vertical dropdowns + E9 skelet
     expect(html).toContain("data-studio-zero-offers-warning");
   });
 
-  it("the §8.7 mapping table SSRs the normative columns; raw ids/paths/JSON are absent from the surface", async () => {
+  it("the 12 §12.1 mapping table SSRs the EXACT column contract; raw ids/paths/JSON are absent from the surface", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const head = html.slice(html.indexOf("data-studio-mapping-table"), html.indexOf("data-studio-offers-body"));
-    for (const col of ["Offer", "Provider", "Placement", "Payload schema version", "Required fields", "Mapped fields", "Mapping status", "Action"]) {
-      expect(head, `column ${col}`).toContain(`<th scope="col">${col}</th>`);
-    }
+    // §12.1 COLUMN CONTRACT — the normative order, verbatim.
+    const contractColumns = [
+      "Offer",
+      "Provider",
+      "Placement",
+      "Field",
+      "Expected type",
+      "Required",
+      "Mapped component",
+      "Status",
+      "Fix",
+    ];
+    const headCells = [...head.matchAll(/<th scope="col">([^<]+)<\/th>/g)].map((m) => m[1]);
+    expect(headCells).toEqual(contractColumns);
+    // §12.1: the raw path lives in tooltip + ADVANCED — the panel ships the
+    // Advanced disclosure (an lg-advanced container, lint-stripped from the
+    // normal surface) the island fills with one line per Offer × field.
+    expect(html).toContain("data-studio-mapping-advanced");
+    expect(html).toContain("data-studio-mapping-advanced-list");
+    expect(html).toMatch(/<details class="lg-advanced studio-mapping-advanced"[^>]*data-studio-mapping-advanced/);
+    expect(html).toContain("Advanced: raw field paths");
     // §8.7: no free-text path inputs, no raw answer-map JSON textarea on this
     // surface (the ONLY raw-JSON control is the Advanced NODE editor).
     expect(html).not.toContain("data-map-field"); // the old builder's raw grid hooks
@@ -1466,13 +1812,38 @@ describeDb("section studio SSR — §8.2 Activity/Vertical dropdowns + E9 skelet
     const rawJsonSurfaces = html.match(/<textarea[^>]*data-studio-node-json/g) ?? [];
     expect(rawJsonSurfaces).toHaveLength(1);
   });
+
+  it("the 12 §12.3 mapping-overlay toggle ships in the preview drawer and the island wires it to the canvas decoration", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    // the toggle lives INSIDE the preview drawer panel (§12.3 'toggle in
+    // preview drawer')
+    const previewPanel = html.slice(
+      html.indexOf('data-studio-drawer-panel="preview"'),
+      html.indexOf("</iframe>", html.indexOf('data-studio-drawer-panel="preview"')),
+    );
+    expect(previewPanel).toMatch(/data-studio-overlay-toggle[^>]*aria-pressed="false"/);
+    expect(previewPanel).toContain("Offer mapping overlay");
+    const island = studioIsland(html);
+    // toggle → repaint; chips rebuild inside the decoration pass; click →
+    // the inspector Mapping tab scoped to the chip's component
+    expect(island).toContain("mappingOverlayOn = !mappingOverlayOn;");
+    expect(island).toContain("function decorateMappingOverlay(");
+    expect(island).toContain("decorateMappingOverlay(region);");
+    expect(island).toContain("'data-mapping-overlay-chip'");
+    expect(island).toContain("selectComponent(this.getAttribute('data-mapping-overlay-chip'));");
+    expect(island).toMatch(/data-mapping-overlay-chip'\)\);\s*setInspectorTab\('mapping'\);/);
+    // the overlay chips are part of the stale-cleanup list (rebuild per pass)
+    expect(island).toContain(".studio-mapoverlay-chip");
+  });
 });
 
 describeDb("section studio — §8.7 GET /sections/:id/offers answer_fields (server extension)", () => {
   it("each matched offer carries provider, default placement, ACTIVE schema version and its ANSWER-source fields (macro nodes excluded)", async () => {
     const { env } = newHarness();
     const offer = await createOfferWithSchema(env, "Studio Offer A", [
-      { path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured" },
+      { path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured", label: "Currently insured?" },
       { path: "data.zip", type: "string", required: true, internal_field: "zip" },
       { path: "data.coverage", type: "enum", valid_values: ["basic", "full"], internal_field: "coverage" },
     ]);
@@ -1495,6 +1866,11 @@ describeDb("section studio — §8.7 GET /sections/:id/offers answer_fields (ser
     expect(withSchema.answer_fields.map((f) => f["path"])).toEqual(["data.insured", "data.zip", "data.coverage"]);
     expect(withSchema.answer_fields[0]).toMatchObject({ path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured" });
     expect(withSchema.answer_fields[2]).toMatchObject({ path: "data.coverage", type: "enum", required: false, valid_values: ["basic", "full"] });
+    // 12 §12.5 ADDITIVE field_label: authored schema label wins; absent one,
+    // the humanized leaf segment (derived — no storage change).
+    expect(withSchema.answer_fields[0]!["field_label"]).toBe("Currently insured?");
+    expect(withSchema.answer_fields[1]!["field_label"]).toBe("Zip");
+    expect(withSchema.answer_fields[2]!["field_label"]).toBe("Coverage");
     // schema-less offer: honest empties, never a fake schema
     const noSchema = body.offers.find((o) => o.id === bare.id)!;
     expect(noSchema["has_active_schema"]).toBe(false);
@@ -1839,6 +2215,251 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
     const html2 = await studioPage(env, section.public_id);
     const blob = extractJsonBlob(html2, "lg-section-data");
     expect(blob["selected_offers"]).toEqual([offer.id]);
+  });
+});
+
+// ===========================================================================
+// 12 §12.1 / §12.3 (slice D-studio) — the mapping-panel COLUMN CONTRACT
+// decode core, the ONE-Fix-action routing and the canvas mapping overlay,
+// executed against the SERVED island code (vm-probe)
+// ===========================================================================
+
+describeDb("section studio EXECUTED island — 12 §12.1 panel decode + Fix routing + §12.3 overlay", () => {
+  // ONE island-shaped offer fixture drives the whole decode matrix. Shapes
+  // mirror the REAL /sections/:id/offers projection (field_label included).
+  const PANEL_OFFER = {
+    id: 11,
+    public_id: "lgo_panelfixture",
+    offer_name: "Panel Offer",
+    provider: "panelprov",
+    default_placement_id: "pl-panel",
+    has_active_schema: true,
+    payload_schema_public_id: "lgp_panelfixture",
+    payload_schema_version: 2,
+    answer_fields: [
+      { path: "data.insured", type: "boolean", required: true, internal_field: "currently_insured", label: null, field_label: "Currently insured?", valid_values: null },
+      { path: "data.zip", type: "string", required: true, internal_field: "zip", label: null, field_label: "Zip", valid_values: null },
+      { path: "data.coverage", type: "enum", required: false, internal_field: null, label: null, field_label: "Coverage", valid_values: ["basic", "full"] },
+      { path: "data.household_count", type: "number", required: false, internal_field: null, label: null, field_label: "Household count", valid_values: null },
+    ],
+  };
+
+  function panelProbe(html: string, answerMaps: unknown[] = [], selected: number[] = [11]): ReturnType<typeof mappingProbe> {
+    return mappingProbe(html, MAPPABLE_CONTENT, { activity: "quote_funnel", vertical: "life", offers: [PANEL_OFFER] }, answerMaps, selected);
+  }
+
+  const panelEdge = (over: Record<string, unknown>): Record<string, unknown> => ({
+    question_id: "q1",
+    question_key: "insured_q",
+    internal_field: "currently_insured",
+    answer_type: "boolean",
+    offer_id: 11,
+    offer_payload_field_path: "data.insured",
+    provider_expected_type: "boolean",
+    output_value_map: null,
+    value_transform: null,
+    required_for_offer: true,
+    default_value: null,
+    fallback_value: null,
+    ...over,
+  });
+
+  it("§12.1 Field column: fieldDisplayLabel prefers the server's field_label, then the authored label, then the humanized leaf — never the raw dotted path", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const probe = panelProbe(html);
+    // server projection wins
+    expect(probe.run(`fieldDisplayLabel(answerFieldOf(offerById(11), 'data.insured'))`)).toBe("Currently insured?");
+    // pre-§12.5 response shapes: authored label, then humanized leaf
+    expect(probe.run(`fieldDisplayLabel({ path: 'lead.loan_amount', label: 'Loan amount requested' })`)).toBe("Loan amount requested");
+    expect(probe.run(`fieldDisplayLabel({ path: 'lead.loan_amount' })`)).toBe("Loan amount");
+    expect(probe.run(`fieldDisplayLabel({ path: 'zip-code' })`)).toBe("Zip code");
+    // the raw path never leaks into the display value
+    expect(String(probe.run(`fieldDisplayLabel(answerFieldOf(offerById(11), 'data.household_count'))`))).not.toContain("data.");
+
+    // and the SAME derivation holds against the REAL server projection
+    const offerReal = await createOfferWithSchema(env, "Label Source", [
+      { path: "data.first_name", type: "string", label: "First name (as on the policy)" },
+      { path: "data.household_count", type: "number" },
+    ]);
+    const res = await admin.request(`${API}/sections/${section.public_id}/offers`, {}, env);
+    const body = (await res.json()) as OffersResponse;
+    const realOffer = body.offers.find((o) => o.id === offerReal.id)!;
+    const realProbe = mappingProbe(html, MAPPABLE_CONTENT, body);
+    expect(realOffer.answer_fields.map((f) => f["field_label"])).toEqual(["First name (as on the policy)", "Household count"]);
+    expect(realProbe.run(`fieldDisplayLabel(answerFieldOf(offerById(${offerReal.id}), 'data.first_name'))`)).toBe("First name (as on the policy)");
+  });
+
+  it("§12.1 Expected type speaks plain words — text / number / yes or no / one of: … / list / group", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const probe = panelProbe(html);
+    expect(probe.run(`plainTypeWords(answerFieldOf(offerById(11), 'data.zip'))`)).toBe("text");
+    expect(probe.run(`plainTypeWords(answerFieldOf(offerById(11), 'data.household_count'))`)).toBe("number");
+    expect(probe.run(`plainTypeWords(answerFieldOf(offerById(11), 'data.insured'))`)).toBe("yes or no");
+    expect(probe.run(`plainTypeWords(answerFieldOf(offerById(11), 'data.coverage'))`)).toBe("one of: basic, full");
+    expect(probe.run(`plainTypeWords({ type: 'enum' })`)).toBe("one of the allowed values");
+    expect(probe.run(`plainTypeWords({ type: 'array' })`)).toBe("list");
+    expect(probe.run(`plainTypeWords({ type: 'object' })`)).toBe("group of fields");
+  });
+
+  it("§12.1 Status decode matrix: complete / needs values / type mismatch / unlinked / not mapped (required-flavored) in operator words", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+
+    const runStatus = (edges: unknown[], expr: string): Record<string, string> =>
+      panelProbe(html, edges).run(expr) as Record<string, string>;
+
+    // complete
+    expect(runStatus([panelEdge({})], `fieldRowStatus(offerById(11), answerFieldOf(offerById(11), 'data.insured'), edgesForOffer(11)[0])`))
+      .toEqual({ key: "complete", label: "complete" });
+    // needs values — the value-coercion gap a per-Offer value map closes
+    // (boolean answer → number field, no map/transform)
+    const needsValues = panelEdge({ offer_payload_field_path: "data.household_count", provider_expected_type: "number", required_for_offer: false });
+    expect(runStatus([needsValues], `fieldRowStatus(offerById(11), answerFieldOf(offerById(11), 'data.household_count'), edgesForOffer(11)[0])`))
+      .toEqual({ key: "needs-values", label: "needs values" });
+    // type mismatch — the stored expected type drifted from the schema's
+    const drift = panelEdge({ offer_payload_field_path: "data.zip", provider_expected_type: "number", answer_type: "string", internal_field: "zip", question_id: "q2" });
+    expect(runStatus([drift], `fieldRowStatus(offerById(11), answerFieldOf(offerById(11), 'data.zip'), edgesForOffer(11)[0])`))
+      .toEqual({ key: "type-mismatch", label: "type mismatch" });
+    // unlinked — the edge's path left the active schema (orphaned)
+    const orphan = panelEdge({ offer_payload_field_path: "data.gone" });
+    expect(runStatus([orphan], `fieldRowStatus(offerById(11), null, edgesForOffer(11)[0])`))
+      .toEqual({ key: "unlinked", label: "unlinked" });
+    // not mapped — no edge; required fields carry the red flavor
+    expect(runStatus([], `fieldRowStatus(offerById(11), answerFieldOf(offerById(11), 'data.insured'), null)`))
+      .toEqual({ key: "not-mapped", label: "required — not mapped" });
+    expect(runStatus([], `fieldRowStatus(offerById(11), answerFieldOf(offerById(11), 'data.coverage'), null)`))
+      .toEqual({ key: "not-mapped", label: "not mapped" });
+    // missing_required (required edge, empty internal_field) reads not-mapped
+    const missing = panelEdge({ internal_field: "" });
+    expect(runStatus([missing], `fieldRowStatus(offerById(11), answerFieldOf(offerById(11), 'data.insured'), edgesForOffer(11)[0])`))
+      .toEqual({ key: "not-mapped", label: "required — not mapped" });
+  });
+
+  it("§12.1 Fix column: ONE action per row — Map…/Fill provider values…/Fix type…/Re-link… routed by status; complete rows get none", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+
+    const runFix = (edges: unknown[], expr: string): Record<string, unknown> | null =>
+      panelProbe(html, edges).run(expr) as Record<string, unknown> | null;
+
+    expect(runFix([panelEdge({})], `fixActionFor(offerById(11), answerFieldOf(offerById(11), 'data.insured'), edgesForOffer(11)[0])`)).toBeNull();
+    expect(runFix([], `fixActionFor(offerById(11), answerFieldOf(offerById(11), 'data.insured'), null)`))
+      .toMatchObject({ kind: "map", label: "Map…" });
+    const needsValues = panelEdge({ offer_payload_field_path: "data.household_count", provider_expected_type: "number", required_for_offer: false });
+    expect(runFix([needsValues], `fixActionFor(offerById(11), answerFieldOf(offerById(11), 'data.household_count'), edgesForOffer(11)[0])`))
+      .toMatchObject({ kind: "values", label: "Fill provider values…" });
+    const drift = panelEdge({ offer_payload_field_path: "data.zip", provider_expected_type: "number", answer_type: "string", internal_field: "zip", question_id: "q2" });
+    expect(runFix([drift], `fixActionFor(offerById(11), answerFieldOf(offerById(11), 'data.zip'), edgesForOffer(11)[0])`))
+      .toMatchObject({ kind: "type", label: "Fix type…" });
+    const orphan = panelEdge({ offer_payload_field_path: "data.gone" });
+    expect(runFix([orphan], `fixActionFor(offerById(11), null, edgesForOffer(11)[0])`))
+      .toMatchObject({ kind: "relink", label: "Re-link…" });
+  });
+
+  it("§12.1 Fix routing wiring: each kind opens the exact editor scoped to the row (island source: map grid focus / Advanced internal-field / quick-map focus; 'values' is the C1 deep-link anchor)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // Map… → the per-Offer Map-fields editor with the row's question select focused
+    expect(island).toContain("function openFixMapGrid(");
+    expect(island).toContain("'[data-map-question=\"' + path + '\"]'");
+    // Fix type… → the component's Advanced internal-field surface
+    expect(island).toContain("function openFixTypeSurface(");
+    expect(island).toMatch(/setInspectorTab\('advanced'\);\s*var inp = document\.getElementById\('lg-inspector-internal-field'\);/);
+    // Re-link… → the component's quick-map on the Mapping tab
+    expect(island).toContain("function openFixRelink(");
+    expect(island).toContain("'[data-inspector-quickmap=\"' + offer.id + '\"]'");
+    // the delegated handler routes data-studio-fix kinds; 'values' never
+    // reaches the router (it is an anchor to the Offer's value-map — the C1
+    // deep link)
+    expect(island).toContain("t.closest('[data-studio-fix]')");
+    expect(island).toContain("!== 'values'");
+    expect(island).toContain("el.href = offerDeepLink(offer);");
+    expect(island).toContain("/edit#payload");
+    // the table renderer emits one row per Offer × field + the head row
+    expect(island).toContain("function buildFieldRow(");
+    expect(island).toContain("'data-studio-field-row'");
+    expect(island).toContain("function buildOfferHeadRow(");
+    // the Field cell tooltip carries the raw path; the Advanced list mirrors it
+    expect(island).toContain("span.title = path;");
+    expect(island).toContain("function renderMappingAdvancedPaths(");
+    expect(island).toContain("'[data-studio-mapping-advanced-list]'");
+  });
+
+  it("C6: the Mapped-component chip speaks POSITIONS — answerComponentPosition indexes the question unit's answer components (1-based)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const probe = panelProbe(html);
+    expect(probe.run(`answerComponentPosition('currently_insured')`)).toBe(1);
+    expect(probe.run(`answerComponentPosition('zip')`)).toBe(2);
+    expect(probe.run(`answerComponentPosition('nope')`)).toBe(0);
+    // the chip markup: '#N' + the question-unit position title (island source)
+    const island = studioIsland(html);
+    expect(island).toContain("'Position in this question unit'");
+    expect(island).toContain("'#' + pos");
+  });
+
+  it("§12.3 overlayChipInfo: mapped (n Offers) count + required-missing decode over the live model", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+
+    // fully mapped required field → mapped, 1 Offer, no red
+    expect(panelProbe(html, [panelEdge({})]).run(`overlayChipInfo('currently_insured')`))
+      .toEqual({ count: 1, required_missing: false });
+    // selected Offer, nothing mapped: the schema's required hint names this
+    // component → required-missing red
+    expect(panelProbe(html, []).run(`overlayChipInfo('currently_insured')`))
+      .toEqual({ count: 0, required_missing: true });
+    // a required edge that is NOT complete (stored type drift) → red
+    const drift = panelEdge({ provider_expected_type: "string" });
+    expect(panelProbe(html, [drift]).run(`overlayChipInfo('currently_insured')`))
+      .toEqual({ count: 1, required_missing: true });
+    // offer not selected → invisible to the overlay
+    expect(panelProbe(html, [], []).run(`overlayChipInfo('currently_insured')`))
+      .toEqual({ count: 0, required_missing: false });
+  });
+
+  it("DEV-65(c): quick-map/map-grid picker options speak the field LABEL + plain type — never a raw dotted path", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const probe = panelProbe(html);
+    expect(probe.run(`pathOptionLabel(answerFieldOf(offerById(11), 'data.insured'))`)).toBe("Currently insured? — yes or no (required)");
+    expect(probe.run(`pathOptionLabel(answerFieldOf(offerById(11), 'data.coverage'))`)).toBe("Coverage — one of: basic, full");
+    expect(String(probe.run(`pathOptionLabel(answerFieldOf(offerById(11), 'data.household_count'))`))).not.toContain("data.");
+    // the map-grid path select carries the raw path as its tooltip
+    const island = studioIsland(html);
+    expect(island).toContain("pathSel.title = f.path;");
+  });
+
+  it("Direction B survives: the scoped editor the 'Map…' fix opens still offers '+ Create question for this field' and routes it to createQuestionForField", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the option ships in questionOptions (quick-map select of the map grid)
+    expect(island).toContain("'+ Create question for this field'");
+    expect(island).toContain("'__create__'");
+    // the change router spawns the pre-bound component for it
+    expect(island).toMatch(/t\.value === '__create__'.*createQuestionForField\(offer, field\)/s);
+    // and the MODEL leg still round-trips (the §8.7 executed test above pins
+    // the full type→component matrix; this pins the panel's entry point):
+    const probe = panelProbe(html);
+    const node = probe.run(`createQuestionForField(offerById(11), answerFieldOf(offerById(11), 'data.coverage'))`) as Record<string, unknown>;
+    expect(node["type"]).toBe("DropdownQuestion");
+    expect(node["internal_field"]).toBe("coverage");
+    expect((probe.run(`edgesForOffer(11)`) as unknown[]).length).toBe(1);
+    expect(probe.run(`edgeMapState(edgesForOffer(11)[0], offerById(11))`)).toBe("complete");
+    expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
   });
 });
 
@@ -2947,9 +3568,9 @@ describeDb("v2.5 §5.1 SSR — the Question strip", () => {
     expect(content.components[0]!["props"]).toBeUndefined(); // bound = NO props.text
     // seeded content validates CLEAN against the REAL server validator
     expect(validateSectionContent(content).errors).toEqual([]);
-    // the SSR canvas rendered the bound nodes (empty text until typed)
-    const start = html.indexOf('id="lg-studio-canvas-render"');
-    const region = html.slice(start, html.indexOf("data-studio-canvas-empty", start));
+    // the SSR canvas rendered the bound nodes (empty text until typed) —
+    // DEV-66: the canvas document rides the frame srcdoc
+    const region = canvasSrcdoc(html);
     expect(region).toContain('data-component-type="QuestionHeadline"');
     expect(region).toContain('data-component-type="Subheadline"');
     // §5.2: while a bound node exists the palette items are disabled with the
@@ -2977,8 +3598,7 @@ describeDb("v2.5 §5.1 SSR — the Question strip", () => {
       content_json: JSON.stringify(BOUND_SEED_CONTENT),
     });
     const boundHtml = await studioPage(env, bound.public_id);
-    const start = boundHtml.indexOf('id="lg-studio-canvas-render"');
-    const region = boundHtml.slice(start, boundHtml.indexOf("data-studio-canvas-empty", start));
+    const region = canvasSrcdoc(boundHtml);
     expect(region).toContain('class="lg-headline"');
     expect(region).toContain("Are you currently insured?");
   });
@@ -3246,14 +3866,22 @@ describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)"
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
+    // DEV-66: the frame-doc stub — the strip inputs stay PARENT-document.
     const region = { innerHTML: "" };
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
     let captured: { url: string; init: RequestInit } | null = null;
     const sandbox = {
       state: { content: JSON.parse(JSON.stringify(BOUND_SEED_CONTENT)) as unknown },
       canvasViewport: "desktop", // wave-2 §6.1.4 island state the fn reads
       document: {
         getElementById(id: string) {
-          if (id === "lg-studio-canvas-render") return region;
+          if (id === "lg-studio-canvas-frame") return frame;
           if (id === "lg-section-headline") return { value: "Live typed headline" };
           if (id === "lg-section-subheadline") return { value: "Live sub copy" };
           return null;
@@ -3267,6 +3895,10 @@ describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)"
     const source = [
       "function applyCanvasDecoration() {}",
       "function updateCanvasEmpty() {}",
+      "function scheduleCanvasRender() {}",
+      sliceIslandFunction(island, "canvasFrameEl"),
+      sliceIslandFunction(island, "canvasFrameDoc"),
+      sliceIslandFunction(island, "canvasRegion"),
       sliceIslandFunction(island, "renderCanvasNow"),
       "renderCanvasNow();",
     ].join("\n");
@@ -4702,6 +5334,17 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
     const badge = stubEl("div") as StubEl & { querySelector(sel: string): StubEl | null };
     badge.querySelector = (sel: string): StubEl | null =>
       sel === "[data-funnel-picker]" ? (badge.children.find((c) => c.getAttribute("data-funnel-picker") !== null) ?? null) : null;
+    // DEV-66: the badge is a canvas decoration — renderFunnelPicker resolves
+    // it through the frame document's region, so the stub models the iframe.
+    const region = stubEl("div") as StubEl & { querySelector(sel: string): StubEl | null };
+    region.querySelector = (sel: string): StubEl | null => (sel === '[data-frame-badge="q_hb"]' ? badge : null);
+    const frame = {
+      contentDocument: {
+        getElementById(id: string) {
+          return id === "lg-studio-canvas-render" ? region : null;
+        },
+      },
+    };
     const probe = studioProbe(html, FRAME_NODE_CONTENT, {
       createElement(tag: string) {
         return stubEl(tag);
@@ -4709,14 +5352,14 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
       createTextNode(text: string) {
         return stubEl("#text", text);
       },
-      querySelector(sel: string) {
-        return sel === '[data-frame-badge="q_hb"]' ? badge : null;
+      querySelector() {
+        return null;
       },
       querySelectorAll() {
         return [];
       },
-      getElementById() {
-        return null;
+      getElementById(id: string) {
+        return id === "lg-studio-canvas-frame" ? frame : null;
       },
     });
     probe.sandbox["window"] = {
@@ -4735,6 +5378,9 @@ describeDb("wave 2 — §5.4 Move to Quote frame (LIVE semantics)", () => {
         sliceIslandFunction(island, "moveConfirmMessage"),
         "function doMoveToFrame(qid, funnel) { moved.push(funnel.public_id); }",
         "var moved = [];",
+        sliceIslandFunction(island, "canvasFrameEl"),
+        sliceIslandFunction(island, "canvasFrameDoc"),
+        sliceIslandFunction(island, "canvasRegion"),
         sliceIslandFunction(island, "renderFunnelPicker"),
         sliceIslandFunction(island, "funnelPickBtn"),
         sliceIslandFunction(island, "startMoveToFrame"),
@@ -4895,8 +5541,14 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(html).toMatch(/<textarea id="lg-node-json"[^>]*readonly>/);
     expect(html).toMatch(/<button[^>]*id="lg-node-json-apply" hidden>/);
     expect(html).toContain("data-node-json-edit");
-    // island: dblclick wiring + per-selection re-lock
-    expect(island).toContain("canvasSurface.addEventListener('dblclick', function (ev) {");
+    // island: dblclick wiring + per-selection re-lock. DEV-66: the delegation
+    // is a NAMED handler bound on BOTH roots — the parent surface AND (per
+    // load) the canvas frame's contentDocument, where every node now lives.
+    expect(island).toContain("function onCanvasDblClick(ev) {");
+    expect(island).toContain("target.addEventListener('dblclick', onCanvasDblClick);");
+    expect(island).toContain("if (canvasSurface) { bindCanvasSurface(canvasSurface); }");
+    expect(island).toContain("bindCanvasSurface(doc);");
+    expect(island).toContain("frame.addEventListener('load', bindCanvasFrameDoc);");
     expect(island).toContain("el.setAttribute('contenteditable', 'true');");
     expect(island).toContain("rawEditArmed = false;\n    syncRawJsonMode();");
     const strip = { value: "Old headline" };
@@ -4985,6 +5637,103 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(ta.getAttribute("readonly")).toBe(null);
     expect(applyBtn.hidden).toBe(false);
     expect(editBtn.hidden).toBe(true);
+  });
+
+  it("§6.2 Escape ends the inline edit WITHOUT walking the selection — onKey stops propagation before the doc-level handler", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // the wiring: BOTH terminating keys are stopped at the element (finish()
+    // clears inlineEditing before the bubble, so the doc guard alone can't)
+    expect(island).toContain("keyEv.preventDefault(); keyEv.stopPropagation(); finish(false);");
+    expect(island).toContain("keyEv.preventDefault(); keyEv.stopPropagation(); finish(true);");
+
+    type Handler = (ev: unknown) => unknown;
+    const committed: string[] = [];
+    const renders: number[] = [];
+    const selections: Array<string | null> = [];
+    const el = {
+      attrs: {} as Record<string, string>,
+      handlers: {} as Record<string, Handler[]>,
+      textContent: "Edited copy",
+      setAttribute(n: string, v: string) {
+        this.attrs[n] = v;
+      },
+      removeAttribute(n: string) {
+        delete this.attrs[n];
+      },
+      addEventListener(t: string, f: Handler) {
+        (this.handlers[t] = this.handlers[t] ?? []).push(f);
+      },
+      removeEventListener(t: string, f: Handler) {
+        const a = this.handlers[t] ?? [];
+        const at = a.indexOf(f);
+        if (at >= 0) a.splice(at, 1);
+      },
+      focus() {
+        /* noop */
+      },
+    };
+    const probe = studioProbe(html, NESTED_CONTENT);
+    probe.sandbox["el"] = el;
+    probe.sandbox["committed"] = committed;
+    probe.sandbox["renders"] = renders;
+    probe.sandbox["selections"] = selections;
+    probe.run(
+      [
+        "var inlineEditing = false;",
+        "function scheduleCanvasRender() { renders.push(1); }",
+        "function selectComponent(qid) { selectedQuestionId = qid; selections.push(qid); }",
+        sliceIslandFunction(island, "startInlineEdit"),
+        sliceIslandFunction(island, "onCanvasKeyDown"),
+      ].join("\n"),
+    );
+    probe.sandbox.selectedQuestionId = "bag1"; // nested: bag1 → stack1 → panel1
+
+    // the DOM bubble contract: element listeners first, the document handler
+    // ONLY if propagation was not stopped — both handlers are the REAL code.
+    const bubble = (key: string): boolean => {
+      let stopped = false;
+      const ev = {
+        key,
+        preventDefault() {
+          /* noop */
+        },
+        stopPropagation() {
+          stopped = true;
+        },
+      };
+      probe.sandbox["ev"] = ev;
+      for (const h of [...(el.handlers["keydown"] ?? [])]) h(ev);
+      if (!stopped) probe.run("onCanvasKeyDown(ev)");
+      return stopped;
+    };
+
+    expect(probe.run("startInlineEdit(el, function (text) { committed.push(text); })")).toBe(true);
+    expect(el.attrs["contenteditable"]).toBe("true");
+    expect(probe.run("inlineEditing")).toBe(true);
+
+    // Escape: the edit CANCELS (no commit, lock restored, stale draft
+    // repainted) and the selection NEVER walks to the parent.
+    expect(bubble("Escape"), "onKey stopped the Escape at the element").toBe(true);
+    expect(probe.run("inlineEditing")).toBe(false);
+    expect(el.attrs["contenteditable"]).toBeUndefined();
+    expect(committed).toEqual([]);
+    expect(renders.length, "cancel repaints the canvas (stale draft text)").toBeGreaterThan(0);
+    expect(selections, "selection unchanged — the doc handler never ran").toEqual([]);
+    expect(probe.sandbox.selectedQuestionId).toBe("bag1");
+
+    // Enter: commits through the SAME stopped path (selection untouched too).
+    expect(probe.run("startInlineEdit(el, function (text) { committed.push(text); })")).toBe(true);
+    expect(bubble("Enter"), "onKey stopped the Enter at the element").toBe(true);
+    expect(committed).toEqual(["Edited copy"]);
+    expect(selections).toEqual([]);
+
+    // calibration — the stop is LOAD-BEARING: the same Escape arriving at the
+    // doc handler OUTSIDE an edit session walks the selection up the ancestry.
+    probe.run("onCanvasKeyDown({ key: 'Escape', preventDefault: function () {} })");
+    expect(selections).toEqual(["stack1"]);
   });
 });
 
@@ -5133,16 +5882,26 @@ describeDb("review FIX 4a — answer-group selected-state override renders back"
     expect(out).toContain('style="--lg-sel-bg:#0F2440"');
   });
 
-  it("the consuming CSS rule rides the frameRegions sheet ONLY — the base sheet (the pinned legacy bytes) is untouched", () => {
+  it("DEV-68: the consuming CSS rule rides the BASE sheet (frame-independent markup) — exactly once, AFTER the §14.6 selected rule; framed sheet inherits it without duplication", () => {
     const base = funnelChromeCss(DESIGN);
     const framed = funnelChromeCss(DESIGN, undefined, { frameRegions: true });
-    expect(base, "base sheet carries NO --lg-sel-bg consumer (pin-safe)").not.toContain("--lg-sel-bg");
-    expect(framed).toContain("var(--lg-sel-bg, ");
-    // the rule re-states the SAME selected selector so the fallback keeps the
-    // §14.6 token when no override rides the group
-    expect(framed).toMatch(
-      /\.lg-btn\.lg-btn-answer\[aria-checked="true"\][^{]*\.lg-btn\.lg-btn-answer\[data-selected="true"\]\{background:var\(--lg-sel-bg, #E8EEF4\)\}/,
-    );
+    // the rule re-states the SAME selected selector THROUGH the var so the
+    // fallback keeps the §14.6 token when no override rides the group
+    const consumer =
+      /\.lg-btn\.lg-btn-answer\[aria-checked="true"\][^{]*\.lg-btn\.lg-btn-answer\[data-selected="true"\]\{background:var\(--lg-sel-bg, #E8EEF4\)\}/g;
+    // the BASE sheet (legacy funnels + unit-only previews) carries the consumer
+    // exactly once — the DEV-68 coordinated re-pin carried the byte change
+    expect(base.match(consumer), "exactly one base-sheet emission").toHaveLength(1);
+    // …emitted AFTER the §14.6 selected rule, so the var restatement wins by
+    // source order at equal specificity (override set ⇒ role/hex; unset ⇒
+    // identical computed style via the token fallback)
+    const selectedRuleAt = base.indexOf('.lg-btn.lg-btn-answer[aria-checked="true"]');
+    const consumerAt = base.indexOf("var(--lg-sel-bg, ");
+    expect(selectedRuleAt, "the §14.6 selected rule exists").toBeGreaterThan(-1);
+    expect(consumerAt, "the consumer follows the §14.6 selected rule").toBeGreaterThan(selectedRuleAt);
+    // the framed sheet appends the gated rules to the SAME base — the consumer
+    // rides it exactly once (no duplicate gated emission remains)
+    expect(framed.match(consumer), "exactly one framed-sheet emission").toHaveLength(1);
   });
 
   it("FIX 8b: the dropdown presets consume props.default — the matching option is selected; absent/unmatched default renders byte-identically", () => {

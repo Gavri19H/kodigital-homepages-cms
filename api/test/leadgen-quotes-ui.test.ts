@@ -507,6 +507,10 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
     expect(html).toContain(">Open Section Mapping</a>");
     expect(html).toContain(`href="/admin/leadgen/offers/${offerPublicId}/edit#payload"`);
     expect(html).toContain(">Open Offer Payload Schema</a>");
+    // DEV-59: the structure-panel dot mirrors the SAME verdict — the seeded
+    // selected-but-unmapped offer reads "incomplete" in operator words.
+    expect(html).toContain('data-mapping-status="incomplete" title="Offer mapping incomplete"');
+    expect(html).not.toContain('data-mapping-status="unknown"');
     // the head chip flips to the blocked verdict — v2.5 B2 ADJUSTED to the
     // 14 §14.2 count copy (was ">Blocked from publish</span>"); this fixture
     // has exactly one blocking row → "Blocked (1 error)".
@@ -580,9 +584,10 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
   it("the editor script wires the 409 report + variant-save verdict into the panel (re-render, no raw JSON)", async () => {
     const { env, quotePublicId } = await seedQuoteWithSection();
     const html = await getHtml(env, `/admin/leadgen/quotes/${quotePublicId}/edit`);
-    // 409 report path: typed error → renderPreflight(report.blocks), operator message
+    // 409 report path: typed error → renderPreflight(report.blocks + the C2
+    // §3.6 problems rows), operator message
     expect(html).toContain("quote_activation_blocked");
-    expect(html).toContain("renderPreflight({ ok: false, blocks: res.body.blocks || [] })");
+    expect(html).toContain("renderPreflight({ ok: false, blocks: res.body.blocks || [], problems: res.body.problems || [] })");
     expect(html).toContain("status: r.status");
     // variant save + activation PUT success both re-render the panel
     expect(html).toContain("res.body.activation_preflight");

@@ -1250,6 +1250,54 @@ describeDb("GET /offers/:id/cap — §10.6 near-real-time status", () => {
   });
 });
 
+// --- builder_context.active_schema field_label (v2.5 12 §12.5) ---------------------------
+
+// ADDITIVE `field_label` on every projected schema node — the authored schema
+// label wins; absent one, the humanized leaf segment. Derived at projection
+// time (offerBuilderContext); the STORED schema_json is untouched.
+describeDb("GET /offers/:id builder_context.active_schema — §12.5 additive field_label", () => {
+  it("every node carries field_label (authored label > humanized leaf); the stored schema bytes gain nothing", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    const schemaRes = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", {
+        schema_json: {
+          version: 1,
+          root: {
+            type: "object",
+            children: [
+              { path: "data.home_own", name: "home_own", type: "boolean", required: true, source: "answer", internal_field: "homeowner", label: "Owns their home?" },
+              { path: "data.loan_amount", name: "loan_amount", type: "number", source: "answer", internal_field: "loan_amount" },
+              { path: "meta.click_id", name: "click_id", type: "string", source: "macro", macro: "click_id" },
+            ],
+          },
+        },
+      }),
+      env,
+    );
+    expect(schemaRes.status, await schemaRes.clone().text()).toBe(201);
+
+    const res = await admin.request(`${API}/offers/${offer.id}`, {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      builder_context: { active_schema: { nodes: Array<Record<string, unknown>> } };
+    };
+    const nodes = body.builder_context.active_schema.nodes;
+    expect(nodes.map((n) => [n["path"], n["field_label"]])).toEqual([
+      ["data.home_own", "Owns their home?"],
+      ["data.loan_amount", "Loan amount"],
+      ["meta.click_id", "Click id"],
+    ]);
+    // derived only — the stored schema_json rows carry NO field_label bytes
+    const stored = sdb
+      .prepare("SELECT schema_json FROM leadgen_offer_payload_schemas WHERE offer_id = ?")
+      .all(offer.id) as Array<{ schema_json: string }>;
+    expect(stored.length).toBeGreaterThan(0);
+    for (const row of stored) expect(row.schema_json).not.toContain("field_label");
+  });
+});
+
 // --- payload schemas -----------------------------------------------------------------------
 
 const VALID_SCHEMA = {

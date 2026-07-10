@@ -13,6 +13,13 @@ import type { ArticleRow, MediaRow, CategoryRow } from "../db";
 // validation that rejects stored-XSS vectors before they are ever persisted.
 import { ALLOWED_SETTINGS_KEYS, validateScriptField } from "../settings/custom-html";
 import { invalidateForSettingsUpdate } from "../cache/invalidate";
+// LeadGen v2.5 10 §10.2: a settings save touching branding keys must bump
+// leadgen_site_quotes.updated_at for that site (the activation_version cache
+// axis) so cached funnel shells re-bake the site branding.
+import {
+  touchesLeadGenBranding,
+  bumpLeadGenActivationVersionForBranding,
+} from "../leadgen/branding";
 import {
   listSitesHandler,
   createSiteHandler,
@@ -696,6 +703,24 @@ api.patch("/api/admin/settings", async (c) => {
     ).bind(siteId),
   );
   await c.env.DB.batch(statements);
+
+  // LeadGen v2.5 10 §10.2 (D-settings): the save is committed above. When it
+  // touched a BRANDING key (the SiteBranding projection inputs — logo /
+  // site_name / tagline / legal-contact / trust logos), bump
+  // leadgen_site_quotes.updated_at for THIS site so the next /lg serve mints a
+  // fresh shell cache key + ETag (updated_at IS the activation_version key
+  // segment — no new cache axis; ONE parameterized UPDATE; zero activation
+  // rows → a no-op). Awaited (the fresh key identity is the §10.2 correctness
+  // mechanism) but guarded like the invalidation below: the settings write
+  // already succeeded, and a CMS deployment without the LeadGen tables must
+  // never 500 a committed settings save.
+  if (touchesLeadGenBranding(keys)) {
+    try {
+      await bumpLeadGenActivationVersionForBranding(c.env.DB, siteId);
+    } catch (err) {
+      console.error("leadgen branding activation bump failed (non-fatal):", err);
+    }
+  }
 
   // rescue-4 round-5 (settings-propagation lag): the save is committed +
   // settings_version bumped above. Now invalidate the per-site cache surface so

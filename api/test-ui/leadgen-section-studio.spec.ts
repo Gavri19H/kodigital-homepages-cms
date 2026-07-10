@@ -243,9 +243,12 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await rowA.getByRole('button', { name: 'Map fields' }).click();
     const grid = page.locator('[data-studio-map-grid]');
     await expect(grid).toBeVisible();
-    // the path picker SHOWS type + required — never a free-text path input
+    // the path picker SHOWS type + required — never a free-text path input.
+    // DEV-65c (§12.1): the option label speaks OPERATOR WORDS — the field's
+    // label + plain-words type ("yes or no", never the raw "boolean" id).
     await expect(grid.locator('[data-map-row="data.insured"] select[data-map-path]')).toBeVisible();
-    await expect(grid.locator('[data-map-row="data.insured"] option[value="data.insured"]').first()).toContainText('boolean');
+    await expect(grid.locator('[data-map-row="data.insured"] option[value="data.insured"]').first()).toContainText('yes or no');
+    await expect(grid.locator('[data-map-row="data.insured"] option[value="data.insured"]').first()).toContainText('(required)');
     expect(await grid.locator('input[type="text"]').count(), 'no free-text inputs in the grid').toBe(0);
     await grid.locator('[data-map-row="data.insured"] select[data-map-question]').selectOption('currently_insured');
     await expect(grid.locator('[data-map-row="data.insured"] [data-map-state]')).toHaveAttribute('data-map-state', 'complete');
@@ -298,7 +301,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await grid.locator('[data-map-row="data.homeowner"] select[data-map-question]').selectOption('__create__');
 
     // the pre-bound component landed on the CANVAS via the D1 add machinery
-    const canvasNode = page.locator('#lg-studio-canvas-render [data-component-type="TwoButtonYesNo"]');
+    const canvasNode = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="TwoButtonYesNo"]');
     await expect(canvasNode).toBeVisible();
     // …and the grid row is now mapped COMPLETE to the path-derived field
     await expect(grid.locator('[data-map-row="data.homeowner"] select[data-map-question]')).toHaveValue('homeowner');
@@ -399,12 +402,12 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
 
     // a NON-Maps component shows no Maps tab (visible ONLY for address/ZIP)
-    await page.locator('#lg-studio-canvas-render [data-component-type="FreeTextQuestion"]').first().click();
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="FreeTextQuestion"]').first().click();
     const mapsTab = page.locator('[data-studio-inspector-tab="maps"]');
     await expect(mapsTab).toBeHidden();
 
     // select the ZIP component on the canvas → Maps tab appears; open it
-    await page.locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
     await expect(mapsTab).toBeVisible();
     await mapsTab.click();
 
@@ -428,7 +431,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
 
     // the §8.8 linked-field chip appears on the canvas from the config's
     // autofill keys — "fills: city, state"
-    const chip = page.locator('#lg-studio-canvas-render [data-studio-maps-chip]');
+    const chip = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-studio-maps-chip]');
     await expect(chip).toHaveCount(1);
     await expect(chip).toHaveAttribute('data-fills', 'city,state');
     await expect(chip).toHaveText('fills: city, state');
@@ -460,8 +463,8 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
 
     // the fresh page re-derives the chip from the saved model, and the
     // inspector re-populates the saved config
-    await expect(page.locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveAttribute('data-fills', 'city,state');
-    await page.locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
+    await expect(page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveAttribute('data-fills', 'city,state');
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ZIPInputQuestion"]').click();
     await page.locator('[data-studio-inspector-tab="maps"]').click();
     await expect(page.locator('[data-maps-flag="validate_zip"]')).toBeChecked();
     await expect(page.locator('[data-maps-fill="autofill_city"]')).toHaveValue('city');
@@ -472,7 +475,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await page.locator('[data-maps-flag="validate_zip"]').uncheck();
     await page.locator('[data-maps-fill="autofill_city"]').selectOption('');
     await page.locator('[data-maps-fill="autofill_state"]').selectOption('');
-    await expect(page.locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveCount(0);
+    await expect(page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-studio-maps-chip]')).toHaveCount(0);
     await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
     const cleared = await json<{ content_json: { components: Array<{ question_id: string; props?: Record<string, unknown> }> } }>(
       await page.request.get(`${LG_API}/sections/${section.public_id}`),

@@ -129,6 +129,18 @@ export interface QuoteBuilderSeed {
   controlVariantId: string;
   armBVariantId: string;
   sections: Array<{ id: number; publicId: string; name: string }>;
+  // Phase D (C2 row ⑨): a SECOND Quote with a configured frame (compat OFF)
+  // whose single Section carries a raw-API-inserted legacy chrome node
+  // (StepIndicator — a §8.2 scope:"frame" type; the studio palette can no
+  // longer author one, so the API insert IS the legacy path). No activation
+  // rows — the row activates (and 409s) inside the test.
+  chromeQuote: {
+    quotePublicId: string;
+    funnelPublicId: string;
+    variantId: string;
+    sectionPublicId: string;
+    sectionName: string;
+  };
 }
 
 async function createBareSite(request: APIRequestContext, host: string, name: string): Promise<string> {
@@ -238,6 +250,59 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
     "arm B overrides",
   );
 
+  // --- Phase D C2 fixture: chrome-in-a-section quote (frame configured, no
+  // --- activation). The chrome node rides the RAW section API (a save-time
+  // --- WARNING per DEV-56 — it persists; the §14.1 BLOCK fires at activation).
+  const chromeSectionName = `LG D chrome slide ${uniq}`;
+  const chromeSection = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/sections`, {
+      data: {
+        section_name: chromeSectionName,
+        activity: "quote_funnel",
+        vertical: "life",
+        headline_text: "Where are you located?",
+        continue_mode: "button",
+        status: "active",
+        content_json: {
+          components: [
+            { type: "StepIndicator", question_id: "si1", props: { steps: 3, current: 1 } },
+            { type: "QuestionHeadline", question_id: "h1", props: { text: "Where are you located?" } },
+            {
+              type: "TwoButtonYesNo",
+              question_id: "q_chrome",
+              internal_field: "chrome_answer",
+              props: { yesLabel: "Yes", noLabel: "No" },
+            },
+          ],
+        },
+      },
+    }),
+    "chrome section create",
+  );
+  const chromeQuoteRes = await json<{
+    public_id: string;
+    funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }>;
+  }>(
+    await request.post(`${LG_API}/quotes`, {
+      data: { quote_name: `LG D Chrome Quote ${uniq}`, activity: "quote_funnel", verticals: ["life"] },
+    }),
+    "chrome quote create",
+  );
+  const chromeFunnelId = chromeQuoteRes.funnels[0]!.public_id;
+  const chromeVariantId = chromeQuoteRes.funnels[0]!.variants[0]!.public_id;
+  await json(
+    await request.put(`${LG_API}/variants/${chromeVariantId}`, {
+      data: { sections: [{ section_id: chromeSection.id, position: 0 }] },
+    }),
+    "chrome variant sections",
+  );
+  await json(
+    await request.put(`${LG_API}/funnels/${chromeFunnelId}/frame`, {
+      data: { frame_config_json: { version: 1, template: "centered" } }, // compat defaults OFF
+    }),
+    "chrome quote frame",
+  );
+
   return {
     siteA: { id: siteAId, name: nameA, logoKey: logoA.storage_key },
     siteB: { id: siteBId, name: nameB, logoKey: logoB.storage_key },
@@ -247,5 +312,12 @@ export async function seedQuoteBuilder(request: APIRequestContext, uniq: string)
     controlVariantId,
     armBVariantId: armB.public_id,
     sections,
+    chromeQuote: {
+      quotePublicId: chromeQuoteRes.public_id,
+      funnelPublicId: chromeFunnelId,
+      variantId: chromeVariantId,
+      sectionPublicId: chromeSection.public_id,
+      sectionName: chromeSectionName,
+    },
   };
 }

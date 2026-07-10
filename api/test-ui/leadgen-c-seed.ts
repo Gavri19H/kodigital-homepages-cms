@@ -5,12 +5,17 @@
 // direct DB writes):
 //   * one active site WITH a logo (media upload → site_settings.logo_media_id);
 //   * two extra Media-library PNGs — the row-④ image PICKER picks these;
-//   * one Offer on an ISOLATED vertical (`sb-<uniq>`) + an ACTIVE payload
-//     schema with TWO answer fields:
-//       - lead.business_type (string, required)  — PRE-mapped by the seed with
-//         an output_value_map per choice value (the row-③ C1 chip fixture);
-//       - lead.company_zip  (string)             — left UNMAPPED (the row-⑥
-//         quick-map target);
+//   * TWO Offers on an ISOLATED vertical (`sb-<uniq>`) — the offers panel
+//     lists EXACTLY this pair:
+//       - Offer A: ACTIVE payload schema with TWO answer fields —
+//         lead.business_type (string, required), PRE-mapped by the seed with
+//         an output_value_map per choice value (the row-③ C1 chip fixture),
+//         and lead.company_zip (string), left UNMAPPED (the row-⑥ quick-map
+//         target);
+//       - Offer B (DEV-66d): ACTIVE schema with lead.business_type ONLY,
+//         PRE-mapped with a DIVERGENT output_value_map — the same choice
+//         value maps to a DIFFERENT provider value per Offer, the §12.2
+//         semantics the row-③ chip must surface as one row PER Offer;
 //   * the IMAGE-CARD Section: bound QuestionHeadline + bound Subheadline
 //     (§5.2 one-store fixture), an ImageCardAnswerGrid
 //     (internal_field business_type, 2 choices w/ placeholder images + REQUIRED
@@ -44,6 +49,8 @@ export interface SectionBuilderSeed {
   /** Media-library keys the row-④ picker picks (uploaded, distinct). */
   pickerMedia: string[];
   offer: { id: number; publicId: string; name: string };
+  /** DEV-66d: the second Offer whose value map DIVERGES per choice (§12.2). */
+  offerB: { id: number; publicId: string; name: string };
   imageSection: { id: number; publicId: string; name: string };
   legacySection: { id: number; publicId: string; name: string };
   quotePublicId: string;
@@ -62,6 +69,14 @@ export const IMAGE_CHOICES = [
 export const PROVIDER_VALUE_MAP: Record<string, string> = {
   design_agency: "DESIGN_AGENCY_A",
   software_vendor: "SOFTWARE_VENDOR_A",
+};
+
+// DEV-66d: Offer B's DIVERGENT per-choice provider values — the same choice
+// value intentionally maps to a DIFFERENT provider output than Offer A's
+// (…_B vs …_A), so the row-③ chip must list BOTH rows with distinct values.
+export const PROVIDER_VALUE_MAP_B: Record<string, string> = {
+  design_agency: "DESIGN_AGENCY_B",
+  software_vendor: "SOFTWARE_VENDOR_B",
 };
 
 export const IMAGE_SECTION_HEADLINE = "Which best describes your company?";
@@ -135,6 +150,49 @@ export async function seedSectionBuilder(request: APIRequestContext, uniq: strin
     "offer schema",
   );
 
+  // --- Offer B (DEV-66d): same choice question, DIVERGENT provider values ------
+  const offerBName = `LG C Offer B ${uniq}`;
+  const offerB = await json<{ id: number; public_id: string }>(
+    await request.post(`${LG_API}/offers`, {
+      data: {
+        offer_name: offerBName,
+        provider: "sbprovb",
+        activity,
+        vertical,
+        conversion_tracking_method: "s2s_postback",
+        offer_type: "cpc",
+        placements: [`pl-lg-c-b-${uniq}`],
+        calls_provider_api: false,
+        bid_source: "static",
+        cap_enabled: false,
+      },
+    }),
+    "offer B create",
+  );
+  await json(
+    await request.post(`${LG_API}/offers/${offerB.public_id}/payload-schemas`, {
+      data: {
+        schema_json: {
+          version: 1,
+          root: {
+            type: "object",
+            children: [
+              {
+                path: "lead.business_type",
+                name: "business_type",
+                type: "string",
+                required: true,
+                source: "answer",
+                internal_field: "business_type",
+              },
+            ],
+          },
+        },
+      },
+    }),
+    "offer B schema",
+  );
+
   // --- the IMAGE-CARD Section (bound headline/subheadline + grid + ZIP) -------
   const imageSectionName = `LG C image unit ${uniq}`;
   const imageSection = await json<{ id: number; public_id: string }>(
@@ -177,7 +235,7 @@ export async function seedSectionBuilder(request: APIRequestContext, uniq: strin
             },
           ],
         },
-        selected_offers: [offer.id],
+        selected_offers: [offer.id, offerB.id],
         answer_maps: [
           {
             question_id: "q_cards",
@@ -188,6 +246,18 @@ export async function seedSectionBuilder(request: APIRequestContext, uniq: strin
             internal_field: "business_type",
             answer_type: "enum",
             output_value_map: { ...PROVIDER_VALUE_MAP },
+          },
+          // DEV-66d: the SAME question mapped for Offer B with the divergent
+          // per-choice values (§12.2 — provider values are per (choice, Offer))
+          {
+            question_id: "q_cards",
+            offer_id: offerB.id,
+            offer_payload_field_path: "lead.business_type",
+            provider_expected_type: "string",
+            required_for_offer: true,
+            internal_field: "business_type",
+            answer_type: "enum",
+            output_value_map: { ...PROVIDER_VALUE_MAP_B },
           },
         ],
       },
@@ -282,6 +352,7 @@ export async function seedSectionBuilder(request: APIRequestContext, uniq: strin
     site: { id: siteId, name: siteName, logoKey: logo.storage_key },
     pickerMedia: [media1.storage_key, media2.storage_key],
     offer: { id: offer.id, publicId: offer.public_id, name: offerName },
+    offerB: { id: offerB.id, publicId: offerB.public_id, name: offerBName },
     imageSection: { id: imageSection.id, publicId: imageSection.public_id, name: imageSectionName },
     legacySection: { id: legacySection.id, publicId: legacySection.public_id, name: legacySectionName },
     quotePublicId: quote.public_id,
