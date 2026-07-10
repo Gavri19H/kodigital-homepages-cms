@@ -32,6 +32,7 @@ const BRANDING: SiteBranding = {
   logo_url: "/media/site-logo.png",
   tagline: null,
   legal_links: [],
+  trust_logos: null,
 };
 
 const ROOT = {

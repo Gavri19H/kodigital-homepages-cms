@@ -179,6 +179,36 @@ function frameNode(
   return { type, question_id: id, props };
 }
 
+// §3.3 mobile group (sparse overrides) → root modifier classes, consumed by
+// the frameRegions-gated CSS at the base design's mobile breakpoint (NO
+// engine cost — pure class emission + media-query rules in styles.ts):
+//   * logo_size          → `lg-frame--m-logo-{s|m|l}` (re-steps the header
+//     logo at the breakpoint, same token/structural steps as desktop);
+//   * trust_strip_mobile → `lg-frame--m-trust-{wrap|scroll|hide}` (overrides
+//     the strip's OWN `trust_strip.mobile` mode at the breakpoint);
+//   * progress_position  → `lg-frame--m-progress-{pos}` (flex-order region
+//     re-arrangement at the breakpoint). Emitted only when it actually MOVES
+//     the mount: a value equal to the desktop position is a no-op, and a
+//     desktop `in_card` mount lives INSIDE the section slot where CSS cannot
+//     lift it out (that leg stays with the D-phase engine consumer). A
+//     MOBILE `in_card` target approximates as "immediately above the unit"
+//     (same CSS order as above_unit — a class cannot re-parent the mount).
+//   * hide_footer is consumed by renderFooterRegion (lg-frame-footer--m-hide).
+function mobileFrameClasses(frame: EffectiveFrameConfig): string {
+  const m = frame.mobile;
+  let out = "";
+  if (m.logo_size !== undefined) out += ` lg-frame--m-logo-${m.logo_size}`;
+  if (m.trust_strip_mobile !== undefined) out += ` lg-frame--m-trust-${m.trust_strip_mobile}`;
+  if (
+    m.progress_position !== undefined &&
+    m.progress_position !== frame.progress.position &&
+    frame.progress.position !== "in_card"
+  ) {
+    out += ` lg-frame--m-progress-${m.progress_position}`;
+  }
+  return out;
+}
+
 // One region wrapper. `hookAttrs` lets a wrapper itself carry an engine hook
 // (the dots-style progress mount below); it is "" everywhere else.
 function region(
@@ -368,17 +398,30 @@ function renderBackRegion(back: FrameBackConfig, design: DefaultFunnelDesign): s
 
 // 11 §11.3 trust strip — LogoStrip preset over the config logos (media_ids
 // resolved through the canonical mediaUrl prefixer; alt REQUIRED per §3.3).
-// source:"site_logo_set" reads an additive site_settings key that is NOT part
-// of the SiteBranding projection — its data plumb-through is the serve slice's
-// leg; until then the source renders nothing (never a broken strip).
-function renderTrustStripRegion(t: FrameTrustStripConfig, design: DefaultFunnelDesign): string {
+// source:"site_logo_set" renders from the SiteBranding projection's
+// trust_logos (the additive `site_settings.trust_logo_media_ids` list, urls
+// pre-resolved by the SAME mediaUrl helper in branding.ts). AUTHORING CAVEAT:
+// that settings list carries media ids ONLY — no alt copy — so alt text falls
+// back to "<site name> logo <n>"; operators who need real alt copy use
+// source:"manual" (alt REQUIRED there, §3.3). An absent/null/empty projection
+// renders nothing — never a broken strip (unchanged fail-safe).
+function renderTrustStripRegion(
+  t: FrameTrustStripConfig,
+  design: DefaultFunnelDesign,
+  branding: SiteBranding | null,
+): string {
   if (!t.enabled) return "";
+  const siteMark =
+    branding !== null && branding.site_name.trim() !== "" ? branding.site_name : CMS_FALLBACK_LOGO_TEXT;
   const logos =
     t.source === "manual"
       ? t.logos
           .map((l) => ({ mediaId: mediaUrl(l.media_id), alt: l.alt }))
           .filter((l): l is { mediaId: string; alt: string } => l.mediaId !== null)
-      : [];
+      : (branding?.trust_logos ?? []).map((l, i) => ({
+          mediaId: l.url,
+          alt: `${siteMark} logo ${i + 1}`,
+        }));
   if (logos.length === 0) return "";
   const strip = renderLogoStrip(frameNode("LogoStrip", "frame_trust", { logos }), design);
   const classes = `lg-frame-trust lg-frame-trust--${t.mobile} lg-frame-trust--pos-${t.placement}`;
@@ -409,14 +452,24 @@ function renderFooterLogo(branding: SiteBranding | null): string {
 // 11 §11.3 footer — the FooterBar preset over config-derived props.
 // links_source:"site" renders siteBranding.legal_links; a missing/empty
 // source OMITS the links group (never empty anchors, 10 §10.2). show_on rides
-// as a data attribute + class (the engine's per-step visibility leg is the
-// integration slice; "never" renders nothing at all). `extraInner` carries
-// the footer-placed sub-regions (trust strip / disclosure text / back link).
+// as a data attribute + class ("never" renders nothing at all). `extraInner`
+// carries the footer-placed sub-regions (trust strip / disclosure text /
+// back link).
+//
+// SSR visibility bake (DEV-57): the rendered page IS step 1, so the engine's
+// step-1 verdict is baked into the markup — show_on:"final" arrives `hidden`
+// whenever the funnel has more than one Section (step 1 is never final);
+// a single-Section funnel's step 1 IS final, so it stays visible.
+// show_on:"first"/"all" stay visible (step 1 IS first). Without the bake a
+// "final" footer flashes until hydration and shows permanently with JS off.
+// The engine (render.ts updateFooterVisibility) re-derives visibility on
+// every step change exactly as before.
 function renderFooterRegion(
   frame: EffectiveFrameConfig,
   design: DefaultFunnelDesign,
   branding: SiteBranding | null,
   extraInner: string,
+  sectionCount: number,
 ): string {
   const f = frame.footer;
   if (!f.enabled || f.show_on === "never") return "";
@@ -432,7 +485,8 @@ function renderFooterRegion(
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
   const classes =
     `lg-frame-footer lg-frame-footer--show-${f.show_on}` + (hideMobile ? " lg-frame-footer--m-hide" : "");
-  return region("footer", classes, logo + bar + extraInner, ` data-show-on="${f.show_on}"`);
+  const bakedHidden = f.show_on === "final" && sectionCount > 1 ? " hidden" : "";
+  return region("footer", classes, logo + bar + extraInner, ` data-show-on="${f.show_on}"${bakedHidden}`);
 }
 
 // §3.3 background — the page-background layer, selected by ROLE + STYLE
@@ -521,7 +575,7 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
     footer: "",
     between_progress_and_unit: "",
   };
-  trustAt[frame.trust_strip.placement] = renderTrustStripRegion(frame.trust_strip, design);
+  trustAt[frame.trust_strip.placement] = renderTrustStripRegion(frame.trust_strip, design, branding);
 
   const benefitAt: Record<EffectiveFrameConfig["benefit_bar"]["placement"], string> = {
     bottom: "",
@@ -544,14 +598,20 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
       ? `<div class="lg-frame-footer-disclosure" data-frame-region="disclosure">${escapeHtml(d.text)}</div>`
       : "";
 
-  const footer = renderFooterRegion(frame, design, branding, trustAt.footer + discFooter + backAt.footer);
+  const footer = renderFooterRegion(
+    frame,
+    design,
+    branding,
+    trustAt.footer + discFooter + backAt.footer,
+    sectionCount,
+  );
   // A footer-positioned back/trust must not vanish with a disabled footer —
   // exactly one affordance per config (§11.2): fall back to standalone regions
   // at the footer slot position.
   const footerOrphans = footer === "" ? trustAt.footer + backAt.footer : "";
 
   return (
-    `<div id="lg-funnel-root" class="lg-frame lg-frame--${frame.template}"` +
+    `<div id="lg-funnel-root" class="lg-frame lg-frame--${frame.template}${mobileFrameClasses(frame)}"` +
     ` ${FUNNEL_DESIGN_SCOPE_ATTR}="${escapeHtml(design.id)}"` +
     ` data-funnel-id="${escapeHtml(root.funnelId)}"` +
     ` data-funnel-variant-id="${escapeHtml(root.funnelVariantId)}"` +

@@ -195,15 +195,17 @@ async function editorHtmlWithContent(): Promise<{ html: string; env: Env; varian
 }
 
 describeDb("Quotes editor — the five sub-tabs (03 §9.4 / 06 §15–§17)", () => {
-  it("renders all five editor sub-tabs + Save/Preview controls", async () => {
+  // v2.5 B2 ADJUSTED: the head "Preview" button (`lg-variant-preview`) is
+  // gone — the §4.1 frame canvas IS the preview (an always-on srcdoc iframe,
+  // same id + sandbox contract as before).
+  it("renders all five editor sub-tabs + Save + the frame canvas", async () => {
     const { html } = await editorHtmlWithContent();
     for (const tab of ["builder", "rules", "ab", "activation", "analytics"]) {
       expect(html, `tab ${tab}`).toContain(`data-tab="${tab}"`);
       expect(html, `panel ${tab}`).toContain(`data-panel="${tab}"`);
     }
     expect(html).toContain('id="lg-variant-save"');
-    expect(html).toContain('id="lg-variant-preview"');
-    expect(html).toContain('id="lg-preview-iframe"'); // sandboxed preview target
+    expect(html).toContain('id="lg-preview-iframe"'); // the §4.1 frame canvas
     expect(html).toContain('sandbox="allow-same-origin"');
   });
 
@@ -228,7 +230,9 @@ describeDb("Quotes editor — the five sub-tabs (03 §9.4 / 06 §15–§17)", ()
     // exactly ONE server-rendered auction-entry marker (the last/max section).
     const markers = html.match(/data-auction-entry="1"/g) ?? [];
     expect(markers.length).toBe(1);
-    expect(html).toContain("Auction runs after this section");
+    // v2.5 B2 ADJUSTED: §2.4 Quote-Builder vocabulary — "slide" (was
+    // "…after this section (§15.3 max position)").
+    expect(html).toContain("Auction runs after this slide");
     // there is NO "final" flag control anywhere (§15.3).
     expect(html.toLowerCase()).not.toContain('name="final"');
     expect(html.toLowerCase()).not.toContain("mark final");
@@ -466,9 +470,10 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
     ]) {
       expect(html, `pass check ${check}`).toContain(`data-preflight-check="${check}"`);
     }
-    // the head badge reflects the SAME server verdict (authoritative)
+    // the head chip reflects the SAME server verdict (authoritative) —
+    // v2.5 B2 ADJUSTED to the 14 §14.2 count copy (was ">Publishable</span>").
     expect(html).toContain('data-publish-verdict="ok"');
-    expect(html).toContain(">Publishable</span>");
+    expect(html).toMatch(/data-publish-verdict="ok"[^>]*>Ready/);
     // no blocked panel/badge state anywhere (the ES5 renderer's string
     // constants legitimately live in the page script; the SSR state matters)
     expect(html).not.toContain('data-preflight-state="blocked"');
@@ -502,9 +507,11 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
     expect(html).toContain(">Open Section Mapping</a>");
     expect(html).toContain(`href="/admin/leadgen/offers/${offerPublicId}/edit#payload"`);
     expect(html).toContain(">Open Offer Payload Schema</a>");
-    // the head badge flips to the blocked verdict
+    // the head chip flips to the blocked verdict — v2.5 B2 ADJUSTED to the
+    // 14 §14.2 count copy (was ">Blocked from publish</span>"); this fixture
+    // has exactly one blocking row → "Blocked (1 error)".
     expect(html).toContain('data-publish-verdict="blocked"');
-    expect(html).toContain(">Blocked from publish</span>");
+    expect(html).toMatch(/data-publish-verdict="blocked"[^>]*>Blocked \(\d+ errors?\)/);
   });
 
   it("hostile section/offer names render escaped inside the blocking card", async () => {
@@ -579,11 +586,15 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
     expect(html).toContain("status: r.status");
     // variant save + activation PUT success both re-render the panel
     expect(html).toContain("res.body.activation_preflight");
-    // the client renderer builds the SAME operator copy + fix links
+    // the client renderer builds the SAME operator copy + fix links —
+    // v2.5 B2 ADJUSTED: the chip re-renderer now carries the 14 §14.2 count
+    // copy constants (was the fixed "'Blocked from publish'" string).
     expect(html).toContain("'Cannot activate this Quote.'");
     expect(html).toContain("'Open Section Mapping'");
     expect(html).toContain("'Open Offer Payload Schema'");
-    expect(html).toContain("'Blocked from publish'");
+    expect(html).toContain("'Blocked (' + errors +");
+    expect(html).toContain("' error' : ' errors'");
+    expect(html).toContain("'Ready (' + warnings +");
     // ALL 8 preflight block-code labels ship in the embedded map
     for (const pair of [
       '"missing_required_provider_fields":"Missing required provider fields"',

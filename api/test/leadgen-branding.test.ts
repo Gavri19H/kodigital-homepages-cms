@@ -309,6 +309,7 @@ describeDb("site-logo-inheritance — resolveSiteBranding ladder (§10.1/§10.4)
         logo_url: null,
         tagline: null,
         legal_links: [],
+        trust_logos: null,
       });
       expect(warn).toHaveBeenCalled();
     } finally {
@@ -397,6 +398,7 @@ const EXPECTED_BRANDING = {
     { label: "Privacy policy", href: "/privacy-policy" },
     { label: "Terms of use", href: "/terms" },
   ],
+  trust_logos: null, // no trust_logo_media_ids seeded — §11.3 optional key
 };
 
 describeDb("resolver integration — the resolved bundle carries site_branding (§10.2)", () => {

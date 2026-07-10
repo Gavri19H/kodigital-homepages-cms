@@ -120,6 +120,23 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
   }
 }
 
+// 11 §11.3 footer show_on (v2.5): the frame renders the footer ONCE with
+// data-show-on="all|first|final" ("never" renders nothing at all); the engine
+// toggles it per step — first = only the first VISIBLE section, final = the
+// last visible section AND the banners/auction view, all/unknown = always.
+// Legacy shells carry no [data-show-on] → no-op.
+export function updateFooterVisibility(root: Element, first: boolean, final: boolean): void {
+  const nodes = root.querySelectorAll("[data-show-on]");
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i];
+    if (el === undefined) continue;
+    const on = el.getAttribute("data-show-on");
+    const show = on === "first" ? first : on === "final" ? final : true;
+    if (show) el.removeAttribute("hidden");
+    else el.setAttribute("hidden", "");
+  }
+}
+
 // Back affordance (§3.5.2): shown only while back_stack is non-empty.
 export function setBackVisible(sectionEl: Element, visible: boolean): void {
   const backs = sectionEl.querySelectorAll("[data-lg-back]");
@@ -210,6 +227,8 @@ export function showCompletionState(root: Element, status: "filled" | "unfilled"
   for (const el of sectionElements(root)) el.setAttribute("hidden", "");
   root.setAttribute("data-lg-complete", "1");
   root.setAttribute("data-lg-auction", status);
+  // §11.3: the banners/auction view counts as "final" for footer show_on.
+  updateFooterVisibility(root, false, true);
 }
 
 // §3.5.8 error path: a NON-TECHNICAL notice inside the funnel card — never a

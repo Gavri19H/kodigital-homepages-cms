@@ -1175,6 +1175,98 @@ export function funnelChromeCss(
         "justify-content": "flex-start",
       }),
     );
+
+    // ---- §3.3 `mobile` group consumers (DEV-57 B leg) ----------------------
+    // Root modifier classes emitted by designs/frame.ts mobileFrameClasses —
+    // NOTE the scope CONCATENATION (`${scope}.lg-frame--m-…`): the modifier
+    // rides the SAME element as the design-scope attribute (#lg-funnel-root),
+    // not a descendant. All rules live in this frameRegions-gated block +
+    // the single mobile media query: legacy output stays byte-identical.
+    //
+    // mobile.logo_size — re-step the header logo at the breakpoint; values
+    // mirror the desktop `.lg-frame-header--logo-{s|m|l}` steps exactly (m =
+    // tokens, s/l structural). Same-specificity later-rule ordering makes the
+    // mobile step win inside the media query (incl. the !important pair that
+    // outranks the preset's inline max-height, same as desktop).
+    mobile.push(
+      rule(`${scope}.lg-frame--m-logo-s .lg-logo`, { "font-size": "0.95rem" }),
+      rule(`${scope}.lg-frame--m-logo-m .lg-logo`, { "font-size": header.logoFontSize }),
+      rule(`${scope}.lg-frame--m-logo-l .lg-logo`, { "font-size": "1.35rem" }),
+      rule(`${scope}.lg-frame--m-logo-s .lg-logo-img`, { "max-height": "24px!important" }),
+      rule(`${scope}.lg-frame--m-logo-m .lg-logo-img`, {
+        "max-height": `${headerBar.logoMaxHeight}!important`,
+      }),
+      rule(`${scope}.lg-frame--m-logo-l .lg-logo-img`, { "max-height": "44px!important" }),
+      // mobile.trust_strip_mobile — overrides the strip's OWN mode classes at
+      // the breakpoint (higher specificity: root modifier + region class).
+      // wrap/scroll first restore display (the strip's own mode may be hide).
+      rule(`${scope}.lg-frame--m-trust-hide .lg-frame-trust`, { display: "none" }),
+      rule(`${scope}.lg-frame--m-trust-wrap .lg-frame-trust`, { display: "block" }),
+      rule(`${scope}.lg-frame--m-trust-wrap .lg-frame-trust .lg-logo-strip`, {
+        "flex-wrap": "wrap",
+        "overflow-x": "visible",
+        "justify-content": "center",
+      }),
+      rule(`${scope}.lg-frame--m-trust-scroll .lg-frame-trust`, { display: "block" }),
+      rule(`${scope}.lg-frame--m-trust-scroll .lg-frame-trust .lg-logo-strip`, {
+        "flex-wrap": "nowrap",
+        "overflow-x": "auto",
+        "justify-content": "flex-start",
+      }),
+    );
+    // mobile.progress_position — CSS-only region re-arrangement: the root
+    // becomes a flex column at the breakpoint (regions carry top margins
+    // only, so no margin-collapse delta) and flex `order` moves the ONE
+    // progress region relative to its siblings; the fixed background layer
+    // is out of flow. Target semantics:
+    //   top          → before the header (disclosure top-bar stays above);
+    //   under_header → between header and everything else;
+    //   above_unit   → immediately before the section slot;
+    //   in_card      → CSS cannot re-parent INTO the slot card — renders as
+    //                  above_unit (documented approximation; the true in-card
+    //                  mobile mount is the D-phase engine leg).
+    // frame.ts never emits these classes when the desktop mount is in_card
+    // (inside the slot subtree — unreachable by root-child ordering).
+    {
+      const mProgress = (pos: string): string => `${scope}.lg-frame--m-progress-${pos}`;
+      const preSlotTargets = [mProgress("above_unit"), mProgress("in_card")];
+      const postSlotRegions = [
+        ".lg-frame-back--pos-below_card",
+        ".lg-frame-trust--pos-below_unit",
+        ".lg-frame-benefit",
+        ".lg-frame-footer",
+        ".lg-frame-trust--pos-footer",
+        ".lg-frame-back--pos-footer",
+        ".lg-frame-disclosure--modal",
+      ];
+      mobile.push(
+        rule(
+          ["top", "under_header", "above_unit", "in_card"].map(mProgress).join(","),
+          { display: "flex", "flex-direction": "column" },
+        ),
+        rule(
+          `${mProgress("top")} .lg-frame-disclosure--top_bar,${mProgress("under_header")} .lg-frame-disclosure--top_bar`,
+          { order: "-3" },
+        ),
+        rule(
+          `${mProgress("top")} .lg-frame-progress,${mProgress("under_header")} .lg-frame-header`,
+          { order: "-2" },
+        ),
+        rule(`${mProgress("under_header")} .lg-frame-progress`, { order: "-1" }),
+        rule(
+          `${mProgress("above_unit")} .lg-frame-progress,${mProgress("in_card")} .lg-frame-progress`,
+          { order: "1" },
+        ),
+        rule(
+          `${mProgress("above_unit")} .lg-frame-slot,${mProgress("in_card")} .lg-frame-slot`,
+          { order: "2" },
+        ),
+        rule(
+          preSlotTargets.flatMap((m) => postSlotRegions.map((r) => `${m} ${r}`)).join(","),
+          { order: "3" },
+        ),
+      );
+    }
   }
 
   // ---- assemble: base rules + a single mobile media query -----------------
