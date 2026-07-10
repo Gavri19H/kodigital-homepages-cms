@@ -39,7 +39,7 @@
 //       through the opened inspector. Every bootstrap template is OFF-TARGET
 //       so the template pick in the test is a REAL C5 switch (content
 //       preserved / layout replaced).
-//   (2) The BACKGROUND inspector is unreachable even when the region
+//   (2) The BACKGROUND inspector is unreachable [pre-E4 measurement; FIXED at HEAD — bare-canvas clicks now resolve to the background region (E4/DEV-74a); Playwright ⑩ grounds the click path; template-default authoring below remains valid §4.3/§8.7] even when the region
 //       renders: `.lg-frame-background` is an aria-hidden layer stacked
 //       BEHIND #lg-funnel-root's content, so a pointer click anywhere lands
 //       on the root (measured: Playwright actionability reports

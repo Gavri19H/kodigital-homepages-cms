@@ -176,7 +176,14 @@ export function listicleCandidateKey(
 // style() now HTML-escapes values (font-family tokens render as &#39;-encoded
 // entities, computed-style identical). Bumping rolls all cached shells/configs
 // forward so no mixed pre/post-P4 markup lingers (the axis's whole purpose).
-export const LEADGEN_TEMPLATE_VERSION = 2 as const;
+// v3 (redesign v2.5): the SERVED ENGINE bytes changed three times behind the
+// immutable /lg/runtime/{version}.js URL — (A) frame dots/back-button/history
+// wiring, (B5) footer show_on handling, (E) the aria-valuetext re-stamp — so
+// the URL must move with them: a browser holding the pre-v2.5 engine at an
+// unchanged /lg/runtime/2.js (max-age=31536000, immutable) would run framed
+// funnels with dead frame-back/history, frozen dots, ignored footer.show_on
+// and the a11y fix inert for up to a year. Same reason v2.4 bumped 1→2.
+export const LEADGEN_TEMPLATE_VERSION = 3 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

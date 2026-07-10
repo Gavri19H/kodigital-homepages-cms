@@ -435,7 +435,7 @@ describeDb("GET /lg/:quote_slug — funnel shell (§17.2 / §28)", () => {
     // the versioned hydration engine; the ENGINE (not the shell) fetches
     // /lg/attempt and sets data-lg-ready="1".
     expect(html).toContain('<script type="application/json" id="lg-config">');
-    expect(html).toContain('src="/lg/runtime/2.js" defer');
+    expect(html).toContain('src="/lg/runtime/3.js" defer');
     expect(html).toContain("__LG_PREHYDRATE_QUEUE__");
     expect(html).not.toContain("__LG_BOOTSTRAP__");
     expect(html).not.toContain('data-lg-ready="1"');
@@ -1159,7 +1159,7 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
     expect(inline).toEqual(overHttp);
 
     // §3.2c: the versioned hydration-engine tag (route lands in its own slice).
-    expect(html).toContain('<script src="/lg/runtime/2.js" defer></script>');
+    expect(html).toContain('<script src="/lg/runtime/3.js" defer></script>');
     // the shell must NOT pre-set readiness — the ENGINE sets data-lg-ready="1".
     expect(html).not.toContain('data-lg-ready="1"');
     // the pre-hydration stub only QUEUES clicks (no fetch, no bootstrap).
@@ -1205,7 +1205,7 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
     const servedContentVersion = bodyAfterFirst.match(/data-content-version="(\d+)"/)?.[1];
     expect(segs[5]).toBe(servedContentVersion); // content_version segment matches the served variant
     expect(segs[6]).toBe("0"); // ab_rev — single_control
-    expect(segs[7]).toBe("2"); // LEADGEN_TEMPLATE_VERSION (v2 since Fix-P4)
+    expect(segs[7]).toBe("3"); // LEADGEN_TEMPLATE_VERSION (v3 since the v2.5 redesign engine deltas)
   });
 });
 

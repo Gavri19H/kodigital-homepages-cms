@@ -2500,7 +2500,7 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
     // shell's /lg/runtime/{version}.js serves, inlined (the admin host has no
     // tenant site context, so /lg/* — including the bundle URL — 404s there;
     // LEADGEN_RUNTIME_JS is exactly that route's response body).
-    expect(doc).toContain(`<script data-lg-runtime-version="2">`);
+    expect(doc).toContain(`<script data-lg-runtime-version="3">`);
     expect(doc).toContain(LEADGEN_RUNTIME_JS);
     // honest preview identity — never faked live ids
     expect(doc).toContain('data-funnel-variant-id="lgn_preview"');
