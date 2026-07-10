@@ -930,10 +930,11 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
 
     // (a) FRAME: centered bootstrap → REAL switch to full-background. The
     // brand BACKGROUND is what the §4.3/§8.7 D template pick supplies (role
-    // brand_primary + style brand defaults) — and the template pick IS the
-    // reachable authoring surface for it: the Background inspector cannot be
-    // opened by canvas click (header note (2) — the aria-hidden background
-    // layer is never the pointer hit target; #lg-funnel-root intercepts).
+    // brand_primary + style brand defaults) — a valid authoring surface for
+    // it. [pre-E4 note: the Background inspector originally could not be
+    // opened by canvas click; FIXED at HEAD — bare-canvas clicks resolve to
+    // the background region (E4/DEV-74a); Playwright ⑩ grounds the click
+    // path. The template-default authoring here remains contract-valid.]
     // The legal footer is authored through the footer inspector.
     const sc = await seedPatternQuote(page.request, {
       name: `E1 D Quote ${uniq}`,
