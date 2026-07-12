@@ -6102,6 +6102,88 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(afterModelChangeCalls, "the section was never marked dirty").toBe(0);
   });
 
+  it("Scenario D (adversarial re-review, ship-blocking residual): a REAL drag (mousedown+mousemove, moved=true) whose TERMINAL mouseup is lost off-window can't write bogus custom_px through a later STRAY mouseup, even when a non-handle mousedown intervenes BEFORE any selectComponent/afterModelChange would have torn it down", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const FIXTURE = { components: [{ type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip" }] };
+    const target = { getBoundingClientRect: () => ({ width: 300 }), setAttribute: () => {} };
+    const wrap = { querySelector: (sel: string) => (sel.includes('data-question-id="q_zip"') ? target : null) };
+    function makeHandle(): { getAttribute(name: string): string | null; parentNode: unknown; ownerDocument: unknown; closest(): unknown } {
+      const h = {
+        getAttribute(name: string) {
+          if (name === "data-width-handle") return "q_zip";
+          if (name === "data-handle-side") return "right";
+          return null;
+        },
+        parentNode: wrap,
+        ownerDocument: null as unknown,
+        closest: () => h,
+      };
+      return h;
+    }
+    // a non-handle target: .closest('[data-width-handle]') returns null, so
+    // onOtherMouseDown must NOT skip it (unlike a fresh handle mousedown).
+    const nonHandleTarget = { closest: () => null };
+    type Handler = (ev: unknown) => void;
+    function makeEventTarget() {
+      const handlers: Record<string, Handler[]> = {};
+      return {
+        addEventListener(name: string, fn: Handler) {
+          (handlers[name] = handlers[name] ?? []).push(fn);
+        },
+        removeEventListener(name: string, fn: Handler) {
+          const arr = handlers[name] ?? [];
+          const at = arr.indexOf(fn);
+          if (at >= 0) arr.splice(at, 1);
+        },
+        dispatch(name: string, ev: unknown) {
+          for (const fn of (handlers[name] ?? []).slice()) fn(ev);
+        },
+        count(name: string) {
+          return (handlers[name] ?? []).length;
+        },
+      };
+    }
+    const outerDoc = makeEventTarget();
+    let afterModelChangeCalls = 0;
+    const probe = studioProbe(html, FIXTURE, { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] });
+    probe.sandbox["afterModelChange"] = () => {
+      afterModelChangeCalls += 1;
+    };
+    probe.sandbox["document"] = outerDoc;
+    probe.run(
+      [
+        sliceIslandLine(island, "var WIDTH_PX_MIN"),
+        sliceIslandFunction(island, "snapWidthCustomPx"),
+        "function canvasFrameDoc() { return null; }",
+        "function canvasFrameEl() { return null; }",
+        sliceIslandLine(island, "var activeWidthDragCleanup"),
+        sliceIslandFunction(island, "onWidthHandleMouseDown"),
+      ].join("\n"),
+    );
+    // 1) grab the handle (clientX 100).
+    probe.sandbox["mouseDownStub"] = { target: makeHandle(), clientX: 100, preventDefault: () => {}, stopPropagation: () => {} };
+    probe.run("onWidthHandleMouseDown(mouseDownStub)");
+    expect(outerDoc.count("mousedown"), "the teardown-on-other-mousedown listener registered").toBe(1);
+    // 2) a REAL mousemove — this IS a committed drag (moved=true).
+    outerDoc.dispatch("mousemove", { clientX: 150 });
+    // 3) the TERMINAL mouseup is LOST — never dispatched at all (pointer
+    // released off-window). The stale mouseup/mousemove/mousedown listeners
+    // all remain registered.
+    // 4) a non-handle mousedown elsewhere (a library tile / top-bar chrome,
+    // reachable BEFORE that interaction's own click ever fires
+    // selectComponent/afterModelChange) — must tear the stale drag down.
+    outerDoc.dispatch("mousedown", { target: nonHandleTarget });
+    expect(outerDoc.count("mouseup"), "the stale mouseup listener was torn down by the intervening mousedown").toBe(0);
+    // 5) a stray mouseup (reviewer's cited repro: 300 + (300-100) = 500) —
+    // must be a no-op: the listener that would have run finishUp is gone.
+    outerDoc.dispatch("mouseup", { clientX: 300 });
+    expect(probe.run(`findRef('q_zip').node.design_overrides`), "no width was ever written").toBeUndefined();
+    expect(afterModelChangeCalls, "the section was never marked dirty").toBe(0);
+  });
+
   it("m3(b) (adversarial review): the selected field stays draggable=false while its width handles are shown, restored to true once deselected — every OTHER node keeps the ordinary reorder-drag source", async () => {
     const { env } = newHarness();
     const section = await createSection(env);

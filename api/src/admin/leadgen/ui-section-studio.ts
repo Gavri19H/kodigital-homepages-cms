@@ -4142,9 +4142,11 @@ export const SECTION_STUDIO_SCRIPT = `
       if (innerDoc && innerDoc.removeEventListener) {
         innerDoc.removeEventListener('mouseup', onUpInner);
         innerDoc.removeEventListener('mousemove', onMoveInner);
+        innerDoc.removeEventListener('mousedown', onOtherMouseDown, true);
       }
       document.removeEventListener('mouseup', onUpOuter);
       document.removeEventListener('mousemove', onMoveOuter);
+      document.removeEventListener('mousedown', onOtherMouseDown, true);
       if (activeWidthDragCleanup === cleanupListeners) { activeWidthDragCleanup = null; }
     }
     function finishUp(upEv, viaParent) {
@@ -4172,11 +4174,34 @@ export const SECTION_STUDIO_SCRIPT = `
     function onUpOuter(upEv) { finishUp(upEv, true); }
     function onMoveInner() { moved = true; }
     function onMoveOuter() { moved = true; }
+    // Scenario D (adversarial re-review): tearing down on the NEXT
+    // selectComponent/afterModelChange fires too late for "click something
+    // that selects nothing" (a library tile, top-bar chrome) — the browser
+    // delivers mousedown, then mouseup, then click, in that order, so by the
+    // time such a click's own selectComponent/afterModelChange could run, a
+    // STALE (moved already true, terminal mouseup lost off-window) drag's
+    // OWN mouseup listener has ALREADY fired on that interceding mouseup and
+    // committed a bogus width. mousedown always precedes mouseup, so the
+    // only airtight point left is the very next mousedown, anywhere,
+    // BEFORE it can bubble to whatever handler that interaction has. Skips
+    // handle-targeted mousedowns: a fresh onWidthHandleMouseDown already
+    // tears down any prior drag itself (this function's own top) and then
+    // re-arms activeWidthDragCleanup for its OWN gesture — this listener
+    // must never immediately undo that brand new registration. Capture
+    // phase so no other handler's stopPropagation can hide the mousedown
+    // from this listener first.
+    function onOtherMouseDown(dEv) {
+      var onHandle = dEv.target && dEv.target.closest ? dEv.target.closest('[data-width-handle]') : null;
+      if (onHandle) { return; }
+      if (activeWidthDragCleanup) { activeWidthDragCleanup(); }
+    }
     activeWidthDragCleanup = cleanupListeners;
     if (innerDoc && innerDoc.addEventListener) {
+      innerDoc.addEventListener('mousedown', onOtherMouseDown, true);
       innerDoc.addEventListener('mouseup', onUpInner);
       innerDoc.addEventListener('mousemove', onMoveInner);
     }
+    document.addEventListener('mousedown', onOtherMouseDown, true);
     document.addEventListener('mouseup', onUpOuter);
     document.addEventListener('mousemove', onMoveOuter);
   }
