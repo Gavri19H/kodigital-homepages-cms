@@ -1946,12 +1946,23 @@ export function renderBackgroundPanel(
   );
 }
 
-// Spacer (§8.5 layout leaf): a token-sized vertical gap. Purely decorative —
-// aria-hidden; the size token value is the one inline style.
+// Spacer (§8.5 layout leaf): a token-sized vertical gap by default. v3.1
+// §5.6 (adversarial review m2): an OPTIONAL "line" variant (the Divider
+// tile) renders the SAME token-sized block with a visible center rule,
+// instead of an empty gap — additive; an absent/"gap" variant is
+// BYTE-IDENTICAL to this renderer before the variant prop existed.
 export function renderSpacer(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const height = spacerSizeValue(design, propStr(node, "size"));
+  if (propStr(node, "variant") === "line") {
+    return (
+      `<div class="lg-spacer lg-spacer-line"${hydration(node)}` +
+      style({ height, display: "flex", "align-items": "center" }) +
+      ` aria-hidden="true"><span style="width:100%;border-top:${esc(design.cardPanel.border)}"></span></div>`
+    );
+  }
   return (
     `<div class="lg-spacer"${hydration(node)}` +
-    style({ height: spacerSizeValue(design, propStr(node, "size")) }) +
+    style({ height }) +
     ` aria-hidden="true"></div>`
   );
 }

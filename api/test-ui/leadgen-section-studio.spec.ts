@@ -12,7 +12,9 @@
 //     silent empty list.
 //   ③ Map answers to TWO Offers via PICKERS ONLY (path select + question
 //     dropdown; no typed ids/paths): per-row status flips to complete, the
-//     top-bar badge live-updates to "Mapping 2/2 Offers complete", the save
+//     top-bar badge live-updates through the Appendix-A "Mapping k / n
+//     complete" field-count (2 / 2, then 3 / 3 — never the offers-panel's
+//     own differently-scoped "N/M Offers complete" wording), the save
 //     round-trips and the fresh SSR page re-derives the same verdict.
 //   ④ Create-question-for-field: the boolean schema field spawns a pre-bound
 //     TwoButtonYesNo on the canvas with the path-derived internal_field and
@@ -214,7 +216,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await page.screenshot({ path: `${SHOT_DIR}/02-e9-empty-state.png` });
   });
 
-  test('③ map answers to TWO Offers via pickers only: statuses flip, the badge live-updates to 2/2 and survives the save round trip', async ({ page }) => {
+  test('③ map answers to TWO Offers via pickers only: statuses flip, the top-bar badge live-updates through 2 / 2 then 3 / 3 (field-count, Appendix A — never the offers-panel\'s own "N/M Offers complete" wording) and survives the save round trip', async ({ page }) => {
     test.setTimeout(90_000);
     const offerA = await createStudioOffer(page.request, `Map Offer A ${uniq}`, ACT_A, VERT_A, [
       { path: 'data.insured', type: 'boolean', required: true, internal_field: 'currently_insured' },
@@ -255,18 +257,30 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await grid.locator('[data-map-row="data.zip"] select[data-map-question]').selectOption('zip');
     await expect(grid.locator('[data-map-row="data.zip"] [data-map-state]')).toHaveAttribute('data-map-state', 'complete');
     await expect(rowA.locator('[data-offer-mapping-state]')).toHaveAttribute('data-offer-mapping-state', 'complete');
-    // the top-bar badge live-updates from the panel state (§8.1)
-    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 1/1 Offers complete');
+    // M1 (adversarial review): the top-bar badge LIVE-updates (updateMappingBadge,
+    // called from renderOffersPanel on every mapping edit) to the Appendix-A
+    // "Mapping k / n complete" FIELD-count — offer A alone contributes its 2
+    // required fields, both now mapped, so k=n=2. This asserts the SETTLED
+    // live DOM text (the offers panel is already loaded and interacted with
+    // above), never the SSR snapshot — the badge must NEVER read the offers
+    // panel's own "N/M Offers complete" wording (that phrase belongs to a
+    // DIFFERENT, offer-scoped concept in the drawer, not this shared element).
+    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 2 / 2 complete');
 
-    // offer B: one required field → complete → badge 2/2
+    // offer B: its one required field also becomes mapped+complete — the
+    // field-count sum grows to offer A's 2 + offer B's 1 = 3 / 3.
     await rowB.getByRole('button', { name: 'Map fields' }).click();
     await grid.locator('[data-map-row="lead.zip_code"] select[data-map-question]').selectOption('zip');
     await expect(rowB.locator('[data-offer-mapping-state]')).toHaveAttribute('data-offer-mapping-state', 'complete');
-    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 2/2 Offers complete');
-    await page.screenshot({ path: `${SHOT_DIR}/03-two-offers-mapped-badge-2-2.png` });
+    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 3 / 3 complete');
+    await page.screenshot({ path: `${SHOT_DIR}/03-two-offers-mapped-badge-3-3.png` });
 
     // save → the editor reloads (same URL) → the SERVER re-derived the same
-    // verdict and the fresh page's panel re-renders complete/complete + 2/2
+    // verdict (SSR renders "Mapping 3 / 3 complete" from required_mapped_total/
+    // required_fields_total) and the fresh page's offers panel re-fetch
+    // (loadOffers → updateMappingBadge) recomputes the IDENTICAL field-count
+    // sum — SSR and the post-load client-recomputed value agree, closing the
+    // M1 divergence to one source.
     await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
     await page.locator('[data-studio-drawer-tab="mapping"]').click();
     await expect(page.locator(`tr[data-studio-offer-row="${offerA.public_id}"] [data-offer-mapping-state]`)).toHaveAttribute(
@@ -277,7 +291,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
       'data-offer-mapping-state',
       'complete',
     );
-    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 2/2 Offers complete');
+    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 3 / 3 complete');
     await page.screenshot({ path: `${SHOT_DIR}/04-mapping-persisted-after-save.png` });
   });
 
@@ -563,20 +577,42 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
         components: [
           { type: 'QuestionHeadline', question_id: 'q_bound_headline', bind: 'section_headline' },
           { type: 'Subheadline', question_id: 'q_bound_subheadline', bind: 'section_subheadline' },
+          // ZIP stays FIRST among real-answer nodes so it — not the Yes/No
+          // pair below — remains findDefaultSelectionId()'s pick; q_ins only
+          // exists to prove M2 (a non-text-input field's name tag).
           { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+          {
+            type: 'TwoButtonYesNo',
+            question_id: 'q_ins',
+            internal_field: 'currently_insured',
+            answer_type: 'boolean',
+            props: { yesLabel: 'Yes', noLabel: 'No' },
+          },
         ],
       },
     });
     await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
 
     const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
-    // Default selection = the ZIP field (this fixture's one real answer
+    // Default selection = the ZIP field (this fixture's FIRST real answer
     // node) — its wrapper carries the 8-handle chrome immediately on load,
-    // with no click required.
+    // with no click required. ZIP is one of the §5.6 8-value Accept-swap
+    // text-input types, so its OWN name tag is the unified "Short text field".
     const zipWrap = canvas.locator('[data-question-id="q_zip"]').locator('xpath=..');
     await expect(zipWrap.locator('[data-width-handle]')).toHaveCount(2); // only the 2 side-midpoints are interactive
     await expect(zipWrap.locator('[data-selection-chrome]')).toHaveCount(10); // outline(1) + name tag(1) + 8 handles (no custom badge yet)
     await expect(canvas.locator('text=Short text field')).toBeVisible();
+
+    // M2 (adversarial review): a NON-text-input field showing the SAME
+    // 8-handle chrome must carry ITS OWN operator name — never the literal
+    // "Short text field" (selectionChromeKind returns 'field' for ANY
+    // non-headline/continue/container node, but the §5.6 tag wording is
+    // scoped to the 8-value Accept-swap family only).
+    const insWrap = canvas.locator('[data-question-id="q_ins"]').locator('xpath=..');
+    await canvas.locator('[data-question-id="q_ins"]').click();
+    await expect(insWrap.locator('[data-width-handle]')).toHaveCount(2);
+    await expect(insWrap.locator('text=Yes / No')).toBeVisible();
+    await expect(insWrap.locator('text=Short text field')).toHaveCount(0);
 
     // selecting the bound headline shows the SIMPLE chrome (outline + tag),
     // never the 8 handles.

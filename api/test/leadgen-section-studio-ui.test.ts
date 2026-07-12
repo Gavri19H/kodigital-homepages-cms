@@ -770,6 +770,15 @@ describeDb("section studio SSR — §5 component library (v3.1)", () => {
     }
     const contact = libraryTileBlock(html, "contact name email phone");
     expect(contact).toContain('data-add-children="NameFieldsGroup,EmailInputQuestion,PhoneInputQuestion"');
+    // m2 (adversarial review): the Divider tile carries its variant:"line"
+    // starting prop JSON-encoded — the Layout group's OWN plain Spacer tile
+    // (same defaultType) carries NO such attribute, so the two remain
+    // distinguishable at insert time despite sharing data-add-component.
+    const divider = libraryTileBlock(html, "divider line");
+    expect(divider).toContain("data-add-props=");
+    expect(JSON.parse(divider.match(/data-add-props="([^"]*)"/)![1]!.replace(/&quot;/g, '"'))).toEqual({ variant: "line" });
+    const plainSpacer = libraryTileBlock(html, "spacer gap");
+    expect(plainSpacer).not.toContain("data-add-props");
   });
 
   it("§5.1 NO descriptions, thumbnails, id strings, or 'maps to Offer fields' badges anywhere in the palette", async () => {
@@ -5923,6 +5932,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         sliceIslandFunction(island, "snapWidthCustomPx"),
         "function canvasFrameDoc() { return null; }",
         "function canvasFrameEl() { return null; }",
+        sliceIslandLine(island, "var activeWidthDragCleanup"),
         sliceIslandFunction(island, "onWidthHandleMouseDown"),
       ].join("\n"),
     );
@@ -5932,6 +5942,149 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(probe.run(`findRef('q_zip').node.design_overrides.size.width`)).toEqual({ custom_px: 384 });
     expect(historyPushed).toBeGreaterThan(0);
     expect(canvasScheduled).toBeGreaterThan(0);
+  });
+
+  it("m3(a) (adversarial review): a width-drag whose mouseup is never delivered can't later write bogus custom_px through a STALE listener — a new drag tears the old pair down first", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const FIXTURE = { components: [{ type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip" }] };
+    const target = { getBoundingClientRect: () => ({ width: 300 }), setAttribute: () => {} };
+    const wrap = { querySelector: (sel: string) => (sel.includes('data-question-id="q_zip"') ? target : null) };
+    function makeHandle(): { getAttribute(name: string): string | null; parentNode: unknown; ownerDocument: unknown; closest(): unknown } {
+      const h = {
+        getAttribute(name: string) {
+          if (name === "data-width-handle") return "q_zip";
+          if (name === "data-handle-side") return "right";
+          return null;
+        },
+        parentNode: wrap,
+        ownerDocument: null as unknown,
+        closest: () => h,
+      };
+      return h;
+    }
+    // a REAL registry (not a single capture slot): removeEventListener must
+    // actually unregister, so a stale handler genuinely cannot fire again —
+    // proving the FIX via registry SIZE (last-write-wins would otherwise
+    // mask the bug: if A's stale handler fired alongside B's on the SAME
+    // dispatch, B's write happens last either way and the final value looks
+    // identical whether or not A leaked — the registry count is what
+    // actually discriminates fixed vs buggy).
+    type Handler = (ev: unknown) => void;
+    function makeEventTarget() {
+      const handlers: Record<string, Handler[]> = {};
+      return {
+        addEventListener(name: string, fn: Handler) {
+          (handlers[name] = handlers[name] ?? []).push(fn);
+        },
+        removeEventListener(name: string, fn: Handler) {
+          const arr = handlers[name] ?? [];
+          const at = arr.indexOf(fn);
+          if (at >= 0) arr.splice(at, 1);
+        },
+        dispatch(name: string, ev: unknown) {
+          for (const fn of (handlers[name] ?? []).slice()) fn(ev);
+        },
+        count(name: string) {
+          return (handlers[name] ?? []).length;
+        },
+      };
+    }
+    const outerDoc = makeEventTarget();
+    const probe = studioProbe(html, FIXTURE, { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] });
+    probe.sandbox["afterModelChange"] = () => {};
+    probe.sandbox["document"] = outerDoc;
+    probe.run(
+      [
+        sliceIslandLine(island, "var WIDTH_PX_MIN"),
+        sliceIslandFunction(island, "snapWidthCustomPx"),
+        "function canvasFrameDoc() { return null; }",
+        "function canvasFrameEl() { return null; }",
+        sliceIslandLine(island, "var activeWidthDragCleanup"),
+        sliceIslandFunction(island, "onWidthHandleMouseDown"),
+      ].join("\n"),
+    );
+    // Drag A starts (clientX 100) — mouseup never arrives (simulates the
+    // pointer being released outside the browser window entirely).
+    probe.sandbox["mouseDownA"] = { target: makeHandle(), clientX: 100, preventDefault: () => {}, stopPropagation: () => {} };
+    probe.run("onWidthHandleMouseDown(mouseDownA)");
+    expect(outerDoc.count("mouseup"), "A's mouseup listener registered").toBe(1);
+    // Drag B starts on the SAME handle before A ever finished (clientX 120)
+    // — this must tear down A's still-registered listener before adding B's:
+    // the registry count stays at 1, it does NOT grow to 2. This is the
+    // assertion that actually distinguishes the fix from the bug.
+    probe.sandbox["mouseDownB"] = { target: makeHandle(), clientX: 120, preventDefault: () => {}, stopPropagation: () => {} };
+    probe.run("onWidthHandleMouseDown(mouseDownB)");
+    expect(outerDoc.count("mouseup"), "A's stale listener was torn down, not accumulated").toBe(1);
+    // Drag B completes normally: startWidth 300 + (150-120) = 330, snapped to
+    // the nearest 4px grid = 332.
+    outerDoc.dispatch("mouseup", { clientX: 150 });
+    expect(probe.run(`findRef('q_zip').node.design_overrides.size.width`)).toEqual({ custom_px: 332 });
+    expect(outerDoc.count("mouseup"), "B's own listener is gone too after finishing").toBe(0);
+  });
+
+  it("m3(b) (adversarial review): the selected field stays draggable=false while its width handles are shown, restored to true once deselected — every OTHER node keeps the ordinary reorder-drag source", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const FIXTURE = {
+      components: [
+        { type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip" },
+        { type: "TwoButtonYesNo", question_id: "q_ins", internal_field: "insured" },
+      ],
+    };
+    function makeFakeNode(qid: string, componentType: string) {
+      return {
+        _attrs: {} as Record<string, string>,
+        className: "",
+        parentNode: null as unknown,
+        getAttribute(name: string): string | null {
+          if (name === "data-question-id") return qid;
+          if (name === "data-component-type") return componentType;
+          return this._attrs[name] ?? null;
+        },
+        setAttribute(name: string, value: string) {
+          this._attrs[name] = value;
+        },
+      };
+    }
+    const zipNode = makeFakeNode("q_zip", "ZIPInputQuestion");
+    const insNode = makeFakeNode("q_ins", "TwoButtonYesNo");
+    const region = {
+      querySelectorAll(sel: string) {
+        return sel === "[data-question-id]" ? [zipNode, insNode] : [];
+      },
+    };
+    const probe = studioProbe(html, FIXTURE, { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] });
+    probe.sandbox["canvasRegion"] = () => region;
+    probe.sandbox["mapsFillLabels"] = () => [];
+    probe.sandbox["decorateChoiceCards"] = () => {};
+    probe.sandbox["decorateMappingOverlay"] = () => {};
+    probe.sandbox["updateCanvasFrameHeight"] = () => {};
+    probe.sandbox["decorateFieldSelection"] = () => {};
+    probe.sandbox["decorateSimpleSelection"] = () => {};
+    probe.sandbox["clearSelectionChrome"] = () => {};
+    probe.sandbox.selectedQuestionId = "q_zip";
+    probe.run(
+      [
+        sliceIslandLine(island, "var SELECT_CLASS"),
+        sliceIslandFunction(island, "withoutClasses"),
+        sliceIslandVar(island, "keptLegacyFrameNodes"),
+        sliceIslandFunction(island, "selectionChromeKind"),
+        sliceIslandFunction(island, "applyCanvasDecoration"),
+      ].join("\n"),
+    );
+    probe.run("applyCanvasDecoration()");
+    expect(zipNode._attrs["draggable"], "selected field: handles shown, native reorder-drag suspended").toBe("false");
+    expect(insNode._attrs["draggable"], "not selected: keeps the ordinary reorder-drag source").toBe("true");
+
+    // deselect — the next decoration pass restores the ordinary drag source.
+    probe.sandbox.selectedQuestionId = null;
+    probe.run("applyCanvasDecoration()");
+    expect(zipNode._attrs["draggable"], "deselected: draggable restored").toBe("true");
   });
 
   it("§6.2 Escape ends the inline edit WITHOUT walking the selection — onKey stops propagation before the doc-level handler", async () => {

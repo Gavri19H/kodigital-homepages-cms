@@ -140,6 +140,11 @@ interface StudioTile {
   defaultType: ComponentType;
   childTypes?: readonly ComponentType[];
   svg: string;
+  // additive (m2, adversarial review): initial props for tiles whose insert
+  // needs more than a bare default-typed node — e.g. the Divider tile shares
+  // Spacer's defaultType with the Layout group's own Spacer tile, but must
+  // insert with variant:"line" so it renders a visible rule, not a bare gap.
+  defaultProps?: Readonly<Record<string, string>>;
 }
 
 interface StudioGroup {
@@ -239,14 +244,12 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
     tiles: [
       { dataName: "text legal note reassurance disclosure", label: "Text", defaultType: "TextBlock", svg: TILE_SVG.text },
       { dataName: "image logo picture", label: "Image / Logo", defaultType: "ImageBlock", svg: TILE_SVG.image },
-      // §5.6: Divider inserts Spacer(line) in the golden's own type table —
-      // FLAGGED (open concern, not invented): the current schema/renderer
-      // (content-schema.ts / presets.ts, both outside this phase's owned
-      // files) has only ONE Spacer shape (a size(xs|s|m|l|xl) gap, no visual
-      // "line" variant) — so this tile inserts a plain Spacer, identically
-      // to the Layout group's Spacer tile, until a design addendum adds the
-      // line-rendering variant.
-      { dataName: "divider line", label: "Divider", defaultType: "Spacer", svg: TILE_SVG.divider },
+      // §5.6: Divider inserts Spacer(line) — the "line" variant prop
+      // (additive; content-schema.ts LEADGEN_SPACER_VARIANTS + the presets.ts
+      // renderSpacer branch, adversarial review m2) renders a visible center
+      // rule, distinguishing it from the Layout group's own bare-gap Spacer
+      // tile even though both share defaultType "Spacer".
+      { dataName: "divider line", label: "Divider", defaultType: "Spacer", defaultProps: { variant: "line" }, svg: TILE_SVG.divider },
     ],
   },
   {
@@ -735,8 +738,13 @@ function issueChip(count: number): string {
 // require the explicit "No Offers exist for '<x>' yet" confirm. The SSR
 // select carries only the saved value so a legacy value never breaks; element
 // ids stay lg-section-activity / lg-section-vertical so collectSection + the
-// dirty watcher carry over unchanged. The mapping badge is island-rewritten to
-// the §8.1 "Mapping k/n Offers complete" text once the offers panel loads.
+// dirty watcher carry over unchanged. The mapping badge stays LIVE: once the
+// offers panel loads (and on every mapping edit after), updateMappingBadge()
+// recomputes the SAME Appendix-A "Mapping k / n complete" text this SSR
+// render shows, from the identical field-count source (adversarial review
+// M1 fixed a prior divergence where the client clobbered this element with
+// the §8.1 offers-panel's OWN, differently-scoped "N/M Offers complete"
+// wording — that phrase belongs to the drawer/offers-panel context only).
 // Shared select-option-with-saved-value helper — Activity/Vertical selects
 // live in the §4.2 question strip now (renderStudioSettings); Save/Archive
 // forms may grow more selects later, so this stays a module-level helper.
@@ -928,7 +936,12 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
 // wrapper is kept for the same drag+keyboard+a11y contract).
 function renderLibraryItem(tile: StudioTile): string {
   const childAttr = tile.childTypes ? ` data-add-children="${escapeHtml(tile.childTypes.join(","))}"` : "";
-  return `<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(tile.defaultType)}"${childAttr} data-name="${escapeHtml(tile.dataName)}" aria-label="Add ${escapeHtml(tile.label)}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:${STUDIO_GEOMETRY.tile.padding};border:1px solid ${STUDIO_COLOR.linePanel};border-radius:${STUDIO_RADIUS.tile}px;background:${STUDIO_COLOR.white};cursor:grab">
+  // additive (m2): a tile whose insert needs starting props beyond a bare
+  // default-typed node (the Divider's variant:"line") carries them JSON-
+  // encoded — a plain drag-drop payload ('text/plain' cannot carry an object)
+  // degrades to the bare defaultType, same documented precedent as childTypes.
+  const propsAttr = tile.defaultProps ? ` data-add-props="${escapeHtml(JSON.stringify(tile.defaultProps))}"` : "";
+  return `<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(tile.defaultType)}"${childAttr}${propsAttr} data-name="${escapeHtml(tile.dataName)}" aria-label="Add ${escapeHtml(tile.label)}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:${STUDIO_GEOMETRY.tile.padding};border:1px solid ${STUDIO_COLOR.linePanel};border-radius:${STUDIO_RADIUS.tile}px;background:${STUDIO_COLOR.white};cursor:grab">
   ${tile.svg}
   <div class="studio-item-name" style="font-size:${STUDIO_TYPE.size.tileName}px;font-weight:600;color:${STUDIO_COLOR.text2}">${escapeHtml(tile.label)}</div>
 </div>`;
@@ -3427,8 +3440,11 @@ export const SECTION_STUDIO_SCRIPT = `
   // PhoneInputQuestion). Reuses EVERY existing insertion rule (bound-node
   // refusal, container depth cap, pendingInsert targeting) — children are
   // attached to the constructed node BEFORE the single afterModelChange()
-  // call, so the whole Contact group is ONE atomic history entry.
-  function addComponentAt(type, parentQid, index, childTypes) {
+  // call, so the whole Contact group is ONE atomic history entry. defaultProps
+  // (5th param, optional, m2): shallow-merged onto the new node's props
+  // BEFORE afterModelChange — the Divider tile's variant:"line" is the first
+  // consumer.
+  function addComponentAt(type, parentQid, index, childTypes, defaultProps) {
     // §5.2: at most ONE bound node per bind value — a second insert is refused
     // with the exact palette tooltip copy (the palette item is also disabled;
     // this guard covers drag-drop and container drops too).
@@ -3457,16 +3473,22 @@ export const SECTION_STUDIO_SCRIPT = `
       var ci;
       for (ci = 0; ci < childTypes.length; ci++) { node.children.push(makeNode(childTypes[ci])); }
     }
+    if (defaultProps) {
+      if (!node.props) { node.props = {}; }
+      for (var dpKey in defaultProps) {
+        if (Object.prototype.hasOwnProperty.call(defaultProps, dpKey)) { node.props[dpKey] = defaultProps[dpKey]; }
+      }
+    }
     var at = (typeof index === 'number' && index >= 0 && index <= target.length) ? index : target.length;
     target.splice(at, 0, node);
     afterModelChange();
     return node;
   }
-  function insertRelative(qid, where, type, childTypes) {
+  function insertRelative(qid, where, type, childTypes, defaultProps) {
     var ref = findRef(qid);
     if (!ref) { return null; }
     var parentQid = ref.parent ? ref.parent.question_id : null;
-    return addComponentAt(type, parentQid, ref.index + (where === 'after' ? 1 : 0), childTypes);
+    return addComponentAt(type, parentQid, ref.index + (where === 'after' ? 1 : 0), childTypes, defaultProps);
   }
   function moveNodeTo(qid, parentQid, index) {
     var ref = findRef(qid);
@@ -4056,11 +4078,25 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.appendChild(el);
     return wrap;
   }
+  // m3(a) (adversarial review): if a drag's mouseup is never delivered (the
+  // pointer released outside the browser window entirely), NEITHER onUpInner
+  // nor onUpOuter fires, so their listeners stayed attached forever — a
+  // LATER, wholly unrelated mouseup elsewhere on the page would then run
+  // THIS gesture's finishUp with its stale startX/startWidth/qid, writing a
+  // bogus custom_px and marking the section dirty. One shared, module-level
+  // reference to the current drag's cleanup: a NEW width-drag mousedown
+  // tears down any still-attached PRIOR pair before starting its own, so at
+  // most one listener pair ever exists — self-healing even when the true end
+  // of a gesture is never observed. The per-gesture dragActive flag is a
+  // second, independent guard (finishUp is a no-op after its own cleanup
+  // already ran).
+  var activeWidthDragCleanup = null;
   function onWidthHandleMouseDown(ev) {
     var handle = ev.target && ev.target.closest ? ev.target.closest('[data-width-handle]') : null;
     if (!handle) { return; }
     ev.preventDefault();
     if (ev.stopPropagation) { ev.stopPropagation(); }
+    if (activeWidthDragCleanup) { activeWidthDragCleanup(); }
     var qid = handle.getAttribute('data-width-handle');
     var side = handle.getAttribute('data-handle-side');
     var wrap = handle.parentNode;
@@ -4075,10 +4111,17 @@ export const SECTION_STUDIO_SCRIPT = `
     var startX = ev.clientX;
     var innerDoc = canvasFrameDoc();
     var startedInFrame = !!(innerDoc && handle.ownerDocument === innerDoc);
-    function finishUp(upEv, viaParent) {
-      if (target && target.setAttribute) { target.setAttribute('draggable', 'true'); }
+    var dragActive = true;
+    function cleanupListeners() {
       if (innerDoc && innerDoc.removeEventListener) { innerDoc.removeEventListener('mouseup', onUpInner); }
       document.removeEventListener('mouseup', onUpOuter);
+      if (activeWidthDragCleanup === cleanupListeners) { activeWidthDragCleanup = null; }
+    }
+    function finishUp(upEv, viaParent) {
+      if (!dragActive) { return; }
+      dragActive = false;
+      cleanupListeners();
+      if (target && target.setAttribute) { target.setAttribute('draggable', 'true'); }
       var endX = upEv.clientX;
       var frame = canvasFrameEl();
       if (startedInFrame && viaParent && frame && frame.getBoundingClientRect) {
@@ -4096,6 +4139,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     function onUpInner(upEv) { finishUp(upEv, false); }
     function onUpOuter(upEv) { finishUp(upEv, true); }
+    activeWidthDragCleanup = cleanupListeners;
     if (innerDoc && innerDoc.addEventListener) { innerDoc.addEventListener('mouseup', onUpInner); }
     document.addEventListener('mouseup', onUpOuter);
   }
@@ -4128,7 +4172,14 @@ export const SECTION_STUDIO_SCRIPT = `
     var tag = document.createElement('div');
     tag.setAttribute('data-selection-chrome', '1');
     tag.style.cssText = 'position:absolute;top:-30px;left:-6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap';
-    tag.appendChild(document.createTextNode('Short text field'));
+    // §5.6's "Short text field" tag is scoped to the 8-value Accept-swap
+    // text-input family (acceptFormatOfNode returns non-null ONLY for those
+    // 8 types) — every OTHER field kind reaching this 8-handle chrome
+    // (Buttons/Yes-No/Dropdown/Cards/Multi-select/Slider/…) shows its own
+    // operator name, the SAME label the inspector scope header uses
+    // (typeLabel/STUDIO_TYPE_META), so the canvas tag never lies about what's
+    // selected (adversarial review M2).
+    tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node ? node.type : '')));
     wrap.appendChild(tag);
     var customPx = currentCustomWidthPx(node);
     if (customPx !== null) {
@@ -6276,17 +6327,19 @@ export const SECTION_STUDIO_SCRIPT = `
   // --- library: search + click-to-add + drag source ------------------------------
   // §5.6 the "Contact" tile's childTypes (optional): a Stack of three
   // individually editable/deletable nodes. Every other tile passes no
-  // childTypes and behaves exactly as before.
-  function addFromLibrary(type, childTypes) {
+  // childTypes and behaves exactly as before. defaultProps (optional, m2):
+  // starting props beyond a bare default-typed node — the Divider tile's
+  // variant:"line" is the first consumer.
+  function addFromLibrary(type, childTypes, defaultProps) {
     var node = null;
     if (pendingInsert) {
-      node = insertRelative(pendingInsert.qid, pendingInsert.where, type, childTypes);
+      node = insertRelative(pendingInsert.qid, pendingInsert.where, type, childTypes, defaultProps);
       pendingInsert = null;
       updatePendingUi();
     } else {
       var sel = selectedNode();
-      if (sel && isContainerType(sel.type)) { node = addComponentAt(type, sel.question_id, null, childTypes); }
-      else { node = addComponentAt(type, null, null, childTypes); }
+      if (sel && isContainerType(sel.type)) { node = addComponentAt(type, sel.question_id, null, childTypes, defaultProps); }
+      else { node = addComponentAt(type, null, null, childTypes, defaultProps); }
     }
     if (node) { selectComponent(node.question_id); }
   }
@@ -6298,6 +6351,14 @@ export const SECTION_STUDIO_SCRIPT = `
     var attr = btn.getAttribute('data-add-children');
     return attr ? attr.split(',') : undefined;
   }
+  // m2: data-add-props (JSON-encoded, e.g. the Divider tile's {"variant":
+  // "line"}) — same drag-drop-degrades-gracefully precedent as childTypes
+  // (the 'text/plain' payload cannot carry an object either).
+  function libraryPropsOf(btn) {
+    var attr = btn.getAttribute('data-add-props');
+    if (!attr) { return undefined; }
+    try { return JSON.parse(attr); } catch (eProps) { return undefined; }
+  }
   var libraryEl = document.querySelector('[data-studio-library]');
   if (libraryEl) {
     libraryEl.addEventListener('click', function (ev) {
@@ -6305,7 +6366,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       // §5.2: a disabled bound item never consumes the armed insertion point.
       if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
-      addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn));
+      addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn), libraryPropsOf(btn));
     });
     // the items are role="button" divs (nested-button validity) — keep the
     // native keyboard activation contract.
@@ -6315,7 +6376,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       ev.preventDefault();
       if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
-      addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn));
+      addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn), libraryPropsOf(btn));
     });
     libraryEl.addEventListener('dragstart', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
@@ -7562,22 +7623,41 @@ export const SECTION_STUDIO_SCRIPT = `
       offersNote("Activity/Vertical changed since the last save \\u2014 Save the Section to refresh the matching Offers (currently showing '" + offersData.activity + "' / '" + offersData.vertical + "').");
     } else { offersNote(''); }
   }
+  // v3.1 §4.1 (adversarial review M1): the top-bar badge's contract is the
+  // Appendix-A "Mapping k / n complete" FIELD-count — k/n are
+  // required_mapped_total/required_fields_total SUMMED ACROSS every offer
+  // that's "in play" (has a mapping edge OR is explicitly selected), exactly
+  // mirroring the server's rebuildDerivedIndexes (src/leadgen/sections.ts):
+  // an offer contributes its FULL schema required-field count once it has
+  // ANY edge, not a per-offer "1 offer = 1 unit" count (the §8.1 offers-
+  // panel's OWN "N/M Offers complete" wording is a DIFFERENT, offer-scoped
+  // concept that belongs to that panel, never this shared top-bar element).
+  // offerLiveState() already derives the identical per-offer required_total/
+  // required_mapped (edge-mirrored, DEV-65c) — this only needed to SUM them
+  // instead of counting offers, and stop writing the drawer's wording here.
   function updateMappingBadge() {
     var badge = document.querySelector('[data-studio-mapping-badge]');
     if (!badge || !offersData) { return; }
     var list = offersList();
-    var total = 0, complete = 0, i, live;
+    var total = 0, mapped = 0, i, live;
     for (i = 0; i < list.length; i++) {
       live = offerLiveState(list[i]);
-      if (live.state === 'not_selected') { continue; }
-      total += 1;
-      if (live.state === 'complete') { complete += 1; }
+      if (!live.selected) { continue; }
+      total += live.required_total;
+      mapped += live.required_mapped;
     }
-    badge.textContent = 'Mapping ' + complete + '/' + total + ' Offers complete';
-    badge.setAttribute('data-mapping-complete', String(complete));
+    var complete = total > 0 && mapped === total;
+    badge.textContent = 'Mapping ' + mapped + ' / ' + total + ' complete';
+    badge.setAttribute('data-mapping-complete', complete ? 'true' : 'false');
     badge.setAttribute('data-mapping-total', String(total));
-    badge.setAttribute('data-publishable', complete === total ? 'true' : 'false');
-    badge.className = 'studio-chip studio-chip-mapping badge ' + (complete === total ? 'badge-published' : 'badge-archived');
+    badge.setAttribute('data-publishable', complete ? 'true' : 'false');
+    // mirror renderStudioTopBar's own color logic (studio-tokens STUDIO_COLOR
+    // success/successTintAlt/muted/issuesChipBg) so the badge's green/neutral
+    // state stays live-accurate — className is left untouched (the SSR badge
+    // never carried a badge-published/badge-archived class to toggle; the
+    // color pair alone is the state indicator, same as the initial render).
+    badge.style.color = complete ? '#0E7C3A' : '#5A6470';
+    badge.style.background = complete ? '#E9F4EE' : '#F1F3F7';
   }
   function offerStateLabel(name) {
     if (name === 'not_selected') { return 'not selected'; }

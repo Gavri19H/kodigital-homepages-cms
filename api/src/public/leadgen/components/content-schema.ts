@@ -750,6 +750,13 @@ export const LEADGEN_BG_PANEL_GRADIENTS = ["primary", "accent", "wash"] as const
 export const LEADGEN_IMAGE_FIT_MODES = ["cover", "contain"] as const;
 export type LeadgenImageFitMode = (typeof LEADGEN_IMAGE_FIT_MODES)[number];
 
+// v3.1 §5.6 (adversarial review m2): the Spacer leaf's two authoring
+// variants — a plain gap (the Layout group's own "Spacer" tile; unchanged,
+// default) or a visible center rule (the "Divider" tile). Additive: an
+// absent variant behaves EXACTLY as before this field existed.
+export const LEADGEN_SPACER_VARIANTS = ["gap", "line"] as const;
+export type LeadgenSpacerVariant = (typeof LEADGEN_SPACER_VARIANTS)[number];
+
 const GAP_SET: ReadonlySet<string> = new Set(LEADGEN_GAP_TOKENS);
 
 // A safe, non-executable link target for HeaderBar cta / FooterBar links:
@@ -819,6 +826,8 @@ const CONTAINER_PROP_SPECS: Record<string, Record<string, ContainerPropSpec>> = 
   },
   Spacer: {
     size: enumSpec(LEADGEN_GAP_TOKENS),
+    // additive (m2): absent ⇒ "gap" (today's byte-identical rendering).
+    variant: enumSpec(LEADGEN_SPACER_VARIANTS),
   },
   HeaderBar: {
     logoMediaId: { kind: "string" },

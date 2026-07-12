@@ -1603,6 +1603,22 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
     expect(html).toContain('class="lg-spacer"');
     expect(html).toContain("height:1.5rem"); // size l
     expect(html).toContain('aria-hidden="true"');
+    // an absent variant is the default "gap" — no center rule at all (m2,
+    // adversarial review: byte-identical to before the variant prop existed).
+    expect(html).not.toContain("lg-spacer-line");
+    expect(html).not.toContain("border-top");
+  });
+
+  it('Spacer variant:"line" (m2, adversarial review — the Divider tile): renders a VISIBLE center rule, distinct from the default gap-only Spacer', () => {
+    const html = renderComponent({ type: "Spacer", question_id: "q", props: { size: "l", variant: "line" } }, DESIGN);
+    expect(html).toContain('class="lg-spacer lg-spacer-line"');
+    expect(html).toContain("height:1.5rem"); // size l — unaffected by the variant
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("border-top:");
+    // the Layout group's own Spacer tile (variant omitted / "gap") must NOT
+    // be affected by this addition — re-render the plain spec and confirm.
+    const gapHtml = renderComponent(NODE_SPECS.Spacer, DESIGN);
+    expect(gapHtml).not.toContain("lg-spacer-line");
   });
 
   it("HeaderBar: logo mediaId → src, back toggle carries data-lg-back, secure slot, tel CTA", () => {
