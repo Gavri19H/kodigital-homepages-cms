@@ -29,12 +29,19 @@ import {
   type FrameTemplateDef,
   type StoredFrameConfig,
 } from "../../public/leadgen/designs/frames";
-import { resolveTokens, validateTheme } from "../../public/leadgen/designs/theme";
-import type { Problem, ThemeJson } from "../../public/leadgen/designs/theme";
+import { isThemeIdRef, resolveTokens, validateTheme } from "../../public/leadgen/designs/theme";
+import type { Problem, ThemeIdRef, ThemeJson } from "../../public/leadgen/designs/theme";
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import { resolveSiteBranding } from "../../leadgen/branding";
 import { escapeHtml } from "../templates/layout";
 import { parseJsonColumn, readJsonBody, type AdminContext } from "./offers-handlers";
+// v3.1 §10.1: a funnel's theme_json may reference a KV `lg-funnel-themes`
+// record ({theme_id}) instead of the legacy inline shape — this module owns
+// the funnel PUT /funnels/:id/theme write path, so it performs the
+// "theme_id must exist in the store" check (theme.ts's validateTheme stays
+// PURE and only checks structure) and resolves the record for the GET
+// projection's effective_tokens.
+import { getThemeRecord, themeRecordExists } from "./themes-handlers";
 import {
   bumpActiveVariantContentVersions,
   readFunnelVariants,
@@ -176,23 +183,29 @@ async function themeProjection(
   db: D1Database,
   funnel: LeadgenFunnelRow,
   stored: Record<string, unknown> | null,
+  cache: KVNamespace,
 ): Promise<Record<string, unknown>> {
   const problems: Problem[] = [];
-  let theme: ThemeJson | null = null;
+  let theme: ThemeJson | ThemeIdRef | null = null;
   if (stored !== null) {
     const validation = validateTheme(stored);
     problems.push(...validation.problems);
     theme = validation.theme;
   }
   const design = getFunnelDesign(await funnelBaseDesignId(db, funnel));
-  const tokens = resolveTokens(design, theme, null);
+  // v3.1 §10.1: a {theme_id} theme resolves its KV record here so
+  // effective_tokens reflects the SAME roles the runtime/preview paths would
+  // apply — an unknown/deleted id degrades to the base design (resolveTokens'
+  // documented fallback), never a thrown error on a read.
+  const themeRecord = theme !== null && isThemeIdRef(theme) ? await getThemeRecord(cache, theme.theme_id) : null;
+  const tokens = resolveTokens(design, theme, null, themeRecord);
   return { theme: stored, effective_tokens: tokens.roles, problems };
 }
 
 export async function getFunnelThemeHandler(c: AdminContext): Promise<Response> {
   const funnel = await resolveFunnelRow(c.env.DB, c.req.param("id") ?? "");
   if (funnel === null) return c.json({ error: "Not Found" }, 404);
-  return c.json(await themeProjection(c.env.DB, funnel, parsedJsonRecord(funnel.theme_json)));
+  return c.json(await themeProjection(c.env.DB, funnel, parsedJsonRecord(funnel.theme_json), c.env.CACHE));
 }
 
 export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> {
@@ -216,12 +229,37 @@ export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Validation failed", problems: validation.problems }, 400);
   }
 
+  // v3.1 §10.1 assignment write-path: theme_json may be a {theme_id}
+  // reference (validateTheme only checked its STRUCTURE, pure/no-KV) — the
+  // referenced id must exist in the KV `lg-funnel-themes` store, checked
+  // here where CACHE is available. Mirrors the 14 §14.3 "invalid never
+  // persisted" rule: an unknown id is a real 400, nothing is written.
+  if (isThemeIdRef(validation.theme)) {
+    const exists = await themeRecordExists(c.env.CACHE, validation.theme.theme_id);
+    if (!exists) {
+      return c.json(
+        {
+          error: "Validation failed",
+          problems: [
+            {
+              path: "theme_json.theme_id",
+              scope: "theme",
+              severity: "error",
+              message: `Theme '${validation.theme.theme_id}' does not exist.`,
+            },
+          ],
+        },
+        400,
+      );
+    }
+  }
+
   // No-op save guard (DEV-57) — the same byte-identical skip as the frame
   // PUT: no row rewrite, no content_version bump, normal response shape with
   // `bumped_variants: 0` (warnings still ride the projection).
   const serialized = JSON.stringify(raw);
   if (funnel.theme_json === serialized) {
-    const projection = await themeProjection(c.env.DB, funnel, raw);
+    const projection = await themeProjection(c.env.DB, funnel, raw, c.env.CACHE);
     projection["bumped_variants"] = 0;
     return c.json(projection);
   }
@@ -233,7 +271,7 @@ export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> 
     .run();
   const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
 
-  const projection = await themeProjection(c.env.DB, funnel, raw);
+  const projection = await themeProjection(c.env.DB, funnel, raw, c.env.CACHE);
   projection["bumped_variants"] = bumped;
   return c.json(projection);
 }

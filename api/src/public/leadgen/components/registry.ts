@@ -97,6 +97,18 @@ export const COMPONENT_CATALOG = {
   ValidationError:  { category: "affordance", scope: "unit", produces: null, props: [], validation: [], events: ["validation_error"], tokenSlots: ["validation"] },
   LegalNote:        { category: "affordance", scope: "both", produces: null, props: ["html"], validation: [], events: [], tokenSlots: ["validation.helper"] },
 
+  // ---- v3.1 05 §5.3 Text/Image primitives (Section-palette only — scope
+  // "unit", NOT "both": unlike the retired one-off types above (which stay
+  // frame-reusable, untouched, for backward compat), these two NEW
+  // consolidated primitives are a Section-builder-palette concept only; no
+  // frame region consumes them). §5.3 "Primitives replace one-off blocks":
+  // CategoryLabel/HelperText/LegalNote/ReassuranceBadge/SecureFormBadge
+  // collapse into TextBlock (role-typed); HeaderLogo/LogoStrip (in-unit)
+  // collapse into ImageBlock (source="auto_logo"). See content-schema.ts
+  // primitiveViewOfNode/rewriteRetiredNodeToPrimitive for the migration map.
+  TextBlock:        { category: "affordance", scope: "unit", produces: null, props: ["role","text?","icon?"], validation: ["role enum (§8.5b)"], events: [], tokenSlots: ["headline","categoryLabel","validation.helper","reassuranceBadge","secureFormBadge"], capabilityExample: "v3.1 05 §5.3: Text primitive (role Heading/Body/Category label/Helper/Legal/Reassurance/Secure badge) collapsing 5 retired one-off types" },
+  ImageBlock:       { category: "affordance", scope: "unit", produces: null, props: ["source(media|auto_logo)","logoMediaId?","alt?"], validation: ["source enum (§5.3)"], events: [], tokenSlots: ["header"], capabilityExample: "v3.1 05 §5.3: Image/Logo primitive (source=auto_logo) collapsing HeaderLogo/LogoStrip in-unit usage" },
+
   // ---- layout (fix-contract v2.4 08 §8.5, issue E4 — tokenized ONLY) ----
   // Children-bearing containers (5): each may carry `children:
   // LeadgenComponentNode[]` (max depth 4; validated in content-schema.ts).

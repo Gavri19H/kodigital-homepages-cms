@@ -72,6 +72,11 @@ const UNIT_TYPES = [
   "ContinueButton",
   "AutoAdvanceButton",
   "ValidationError",
+  // v3.1 05 §5.3 Text/Image primitives (conductor fix round — catalog
+  // lockstep): scope "unit" — Section-palette only, unlike the "both"
+  // retired one-off types they consolidate (no frame region consumes them).
+  "TextBlock",
+  "ImageBlock",
 ] as const;
 
 const typesWithScope = (scope: ComponentScope): string[] =>

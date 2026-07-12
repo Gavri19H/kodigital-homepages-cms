@@ -140,8 +140,21 @@ interface StudioGroup {
 // (C6 — Quote-Builder-only term); the C6 lint leg scans every emitted studio
 // string. The group renders as "Navigation" here — deviation documented in
 // the slice report.
+// v3.1 05 §5.3 (conductor fix round — catalog lockstep, TRANSITIONAL): the
+// two new consolidated primitives are placed in the EXISTING group closest
+// to their retired predecessors' own placement (no new "Content" group this
+// round — that is Phase B's palette rebuild, contract §5.2). TextBlock joins
+// "Question copy" (CategoryLabel/HelperText, two of the 5 retired types it
+// consolidates, already live there); ImageBlock joins "Trust & help"
+// (LogoStrip, its retired predecessor, already lives there). This keeps the
+// §8.2 D5 palette lockstep (every unit∪both catalog type placed exactly
+// once) honest without inventing new group taxonomy this round.
 export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
-  { key: "question-copy", label: "Question copy", types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText"] },
+  {
+    key: "question-copy",
+    label: "Question copy",
+    types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText", "TextBlock"],
+  },
   {
     key: "choices",
     label: "Answer choices",
@@ -182,7 +195,7 @@ export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
   {
     key: "trust",
     label: "Trust & help — inside this question unit",
-    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState"],
+    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState", "ImageBlock"],
   },
   {
     key: "navigation",
@@ -247,6 +260,15 @@ const STUDIO_TYPE_META: Record<ComponentType, { label: string; description: stri
   Spacer: { label: "Spacer", description: "Token-sized vertical gap." },
   HeaderBar: { label: "Header bar", description: "Header slot: logo, back, secure, call CTA." },
   FooterBar: { label: "Footer bar", description: "Footer slot: legal, trust messages, links." },
+  // v3.1 05 §5.3 Text/Image primitives (conductor fix round — catalog
+  // lockstep). Operator-worded labels per contract §5.2's palette-tile
+  // names verbatim ("Text", "Image / Logo"); descriptions name the roles/
+  // source modes they consolidate. TRANSITIONAL placement — Phase B's
+  // palette rebuild lands these in a proper "Content" group with a real
+  // role/source picker; today they render + validate + save correctly but
+  // are reachable only via the existing Question-copy/Trust groups below.
+  TextBlock: { label: "Text", description: "Heading, body copy, category label, helper, legal, or a trust badge — pick a role." },
+  ImageBlock: { label: "Image / Logo", description: "A single image, or your site's logo (auto-fill)." },
 };
 
 // ---------------------------------------------------------------------------
@@ -360,6 +382,10 @@ export const STUDIO_SAMPLE_NODES: Record<ComponentType, LeadgenComponentNode> = 
     question_id: "smp",
     props: { legalHtml: "Terms apply.", trustMessages: ["SSL secured"], links: [{ label: "Privacy", href: "/privacy" }] },
   },
+  // v3.1 05 §5.3 Text/Image primitives — sample nodes for the thumbnail
+  // render (renderLibraryItem calls renderComponent on these directly).
+  TextBlock: { type: "TextBlock", question_id: "smp", props: { role: "body", text: "Supporting copy for this question." } },
+  ImageBlock: { type: "ImageBlock", question_id: "smp", props: { source: "auto_logo", siteName: "Acme", accent: "Quotes" } },
 };
 
 // ---------------------------------------------------------------------------
@@ -416,6 +442,16 @@ const CONTENT_PROP_FIELDS: Record<ComponentType, readonly string[]> = {
   Spacer: [],
   HeaderBar: [],
   FooterBar: [],
+  // v3.1 05 §5.3/§8.5b — Text's `role` picker is a STYLE-tab control per the
+  // contract (§8.5b: "Text / bound headline ... Style tab shows: Role
+  // [Heading·Body·...]"), not Content tab, so it is intentionally absent
+  // here; `text`/`icon` mirror the retired ReassuranceBadge/SecureFormBadge
+  // content_props this primitive consolidates. ImageBlock's `source` toggle
+  // and `alt` text have no CONTENT_CONTROLS entry yet (new controls, Phase B
+  // Studio-UI work) — `logoMediaId` is the one existing key that already
+  // applies (the HeaderLogo content_props precedent).
+  TextBlock: ["text", "icon"],
+  ImageBlock: ["logoMediaId"],
 };
 
 // The union of content controls the Content tab server-renders once; the

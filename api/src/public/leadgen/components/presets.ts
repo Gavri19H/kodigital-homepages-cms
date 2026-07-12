@@ -45,14 +45,15 @@ import type {
   DefaultFunnelDesign,
   LeadgenIconCardDepthSlots,
 } from "../designs/default-funnel/tokens";
-import { isLayoutContainerType, LEADGEN_MAX_CONTAINER_DEPTH } from "./content-schema";
+import { isLayoutContainerType, LEADGEN_MAX_CONTAINER_DEPTH, resolveFieldSize } from "./content-schema";
 import type {
   LeadgenChoice,
   LeadgenComponentNode,
   LeadgenDesignOverrides,
+  LeadgenResolvedSizeAxis,
 } from "./content-schema";
 import { baseTokenForRole, isFunnelTokenRole } from "../designs/theme";
-import type { FunnelTokenRole } from "../designs/theme";
+import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 
 // ---------------------------------------------------------------------------
@@ -186,6 +187,17 @@ export interface LeadgenSectionRenderCtx {
   // Absent or null ⇒ this Section renders byte-identically to a no-overrides
   // call (the compat invariant the pin/parity suites hold).
   design_overrides?: LeadgenSectionDesignOverrides | null;
+  // v3.1 §7/§12 (ADDITIVE) — the resolved theme's `controls` (field_height/
+  // button_size/corners), threaded straight from resolveTokens()'s
+  // EffectiveTokens.theme_controls (a parallel slice, designs/theme.ts — the
+  // caller/composition layer supplies it; this module never fetches a theme
+  // itself). Consumed ONLY by the §7 field-size resolver (fieldSizeStyle
+  // below) as the "funnel theme default" layer for a field's HEIGHT axis.
+  // Undefined ⇒ fieldSizeStyle falls back to a documented default controls
+  // constant — legacy call sites that omit ctx entirely, or omit this one
+  // field, still render byte-identically for every node WITHOUT an authored
+  // design_overrides.size (the compat invariant every other ctx field holds).
+  theme_controls?: ThemeRecordControls;
 }
 
 // Mutable per-render state threading the §11.5 single-control rule through
@@ -1016,19 +1028,80 @@ function mapsConfigJson(node: LeadgenComponentNode): string {
   return "{}";
 }
 
+// ---------------------------------------------------------------------------
+// v3.1 §7/§12 — field size APPLICATION (the resolveFieldSize WIRING point).
+// The §7 resolver (content-schema.ts) stays a pure preset-name/decision
+// function on purpose — it never invents px for a PRESET name (there is no
+// authoritative per-preset px table anywhere in the repo yet, s/m/l/full or
+// small/medium/large). This module owns the ONE concrete mapping so runtime
+// output is actually visible/testable; it is a documented PLACEHOLDER
+// (flagged, not contract-asserted) pending a real design-token table:
+//   - width "full" = 600 is GROUNDED (Appendix B "Unit column width: 600");
+//     s/m/l are an undocumented, defensible progression toward it.
+//   - height small/medium/large have no contract-stated numbers at all; a
+//     conventional form-control height progression is used.
+// Custom_px values are NEVER guessed — they ride through as the resolver's
+// own clamped/snapped number, byte for byte.
+// ---------------------------------------------------------------------------
+
+const SIZE_WIDTH_PRESET_PX: Readonly<Record<string, number>> = { s: 200, m: 300, l: 450, full: 600 };
+const SIZE_HEIGHT_PRESET_PX: Readonly<Record<string, number>> = { small: 40, medium: 48, large: 56 };
+
+// §10.4's OWN "Navy" fixture bolds Medium/M/Rounded as the defaults — reused
+// here as the fallback when a render call site has no resolved theme_controls
+// at all (ctx absent, or ctx.theme_controls absent). A node WITHOUT an
+// authored design_overrides.size never reaches this constant (fieldSizeStyle
+// returns empty before consulting it) — so this default can never itself
+// cause a regression on existing content.
+const DEFAULT_SIZE_THEME_CONTROLS: ThemeRecordControls = {
+  field_height: "medium",
+  button_size: "m",
+  corners: "rounded",
+};
+
+function sizeAxisPx(axis: LeadgenResolvedSizeAxis, presetPxTable: Readonly<Record<string, number>>): number | undefined {
+  return axis.mode === "custom" ? axis.px : presetPxTable[axis.preset];
+}
+
+// PURE-per-call inline style for a node's design_overrides.size (§7.1/§7.2/
+// §12): absent `size` -> "" (BYTE-IDENTICAL to pre-v3.1 output — the base
+// .lg-input/.lg-currency/.lg-address CSS class sizing applies, untouched);
+// present -> both axes resolve (each independently inheriting the theme
+// default when its OWN key is absent, exactly like resolveFieldSize's own
+// per-axis contract) and ride as explicit inline px — never raw author CSS,
+// only computed numbers through the SAME `style()` helper every other
+// preset uses (so a hostile value can never escape the attribute either).
+function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx | undefined): string {
+  const sizeOverride = node.design_overrides?.size;
+  if (sizeOverride === undefined) return "";
+  const controls = ctx?.theme_controls ?? DEFAULT_SIZE_THEME_CONTROLS;
+  const resolved = resolveFieldSize(sizeOverride, controls);
+  const widthPx = sizeAxisPx(resolved.width, SIZE_WIDTH_PRESET_PX);
+  const heightPx = sizeAxisPx(resolved.height, SIZE_HEIGHT_PRESET_PX);
+  return style({
+    width: widthPx !== undefined ? `${widthPx}px` : undefined,
+    height: heightPx !== undefined ? `${heightPx}px` : undefined,
+  });
+}
+
 function renderTextInput(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   type: string,
   extra: string,
+  ctx?: LeadgenSectionRenderCtx,
 ): string {
   const placeholder = propStr(node, "placeholder");
   const maxLen = propNum(node, "maxLen");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
   // 03 §3.3: data-lg-input marks every text/date/email/phone/zip input.
+  // v3.1 §7/§12: fieldSizeStyle is the ONLY inline style this element ever
+  // carries — empty string (no attribute at all) when the node authors no
+  // design_overrides.size, so pre-v3.1 output is untouched byte for byte.
   return (
     `<input class="lg-input" type="${type}"${hydration(node)} data-lg-input` +
+    fieldSizeStyle(node, ctx) +
     attr("placeholder", placeholder) +
     attr("maxlength", maxLen) +
     (node.required === true ? " required" : "") +
@@ -1037,14 +1110,22 @@ function renderTextInput(
   );
 }
 
-export function renderFreeTextQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderTextInput(node, design, "text", "");
+export function renderFreeTextQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderTextInput(node, design, "text", "", ctx);
 }
 // 08 §8.3/§8.10 NumberInputQuestion: a PLAIN numeric text input (NOT a
 // slider/range) — the renderTextInput discipline (class-driven .lg-input base
 // so :focus/[aria-invalid] cascade) + inputmode numeric; min/max/step ride as
 // data attributes for the runtime's client-side validation leg.
-export function renderNumberInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderNumberInputQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   return renderTextInput(
     node,
     design,
@@ -1054,18 +1135,24 @@ export function renderNumberInputQuestion(node: LeadgenComponentNode, design: De
       attr("data-max", propNum(node, "max")) +
       attr("data-step", propNum(node, "step")) +
       attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field),
+    ctx,
   );
 }
 // 08 §8.10 CurrencyInputQuestion: currency-prefixed plain numeric input (NOT a
 // Range variant). The prefix symbol (props.currency ?? "$") is a decorative
 // aria-hidden span aligned by the scoped chrome CSS (.lg-currency-prefix /
 // .lg-currency-input padding); the input itself follows the renderTextInput
-// discipline (class-driven base, data-lg-input, inputmode numeric) — no
-// inline style anywhere.
-export function renderCurrencyInputQuestion(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+// discipline (class-driven base, data-lg-input, inputmode numeric). v3.1
+// §7/§12: fieldSizeStyle rides the OUTER `.lg-currency` wrapper (the whole
+// control's visible box), same absent-is-empty discipline as renderTextInput.
+export function renderCurrencyInputQuestion(
+  node: LeadgenComponentNode,
+  _design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const currency = propStr(node, "currency") ?? "$";
   return (
-    `<div class="lg-currency"${hydration(node)}>` +
+    `<div class="lg-currency"${hydration(node)}${fieldSizeStyle(node, ctx)}>` +
     `<span class="lg-currency-prefix" aria-hidden="true">${esc(currency)}</span>` +
     `<input class="lg-input lg-currency-input" type="text" inputmode="numeric" data-lg-input` +
     attr("placeholder", propStr(node, "placeholder")) +
@@ -1078,18 +1165,34 @@ export function renderCurrencyInputQuestion(node: LeadgenComponentNode, _design:
     `</div>`
   );
 }
-export function renderEmailInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderTextInput(node, design, "email", ` inputmode="email" autocomplete="email"`);
+export function renderEmailInputQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderTextInput(node, design, "email", ` inputmode="email" autocomplete="email"`, ctx);
 }
-export function renderPhoneInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  return renderTextInput(node, design, "tel", ` inputmode="tel" autocomplete="tel"`);
+export function renderPhoneInputQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  return renderTextInput(node, design, "tel", ` inputmode="tel" autocomplete="tel"`, ctx);
 }
-export function renderDateQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderDateQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const min = propStr(node, "min");
   const max = propStr(node, "max");
-  return renderTextInput(node, design, "date", attr("min", min) + attr("max", max));
+  return renderTextInput(node, design, "date", attr("min", min) + attr("max", max), ctx);
 }
-export function renderZIPInputQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderZIPInputQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const googleValidate = propBool(node, "validate");
   // 03 §3.3 / 08 §8.8: a ZIP component is Maps-enabled when it carries a
   // field-level props.maps config OR the legacy per-node validate flag (the
@@ -1105,6 +1208,7 @@ export function renderZIPInputQuestion(node: LeadgenComponentNode, design: Defau
     ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` +
       (googleValidate ? ` data-validate="google"` : "") +
       (mapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""),
+    ctx,
   );
 }
 
@@ -1128,7 +1232,11 @@ export function renderNameFieldsGroup(node: LeadgenComponentNode, design: Defaul
   );
 }
 
-export function renderAddressAutocompleteQuestion(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderAddressAutocompleteQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
   const provider = propStr(node, "provider") ?? "google";
   const placeholder = propStr(node, "placeholder") ?? "Start typing your address…";
   return (
@@ -1136,8 +1244,10 @@ export function renderAddressAutocompleteQuestion(node: LeadgenComponentNode, de
     // data-lg-maps carries the field-level props.maps config (or the "{}"
     // compat fallback for global-checkbox-era content). The KEY itself never
     // rides here — runtime/maps.ts no-ops gracefully when the shell injected
-    // no window.__LG_MAPS_KEY__.
-    `<div class="lg-address"${hydration(node)} data-provider="${esc(provider)}"${attr("data-lg-maps", mapsConfigJson(node))}>` +
+    // no window.__LG_MAPS_KEY__. v3.1 §7/§12: fieldSizeStyle rides the OUTER
+    // `.lg-address` wrapper, same absent-is-empty discipline as the other
+    // field renderers.
+    `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${attr("data-lg-maps", mapsConfigJson(node))}>` +
     // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
     // the :focus / [aria-invalid] state rules win by cascade (no !important).
     `<input class="lg-input lg-address-input" type="text" data-lg-input` +
@@ -1388,6 +1498,183 @@ export function renderLegalNote(node: LeadgenComponentNode, design: DefaultFunne
     `<div class="lg-legal"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
     `${esc(propStr(node, "html"))}</div>`
   );
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 05 §5.3 Text/Image primitives — the Section-palette consolidation of
+// CategoryLabel/HelperText/LegalNote/ReassuranceBadge/SecureFormBadge (Text,
+// role-typed) and HeaderLogo/LogoStrip in-unit usage (Image/Logo,
+// source=auto_logo). Each per-role/per-source function below is a NEW,
+// STANDALONE function that deliberately DUPLICATES the exact markup shape of
+// its retired counterpart (same wrapper tag/class, same style() token pairs,
+// same escaped content) rather than refactoring/calling into the retired
+// renderers above — those stay byte-for-byte UNTOUCHED (§5.3 "existing
+// sections... render byte-identically until edited; on load they map to the
+// equivalent primitive + role (the renderer keeps the old preset)" — i.e. a
+// STORED legacy CategoryLabel/HelperText/etc. node keeps dispatching to its
+// OWN retired renderer forever; only a NEWLY-authored/rewritten TextBlock
+// node reaches the functions below). The only intentional difference from
+// the retired preset's own output is hydration()'s `data-component-type`
+// value ("TextBlock"/"ImageBlock" vs the retired type name) — a CORRECT
+// reflection of the node's real type, not a fidelity gap (data-component-type
+// has zero CSS/JS consumers today, grep-verified).
+// ---------------------------------------------------------------------------
+
+function renderTextBlockHeading(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  // No retired one-off precedent (Heading/Body are NEW roles, §5.3) — reuses
+  // the QuestionHeadline token family (design.headline) as the closest
+  // "heading-styled text" treatment already in this design.
+  return (
+    `<h2 class="lg-text-heading"${hydration(node)}` +
+    style({ "font-family": design.headline.fontFamily, color: design.headline.color }) +
+    `>${esc(propStr(node, "text"))}</h2>`
+  );
+}
+
+function renderTextBlockBody(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  // No retired one-off precedent and no existing "generic body paragraph"
+  // token group (headline/subheadline/categoryLabel/validation/reassurance/
+  // secureFormBadge are all narrower-purpose) — plain escaped text, no inline
+  // style, so the page's base type treatment applies (the same
+  // no-exotic-styling choice FooterBar's legal slot makes elsewhere).
+  return `<p class="lg-text-body"${hydration(node)}>${esc(propStr(node, "text"))}</p>`;
+}
+
+// Byte-identical markup shape to renderCategoryLabel (role="category_label").
+function renderTextBlockCategoryLabel(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  const color = ovColor(node, "featureColor", design, ctx) ?? design.categoryLabel.color;
+  return (
+    `<div class="lg-category"${hydration(node)}${style({ color, "letter-spacing": design.categoryLabel.letterSpacing })}>` +
+    `${esc(propStr(node, "text"))}</div>`
+  );
+}
+
+// Byte-identical markup shape to renderHelperText (role="helper").
+function renderTextBlockHelper(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  return (
+    `<p class="lg-helper"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
+    `${esc(propStr(node, "text"))}</p>`
+  );
+}
+
+// Byte-identical markup shape to renderLegalNote (role="legal") — reads
+// props.text (the new unified TextBlock convention) rather than the legacy
+// props.html key; both flow through the identical esc() call.
+function renderTextBlockLegal(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  return (
+    `<div class="lg-legal"${hydration(node)}${style({ color: design.validation.helperColor })}>` +
+    `${esc(propStr(node, "text"))}</div>`
+  );
+}
+
+// Byte-identical markup shape to renderReassuranceBadge (role="reassurance").
+// icon stays a free-form glyph (content-schema.ts's badge-role carve-out).
+function renderTextBlockReassurance(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const rb = design.reassuranceBadge;
+  const icon = propStr(node, "icon") ?? "✓";
+  const text = propStr(node, "text") ?? rb.exampleCopy;
+  return (
+    `<div class="lg-badge"${hydration(node)}` +
+    style({ border: rb.border, background: rb.background, color: rb.textColor }) +
+    `>` +
+    `<span class="lg-badge-icon"${style({ color: rb.iconColor })} aria-hidden="true">${esc(icon)}</span>` +
+    `<span class="lg-badge-text">${esc(text)}</span>` +
+    `</div>`
+  );
+}
+
+// Byte-identical markup shape to renderSecureFormBadge (role="secure_badge").
+function renderTextBlockSecureBadge(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const sb = design.secureFormBadge;
+  const icon = propStr(node, "icon") ?? "🔒";
+  const text = propStr(node, "text") ?? sb.exampleCopy;
+  return (
+    `<div class="lg-secure-badge"${hydration(node)}` +
+    style({ border: sb.border, background: sb.background, color: sb.textColor }) +
+    `>` +
+    `<span class="lg-secure-badge-icon"${style({ color: sb.iconColor })} aria-hidden="true">${esc(icon)}</span>` +
+    `<span class="lg-secure-badge-text">${esc(text)}</span>` +
+    `</div>`
+  );
+}
+
+// TextBlock dispatch by role (§8.5b Style-tab role list); absent/unknown role
+// defaults to "heading" (every prop is optional per REQUIRED_FIELDS.TextBlock).
+export function renderTextBlock(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx?: LeadgenSectionRenderCtx,
+): string {
+  switch (propStr(node, "role")) {
+    case "body":
+      return renderTextBlockBody(node, design);
+    case "category_label":
+      return renderTextBlockCategoryLabel(node, design, ctx);
+    case "helper":
+      return renderTextBlockHelper(node, design);
+    case "legal":
+      return renderTextBlockLegal(node, design);
+    case "reassurance":
+      return renderTextBlockReassurance(node, design);
+    case "secure_badge":
+      return renderTextBlockSecureBadge(node, design);
+    case "heading":
+    default:
+      return renderTextBlockHeading(node, design);
+  }
+}
+
+// ImageBlock source="auto_logo": the logo RESOLUTION fragment is
+// byte-identical to renderHeaderLogo's own `inner` branch (same props —
+// logoUrl/siteName/accent; same design.header.* token slots), per §5.3
+// "HeaderLogo/LogoStrip (in-unit) -> Image/Logo -> Source = Auto site logo".
+// The OUTER wrapper deliberately does NOT reproduce renderHeaderLogo's
+// `<header>` landmark tag: HeaderLogo is a frame-scope, one-per-page chrome
+// element; ImageBlock is a unit-scope primitive that can appear anywhere/any
+// number of times in a Section, so repeating the `<header>` landmark would be
+// an accessibility regression (duplicate landmarks), not a fidelity win —
+// only the logo RESOLUTION markup (img vs text+accent span) matches byte for
+// byte.
+function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  const logoUrl = propStr(node, "logoUrl");
+  const siteName = propStr(node, "siteName") ?? "";
+  const accent = propStr(node, "accent");
+  const inner =
+    logoUrl !== undefined && logoUrl !== ""
+      ? `<img class="lg-logo-img" src="${esc(logoUrl)}" alt="${esc(siteName)}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
+      : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName)}` +
+        (accent !== undefined
+          ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
+          : "") +
+        `</span>`;
+  return `<div class="lg-image-block lg-image-block-logo"${hydration(node)} data-source="auto_logo">${inner}</div>`;
+}
+
+// ImageBlock source="media" (default/explicit image — no retired-type
+// precedent to match; LogoStrip is a MULTI-logo strip and ImageCardAnswerGrid
+// is choice cards, neither is "one plain authored image"). Reuses the
+// logoMediaId->src convention already used by HeaderLogo/HeaderBar.
+function renderImageBlockMedia(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+  const mediaId = propStr(node, "logoMediaId");
+  const alt = propStr(node, "alt") ?? "";
+  if (mediaId === undefined || mediaId === "") {
+    return `<div class="lg-image-block"${hydration(node)} data-source="media"></div>`;
+  }
+  return (
+    `<div class="lg-image-block"${hydration(node)} data-source="media">` +
+    `<img class="lg-image-block-img" src="${esc(mediaId)}" alt="${esc(alt)}" loading="lazy">` +
+    `</div>`
+  );
+}
+
+export function renderImageBlock(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+  return propStr(node, "source") === "auto_logo"
+    ? renderImageBlockAutoLogo(node, design)
+    : renderImageBlockMedia(node, design);
 }
 
 // ---------------------------------------------------------------------------
@@ -1790,23 +2077,25 @@ export function renderComponent(
     case "OtherGroupSelector":
       return renderOtherGroupSelector(node, design, state?.ctx);
     case "FreeTextQuestion":
-      return renderFreeTextQuestion(node, design);
+      return renderFreeTextQuestion(node, design, state?.ctx);
     case "NumberInputQuestion":
-      return renderNumberInputQuestion(node, design);
+      return renderNumberInputQuestion(node, design, state?.ctx);
     case "CurrencyInputQuestion":
-      return renderCurrencyInputQuestion(node, design);
+      return renderCurrencyInputQuestion(node, design, state?.ctx);
     case "EmailInputQuestion":
-      return renderEmailInputQuestion(node, design);
+      return renderEmailInputQuestion(node, design, state?.ctx);
     case "PhoneInputQuestion":
-      return renderPhoneInputQuestion(node, design);
+      return renderPhoneInputQuestion(node, design, state?.ctx);
     case "AddressAutocompleteQuestion":
-      return renderAddressAutocompleteQuestion(node, design);
+      return renderAddressAutocompleteQuestion(node, design, state?.ctx);
     case "ZIPInputQuestion":
-      return renderZIPInputQuestion(node, design);
+      return renderZIPInputQuestion(node, design, state?.ctx);
     case "NameFieldsGroup":
+      // NameFieldsGroup has no internal_field / single input box — §7 field
+      // sizing is not wired here (two labeled sub-inputs, not one field box).
       return renderNameFieldsGroup(node, design);
     case "DateQuestion":
-      return renderDateQuestion(node, design);
+      return renderDateQuestion(node, design, state?.ctx);
     case "ContinueButton": {
       // 11 §11.5 single-control rule (C3) — active only inside a
       // renderSectionComponents call (state present):
@@ -1847,6 +2136,10 @@ export function renderComponent(
       return renderValidationError(node, design);
     case "LegalNote":
       return renderLegalNote(node, design);
+    case "TextBlock":
+      return renderTextBlock(node, design, state?.ctx);
+    case "ImageBlock":
+      return renderImageBlock(node, design);
     // §8.5 layout containers (recursive) + layout leaves — `state` threads
     // through so the §11.5 single-control rule spans the WHOLE section tree.
     case "Stack":

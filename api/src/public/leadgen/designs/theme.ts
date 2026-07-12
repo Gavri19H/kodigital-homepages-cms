@@ -268,6 +268,140 @@ export interface VariantThemeOverrides {
 }
 
 // ---------------------------------------------------------------------------
+// v3.1 §10.1/§10.4 — Themes manager RECORDS (KV `lg-funnel-themes`, additive,
+// PROPOSED storage model per the contract). A funnel's theme_json / a
+// variant's frame_overrides_json.theme_id may now hold a REFERENCE
+// `{theme_id}` instead of (never alongside) the legacy inline ThemeJson shape
+// above — a discriminated union on the presence of `theme_id`. This module
+// stays PURE: it defines the record shape + the resolution math; the admin
+// handler layer (themes-handlers.ts) owns the KV read/write and fetches the
+// record BEFORE calling resolveTokens (its 4th, optional `themeRecord`
+// parameter below).
+// ---------------------------------------------------------------------------
+
+// A theme_json value that references a theme RECORD by id rather than
+// carrying inline settings. Mutually exclusive with the legacy ThemeJson keys
+// (§10.1 "NULL ⇒ legacy default look" — a {theme_id} value is the ONLY key
+// present; validateTheme rejects a mix of theme_id + legacy keys).
+export interface ThemeIdRef {
+  theme_id: string;
+}
+
+export function isThemeIdRef(value: unknown): value is ThemeIdRef {
+  return (
+    isRecord(value) &&
+    typeof value["theme_id"] === "string" &&
+    value["theme_id"].trim() !== "" &&
+    Object.keys(value).length === 1
+  );
+}
+
+// §10.4 record example's 7 authoring roles — a CURATED subset of the 14
+// FUNNEL_TOKEN_ROLES an operator edits in the Themes manager (Phase D). Names
+// differ from the design-system roles (`page_bg` not `page_background`,
+// `card` not `card_background`, `text` not `text_primary`) because they are
+// the contract's own vocabulary (§10.4 JSON sample) —
+// THEME_RECORD_ROLE_TO_TOKEN_ROLE below is the exhaustive, compile-checked
+// bridge onto the existing token layer.
+export const THEME_RECORD_ROLE_KEYS = [
+  "brand_primary",
+  "accent",
+  "page_bg",
+  "card",
+  "text",
+  "success",
+  "error",
+] as const;
+
+export type ThemeRecordRoleKey = (typeof THEME_RECORD_ROLE_KEYS)[number];
+
+export type ThemeRecordRoles = Record<ThemeRecordRoleKey, string>;
+
+// The bridge onto FUNNEL_TOKEN_ROLES (§9.1) — resolveTokens applies a
+// record's roles at EXACTLY the position inline theme_json.palette already
+// feeds (below), so a theme record reskins through the SAME palette layer;
+// no parallel colour system. `satisfies` keeps this exhaustive over the 7
+// keys AND every value a real FunnelTokenRole (a compile error otherwise).
+export const THEME_RECORD_ROLE_TO_TOKEN_ROLE = {
+  brand_primary: "brand_primary",
+  accent: "accent",
+  page_bg: "page_background",
+  card: "card_background",
+  text: "text_primary",
+  success: "success",
+  error: "error",
+} as const satisfies Record<ThemeRecordRoleKey, FunnelTokenRole>;
+
+export const THEME_RECORD_FIELD_HEIGHTS = ["small", "medium", "large"] as const;
+export type ThemeRecordFieldHeight = (typeof THEME_RECORD_FIELD_HEIGHTS)[number];
+
+export const THEME_RECORD_BUTTON_SIZES = ["s", "m", "l"] as const;
+export type ThemeRecordButtonSize = (typeof THEME_RECORD_BUTTON_SIZES)[number];
+
+export const THEME_RECORD_CORNERS = ["sharp", "rounded", "pill"] as const;
+export type ThemeRecordCorners = (typeof THEME_RECORD_CORNERS)[number];
+
+// §10.4 "Buttons & inputs — the shared size language" — the record fields the
+// §7 field-size resolver (a PARALLEL slice, content-schema/registry/presets)
+// reads as the funnel-theme-default layer of its own size resolution; this
+// module only resolves + exposes them (never interprets e.g. `field_height`
+// into pixels itself — that math belongs to the size resolver).
+export interface ThemeRecordControls {
+  field_height: ThemeRecordFieldHeight;
+  button_size: ThemeRecordButtonSize;
+  corners: ThemeRecordCorners;
+}
+
+// headline_font/body_font are free CSS font-family strings (the contract's
+// own §10.4 sample uses "Newsreader"/"Inter" — NOT the curated ThemeFontId
+// enum above, which names a DIFFERENT, unrelated font set — literata/sora/
+// system — for the legacy inline theme). No fallback-stack table is
+// specified by the contract; resolveTokens passes the string straight into
+// the SAME design.page.fontDisplay/fontFamily slots applyDisplayFont/
+// applyBodyFont already write (an open, UNVERIFIED item — flagged in the
+// phase report: no CSS quoting/generic-fallback construction is invented
+// here).
+export interface ThemeRecordTypography {
+  headline_font: string;
+  body_font: string;
+  base_px: number;
+}
+
+// §10.4 "Spacing PROPOSED … storage key reserved" — a free-form density
+// label (e.g. "cozy"). Round-tripped only; never rendered without a design
+// addendum (§0 fidelity-vs-function rule) — no Phase-A code interprets it.
+export type ThemeRecordSpacing = string;
+
+// One KV `lg-funnel-themes` record (§10.4 JSON sample, verbatim shape).
+export interface ThemeRecord {
+  id: string;
+  name: string;
+  roles: ThemeRecordRoles;
+  typography: ThemeRecordTypography;
+  controls: ThemeRecordControls;
+  spacing?: ThemeRecordSpacing;
+}
+
+// PURE precedence rule (§10.1 "A funnel variant overrides it for A/B via
+// frame_overrides_json.theme_id"): the variant's OWN theme_id wins over the
+// funnel's, mirroring the existing variant-over-funnel palette precedence
+// one layer up (§9.2). Takes the RAW parsed JSON columns (or null/
+// undefined) — no KV I/O; the caller fetches whichever id wins and feeds
+// that ONE record to resolveTokens as `themeRecord`. Returns null when
+// neither carries a theme_id (legacy inline theme_json, or no theme at all).
+export function winningThemeId(
+  funnelThemeJson: unknown,
+  variantFrameOverridesJson: unknown,
+): string | null {
+  const variantRef = isRecord(variantFrameOverridesJson)
+    ? variantFrameOverridesJson["theme_id"]
+    : undefined;
+  if (typeof variantRef === "string" && variantRef.trim() !== "") return variantRef.trim();
+  if (isThemeIdRef(funnelThemeJson)) return funnelThemeJson.theme_id;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // EffectiveTokens — what resolveTokens returns. `design` keeps the FunnelDesign
 // STRUCTURE (so funnelChromeCss + the presets consume it unchanged); `roles`
 // is the resolved role → value table (§4.8 GET theme `effective_tokens`, the
@@ -308,6 +442,16 @@ export interface EffectiveTokens {
   scales: EffectiveScales;
   button_defaults: EffectiveButtonDefaults;
   card_defaults: EffectiveCardDefaults;
+  // v3.1 §10.4/§12 (ADDITIVE) — present only when a theme RECORD resolved
+  // (the 4th resolveTokens argument was supplied, i.e. theme_json / frame_
+  // overrides_json referenced a theme_id and the caller fetched its KV
+  // record). Consumed by: (a) the §7 field-size resolver (a parallel slice —
+  // reads theme_controls.field_height as the funnel-theme-default size
+  // layer); (b) preview/runtime parity for corners/button_size. Undefined
+  // for legacy inline theme_json and for no theme (both existing-caller
+  // shapes — strictly additive, no existing reader is affected).
+  theme_controls?: ThemeRecordControls;
+  theme_typography?: ThemeRecordTypography;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,19 +464,41 @@ export interface EffectiveTokens {
 // registry singleton is never mutated).
 export function resolveTokens(
   baseDesign: FunnelDesign,
-  theme_json?: ThemeJson | null,
+  theme_json?: ThemeJson | ThemeIdRef | null,
   frameOverridesTheme?: VariantThemeOverrides | null,
+  themeRecord?: ThemeRecord | null,
 ): EffectiveTokens {
-  const theme: ThemeJson = theme_json ?? {};
+  // v3.1 §10.1: theme_json may be a {theme_id} REFERENCE instead of the
+  // legacy inline shape — this function stays PURE (no KV), so the CALLER
+  // resolves theme_id → record and supplies it as `themeRecord`; an absent
+  // record (unknown/deleted id) degrades to the base design, identical to a
+  // null theme (never a thrown error from a pure resolver).
+  const theme: ThemeJson = isThemeIdRef(theme_json) ? {} : (theme_json ?? {});
   const overrides: VariantThemeOverrides = frameOverridesTheme ?? {};
+  const record = themeRecord ?? null;
 
   // Fresh, widened working copy (plain JSON data by construction).
   const design = cloneJson(baseDesign) as EffectiveFunnelDesign;
 
+  // A resolved theme RECORD's 7 authoring roles, bridged onto the 14-role
+  // vocabulary (§10.4) — applied at EXACTLY the position inline
+  // theme.palette already feeds (below), so `roles`/`design` stay the ONE
+  // existing token layer (no parallel colour system for record-backed
+  // themes).
+  const recordPalette: Partial<Record<FunnelTokenRole, string>> =
+    record !== null
+      ? (Object.fromEntries(
+          THEME_RECORD_ROLE_KEYS.map((key) => [THEME_RECORD_ROLE_TO_TOKEN_ROLE[key], record.roles[key]]),
+        ) as Partial<Record<FunnelTokenRole, string>>)
+      : {};
+
   // --- palette (roles), layers 3 → 2 → 1 -----------------------------------
   const roles = {} as Record<FunnelTokenRole, string>;
   for (const role of FUNNEL_TOKEN_ROLES) {
-    const layered = pickPaletteValue(overrides.palette, role) ?? pickPaletteValue(theme.palette, role);
+    const layered =
+      pickPaletteValue(overrides.palette, role) ??
+      pickPaletteValue(theme.palette, role) ??
+      recordPalette[role];
     if (layered !== undefined) {
       // A role-name value is an alias into the BASE design (layer 1) — never
       // recursive through the theme, so aliases cannot cycle.
@@ -360,6 +526,15 @@ export function resolveTokens(
   if (bodyId !== undefined) applyBodyFont(design, THEME_FONT_STACKS[bodyId]);
   if (THEME_SIZE_FACTORS[sizeScale] !== 1) {
     scaleFontSizes(design as unknown as Record<string, unknown>, THEME_SIZE_FACTORS[sizeScale]);
+  }
+  // v3.1 §10.4: a resolved theme RECORD's typography feeds the SAME design
+  // slots the curated display/body ids above would — record-backed and
+  // legacy-curated theme_json are mutually exclusive inputs (isThemeIdRef
+  // empties `theme` in the record path), so this never overwrites a legacy
+  // pick; it IS the theme_id path's own typography layer.
+  if (record !== null) {
+    applyDisplayFont(design, record.typography.headline_font);
+    applyBodyFont(design, record.typography.body_font);
   }
 
   // --- button defaults (§9.3) — applied AFTER palette + scales so a radius
@@ -389,10 +564,13 @@ export function resolveTokens(
     shadow: cd.shadow !== undefined ? shadowStepValue(design, cd.shadow) : design.shadow.md,
   };
 
-  return {
+  const result: EffectiveTokens = {
     design,
     roles,
     typography: {
+      // record-backed display/body already landed in design.page.fontDisplay
+      // / fontFamily above (applyDisplayFont/applyBodyFont just wrote them),
+      // so reading them back here keeps ONE source of truth (no third branch).
       display: displayId !== undefined ? THEME_FONT_STACKS[displayId] : design.page.fontDisplay,
       body: bodyId !== undefined ? THEME_FONT_STACKS[bodyId] : design.page.fontFamily,
       size: sizeScale,
@@ -401,6 +579,11 @@ export function resolveTokens(
     button_defaults,
     card_defaults,
   };
+  if (record !== null) {
+    result.theme_controls = record.controls;
+    result.theme_typography = record.typography;
+  }
+  return result;
 }
 
 function pickPaletteValue(
@@ -569,7 +752,21 @@ export function contrastRatioAA(fg: string, bg: string): ContrastVerdict | null 
 // validateTheme — server-side gate for PUT /funnels/:id/theme (§4.8). Unknown
 // keys/roles rejected; enums closed; custom #hex palette values are ALLOWED
 // but flagged (legacy-literal rule, §9.3/§9.4). `theme` is non-null iff no
-// error-severity problem was found (warnings alone keep the theme).
+// error-severity problem was found (warnings alone keep the theme). v3.1
+// §10.1: a `{theme_id}` reference is ALSO accepted — structurally only (a
+// non-empty string, alone); the referenced id's EXISTENCE is a KV lookup this
+// pure validator cannot perform (the write-path handler checks it, §10.1).
+//
+// `theme` KEEPS the `ThemeJson | null` declared shape (not widened to
+// `| ThemeIdRef`) so every EXISTING `let x: ThemeJson | null = validateTheme(
+// …).theme` call site (serve.ts resolveFrameComposition, the quotes-handlers
+// v2.5-problems scan, …) keeps compiling untouched — those files are outside
+// this slice. A theme_id-ref value is returned as an (intentionally) widened
+// object: `isThemeIdRef()` is the correct narrowing tool for any caller that
+// needs to branch on it (resolveTokens does this internally); a caller that
+// does NOT check it and reads legacy fields (`.palette` etc.) simply sees
+// `undefined` for all of them, since a theme_id-ref object never has those
+// keys — a safe degrade, never a runtime crash.
 // ---------------------------------------------------------------------------
 
 export interface ThemeValidation {
@@ -597,6 +794,28 @@ export function validateTheme(raw: unknown): ThemeValidation {
   if (!isRecord(raw)) {
     push("error", "theme", "Theme settings must be a JSON object.");
     return { theme: null, problems };
+  }
+
+  // v3.1 §10.1: a {theme_id} REFERENCE is a distinct, mutually-exclusive
+  // shape from the legacy inline theme below — checked FIRST so a theme_id
+  // value never falls through to the legacy per-key checks (which would
+  // otherwise reject `theme_id` as an unrecognised top-level key).
+  if ("theme_id" in raw) {
+    if (!isThemeIdRef(raw)) {
+      push(
+        "error",
+        "theme.theme_id",
+        Object.keys(raw).length > 1
+          ? "theme_id can't be combined with other theme settings."
+          : "theme_id must be a non-empty string.",
+      );
+      return { theme: null, problems };
+    }
+    // Intentional widening cast — see the ThemeValidation doc comment above:
+    // `theme` stays declared as `ThemeJson | null` for existing-caller
+    // compatibility; a theme_id-ref value is a DIFFERENT (isThemeIdRef-
+    // narrowable) shape carried through the same slot.
+    return { theme: raw as unknown as ThemeJson, problems };
   }
 
   for (const key of Object.keys(raw)) {

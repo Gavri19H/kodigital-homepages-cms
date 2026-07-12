@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:#D9DEE6;font-family:Inter,system-ui,Arial,sans-serif}
+  a{color:#1B3A5C;text-decoration:none}
+  a:hover{color:#16324f}
+  input{font-family:inherit}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#C7CFDB;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#AEB8C7;background-clip:content-box}
+</style>
+</helmet>
+
+<div style="width:1440px;height:944px;margin:26px auto;border-radius:14px;overflow:hidden;box-shadow:0 20px 54px rgba(20,28,46,.20);border:1px solid #C4CCD9;display:flex;flex-direction:column;background:#fff;color:#1A1F36;font-size:14px">
+
+  <!-- ============ TOP BAR ============ -->
+  <div style="flex:0 0 auto;height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:#fff;border-bottom:1px solid #E4E8EF">
+    <div onClick="{{ noop }}" style="display:flex;align-items:center;gap:7px;padding:7px 11px 7px 8px;border:1px solid #E1E6EE;border-radius:8px;cursor:pointer;color:#41495B;font-weight:600;font-size:13px" style-hover="background:#F5F7FA;border-color:#CDD5E1">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="#5A6470" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Sections
+    </div>
+    <div style="width:1px;height:24px;background:#E4E8EF"></div>
+    <div style="display:flex;flex-direction:column;gap:1px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:#A2AAB8">Section</div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <input default-value="Zip" style="width:132px;font-size:17px;font-weight:700;color:#111726;border:none;border-bottom:1.5px solid transparent;padding:1px 2px;outline:none;background:transparent" style-focus="border-bottom-color:#1B3A5C">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#0E7C3A;background:#E4F2E9;padding:3px 9px;border-radius:20px"><span style="width:6px;height:6px;border-radius:50%;background:#0E7C3A"></span>Active</span>
+      </div>
+    </div>
+
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+      <div style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0E7C3A;background:#E9F4EE;padding:6px 11px;border-radius:8px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#0E7C3A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Mapping 2 / 2 complete
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5A6470;background:#F1F3F7;padding:6px 11px;border-radius:8px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#8A93A3" stroke-width="2"/><path d="M12 7v6" stroke="#8A93A3" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1.2" fill="#8A93A3"/></svg>
+        No issues
+      </div>
+      <div style="width:1px;height:24px;background:#E4E8EF"></div>
+      <div onClick="{{ noop }}" style="padding:9px 20px;background:#1B3A5C;color:#fff;font-weight:700;font-size:13px;border-radius:8px;cursor:pointer;box-shadow:0 1px 2px rgba(27,58,92,.28)" style-hover="background:#16324f">Save</div>
+      <div onClick="{{ noop }}" style="padding:9px 14px;color:#8A5050;font-weight:600;font-size:13px;border-radius:8px;cursor:pointer" style-hover="background:#FBEEEC;color:#B23A2C">Archive</div>
+    </div>
+  </div>
+
+  <!-- ============ QUESTION STRIP ============ -->
+  <div style="flex:0 0 auto;padding:14px 20px 16px;background:#F7F9FB;border-bottom:1px solid #E7EBF1">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:11px">
+      <span style="font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#9098A6">The question</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:#8A93A3;font-weight:600">Activity</span>
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:5px 10px;background:#fff;border:1px solid #E1E6EE;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="border-color:#CDD5E1"><span>Insurance</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <span style="font-size:11px;color:#8A93A3;font-weight:600;margin-left:4px">Vertical</span>
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:5px 10px;background:#fff;border:1px solid #E1E6EE;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="border-color:#CDD5E1"><span>Car</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:#8A93A3;font-weight:600">On answer</span>
+          <div style="display:inline-flex;background:#EDF0F5;border-radius:8px;padding:2px">
+            <div onClick="{{ setAutoWait }}" style="{{ waitStyle }}">Wait for Continue</div>
+            <div onClick="{{ setAutoGo }}" style="{{ autoStyle }}">Go to next</div>
+          </div>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#5A6470;background:#EEF2F7;border:1px solid #E1E6EE;padding:5px 10px;border-radius:20px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#5A6470" stroke-width="1.7"/><circle cx="12" cy="9" r="2.1" stroke="#5A6470" stroke-width="1.7"/></svg>
+          Google Maps: connected
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;align-items:flex-end">
+      <div style="flex:1.5">
+        <label style="display:block;font-size:11px;font-weight:700;color:#6B7486;margin-bottom:5px">Question headline</label>
+        <input default-value="What's your ZIP code?" style="width:100%;padding:10px 13px;font-size:15px;font-weight:600;color:#1A1F36;border:1px solid #DDE3EC;border-radius:8px;outline:none;background:#fff" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+      </div>
+      <div style="flex:1.2">
+        <label style="display:block;font-size:11px;font-weight:700;color:#6B7486;margin-bottom:5px">Subheadline <span style="font-weight:500;color:#A2AAB8">· optional</span></label>
+        <input default-value="Rates differ by up to 40% based on ZIP code" style="width:100%;padding:10px 13px;font-size:13.5px;color:#41495B;border:1px solid #DDE3EC;border-radius:8px;outline:none;background:#fff" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+      </div>
+      <div style="flex:0 0 auto;padding-bottom:11px;font-size:11.5px;color:#98A1B0;display:flex;align-items:center;gap:6px;max-width:150px;line-height:1.35">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><path d="M4 7l8 5 8-5" stroke="#B4BCC9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v0" stroke="#B4BCC9" stroke-width="1.8"/><path d="M4 6v8" stroke="#B4BCC9" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Also shown on the canvas — edit in either place.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BODY: 3 PANELS ============ -->
+  <div style="flex:1 1 auto;display:flex;min-height:0;background:#EDF0F4">
+
+    <!-- ---- LEFT: COMPONENT LIBRARY ---- -->
+    <div style="flex:0 0 292px;background:#fff;border-right:1px solid #E4E8EF;display:flex;flex-direction:column;min-height:0">
+      <div style="flex:0 0 auto;padding:15px 16px 10px">
+        <div style="font-size:13px;font-weight:800;color:#1A1F36;margin-bottom:11px">Add to this question</div>
+        <div style="position:relative">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="position:absolute;left:11px;top:50%;transform:translateY(-50%)"><circle cx="11" cy="11" r="7" stroke="#9AA3B2" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="#9AA3B2" stroke-width="2" stroke-linecap="round"/></svg>
+          <input placeholder="Search components" onInput="{{ onSearch }}" style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid #E1E6EE;border-radius:8px;outline:none;background:#F8FAFC" style-focus="border-color:#1B3A5C;background:#fff;box-shadow:0 0 0 3px rgba(27,58,92,.09)">
+        </div>
+      </div>
+
+      <div style="flex:1 1 auto;overflow-y:auto;padding:0 16px 18px">
+
+        <!-- SUGGESTED -->
+        <div onClick="{{ toggleSug }}" style="display:flex;align-items:center;gap:7px;padding:12px 2px 9px;cursor:pointer;user-select:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M8 5l8 7-8 7" stroke="#B4BCC9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="{{ chevSug }}" transform-origin="12 12"/></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="#F5C518"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5 20.2l1.4-6.8L1.3 8.9l6.9-.7z"/></svg>
+          <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3">Suggested</span>
+        </div>
+        <sc-if value="{{ gSug }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div data-tile data-name="short text" onClick="{{ selectField }}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><line x1="9" y1="11.5" x2="9" y2="18.5" stroke="#1B3A5C" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="15" x2="27" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Short text</div>
+          </div>
+          <div data-tile data-name="buttons" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="4" width="34" height="9" rx="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.4"/><rect x="6" y="17" width="34" height="9" rx="4.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.4"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Buttons</div>
+          </div>
+          <div data-tile data-name="cards" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="5" width="16" height="9" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="5" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="5" y="17" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="17" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Cards</div>
+          </div>
+          <div data-tile data-name="continue button" onClick="{{ selectContinue }}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="9" width="36" height="13" rx="6.5" fill="#1B3A5C"/><line x1="13" y1="15.5" x2="27" y2="15.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M27 12l3.5 3.5-3.5 3.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Continue</div>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ANSWER FIELDS (merged) -->
+        <div onClick="{{ toggleAns }}" style="display:flex;align-items:center;gap:7px;padding:16px 2px 9px;cursor:pointer;user-select:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M8 5l8 7-8 7" stroke="#B4BCC9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="{{ chevAns }}" transform-origin="12 12"/></svg>
+          <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3">Answer fields</span>
+          <span style="margin-left:auto;font-size:11px;font-weight:600;color:#BAC2CF">how visitors answer</span>
+        </div>
+        <sc-if value="{{ gAns }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div data-tile data-name="buttons" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="4" width="34" height="9" rx="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.4"/><rect x="6" y="17" width="34" height="9" rx="4.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.4"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Buttons</div>
+          </div>
+          <div data-tile data-name="cards" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="5" width="16" height="9" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="5" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="5" y="17" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="17" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Cards</div>
+          </div>
+          <div data-tile data-name="yes no" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="9" width="17" height="13" rx="6.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="9" width="17" height="13" rx="6.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><path d="M9 15.5l2.2 2.2 4-4.4" stroke="#1B3A5C" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 13l6 6M36 13l-6 6" stroke="#9AA9BD" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Yes / No</div>
+          </div>
+          <div data-tile data-name="dropdown" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><path d="M32 13l3 3 3-3" stroke="#1B3A5C" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="9" y1="15" x2="25" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Dropdown</div>
+          </div>
+          <div data-tile data-name="multi-select" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="6.5" width="8" height="8" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><path d="M8 10.5l1.6 1.6 3-3.2" stroke="#1B3A5C" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="18" y1="10.5" x2="38" y2="10.5" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/><rect x="6" y="18" width="8" height="8" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><line x1="18" y1="22" x2="34" y2="22" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Multi-select</div>
+          </div>
+          <div data-tile data-name="short text" onClick="{{ selectField }}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><line x1="9" y1="11.5" x2="9" y2="18.5" stroke="#1B3A5C" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="15" x2="27" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Short text</div>
+          </div>
+          <div data-tile data-name="number" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><text x="10" y="19" font-family="Inter" font-size="10" font-weight="700" fill="#1B3A5C">123</text></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Number</div>
+          </div>
+          <div data-tile data-name="amount money" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><text x="9" y="19" font-family="Inter" font-size="11" font-weight="800" fill="#1B3A5C">$</text><line x1="17" y1="15" x2="30" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Amount</div>
+          </div>
+          <div data-tile data-name="date" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="8" y="6" width="30" height="18" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><line x1="8" y1="12" x2="38" y2="12" stroke="#1B3A5C" stroke-width="1.4"/><line x1="15" y1="4" x2="15" y2="8" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round"/><line x1="31" y1="4" x2="31" y2="8" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round"/><rect x="12" y="15" width="4" height="4" rx="1" fill="#1B3A5C"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Date</div>
+          </div>
+          <div data-tile data-name="slider scale" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><line x1="6" y1="15" x2="40" y2="15" stroke="#C2CCDA" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="15" x2="24" y2="15" stroke="#1B3A5C" stroke-width="2" stroke-linecap="round"/><circle cx="24" cy="15" r="5" fill="#fff" stroke="#1B3A5C" stroke-width="1.6"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Slider</div>
+          </div>
+          <div data-tile data-name="contact name email phone" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><circle cx="13" cy="11" r="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><path d="M6 24c0-4 4-6 7-6s7 2 7 6" fill="none" stroke="#1B3A5C" stroke-width="1.3" stroke-linecap="round"/><line x1="25" y1="10" x2="40" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="16" x2="40" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="22" x2="35" y2="22" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Contact</div>
+          </div>
+          <div data-tile data-name="address zip location" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><path d="M14 5c4 0 6 3 6 6 0 4-6 11-6 11S8 15 8 11c0-3 2-6 6-6z" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><circle cx="14" cy="11" r="2" fill="#1B3A5C"/><line x1="25" y1="11" x2="40" y2="11" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="17" x2="36" y2="17" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Address</div>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- CONTENT (primitives) -->
+        <div onClick="{{ toggleCon }}" style="display:flex;align-items:center;gap:7px;padding:16px 2px 9px;cursor:pointer;user-select:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M8 5l8 7-8 7" stroke="#B4BCC9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="{{ chevCon }}" transform-origin="12 12"/></svg>
+          <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3">Content</span>
+        </div>
+        <sc-if value="{{ gCon }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div data-tile data-name="text legal note reassurance disclosure" onClick="{{ selectHeadline }}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><text x="5" y="19" font-family="Newsreader,serif" font-size="15" font-weight="600" fill="#1B3A5C">Aa</text><line x1="26" y1="10" x2="41" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="26" y1="16" x2="41" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="26" y1="22" x2="35" y2="22" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Text</div>
+          </div>
+          <div data-tile data-name="image logo picture" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="34" height="20" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><circle cx="14" cy="12" r="2.4" fill="#F5C518"/><path d="M9 23l7-7 5 5 4-4 6 6" fill="none" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Image / Logo</div>
+          </div>
+          <div data-tile data-name="divider line" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><line x1="5" y1="15" x2="18" y2="15" stroke="#9AA9BD" stroke-width="1.7" stroke-linecap="round"/><circle cx="23" cy="15" r="1.7" fill="#9AA9BD"/><line x1="28" y1="15" x2="41" y2="15" stroke="#9AA9BD" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Divider</div>
+          </div>
+        </div>
+        <div style="margin-top:9px;padding:9px 11px;background:#F6F8FB;border:1px dashed #D5DCE6;border-radius:8px;font-size:11.5px;color:#78818F;line-height:1.45">Legal notes, reassurance lines & secure badges are just <b style="color:#41495B;font-weight:700">Text</b> — pick a style in its settings. No separate blocks.</div>
+        </sc-if>
+
+        <!-- LAYOUT -->
+        <div onClick="{{ toggleLay }}" style="display:flex;align-items:center;gap:7px;padding:16px 2px 9px;cursor:pointer;user-select:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M8 5l8 7-8 7" stroke="#B4BCC9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="{{ chevLay }}" transform-origin="12 12"/></svg>
+          <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3">Layout</span>
+        </div>
+        <sc-if value="{{ gLay }}" hint-placeholder-val="{{ false }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div data-tile data-name="card panel" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="3" width="36" height="24" rx="4" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><line x1="11" y1="10" x2="35" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="11" y1="15" x2="30" y2="15" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><rect x="11" y="19" width="14" height="4" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Card</div>
+          </div>
+          <div data-tile data-name="columns" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="15" height="20" rx="3" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="5" width="15" height="20" rx="3" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Columns</div>
+          </div>
+          <div data-tile data-name="grid" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="5" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="6" y="17" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="17" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Grid</div>
+          </div>
+          <div data-tile data-name="spacer gap" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:13px 8px 10px;border:1px solid #E4E8EF;border-radius:9px;background:#fff;cursor:grab" style-hover="border-color:#1B3A5C;background:#F7F9FC;box-shadow:0 2px 6px rgba(16,24,40,.07)">
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="34" height="20" rx="3" fill="none" stroke="#9AA9BD" stroke-width="1.3" stroke-dasharray="3 3"/><path d="M23 9v12M20 12l3-3 3 3M20 18l3 3 3-3" stroke="#1B3A5C" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="font-size:12.5px;font-weight:600;color:#2A3346">Spacer</div>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- FRAME CALLOUT -->
+        <div style="margin-top:16px;padding:12px 13px;background:#EAF1F8;border:1px solid #D4E2F0;border-radius:9px">
+          <div style="display:flex;align-items:flex-start;gap:9px">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><rect x="3" y="4" width="18" height="16" rx="2" stroke="#2E6BB0" stroke-width="1.8"/><path d="M3 9h18" stroke="#2E6BB0" stroke-width="1.8"/></svg>
+            <div style="font-size:12px;color:#33506F;line-height:1.5">Header, logo, progress, footer & background belong to the whole funnel — set them once in the <b style="font-weight:700">Quote Builder</b>. <a href="#0" style="color:#1B3A5C;font-weight:700;border-bottom:1px solid #9DBCDD">Open →</a></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ---- CENTER: CANVAS ---- -->
+    <div style="flex:1 1 auto;display:flex;flex-direction:column;min-height:0;min-width:0">
+
+      <!-- CANVAS TOOLBAR -->
+      <div style="flex:0 0 auto;height:46px;display:flex;align-items:center;gap:12px;padding:0 16px;background:#fff;border-bottom:1px solid #E4E8EF">
+        <!-- breadcrumb -->
+        <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3">
+          <span style="font-weight:600;color:#8A93A3">This section</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="#C2CACF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><span style="font-weight:700;color:#1B3A5C;background:#EAF0F6;padding:3px 9px;border-radius:6px">Short text</span></sc-if>
+          <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}"><span style="font-weight:700;color:#1B3A5C;background:#EAF0F6;padding:3px 9px;border-radius:6px">Question</span></sc-if>
+          <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}"><span style="font-weight:700;color:#1B3A5C;background:#EAF0F6;padding:3px 9px;border-radius:6px">Continue</span></sc-if>
+        </div>
+
+        <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+          <!-- undo/redo -->
+          <div style="display:flex;align-items:center;gap:2px">
+            <div onClick="{{ noop }}" style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer" style-hover="background:#F1F3F7"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 7L4 12l5 5" stroke="#5A6470" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h11a5 5 0 015 5v1" stroke="#5A6470" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div onClick="{{ noop }}" style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;opacity:.45" style-hover="background:#F1F3F7"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M15 7l5 5-5 5" stroke="#5A6470" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H9a5 5 0 00-5 5v1" stroke="#5A6470" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+          <div style="width:1px;height:22px;background:#E4E8EF"></div>
+          <!-- viewport -->
+          <div style="display:inline-flex;background:#EDF0F5;border-radius:8px;padding:2px">
+            <div onClick="{{ setVpDesktop }}" style="{{ vpDeskStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M9 20h6M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Desktop</div>
+            <div onClick="{{ setVpMobile }}" style="{{ vpMobStyle }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="7" y="3" width="10" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M11 18h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Mobile</div>
+          </div>
+          <div style="width:1px;height:22px;background:#E4E8EF"></div>
+          <!-- frame hint -->
+          <div onClick="{{ toggleFrame }}" style="{{ frameBtnStyle }}">
+            <span style="{{ frameDotStyle }}"></span>Frame hint
+          </div>
+        </div>
+      </div>
+
+      <!-- CANVAS SURFACE -->
+      <div style="flex:1 1 auto;overflow:auto;background:#EDF0F4;background-image:radial-gradient(#DCE1EA 1px,transparent 1px);background-size:22px 22px;display:flex;justify-content:center;padding:34px 24px">
+        <div style="width:600px;flex:0 0 auto">
+
+          <!-- FRAME HINT: HEADER -->
+          <sc-if value="{{ frameHint }}" hint-placeholder-val="{{ true }}">
+          <div style="position:relative;opacity:.5;pointer-events:none;padding:14px 0 20px">
+            <div style="position:absolute;top:8px;left:0;display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#7C889A;background:#E5E9F0;padding:3px 8px;border-radius:20px;pointer-events:auto"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#7C889A" stroke-width="2"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#7C889A" stroke-width="2"/></svg>Funnel frame</div>
+            <div style="display:flex;justify-content:center;padding-top:18px"><div style="font-family:Newsreader,serif;font-size:19px;font-weight:600;color:#33506F;letter-spacing:.3px">brand<span style="color:#96A3B5">·</span>logo</div></div>
+            <div style="margin-top:14px;height:5px;border-radius:4px;background:#D3DBE6;overflow:hidden"><div style="width:38%;height:100%;background:#9DB0C6"></div></div>
+          </div>
+          </sc-if>
+
+          <!-- THE QUESTION UNIT (editable) -->
+          <div style="background:#fff;border-radius:16px;box-shadow:0 8px 28px rgba(20,32,54,.10);border:1px solid #E9EDF3;padding:44px 46px 40px">
+
+            <!-- headline (selectable) -->
+            <div onClick="{{ selectHeadline }}" style="position:relative;cursor:pointer;border-radius:8px;padding:2px 4px;margin:-2px -4px 0" style-hover="background:#F6F8FB">
+              <div style="font-family:Newsreader,serif;font-size:31px;line-height:1.15;font-weight:600;color:#16324f;text-align:center">What's your ZIP code?</div>
+              <div style="font-size:15px;color:#63707F;text-align:center;margin-top:9px">Rates differ by up to 40% based on ZIP code</div>
+              <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;inset:-6px;border:2px solid #1B3A5C;border-radius:10px;pointer-events:none"></div>
+                <div style="position:absolute;top:-27px;left:-6px;display:flex;align-items:center;gap:5px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px 6px 6px 0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><text x="4" y="18" font-family="Newsreader,serif" font-size="17" font-weight="600" fill="#fff">A</text></svg>Question · shared with header</div>
+              </sc-if>
+            </div>
+
+            <!-- the ZIP field (selectable) -->
+            <div onClick="{{ selectField }}" style="{{ fieldWrapStyle }}">
+              <div style="{{ fieldBoxStyle }}">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#8DA0B6" stroke-width="1.8"/><circle cx="12" cy="9" r="2.4" stroke="#8DA0B6" stroke-width="1.8"/></svg>
+                <span style="font-size:16px;color:#9AA6B4">Enter your ZIP code</span>
+              </div>
+              <div style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">We never share this</div>
+
+              <!-- selection chrome for field -->
+              <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:-6px;right:-6px;top:-6px;height:66px;border:2px solid #1B3A5C;border-radius:12px;pointer-events:none"></div>
+                <div style="position:absolute;top:-30px;left:-6px;display:flex;align-items:center;gap:6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="5" cy="6" r="1.5" fill="#fff"/><circle cx="5" cy="12" r="1.5" fill="#fff"/><circle cx="5" cy="18" r="1.5" fill="#fff"/><circle cx="12" cy="6" r="1.5" fill="#fff"/><circle cx="12" cy="12" r="1.5" fill="#fff"/><circle cx="12" cy="18" r="1.5" fill="#fff"/></svg>
+                  Short text field
+                </div>
+                <sc-if value="{{ wCustom }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;top:-30px;right:-6px;display:flex;align-items:center;gap:5px;background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none">≈ 384 px · custom</div>
+                </sc-if>
+                <span style="position:absolute;left:-11px;top:-11px;width:11px;height:11px;background:#fff;border:2px solid #1B3A5C;border-radius:3px;pointer-events:none"></span>
+                <span style="position:absolute;left:calc(50% - 5px);top:-11px;width:11px;height:11px;background:#fff;border:2px solid #1B3A5C;border-radius:3px;pointer-events:none"></span>
+                <span style="position:absolute;right:-11px;top:-11px;width:11px;height:11px;background:#fff;border:2px solid #1B3A5C;border-radius:3px;pointer-events:none"></span>
+                <span onClick="{{ resizeW }}" style="position:absolute;left:-11px;top:19px;width:11px;height:11px;background:#1B3A5C;border:2px solid #1B3A5C;border-radius:3px;cursor:ew-resize;pointer-events:auto"></span>
+                <span onClick="{{ resizeW }}" style="position:absolute;right:-11px;top:19px;width:11px;height:11px;background:#1B3A5C;border:2px solid #1B3A5C;border-radius:3px;cursor:ew-resize;pointer-events:auto"></span>
+                <span style="position:absolute;left:-11px;top:49px;width:11px;height:11px;background:#fff;border:2px solid #1B3A5C;border-radius:3px;pointer-events:none"></span>
+                <span style="position:absolute;left:calc(50% - 5px);top:49px;width:11px;height:11px;background:#fff;border:2px solid #1B3A5C;border-radius:3px;pointer-events:none"></span>
+                <span style="position:absolute;right:-11px;top:49px;width:11px;height:11px;background:#fff;border:2px solid #1B3A5C;border-radius:3px;pointer-events:none"></span>
+              </sc-if>
+            </div>
+
+            <!-- continue button (selectable) -->
+            <div onClick="{{ selectContinue }}" style="position:relative;margin-top:26px;cursor:pointer">
+              <div style="width:100%;padding:16px;background:#1B3A5C;color:#fff;font-size:16px;font-weight:700;text-align:center;border-radius:11px">View My Quote</div>
+              <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;inset:-6px;border:2px solid #1B3A5C;border-radius:14px;pointer-events:none"></div>
+                <div style="position:absolute;top:-30px;left:-6px;display:flex;align-items:center;gap:6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none">Continue button<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,.18);padding:1px 6px;border-radius:10px;font-size:10px"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#fff" stroke-width="2.4"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#fff" stroke-width="2.4"/></svg>from frame</span></div>
+              </sc-if>
+            </div>
+
+          </div>
+
+          <!-- FRAME HINT: FOOTER -->
+          <sc-if value="{{ frameHint }}" hint-placeholder-val="{{ true }}">
+          <div style="opacity:.5;pointer-events:none;padding:20px 0 8px;text-align:center">
+            <div style="font-size:11px;color:#7C889A;line-height:1.6">Advertising disclosure · Terms · Privacy<br>© 2026 · Trusted partner network</div>
+          </div>
+          </sc-if>
+
+        </div>
+      </div>
+
+      <!-- BOTTOM DRAWER BAR -->
+      <div style="flex:0 0 auto;height:42px;display:flex;align-items:center;gap:4px;padding:0 14px;background:#fff;border-top:1px solid #E4E8EF">
+        <div style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;font-size:12.5px;font-weight:700;color:#1B3A5C;border-radius:7px;background:#EEF2F7;cursor:pointer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="#1B3A5C" stroke-width="2" stroke-linecap="round"/></svg>Mapping
+          <span style="font-size:10px;font-weight:800;color:#0E7C3A;background:#DBEEE2;padding:1px 6px;border-radius:10px">2/2</span>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;font-size:12.5px;font-weight:600;color:#6B7486;border-radius:7px;cursor:pointer" style-hover="background:#F1F3F7">Validation</div>
+        <div style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;font-size:12.5px;font-weight:600;color:#6B7486;border-radius:7px;cursor:pointer" style-hover="background:#F1F3F7">Preview in a quote</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:15px">
+          <div onClick="{{ openThemes }}" style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#5A6470;cursor:pointer;font-weight:600" style-hover="color:#1B3A5C">
+            <span style="width:13px;height:13px;border-radius:4px;background:#1B3A5C;position:relative"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:#F5C518;border:1px solid #fff"></span></span>
+            Preview theme:&nbsp;<b style="color:#1B3A5C">Navy</b>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div style="width:1px;height:20px;background:#E4E8EF"></div>
+          <div style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#98A1B0;cursor:pointer" style-hover="color:#5A6470">Expand<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M18 15l-6-6-6 6" stroke="#98A1B0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- RIGHT: INSPECTOR ---- -->
+    <div style="flex:0 0 344px;background:#fff;border-left:1px solid #E4E8EF;display:flex;flex-direction:column;min-height:0">
+
+      <!-- scope header -->
+      <div style="flex:0 0 auto;padding:16px 18px 13px;border-bottom:1px solid #EEF1F6">
+        <div style="font-size:10px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:#A2AAB8;margin-bottom:7px">Editing</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:34px;height:34px;border-radius:9px;background:#EAF0F6;display:flex;align-items:center;justify-content:center;flex:0 0 auto">
+            <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><svg width="18" height="18" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="2"/><line x1="9" y1="11.5" x2="9" y2="18.5" stroke="#1B3A5C" stroke-width="2" stroke-linecap="round"/></svg></sc-if>
+            <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}"><span style="font-family:Newsreader,serif;font-size:17px;font-weight:600;color:#1B3A5C">Aa</span></sc-if>
+            <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" viewBox="0 0 46 30" fill="none"><rect x="5" y="9" width="36" height="13" rx="6.5" fill="#1B3A5C"/><path d="M27 12l3.5 3.5-3.5 3.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></sc-if>
+          </div>
+          <div style="min-width:0">
+            <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><div style="font-size:15.5px;font-weight:800;color:#1A1F36">Short text field</div></sc-if>
+            <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}"><div style="font-size:15.5px;font-weight:800;color:#1A1F36">Question headline</div></sc-if>
+            <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}"><div style="font-size:15.5px;font-weight:800;color:#1A1F36">Continue button</div></sc-if>
+            <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><div style="font-size:11.5px;color:#8A93A3">Collects the visitor's ZIP</div></sc-if>
+            <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}"><div style="font-size:11.5px;color:#8A93A3">The main ask of this question</div></sc-if>
+            <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}"><div style="font-size:11.5px;color:#8A93A3">Moves to the next question</div></sc-if>
+          </div>
+        </div>
+
+        <!-- scope pills -->
+        <div style="display:flex;gap:5px;margin-top:12px;flex-wrap:wrap">
+          <div style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#8A93A3;background:#F3F5F8;padding:4px 9px;border-radius:20px;cursor:pointer" style-hover="background:#EAEEF3">Funnel frame<svg width="9" height="9" viewBox="0 0 24 24" fill="none"><path d="M7 17L17 7M9 7h8v8" stroke="#A2AAB8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div style="font-size:11px;font-weight:600;color:#8A93A3;background:#F3F5F8;padding:4px 10px;border-radius:20px;cursor:pointer" style-hover="background:#EAEEF3">This section</div>
+          <div style="font-size:11px;font-weight:700;color:#fff;background:#1B3A5C;padding:4px 10px;border-radius:20px">This element</div>
+        </div>
+
+        <!-- affects line -->
+        <div style="margin-top:11px;display:flex;align-items:flex-start;gap:7px;background:#FBFBF3;border:1px solid #F0EAC9;border-radius:8px;padding:8px 10px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5 20.2l1.4-6.8L1.3 8.9l6.9-.7z" fill="#F5C518"/></svg>
+          <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><div style="font-size:11.5px;color:#7A6B2E;line-height:1.45">Changes here affect <b style="color:#5C5015">this question only</b>, everywhere this section is reused.</div></sc-if>
+          <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}"><div style="font-size:11.5px;color:#7A6B2E;line-height:1.45">This is the same text as the <b style="color:#5C5015">Question headline</b> box up top — editing either updates both.</div></sc-if>
+          <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}"><div style="font-size:11.5px;color:#7A6B2E;line-height:1.45">Color, size & position come from the <b style="color:#5C5015">funnel frame</b>. Here you can override just the label.</div></sc-if>
+        </div>
+      </div>
+
+      <!-- tabs -->
+      <div style="flex:0 0 auto;display:flex;gap:2px;padding:0 16px;border-bottom:1px solid #EEF1F6">
+        <div onClick="{{ tabToContent }}" style="{{ tabContentStyle }}">Content</div>
+        <div onClick="{{ tabToStyle }}" style="{{ tabStyleStyle }}">Style</div>
+        <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><div onClick="{{ tabToRules }}" style="{{ tabRulesStyle }}">Rules</div></sc-if>
+        <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><div onClick="{{ tabToMaps }}" style="{{ tabMapsStyle }}">Maps</div></sc-if>
+        <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}"><div onClick="{{ tabToData }}" style="{{ tabDataStyle }}">Offers</div></sc-if>
+      </div>
+
+      <!-- tab body -->
+      <div style="flex:1 1 auto;overflow-y:auto;padding:4px 18px 20px">
+
+        <!-- ===== CONTENT TAB ===== -->
+        <sc-if value="{{ tabContent }}" hint-placeholder-val="{{ true }}">
+
+          <!-- field content -->
+          <sc-if value="{{ selField }}" hint-placeholder-val="{{ true }}">
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:16px 0 10px">Basics</div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Field label <span style="color:#A2AAB8;font-weight:500">· only you see this</span></label>
+            <input default-value="ZIP code" style="width:100%;padding:9px 11px;font-size:13.5px;border:1px solid #E1E6EE;border-radius:8px;outline:none;margin-bottom:13px" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Placeholder</label>
+            <input default-value="Enter your ZIP code" style="width:100%;padding:9px 11px;font-size:13.5px;border:1px solid #E1E6EE;border-radius:8px;outline:none;margin-bottom:13px" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Helper text</label>
+            <input default-value="We never share this" style="width:100%;padding:9px 11px;font-size:13.5px;border:1px solid #E1E6EE;border-radius:8px;outline:none;margin-bottom:13px" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Leading icon</label>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border:1px solid #E1E6EE;border-radius:8px;cursor:pointer" style-hover="border-color:#CDD5E1"><span style="display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:#41495B"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="#1B3A5C" stroke-width="1.8"/><circle cx="12" cy="9" r="2.2" stroke="#1B3A5C" stroke-width="1.8"/></svg>Location pin</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+            <div style="height:1px;background:#EEF1F6;margin:18px 0"></div>
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:0 0 12px">Behavior</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <div style="font-size:13px;font-weight:600;color:#2A3346">Required</div>
+              <div onClick="{{ toggleReq }}" style="{{ reqToggleStyle }}"><span style="{{ reqKnobStyle }}"></span></div>
+            </div>
+            <div style="font-size:11.5px;color:#96A0AF;line-height:1.45;margin-bottom:15px">Visitors must answer before they can continue.</div>
+            <div style="font-size:13px;font-weight:600;color:#2A3346;margin-bottom:7px">When answered</div>
+            <div style="display:inline-flex;background:#EDF0F5;border-radius:8px;padding:2px;width:100%">
+              <div onClick="{{ setAutoWait }}" style="{{ waitStyle2 }}">Wait for Continue</div>
+              <div onClick="{{ setAutoGo }}" style="{{ autoStyle2 }}">Go to next</div>
+            </div>
+
+            <div style="height:1px;background:#EEF1F6;margin:18px 0"></div>
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:0 0 12px">Answer format</div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Accept</label>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border:1px solid #E1E6EE;border-radius:8px;cursor:pointer;margin-bottom:13px" style-hover="border-color:#CDD5E1"><span style="font-size:13.5px;color:#41495B;font-weight:600">ZIP code (5 digits)</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">If it's wrong, say</label>
+            <input default-value="Please enter a valid ZIP code" style="width:100%;padding:9px 11px;font-size:13.5px;border:1px solid #E1E6EE;border-radius:8px;outline:none" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+
+            <div style="height:1px;background:#EEF1F6;margin:18px 0"></div>
+            <div style="display:flex;align-items:flex-start;gap:10px;background:#EDF7F1;border:1px solid #CFE8DB;border-radius:10px;padding:12px 13px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><circle cx="12" cy="12" r="10" fill="#0E7C3A"/><path d="M7.5 12.5l3 3 6-6.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div>
+                <div style="font-size:12.5px;font-weight:700;color:#1E6B41;line-height:1.4">This answer fills <b>Zip</b> on all 2 Offers.</div>
+                <div style="font-size:11.5px;color:#4E8767;margin-top:2px;cursor:pointer;font-weight:600">Review mapping →</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- headline content -->
+          <sc-if value="{{ selHeadline }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:16px 0 10px">The question</div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Headline</label>
+            <input default-value="What's your ZIP code?" style="width:100%;padding:10px 12px;font-size:14px;font-weight:600;border:1px solid #E1E6EE;border-radius:8px;outline:none;margin-bottom:13px" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Subheadline</label>
+            <input default-value="Rates differ by up to 40% based on ZIP code" style="width:100%;padding:10px 12px;font-size:13px;border:1px solid #E1E6EE;border-radius:8px;outline:none" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+            <div style="margin-top:14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#7C889A;background:#F6F8FB;border-radius:8px;padding:10px 12px;line-height:1.45"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><circle cx="12" cy="12" r="9" stroke="#9AA3B2" stroke-width="1.8"/><path d="M12 11v5" stroke="#9AA3B2" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="8" r="1.1" fill="#9AA3B2"/></svg>Same text as the header box above — one source, two places to edit.</div>
+            <div style="margin-top:16px;font-size:12.5px;font-weight:600;color:#8A5050;cursor:pointer;display:inline-flex;align-items:center;gap:6px" style-hover="color:#B23A2C"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Hide in this question</div>
+            <div style="font-size:11px;color:#A2AAB8;margin-top:4px">The text is kept — you can show it again anytime.</div>
+          </sc-if>
+
+          <!-- continue content -->
+          <sc-if value="{{ selContinue }}" hint-placeholder-val="{{ false }}">
+            <div style="margin:16px 0 14px;display:flex;align-items:flex-start;gap:10px;background:#EAF1F8;border:1px solid #D4E2F0;border-radius:10px;padding:12px 13px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><rect x="4" y="6" width="16" height="13" rx="2" stroke="#2E6BB0" stroke-width="1.8"/><path d="M4 10h16" stroke="#2E6BB0" stroke-width="1.8"/></svg>
+              <div style="font-size:12px;color:#33506F;line-height:1.5">The button's look & position are set once for the whole funnel. <a href="#0" style="font-weight:700;border-bottom:1px solid #9DBCDD">Open Quote Builder →</a></div>
+            </div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Button label</label>
+            <input default-value="View My Quote" style="width:100%;padding:10px 12px;font-size:14px;font-weight:600;border:1px solid #E1E6EE;border-radius:8px;outline:none;margin-bottom:15px" style-focus="border-color:#1B3A5C;box-shadow:0 0 0 3px rgba(27,58,92,.10)">
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:2px 0 10px">Inherited from the frame</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #EEF1F6;border-radius:8px;margin-bottom:8px;background:#FafBfC">
+              <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;border-radius:5px;background:#1B3A5C"></span><span style="font-size:13px;color:#41495B">Color</span></div>
+              <span style="font-size:11.5px;color:#8A93A3;display:inline-flex;align-items:center;gap:5px;font-weight:600">Brand primary<span style="font-size:9.5px;background:#EEF1F6;color:#98A1B0;padding:1px 6px;border-radius:9px;letter-spacing:.3px">inherited</span></span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #EEF1F6;border-radius:8px;background:#FafBfC">
+              <div style="display:flex;align-items:center;gap:9px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 7h16M4 17h16" stroke="#8A93A3" stroke-width="1.8" stroke-linecap="round"/></svg><span style="font-size:13px;color:#41495B">Position</span></div>
+              <span style="font-size:11.5px;color:#8A93A3;display:inline-flex;align-items:center;gap:5px;font-weight:600">Bottom, full width<span style="font-size:9.5px;background:#EEF1F6;color:#98A1B0;padding:1px 6px;border-radius:9px;letter-spacing:.3px">inherited</span></span>
+            </div>
+          </sc-if>
+
+        </sc-if>
+
+        <!-- ===== STYLE TAB ===== -->
+        <sc-if value="{{ tabStyle }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin:16px 0 11px"><span style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1">Size &amp; width</span><span style="font-size:11px;color:#B0B8C5;font-weight:600">from theme: Navy</span></div>
+          <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Width</div>
+          <div style="display:flex;background:#EDF0F5;border-radius:8px;padding:2px;width:100%;margin-bottom:9px">
+            <div onClick="{{ setWS }}" style="{{ wS }}">S</div>
+            <div onClick="{{ setWM }}" style="{{ wM }}">M</div>
+            <div onClick="{{ setWL }}" style="{{ wL }}">L</div>
+            <div onClick="{{ setWFull }}" style="{{ wFull }}">Full</div>
+          </div>
+          <sc-if value="{{ wCustom }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#EAF0F6;border:1px solid #C7D6E6;border-radius:8px;padding:9px 11px;margin-bottom:10px">
+              <div style="display:flex;align-items:center;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 9v6M20 9v6M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" stroke="#1B3A5C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><div style="font-size:12.5px;font-weight:700;color:#1B3A5C">Custom · ≈ 384 px</div><div style="font-size:10.5px;color:#5E799B">Set by dragging on the canvas — overrides the preset</div></div></div>
+              <div onClick="{{ resetW }}" style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:#1B3A5C;cursor:pointer" style-hover="text-decoration:underline"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 4v6h6M4 10a8 8 0 118 10" stroke="#1B3A5C" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Reset</div>
+            </div>
+          </sc-if>
+          <div style="font-size:12px;font-weight:600;color:#5A6470;margin:14px 0 6px">Height</div>
+          <div style="display:flex;background:#EDF0F5;border-radius:8px;padding:2px;width:100%;margin-bottom:12px">
+            <div onClick="{{ setHSmall }}" style="{{ hSmall }}">Small</div>
+            <div onClick="{{ setHMedium }}" style="{{ hMedium }}">Medium</div>
+            <div onClick="{{ setHLarge }}" style="{{ hLarge }}">Large</div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:8px;background:#F6F8FB;border-radius:8px;padding:10px 12px;font-size:11.5px;color:#7C889A;line-height:1.45;margin-bottom:18px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><circle cx="12" cy="12" r="9" stroke="#9AA3B2" stroke-width="1.7"/><path d="M12 11v5" stroke="#9AA3B2" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="8" r="1" fill="#9AA3B2"/></svg>Presets keep every question in the funnel consistent. Drag a handle on the canvas for a one-off size — it becomes <b style="color:#41495B">Custom</b> and overrides the preset here.</div>
+          <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:0 0 11px">Appearance</div>
+          <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:7px">Corners</div>
+          <div style="display:inline-flex;background:#EDF0F5;border-radius:8px;padding:2px;width:100%;margin-bottom:14px">
+            <div style="flex:1;text-align:center;font-size:12.5px;padding:6px;color:#6B7486;cursor:pointer;font-weight:600">Sharp</div>
+            <div style="flex:1;text-align:center;font-size:12.5px;padding:6px;background:#fff;border-radius:6px;color:#1B3A5C;cursor:pointer;font-weight:700;box-shadow:0 1px 2px rgba(16,24,40,.1)">Rounded</div>
+            <div style="flex:1;text-align:center;font-size:12.5px;padding:6px;color:#6B7486;cursor:pointer;font-weight:600">Pill</div>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:8px">Border color</div>
+          <div style="display:flex;gap:9px;margin-bottom:16px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer"><span style="width:34px;height:34px;border-radius:9px;background:#fff;border:2px solid #1B3A5C;box-shadow:0 0 0 2px #1B3A5C"></span><span style="font-size:10.5px;color:#41495B;font-weight:600">Neutral</span></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer"><span style="width:34px;height:34px;border-radius:9px;background:#1B3A5C"></span><span style="font-size:10.5px;color:#8A93A3">Brand</span></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer"><span style="width:34px;height:34px;border-radius:9px;background:#F5C518"></span><span style="font-size:10.5px;color:#8A93A3">Accent</span></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:8px;background:#F6F8FB;border-radius:8px;padding:10px 12px;font-size:11.5px;color:#7C889A;line-height:1.45"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" stroke="#9AA3B2" stroke-width="1.7"/></svg>Colors are theme roles, not fixed shades — change the theme once and every question updates. <a href="#0" onClick="{{ openThemes }}" style="font-weight:700;cursor:pointer">Manage theme →</a></div>
+        </sc-if>
+
+        <!-- ===== RULES TAB ===== -->
+        <sc-if value="{{ tabRules }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:16px 0 11px">When to show this</div>
+          <div style="border:1px solid #E7EBF1;border-radius:10px;overflow:hidden">
+            <div style="padding:11px 13px;background:#F7F9FB;font-size:13px;color:#2A3346;display:flex;align-items:center;gap:8px;font-weight:600"><span style="width:8px;height:8px;border-radius:50%;background:#0E7C3A"></span>Always show</div>
+          </div>
+          <div style="margin-top:11px;padding:11px 13px;border:1px dashed #D5DCE6;border-radius:10px;font-size:12.5px;color:#7C889A;line-height:1.5">Add a rule like: <span style="color:#41495B;font-weight:600">Show this when</span> <span style="background:#EAF0F6;color:#1B3A5C;padding:1px 7px;border-radius:6px;font-weight:600">Currently insured</span> <span style="color:#41495B;font-weight:600">is</span> <span style="background:#EAF0F6;color:#1B3A5C;padding:1px 7px;border-radius:6px;font-weight:600">Yes</span></div>
+          <div style="margin-top:12px;display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1px solid #1B3A5C;color:#1B3A5C;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer" style-hover="background:#EAF0F6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="#1B3A5C" stroke-width="2.2" stroke-linecap="round"/></svg>Add a condition</div>
+        </sc-if>
+
+        <!-- ===== MAPS TAB ===== -->
+        <sc-if value="{{ tabMaps }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:16px 0 11px">Google Maps</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-size:13px;font-weight:600;color:#2A3346">Validate with Google Maps</div>
+            <div onClick="{{ toggleMaps }}" style="{{ mapsToggleStyle }}"><span style="{{ mapsKnobStyle }}"></span></div>
+          </div>
+          <div style="font-size:11.5px;color:#96A0AF;line-height:1.45;margin-bottom:15px">Uses this site's Maps key. Per-field settings win over the funnel's global toggle.</div>
+          <sc-if value="{{ maps }}" hint-placeholder-val="{{ true }}">
+            <div style="font-size:12px;font-weight:700;color:#41495B;margin-bottom:10px">What should Maps do? <span style="font-weight:500;color:#98A1B0">· pick at least one</span></div>
+            <sc-if value="{{ mapsWarn }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:flex-start;gap:8px;background:#FDF4E3;border:1px solid #F0DCA9;border-radius:9px;padding:10px 12px;margin-bottom:11px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><path d="M12 3l9 16H3z" stroke="#B8860B" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v4" stroke="#B8860B" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1" fill="#B8860B"/></svg><div style="font-size:11.5px;color:#8A6D00;line-height:1.4">Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime.</div></div>
+            </sc-if>
+            <div onClick="{{ toggleMpValidate }}" style="display:flex;gap:11px;padding:12px;border:1px solid #E7EBF1;border-radius:10px;margin-bottom:9px;cursor:pointer" style-hover="border-color:#CDD5E1;background:#FBFCFD">
+              <span style="{{ cbValidate }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <div><div style="font-size:13px;font-weight:700;color:#2A3346">Validate the answer</div><div style="font-size:11.5px;color:#7C889A;line-height:1.45;margin-top:2px">Allow only valid US ZIP codes. An invalid ZIP blocks the Continue button.</div></div>
+            </div>
+            <div onClick="{{ toggleMpAuction }}" style="display:flex;gap:11px;padding:12px;border:1px solid #E7EBF1;border-radius:10px;margin-bottom:9px;cursor:pointer" style-hover="border-color:#CDD5E1;background:#FBFCFD">
+              <span style="{{ cbAuction }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <div><div style="font-size:13px;font-weight:700;color:#2A3346">Use in auction rules</div><div style="font-size:11.5px;color:#7C889A;line-height:1.45;margin-top:2px">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <span style="color:#1B3A5C;font-weight:700">Open auction rules →</span></div></div>
+            </div>
+            <div onClick="{{ toggleMpAuto }}" style="display:flex;gap:11px;padding:12px;border:1px solid #E7EBF1;border-radius:10px;cursor:pointer" style-hover="border-color:#CDD5E1;background:#FBFCFD">
+              <span style="{{ cbAuto }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <div><div style="font-size:13px;font-weight:700;color:#2A3346">Auto-complete the address</div><div style="font-size:11.5px;color:#7C889A;line-height:1.45;margin-top:2px">Fill this field and the other address fields in this section (city, state, street) from the ZIP.</div></div>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <!-- ===== OFFERS TAB ===== -->
+        <sc-if value="{{ tabData }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:10.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin:16px 0 11px">Where this answer goes</div>
+          <div style="font-size:12px;color:#7C889A;line-height:1.5;margin-bottom:13px">This ZIP answer is sent to each buyer in the auction. Field names differ per buyer — that's handled here.</div>
+          <div style="border:1px solid #E7EBF1;border-radius:10px;overflow:hidden;margin-bottom:9px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid #EEF1F6"><div><div style="font-size:13px;font-weight:700;color:#2A3346">Provider A</div><div style="font-size:11px;color:#98A1B0">Insurance · Car</div></div><span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:#0E7C3A"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#0E7C3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Zip</span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px"><div><div style="font-size:13px;font-weight:700;color:#2A3346">Provider B</div><div style="font-size:11px;color:#98A1B0">Insurance · Car</div></div><span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:#0E7C3A"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="#0E7C3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>PostalCode</span></div>
+          </div>
+          <div style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:#1B3A5C;cursor:pointer" style-hover="text-decoration:underline">Open full mapping →</div>
+        </sc-if>
+
+        <!-- ADVANCED (always, collapsed) -->
+        <div style="height:1px;background:#EEF1F6;margin:20px 0 0"></div>
+        <div onClick="{{ toggleAdv }}" style="display:flex;align-items:center;gap:7px;padding:14px 0 4px;cursor:pointer;user-select:none">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M8 5l8 7-8 7" stroke="#B4BCC9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="{{ chevAdv }}" transform-origin="12 12"/></svg>
+          <span style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1">Advanced</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="margin-left:2px"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" stroke="#B4BCC9" stroke-width="1.7"/></svg>
+        </div>
+        <sc-if value="{{ adv }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:11.5px;color:#98A1B0;line-height:1.5;margin:6px 0 11px">For developers. Renaming these can unlink Offer mappings.</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:#6B7486">Internal field</span><span style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:#41495B;background:#F3F5F8;padding:2px 8px;border-radius:5px">zip</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:#6B7486">Analytics label</span><span style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:#41495B;background:#F3F5F8;padding:2px 8px;border-radius:5px">q_zip</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:#6B7486">Component id</span><span style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:#98A1B0;background:#F3F5F8;padding:2px 8px;border-radius:5px">cmp_zip1</span></div>
+        </sc-if>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<sc-if value="{{ viewThemes }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;left:50%;top:26px;transform:translateX(-50%);width:1440px;height:944px;border-radius:14px;overflow:hidden;box-shadow:0 24px 60px rgba(20,28,46,.30);border:1px solid #C4CCD9;display:flex;flex-direction:column;background:#EDF0F4;color:#1A1F36;font-family:Inter,system-ui,Arial,sans-serif;font-size:14px;z-index:40">
+
+  <!-- themes top bar -->
+  <div style="flex:0 0 auto;height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:#fff;border-bottom:1px solid #E4E8EF">
+    <div onClick="{{ closeThemes }}" style="display:flex;align-items:center;gap:7px;padding:7px 12px 7px 9px;border:1px solid #E1E6EE;border-radius:8px;cursor:pointer;color:#41495B;font-weight:600;font-size:13px" style-hover="background:#F5F7FA;border-color:#CDD5E1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="#5A6470" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to section</div>
+    <div style="width:1px;height:24px;background:#E4E8EF"></div>
+    <div style="display:flex;align-items:baseline;gap:9px"><span style="font-size:17px;font-weight:800;color:#111726">Themes</span><span style="font-size:12.5px;color:#8A93A3">one look &amp; feel per funnel · A/B-testable in a quote</span></div>
+    <div style="margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:9px 15px;background:#1B3A5C;color:#fff;font-weight:700;font-size:13px;border-radius:8px;cursor:pointer;box-shadow:0 1px 2px rgba(27,58,92,.28)" style-hover="background:#16324f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/></svg>New theme</div>
+  </div>
+
+  <div style="flex:1 1 auto;display:flex;min-height:0">
+
+    <!-- LEFT: theme list -->
+    <div style="flex:0 0 300px;background:#fff;border-right:1px solid #E4E8EF;display:flex;flex-direction:column;min-height:0">
+      <div style="padding:16px 16px 8px;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3">Your themes</div>
+      <div style="flex:1 1 auto;overflow-y:auto;padding:4px 14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div onClick="{{ pickNavy }}" style="{{ themeCardNavy }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-size:13.5px;font-weight:700;color:#1A1F36">Navy</span><span style="font-size:9.5px;font-weight:800;letter-spacing:.4px;color:#0E7C3A;background:#E4F2E9;padding:2px 7px;border-radius:10px">LIVE · A</span></div>
+          <div style="display:flex;gap:5px"><span style="width:22px;height:22px;border-radius:6px;background:#1B3A5C"></span><span style="width:22px;height:22px;border-radius:6px;background:#F5C518"></span><span style="width:22px;height:22px;border-radius:6px;background:#F4F6F9;border:1px solid #E1E6EE"></span><span style="width:22px;height:22px;border-radius:6px;background:#1A1F36"></span></div>
+        </div>
+        <div onClick="{{ pickBold }}" style="{{ themeCardBold }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-size:13.5px;font-weight:700;color:#1A1F36">Bold Yellow</span><span style="font-size:9.5px;font-weight:800;letter-spacing:.4px;color:#8a6d00;background:#FBF0CF;padding:2px 7px;border-radius:10px">A/B · B</span></div>
+          <div style="display:flex;gap:5px"><span style="width:22px;height:22px;border-radius:6px;background:#13233B"></span><span style="width:22px;height:22px;border-radius:6px;background:#F5C518"></span><span style="width:22px;height:22px;border-radius:6px;background:#FFF7DE;border:1px solid #EADFB8"></span><span style="width:22px;height:22px;border-radius:6px;background:#14181F"></span></div>
+        </div>
+        <div onClick="{{ pickMin }}" style="{{ themeCardMin }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-size:13.5px;font-weight:700;color:#1A1F36">Minimal</span><span style="font-size:9.5px;font-weight:800;letter-spacing:.4px;color:#8A93A3;background:#F1F3F7;padding:2px 7px;border-radius:10px">DRAFT</span></div>
+          <div style="display:flex;gap:5px"><span style="width:22px;height:22px;border-radius:6px;background:#232A34"></span><span style="width:22px;height:22px;border-radius:6px;background:#6B7486"></span><span style="width:22px;height:22px;border-radius:6px;background:#fff;border:1px solid #E1E6EE"></span><span style="width:22px;height:22px;border-radius:6px;background:#14181F"></span></div>
+        </div>
+      </div>
+      <div style="flex:0 0 auto;padding:13px 15px;border-top:1px solid #EEF1F6;background:#F8FAFC;font-size:11.5px;color:#7C889A;line-height:1.5"><b style="color:#41495B">A/B testing:</b> assign different themes to two variants of the same funnel to see which converts better.</div>
+    </div>
+
+    <!-- CENTER: editor -->
+    <div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
+      <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
+        <span style="{{ swBrand }}"></span>
+        <div style="font-size:21px;font-weight:800;color:#111726">{{ themeName }}</div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="cursor:pointer"><path d="M4 20h4l10-10-4-4L4 16z" stroke="#B4BCC9" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </div>
+      <div style="font-size:12.5px;color:#8A93A3;margin-bottom:24px">{{ themeUse }}</div>
+
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin-bottom:13px">Colors — semantic roles</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin-bottom:11px">
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer"><span style="{{ swBrand }}"></span><div><div style="font-size:13px;font-weight:600;color:#2A3346">Brand primary</div><div style="font-size:11px;color:#98A1B0">buttons · progress · selected</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer"><span style="{{ swAccent }}"></span><div><div style="font-size:13px;font-weight:600;color:#2A3346">Accent</div><div style="font-size:11px;color:#98A1B0">highlights · recommended</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer"><span style="{{ swBg }}"></span><div><div style="font-size:13px;font-weight:600;color:#2A3346">Page background</div><div style="font-size:11px;color:#98A1B0">behind the card</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer"><span style="{{ swCard }}"></span><div><div style="font-size:13px;font-weight:600;color:#2A3346">Card</div><div style="font-size:11px;color:#98A1B0">question surface</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer"><span style="{{ swText }}"></span><div><div style="font-size:13px;font-weight:600;color:#2A3346">Text</div><div style="font-size:11px;color:#98A1B0">headings &amp; body</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer"><span style="width:40px;height:40px;border-radius:10px;flex:0 0 auto;background:#0E7C3A"></span><div><div style="font-size:13px;font-weight:600;color:#2A3346">Success</div><div style="font-size:11px;color:#98A1B0">reassurance · valid</div></div></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:8px;background:#F6F8FB;border-radius:9px;padding:11px 13px;font-size:11.5px;color:#7C889A;line-height:1.45;margin-bottom:24px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" stroke="#9AA3B2" stroke-width="1.7"/></svg>Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.</div>
+
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin-bottom:13px">Typography</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+        <div><div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Headline font</div><div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid #E1E6EE;border-radius:8px;cursor:pointer" style-hover="border-color:#CDD5E1"><span style="font-family:Newsreader,serif;font-size:15px;color:#2A3346">Newsreader</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+        <div><div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:5px">Body font</div><div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid #E1E6EE;border-radius:8px;cursor:pointer" style-hover="border-color:#CDD5E1"><span style="font-size:13.5px;color:#2A3346">Inter</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#8A93A3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+      </div>
+
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#9BA3B1;margin-bottom:6px">Buttons &amp; inputs — the shared size language</div>
+      <div style="font-size:11.5px;color:#8A93A3;line-height:1.45;margin-bottom:13px">Every question inherits these. A section can override a single field on its canvas — that field then shows as <b style="color:#41495B">Custom</b>.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+        <div><div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Field height</div><div style="display:flex;background:#EDF0F5;border-radius:8px;padding:2px"><div style="flex:1;text-align:center;font-size:12px;padding:6px;color:#6B7486;font-weight:600;cursor:pointer">Small</div><div style="flex:1;text-align:center;font-size:12px;padding:6px;background:#fff;border-radius:6px;color:#1B3A5C;font-weight:700;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.1)">Medium</div><div style="flex:1;text-align:center;font-size:12px;padding:6px;color:#6B7486;font-weight:600;cursor:pointer">Large</div></div></div>
+        <div><div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Button size</div><div style="display:flex;background:#EDF0F5;border-radius:8px;padding:2px"><div style="flex:1;text-align:center;font-size:12px;padding:6px;color:#6B7486;font-weight:600;cursor:pointer">S</div><div style="flex:1;text-align:center;font-size:12px;padding:6px;background:#fff;border-radius:6px;color:#1B3A5C;font-weight:700;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.1)">M</div><div style="flex:1;text-align:center;font-size:12px;padding:6px;color:#6B7486;font-weight:600;cursor:pointer">L</div></div></div>
+      </div>
+      <div style="max-width:50%;margin-bottom:24px"><div style="font-size:12px;font-weight:600;color:#5A6470;margin-bottom:6px">Corners</div><div style="display:flex;background:#EDF0F5;border-radius:8px;padding:2px"><div style="flex:1;text-align:center;font-size:12px;padding:6px;color:#6B7486;font-weight:600;cursor:pointer">Sharp</div><div style="flex:1;text-align:center;font-size:12px;padding:6px;background:#fff;border-radius:6px;color:#1B3A5C;font-weight:700;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.1)">Rounded</div><div style="flex:1;text-align:center;font-size:12px;padding:6px;color:#6B7486;font-weight:600;cursor:pointer">Pill</div></div></div>
+
+      <div style="height:1px;background:#E4E8EF;margin-bottom:16px"></div>
+      <div style="display:flex;align-items:center;gap:9px;padding:12px 14px;border:1px solid #E7EBF1;border-radius:10px;cursor:pointer" style-hover="background:#FBFCFD">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z" stroke="#98A1B0" stroke-width="1.7"/></svg>
+        <div style="flex:1"><div style="font-size:12.5px;font-weight:700;color:#41495B">Advanced — exact hex &amp; tokens</div><div style="font-size:11px;color:#98A1B0">for developers</div></div>
+        <span style="font-family:'Roboto Mono',monospace;font-size:11px;color:#98A1B0;background:#F3F5F8;padding:2px 8px;border-radius:5px">brand #1B3A5C</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="#B4BCC9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+
+    <!-- RIGHT: A/B assignment -->
+    <div style="flex:0 0 320px;background:#fff;border-left:1px solid #E4E8EF;overflow-y:auto;padding:20px 18px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3;margin-bottom:4px">In this quote</div>
+      <div style="font-size:15px;font-weight:800;color:#1A1F36;margin-bottom:16px">Auto Insurance</div>
+      <div style="border:1px solid #E7EBF1;border-radius:12px;padding:15px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#41495B;margin-bottom:14px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h7v13H4zM13 4h7v16h-7z" stroke="#1B3A5C" stroke-width="1.8" stroke-linejoin="round"/></svg>A/B test · Theme</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px"><div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:7px;background:#1B3A5C"></span><div><div style="font-size:12.5px;font-weight:700;color:#2A3346">Variant A</div><div style="font-size:10.5px;color:#98A1B0">Navy</div></div></div><span style="font-size:13px;font-weight:800;color:#1B3A5C">60%</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:7px;background:#13233B;position:relative"><span style="position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:3px;background:#F5C518;border:1.5px solid #fff"></span></span><div><div style="font-size:12.5px;font-weight:700;color:#2A3346">Variant B</div><div style="font-size:10.5px;color:#98A1B0">Bold Yellow</div></div></div><span style="font-size:13px;font-weight:800;color:#1B3A5C">40%</span></div>
+        <div style="height:8px;border-radius:5px;overflow:hidden;display:flex"><div style="width:60%;background:#1B3A5C"></div><div style="width:40%;background:#B99114"></div></div>
+      </div>
+      <div style="font-size:11.5px;color:#7C889A;line-height:1.5;margin-bottom:18px">Both variants share the same questions — only the theme differs. Promote the winner to 100% from the quote's <b style="color:#41495B">A/B</b> tab.</div>
+      <div style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#8A93A3;margin-bottom:9px">Other funnels using this theme</div>
+      <div style="font-size:12.5px;color:#5A6470;display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #F1F3F7"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16v13H4z" stroke="#9AA3B2" stroke-width="1.7"/><path d="M4 11h16" stroke="#9AA3B2" stroke-width="1.7"/></svg>Home Insurance · Variant A</div>
+      <div style="font-size:12.5px;color:#98A1B0;padding:9px 0">No others yet.</div>
+    </div>
+
+  </div>
+</div>
+</sc-if></x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:944}}">
+class Component extends DCLogic {
+  state = {
+    view: 'section',   // section | themes
+    sel: 'field',      // field | headline | continue
+    tab: 'content',    // content | style | rules | maps | data
+    vp: 'desktop',
+    frameHint: true,
+    required: true,
+    autoAdv: false,
+    g: { sug: true, ans: true, con: true, lay: false },
+    adv: false,
+    wMode: 'full',     // s | m | l | full | custom
+    hMode: 'medium',   // small | medium | large | custom
+    maps: true,
+    mp: { validate: true, auction: false, autocomplete: false },
+    themeSel: 'navy',  // navy | bold | minimal
+  };
+
+  seg(active) {
+    return active
+      ? 'padding:5px 11px;font-size:12px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.12);white-space:nowrap'
+      : 'padding:5px 11px;font-size:12px;font-weight:600;color:#6B7486;cursor:pointer;white-space:nowrap';
+  }
+  segFull(active) {
+    return (active
+      ? 'flex:1;text-align:center;font-size:12.5px;padding:7px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;box-shadow:0 1px 2px rgba(16,24,40,.12);cursor:pointer'
+      : 'flex:1;text-align:center;font-size:12.5px;padding:7px;font-weight:600;color:#6B7486;cursor:pointer');
+  }
+  vpSeg(active) {
+    return active
+      ? 'display:inline-flex;align-items:center;gap:6px;padding:5px 11px;font-size:12px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.12)'
+      : 'display:inline-flex;align-items:center;gap:6px;padding:5px 11px;font-size:12px;font-weight:600;color:#8A93A3;cursor:pointer';
+  }
+  tab(name) {
+    const on = this.state.tab === name;
+    return on
+      ? 'padding:12px 6px 11px;font-size:13px;font-weight:700;color:#1B3A5C;border-bottom:2px solid #F5C518;cursor:pointer;margin-bottom:-1px'
+      : 'padding:12px 6px 11px;font-size:13px;font-weight:600;color:#8A93A3;border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px';
+  }
+  chev(open) { return open ? 'rotate(90)' : 'rotate(0)'; }
+  cb(on) {
+    return on
+      ? 'width:20px;height:20px;border-radius:6px;background:#1B3A5C;display:flex;align-items:center;justify-content:center;flex:0 0 auto;cursor:pointer'
+      : 'width:20px;height:20px;border-radius:6px;background:#fff;border:1.6px solid #C7CFDB;flex:0 0 auto;cursor:pointer';
+  }
+  themeCard(active) {
+    return active
+      ? 'border:2px solid #1B3A5C;background:#F7F9FC;border-radius:12px;padding:13px;cursor:pointer;box-shadow:0 2px 8px rgba(16,24,40,.08)'
+      : 'border:1px solid #E4E8EF;background:#fff;border-radius:12px;padding:13px;cursor:pointer';
+  }
+  pal() {
+    const m = {
+      navy:    { brand:'#1B3A5C', accent:'#F5C518', bg:'#F4F6F9', card:'#FFFFFF', text:'#1A1F36', name:'Navy',        use:'Assigned to Auto Insurance · Variant A' },
+      bold:    { brand:'#13233B', accent:'#F5C518', bg:'#FFF7DE', card:'#FFFFFF', text:'#14181F', name:'Bold Yellow', use:'Assigned to Auto Insurance · Variant B · A/B test' },
+      minimal: { brand:'#232A34', accent:'#6B7486', bg:'#FFFFFF', card:'#F6F8FA', text:'#14181F', name:'Minimal',     use:'Not assigned to a funnel yet' },
+    };
+    return m[this.state.themeSel] || m.navy;
+  }
+
+  filter(q) {
+    try {
+      const root = this._root || document;
+      const t = String(q || '').trim().toLowerCase();
+      root.querySelectorAll('[data-tile]').forEach((el) => {
+        const name = (el.getAttribute('data-name') || '').toLowerCase();
+        el.style.display = (!t || name.indexOf(t) !== -1) ? '' : 'none';
+      });
+    } catch (e) {}
+  }
+
+  fillInputs() {
+    try {
+      (this._root || document).querySelectorAll('input[default-value]').forEach((el) => {
+        if (!el._filled) { const v = el.getAttribute('default-value') || ''; el.value = v; el.setAttribute('value', v); el._filled = true; }
+      });
+    } catch (e) {}
+  }
+  componentDidMount() { this._root = document; this.fillInputs(); }
+  componentDidUpdate() { this.fillInputs(); }
+
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+    return {
+      noop: () => {},
+
+      // selection
+      selField: s.sel === 'field',
+      selHeadline: s.sel === 'headline',
+      selContinue: s.sel === 'continue',
+      selectField: () => set({ sel: 'field', tab: 'content' }),
+      selectHeadline: () => set({ sel: 'headline', tab: 'content' }),
+      selectContinue: () => set({ sel: 'continue', tab: 'content' }),
+
+      // tabs
+      tabContent: s.tab === 'content',
+      tabStyle: s.tab === 'style',
+      tabRules: s.tab === 'rules',
+      tabData: s.tab === 'data',
+      tabToContent: () => set({ tab: 'content' }),
+      tabToStyle: () => set({ tab: 'style' }),
+      tabToRules: () => set({ tab: 'rules' }),
+      tabToData: () => set({ tab: 'data' }),
+      tabContentStyle: this.tab('content'),
+      tabStyleStyle: this.tab('style'),
+      tabRulesStyle: this.tab('rules'),
+      tabDataStyle: this.tab('data'),
+
+      // viewport
+      setVpDesktop: () => set({ vp: 'desktop' }),
+      setVpMobile: () => set({ vp: 'mobile' }),
+      vpDeskStyle: this.vpSeg(s.vp === 'desktop'),
+      vpMobStyle: this.vpSeg(s.vp === 'mobile'),
+
+      // frame hint
+      frameHint: s.frameHint,
+      toggleFrame: () => set({ frameHint: !s.frameHint }),
+      frameBtnStyle: s.frameHint
+        ? 'display:inline-flex;align-items:center;gap:7px;padding:6px 11px;font-size:12px;font-weight:600;color:#1B3A5C;background:#EAF0F6;border-radius:7px;cursor:pointer'
+        : 'display:inline-flex;align-items:center;gap:7px;padding:6px 11px;font-size:12px;font-weight:600;color:#8A93A3;background:#F1F3F7;border-radius:7px;cursor:pointer',
+      frameDotStyle: s.frameHint
+        ? 'width:8px;height:8px;border-radius:50%;background:#1B3A5C'
+        : 'width:8px;height:8px;border-radius:50%;background:#C2CACF',
+
+      // required
+      required: s.required,
+      toggleReq: () => set({ required: !s.required }),
+      reqToggleStyle: s.required
+        ? 'width:38px;height:22px;border-radius:20px;background:#1B3A5C;position:relative;cursor:pointer;flex:0 0 auto;transition:background .15s'
+        : 'width:38px;height:22px;border-radius:20px;background:#CBD3DF;position:relative;cursor:pointer;flex:0 0 auto;transition:background .15s',
+      reqKnobStyle: s.required
+        ? 'position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s'
+        : 'position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s',
+
+      // auto-advance (top strip)
+      setAutoWait: () => set({ autoAdv: false }),
+      setAutoGo: () => set({ autoAdv: true }),
+      waitStyle: this.seg(!s.autoAdv),
+      autoStyle: this.seg(s.autoAdv),
+      waitStyle2: this.segFull(!s.autoAdv),
+      autoStyle2: this.segFull(s.autoAdv),
+
+      // palette groups
+      gSug: s.g.sug, gAns: s.g.ans, gCon: s.g.con, gLay: s.g.lay,
+      toggleSug: () => set({ g: { ...s.g, sug: !s.g.sug } }),
+      toggleAns: () => set({ g: { ...s.g, ans: !s.g.ans } }),
+      toggleCon: () => set({ g: { ...s.g, con: !s.g.con } }),
+      toggleLay: () => set({ g: { ...s.g, lay: !s.g.lay } }),
+      chevSug: this.chev(s.g.sug),
+      chevAns: this.chev(s.g.ans),
+      chevCon: this.chev(s.g.con),
+      chevLay: this.chev(s.g.lay),
+
+      // advanced
+      adv: s.adv,
+      toggleAdv: () => set({ adv: !s.adv }),
+      chevAdv: this.chev(s.adv),
+
+      // field box style (focus ring when selected)
+      fieldBoxStyle: (s.sel === 'field')
+        ? 'display:flex;align-items:center;gap:11px;width:100%;padding:16px 18px;border:2px solid #1B3A5C;border-radius:12px;background:#fff;box-shadow:0 0 0 4px rgba(27,58,92,.10)'
+        : 'display:flex;align-items:center;gap:11px;width:100%;padding:16px 18px;border:1.5px solid #D7DEE8;border-radius:12px;background:#fff',
+
+      // view switch (themes manager)
+      viewSection: s.view === 'section',
+      viewThemes: s.view === 'themes',
+      openThemes: () => set({ view: 'themes' }),
+      closeThemes: () => set({ view: 'section' }),
+
+      // width / height: presets vs manual custom (concern 1)
+      wS: this.segFull(s.wMode === 's'),
+      wM: this.segFull(s.wMode === 'm'),
+      wL: this.segFull(s.wMode === 'l'),
+      wFull: this.segFull(s.wMode === 'full'),
+      wCustom: s.wMode === 'custom',
+      setWS: () => set({ wMode: 's' }),
+      setWM: () => set({ wMode: 'm' }),
+      setWL: () => set({ wMode: 'l' }),
+      setWFull: () => set({ wMode: 'full' }),
+      resizeW: (e) => { if (e && e.stopPropagation) e.stopPropagation(); set({ wMode: 'custom' }); },
+      resetW: () => set({ wMode: 'full' }),
+      hSmall: this.segFull(s.hMode === 'small'),
+      hMedium: this.segFull(s.hMode === 'medium'),
+      hLarge: this.segFull(s.hMode === 'large'),
+      hCustom: s.hMode === 'custom',
+      setHSmall: () => set({ hMode: 'small' }),
+      setHMedium: () => set({ hMode: 'medium' }),
+      setHLarge: () => set({ hMode: 'large' }),
+      resetH: () => set({ hMode: 'medium' }),
+      fieldWrapStyle: (s.wMode === 'custom')
+        ? 'position:relative;margin-top:30px;cursor:pointer;width:64%'
+        : 'position:relative;margin-top:30px;cursor:pointer;width:100%',
+
+      // maps tab (concern 3)
+      tabMaps: s.tab === 'maps',
+      tabToMaps: () => set({ tab: 'maps' }),
+      tabMapsStyle: this.tab('maps'),
+      maps: s.maps,
+      toggleMaps: () => set({ maps: !s.maps }),
+      mapsToggleStyle: s.maps
+        ? 'width:38px;height:22px;border-radius:20px;background:#1B3A5C;position:relative;cursor:pointer;flex:0 0 auto'
+        : 'width:38px;height:22px;border-radius:20px;background:#CBD3DF;position:relative;cursor:pointer;flex:0 0 auto',
+      mapsKnobStyle: s.maps
+        ? 'position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)'
+        : 'position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)',
+      mpValidate: s.mp.validate, mpAuction: s.mp.auction, mpAuto: s.mp.autocomplete,
+      toggleMpValidate: () => set({ mp: { ...s.mp, validate: !s.mp.validate } }),
+      toggleMpAuction: () => set({ mp: { ...s.mp, auction: !s.mp.auction } }),
+      toggleMpAuto: () => set({ mp: { ...s.mp, autocomplete: !s.mp.autocomplete } }),
+      cbValidate: this.cb(s.mp.validate),
+      cbAuction: this.cb(s.mp.auction),
+      cbAuto: this.cb(s.mp.autocomplete),
+      mapsWarn: s.maps && !s.mp.validate && !s.mp.auction && !s.mp.autocomplete,
+
+      // themes manager
+      selNavy: s.themeSel === 'navy',
+      selBold: s.themeSel === 'bold',
+      selMin: s.themeSel === 'minimal',
+      pickNavy: () => set({ themeSel: 'navy' }),
+      pickBold: () => set({ themeSel: 'bold' }),
+      pickMin: () => set({ themeSel: 'minimal' }),
+      themeName: this.pal().name,
+      themeUse: this.pal().use,
+      swBrand: 'width:40px;height:40px;border-radius:10px;flex:0 0 auto;background:' + this.pal().brand,
+      swAccent: 'width:40px;height:40px;border-radius:10px;flex:0 0 auto;background:' + this.pal().accent,
+      swBg: 'width:40px;height:40px;border-radius:10px;flex:0 0 auto;border:1px solid #E1E6EE;background:' + this.pal().bg,
+      swCard: 'width:40px;height:40px;border-radius:10px;flex:0 0 auto;border:1px solid #E1E6EE;background:' + this.pal().card,
+      swText: 'width:40px;height:40px;border-radius:10px;flex:0 0 auto;background:' + this.pal().text,
+      themeCardNavy: this.themeCard(s.themeSel === 'navy'),
+      themeCardBold: this.themeCard(s.themeSel === 'bold'),
+      themeCardMin: this.themeCard(s.themeSel === 'minimal'),
+
+      // search
+      onSearch: (e) => this.filter(e && e.target ? e.target.value : ''),
+    };
+  }
+}
+</script>
+</body>
+</html>

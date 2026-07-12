@@ -452,6 +452,9 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   Spacer: { type: "Spacer", question_id: "q", props: { size: "l" } },
   HeaderBar: { type: "HeaderBar", question_id: "q", props: { logoMediaId: "media_logo", logoAlt: "Acme", back: true, secure: true, cta: { label: "Call now", tel: "+1 800 555 1212" } } },
   FooterBar: { type: "FooterBar", question_id: "q", props: { legalHtml: "Terms apply", trustMessages: ["SSL secured"], links: [{ label: "Privacy", href: "/privacy" }] } },
+  // v3.1 05 §5.3 Text/Image primitives (conductor fix round — catalog lockstep).
+  TextBlock: { type: "TextBlock", question_id: "q", props: { role: "heading", text: "How much?" } },
+  ImageBlock: { type: "ImageBlock", question_id: "q", props: { source: "auto_logo", siteName: "Acme" } },
 };
 
 const ALL_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];

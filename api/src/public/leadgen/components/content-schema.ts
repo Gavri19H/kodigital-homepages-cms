@@ -125,6 +125,13 @@ export const CURATED_DESIGN_OVERRIDE_KEYS = [
   "buttonText",
   "gridGap",
   "mobileBehavior",
+  // v3.1 §7.2 — NEW: width/height preset-or-custom_px (object-valued; see
+  // `LeadgenSizeOverride` below). NOTE (scope, flagged): §11.3's example also
+  // shows sibling `corners`/`border_color` design_overrides keys, but ONLY
+  // `size` is in this slice's mandate — corners/border_color stay
+  // unsupported (rejected as `non_curated_override_key` if authored) until a
+  // later phase adds them.
+  "size",
 ] as const;
 
 export type CuratedDesignOverrideKey = (typeof CURATED_DESIGN_OVERRIDE_KEYS)[number];
@@ -132,10 +139,14 @@ export type CuratedDesignOverrideKey = (typeof CURATED_DESIGN_OVERRIDE_KEYS)[num
 const CURATED_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(CURATED_DESIGN_OVERRIDE_KEYS);
 
 // A design override value is a fixed token reference / scalar — NEVER a CSS
-// string. `LeadgenDesignOverrides` is a partial map over the curated keys.
+// string — for every curated key EXCEPT `size`, which is the one
+// object-shaped override (§7.2 `{width?, height?}`); `LeadgenDesignOverrides`
+// is a partial map over the curated keys with that one carve-out.
 export type LeadgenDesignOverrides = Partial<
-  Record<CuratedDesignOverrideKey, string | number | boolean>
->;
+  Record<Exclude<CuratedDesignOverrideKey, "size">, string | number | boolean>
+> & {
+  size?: LeadgenSizeOverride;
+};
 
 // ---------------------------------------------------------------------------
 // v2.5 09 §9.4 — color-typed design_overrides VALUE vocabulary.
@@ -176,6 +187,233 @@ const LEGACY_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
 
 function isValidColorOverrideValue(value: unknown): boolean {
   return typeof value === "string" && (THEME_ROLE_SET.has(value) || LEGACY_HEX_RE.test(value));
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 §11.3 — NEW additive field-content props (Content tab §8.3 / Style tab
+// §8.5b). Every value below is OPTIONAL on the node; a node carrying none of
+// them validates exactly as it did before v3.1 (no existing content_json is
+// affected).
+// ---------------------------------------------------------------------------
+
+// §8.5b "Enumerations (exact, asserted)" — the 12-value leading-icon picker on
+// an answer/input field's Content tab (§8.3 `node.props.icon`). Ids are
+// lowercase single words matching the display label (§11.3's own worked
+// example anchors "location" for "Location pin"); this is a NEW semantic-id
+// vocabulary — distinct from the pre-existing *raw glyph* `icon` props on
+// ReassuranceBadge/SecureFormBadge/TrustBar/choices (e.g. "✓", "🔒", "★"),
+// which stay glyphs (no repo precedent stores icons as semantic ids before
+// this contract; BENEFIT_BAR_ICONS in ui-quotes.ts is a glyph-value list too).
+export const LEADGEN_FIELD_LEADING_ICONS = [
+  "location",
+  "calendar",
+  "dollar",
+  "phone",
+  "email",
+  "lock",
+  "person",
+  "home",
+  "car",
+  "shield",
+  "star",
+  "none",
+] as const;
+export type LeadgenFieldLeadingIcon = (typeof LEADGEN_FIELD_LEADING_ICONS)[number];
+const FIELD_LEADING_ICON_SET: ReadonlySet<string> = new Set(LEADGEN_FIELD_LEADING_ICONS);
+
+// Conductor fix-round correction: the 12-value semantic enum above must NOT
+// swallow the PRE-EXISTING free-form glyph/emoji `props.icon` convention
+// already live (and unvalidated) on ReassuranceBadge/SecureFormBadge/
+// SuccessState (registry.ts `props: [...,"icon?"]` on all three;
+// renderReassuranceBadge/renderSecureFormBadge/renderSuccessState all do
+// `propStr(node, "icon") ?? "<default glyph>"` verbatim, never enum-checked).
+// A blanket enum check here would reject already-stored, already-rendering
+// content — the ONE thing this whole slice must never do ("every existing
+// content_json must validate unchanged"). TextBlock's reassurance/
+// secure_badge roles carry the SAME glyph convention forward (the §5.3
+// migration target for two of these three types) and share this exemption.
+const GLYPH_ICON_TYPES: ReadonlySet<string> = new Set([
+  "ReassuranceBadge",
+  "SecureFormBadge",
+  "SuccessState",
+]);
+
+// §5.6 "The Accept-swap rule" — the 8-value Accept enum (`node.props.format`).
+// "us_zip" is anchored verbatim by the §11.3 worked example; the rest follow
+// the same short-snake-case convention. This key does not collide with the
+// PRE-EXISTING (dead/unread) `format` catalog entries — RangeQuestion's
+// `format(number|currency)` is a different node family entirely, and
+// PhoneInputQuestion's registry-documented `format` prop has zero readers
+// today (grep-verified) — so there is no live behavior to conflict with.
+export const LEADGEN_FIELD_ACCEPT_FORMATS = [
+  "text",
+  "number",
+  "currency",
+  "email",
+  "phone",
+  "us_zip",
+  "date",
+  "street_address",
+] as const;
+export type LeadgenFieldAcceptFormat = (typeof LEADGEN_FIELD_ACCEPT_FORMATS)[number];
+const FIELD_ACCEPT_FORMAT_SET: ReadonlySet<string> = new Set(LEADGEN_FIELD_ACCEPT_FORMATS);
+
+// §5.3/§8.5b — the TextBlock `role` enum (TextBlock only).
+export const LEADGEN_TEXT_BLOCK_ROLES = [
+  "heading",
+  "body",
+  "category_label",
+  "helper",
+  "legal",
+  "reassurance",
+  "secure_badge",
+] as const;
+export type LeadgenTextBlockRole = (typeof LEADGEN_TEXT_BLOCK_ROLES)[number];
+const TEXT_BLOCK_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_TEXT_BLOCK_ROLES);
+
+// §5.3 — the ImageBlock `source` enum (ImageBlock only): "media" is an
+// explicitly-authored image (a logoMediaId prop, the HeaderBar/LogoStrip
+// convention); "auto_logo" is the §5.3 "Auto-fill: site logo" toggle target.
+export const LEADGEN_IMAGE_BLOCK_SOURCES = ["media", "auto_logo"] as const;
+export type LeadgenImageBlockSource = (typeof LEADGEN_IMAGE_BLOCK_SOURCES)[number];
+const IMAGE_BLOCK_SOURCE_SET: ReadonlySet<string> = new Set(LEADGEN_IMAGE_BLOCK_SOURCES);
+
+// §9.2 — the field-level Maps config (`node.props.maps`), valid only on
+// ZIP/Address types (§9 "field Maps tab").
+export interface LeadgenFieldMapsConfig {
+  enabled: boolean;
+  jobs: {
+    validate: boolean;
+    auction: boolean;
+    autocomplete: boolean;
+  };
+}
+const MAPS_ELIGIBLE_TYPES: ReadonlySet<string> = new Set([
+  "ZIPInputQuestion",
+  "AddressAutocompleteQuestion",
+]);
+
+// ---------------------------------------------------------------------------
+// v3.1 §7.2 — design_overrides.size (width/height preset-or-custom_px).
+// ---------------------------------------------------------------------------
+
+export const LEADGEN_SIZE_WIDTH_PRESETS = ["s", "m", "l", "full"] as const;
+export type LeadgenSizeWidthPreset = (typeof LEADGEN_SIZE_WIDTH_PRESETS)[number];
+const SIZE_WIDTH_PRESET_SET: ReadonlySet<string> = new Set(LEADGEN_SIZE_WIDTH_PRESETS);
+
+export const LEADGEN_SIZE_HEIGHT_PRESETS = ["small", "medium", "large"] as const;
+export type LeadgenSizeHeightPreset = (typeof LEADGEN_SIZE_HEIGHT_PRESETS)[number];
+const SIZE_HEIGHT_PRESET_SET: ReadonlySet<string> = new Set(LEADGEN_SIZE_HEIGHT_PRESETS);
+
+export interface LeadgenSizeOverride {
+  width?: LeadgenSizeWidthPreset | { custom_px: number };
+  height?: LeadgenSizeHeightPreset | { custom_px: number };
+}
+
+// §7.1 bullet 3 (binding): "stored value = the drag's measured content-box
+// width in px, snapped to a 4px grid, clamped to [200, 600]" — the 600 is the
+// Appendix B "Unit column width". This numeric range is stated for WIDTH.
+//
+// FLAGGED (not asserted as contract fact): §7.2's storage example shows a
+// HEIGHT custom_px of 56 — below the width floor of 200 — and §7.3's own
+// callout confirms height-dragging is NOT part of v3.1 ("height is
+// preset-only unless the product owner opts height into custom... enabling
+// height is a UI-only change, no schema impact"); no drag-measurement formula
+// is defined for height anywhere in the contract. Applying the width floor of
+// 200 to height would reject the contract's own worked example, so height
+// keeps only the shared 600 ceiling (the one axis-agnostic constant in the
+// doc) with a grid-native floor of 4 — an inferred engineering default, NOT
+// an explicit contract number. Flagged for conductor/adversarial-review
+// confirmation against the golden master / a future design addendum.
+const SIZE_WIDTH_CUSTOM_PX_MIN = 200;
+const SIZE_WIDTH_CUSTOM_PX_MAX = 600;
+const SIZE_HEIGHT_CUSTOM_PX_MIN = 4;
+const SIZE_HEIGHT_CUSTOM_PX_MAX = 600;
+const SIZE_GRID_PX = 4;
+
+function snapToSizeGrid(px: number): number {
+  return Math.round(px / SIZE_GRID_PX) * SIZE_GRID_PX;
+}
+function clampSizePx(px: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, px));
+}
+
+// §10.4 "Buttons & inputs — the shared size language" — the theme record's
+// `controls` sub-object VERBATIM (KV `lg-funnel-themes`). Defined here (not
+// imported from designs/theme.ts, which this module must not depend on — a
+// parallel slice owns the theme KV/resolution layer) so `resolveFieldSize`
+// stays pure and wiring-agnostic; the caller extracts `theme.controls` and
+// passes it through unchanged.
+export interface LeadgenSizeThemeControls {
+  field_height: LeadgenSizeHeightPreset;
+  button_size: "s" | "m" | "l";
+  corners: "sharp" | "rounded" | "pill";
+}
+
+export type LeadgenResolvedSizeAxis =
+  | { mode: "preset"; preset: string }
+  | { mode: "custom"; px: number };
+
+export interface LeadgenResolvedFieldSize {
+  width: LeadgenResolvedSizeAxis;
+  height: LeadgenResolvedSizeAxis;
+}
+
+// §7.1 "Reset ... (demo resets to Full)": the theme's `controls` object (§10.4
+// JSON) carries NO width knob — only `field_height`/`button_size`/`corners` —
+// so an absent WIDTH override has no theme tier to inherit from (confirmed by
+// §10.4's own resolution sentence: "a field with no `size` override resolves
+// to `controls.field_height`" — height ONLY). Absent width falls straight to
+// this fixed design default. Flagged (not asserted as contract fact) for
+// conductor/adversarial-review confirmation.
+const DEFAULT_WIDTH_PRESET: LeadgenSizeWidthPreset = "full";
+
+function resolveSizeAxis(
+  raw: string | { custom_px: number } | undefined,
+  fallbackPreset: string,
+  min: number,
+  max: number,
+): LeadgenResolvedSizeAxis {
+  if (raw === undefined) return { mode: "preset", preset: fallbackPreset };
+  if (typeof raw === "string") return { mode: "preset", preset: raw };
+  // Defensive re-clamp/re-snap (belt-and-suspenders over validate-time
+  // enforcement) — mirrors the clampInt-at-render idiom used throughout
+  // presets.ts for legacy/corrupt stored values.
+  return { mode: "custom", px: clampSizePx(snapToSizeGrid(raw.custom_px), min, max) };
+}
+
+// PURE (sizeOverride, themeControls) -> resolved width/height decision (§7.1
+// state machine: node override -> funnel theme default -> design default;
+// §12 "preset name -> theme.controls resolved px; {custom_px} -> explicit
+// px; absent -> theme default"). Returns a DECISION, not a CSS/px value for
+// preset names — the actual preset->px token table lives wherever the design
+// tokens are resolved (out of this module's reach by design: "do NOT import
+// designs/theme.ts"); custom_px resolutions ARE concrete px (clamped/snapped
+// here). Height inherits `themeControls.field_height` when absent; width has
+// no theme knob to inherit (see DEFAULT_WIDTH_PRESET above) so it falls to
+// the fixed design default "full". `button_size`/`corners` are accepted for
+// call-site shape convenience (the caller passes the whole `theme.controls`
+// object) but are not consumed by this resolver — corners is a SIBLING
+// design_overrides key (not part of `size`) and button_size governs the
+// frame's Continue button, a separate concern from field width/height.
+export function resolveFieldSize(
+  sizeOverride: LeadgenSizeOverride | undefined,
+  themeControls: LeadgenSizeThemeControls,
+): LeadgenResolvedFieldSize {
+  return {
+    width: resolveSizeAxis(
+      sizeOverride?.width,
+      DEFAULT_WIDTH_PRESET,
+      SIZE_WIDTH_CUSTOM_PX_MIN,
+      SIZE_WIDTH_CUSTOM_PX_MAX,
+    ),
+    height: resolveSizeAxis(
+      sizeOverride?.height,
+      themeControls.field_height,
+      SIZE_HEIGHT_CUSTOM_PX_MIN,
+      SIZE_HEIGHT_CUSTOM_PX_MAX,
+    ),
+  };
 }
 
 // One component node in a Section's `content_json`.
@@ -322,7 +560,17 @@ export type SectionContentErrorCode =
   // v2.5 §3.5/§8.2 WARNING code (emitted into `warnings`, never `errors`)
   | "frame_scope_component"
   // v2.5 11 §11.5 WARNING code (emitted into `warnings`, never `errors`)
-  | "duplicate_continue";
+  | "duplicate_continue"
+  // v3.1 §11.3 NEW field-content props (label/helper/icon/required/format/
+  // error_text/role/source) — shape, enum, and type-restriction violations.
+  | "invalid_field_prop"
+  // v3.1 §9.2 field-level Maps config shape / type-restriction (ZIP/Address only)
+  | "invalid_maps_prop"
+  // v3.1 §7.2 design_overrides.size shape / preset-enum / custom_px range
+  | "invalid_size_override"
+  // v3.1 §9.3 WARNING code (emitted into `warnings`, never `errors`):
+  // maps.enabled with zero jobs selected
+  | "maps_no_job";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -408,6 +656,12 @@ export const REQUIRED_FIELDS: Record<ComponentType, RequiredSpec> = {
   HelperText: { textProps: ["text"] },
   ValidationError: {},
   LegalNote: { textProps: ["html"] },
+  // v3.1 §5.3 Text/Image primitives: role/source/text/icon/logoMediaId/alt
+  // are all OPTIONAL — the renderer applies sensible defaults (role defaults
+  // to "heading"; source defaults to "media") exactly like SuccessState/
+  // SecureFormBadge above.
+  TextBlock: {},
+  ImageBlock: {},
   // §8.5 layout containers + layout leaves: every prop is OPTIONAL (presets
   // apply token defaults); when PRESENT it must pass the §8.5 token-enum
   // check (validateContainerProps) — not this generic required-field table.
@@ -688,6 +942,351 @@ function looksLikeArbitraryCss(value: unknown): boolean {
 
 function isKnownComponentType(type: unknown): type is ComponentType {
   return typeof type === "string" && Object.prototype.hasOwnProperty.call(COMPONENT_CATALOG, type);
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 §7.2 design_overrides.size — {width?, height?} shape validator.
+// ---------------------------------------------------------------------------
+
+function validateSizeAxis(
+  value: unknown,
+  path: string,
+  presetSet: ReadonlySet<string>,
+  presetList: readonly string[],
+  min: number,
+  max: number,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (typeof value === "string") {
+    if (!presetSet.has(value)) {
+      push(
+        "invalid_size_override",
+        path,
+        `must be one of ${presetList.join("|")} or {custom_px:number} (§7.2)`,
+      );
+    }
+    return;
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value);
+    if (keys.length !== 1 || keys[0] !== "custom_px") {
+      push("invalid_size_override", path, "a custom size must be exactly {custom_px:number} (§7.2)");
+      return;
+    }
+    const px = value["custom_px"];
+    if (typeof px !== "number" || !Number.isFinite(px) || !Number.isInteger(px)) {
+      push("invalid_size_override", `${path}.custom_px`, "custom_px must be an integer");
+      return;
+    }
+    if (px < min || px > max) {
+      push(
+        "invalid_size_override",
+        `${path}.custom_px`,
+        `custom_px must be between ${min} and ${max} (§7.1/§7.2)`,
+      );
+    } else if (px % SIZE_GRID_PX !== 0) {
+      push(
+        "invalid_size_override",
+        `${path}.custom_px`,
+        `custom_px must be snapped to a ${SIZE_GRID_PX}px grid (§7.2)`,
+      );
+    }
+    return;
+  }
+  push("invalid_size_override", path, "must be a preset string or {custom_px:number} (§7.2)");
+}
+
+function validateSizeOverride(
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(value)) {
+    push("invalid_size_override", path, "design_overrides.size must be an object {width?, height?} (§7.2)");
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== "width" && key !== "height") {
+      push("invalid_size_override", `${path}.${key}`, `unknown size key '${key}' (only width/height, §7.2)`);
+    }
+  }
+  if (value["width"] !== undefined) {
+    validateSizeAxis(
+      value["width"],
+      `${path}.width`,
+      SIZE_WIDTH_PRESET_SET,
+      LEADGEN_SIZE_WIDTH_PRESETS,
+      SIZE_WIDTH_CUSTOM_PX_MIN,
+      SIZE_WIDTH_CUSTOM_PX_MAX,
+      push,
+    );
+  }
+  if (value["height"] !== undefined) {
+    validateSizeAxis(
+      value["height"],
+      `${path}.height`,
+      SIZE_HEIGHT_PRESET_SET,
+      LEADGEN_SIZE_HEIGHT_PRESETS,
+      SIZE_HEIGHT_CUSTOM_PX_MIN,
+      SIZE_HEIGHT_CUSTOM_PX_MAX,
+      push,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 §11.3 NEW field-content props + §9.2 Maps config — all OPTIONAL, all
+// additive. `type` is the node's already-known-good ComponentType (the caller
+// only reaches here past `isKnownComponentType`).
+// ---------------------------------------------------------------------------
+
+function validateNewFieldProps(
+  type: ComponentType,
+  props: Record<string, unknown>,
+  base: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+  warn: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  // label / helper / error_text (§8.3 Basics/Answer-format groups): plain
+  // optional strings, valid on any node (the Content tab reuses them wherever
+  // a field selection shows Basics/Answer-format controls).
+  for (const key of ["label", "helper", "error_text"] as const) {
+    const value = props[key];
+    if (value !== undefined && typeof value !== "string") {
+      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} must be a string (§8.3)`);
+    }
+  }
+
+  // required (§8.3 Behavior group): NOTE (repo-reality-over-contract,
+  // mission-loop doctrine) — §11.3's own JSON illustration nests this inside
+  // `props`, but the REPO's existing, fully-wired mechanism is the TOP-LEVEL
+  // `node.required` (LeadgenComponentNode.required — read by hydration() and
+  // 4+ presets.ts renderers today). Treated as the same erratum class as the
+  // §11.5 "name"/`section_name` mismatch: we validate the EXISTING top-level
+  // field (previously untyped at runtime) rather than add a second, competing
+  // `props.required`.
+  if (props["required"] !== undefined) {
+    push(
+      "invalid_field_prop",
+      `${base}.props.required`,
+      "required is a top-level node field (node.required), not props.required — the repo's existing, rendered convention (§11.3 nests it under props; this is a contract erratum, see content-schema.ts comment)",
+    );
+  }
+
+  // icon (§8.3/§8.5b leading-icon picker, 12-value enum) — EXCEPT
+  // ReassuranceBadge/SecureFormBadge/SuccessState (pre-existing free-form
+  // glyph convention, GLYPH_ICON_TYPES above) and the two TextBlock badge
+  // roles that carry that SAME convention forward (byte-identical migration
+  // fidelity, §5.3).
+  if (props["icon"] !== undefined) {
+    const role = props["role"];
+    const isGlyphIcon =
+      GLYPH_ICON_TYPES.has(type) ||
+      (type === "TextBlock" && (role === "reassurance" || role === "secure_badge"));
+    if (!isGlyphIcon) {
+      if (typeof props["icon"] !== "string" || !FIELD_LEADING_ICON_SET.has(props["icon"])) {
+        push(
+          "invalid_field_prop",
+          `${base}.props.icon`,
+          `props.icon must be one of ${LEADGEN_FIELD_LEADING_ICONS.join("|")} (§8.5b)`,
+        );
+      }
+    } else if (typeof props["icon"] !== "string") {
+      push("invalid_field_prop", `${base}.props.icon`, "props.icon must be a string glyph (pre-existing badge/success-state convention)");
+    }
+  }
+
+  // format (§5.6 Accept-swap enum, 8 values).
+  if (props["format"] !== undefined) {
+    if (typeof props["format"] !== "string" || !FIELD_ACCEPT_FORMAT_SET.has(props["format"])) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.format`,
+        `props.format must be one of ${LEADGEN_FIELD_ACCEPT_FORMATS.join("|")} (§5.6)`,
+      );
+    }
+  }
+
+  // role — TextBlock only (§5.3/§8.5b).
+  if (props["role"] !== undefined) {
+    if (type !== "TextBlock") {
+      push("invalid_field_prop", `${base}.props.role`, "props.role is only valid on TextBlock (§5.3)");
+    }
+    if (typeof props["role"] !== "string" || !TEXT_BLOCK_ROLE_SET.has(props["role"])) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.role`,
+        `props.role must be one of ${LEADGEN_TEXT_BLOCK_ROLES.join("|")} (§8.5b)`,
+      );
+    }
+  }
+
+  // source — ImageBlock only (§5.3).
+  if (props["source"] !== undefined) {
+    if (type !== "ImageBlock") {
+      push("invalid_field_prop", `${base}.props.source`, "props.source is only valid on ImageBlock (§5.3)");
+    }
+    if (typeof props["source"] !== "string" || !IMAGE_BLOCK_SOURCE_SET.has(props["source"])) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.source`,
+        `props.source must be one of ${LEADGEN_IMAGE_BLOCK_SOURCES.join("|")} (§5.3)`,
+      );
+    }
+  }
+
+  // maps — ZIP/Address only (§9.2).
+  if (props["maps"] !== undefined) {
+    validateMapsProp(type, props["maps"], `${base}.props.maps`, push, warn);
+  }
+}
+
+function validateMapsProp(
+  type: ComponentType,
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+  warn: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!MAPS_ELIGIBLE_TYPES.has(type)) {
+    push("invalid_maps_prop", path, "props.maps is only valid on ZIPInputQuestion/AddressAutocompleteQuestion (§9)");
+  }
+  if (!isRecord(value)) {
+    push("invalid_maps_prop", path, "props.maps must be an object (§9.2, or the pre-existing §8.8 shape)");
+    return;
+  }
+  // Conductor fix-round correction: a PRE-EXISTING, already-shipped §8.8
+  // Maps config (ui-section-studio.ts inspector "Maps" tab — grep-verified
+  // live: data-maps-flag="enable_autocomplete"/"validate_zip"/
+  // "validate_full_address"/"normalize_address_line" + data-maps-fill=
+  // "autofill_state"/"autofill_city"/"autofill_zip", with its own
+  // comprehensive test coverage in leadgen-section-studio-ui.test.ts) ALREADY
+  // authors this SAME `props.maps` key with a FLAT, DIFFERENT vocabulary —
+  // not the §9.2 NESTED {enabled,jobs} shape this contract adds. presets.ts's
+  // mapsConfigJson already serializes props.maps VERBATIM regardless of
+  // shape (shape-agnostic at render time); this validator must stay equally
+  // agnostic for it — the §9.2 shape is ADDITIVE, not a replacement, so a
+  // value WITHOUT the `jobs` key (the one marker unique to the new shape) is
+  // the legacy shape and is validated ONLY as "a record" — no existing
+  // content_json may regress.
+  if (!("jobs" in value)) return;
+  const extraKeys = Object.keys(value).filter((k) => k !== "enabled" && k !== "jobs");
+  for (const key of extraKeys) {
+    push("invalid_maps_prop", `${path}.${key}`, `unknown maps key '${key}' (only enabled/jobs, §9.2)`);
+  }
+  const enabled = value["enabled"];
+  if (typeof enabled !== "boolean") {
+    push("invalid_maps_prop", `${path}.enabled`, "props.maps.enabled must be a boolean (§9.2)");
+  }
+  const jobs = value["jobs"];
+  if (!isRecord(jobs)) {
+    push("invalid_maps_prop", `${path}.jobs`, "props.maps.jobs must be an object {validate, auction, autocomplete} (§9.2)");
+    return;
+  }
+  const jobExtraKeys = Object.keys(jobs).filter(
+    (k) => k !== "validate" && k !== "auction" && k !== "autocomplete",
+  );
+  for (const key of jobExtraKeys) {
+    push("invalid_maps_prop", `${path}.jobs.${key}`, `unknown maps job '${key}' (only validate/auction/autocomplete, §9.2)`);
+  }
+  let anyJobTrue = false;
+  for (const key of ["validate", "auction", "autocomplete"] as const) {
+    const jobValue = jobs[key];
+    if (jobValue !== undefined) {
+      if (typeof jobValue !== "boolean") {
+        push("invalid_maps_prop", `${path}.jobs.${key}`, `props.maps.jobs.${key} must be a boolean (§9.2)`);
+      } else if (jobValue) {
+        anyJobTrue = true;
+      }
+    }
+  }
+  // §9.3: "Save with maps.enabled and zero jobs -> problems[] warning
+  // maps_no_job (path-precise)" — non-blocking (the builder shows the amber
+  // banner; escalation to a blocking error is an activation-preflight concern,
+  // outside this validator, matching the frame_scope_component/
+  // duplicate_continue precedent).
+  if (enabled === true && !anyJobTrue) {
+    warn(
+      "maps_no_job",
+      path,
+      "maps.enabled is true but no job (validate/auction/autocomplete) is selected — it does nothing at runtime (§9.3)",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 §5.3 retired-type -> primitive mapping utils (studio save-time, a
+// LATER phase wires the call site — these are pure and unused by this phase's
+// runtime). Cover: CategoryLabel, HelperText, LegalNote, ReassuranceBadge,
+// SecureFormBadge, LogoStrip -> ImageBlock(auto logo).
+//
+// NOT covered (by design, §5.3 exclusions):
+//   - QuestionHeadline / Subheadline: these are BOUND-headline nodes (§3.4
+//     `bind`/BIND_EXPECTED_TYPE above) — a wholly separate mechanism, edited
+//     via the Question strip (§4.2) and inline on canvas, never palette tiles
+//     post-v3.1 (§5.4). Their type/renderer/handling is UNCHANGED and they
+//     are deliberately absent from this retirement table.
+//   - SuccessState: explicitly OUT of the unit palette (§5.3 "Not a palette
+//     tile — a section-level completion state... out of the unit palette").
+//     Its catalog entry, REQUIRED_FIELDS row, and renderSuccessState are all
+//     UNCHANGED/untouched; it is not a "retired" type, so it is absent here.
+//
+// LOSSY EDGE (flagged): a LogoStrip authored with >1 `props.logos` entry can
+// only become ONE auto-site-logo ImageBlock — entries beyond the first are
+// dropped by the rewrite. §5.3 frames LogoStrip's retirement target as a
+// single "Auto site logo", so this is the contract's own simplification, not
+// an implementation shortcut — flagged here for product/adversarial-review
+// awareness since multi-logo content is a real, plausible existing case.
+export interface LeadgenPrimitiveView {
+  type: "TextBlock" | "ImageBlock";
+  role?: LeadgenTextBlockRole;
+  source?: LeadgenImageBlockSource;
+}
+
+const RETIRED_TEXT_ROLE_BY_TYPE: Partial<Record<ComponentType, LeadgenTextBlockRole>> = {
+  CategoryLabel: "category_label",
+  HelperText: "helper",
+  LegalNote: "legal",
+  ReassuranceBadge: "reassurance",
+  SecureFormBadge: "secure_badge",
+};
+
+// The primitive+role/source a retired node maps to, or null when `node` is
+// not a retired one-off type (every other node, including TextBlock/
+// ImageBlock themselves, QuestionHeadline/Subheadline, and SuccessState).
+export function primitiveViewOfNode(node: LeadgenComponentNode): LeadgenPrimitiveView | null {
+  if (node.type === "LogoStrip") {
+    return { type: "ImageBlock", source: "auto_logo" };
+  }
+  const role = RETIRED_TEXT_ROLE_BY_TYPE[node.type];
+  if (role !== undefined) {
+    return { type: "TextBlock", role };
+  }
+  return null;
+}
+
+// PURE rewrite of a retired one-off node into its primitive form (§5.3 "Save
+// rewrites the node to the primitive form"). Non-retired nodes (incl. a
+// `null` primitiveView) pass through UNCHANGED (same object identity) — the
+// studio's save-time call site (a later phase) can call this unconditionally
+// on every node without special-casing "is this retired". LegalNote's
+// content lives under `props.html` (legacy key); every other retired text
+// type already uses `props.text` — both map to the new node's `props.text`
+// (both keys render through the identical `esc()` escaping today, so no
+// content shape actually changes).
+export function rewriteRetiredNodeToPrimitive(node: LeadgenComponentNode): LeadgenComponentNode {
+  const view = primitiveViewOfNode(node);
+  if (view === null) return node;
+  if (view.type === "TextBlock") {
+    const text = view.role === "legal" ? node.props?.["html"] : node.props?.["text"];
+    const icon = node.props?.["icon"];
+    const newProps: Record<string, unknown> = { role: view.role };
+    if (typeof text === "string") newProps.text = text;
+    if (typeof icon === "string" && icon !== "") newProps.icon = icon;
+    return { ...node, type: "TextBlock", props: newProps };
+  }
+  // ImageBlock (LogoStrip -> auto site logo). See the LOSSY EDGE note above.
+  return { ...node, type: "ImageBlock", props: { source: "auto_logo" } };
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,6 +1706,11 @@ export function validateSectionContent(content: unknown): SectionContentValidati
               `${base}.design_overrides.${key}`,
               `'${key}' is not a curated design-override token key (§14.8)`,
             );
+          } else if (key === "size") {
+            // v3.1 §7.2 — the one object-shaped curated key; never CSS/color
+            // typed, so it takes its own dedicated branch ahead of the
+            // scalar-only checks below.
+            validateSizeOverride(value, `${base}.design_overrides.size`, push);
           } else if (looksLikeArbitraryCss(value)) {
             push(
               "arbitrary_css_override",
@@ -1126,6 +1730,19 @@ export function validateSectionContent(content: unknown): SectionContentValidati
         }
       }
     }
+
+    // v3.1 §8.3 top-level `required` (the repo's REAL mechanism — see the
+    // erratum note in validateNewFieldProps below): previously untyped at
+    // runtime (only a TS interface field); now type-checked like any other
+    // authored value.
+    if (raw["required"] !== undefined && typeof raw["required"] !== "boolean") {
+      push("invalid_field_prop", `${base}.required`, "required must be a boolean");
+    }
+
+    // v3.1 §11.3 NEW field-content props (additive, all optional) + §9.2
+    // field-level Maps config. Leaf-only (mirrors design_overrides/choices/
+    // valid_values above) — the §8.5 container branch already returned.
+    validateNewFieldProps(type, props, base, push, warn);
   };
 
   for (let i = 0; i < rawComponents.length; i++) {
