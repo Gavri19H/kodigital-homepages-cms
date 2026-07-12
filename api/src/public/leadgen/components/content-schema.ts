@@ -258,6 +258,37 @@ export const LEADGEN_FIELD_ACCEPT_FORMATS = [
 export type LeadgenFieldAcceptFormat = (typeof LEADGEN_FIELD_ACCEPT_FORMATS)[number];
 const FIELD_ACCEPT_FORMAT_SET: ReadonlySet<string> = new Set(LEADGEN_FIELD_ACCEPT_FORMATS);
 
+// v3.1 §5.6 "The Accept-swap rule" — the reverse map every text-input tile's
+// Accept dropdown needs: Accept value -> the concrete stored type. Additive
+// (Phase B slice 5); the natural home next to LEADGEN_FIELD_ACCEPT_FORMATS.
+// Phase C's inspector imports this for the actual Accept <select>; the
+// Section Studio's toolbar (Phase B) imports it for the toolbar-hosted
+// equivalent (§6.1's "quick" controls host the Searchable/Card-style/Accept
+// swaps, matching the pre-existing toggleSearchableDropdown idiom).
+export const LEADGEN_FIELD_ACCEPT_TYPE: Record<LeadgenFieldAcceptFormat, ComponentType> = {
+  text: "FreeTextQuestion",
+  number: "NumberInputQuestion",
+  currency: "CurrencyInputQuestion",
+  email: "EmailInputQuestion",
+  phone: "PhoneInputQuestion",
+  us_zip: "ZIPInputQuestion",
+  date: "DateQuestion",
+  street_address: "AddressAutocompleteQuestion",
+};
+
+// The inverse lookup: a concrete stored type -> its Accept value, or
+// undefined for any type outside the 8-value Accept-swap family (e.g.
+// choice/container/copy types never have an Accept format).
+const ACCEPT_FORMAT_BY_TYPE: Partial<Record<ComponentType, LeadgenFieldAcceptFormat>> = Object.fromEntries(
+  Object.entries(LEADGEN_FIELD_ACCEPT_TYPE).map(([format, type]) => [type, format]),
+) as Partial<Record<ComponentType, LeadgenFieldAcceptFormat>>;
+
+// The Accept value implied by a node's CURRENT concrete type — undefined if
+// the type isn't one of the 8 Accept-swappable text-input types.
+export function acceptFormatOfType(type: ComponentType): LeadgenFieldAcceptFormat | undefined {
+  return ACCEPT_FORMAT_BY_TYPE[type];
+}
+
 // §5.3/§8.5b — the TextBlock `role` enum (TextBlock only).
 export const LEADGEN_TEXT_BLOCK_ROLES = [
   "heading",

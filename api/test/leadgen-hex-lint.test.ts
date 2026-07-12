@@ -330,6 +330,29 @@ function isCssRuleLiteral(text: string): boolean {
   return text.includes("{") && text.includes("}") && text.includes(":");
 }
 
+// v3.1 §6.2/§7 (Section-studio re-chrome): a BARE CSS declaration-list — no
+// wrapping selector/braces — is the SAME "style injection, not copy" shape,
+// just without the braces. This is the golden master's OWN per-state
+// style-helper idiom (seg()/segFull()/vpSeg()/tab()/fieldBoxStyle()/
+// fieldWrapStyle()/frameBtnStyle()/… every one of these golden helpers
+// returns exactly "prop:value;prop:value;…", applied via a style attribute)
+// — the ES5 island re-implements each as a function returning the identical
+// string, so these literals are style injection through .setAttribute('style',
+// …) / .style.cssText, never rendered as visible operator text. Structural,
+// not value-based (unlike ISLAND_HEX_ALLOW): the WHOLE literal must parse as
+// 2+ semicolon-separated `key:value` declarations, where each key is a bare
+// hyphenated CSS-property-shaped token (no spaces) — a real sentence with a
+// colon ("See docs: https://x") never matches because "See docs" contains a
+// space, so this cannot be used to smuggle real operator copy through.
+function isCssDeclarationListLiteral(text: string): boolean {
+  const parts = text
+    .split(";")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  if (parts.length < 2) return false;
+  return parts.every((p) => /^[a-zA-Z-]+:.+$/.test(p));
+}
+
 // Documented island allowlist — each entry names its reason. DEV-66c: an
 // entry may additionally be CONTEXT-SCOPED via `context(lit, islandSrc)` —
 // the exemption then applies ONLY where the literal originates (its usage
@@ -524,7 +547,7 @@ describeDb("15 §15.2 hex-lint — no hex literals on normal-mode operator surfa
           continue;
         }
         HEX_RE.lastIndex = 0;
-        if (isCssRuleLiteral(lit.text)) continue; // style injection, not copy
+        if (isCssRuleLiteral(lit.text) || isCssDeclarationListLiteral(lit.text)) continue; // style injection, not copy
         // DEV-66c: the allowlist is value + ORIGINATING-CONTEXT scoped — the
         // toast hexes pass only at their showToast assignment site.
         if (isAllowedIslandHex(lit, p.islands[lit.island] ?? "")) continue;
@@ -569,5 +592,25 @@ describeDb("15 §15.2 hex-lint — no hex literals on normal-mode operator surfa
       }
     }
     expect(liveToastSites, "the admin-shell toast hexes are actually present (probe grounded)").toBeGreaterThan(0);
+  });
+
+  it("v3.1 §6.2/§7: a bare CSS declaration-list (no braces) is style injection, not copy — but real prose with a colon is NOT exempted", () => {
+    // positive: the golden's own seg()/fieldBoxStyle()/… idiom — a bare
+    // "prop:value;prop:value;…" string with no wrapping selector/braces.
+    expect(
+      isCssDeclarationListLiteral(
+        "padding:5px 11px;font-size:12px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;cursor:pointer;white-space:nowrap",
+      ),
+    ).toBe(true);
+    expect(isCssDeclarationListLiteral("width:38px;height:22px;border-radius:20px;background:#1B3A5C")).toBe(true);
+    // a lone declaration (no semicolon) still requires 2+ parts to count —
+    // guards against a coincidental single "word:word".
+    expect(isCssDeclarationListLiteral("color:#1B3A5C")).toBe(false);
+    // negative: real operator-facing sentences that happen to contain a
+    // colon must NEVER be swallowed by this exemption — the KEY-shaped
+    // require (letters/hyphens only, no space) is what protects this.
+    expect(isCssDeclarationListLiteral("Brand color: #1a2b3c is now active")).toBe(false);
+    expect(isCssDeclarationListLiteral("See docs: https://example.com; Note: uses #ff0000")).toBe(false);
+    expect(isCssDeclarationListLiteral("Custom colors must be a color value like #1a2b3c.")).toBe(false);
   });
 });

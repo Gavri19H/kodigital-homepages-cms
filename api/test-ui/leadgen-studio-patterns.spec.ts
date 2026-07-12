@@ -463,34 +463,111 @@ async function openNewStudio(
 }
 
 // §8.3 operator labels (STUDIO_TYPE_META) — the §7.1 scope header shows the
-// LABEL of the selected component (type ids never surface).
+// LABEL of the selected component (type ids never surface). NumberRangeQuestion
+// shares the SAME "Slider" label as the retired plain RangeQuestion.
 const TYPE_LABELS: Record<string, string> = {
   QuestionHeadline: 'Question headline',
   Subheadline: 'Subheadline',
   ButtonAnswerGroup: 'Simple answer buttons',
   TwoButtonYesNo: 'Yes / No',
   IconCardAnswerGrid: 'Icon answer cards',
+  ImageCardAnswerGrid: 'Image answer cards',
   DropdownQuestion: 'Dropdown',
   ZIPInputQuestion: 'ZIP',
   NameFieldsGroup: 'Name',
   EmailInputQuestion: 'Email',
   PhoneInputQuestion: 'Phone',
-  RangeQuestion: 'Slider',
+  NumberRangeQuestion: 'Slider',
+  CurrencyRangeQuestion: 'Amount slider',
   ContinueButton: 'Continue button',
-  ReassuranceBadge: 'Reassurance badge',
+  TextBlock: 'Text',
   Stack: 'Stack',
 };
 
-// Library click-to-add. addFromLibrary drops INTO the selected container (or
-// appends at root) and moves the selection to the new node — asserted via the
-// §7.1 scope header (operator label) + the canvas node count (the server
-// re-render carries the new node).
+// v3.1 Phase B redesign: the palette is now 20 golden TILES keyed by
+// data-tile/data-name (contract §5.2/§5.5) — NOT one dedicated
+// data-add-component per catalog type. Grounded directly in
+// ui-section-studio.ts's own STUDIO_LIBRARY_GROUPS tile table + the
+// LEADGEN_FIELD_ACCEPT_TYPE reverse map (content-schema.ts): each entry names
+// the tile to click, plus (when the wanted type is not that tile's own
+// §5.6 default) the swap control that reaches it.
+type SwapKind = 'accept' | 'cardStyle' | 'sliderFormat' | 'searchable';
+interface TileInsert {
+  dataName: string;
+  swap?: SwapKind;
+  swapValue?: string;
+}
+const TYPE_INSERT: Partial<Record<string, TileInsert>> = {
+  // direct tile defaults — no swap (§5.2 table)
+  FreeTextQuestion: { dataName: 'short text' },
+  ButtonAnswerGroup: { dataName: 'buttons' },
+  IconCardAnswerGrid: { dataName: 'cards' },
+  ContinueButton: { dataName: 'continue button' },
+  TwoButtonYesNo: { dataName: 'yes no' },
+  DropdownQuestion: { dataName: 'dropdown' },
+  MultiChoiceCardGroup: { dataName: 'multi-select' },
+  NumberInputQuestion: { dataName: 'number' },
+  CurrencyInputQuestion: { dataName: 'amount money' },
+  DateQuestion: { dataName: 'date' },
+  NumberRangeQuestion: { dataName: 'slider scale' },
+  AddressAutocompleteQuestion: { dataName: 'address zip location' },
+  TextBlock: { dataName: 'text legal note reassurance disclosure' },
+  ImageBlock: { dataName: 'image logo picture' },
+  Spacer: { dataName: 'spacer gap' },
+  CardPanel: { dataName: 'card panel' },
+  Columns: { dataName: 'columns' },
+  GridContainer: { dataName: 'grid' },
+  // §5.6 the Accept-swap rule — base tile "short text" (FreeTextQuestion)
+  EmailInputQuestion: { dataName: 'short text', swap: 'accept', swapValue: 'email' },
+  PhoneInputQuestion: { dataName: 'short text', swap: 'accept', swapValue: 'phone' },
+  ZIPInputQuestion: { dataName: 'short text', swap: 'accept', swapValue: 'us_zip' },
+  // §5.6 Cards style swap — base tile "cards" (IconCardAnswerGrid)
+  ImageCardAnswerGrid: { dataName: 'cards', swap: 'cardStyle', swapValue: 'image' },
+  // §5.6 Slider Format $ swap — base tile "slider scale" (NumberRangeQuestion)
+  CurrencyRangeQuestion: { dataName: 'slider scale', swap: 'sliderFormat' },
+  // §5.5 Searchable-dropdown swap — base tile "dropdown" (DropdownQuestion)
+  SearchableDropdownQuestion: { dataName: 'dropdown', swap: 'searchable' },
+  // NOT in TYPE_INSERT (intentionally — see per-test rework, not a generic
+  // helper case): Stack (no tile — golden §5.2 dropped it; reached via the
+  // pre-existing "Group → Stack" toolbar action instead), NameFieldsGroup
+  // (only reachable bundled inside the "Contact" tile's 3-node Stack), plain
+  // RangeQuestion (retired — the Slider tile's family is
+  // NumberRangeQuestion ⇄ CurrencyRangeQuestion only; the "range slider"
+  // authoring BEHAVIOR survives via NumberRangeQuestion), ReassuranceBadge
+  // (collapses into TextBlock per §5.3(b) — the specific "reassurance" role
+  // has no inspector control yet, Phase C).
+};
+
+// Library click-to-add. Clicks the golden TILE (data-tile/data-name), then
+// performs the §5.6 swap (Accept / Card-style / Slider-format / Searchable)
+// when the wanted type isn't the tile's own default — asserted via the §7.1
+// scope header (operator label) + the canvas node count (the server
+// re-render carries the new node). `.first()` on the tile locator is
+// deliberate: "Buttons"/"Cards"/"Short text" repeat once in the Suggested
+// group (contract §5.2: "identical insert semantics") — both are always
+// visible (Suggested/Answer-fields default OPEN), so `.first()`
+// deterministically picks the Suggested copy (DOM order).
 async function addComponent(page: Page, type: string): Promise<void> {
   const canvasNodes = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type]');
   const before = await canvasNodes.count();
-  await page.locator(`[data-add-component="${type}"]`).click();
-  await expect(page.locator('[data-scope-editing-name]')).toHaveText(TYPE_LABELS[type] ?? type);
+  const insert = TYPE_INSERT[type];
+  if (!insert) {
+    throw new Error(
+      `addComponent: no §5.6 tile mapping for type "${type}" — it needs a dedicated authoring sequence (Stack/Contact/retired types), not the generic helper. See TYPE_INSERT's comment.`,
+    );
+  }
+  await page.locator(`[data-tile][data-name="${insert.dataName}"]`).first().click();
   await expect(canvasNodes).toHaveCount(before + 1, { timeout: 20_000 });
+  if (insert.swap === 'accept') {
+    await page.locator('[data-toolbar-accept]').selectOption(insert.swapValue!);
+  } else if (insert.swap === 'cardStyle') {
+    await page.locator(`[data-card-style="${insert.swapValue}"]`).click();
+  } else if (insert.swap === 'sliderFormat') {
+    await page.locator('[data-toolbar-slider-format]').click();
+  } else if (insert.swap === 'searchable') {
+    await page.locator('[data-toolbar-searchable]').click();
+  }
+  await expect(page.locator('[data-scope-editing-name]')).toHaveText(TYPE_LABELS[type] ?? type);
 }
 
 // Arm the "+ After" insertion point on the CURRENT selection, then add — the
@@ -499,6 +576,19 @@ async function addAfterSelected(page: Page, type: string): Promise<void> {
   await page.locator('[data-studio-act="add-after"]').click();
   await expect(page.locator('[data-studio-act="add-after"]')).toHaveAttribute('aria-pressed', 'true');
   await addComponent(page, type);
+}
+
+// §5.2 dropped "Stack" as a directly-insertable tile (contract's Layout
+// group table lists only Card/Columns/Grid/Spacer). The pre-existing
+// "Group → Stack" toolbar action (data-studio-act="group-stack") wraps the
+// CURRENTLY SELECTED node into a new Stack container and moves the
+// selection to it — the equivalent-but-reordered authoring path: insert the
+// child FIRST (already selected), then group it, THEN configure the Stack's
+// own layout props. End model shape is IDENTICAL to the old
+// wrap-then-insert-into sequence (Stack node with the child in `.children`).
+async function groupSelectionIntoStack(page: Page): Promise<void> {
+  await page.locator('[data-studio-act="group-stack"]').click();
+  await expect(page.locator('[data-scope-editing-name]')).toHaveText('Stack');
 }
 
 // §7.3: the tab strip is DYNAMIC per selection — a tab must be visible
@@ -674,19 +764,26 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
       headline: 'Are you currently insured?',
       subheadline: 'It takes under 2 minutes to compare quotes.',
     });
-    // §5.2: a NEW Section already carries the BOUND QuestionHeadline +
-    // Subheadline nodes (one store — the strip inputs above); their palette
-    // items are disabled while the bound nodes exist.
-    await expect(
-      page.locator('[data-add-component="QuestionHeadline"]'),
-    ).toHaveAttribute('data-bind-disabled', 'true');
+    // §5.2/§5.4: a NEW Section already carries the BOUND QuestionHeadline +
+    // Subheadline nodes (one store — the strip inputs above). v3.1 §5.4
+    // retires Headline/Subheadline as PALETTE ITEMS entirely (no
+    // data-add-component tile exists for them anymore) — the bound-node-
+    // exists signal now lives on the STRIP's "Show" chip instead, which
+    // stays HIDDEN while the bound node is present (the same mechanism this
+    // assertion originally meant to pin).
+    await expect(page.locator('[data-bound-chip="section_headline"]')).toBeHidden();
     await addComponent(page, 'ButtonAnswerGroup');
     await openInspectorTab(page, 'choices');
     await fillChoiceRow(page, 0, { label: 'Yes, I have coverage', value: 'yes', analytics_id: 'p1_yes' });
     await fillChoiceRow(page, 1, { label: 'Not yet', value: 'no', analytics_id: 'p1_no' });
     await setInternalField(page, 'currently_insured');
     await addComponent(page, 'ContinueButton');
-    await addComponent(page, 'ReassuranceBadge');
+    // v3.1 §5.3(b): ReassuranceBadge collapses into the Text primitive
+    // (TextBlock) — the retired type is no longer placeable; the in-unit
+    // reassurance-COPY behavior survives via the "Text" tile. (The specific
+    // "reassurance" Style→Role treatment has no inspector control yet —
+    // that's Phase C; this asserts the surviving copy capability only.)
+    await addComponent(page, 'TextBlock');
     await setContentField(page, 'text', 'Get your offers in 2 minutes or less.');
 
     // the bound copy renders on the CANVAS from the ONE store (§5.2)
@@ -749,7 +846,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     );
     await expect(f.locator('.lg-answer-group button[data-lg-choice="no"]')).toHaveText('Not yet');
     await expect(f.locator('button.lg-continue')).toBeAttached();
-    await expect(f.locator('[data-component-type="ReassuranceBadge"]')).toContainText(
+    await expect(f.locator('[data-component-type="TextBlock"]')).toContainText(
       'Get your offers in 2 minutes or less.',
     );
     // trust/logo area below the unit + the legal footer
@@ -770,7 +867,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
       'Subheadline',
       'ButtonAnswerGroup',
       'ContinueButton',
-      'ReassuranceBadge',
+      'TextBlock',
     ]);
     expect(comps[0]!.bind, 'headline is the §5.2 bound node (one store)').toBe('section_headline');
     expect(comps[0]!.props?.['text'], 'bound node never stores duplicate text').toBeUndefined();
@@ -784,7 +881,7 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
       'Subheadline',
       'ButtonAnswerGroup',
       'ContinueButton',
-      'ReassuranceBadge',
+      'TextBlock',
     ]);
     // the frame side persisted through the REAL frame API
     const frame = await fetchFrame(page.request, sc.funnelPublicId);
@@ -798,14 +895,21 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
     await openNewStudio(page, `P2 Branded Frame ${uniq}`, {
       headline: 'Which coverage do you want to compare?',
     });
-    // §5.2: the bound headline/subheadline nodes are pre-seeded on a NEW unit
-    await addComponent(page, 'Stack');
+    // §5.2: the bound headline/subheadline nodes are pre-seeded on a NEW unit.
+    // v3.1 §5.2 dropped "Stack" as a directly-insertable tile — insert the
+    // answer group FIRST (root, auto-selected), THEN "Group → Stack" wraps
+    // it (equivalent end model shape: Stack containing the ButtonAnswerGroup
+    // — just insert-then-wrap instead of wrap-then-insert-into).
+    await addComponent(page, 'ButtonAnswerGroup');
+    await groupSelectionIntoStack(page);
     await openInspectorTab(page, 'layout');
     const stack = containerGroup(page, 'Stack');
     await stack.locator('select[data-container-prop="direction"]').selectOption('vertical');
     await stack.locator('select[data-container-prop="gap"]').selectOption('s');
     await stack.locator('select[data-container-prop="align"]').selectOption('stretch');
-    await addComponent(page, 'ButtonAnswerGroup'); // INTO the selected Stack
+    // re-select the ButtonAnswerGroup CHILD (grouping moved the selection to
+    // the new Stack wrapper) before authoring its choices.
+    await page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type="ButtonAnswerGroup"]').click();
     await openInspectorTab(page, 'choices');
     await fillChoiceRow(page, 0, { label: 'Home coverage', value: 'home', analytics_id: 'p2_home' });
     await fillChoiceRow(page, 1, { label: 'Auto coverage', value: 'auto', analytics_id: 'p2_auto' });
@@ -1107,13 +1211,15 @@ test.describe('LeadGen Studio §8.11 — four capability patterns, frame(Quote) 
 // ---------------------------------------------------------------------------
 
 test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
-  test('create a Yes/No slide: "Yes / No" via the Answer-choices palette group, labels via the Content tab', async ({ page }) => {
+  test('create a Yes/No slide: "Yes / No" via the Answer fields palette group, labels via the Content tab', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `YesNo Slide ${uniq}`);
 
-    // §8.3: the item lives in the intent-first "Answer choices" group under
-    // its operator label ("Yes / No" — type ids never surface).
-    const item = page.locator('[data-library-group="choices"] [data-add-component="TwoButtonYesNo"]');
+    // v3.1 §5.2: the "Answer choices" group merged into "Answer fields" (the
+    // intent-first merge of the old Answer-choices + Inputs split) — the
+    // "Yes / No" tile lives there under its operator label (type ids never
+    // surface), keyed by data-name (§5.5), not a per-type data-add-component.
+    const item = page.locator('[data-library-group="answer-fields"] [data-tile][data-name="yes no"]');
     await expect(item.locator('.studio-item-name')).toHaveText('Yes / No');
     await addComponent(page, 'TwoButtonYesNo');
     await setContentField(page, 'yesLabel', 'Yes, I am');
@@ -1312,19 +1418,33 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await expect(f.locator('[data-lg-error-for="zip"]')).toHaveText('The value has an invalid format.');
   });
 
-  test('personal-details slide: Name + Email + Phone via the Inputs palette group', async ({ page }) => {
+  test('personal-details slide: Name + Email + Phone via the "Contact" tile (§5.6: one tile, a 3-node Stack)', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Personal Details ${uniq}`);
 
-    // §8.3: all three live in the intent-first "Inputs" group
-    for (const type of ['NameFieldsGroup', 'EmailInputQuestion', 'PhoneInputQuestion']) {
-      await expect(page.locator(`[data-library-group="inputs"] [data-add-component="${type}"]`)).toHaveCount(1);
-    }
-    await addComponent(page, 'NameFieldsGroup');
-    await addComponent(page, 'EmailInputQuestion');
+    // v3.1 §5.2/§5.6: the old separate "NameFieldsGroup"/"EmailInputQuestion"/
+    // "PhoneInputQuestion" palette items merged into ONE "Contact" tile
+    // (data-name="contact name email phone", Answer fields group) that
+    // inserts all three as a Stack's children in one click (contract: "a
+    // Stack of three nodes, each individually editable/deletable") — the
+    // BEHAVIOR (author Name+Email+Phone) survives; the authoring path and
+    // resulting model SHAPE (nested under one Stack, not 3 flat siblings)
+    // both changed.
+    const contactTile = page.locator('[data-library-group="answer-fields"] [data-tile][data-name="contact name email phone"]');
+    await expect(contactTile.locator('.studio-item-name')).toHaveText('Contact');
+    const canvasNodes = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render [data-component-type]');
+    const before = await canvasNodes.count();
+    await contactTile.click();
+    // +4 canvas nodes: the Stack wrapper itself + its 3 children.
+    await expect(canvasNodes).toHaveCount(before + 4, { timeout: 20_000 });
+    await expect(page.locator('[data-scope-editing-name]')).toHaveText('Stack');
+
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
+    // select the Email child, then the Phone child, to author each field.
+    await canvas.locator('input[inputmode="email"]').click();
     await setContentField(page, 'placeholder', 'you@example.com');
     await setInternalField(page, 'email');
-    await addComponent(page, 'PhoneInputQuestion');
+    await canvas.locator('input[inputmode="tel"]').click();
     await setContentField(page, 'placeholder', '(555) 000-0000');
     await setInternalField(page, 'phone');
 
@@ -1337,29 +1457,33 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
 
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
-    expect(detail.content_json.components.map((c) => c.type)).toEqual([
-      'QuestionHeadline', // §5.2 bound pair leads every UI-authored unit
-      'Subheadline',
+    // §5.2 bound pair leads every UI-authored unit; the 3 Contact fields
+    // nest under ONE Stack (the §5.6 "3-node Stack" insert), not 3 flat
+    // top-level siblings.
+    expect(detail.content_json.components.map((c) => c.type)).toEqual(['QuestionHeadline', 'Subheadline', 'Stack']);
+    const contactStack = detail.content_json.components[2]!;
+    expect((contactStack.children ?? []).map((c) => c.type)).toEqual([
       'NameFieldsGroup',
       'EmailInputQuestion',
       'PhoneInputQuestion',
     ]);
-    expect(detail.content_json.components.map((c) => c.internal_field ?? null)).toEqual([
-      null,
-      null,
-      null,
-      'email',
-      'phone',
-    ]);
+    expect((contactStack.children ?? []).map((c) => c.internal_field ?? null)).toEqual([null, 'email', 'phone']);
   });
 
   test('icon card grid: "Icon answer cards" choices with icons edited via the Choices tab', async ({ page }) => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Icon Grid ${uniq}`);
 
+    // v3.1 §5.2: "choices" merged into "answer-fields"; group-scoping the
+    // locator picks the Answer-fields copy specifically (Suggested has its
+    // OWN "cards" tile too — same data-add-component default, different
+    // group). The TILE's own label is the generic "Cards" (contract §5.2) —
+    // NOT the specific catalog-type label "Icon answer cards" (that's
+    // STUDIO_TYPE_META's inspector-scope-header label, asserted below via
+    // addComponent's TYPE_LABELS check instead).
     await expect(
-      page.locator('[data-library-group="choices"] [data-add-component="IconCardAnswerGrid"] .studio-item-name'),
-    ).toHaveText('Icon answer cards');
+      page.locator('[data-library-group="answer-fields"] [data-tile][data-name="cards"] .studio-item-name'),
+    ).toHaveText('Cards');
     await addComponent(page, 'IconCardAnswerGrid');
     await openInspectorTab(page, 'choices');
     await fillChoiceRow(page, 0, { label: 'Sole proprietor', value: 'sole', analytics_id: 'b_sole', icon: '🏢' });
@@ -1392,7 +1516,14 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     test.setTimeout(120_000);
     await openNewStudio(page, `Range Slider ${uniq}`);
 
-    await addComponent(page, 'RangeQuestion');
+    // v3.1 §5.6: the Slider tile's swap family is NumberRangeQuestion <->
+    // CurrencyRangeQuestion ONLY (contract §5.2 table) — plain RangeQuestion
+    // has no palette path anymore. The authoring BEHAVIOR fully survives via
+    // NumberRangeQuestion: both share the IDENTICAL renderRange() renderer
+    // (presets.ts renderRangeQuestion/renderNumberRangeQuestion both delegate
+    // to renderRange(..., "number", ...)), so every render-side assertion
+    // below is unaffected — only the stored TYPE STRING changes.
+    await addComponent(page, 'NumberRangeQuestion');
     await setContentField(page, 'minLabel', 'Low');
     await setContentField(page, 'maxLabel', 'High');
     await setValidationProp(page, 'min', '10');
@@ -1413,7 +1544,7 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await saveStudio(page);
     const detail = await fetchSection(page.request, publicIdFromUrl(page));
     const range = detail.content_json.components[2]!; // after the §5.2 bound pair
-    expect(range.type).toBe('RangeQuestion');
+    expect(range.type).toBe('NumberRangeQuestion');
     expect(range.internal_field).toBe('coverage_amount');
     expect(range.props).toMatchObject({ min: 10, max: 500, step: 5, minLabel: 'Low', maxLabel: 'High' });
   });

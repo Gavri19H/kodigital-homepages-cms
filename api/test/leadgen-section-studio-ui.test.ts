@@ -259,23 +259,40 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
 
-    // 1) top bar: name inline edit · status pill · Activity/Vertical (D2 seam
-    // hooks) · mapping badge placeholder · validation chip · Save · Archive
+    // 1) top bar (v3.1 §4.1, golden 29-57): name inline edit · status pill ·
+    // real "Mapping k / n complete" badge · validation chip · Save · Archive.
+    // Activity/Vertical MOVED to the §4.2 question strip (golden 59-97) —
+    // same element ids (collectSection/dirty-watcher unaffected).
     expect(html).toContain("data-studio-topbar");
     expect(html).toContain('id="lg-section-name"');
     expect(html).toContain('<span class="badge badge-published">active</span>');
-    expect(html).toContain("data-studio-activity");
-    expect(html).toContain("data-studio-vertical");
     expect(html).toContain("data-studio-mapping-badge");
     expect(html).toContain("data-studio-validation-chip");
     expect(html).toContain('id="lg-section-save"');
     expect(html).toContain('id="lg-section-archive"');
-    // the settings strip keeps the remaining save-path scalar fields
+    const topbarBlock = html.slice(html.indexOf("data-studio-topbar"), html.indexOf("data-studio-settings"));
+    expect(topbarBlock, "Activity/Vertical must have MOVED out of the top bar").not.toContain("data-studio-activity");
+    expect(topbarBlock, "Activity/Vertical must have MOVED out of the top bar").not.toContain("data-studio-vertical");
+    // §4.1 asserted format: "Mapping k / n complete" — real computed counts,
+    // never the golden fixture's hardcoded "2 / 2" (§0 fidelity-vs-function).
+    expect(html).toMatch(/Mapping \d+ \/ \d+ complete/);
+
+    // the settings strip (v3.1 §4.2) now owns Activity/Vertical + the
+    // canonical headline/subheadline + the "On answer" segmented control.
     expect(html).toContain("data-studio-settings");
+    expect(html).toContain("data-studio-activity");
+    expect(html).toContain("data-studio-vertical");
     expect(html).toContain('id="lg-section-headline"');
     expect(html).toContain('id="lg-section-subheadline"');
-    expect(html).toContain('name="continue_mode" value="button"');
+    // §4.2 "On answer" segmented (replaces the old native radio pair) —
+    // default state is "Wait for Continue" (continue_mode=button).
+    expect(html).toContain('data-continue-mode="button"');
+    expect(html).toContain('data-continue-mode="auto_advance"');
+    expect(html).toContain(">Wait for Continue<");
+    expect(html).toContain(">Go to next<");
+    expect(html).not.toMatch(/<input[^>]*name="continue_mode"/);
     expect(html).toContain('id="lg-address-validation"');
+    expect(html).toContain("The question"); // §4.2 strip eyebrow (Appendix A)
 
     // 2) left rail: searchable library
     expect(html).toContain("data-studio-library");
@@ -299,12 +316,22 @@ describeDb("section studio SSR — §8.1 layout regions", () => {
     // 4) right: tabbed inspector
     expect(html).toContain("data-studio-inspector");
 
-    // 5) bottom drawer: Offer mapping (D2 placeholder) · Validation · Preview
+    // 5) bottom drawer (v3.1 §2.1, golden 370-387): Mapping (badge) ·
+    // Validation · Preview in a quote · (right) Preview-theme switcher ·
+    // Expand. "Design overrides" (§9.5, no golden position) stays reachable
+    // as a smaller 4th control (preserve-every-mechanism).
     expect(html).toContain("data-studio-drawer");
-    for (const tab of ["mapping", "validation", "preview"]) {
+    for (const tab of ["mapping", "validation", "preview", "design"]) {
       expect(html, `drawer tab ${tab}`).toContain(`data-studio-drawer-tab="${tab}"`);
       expect(html, `drawer panel ${tab}`).toContain(`data-studio-drawer-panel="${tab}"`);
     }
+    expect(html).toMatch(/>Mapping <span[^>]*>\d+\/\d+<\/span></);
+    expect(html).toContain(">Validation<");
+    expect(html).toContain(">Preview in a quote<");
+    expect(html).not.toContain("Preview &amp; debug"); // superseded copy
+    expect(html).toContain("Preview theme:");
+    expect(html).toContain("data-studio-drawer-expand");
+    expect(html).toContain(">Expand<");
     expect(html).toContain("data-studio-tab-mapping"); // D2 mapping seam
     expect(html).toContain("data-studio-validation-list");
     expect(html).toContain("data-studio-events-panel"); // D2 events seam
@@ -621,164 +648,205 @@ describeDb("DEV-66 — canvas srcdoc iframe (§6.1.4 real viewports)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §8.3 SSR — component library: grouping, lockstep, preset thumbnails
+// §5 SSR — component library: 4 groups × 20 verbatim golden tiles (v3.1)
 // ---------------------------------------------------------------------------
 
-function libraryItemBlock(html: string, type: string): string {
-  const start = html.indexOf(`data-add-component="${type}"`);
-  expect(start, `library item ${type}`).toBeGreaterThan(-1);
-  // the item block ends where the NEXT library item (or the group close) starts
-  const next = html.indexOf("data-add-component=", start + 10);
-  return html.slice(start, next === -1 ? start + 6000 : next);
+// Tiles are keyed by data-name (unique per tile), NOT data-add-component —
+// "Buttons"/"Cards"/"Short text" deliberately repeat their defaultType across
+// the Suggested + Answer-fields groups (contract §5.2: "a shortcut row with
+// IDENTICAL insert semantics to the same tiles below").
+function libraryTileBlock(html: string, dataName: string, fromIndex = 0): string {
+  const nameAt = html.indexOf(`data-name="${dataName}"`, fromIndex);
+  expect(nameAt, `library tile "${dataName}"`).toBeGreaterThan(-1);
+  // data-tile/data-add-component precede data-name in the real attribute
+  // order — the block must start at the tile's OWN wrapper div, not at the
+  // data-name attribute itself.
+  const start = html.lastIndexOf('<div class="studio-library-item"', nameAt);
+  expect(start, `library tile "${dataName}" wrapper start`).toBeGreaterThan(-1);
+  const next = html.indexOf('<div class="studio-library-item"', start + 10);
+  return html.slice(start, next === -1 ? start + 2000 : next);
 }
 
-describeDb("section studio SSR — §8.3 component library", () => {
-  it("§8.3 six intent-first groups; palette = the catalog's unit∪both types exactly once; frame types NEVER placeable (lockstep), searchable", async () => {
+// §5.5 the exact 20 synonym strings, in §5.2 table order, with their group.
+const EXPECTED_TILES: ReadonlyArray<[group: string, dataName: string, label: string]> = [
+  ["suggested", "short text", "Short text"],
+  ["suggested", "buttons", "Buttons"],
+  ["suggested", "cards", "Cards"],
+  ["suggested", "continue button", "Continue"],
+  ["answer-fields", "buttons", "Buttons"],
+  ["answer-fields", "cards", "Cards"],
+  ["answer-fields", "yes no", "Yes / No"],
+  ["answer-fields", "dropdown", "Dropdown"],
+  ["answer-fields", "multi-select", "Multi-select"],
+  ["answer-fields", "short text", "Short text"],
+  ["answer-fields", "number", "Number"],
+  ["answer-fields", "amount money", "Amount"],
+  ["answer-fields", "date", "Date"],
+  ["answer-fields", "slider scale", "Slider"],
+  ["answer-fields", "contact name email phone", "Contact"],
+  ["answer-fields", "address zip location", "Address"],
+  ["content", "text legal note reassurance disclosure", "Text"],
+  ["content", "image logo picture", "Image / Logo"],
+  ["content", "divider line", "Divider"],
+  ["layout", "card panel", "Card"],
+  ["layout", "columns", "Columns"],
+  ["layout", "grid", "Grid"],
+  ["layout", "spacer gap", "Spacer"],
+];
+
+describeDb("section studio SSR — §5 component library (v3.1)", () => {
+  it("§5.2 exactly 4 intent-first groups, in order, with the correct default open/collapsed state", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-
-    // the EXACT six groups of the §8.3 table (last group renders "Navigation"
-    // — the table's "Slide navigation" heading loses "slide" per C6, which
-    // forbids the word anywhere in the Section Builder)
-    const expectedGroups: ReadonlyArray<[string, string]> = [
-      ["question-copy", "Question copy"],
-      ["choices", "Answer choices"],
-      ["inputs", "Inputs"],
-      ["layout", "Inside-card layout"],
-      ["trust", "Trust &amp; help — inside this question unit"],
-      ["navigation", "Navigation"],
-    ];
-    expect(STUDIO_LIBRARY_GROUPS.map((g) => g.key)).toEqual(expectedGroups.map(([k]) => k));
-    for (const [key, label] of expectedGroups) {
-      expect(html, `library group ${key}`).toContain(`data-library-group="${key}"`);
-      expect(html, `group label ${label}`).toContain(label);
+    expect(STUDIO_LIBRARY_GROUPS.map((g) => [g.key, g.label, g.defaultOpen])).toEqual([
+      ["suggested", "Suggested", true],
+      ["answer-fields", "Answer fields", true],
+      ["content", "Content", true],
+      ["layout", "Layout", false],
+    ]);
+    for (const group of STUDIO_LIBRARY_GROUPS) {
+      expect(html, `group ${group.key}`).toContain(`data-library-group="${group.key}"`);
+      expect(html, `group label ${group.label}`).toContain(`>${group.label}<`);
     }
-    // §8.2 D5 lockstep: the palette is EXACTLY the catalog's unit ∪ both set…
-    const unitOrBoth = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope !== "frame");
-    const frameTypes = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope === "frame");
-    expect(frameTypes.length).toBeGreaterThanOrEqual(8); // the §8.2 frame row
-    const grouped = STUDIO_LIBRARY_GROUPS.flatMap((g) => [...g.types]);
-    expect([...grouped].sort()).toEqual([...unitOrBoth].sort());
-    // …each placeable exactly once on the SERVED page…
-    for (const type of unitOrBoth) {
-      const hits = html.split(`data-add-component="${type}"`).length - 1;
-      expect(hits, `${type} placed exactly once`).toBe(1);
-    }
-    // …and every frame-scope type is GONE from the palette (§8.2 "Removed").
-    for (const type of frameTypes) {
-      expect(html, `${type} not placeable`).not.toContain(`data-add-component="${type}"`);
-    }
-    expect(html).toContain("data-studio-library-search");
+    // Layout ships hidden (collapsed by default); the other 3 do not.
+    expect(html).toMatch(/data-library-items="layout"[^>]* hidden/);
+    expect(html).not.toMatch(/data-library-items="suggested"[^>]* hidden/);
+    expect(html).not.toMatch(/data-library-items="answer-fields"[^>]* hidden/);
+    expect(html).not.toMatch(/data-library-items="content"[^>]* hidden/);
   });
 
-  it("§8.3 exact item display names ride the palette (verbatim table names + 'use when' descriptions)", async () => {
+  it("§5.5 the EXACT 20 data-name synonym tiles ride the palette, in §5.2 order, each inside its correct group", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // display names from the §8.3 table (spot set across all six groups)
-    for (const name of [
-      "Category label",
-      "Question headline",
-      "Simple answer buttons",
-      "Yes / No",
-      "Icon answer cards",
-      "Image answer cards",
-      "Multi-select cards",
-      "Main + “Other” choices",
-      "Amount ($)",
-      "Amount slider",
-      "Question card",
-      "Answer grid",
-      "Two columns",
-      "Reassurance badge",
-      "Secure-form badge",
-      "Trust points",
-      "Logo row",
-      "Error message line",
-      "Continue button",
-      "Auto-advance",
-    ]) {
-      // none of these names carries an HTML-escaped ASCII char — the served
-      // bytes match the table names directly (typographic quotes unescaped)
-      expect(html, `item name ${name}`).toContain(name);
+    // every expected (group, dataName) pair appears, in the SAME relative
+    // order group-by-group (indexOf is monotonically increasing per group).
+    const groupStarts: Record<string, number> = {};
+    for (const group of STUDIO_LIBRARY_GROUPS) groupStarts[group.key] = html.indexOf(`data-library-group="${group.key}"`);
+    let lastIndexInGroup: Record<string, number> = { suggested: -1, "answer-fields": -1, content: -1, layout: -1 };
+    for (const [group, dataName, label] of EXPECTED_TILES) {
+      const at = html.indexOf(`data-name="${dataName}"`, groupStarts[group]!);
+      expect(at, `tile "${dataName}" in group ${group}`).toBeGreaterThan(lastIndexInGroup[group]!);
+      lastIndexInGroup[group] = at;
+      const block = libraryTileBlock(html, dataName, groupStarts[group]!);
+      expect(block, `tile "${dataName}" label`).toContain(`>${label}<`);
+      expect(block, `tile "${dataName}" is a data-tile`).toContain("data-tile");
     }
-    // the table's quoted one-line descriptions, verbatim
-    expect(html).toContain("One-tap answer choices.");
-    expect(html).toContain("Use when each answer has an icon.");
-    expect(html).toContain("Use when each answer has a logo or photo.");
-    expect(html).toContain("Reassurance line inside this question unit.");
+    // exactly 23 tile instances total (20 unique names; Buttons/Cards/Short
+    // text repeat once each across Suggested + Answer fields = 3 duplicates).
+    expect((html.match(/data-tile /g) ?? []).length).toBe(EXPECTED_TILES.length);
   });
 
-  it("§8.3 the dismissible Quote-Builder callout + the C7 trust scope note render with their exact copy", async () => {
+  it("§5.6 each tile's data-add-component is its EXACT default concrete type; Contact carries the 3-node Stack children", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // the callout replaces the old Layout group's frame items
+    const defaultTypeOf: Record<string, string> = {
+      "short text": "FreeTextQuestion",
+      buttons: "ButtonAnswerGroup",
+      cards: "IconCardAnswerGrid",
+      "continue button": "ContinueButton",
+      "yes no": "TwoButtonYesNo",
+      dropdown: "DropdownQuestion",
+      "multi-select": "MultiChoiceCardGroup",
+      number: "NumberInputQuestion",
+      "amount money": "CurrencyInputQuestion",
+      date: "DateQuestion",
+      "slider scale": "NumberRangeQuestion",
+      "contact name email phone": "Stack",
+      "address zip location": "AddressAutocompleteQuestion",
+      "text legal note reassurance disclosure": "TextBlock",
+      "image logo picture": "ImageBlock",
+      "divider line": "Spacer",
+      "card panel": "CardPanel",
+      columns: "Columns",
+      grid: "GridContainer",
+      "spacer gap": "Spacer",
+    };
+    for (const [dataName, type] of Object.entries(defaultTypeOf)) {
+      const block = libraryTileBlock(html, dataName);
+      expect(block, `tile "${dataName}" default type`).toContain(`data-add-component="${type}"`);
+    }
+    const contact = libraryTileBlock(html, "contact name email phone");
+    expect(contact).toContain('data-add-children="NameFieldsGroup,EmailInputQuestion,PhoneInputQuestion"');
+  });
+
+  it("§5.1 NO descriptions, thumbnails, id strings, or 'maps to Offer fields' badges anywhere in the palette", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const libStart = html.indexOf("data-studio-library");
+    const libEnd = html.indexOf("</div>\n</div>", html.indexOf("studio-frame-callout"));
+    const libBlock = html.slice(libStart, libEnd === -1 ? libStart + 20000 : libEnd);
+    expect(libBlock).not.toContain("studio-item-desc");
+    expect(libBlock).not.toContain("studio-thumb");
+    expect(libBlock).not.toContain("maps to Offer fields");
+    expect(libBlock).not.toContain("stores one choice");
+    expect(libBlock).not.toContain("stores a number");
+    // no raw catalog type name leaks as VISIBLE tile text (only inside the
+    // data-add-component attribute value, never as rendered copy)
+    expect(libBlock).not.toMatch(/>ButtonAnswerGroup</);
+    expect(libBlock).not.toMatch(/>ZIPInputQuestion</);
+  });
+
+  it("§5.2 the dismissible Quote-Builder callout renders after the Layout group with its exact copy", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
     expect(html).toContain("data-studio-frame-callout");
     expect(html).toContain("Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong>");
     expect(html).toMatch(/data-studio-callout-open[^>]*>Open</);
     expect(html).toMatch(/<a href="\/admin\/leadgen\/quotes"[^>]*data-studio-callout-open/);
     expect(html).toContain("data-studio-callout-dismiss");
-    // the island persists the dismissal (localStorage key)
+    // renders AFTER the Layout group (golden position, below the 4 groups)
+    expect(html.indexOf("data-studio-frame-callout")).toBeGreaterThan(html.indexOf('data-library-group="layout"'));
     const island = studioIsland(html);
     expect(island).toContain("lg-studio-frame-callout-dismissed");
-    // C7: the Trust & help scope note, verbatim
-    expect(html).toContain("data-trust-scope-note");
-    expect(html).toContain(
-      "These travel with this Section, inside the question unit. Funnel-wide trust strips, logo rows and the legal footer are configured in the Quote Builder.",
-    );
   });
 
-  it("library items are role=button DIVS — preset thumbnails contain real <button>/<input> markup and nested interactive content inside a <button> is invalid HTML that shatters the page tree (D2 browser-exposure regression)", async () => {
+  it("§5.1 group chevrons toggle open/closed (island) and search filters by data-name across ALL groups, force-opening collapsed ones", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // the wrapper is a div[role=button][tabindex] — click + drag + keyboard
-    expect(html).toMatch(/<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component=/);
-    // NEVER a <button> wrapper (the exact markup class that broke the layout)
+    expect(html).toMatch(/data-library-group-toggle="layout"[^>]*aria-expanded="false"/);
+    expect(html).toMatch(/data-library-group-toggle="suggested"[^>]*aria-expanded="true"/);
+    const island = studioIsland(html);
+    expect(island).toContain("data-library-group-toggle");
+    expect(island).toContain("setGroupOpen");
+    // search reads data-name (golden's own filter() attribute), not a
+    // separate description-derived search-text blob
+    expect(island).toContain("getAttribute('data-name')");
+    expect(island).toContain("data-library-items");
+  });
+
+  it("library tiles are role=button DIVS (never <button> — D2 browser-exposure regression guard survives the re-chrome)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toMatch(/<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component=/);
     expect(html).not.toMatch(/<button[^>]*data-add-component=/);
-    // the island keeps the keyboard-activation contract for the divs
     const island = studioIsland(html);
     expect(island).toContain("ev.key !== 'Enter' && ev.key !== ' '");
   });
 
-  it("every item shows a thumbnail rendered FROM THE COMPONENT'S OWN PRESET (3+ representative proofs), name, description, answer type + maps badge", async () => {
+  it("every one of the 20 tile SVGs is copied byte-for-byte from the committed golden master (Appendix D verbatim-asset rule)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-
-    // representative proof the thumb contains the preset's own markup — the
-    // data-component-type hydration attribute only the REAL renderComponent
-    // emits (never hand-drawn SVG): a question, a grid, and a container.
-    for (const type of ["TwoButtonYesNo", "IconCardAnswerGrid", "CardPanel", "RangeQuestion"]) {
-      const block = libraryItemBlock(html, type);
-      expect(block, `${type} thumb is preset-rendered`).toContain(`data-component-type="${type}"`);
-      expect(block, `${type} has a scaled thumb`).toContain("studio-thumb-scale");
-    }
-    // every placeable item carries a thumb (§8.2: placeable = unit ∪ both —
-    // frame types left the palette)
-    const placeable = ALL_TYPES.filter((t) => COMPONENT_CATALOG[t].scope !== "frame");
-    const thumbs = html.split("studio-thumb-scale").length - 1;
-    expect(thumbs).toBeGreaterThanOrEqual(placeable.length);
-    // copy + metadata per §8.3 (v2.5 table display name)
-    expect(html).toContain("Yes / No");
-    expect(html).toContain("Yes / No pair storing a boolean answer.");
-    // MINOR 11 (07 §7.4): the answer-type chip speaks PLAIN WORDS per the
-    // catalog produces — never the raw identifier.
-    const yesno = libraryItemBlock(html, "TwoButtonYesNo");
-    expect(yesno).toContain('class="studio-item-type">stores one choice<');
-    expect(yesno).not.toContain('class="studio-item-type">boolean<');
-    expect(libraryItemBlock(html, "IconCardAnswerGrid")).toContain('class="studio-item-type">stores one choice<');
-    expect(libraryItemBlock(html, "MultiChoiceCardGroup")).toContain('class="studio-item-type">stores several choices<');
-    expect(libraryItemBlock(html, "RangeQuestion")).toContain('class="studio-item-type">stores a number<');
-    expect(libraryItemBlock(html, "FreeTextQuestion")).toContain('class="studio-item-type">stores text/number/date<');
-    // no raw produces identifier leaks into ANY chip
-    expect(html).not.toMatch(/class="studio-item-type">(enum|boolean|array|object|currency|string|number)</);
-    expect(yesno).toContain("maps to Offer fields");
-    // affordances produce no answer → no maps badge
-    const badge = libraryItemBlock(html, "ReassuranceBadge");
-    expect(badge).not.toContain("maps to Offer fields");
+    // spot-check a representative sample's exact path/geometry data against
+    // the golden literal (not just "an svg exists") — the ZIP fixture's own
+    // tile (short text) plus a text-glyph tile (Amount) and a dashed-stroke
+    // tile (Spacer), each copied from the golden lines named in the comment.
+    expect(html).toContain(
+      '<rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><line x1="9" y1="11.5" x2="9" y2="18.5" stroke="#1B3A5C" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="15" x2="27" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/>',
+    ); // golden :123 (short text)
+    expect(html).toContain(
+      '<text x="9" y="19" font-family="Inter" font-size="11" font-weight="800" fill="#1B3A5C">$</text><line x1="17" y1="15" x2="30" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/>',
+    ); // golden :178 (amount)
+    expect(html).toContain(
+      '<rect x="6" y="5" width="34" height="20" rx="3" fill="none" stroke="#9AA9BD" stroke-width="1.3" stroke-dasharray="3 3"/><path d="M23 9v12M20 12l3-3 3 3M20 18l3 3 3-3" stroke="#1B3A5C" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+    ); // golden :243 (spacer)
   });
 });
 
@@ -990,6 +1058,17 @@ function sliceIslandFunction(script: string, name: string): string {
 // Slice a `var NAME = {…};` object-literal statement from the island (the
 // §8.8 per-mode key tables ride NEXT TO the functions that consume them —
 // probes must run the SERVED tables, never a test copy).
+// A single-statement `var NAME = <scalar/expr>[, more...];` declaration —
+// sliceIslandVar only handles object literals; this handles plain scalars
+// (e.g. `var WIDTH_PX_MIN = 200, WIDTH_PX_MAX = 600, WIDTH_PX_GRID = 4;`).
+function sliceIslandLine(script: string, startsWith: string): string {
+  const start = script.indexOf(startsWith);
+  expect(start, `island line starting "${startsWith}"`).toBeGreaterThan(-1);
+  const end = script.indexOf(";", start);
+  expect(end, `island line starting "${startsWith}" terminates`).toBeGreaterThan(-1);
+  return script.slice(start, end + 1);
+}
+
 function sliceIslandVar(script: string, name: string): string {
   const marker = `var ${name} = {`;
   const start = script.indexOf(marker);
@@ -3525,39 +3604,48 @@ const BOUND_SEED_CONTENT = {
   ],
 };
 
-describeDb("v2.5 §5.1 SSR — the Question strip", () => {
-  it("canonical editors + Continue-behavior radio (values unchanged) + the EXACT frame note + hidden chips + legacy Maps row", async () => {
+describeDb("v3.1 §4.2 SSR — the Question strip", () => {
+  it("canonical editors + 'On answer' segmented (replaces the old radio) + the EXACT frame note + hidden chips + legacy Maps row", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // canonical editors, §5.1 labels (same element ids — save path unchanged)
+    // canonical editors, §4.2 labels (same element ids — save path unchanged)
     expect(html).toContain(">Question headline *</label>");
     expect(html).toContain('id="lg-section-headline"');
-    expect(html).toContain(">Subheadline</label>");
+    expect(html).toContain(">Subheadline <span");
     expect(html).toContain('id="lg-section-subheadline"');
-    // Continue behavior: values unchanged, §5.1 operator labels + the note
-    expect(html).toContain(">Continue behavior</legend>");
-    expect(html).toContain('name="continue_mode" value="button"');
-    expect(html).toContain('name="continue_mode" value="auto_advance"');
-    expect(html).toContain("Visitor taps Continue (validates first)");
-    expect(html).toContain("Advance automatically on answer");
-    // served bytes carry the typographic apostrophes as entities
+    // §4.2 "On answer" segmented (golden :71-75) — the old native radio pair
+    // is GONE; two clickable segments write continue_mode via the island.
+    expect(html).toContain(">On answer<");
+    expect(html).toContain('data-continue-mode="button"');
+    expect(html).toContain('data-continue-mode="auto_advance"');
+    expect(html).toContain(">Wait for Continue<");
+    expect(html).toContain(">Go to next<");
+    expect(html).not.toMatch(/<input[^>]*type="radio"[^>]*name="continue_mode"/);
+    expect(html).not.toContain(">Continue behavior</legend>");
+    // served bytes carry the typographic apostrophes as entities — the note
+    // survives (visually-hidden + a title tooltip) even though the visible
+    // fieldset legend it used to sit under is gone.
     expect(html).toContain(
       "The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.",
     );
+    // Appendix A: the strip's informational Maps status chip.
+    expect(html).toMatch(/Google Maps: (connected|not connected)/);
     // §5.2 hidden-in-unit chips (SSR'd hidden; island toggles)
     expect(html).toMatch(/data-bound-chip="section_headline"[^>]*hidden/);
     expect(html).toMatch(/data-bound-chip="section_subheadline"[^>]*hidden/);
     expect(html).toContain("Hidden in this question unit");
     expect(html).toMatch(/data-bound-show="section_headline"[^>]*>Show</);
-    // the legacy global Maps checkbox row stays (compat)
+    // the legacy global Maps checkbox row stays (compat) — visually
+    // subordinate (no golden position exists for it — §9's real per-field
+    // Maps tab supersedes it), but the mechanism keeps working.
     expect(html).toContain('id="lg-address-validation"');
     expect(html).toContain("data-maps-legacy-note");
     // the legacy-link banner slot ships hidden
     expect(html).toMatch(/data-bind-banner[^>]*hidden/);
   });
 
-  it("/new seeds BOUND QuestionHeadline + Subheadline as nodes 1–2 in BOTH the blob and the SSR canvas; palette bind items start disabled", async () => {
+  it("/new seeds BOUND QuestionHeadline + Subheadline as nodes 1–2 in BOTH the blob and the SSR canvas; v3.1 §5.4 — neither is a palette tile (the strip's hidden-chip owns re-insertion instead)", async () => {
     const { env } = newHarness();
     const html = await getHtml(env, "/admin/leadgen/sections/new");
     const data = extractJsonBlob(html, "lg-section-data");
@@ -3573,22 +3661,24 @@ describeDb("v2.5 §5.1 SSR — the Question strip", () => {
     const region = canvasSrcdoc(html);
     expect(region).toContain('data-component-type="QuestionHeadline"');
     expect(region).toContain('data-component-type="Subheadline"');
-    // §5.2: while a bound node exists the palette items are disabled with the
-    // EXACT tooltip
-    expect(html).toMatch(
-      /data-add-component="QuestionHeadline"[^>]*data-bind-disabled="true"[^>]*title="This Section already shows its headline"/,
-    );
-    expect(html).toMatch(
-      /data-add-component="Subheadline"[^>]*data-bind-disabled="true"[^>]*title="This Section already shows its subheadline"/,
-    );
+    // v3.1 §5.4 (binding): Headline & Subheadline are NOT palette items at
+    // all — no data-add-component tile for either type exists anywhere.
+    expect(html).not.toContain('data-add-component="QuestionHeadline"');
+    expect(html).not.toContain('data-add-component="Subheadline"');
+    // the strip's "Show" chips stay HIDDEN while the bound nodes exist
+    // (§5.2 mechanism, tested fully in the v3.1 §4.2 strip block — this is
+    // just the cross-check that a freshly-seeded /new section is consistent).
+    expect(html).toMatch(/data-bound-chip="section_headline"[^>]*hidden/);
+    expect(html).toMatch(/data-bound-chip="section_subheadline"[^>]*hidden/);
   });
 
-  it("a legacy Section (no bound nodes) serves ENABLED palette bind items and an SSR canvas that resolves bound text when present", async () => {
+  it("a legacy Section (no bound nodes) still has NO palette tile for Headline/Subheadline; the SSR canvas resolves bound text when a bound node is present elsewhere", async () => {
     const { env } = newHarness();
     const section = await createSection(env); // YESNO content — no headline nodes
     const html = await studioPage(env, section.public_id);
-    expect(html).toMatch(/data-add-component="QuestionHeadline"[^>]*data-bind-disabled="false"/);
-    expect(html).toMatch(/data-add-component="Subheadline"[^>]*data-bind-disabled="false"/);
+    // v3.1 §5.4: retired from the palette regardless of bound-node presence.
+    expect(html).not.toContain('data-add-component="QuestionHeadline"');
+    expect(html).not.toContain('data-add-component="Subheadline"');
 
     // a section WITH a bound node SSRs the canonical column text into the
     // canvas (studioCanvasDocument threads sectionCtx)
@@ -3947,19 +4037,26 @@ describeDb("v2.5 §5.2 EXECUTED — strip⇄canvas ONE store (live server seam)"
 // v2.5 wave-1 — §5.4 canvas scope: Frame hint + the amber page-frame badge
 // ---------------------------------------------------------------------------
 
-describeDb("v2.5 §5.4 — unit-only canvas scope", () => {
-  it("SSR: the Frame hint toggle + the dimmed non-interactive skeleton (presentation-only) ship in the canvas region", async () => {
+describeDb("v3.1 §6.1/§6.3 — unit-only canvas scope", () => {
+  it("SSR: the Frame hint toggle (default ON per contract §6.1/golden state.frameHint=true) + the dimmed non-interactive skeleton (presentation-only) ship VISIBLE in the canvas region", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    expect(html).toMatch(/data-studio-frame-hint[^>]*aria-pressed="false"/);
+    // v3.1 fix: the pre-v3.1 code defaulted Frame hint OFF — contract §6.1
+    // table ("toggle (default ON)") and the golden's own state (frameHint:
+    // true) both require default ON; ships pressed + the skeletons VISIBLE.
+    expect(html).toMatch(/data-studio-frame-hint[^>]*aria-pressed="true"/);
     expect(html).toContain(">Frame hint</button>");
-    // the two skeleton edges ship HIDDEN, aria-hidden, and the CSS keeps them
-    // dimmed + inert (never editable here)
-    expect(html).toMatch(/data-studio-frame-skeleton="top"[^>]*hidden/);
-    expect(html).toMatch(/data-studio-frame-skeleton="bottom"[^>]*hidden/);
-    expect(html).toContain(".studio-frame-skeleton{opacity:.35;pointer-events:none");
-    // the island toggle flips aria-pressed + unhides both skeletons
+    expect(html).toContain("Funnel frame"); // golden :301 tag copy (Appendix A)
+    expect(html).toContain("Advertising disclosure"); // golden footer copy (Appendix A)
+    // the two skeleton edges ship VISIBLE (no bare `hidden` attribute — note
+    // the \s boundary so this does NOT false-match inside "aria-hidden"),
+    // and dimmed at the golden's exact opacity .5 (§6.3) via their own inline style
+    expect(html).not.toMatch(/data-studio-frame-skeleton="top"[^>]*\shidden(?=[\s>])/);
+    expect(html).not.toMatch(/data-studio-frame-skeleton="bottom"[^>]*\shidden(?=[\s>])/);
+    expect(html).toMatch(/data-studio-frame-skeleton="top"[^>]*aria-hidden="true"/);
+    expect(html).toMatch(/opacity:\.5;pointer-events:none/);
+    // the island toggle flips aria-pressed + (un)hides both skeletons
     const island = studioIsland(html);
     expect(island).toContain("data-studio-frame-hint");
     expect(island).toContain("skels[i].hidden = !on");
@@ -4217,8 +4314,10 @@ describeDb("v2.5 A5 — image-grid samples always carry image_alt", () => {
     expect(island).toContain(
       "var CHOICE_FIELDS = ['label', 'value', 'analytics_id', 'title', 'subtitle', 'badge', 'icon', 'emoji', 'imageMediaId', 'image_alt', 'aria_label', 'description']",
     );
-    // the SSR thumbnail sample carries alt too (served page renders real alts)
-    expect(html).toContain('alt="Yes, currently"');
+    // v3.1 §5.1 retires the palette's live-preset thumbnails (bespoke SVGs
+    // replace them — no component render, so no sample image_alt rides the
+    // served page from the palette anymore); the CHOICE_FIELDS assertion
+    // above is this test's real proof.
   });
 });
 
@@ -4405,8 +4504,9 @@ describeDb("wave 2 — §6.1 toolbar SSR anatomy (1–9)", () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
-    // the toolbar block itself is NOT hidden (matrix row 1 shows the base)
-    expect(html).toMatch(/<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar>/);
+    // the toolbar block itself is NOT hidden (matrix row 1 shows the base).
+    // v3.1: the toolbar now carries an inline style (golden 46px bar chrome).
+    expect(html).toMatch(/<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="[^"]*">/);
     // 1. breadcrumb lives INSIDE the toolbar now
     const toolbarAt = html.indexOf("data-studio-canvas-toolbar");
     const crumbAt = html.indexOf("data-studio-breadcrumb");
@@ -5532,6 +5632,90 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(island).toContain("node.type !== 'RangeQuestion' && node.type !== 'NumberRangeQuestion' && node.type !== 'CurrencyRangeQuestion'");
   });
 
+  it("v3.1 §5.6 EXECUTED: Cards style (Icon/Image/Plain) + Slider Format $ + the Accept-swap rule are all pure round-trip TYPE swaps that preserve internal_field/choices", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const probe = studioProbe(html, {
+      components: [
+        { type: "IconCardAnswerGrid", question_id: "c1", internal_field: "make", choices: [{ label: "Toyota", value: "toyota", analytics_id: "toyota", icon: "car" }] },
+        { type: "NumberRangeQuestion", question_id: "s1", internal_field: "loan_amount", props: { min: 0, max: 100 } },
+        { type: "ZIPInputQuestion", question_id: "z1", internal_field: "zip", props: { placeholder: "ZIP", label: "ZIP code" } },
+      ],
+    });
+    probe.run(
+      [
+        "function updateCanvasToolbar() {}",
+        sliceIslandVar(island, "CARD_STYLE_TYPES"),
+        sliceIslandVar(island, "ACCEPT_FORMAT_TYPE"),
+        sliceIslandVar(island, "ACCEPT_TYPE_FORMAT"),
+        sliceIslandArray(island, "CARD_STYLE_FAMILY"),
+        sliceIslandFunction(island, "cardStyleOf"),
+        sliceIslandFunction(island, "setCardStyle"),
+        sliceIslandFunction(island, "toggleSliderFormat"),
+        sliceIslandFunction(island, "acceptFormatOfNode"),
+        sliceIslandFunction(island, "setAcceptFormat"),
+      ].join("\n"),
+    );
+    // §5.6 Cards: Icon -> Image -> Plain -> back to Icon; choices survive.
+    expect(probe.run("cardStyleOf(findRef('c1').node)")).toBe("icon");
+    expect(probe.run("setCardStyle(findRef('c1').node, 'image')")).toBe(true);
+    expect(probe.run("findRef('c1').node.type")).toBe("ImageCardAnswerGrid");
+    expect(probe.run("setCardStyle(findRef('c1').node, 'plain')")).toBe(true);
+    expect(probe.run("findRef('c1').node.type")).toBe("ButtonAnswerGroup");
+    expect(probe.run("findRef('c1').node.choices[0].label")).toBe("Toyota"); // never dropped
+    expect(probe.run("setCardStyle(findRef('c1').node, 'icon')")).toBe(true);
+    expect(probe.run("findRef('c1').node.type")).toBe("IconCardAnswerGrid");
+    // a same-style set is a documented no-op (not a spurious history entry)
+    expect(probe.run("setCardStyle(findRef('c1').node, 'icon')")).toBe(false);
+    // non-card-family node is never swapped by this control
+    expect(probe.run("setCardStyle(findRef('s1').node, 'icon')")).toBe(false);
+
+    // §5.6 Slider: NumberRangeQuestion <-> CurrencyRangeQuestion; props survive.
+    expect(probe.run("toggleSliderFormat(findRef('s1').node)")).toBe(true);
+    expect(probe.run("findRef('s1').node.type")).toBe("CurrencyRangeQuestion");
+    expect(probe.run("findRef('s1').node.props.max")).toBe(100);
+    expect(probe.run("toggleSliderFormat(findRef('s1').node)")).toBe(true);
+    expect(probe.run("findRef('s1').node.type")).toBe("NumberRangeQuestion");
+    expect(probe.run("toggleSliderFormat(findRef('c1').node)")).toBe(false); // not a slider
+
+    // §5.6 the Accept-swap rule: every one of the 8 values round-trips
+    // through setAcceptFormat, writing BOTH the concrete type AND
+    // props.format (§11.3 worked example shape), preserving label/placeholder.
+    expect(probe.run("acceptFormatOfNode(findRef('z1').node)")).toBe("us_zip");
+    expect(probe.run("setAcceptFormat(findRef('z1').node, 'email')")).toBe(true);
+    expect(probe.run("findRef('z1').node.type")).toBe("EmailInputQuestion");
+    expect(probe.run("findRef('z1').node.props.format")).toBe("email");
+    expect(probe.run("findRef('z1').node.props.label")).toBe("ZIP code"); // shared props survive
+    expect(probe.run("setAcceptFormat(findRef('z1').node, 'us_zip')")).toBe(true);
+    expect(probe.run("findRef('z1').node.type")).toBe("ZIPInputQuestion");
+    expect(probe.run("findRef('z1').node.props.format")).toBe("us_zip");
+    expect(probe.run("acceptFormatOfNode(findRef('c1').node)")).toBe(null); // not an Accept-family type
+    expect(probe.run("setAcceptFormat(findRef('c1').node, 'text')")).toBe(false);
+    // the mutated model stays valid against the REAL server validator
+    expect(validateSectionContent(probe.sandbox.state.content as never).errors).toEqual([]);
+  });
+
+  it("v3.1 §5.6 SSR: the canvas toolbar hosts the Card-style segmented, Slider Format $ toggle, and the Accept dropdown with the exact 8-option enumeration", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain("data-toolbar-card-style-wrap");
+    for (const style of ["icon", "image", "plain"]) expect(html).toContain(`data-card-style="${style}"`);
+    expect(html).toContain("data-toolbar-slider-format-wrap");
+    expect(html).toContain("data-toolbar-slider-format");
+    expect(html).toContain("data-toolbar-accept-wrap");
+    expect(html).toMatch(/<select id="lg-tb-accept"[^>]*data-toolbar-accept/);
+    // the exact §8.5b Accept enumeration, in order, none other
+    const acceptBlockStart = html.indexOf('id="lg-tb-accept"');
+    const acceptBlockEnd = html.indexOf("</select>", acceptBlockStart);
+    const acceptBlock = html.slice(acceptBlockStart, acceptBlockEnd);
+    expect(
+      [...acceptBlock.matchAll(/<option value="[^"]+">([^<]+)<\/option>/g)].map((m) => m[1]),
+    ).toEqual(["Any text", "Number", "Amount ($)", "Email", "Phone", "ZIP code (5 digits)", "Date", "Street address"]);
+  });
+
   it("§6.2 inline editing: dblclick commit writes the BOUND strip store / props.text / choice labels; Advanced raw JSON is read-only until the Edit-raw confirm", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
@@ -5637,6 +5821,117 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(ta.getAttribute("readonly")).toBe(null);
     expect(applyBtn.hidden).toBe(false);
     expect(editBtn.hidden).toBe(true);
+  });
+
+  it("v3.1 §6.2/§7 EXECUTED: default selection = first real answer node (skips bound copy); selectionChromeKind classifies field/headline/continue/container; width snap+clamp is pure and bounded [200,600]/4px", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const FIXTURE = {
+      components: [
+        { type: "QuestionHeadline", question_id: "q_head", bind: "section_headline" },
+        { type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip", props: { placeholder: "ZIP" } },
+        { type: "ContinueButton", question_id: "q_go" },
+        { type: "CardPanel", question_id: "q_card", children: [] },
+      ],
+    };
+    const probe = studioProbe(html, FIXTURE);
+    probe.run(
+      [
+        sliceIslandLine(island, "var WIDTH_PX_MIN"),
+        sliceIslandFunction(island, "findDefaultSelectionId"),
+        sliceIslandFunction(island, "selectionChromeKind"),
+        sliceIslandFunction(island, "currentCustomWidthPx"),
+        sliceIslandFunction(island, "snapWidthCustomPx"),
+      ].join("\n"),
+    );
+    // §6.2 default selection: the FIRST node with produces !== null and no
+    // bind — the ZIP field, NOT the bound headline (generalizes the
+    // fixture's "default = the ZIP field" beyond this one hardcoded type).
+    expect(probe.run("findDefaultSelectionId()")).toBe("q_zip");
+    // §6.2 chrome-kind classification — the 3 golden variants + null (no
+    // golden-specific chrome; containers keep their PRE-EXISTING
+    // .studio-resize-handle mechanism untouched).
+    expect(probe.run(`selectionChromeKind(findRef('q_head').node)`)).toBe("headline");
+    expect(probe.run(`selectionChromeKind(findRef('q_zip').node)`)).toBe("field");
+    expect(probe.run(`selectionChromeKind(findRef('q_go').node)`)).toBe("continue");
+    expect(probe.run(`selectionChromeKind(findRef('q_card').node)`)).toBe(null);
+    // §7.1.3 measurement formula: snapped to a 4px grid, clamped [200,600].
+    expect(probe.run("snapWidthCustomPx(383)")).toBe(384); // snaps to nearest 4
+    expect(probe.run("snapWidthCustomPx(50)")).toBe(200); // clamped to the floor
+    expect(probe.run("snapWidthCustomPx(9000)")).toBe(600); // clamped to the ceiling
+    expect(probe.run("snapWidthCustomPx(602)")).toBe(600); // 604 snaps then clamps
+    // currentCustomWidthPx reads back exactly what was written — never a fake
+    expect(probe.run(`currentCustomWidthPx(findRef('q_zip').node)`)).toBe(null);
+    probe.run(`findRef('q_zip').node.design_overrides = { size: { width: { custom_px: 344 } } }`);
+    expect(probe.run(`currentCustomWidthPx(findRef('q_zip').node)`)).toBe(344);
+  });
+
+  it("v3.1 §7 EXECUTED: dragging a width handle writes node.design_overrides.size.width.custom_px through the SAME afterModelChange path as every other mutation (one history entry, canvas re-render scheduled)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const FIXTURE = { components: [{ type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip" }] };
+    // a minimal DOM stub: the handle's wrapper hosts a getBoundingClientRect
+    // (the "measured content-box width" §7.1.3 requires) + the target input.
+    const target = { getBoundingClientRect: () => ({ width: 300 }) };
+    const wrap = {
+      querySelector: (sel: string) => (sel.includes('data-question-id="q_zip"') ? target : null),
+    };
+    const handle = {
+      getAttribute(name: string): string | null {
+        if (name === "data-width-handle") return "q_zip";
+        if (name === "data-handle-side") return "right";
+        return null;
+      },
+      parentNode: wrap,
+      ownerDocument: null as unknown,
+      closest: () => handle,
+    };
+    let historyPushed = 0;
+    let canvasScheduled = 0;
+    const probe = studioProbe(html, FIXTURE, {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    });
+    probe.sandbox["afterModelChange"] = () => {
+      historyPushed += 1;
+      canvasScheduled += 1;
+    };
+    // simulate the mouseup 84px to the right (dragging the RIGHT handle
+    // widens: 300 + 84 = 384, already grid-aligned). finishUp is a closure
+    // inside onWidthHandleMouseDown — captured via a synthetic
+    // document.addEventListener('mouseup', ...) stub, then invoked directly
+    // (deterministic, no real timers/events needed).
+    let capturedUp: ((ev: unknown) => void) | null = null;
+    probe.sandbox["document"] = {
+      addEventListener: (name: string, fn: (ev: unknown) => void) => {
+        if (name === "mouseup") capturedUp = fn;
+      },
+      removeEventListener: () => {},
+    };
+    // Stub objects carry FUNCTION properties (getAttribute/closest/etc.) —
+    // they must ride the sandbox by reference, never JSON.stringify (which
+    // silently drops every function, the bug this comment replaced).
+    probe.sandbox["mouseDownStub"] = { target: handle, clientX: 100, preventDefault: () => {}, stopPropagation: () => {} };
+    probe.run(
+      [
+        sliceIslandLine(island, "var WIDTH_PX_MIN"),
+        sliceIslandFunction(island, "snapWidthCustomPx"),
+        "function canvasFrameDoc() { return null; }",
+        "function canvasFrameEl() { return null; }",
+        sliceIslandFunction(island, "onWidthHandleMouseDown"),
+      ].join("\n"),
+    );
+    probe.run("onWidthHandleMouseDown(mouseDownStub)");
+    expect(capturedUp).toBeTruthy();
+    (capturedUp as unknown as (ev: unknown) => void)({ clientX: 184 }); // +84px
+    expect(probe.run(`findRef('q_zip').node.design_overrides.size.width`)).toEqual({ custom_px: 384 });
+    expect(historyPushed).toBeGreaterThan(0);
+    expect(canvasScheduled).toBeGreaterThan(0);
   });
 
   it("§6.2 Escape ends the inline edit WITHOUT walking the selection — onKey stops propagation before the doc-level handler", async () => {

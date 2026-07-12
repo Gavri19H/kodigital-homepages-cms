@@ -216,12 +216,77 @@ const TYPE_LABELS: Record<string, string> = {
   GridContainer: "Answer grid",
 };
 
+// v3.1 Phase B redesign: the palette is now 20 golden TILES keyed by
+// data-tile/data-name (contract §5.2/§5.5), not one dedicated
+// data-add-component per catalog type. Grounded in ui-section-studio.ts's
+// STUDIO_LIBRARY_GROUPS tile table + LEADGEN_FIELD_ACCEPT_TYPE
+// (content-schema.ts) — see leadgen-studio-patterns.spec.ts's TYPE_INSERT
+// for the full commented mapping; this file only needs the subset it uses.
+interface TileInsert {
+  dataName: string;
+  swap?: "accept" | "cardStyle" | "sliderFormat" | "searchable";
+  swapValue?: string;
+}
+const TYPE_INSERT: Partial<Record<string, TileInsert>> = {
+  ButtonAnswerGroup: { dataName: "buttons" },
+  TwoButtonYesNo: { dataName: "yes no" },
+  IconCardAnswerGrid: { dataName: "cards" },
+  MultiChoiceCardGroup: { dataName: "multi-select" },
+  ContinueButton: { dataName: "continue button" },
+  GridContainer: { dataName: "grid" },
+  ZIPInputQuestion: { dataName: "short text", swap: "accept", swapValue: "us_zip" },
+  // Stack intentionally omitted — no tile (§5.2); use groupSelectionIntoStack.
+};
+
+// Clicks the golden TILE (data-tile/data-name), then performs the §5.6 swap
+// (Accept/Card-style/Slider-format/Searchable) when the wanted type isn't
+// the tile's own default. `.first()` is deliberate: "Buttons"/"Cards"/
+// "Short text" repeat once in the Suggested group (§5.2 "identical insert
+// semantics") — both copies are always visible (Suggested/Answer-fields
+// default OPEN), so `.first()` deterministically picks the Suggested one.
 async function addComponent(page: Page, type: string): Promise<void> {
   const canvasNodes = studioCanvas(page).locator("[data-component-type]");
   const before = await canvasNodes.count();
-  await page.locator(`[data-add-component="${type}"]`).click();
-  await expect(page.locator("[data-scope-editing-name]")).toHaveText(TYPE_LABELS[type] ?? type);
+  const insert = TYPE_INSERT[type];
+  if (!insert) {
+    throw new Error(`addComponent: no §5.6 tile mapping for type "${type}" in this file's TYPE_INSERT subset`);
+  }
+  const tile = page.locator(`[data-tile][data-name="${insert.dataName}"]`).first();
+  // §5.1: the Layout group (Card/Columns/Grid/Spacer) is COLLAPSED by
+  // default (defaultOpen: false) — unlike Suggested/Answer fields/Content,
+  // its tiles are hidden until the group header is expanded. Detect this
+  // generically (ancestor [data-library-items] group, rather than hardcode
+  // which groups start closed — that's ui-section-studio.ts's own state).
+  if (!(await tile.isVisible())) {
+    const groupKey = await tile.evaluate(
+      (el) => el.closest("[data-library-items]")?.getAttribute("data-library-items") ?? null,
+    );
+    if (groupKey) {
+      await page.locator(`[data-library-group-toggle="${groupKey}"]`).click();
+    }
+  }
+  await expect(tile).toBeVisible();
+  await tile.click();
   await expect(canvasNodes).toHaveCount(before + 1, { timeout: 20_000 });
+  if (insert.swap === "accept") {
+    await page.locator("[data-toolbar-accept]").selectOption(insert.swapValue!);
+  } else if (insert.swap === "cardStyle") {
+    await page.locator(`[data-card-style="${insert.swapValue}"]`).click();
+  } else if (insert.swap === "sliderFormat") {
+    await page.locator("[data-toolbar-slider-format]").click();
+  } else if (insert.swap === "searchable") {
+    await page.locator("[data-toolbar-searchable]").click();
+  }
+  await expect(page.locator("[data-scope-editing-name]")).toHaveText(TYPE_LABELS[type] ?? type);
+}
+
+// §5.2 dropped "Stack" as a directly-insertable tile. The pre-existing
+// "Group → Stack" toolbar action wraps the CURRENTLY SELECTED node into a
+// new Stack and moves the selection to it — insert the child FIRST, then
+// group it (equivalent end model shape to the old wrap-then-insert-into).
+async function groupSelectionIntoStack(page: Page): Promise<void> {
+  await page.locator('[data-studio-act="group-stack"]').click();
+  await expect(page.locator("[data-scope-editing-name]")).toHaveText("Stack");
 }
 
 async function openInspectorTab(page: Page, key: string): Promise<void> {
@@ -617,13 +682,19 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
     await openNewStudio(page, `E1 B unit ${uniq}`, {
       headline: "Which coverage do you want to compare?",
     });
-    await addComponent(page, "Stack");
+    // v3.1 §5.2 dropped "Stack" as a directly-insertable tile — insert the
+    // answer group FIRST (root, auto-selected), THEN "Group → Stack" wraps
+    // it (equivalent end model shape: Stack containing the ButtonAnswerGroup).
+    await addComponent(page, "ButtonAnswerGroup");
+    await groupSelectionIntoStack(page);
     await openInspectorTab(page, "layout");
     const stack = containerGroup(page, "Stack");
     await stack.locator('select[data-container-prop="direction"]').selectOption("vertical");
     await stack.locator('select[data-container-prop="gap"]').selectOption("s");
     await stack.locator('select[data-container-prop="align"]').selectOption("stretch");
-    await addComponent(page, "ButtonAnswerGroup"); // INTO the selected Stack
+    // re-select the ButtonAnswerGroup CHILD (grouping moved the selection to
+    // the new Stack wrapper) before authoring its choices.
+    await studioCanvas(page).locator('[data-component-type="ButtonAnswerGroup"]').click();
     await openInspectorTab(page, "choices");
     await fillChoiceRow(page, 0, { label: "Home coverage", value: "home", analytics_id: "b_home" });
     await fillChoiceRow(page, 1, { label: "Auto coverage", value: "auto", analytics_id: "b_auto" });

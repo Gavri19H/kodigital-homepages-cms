@@ -484,3 +484,201 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     expect(cleared.content_json.components.find((c) => c.question_id === 'q_zip')?.props?.['maps']).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// v3.1 Section Builder redesign (contract-v3.1, Phase B) — golden-chrome
+// browser flows: library search + group collapse (§5.1/§5.5), default
+// selection + the field's 8-handle chrome (§6.2), the §7 width-drag
+// measurement writing a REAL custom_px, and the Frame-hint toggle (§6.3).
+// Each test seeds its OWN Section (independent — no .serial needed).
+// ---------------------------------------------------------------------------
+
+test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/§6/§7)', () => {
+  test('§5.5 library search filters tiles by data-name across ALL groups, force-opening the collapsed Layout group', async ({ page }) => {
+    const section = await createStudioSection(page.request, `V31 Search ${uniq}`, ACT_A, `v31-search-${uniq}`);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const search = page.locator('[data-studio-library-search]');
+    const layoutItems = page.locator('[data-library-items="layout"]');
+    const spacerTile = page.locator('[data-tile][data-name="spacer gap"]');
+    const shortTextTiles = page.locator('[data-tile][data-name="short text"]');
+
+    // Layout starts collapsed (default per §5.1); its tiles exist but the
+    // group container is hidden.
+    await expect(layoutItems).toBeHidden();
+    // Unrelated tiles (2 "Short text" instances — Suggested + Answer fields)
+    // are visible before any search.
+    await expect(shortTextTiles).toHaveCount(2);
+    for (const el of await shortTextTiles.all()) await expect(el).toBeVisible();
+
+    await search.fill('spacer');
+    // Layout is FORCED open so the match is reachable, even though it was
+    // collapsed a moment ago.
+    await expect(layoutItems).toBeVisible();
+    await expect(spacerTile).toBeVisible();
+    // Non-matching tiles (e.g. "Short text") are hidden while the query is active.
+    for (const el of await shortTextTiles.all()) await expect(el).toBeHidden();
+
+    await search.fill('');
+    // Clearing restores Layout to its own toggled state (still collapsed —
+    // the user never manually opened it).
+    await expect(layoutItems).toBeHidden();
+    for (const el of await shortTextTiles.all()) await expect(el).toBeVisible();
+    await page.screenshot({ path: `${SHOT_DIR}/v31-01-library-search.png` });
+  });
+
+  test('§5.1 group header chevron toggles open/closed independent of search', async ({ page }) => {
+    const section = await createStudioSection(page.request, `V31 Group Toggle ${uniq}`, ACT_A, `v31-toggle-${uniq}`);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const layoutHeader = page.locator('[data-library-group-toggle="layout"]');
+    const layoutItems = page.locator('[data-library-items="layout"]');
+    const suggestedHeader = page.locator('[data-library-group-toggle="suggested"]');
+    const suggestedItems = page.locator('[data-library-items="suggested"]');
+
+    await expect(layoutHeader).toHaveAttribute('aria-expanded', 'false');
+    await expect(layoutItems).toBeHidden();
+    await layoutHeader.click();
+    await expect(layoutHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(layoutItems).toBeVisible();
+
+    await expect(suggestedHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(suggestedItems).toBeVisible();
+    await suggestedHeader.click();
+    await expect(suggestedHeader).toHaveAttribute('aria-expanded', 'false');
+    await expect(suggestedItems).toBeHidden();
+    await page.screenshot({ path: `${SHOT_DIR}/v31-02-group-toggle.png` });
+  });
+
+  test('§6.2 default selection on open = the first real answer field; selecting shows the 8-handle field chrome (never on the bound headline)', async ({ page }) => {
+    // Explicit fixture: bound headline+subheadline first (skipped by the
+    // default-selection rule — they carry `bind`, not a real answer), THEN
+    // the ONE real answer field (ZIP) — mirrors the §1.2 fixture's own
+    // "default = the ZIP field" wording unambiguously (mappableContent()'s
+    // OWN default order puts a TwoButtonYesNo before the ZIP field, which
+    // would otherwise become the default here instead).
+    const section = await createStudioSection(page.request, `V31 Default Sel ${uniq}`, ACT_A, `v31-defsel-${uniq}`, {
+      headline_text: 'What is your ZIP code?',
+      content_json: {
+        components: [
+          { type: 'QuestionHeadline', question_id: 'q_bound_headline', bind: 'section_headline' },
+          { type: 'Subheadline', question_id: 'q_bound_subheadline', bind: 'section_subheadline' },
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
+    // Default selection = the ZIP field (this fixture's one real answer
+    // node) — its wrapper carries the 8-handle chrome immediately on load,
+    // with no click required.
+    const zipWrap = canvas.locator('[data-question-id="q_zip"]').locator('xpath=..');
+    await expect(zipWrap.locator('[data-width-handle]')).toHaveCount(2); // only the 2 side-midpoints are interactive
+    await expect(zipWrap.locator('[data-selection-chrome]')).toHaveCount(10); // outline(1) + name tag(1) + 8 handles (no custom badge yet)
+    await expect(canvas.locator('text=Short text field')).toBeVisible();
+
+    // selecting the bound headline shows the SIMPLE chrome (outline + tag),
+    // never the 8 handles.
+    const headline = canvas.locator('[data-question-id="q_bound_headline"], .lg-headline').first();
+    await headline.click();
+    await expect(canvas.locator('text=Question · shared with header')).toBeVisible();
+    await expect(canvas.locator('[data-width-handle]')).toHaveCount(0);
+    await page.screenshot({ path: `${SHOT_DIR}/v31-03-default-selection-chrome.png` });
+  });
+
+  test('§7.1.3 dragging a width handle writes a REAL measured, snapped, clamped custom_px — never the golden\'s fake 384', async ({ page }) => {
+    // Explicit fixture (matches the default-selection test above): the
+    // GENERIC createStudioSection default (mappableContent()) puts a
+    // TwoButtonYesNo BEFORE the ZIP field, which is a different, unrelated
+    // ambiguity this test must not depend on — give it its OWN unambiguous
+    // ZIP-only content so `[data-question-id="q_zip"]` is deterministically
+    // present the moment the canvas loads.
+    const section = await createStudioSection(page.request, `V31 Width Drag ${uniq}`, ACT_A, `v31-widthdrag-${uniq}`, {
+      content_json: {
+        components: [
+          { type: 'QuestionHeadline', question_id: 'q_bound_headline', bind: 'section_headline' },
+          { type: 'Subheadline', question_id: 'q_bound_subheadline', bind: 'section_subheadline' },
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
+    await canvas.locator('[data-question-id="q_zip"]').click(); // ensure selected (also the default)
+
+    const rightHandle = canvas.locator('[data-width-handle][data-handle-side="right"]');
+    await expect(rightHandle).toBeVisible();
+
+    // The width-drag gesture is a CUSTOM (non-native) drag: onWidthHandleMouseDown
+    // reads only the 'mousedown' clientX and the eventual 'mouseup' clientX — no
+    // native HTML5 drag, no intermediate 'mousemove' listener. Raw CDP-level
+    // page.mouse.move() sequences that land inside this same-origin SRCDOC
+    // iframe reproducibly hang here (confirmed independent of this feature: even
+    // a neutral, non-interactive point in the canvas hangs the SAME way on the
+    // second page.mouse.move() call — an environment/CDP limitation with nested
+    // same-origin-iframe raw pointer injection, not a product bug). Dispatching
+    // real MouseEvents directly via the DOM (bypassing CDP's Input domain
+    // entirely) exercises the EXACT SAME JS listeners with the EXACT SAME
+    // event shape a real drag delivers, without depending on CDP pointer
+    // injection fidelity this environment doesn't have for nested iframes.
+    const dragDeltaPx = 60;
+    const drag = await rightHandle.evaluate((el, deltaX) => {
+      const r = el.getBoundingClientRect();
+      const clientY = r.top + r.height / 2;
+      const startClientX = r.left + r.width / 2;
+      const doc = el.ownerDocument;
+      const view = doc.defaultView as Window;
+      el.dispatchEvent(new MouseEvent('mousedown', { clientX: startClientX, clientY, bubbles: true, cancelable: true, view }));
+      const endClientX = startClientX + deltaX;
+      doc.dispatchEvent(new MouseEvent('mouseup', { clientX: endClientX, clientY, bubbles: true, cancelable: true, view }));
+      return { startClientX, endClientX };
+    }, dragDeltaPx);
+    expect(drag.endClientX - drag.startClientX, 'dispatched delta matches the requested drag').toBe(dragDeltaPx);
+
+    // the canvas badge shows the REAL measured value in the golden's format
+    // ("≈ {value} px · custom") — never the fixture's literal "384".
+    const badge = canvas.locator('text=/≈ \\d+ px · custom/');
+    await expect(badge).toBeVisible({ timeout: 5_000 });
+    const badgeText = await badge.textContent();
+    const match = badgeText?.match(/≈ (\d+) px/);
+    expect(match, `badge reads a real number: "${badgeText}"`).not.toBeNull();
+    const px = Number(match![1]);
+    expect(px % 4, 'snapped to the 4px grid').toBe(0);
+    expect(px).toBeGreaterThanOrEqual(200);
+    expect(px).toBeLessThanOrEqual(600);
+    await page.screenshot({ path: `${SHOT_DIR}/v31-04-width-drag-custom-badge.png` });
+
+    // persists: the saved node carries design_overrides.size.width.custom_px
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; design_overrides?: { size?: { width?: { custom_px?: number } } } }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'width-drag section detail',
+    );
+    const zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
+    expect(zipNode?.design_overrides?.size?.width?.custom_px).toBe(px);
+  });
+
+  test('§6.1/§6.3 the canvas toolbar Frame-hint toggle (default ON) shows/hides the dimmed non-interactive skeleton', async ({ page }) => {
+    const section = await createStudioSection(page.request, `V31 Frame Hint ${uniq}`, ACT_A, `v31-framehint-${uniq}`);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const frameHintBtn = page.locator('[data-studio-frame-hint]');
+    const topSkeleton = page.locator('[data-studio-frame-skeleton="top"]');
+    // default ON (contract §6.1 "toggle (default ON)" — a v3.1 fix over the
+    // pre-existing default-OFF behavior)
+    await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(topSkeleton).toBeVisible();
+    await expect(topSkeleton).toContainText('Funnel frame');
+
+    await frameHintBtn.click();
+    await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(topSkeleton).toBeHidden();
+
+    await frameHintBtn.click();
+    await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(topSkeleton).toBeVisible();
+    await page.screenshot({ path: `${SHOT_DIR}/v31-05-frame-hint-toggle.png` });
+  });
+});

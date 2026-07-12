@@ -363,9 +363,10 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain('id="lg-address-validation"');
     expect(html).toContain("GOOGLE_MAPS_BROWSER_KEY");
     expect(html).not.toContain("maps.googleapis.com"); // never embeds the Maps JS/key
-    // continue-mode controls (§12.5)
-    expect(html).toContain('name="continue_mode" value="button"');
-    expect(html).toContain('name="continue_mode" value="auto_advance"');
+    // continue-mode controls (§12.5; v3.1 §4.2 — "On answer" segmented
+    // replaces the old native radio pair, same continue_mode store)
+    expect(html).toContain('data-continue-mode="button"');
+    expect(html).toContain('data-continue-mode="auto_advance"');
     // save/archive header (§9.6)
     expect(html).toContain('id="lg-section-save"');
     expect(html).toContain('id="lg-section-archive"');
