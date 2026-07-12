@@ -648,12 +648,15 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
     await expect(rightHandle).toBeVisible();
 
     // The width-drag gesture is a CUSTOM (non-native) drag: onWidthHandleMouseDown
-    // reads only the 'mousedown' clientX and the eventual 'mouseup' clientX — no
-    // native HTML5 drag, no intermediate 'mousemove' listener. Raw CDP-level
-    // page.mouse.move() sequences that land inside this same-origin SRCDOC
-    // iframe reproducibly hang here (confirmed independent of this feature: even
-    // a neutral, non-interactive point in the canvas hangs the SAME way on the
-    // second page.mouse.move() call — an environment/CDP limitation with nested
+    // reads the 'mousedown' clientX, requires an ACTUAL intervening 'mousemove'
+    // (adversarial re-review m3(a-2): a mousedown+mouseup with NO real movement
+    // must never commit a width — that's what let a lost-mouseup-then-unrelated-
+    // click silently write a bogus custom_px), then the eventual 'mouseup'
+    // clientX — no native HTML5 drag involved. Raw CDP-level page.mouse.move()
+    // sequences that land inside this same-origin SRCDOC iframe reproducibly
+    // hang here (confirmed independent of this feature: even a neutral,
+    // non-interactive point in the canvas hangs the SAME way on the second
+    // page.mouse.move() call — an environment/CDP limitation with nested
     // same-origin-iframe raw pointer injection, not a product bug). Dispatching
     // real MouseEvents directly via the DOM (bypassing CDP's Input domain
     // entirely) exercises the EXACT SAME JS listeners with the EXACT SAME
@@ -667,6 +670,8 @@ test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/
       const doc = el.ownerDocument;
       const view = doc.defaultView as Window;
       el.dispatchEvent(new MouseEvent('mousedown', { clientX: startClientX, clientY, bubbles: true, cancelable: true, view }));
+      const midClientX = startClientX + deltaX / 2;
+      doc.dispatchEvent(new MouseEvent('mousemove', { clientX: midClientX, clientY, bubbles: true, cancelable: true, view }));
       const endClientX = startClientX + deltaX;
       doc.dispatchEvent(new MouseEvent('mouseup', { clientX: endClientX, clientY, bubbles: true, cancelable: true, view }));
       return { startClientX, endClientX };

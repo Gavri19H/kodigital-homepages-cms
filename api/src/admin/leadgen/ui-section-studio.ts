@@ -3765,6 +3765,18 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   function afterModelChange() {
+    // m3 (adversarial re-review) extra robustness: ANY other model mutation
+    // proactively tears down a still-registered width-drag (the "moved then
+    // the mouseup got lost off-window" case, where the drag's OWN moved flag
+    // is already true, so a later stray mouseup would otherwise still commit
+    // a stale width). A no-op when this IS the drag's own afterModelChange
+    // call — its finishUp already nulled activeWidthDragCleanup via
+    // cleanupListeners() before reaching here. typeof-guarded (not a bare
+    // reference): this function is sliced standalone into several unrelated
+    // vitest probes that never declare activeWidthDragCleanup — a bare
+    // reference would throw ReferenceError there, in every one of them, for
+    // a concern entirely outside what they test.
+    if (typeof activeWidthDragCleanup !== 'undefined' && activeWidthDragCleanup) { activeWidthDragCleanup(); }
     markDirty();
     historyPush();
     clearRefusal();
@@ -4112,9 +4124,27 @@ export const SECTION_STUDIO_SCRIPT = `
     var innerDoc = canvasFrameDoc();
     var startedInFrame = !!(innerDoc && handle.ownerDocument === innerDoc);
     var dragActive = true;
+    // m3 (adversarial re-review): dragActive alone only guards against a
+    // SECOND width-drag's mousedown reusing this same closure — it does
+    // NOTHING for the reported scenario (grab a handle, release the pointer
+    // off-window so this mouseup is never delivered, then click ANYWHERE
+    // else on the page). That later, wholly unrelated mouseup still finds
+    // dragActive===true (nothing else ever sets it false) and finishUp
+    // still runs, writing a bogus custom_px from the click's position and
+    // marking the section dirty. The moved flag below requires an ACTUAL
+    // mousemove between this mousedown and whichever mouseup finishUp
+    // responds to — absent one, finishUp only cleans up (no write, no
+    // afterModelChange). This also retires the "a plain click on a handle
+    // re-snaps custom_px to the current width" quirk (a click delivers
+    // mousedown+mouseup with no intervening move either).
+    var moved = false;
     function cleanupListeners() {
-      if (innerDoc && innerDoc.removeEventListener) { innerDoc.removeEventListener('mouseup', onUpInner); }
+      if (innerDoc && innerDoc.removeEventListener) {
+        innerDoc.removeEventListener('mouseup', onUpInner);
+        innerDoc.removeEventListener('mousemove', onMoveInner);
+      }
       document.removeEventListener('mouseup', onUpOuter);
+      document.removeEventListener('mousemove', onMoveOuter);
       if (activeWidthDragCleanup === cleanupListeners) { activeWidthDragCleanup = null; }
     }
     function finishUp(upEv, viaParent) {
@@ -4122,6 +4152,7 @@ export const SECTION_STUDIO_SCRIPT = `
       dragActive = false;
       cleanupListeners();
       if (target && target.setAttribute) { target.setAttribute('draggable', 'true'); }
+      if (!moved) { return; }
       var endX = upEv.clientX;
       var frame = canvasFrameEl();
       if (startedInFrame && viaParent && frame && frame.getBoundingClientRect) {
@@ -4139,9 +4170,15 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     function onUpInner(upEv) { finishUp(upEv, false); }
     function onUpOuter(upEv) { finishUp(upEv, true); }
+    function onMoveInner() { moved = true; }
+    function onMoveOuter() { moved = true; }
     activeWidthDragCleanup = cleanupListeners;
-    if (innerDoc && innerDoc.addEventListener) { innerDoc.addEventListener('mouseup', onUpInner); }
+    if (innerDoc && innerDoc.addEventListener) {
+      innerDoc.addEventListener('mouseup', onUpInner);
+      innerDoc.addEventListener('mousemove', onMoveInner);
+    }
     document.addEventListener('mouseup', onUpOuter);
+    document.addEventListener('mousemove', onMoveOuter);
   }
   // §6.2 the 8 handles (golden :338-345): exact offsets left/right -11px;
   // rows at top -11/+19/+49. Only the two +19 side-midpoint handles are
@@ -4536,6 +4573,12 @@ export const SECTION_STUDIO_SCRIPT = `
     return found;
   }
   function selectComponent(qid) {
+    // m3 (adversarial re-review) extra robustness: a selection change is the
+    // other place a stale width-drag (moved, but its own mouseup was lost
+    // off-window) should be torn down proactively — see afterModelChange's
+    // matching guard for the full rationale (incl. why this is
+    // typeof-guarded: selectComponent is also sliced standalone elsewhere).
+    if (typeof activeWidthDragCleanup !== 'undefined' && activeWidthDragCleanup) { activeWidthDragCleanup(); }
     selectedQuestionId = qid || null;
     scopeState = selectedQuestionId ? 'component' : 'section';
     selectedChoiceValue = null;

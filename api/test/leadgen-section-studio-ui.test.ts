@@ -5916,9 +5916,11 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     // document.addEventListener('mouseup', ...) stub, then invoked directly
     // (deterministic, no real timers/events needed).
     let capturedUp: ((ev: unknown) => void) | null = null;
+    let capturedMove: ((ev: unknown) => void) | null = null;
     probe.sandbox["document"] = {
       addEventListener: (name: string, fn: (ev: unknown) => void) => {
         if (name === "mouseup") capturedUp = fn;
+        if (name === "mousemove") capturedMove = fn;
       },
       removeEventListener: () => {},
     };
@@ -5938,6 +5940,11 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     );
     probe.run("onWidthHandleMouseDown(mouseDownStub)");
     expect(capturedUp).toBeTruthy();
+    expect(capturedMove).toBeTruthy();
+    // the moved gate (adversarial re-review, m3(a-2)) requires an ACTUAL
+    // mousemove between mousedown and mouseup — a real drag, not just a
+    // mousedown+mouseup with the pointer never having moved.
+    (capturedMove as unknown as (ev: unknown) => void)({ clientX: 140 });
     (capturedUp as unknown as (ev: unknown) => void)({ clientX: 184 }); // +84px
     expect(probe.run(`findRef('q_zip').node.design_overrides.size.width`)).toEqual({ custom_px: 384 });
     expect(historyPushed).toBeGreaterThan(0);
@@ -6018,11 +6025,81 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     probe.sandbox["mouseDownB"] = { target: makeHandle(), clientX: 120, preventDefault: () => {}, stopPropagation: () => {} };
     probe.run("onWidthHandleMouseDown(mouseDownB)");
     expect(outerDoc.count("mouseup"), "A's stale listener was torn down, not accumulated").toBe(1);
-    // Drag B completes normally: startWidth 300 + (150-120) = 330, snapped to
-    // the nearest 4px grid = 332.
+    // Drag B is a REAL drag (m3(a-2)'s moved gate requires an actual
+    // mousemove before a mouseup commits anything) — completes normally:
+    // startWidth 300 + (150-120) = 330, snapped to the nearest 4px grid = 332.
+    outerDoc.dispatch("mousemove", { clientX: 135 });
     outerDoc.dispatch("mouseup", { clientX: 150 });
     expect(probe.run(`findRef('q_zip').node.design_overrides.size.width`)).toEqual({ custom_px: 332 });
     expect(outerDoc.count("mouseup"), "B's own listener is gone too after finishing").toBe(0);
+  });
+
+  it("m3(a-2) (adversarial re-review): a handle mousedown with NO committed drag can't write bogus custom_px off a LATER, wholly unrelated mouseup — moved gates the write, not just dragActive", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    const FIXTURE = { components: [{ type: "ZIPInputQuestion", question_id: "q_zip", internal_field: "zip" }] };
+    const target = { getBoundingClientRect: () => ({ width: 300 }), setAttribute: () => {} };
+    const wrap = { querySelector: (sel: string) => (sel.includes('data-question-id="q_zip"') ? target : null) };
+    function makeHandle(): { getAttribute(name: string): string | null; parentNode: unknown; ownerDocument: unknown; closest(): unknown } {
+      const h = {
+        getAttribute(name: string) {
+          if (name === "data-width-handle") return "q_zip";
+          if (name === "data-handle-side") return "right";
+          return null;
+        },
+        parentNode: wrap,
+        ownerDocument: null as unknown,
+        closest: () => h,
+      };
+      return h;
+    }
+    type Handler = (ev: unknown) => void;
+    function makeEventTarget() {
+      const handlers: Record<string, Handler[]> = {};
+      return {
+        addEventListener(name: string, fn: Handler) {
+          (handlers[name] = handlers[name] ?? []).push(fn);
+        },
+        removeEventListener(name: string, fn: Handler) {
+          const arr = handlers[name] ?? [];
+          const at = arr.indexOf(fn);
+          if (at >= 0) arr.splice(at, 1);
+        },
+        dispatch(name: string, ev: unknown) {
+          for (const fn of (handlers[name] ?? []).slice()) fn(ev);
+        },
+      };
+    }
+    const outerDoc = makeEventTarget();
+    let afterModelChangeCalls = 0;
+    const probe = studioProbe(html, FIXTURE, { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] });
+    probe.sandbox["afterModelChange"] = () => {
+      afterModelChangeCalls += 1;
+    };
+    probe.sandbox["document"] = outerDoc;
+    probe.run(
+      [
+        sliceIslandLine(island, "var WIDTH_PX_MIN"),
+        sliceIslandFunction(island, "snapWidthCustomPx"),
+        "function canvasFrameDoc() { return null; }",
+        "function canvasFrameEl() { return null; }",
+        sliceIslandLine(island, "var activeWidthDragCleanup"),
+        sliceIslandFunction(island, "onWidthHandleMouseDown"),
+      ].join("\n"),
+    );
+    // Grab the handle (clientX 100) — NO mousemove ever fires (the pointer
+    // is released off-window with zero drag distance, OR the browser simply
+    // never delivered a move before the mouseup was lost). Then a WHOLLY
+    // UNRELATED mouseup fires later — e.g. the user clicking anywhere else
+    // on the page. Reviewer's concrete repro: this would otherwise snap
+    // 300 + (250-100) = 450 → 452.
+    probe.sandbox["mouseDownStub"] = { target: makeHandle(), clientX: 100, preventDefault: () => {}, stopPropagation: () => {} };
+    probe.run("onWidthHandleMouseDown(mouseDownStub)");
+    outerDoc.dispatch("mouseup", { clientX: 250 });
+    expect(probe.run(`findRef('q_zip').node.design_overrides`), "no width was ever written").toBeUndefined();
+    expect(afterModelChangeCalls, "the section was never marked dirty").toBe(0);
   });
 
   it("m3(b) (adversarial review): the selected field stays draggable=false while its width handles are shown, restored to true once deselected — every OTHER node keeps the ordinary reorder-drag source", async () => {
