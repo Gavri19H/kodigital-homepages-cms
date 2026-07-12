@@ -1380,6 +1380,16 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       sectionCtx.continue_style_role = frame.composition.frame.section_slot.continue_style_role;
     }
   }
+  // v3.1 §7/§12 (adversarial review MAJOR-1): thread the resolved theme_
+  // controls into sectionCtx too — the explicit theme_id override
+  // (themeTokens) wins over the frame's natural resolution, mirroring the
+  // SAME precedence renderDesign already applies below, and scoped to
+  // `frame !== null` for the SAME reason (a theme_id override has no effect
+  // outside the composed branch — see the renderDesign comment above).
+  if (frame !== null) {
+    const themeControls = themeTokens?.theme_controls ?? frame.composition?.effectiveTokens.theme_controls;
+    if (themeControls !== undefined) sectionCtx.theme_controls = themeControls;
+  }
   // The design the UNIT renders under. theme_id (§10.6 "Preview theme"
   // switcher) applies ONLY inside the composed frame_context branch — §10.6
   // says the switcher re-renders "via the composition preview (§12)", and

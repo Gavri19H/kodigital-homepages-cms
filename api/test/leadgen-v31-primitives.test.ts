@@ -350,9 +350,25 @@ describe("v3.1 §5.3 — retired-type -> primitive mapping utils", () => {
 // v3.1 §7/§12 — conductor fix round: resolveFieldSize WIRED into the actual
 // field rendering path (presets.ts), so an authored design_overrides.size is
 // actually visible in rendered output, not just resolved as data.
+//
+// Adversarial-review correction (§0.1): the FIRST cut of this coverage
+// asserted a fabricated preset->px table (s/m/l width, small/medium/large
+// height — none of it golden/contract-sourced). Re-derived from the golden
+// master VERBATIM (docs/leadgen/redesign-contract-v3/golden/
+// golden-master-source.dc.html — search fieldWrapStyle/fieldBoxStyle):
+// fieldBoxStyle NEVER carries an explicit height (either hMode branch —
+// 'padding:16px 18px' only); fieldWrapStyle is 'width:100%' for EVERY
+// non-custom wMode and 'width:64%' (the DISCLAIMED faked-drag demo value)
+// for custom. So the ONLY two grounded resolutions are: width="full" -> 100%
+// (byte-identical to the golden's non-custom fieldWrapStyle; also Appendix
+// B's "Unit column width: 600" = 100% of the column), and EITHER axis's
+// {custom_px} -> the literal stored number (never a lookup — grounded by
+// construction, §7.2 "custom_px = manual override"). Width s/m/l and EVERY
+// height preset (small/medium/large) are a recorded CONTRACT GAP — asserted
+// here as "renders NO explicit dimension for that axis," never a number.
 // ---------------------------------------------------------------------------
 
-describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML", () => {
+describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML (grounded cases only)", () => {
   it("absent design_overrides.size renders WITHOUT any width/height inline style (byte-identical regression proof — the overwhelming majority of existing content)", () => {
     const node: LeadgenComponentNode = { type: "ZIPInputQuestion", question_id: "q1", internal_field: "zip" };
     const html = renderComponent(node, DESIGN);
@@ -360,7 +376,7 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML",
     expect(html).not.toMatch(/style="[^"]*height/);
   });
 
-  it("a named preset resolves to px via the DEFAULT theme controls when no ctx.theme_controls is supplied (width 'full' -> the Appendix-B-grounded 600; height 'medium' -> 48)", () => {
+  it("width 'full' renders width:100% — GROUNDED, byte-identical to the golden's non-custom fieldWrapStyle — and NO height (height presets are ungrounded)", () => {
     const node: LeadgenComponentNode = {
       type: "ZIPInputQuestion",
       question_id: "q2",
@@ -368,36 +384,53 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML",
       design_overrides: { size: { width: "full", height: "medium" } },
     };
     const html = renderComponent(node, DESIGN);
-    expect(html).toContain("width:600px");
-    expect(html).toContain("height:48px");
+    expect(html).toContain("width:100%");
+    expect(html).not.toMatch(/style="[^"]*height/);
   });
 
-  it("the FUNNEL theme's field_height wins over the placeholder default once ctx.theme_controls is supplied (§7.1 'funnel theme default' layer)", () => {
+  it("width absent -> inherits the design default 'full' -> ALSO renders width:100% (the resolver's own absent-width fallback, not a new special case)", () => {
     const node: LeadgenComponentNode = {
       type: "ZIPInputQuestion",
-      question_id: "q3",
+      question_id: "q2b",
       internal_field: "zip",
-      design_overrides: { size: { width: "full" } }, // height absent -> inherits theme_controls.field_height
+      design_overrides: { size: { height: "small" } }, // width key absent entirely
     };
-    const htmlLarge = renderSectionComponents([node], DESIGN, {
-      headline_text: "",
-      subheadline_text: null,
-      theme_controls: { field_height: "large", button_size: "m", corners: "rounded" },
-    });
-    const htmlSmall = renderSectionComponents([node], DESIGN, {
-      headline_text: "",
-      subheadline_text: null,
-      theme_controls: { field_height: "small", button_size: "m", corners: "rounded" },
-    });
-    expect(htmlLarge).toContain("height:56px");
-    expect(htmlSmall).toContain("height:40px");
-    expect(htmlLarge).not.toBe(htmlSmall);
+    expect(renderComponent(node, DESIGN)).toContain("width:100%");
   });
 
-  it("{custom_px} rides as an EXPLICIT px value (§12 'custom_px -> explicit px'), overriding both preset and theme", () => {
+  it("width s/m/l tiers render NO explicit width — UNGROUNDED, no fabricated px (contract gap: no golden/contract px table for these tiers)", () => {
+    for (const width of ["s", "m", "l"] as const) {
+      const node: LeadgenComponentNode = {
+        type: "ZIPInputQuestion",
+        question_id: `q3-${width}`,
+        internal_field: "zip",
+        design_overrides: { size: { width } },
+      };
+      expect(renderComponent(node, DESIGN), width).not.toMatch(/style="[^"]*width/);
+    }
+  });
+
+  it("EVERY height preset (small/medium/large) renders NO explicit height, REGARDLESS of theme_controls.field_height — UNGROUNDED, matches the golden's fieldBoxStyle (padding only, never a height term)", () => {
+    for (const field_height of ["small", "medium", "large"] as const) {
+      const node: LeadgenComponentNode = {
+        type: "ZIPInputQuestion",
+        question_id: `q4-${field_height}`,
+        internal_field: "zip",
+        design_overrides: { size: { height: "medium" } }, // absent -> inherits theme_controls.field_height
+      };
+      const html = renderSectionComponents([node], DESIGN, {
+        headline_text: "",
+        subheadline_text: null,
+        theme_controls: { field_height, button_size: "m", corners: "rounded" },
+      });
+      expect(html, field_height).not.toMatch(/style="[^"]*height/);
+    }
+  });
+
+  it("{custom_px} rides as an EXPLICIT, literal px value on BOTH axes (§12 'custom_px -> explicit px') — grounded because it is the stored number, never a lookup", () => {
     const node: LeadgenComponentNode = {
       type: "ZIPInputQuestion",
-      question_id: "q4",
+      question_id: "q5",
       internal_field: "zip",
       design_overrides: { size: { width: { custom_px: 384 }, height: { custom_px: 56 } } },
     };
@@ -406,42 +439,43 @@ describe("v3.1 §7/§12 — field size APPLICATION is wired into rendered HTML",
       subheadline_text: null,
       theme_controls: { field_height: "large", button_size: "m", corners: "rounded" },
     });
+    // The exact byte shape A3's HTTP parity test asserts for custom_px:384.
     expect(html).toContain("width:384px");
     expect(html).toContain("height:56px");
   });
 
-  it("applies to the CurrencyInputQuestion + AddressAutocompleteQuestion wrapper divs too (not just the shared renderTextInput helper)", () => {
+  it("applies to the CurrencyInputQuestion + AddressAutocompleteQuestion wrapper divs too (not just the shared renderTextInput helper) — custom_px only, since preset tiers are ungrounded", () => {
     const currency: LeadgenComponentNode = {
       type: "CurrencyInputQuestion",
-      question_id: "q5",
+      question_id: "q6",
       internal_field: "income",
-      design_overrides: { size: { width: "m" } },
+      design_overrides: { size: { width: { custom_px: 300 } } },
     };
     const address: LeadgenComponentNode = {
       type: "AddressAutocompleteQuestion",
-      question_id: "q6",
-      design_overrides: { size: { width: "l" } },
+      question_id: "q7",
+      design_overrides: { size: { width: "full" } },
     };
     expect(renderComponent(currency, DESIGN)).toContain("width:300px");
-    expect(renderComponent(address, DESIGN)).toContain("width:450px");
+    expect(renderComponent(address, DESIGN)).toContain("width:100%");
   });
 
   it("does NOT apply to NameFieldsGroup (two labeled sub-inputs, not one field box — intentionally unwired, see presets.ts comment)", () => {
     const node: LeadgenComponentNode = {
       type: "NameFieldsGroup",
-      question_id: "q7",
+      question_id: "q8",
       design_overrides: { size: { width: "full" } },
     };
     expect(renderComponent(node, DESIGN)).not.toMatch(/style="[^"]*width/);
   });
 
-  it("an out-of-range custom_px is defensively re-clamped at RENDER time too (belt-and-suspenders over save-time validation)", () => {
-    const node: LeadgenComponentNode = {
+  it("an out-of-range custom_px is defensively re-clamped at RENDER time too (belt-and-suspenders over save-time validation) — the [200,600] bound is contract-explicit (§7.1), not invented", () => {
+    const tooWide: LeadgenComponentNode = {
       type: "FreeTextQuestion",
-      question_id: "q8",
+      question_id: "q9",
       internal_field: "note",
       design_overrides: { size: { width: { custom_px: 9999 } } },
     };
-    expect(renderComponent(node, DESIGN)).toContain("width:600px");
+    expect(renderComponent(tooWide, DESIGN)).toContain("width:600px");
   });
 });

@@ -57,6 +57,25 @@
 
 5. **The golden master's A/B assignment panel is read-only presentation** → theme assignment is storage/API only (PROPOSED per §0 rule); Gate 4 probes it at API level.
 
+6. **§11.3's worked example nests `required` under `props`, but the repository's real, already-wired mechanism stores it at node top-level (`node.required`, read by hydration + the field renderers). The v3.1 schema validates the top-level field and REJECTS `props.required` as invalid — same repo-reality-over-contract-text precedent as erratum (2) (`name`→`section_name`). Contract §11.3's literal example would therefore fail validation; authoring must use top-level `required`. No Gate-4 storage probe tests `required` placement, so no acceptance impact.**
+
+---
+
+## CONTRACT GAPS (un-sourced values — resolve before the dependent gate)
+
+Values the golden master and contract do not specify. Per §0.1 these are recorded as gaps, never invented in code. Until the dependent phase supplies a real design-token value, the resolver accepts and resolves them as DATA but emits NO fabricated dimension (the field falls through to base CSS).
+
+| Gap | Contract ref | Current behavior | Resolve in |
+|-----|--------------|-------------------|------------|
+| Width preset `s` | §7.1/§8.5b | resolver returns preset name; no explicit width emitted | Phase B (Style-tab S/M/L width design tokens) |
+| Width preset `m` | §7.1/§8.5b | same | Phase B |
+| Width preset `l` | §7.1/§8.5b | same | Phase B |
+| Height preset `small` | §7.1/§8.5b | resolver returns preset name; no explicit height emitted (golden `fieldBoxStyle` is padding-only `16px 18px`, no height term) | Phase B (Small/Medium/Large height design tokens) |
+| Height preset `medium` | §7.1/§8.5b | same | Phase B |
+| Height preset `large` | §7.1/§8.5b | same | Phase B |
+
+GROUNDED and emitted exactly: width `full`→`width:100%` (golden `fieldWrapStyle` non-custom branch; = 100% of the 600 unit column, Appendix B); `custom_px`→explicit `{axis}:{px}px` (§7.2, clamp [200,600], snap 4px). Absent size → no style (byte-identical to pre-v3.1).
+
 ---
 
 ## OPERATOR-OWNED (Status: BLOCKED)

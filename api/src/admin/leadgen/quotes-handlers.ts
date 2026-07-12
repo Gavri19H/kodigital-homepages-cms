@@ -1913,10 +1913,16 @@ export function renderComposedVariantPreview(
     };
   }
 
+  // v3.1 §7/§12 (adversarial review MAJOR-1): thread the resolved theme_
+  // controls into the composed-variant preview's sectionCtx too — the SAME
+  // resolveTokens output the live /lg path now feeds (serve.ts renderFunnel
+  // Shell), so "runtime, quote preview, and section-in-frame preview share
+  // identical resolution" holds for the §7 field-size tier as well.
   const allSectionsHtml = renderVariantSectionsHtml(
     resolvedSections,
     effectiveDesign,
     composition === null ? null : composition.frame,
+    composition === null ? undefined : composition.effectiveTokens.theme_controls,
   );
 
   if (input.mode === "all") {

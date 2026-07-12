@@ -94,6 +94,7 @@ import type {
   EffectiveTokens,
   ThemeJson,
   ThemeRecord,
+  ThemeRecordControls,
   VariantThemeOverrides,
 } from "./designs/theme";
 // v3.1 §10.1/§12 (fix round): the live runtime path resolves a funnel/
@@ -485,10 +486,20 @@ async function resolveThemeRecordFor(env: Env, source: LeadgenFrameSource): Prom
 // configured). EXPORTED: the admin composed-variant preview (quotes-handlers
 // renderComposedVariantPreview) renders its slot content through THIS function
 // — preview and runtime section markup can never drift (13 §13.5 leg 1).
+// v3.1 §7/§12 (ADDITIVE 4th param, adversarial review MAJOR-1): the
+// composition's resolved theme_controls (EffectiveTokens.theme_controls) —
+// undefined for a legacy/NULL-theme funnel (byte-identical). Threaded into
+// EVERY section's ctx so the §7 field-size resolver's "funnel theme
+// default" tier (fieldSizeStyle in components/presets.ts) reads the REAL
+// resolved controls instead of always falling back to its own
+// DEFAULT_SIZE_THEME_CONTROLS constant — this was the dead-deliverable gap
+// (resolveTokens computed theme_controls but no production caller threaded
+// it into LeadgenSectionRenderCtx).
 export function renderVariantSectionsHtml(
   sections: readonly ResolvedFunnelSection[],
   design: FunnelDesign | EffectiveFunnelDesign,
   frame: EffectiveFrameConfig | null,
+  themeControls?: ThemeRecordControls,
 ): string {
   const presetDesign = design as FunnelDesign;
   return sections
@@ -505,6 +516,9 @@ export function renderVariantSectionsHtml(
       if (frame !== null) {
         ctx.continue_placement = frame.section_slot.continue_placement;
         ctx.continue_style_role = frame.section_slot.continue_style_role;
+      }
+      if (themeControls !== undefined) {
+        ctx.theme_controls = themeControls;
       }
       const label = `${String(i + 1).padStart(2, "0")} · ${rs.section.headline_text}`;
       return (
@@ -587,6 +601,7 @@ function renderFunnelShell(
     resolved.sections,
     effectiveDesign,
     composition === null ? null : composition.frame,
+    composition === null ? undefined : composition.effectiveTokens.theme_controls,
   );
 
   // (b) the SAME LeadgenPublicConfig JSON /lg/config serves, baked in-request

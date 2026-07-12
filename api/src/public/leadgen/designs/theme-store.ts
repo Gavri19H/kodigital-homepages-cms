@@ -24,6 +24,7 @@ import {
   THEME_RECORD_CORNERS,
   THEME_RECORD_FIELD_HEIGHTS,
   THEME_RECORD_ROLE_KEYS,
+  isThemeRecordFontName,
   type ThemeRecord,
 } from "./theme";
 
@@ -42,11 +43,17 @@ function isThemeRecordShape(value: unknown): value is ThemeRecord {
     return false;
   }
 
+  // P0 stored-XSS defense-in-depth: a KV blob whose typography names fall
+  // outside the closed whitelist (e.g. hand-edited KV, or pre-fix stored
+  // data) is a SHAPE MISMATCH, not a valid record — it degrades to "absent"
+  // (readThemeRecords filters it out) rather than ever being handed to
+  // resolveTokens. The authoritative gate is still validateThemeBody
+  // (themes-handlers.ts) at write time; this is the second layer.
   const typography = value["typography"];
   if (
     !isRecord(typography) ||
-    typeof typography["headline_font"] !== "string" ||
-    typeof typography["body_font"] !== "string" ||
+    !isThemeRecordFontName(typography["headline_font"]) ||
+    !isThemeRecordFontName(typography["body_font"]) ||
     typeof typography["base_px"] !== "number"
   ) {
     return false;

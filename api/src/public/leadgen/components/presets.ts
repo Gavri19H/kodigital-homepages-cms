@@ -1030,37 +1030,62 @@ function mapsConfigJson(node: LeadgenComponentNode): string {
 
 // ---------------------------------------------------------------------------
 // v3.1 §7/§12 — field size APPLICATION (the resolveFieldSize WIRING point).
-// The §7 resolver (content-schema.ts) stays a pure preset-name/decision
-// function on purpose — it never invents px for a PRESET name (there is no
-// authoritative per-preset px table anywhere in the repo yet, s/m/l/full or
-// small/medium/large). This module owns the ONE concrete mapping so runtime
-// output is actually visible/testable; it is a documented PLACEHOLDER
-// (flagged, not contract-asserted) pending a real design-token table:
-//   - width "full" = 600 is GROUNDED (Appendix B "Unit column width: 600");
-//     s/m/l are an undocumented, defensible progression toward it.
-//   - height small/medium/large have no contract-stated numbers at all; a
-//     conventional form-control height progression is used.
-// Custom_px values are NEVER guessed — they ride through as the resolver's
-// own clamped/snapped number, byte for byte.
+//
+// Adversarial-review correction (§0.1 "an un-sourced value is a contract GAP
+// to record, NEVER invented in code"): a prior cut of this module shipped a
+// per-preset px LOOKUP TABLE (s/m/l/full width, small/medium/large height).
+// Only ONE entry in that table was ever grounded — the rest were invented.
+// Re-derived from the golden master VERBATIM
+// (docs/leadgen/redesign-contract-v3/golden/golden-master-source.dc.html):
+//
+//   fieldBoxStyle:  '...padding:16px 18px...'                (ALWAYS — no
+//                    height term at all, in EITHER hMode branch: the golden
+//                    never renders an explicit height for ANY height preset)
+//   fieldWrapStyle: wMode==='custom' ? 'width:64%' : 'width:100%'
+//                    (64% is the FAKED demo measurement the contract itself
+//                    disclaims — "the real UI... renders the true measured
+//                    value in the identical format", §0 fidelity-vs-function
+//                    rule; 100% is the ONE real, asserted value — and it is
+//                    the SAME for every non-custom wMode, i.e. it says
+//                    nothing about s/m/l specifically, only "not custom")
+//
+// So the ONLY two grounded resolutions are:
+//   - width resolves to the "full" preset -> 100% (golden's non-custom
+//     fieldWrapStyle, byte for byte; this is ALSO Appendix B's "Unit column
+//     width: 600" — 100% of the 600 column).
+//   - EITHER axis resolves to {custom_px} -> the literal stored/clamped/
+//     snapped NUMBER, never a lookup — this was never invented (the number
+//     comes from the node itself, §7.2's own "custom_px = manual override").
+// Width s/m/l and EVERY height preset (small/medium/large) have NO
+// golden/contract px anywhere — rendering emits NO explicit dimension for
+// them (falls through to the base .lg-input/.lg-currency/.lg-address CSS
+// class's intrinsic sizing/padding, exactly like an absent override does).
+// This is a recorded CONTRACT GAP (traceability, not this module) — Phase B
+// calibrates the real values once a design-token table exists; the
+// theme_controls PLUMBING below stays wired so that calibration is a
+// same-shape follow-up, not a rewire.
 // ---------------------------------------------------------------------------
 
-const SIZE_WIDTH_PRESET_PX: Readonly<Record<string, number>> = { s: 200, m: 300, l: 450, full: 600 };
-const SIZE_HEIGHT_PRESET_PX: Readonly<Record<string, number>> = { small: 40, medium: 48, large: 56 };
-
-// §10.4's OWN "Navy" fixture bolds Medium/M/Rounded as the defaults — reused
-// here as the fallback when a render call site has no resolved theme_controls
-// at all (ctx absent, or ctx.theme_controls absent). A node WITHOUT an
-// authored design_overrides.size never reaches this constant (fieldSizeStyle
-// returns empty before consulting it) — so this default can never itself
-// cause a regression on existing content.
+// Fallback theme controls for when a render call site has no resolved
+// theme_controls at all (ctx absent, or ctx.theme_controls absent). Under
+// the grounded-only mapping above this NEVER changes rendered bytes today
+// (a preset-mode height never emits a dimension regardless of which name it
+// resolves to) — it exists only so resolveFieldSize's per-axis "funnel theme
+// default" data path keeps resolving real data for Phase B to read/extend.
 const DEFAULT_SIZE_THEME_CONTROLS: ThemeRecordControls = {
   field_height: "medium",
   button_size: "m",
   corners: "rounded",
 };
 
-function sizeAxisPx(axis: LeadgenResolvedSizeAxis, presetPxTable: Readonly<Record<string, number>>): number | undefined {
-  return axis.mode === "custom" ? axis.px : presetPxTable[axis.preset];
+// The one non-invented CSS value for a resolved axis: `custom` is always the
+// literal stored number (grounded — never a lookup); `preset` is grounded
+// ONLY for width "full" (the golden's verbatim non-custom fieldWrapStyle).
+// Every other preset (width s/m/l; every height preset) returns undefined —
+// no fabricated px, no fallback number, nothing rendered for that axis.
+function sizeAxisCssValue(axis: LeadgenResolvedSizeAxis, axisKind: "width" | "height"): string | undefined {
+  if (axis.mode === "custom") return `${axis.px}px`;
+  return axisKind === "width" && axis.preset === "full" ? "100%" : undefined;
 }
 
 // PURE-per-call inline style for a node's design_overrides.size (§7.1/§7.2/
@@ -1068,19 +1093,18 @@ function sizeAxisPx(axis: LeadgenResolvedSizeAxis, presetPxTable: Readonly<Recor
 // .lg-input/.lg-currency/.lg-address CSS class sizing applies, untouched);
 // present -> both axes resolve (each independently inheriting the theme
 // default when its OWN key is absent, exactly like resolveFieldSize's own
-// per-axis contract) and ride as explicit inline px — never raw author CSS,
-// only computed numbers through the SAME `style()` helper every other
-// preset uses (so a hostile value can never escape the attribute either).
+// per-axis contract), and ONLY the two grounded cases above ride as inline
+// style — never raw author CSS, only computed/verbatim values through the
+// SAME `style()` helper every other preset uses (so a hostile value can
+// never escape the attribute either).
 function fieldSizeStyle(node: LeadgenComponentNode, ctx: LeadgenSectionRenderCtx | undefined): string {
   const sizeOverride = node.design_overrides?.size;
   if (sizeOverride === undefined) return "";
   const controls = ctx?.theme_controls ?? DEFAULT_SIZE_THEME_CONTROLS;
   const resolved = resolveFieldSize(sizeOverride, controls);
-  const widthPx = sizeAxisPx(resolved.width, SIZE_WIDTH_PRESET_PX);
-  const heightPx = sizeAxisPx(resolved.height, SIZE_HEIGHT_PRESET_PX);
   return style({
-    width: widthPx !== undefined ? `${widthPx}px` : undefined,
-    height: heightPx !== undefined ? `${heightPx}px` : undefined,
+    width: sizeAxisCssValue(resolved.width, "width"),
+    height: sizeAxisCssValue(resolved.height, "height"),
   });
 }
 

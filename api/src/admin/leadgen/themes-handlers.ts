@@ -18,7 +18,9 @@ import {
   THEME_RECORD_BUTTON_SIZES,
   THEME_RECORD_CORNERS,
   THEME_RECORD_FIELD_HEIGHTS,
+  THEME_RECORD_FONT_NAMES,
   THEME_RECORD_ROLE_KEYS,
+  isThemeRecordFontName,
   type ThemeRecord,
   type ThemeRecordRoleKey,
 } from "../../public/leadgen/designs/theme";
@@ -95,19 +97,35 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
   if (!isRecord(typography)) {
     errors["typography"] = "typography must be a group of settings";
   } else {
+    // P0 stored-XSS fix (adversarial review BLOCKER-1): headline_font/
+    // body_font are a CLOSED whitelist, not "any non-empty string" — this is
+    // the AUTHORITATIVE rejection gate (mirrors the roles HEX_RE rejection
+    // above). A value outside THEME_RECORD_FONT_NAMES is REJECTED with a 400
+    // before it can ever reach KV / resolveTokens / the served <style> block
+    // (see theme.ts's THEME_RECORD_FONT_STACKS doc comment for the full
+    // chokepoint trace).
     const headline = typography["headline_font"];
     const body = typography["body_font"];
     const basePx = typography["base_px"];
-    if (typeof headline !== "string" || headline.trim() === "") {
-      errors["typography.headline_font"] = "typography.headline_font is required";
+    if (!isThemeRecordFontName(headline)) {
+      errors["typography.headline_font"] =
+        `typography.headline_font must be one of: ${THEME_RECORD_FONT_NAMES.join(", ")}`;
     }
-    if (typeof body !== "string" || body.trim() === "") {
-      errors["typography.body_font"] = "typography.body_font is required";
+    if (!isThemeRecordFontName(body)) {
+      errors["typography.body_font"] =
+        `typography.body_font must be one of: ${THEME_RECORD_FONT_NAMES.join(", ")}`;
     }
     if (typeof basePx !== "number" || !Number.isFinite(basePx) || basePx < 10 || basePx > 24) {
       errors["typography.base_px"] = "typography.base_px must be a number between 10 and 24";
     }
-    if (typeof headline === "string" && headline.trim() !== "" && typeof body === "string" && body.trim() !== "" && typeof basePx === "number" && Number.isFinite(basePx) && basePx >= 10 && basePx <= 24) {
+    if (
+      isThemeRecordFontName(headline) &&
+      isThemeRecordFontName(body) &&
+      typeof basePx === "number" &&
+      Number.isFinite(basePx) &&
+      basePx >= 10 &&
+      basePx <= 24
+    ) {
       outTypography = { headline_font: headline, body_font: body, base_px: basePx };
     }
   }

@@ -352,19 +352,59 @@ export interface ThemeRecordControls {
   corners: ThemeRecordCorners;
 }
 
-// headline_font/body_font are free CSS font-family strings (the contract's
-// own §10.4 sample uses "Newsreader"/"Inter" — NOT the curated ThemeFontId
-// enum above, which names a DIFFERENT, unrelated font set — literata/sora/
-// system — for the legacy inline theme). No fallback-stack table is
-// specified by the contract; resolveTokens passes the string straight into
-// the SAME design.page.fontDisplay/fontFamily slots applyDisplayFont/
-// applyBodyFont already write (an open, UNVERIFIED item — flagged in the
-// phase report: no CSS quoting/generic-fallback construction is invented
-// here).
+// P0 STORED-XSS FIX (adversarial review): headline_font/body_font used to be
+// unconstrained strings. They flow resolveTokens -> applyDisplayFont/
+// applyBodyFont -> design.page.fontDisplay/fontFamily (+ 5 sibling font
+// slots) -> default-funnel/styles.ts's `rule()`/`decls()` (NO escaping,
+// `${k}:${v}` literal) -> serve.ts `` `<style>${chromeCss}</style>` `` on a
+// shell that sets NO CSP (serve.ts ga4HeadSnippet's own comment: "The shell
+// sets no CSP"). An unconstrained string carrying `</style><script>…`
+// breaks out of the <style> block into a real, PARSED <script> on every
+// public /lg/:slug visitor — a stored XSS via a theme PATCH.
+//
+// FIX: headline_font/body_font are a CLOSED enum — the contract's OWN
+// locked font vocabulary (§3.2 "Inter, Newsreader and Roboto Mono are OFL
+// Google Fonts — no substitution permitted"), NOT the legacy inline theme's
+// ThemeFontId enum above (literata/sora/system is a DIFFERENT, unrelated
+// font set for a different, pre-v3.1 mechanism — reusing THAT set's VALUES
+// would reject the contract's own "Newsreader"/"Inter" §10.4 sample). This
+// reuses THEME_FONT_STACKS's ARCHITECTURE (closed enum + a
+// Record<Enum,string> pre-vetted CSS-stack lookup), applied to the correct
+// vocabulary. THEME_RECORD_FONT_STACKS below is the ONLY place a
+// headline_font/body_font value may turn into a CSS string; the validator
+// (themes-handlers.ts validateThemeBody) is the AUTHORITATIVE gate (REJECTS
+// anything outside this set with a 400, mirroring the roles HEX_RE
+// rejection); the KV-shape reader (theme-store.ts isThemeRecordShape) and
+// resolveTokens's lookup below are DEFENSE IN DEPTH — even a corrupted KV
+// blob or a caller that bypasses validation can never make a raw string
+// reach the served <style> block through this path.
+export const THEME_RECORD_FONT_NAMES = ["Newsreader", "Inter", "Roboto Mono"] as const;
+export type ThemeRecordFontName = (typeof THEME_RECORD_FONT_NAMES)[number];
+
+export function isThemeRecordFontName(value: unknown): value is ThemeRecordFontName {
+  return typeof value === "string" && (THEME_RECORD_FONT_NAMES as readonly string[]).includes(value);
+}
+
+// The ONLY CSS font-family values a theme record's typography may ever
+// produce — closed, pre-vetted, no interpolation of the stored name itself.
+export const THEME_RECORD_FONT_STACKS: Record<ThemeRecordFontName, string> = {
+  Newsreader: "'Newsreader',Georgia,serif",
+  Inter: "'Inter',system-ui,Arial,sans-serif",
+  "Roboto Mono": "'Roboto Mono',monospace",
+};
+
 export interface ThemeRecordTypography {
-  headline_font: string;
-  body_font: string;
+  headline_font: ThemeRecordFontName;
+  body_font: ThemeRecordFontName;
   base_px: number;
+}
+
+// Defense-in-depth lookup (never the primary gate): an unrecognised name —
+// which validateThemeBody + isThemeRecordShape should already have made
+// unreachable — degrades to a safe generic stack rather than ever letting
+// the raw value reach a CSS string.
+function safeThemeRecordFontStack(value: string): string {
+  return isThemeRecordFontName(value) ? THEME_RECORD_FONT_STACKS[value] : "inherit";
 }
 
 // §10.4 "Spacing PROPOSED … storage key reserved" — a free-form density
@@ -492,12 +532,30 @@ export function resolveTokens(
         ) as Partial<Record<FunnelTokenRole, string>>)
       : {};
 
+  // v3.1 fix (adversarial review MINOR-3): when a WINNING theme record is
+  // present, the funnel's legacy INLINE theme_json.palette must NOT
+  // partially leak through underneath it. Repro: a funnel with an inline
+  // `theme_json.palette` AND a variant `frame_overrides_json.theme_id=B` —
+  // winningThemeId correctly picks B, but `theme_json` (the funnel's raw
+  // column) is passed to this function UNCHANGED regardless of which id
+  // won (only a {theme_id} shape empties `theme` above via isThemeIdRef; an
+  // INLINE shape does not), so `theme.palette` used to still compete
+  // role-by-role against `recordPalette` and could win for any role the
+  // inline blob specified — "variant theme partially masked" (§10.1: a
+  // variant theme_id assignment is a clean switch, never a per-role blend
+  // with whatever the funnel's inline theme happens to say). Once a record
+  // has won, it fully supersedes the funnel-level inline palette; the
+  // per-variant AD HOC `overrides.palette` (frame_overrides_json.theme.
+  // palette — a different, still-independent layer) keeps its existing
+  // top-priority slot.
+  const legacyPalette = record !== null ? undefined : theme.palette;
+
   // --- palette (roles), layers 3 → 2 → 1 -----------------------------------
   const roles = {} as Record<FunnelTokenRole, string>;
   for (const role of FUNNEL_TOKEN_ROLES) {
     const layered =
       pickPaletteValue(overrides.palette, role) ??
-      pickPaletteValue(theme.palette, role) ??
+      pickPaletteValue(legacyPalette, role) ??
       recordPalette[role];
     if (layered !== undefined) {
       // A role-name value is an alias into the BASE design (layer 1) — never
@@ -533,8 +591,11 @@ export function resolveTokens(
   // empties `theme` in the record path), so this never overwrites a legacy
   // pick; it IS the theme_id path's own typography layer.
   if (record !== null) {
-    applyDisplayFont(design, record.typography.headline_font);
-    applyBodyFont(design, record.typography.body_font);
+    // P0 stored-XSS fix: NEVER the raw record string — always the closed
+    // whitelist lookup (safeThemeRecordFontStack), so a corrupted/bypassed-
+    // validation record can never inject through this path either.
+    applyDisplayFont(design, safeThemeRecordFontStack(record.typography.headline_font));
+    applyBodyFont(design, safeThemeRecordFontStack(record.typography.body_font));
   }
 
   // --- button defaults (§9.3) — applied AFTER palette + scales so a radius

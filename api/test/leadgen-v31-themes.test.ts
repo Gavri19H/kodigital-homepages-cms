@@ -130,12 +130,12 @@ describe("themes v3.1 — resolveTokens theme_id path (§10.4 record → existin
     expect(eff.design.color.card).toBe("#F9FAFC");
   });
 
-  it("feeds typography (headline_font/body_font) into the design's font slots and the returned typography", () => {
+  it("feeds typography (headline_font/body_font) into the design's font slots and the returned typography via the SAFE whitelisted CSS stack (P0 stored-XSS fix — never the raw record string)", () => {
     const eff = resolveTokens(base, { theme_id: "thm_navy" }, null, THEME_RECORD_FIXTURE);
-    expect(eff.typography.display).toBe("Newsreader");
-    expect(eff.typography.body).toBe("Inter");
-    expect(eff.design.page.fontDisplay).toBe("Newsreader");
-    expect(eff.design.page.fontFamily).toBe("Inter");
+    expect(eff.typography.display).toBe("'Newsreader',Georgia,serif");
+    expect(eff.typography.body).toBe("'Inter',system-ui,Arial,sans-serif");
+    expect(eff.design.page.fontDisplay).toBe("'Newsreader',Georgia,serif");
+    expect(eff.design.page.fontFamily).toBe("'Inter',system-ui,Arial,sans-serif");
   });
 
   it("exposes the resolved controls + typography ADDITIVELY (theme_controls / theme_typography)", () => {
@@ -162,6 +162,33 @@ describe("themes v3.1 — resolveTokens theme_id path (§10.4 record → existin
     const variantWins = resolveTokens(base, { theme_id: "thm_navy" }, null, otherRecord);
     expect(funnelOnly.roles.brand_primary).toBe("#0B5FFF");
     expect(variantWins.roles.brand_primary).toBe("#FFCC00");
+  });
+
+  it("MINOR-3 fix: a WINNING variant theme record fully supersedes a funnel's LEGACY INLINE theme_json.palette — no partial per-role masking", () => {
+    // Repro: the funnel's OWN theme_json is passed through UNCHANGED here
+    // (exactly what resolveFrameComposition does — only a {theme_id} SHAPE
+    // empties `theme`, never an inline shape), while `themeRecord` carries
+    // whichever id ACTUALLY won (winningThemeId already picked the variant's
+    // — that precedence pick is proven separately in the winningThemeId
+    // describe block above; this proves resolveTokens applies the winner
+    // CLEANLY once handed to it, never blended with the superseded inline
+    // funnel theme).
+    const funnelInlineTheme = {
+      version: 1 as const,
+      palette: { brand_primary: "#111111", accent: "#222222" },
+    };
+    const variantRecord: ThemeRecord = {
+      ...THEME_RECORD_FIXTURE,
+      id: "thm_variant_b",
+      name: "Variant B",
+      roles: { ...THEME_RECORD_FIXTURE.roles, brand_primary: "#0B5FFF", accent: "#AA3300" },
+    };
+    const eff = resolveTokens(base, funnelInlineTheme, null, variantRecord);
+    // The record's roles win OUTRIGHT — the funnel's inline #111111/#222222
+    // must not survive for ANY role the record also specifies.
+    expect(eff.roles.brand_primary).toBe("#0B5FFF");
+    expect(eff.roles.accent).toBe("#AA3300");
+    expect(eff.design.color.primary).toBe("#0B5FFF");
   });
 });
 
@@ -496,6 +523,80 @@ describeDb("themes routes — GET/POST /themes, GET/PATCH /themes/:id (v3.1 §10
     expect(res.status).toBe(400);
     const body = (await res.json()) as { fields: Record<string, string> };
     expect(body.fields["roles.bogus_role"]).toBeTruthy();
+  });
+
+  // P0 stored-XSS fix (adversarial review BLOCKER-1): fail-before/pass-after
+  // regression — a headline_font/body_font carrying a <style>/<script>
+  // breakout is REJECTED at create AND at PATCH (the authoritative gate),
+  // never persisted, never reaching resolveTokens or a served page. See
+  // leadgen-v31-themes-size-parity.test.ts for the served-CSS defense-in-
+  // depth proof (a value that bypasses this gate entirely, e.g. direct KV
+  // tampering, still can't reach the page).
+  it("create REJECTS a headline_font/body_font carrying a </style><script> breakout (400, not persisted)", async () => {
+    const env = newEnv();
+    const payload = "Arial</style><script>alert(1)</script>";
+    const res = await admin.request(
+      `${API}/themes`,
+      jsonInit("POST", {
+        ...VALID_THEME_BODY,
+        typography: { ...VALID_THEME_BODY.typography, headline_font: payload },
+      }),
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { fields: Record<string, string> };
+    expect(body.fields["typography.headline_font"]).toBeTruthy();
+    expect(await env.CACHE.get("lg-funnel-themes")).toBeNull();
+  });
+
+  it("create REJECTS a body_font outside the curated whitelist (not just headline_font)", async () => {
+    const env = newEnv();
+    const res = await admin.request(
+      `${API}/themes`,
+      jsonInit("POST", {
+        ...VALID_THEME_BODY,
+        typography: { ...VALID_THEME_BODY.typography, body_font: "Comic Sans MS" },
+      }),
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { fields: Record<string, string> };
+    expect(body.fields["typography.body_font"]).toBeTruthy();
+  });
+
+  it("PATCH REJECTS the SAME </style><script> breakout on an existing theme (400, stored record untouched)", async () => {
+    const env = newEnv();
+    const createRes = await admin.request(`${API}/themes`, jsonInit("POST", VALID_THEME_BODY), env);
+    const created = (await createRes.json()) as { item: ThemeRecord };
+    const payload = "</style><script>alert(document.cookie)</script>";
+
+    const patchRes = await admin.request(
+      `${API}/themes/${created.item.id}`,
+      jsonInit("PATCH", { typography: { ...VALID_THEME_BODY.typography, headline_font: payload } }),
+      env,
+    );
+    expect(patchRes.status).toBe(400);
+    const body = (await patchRes.json()) as { fields: Record<string, string> };
+    expect(body.fields["typography.headline_font"]).toBeTruthy();
+
+    const getRes = await admin.request(`${API}/themes/${created.item.id}`, jsonInit("GET"), env);
+    expect(((await getRes.json()) as { item: ThemeRecord }).item).toEqual(created.item);
+  });
+
+  it("accepts every curated font name for both fields (Newsreader / Inter / Roboto Mono)", async () => {
+    const env = newEnv();
+    for (const font of ["Newsreader", "Inter", "Roboto Mono"] as const) {
+      const res = await admin.request(
+        `${API}/themes`,
+        jsonInit("POST", {
+          ...VALID_THEME_BODY,
+          name: `Theme ${font}`,
+          typography: { headline_font: font, body_font: font, base_px: 16 },
+        }),
+        env,
+      );
+      expect(res.status, `${font}: ${await res.clone().text()}`).toBe(201);
+    }
   });
 
   it("GET /themes/:id on an unknown id → 404", async () => {
