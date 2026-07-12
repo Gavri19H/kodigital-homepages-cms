@@ -34,12 +34,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// P0 stored-XSS defense-in-depth (re-review finding): the SAME anchored hex
+// check themes-handlers.ts's validateThemeBody uses (its HEX_RE literal —
+// duplicated here rather than shared, since sharing one exported regex
+// would require also touching themes-handlers.ts, which is outside this
+// fix round's file ownership; this mirrors the codebase's existing small-
+// helper-duplication convention, e.g. isRecord above). Anchored (^…$) so a
+// value can never carry trailing bytes past a valid #rgb/#rrggbb prefix.
+const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
 function isThemeRecordShape(value: unknown): value is ThemeRecord {
   if (!isRecord(value)) return false;
   if (typeof value["id"] !== "string" || typeof value["name"] !== "string") return false;
 
+  // P0 stored-XSS defense-in-depth: roles.* must be a real hex colour, not
+  // just any string — symmetric with the typography font-name drop below.
+  // A KV blob whose role value fails this anchored check (e.g. a CSS/HTML
+  // breakout appended past a valid-looking prefix) is a SHAPE MISMATCH, not
+  // a valid record: it is dropped here (readThemeRecords filters it out),
+  // so it can never reach theme.ts's setRoleToken -> styles.ts's unescaped
+  // `${k}:${v}` -> the served <style> block. The authoritative gate remains
+  // validateThemeBody's own HEX_RE (themes-handlers.ts) at write time; this
+  // is the second layer, unreachable via the normal write path today but
+  // closing the same "corrupted/hand-edited KV" gap the font fix closed.
   const roles = value["roles"];
-  if (!isRecord(roles) || !THEME_RECORD_ROLE_KEYS.every((key) => typeof roles[key] === "string")) {
+  if (
+    !isRecord(roles) ||
+    !THEME_RECORD_ROLE_KEYS.every((key) => typeof roles[key] === "string" && HEX_RE.test(roles[key] as string))
+  ) {
     return false;
   }
 

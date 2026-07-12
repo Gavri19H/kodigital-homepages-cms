@@ -26,6 +26,11 @@ import {
   type ThemeRecord,
 } from "../src/public/leadgen/designs/theme";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+// Re-review fix round — theme-store.ts's own read-layer defense-in-depth
+// (getThemeRecord/readThemeRecords) tested DIRECTLY, no HTTP: proves the
+// shape-reader drops a tampered record before it can ever reach
+// resolveTokens, independent of the admin routes' own write-time gate.
+import { getThemeRecord, readThemeRecords } from "../src/public/leadgen/designs/theme-store";
 
 const base = defaultFunnelDesign;
 
@@ -654,6 +659,59 @@ describeDb("themes routes — GET/POST /themes, GET/PATCH /themes/:id (v3.1 §10
     const res = await admin.request(`${API}/themes`, jsonInit("GET"), env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ items: [] });
+  });
+
+  // P0 stored-XSS defense-in-depth, re-review fix round: roles.* is now
+  // ALSO hex-validated at the KV-shape-read layer (symmetric with the
+  // typography font-name drop) — a record written DIRECTLY to KV (bypassing
+  // validateThemeBody's own HEX_RE entirely) with a role value carrying a
+  // </style><script> breakout past a valid-looking `#fff;}` prefix is
+  // dropped by the reader: getThemeRecord returns null and the tamper value
+  // never appears anywhere in readThemeRecords' output (so it can never
+  // reach theme.ts's resolveTokens/setRoleToken).
+  it("a role value carrying a CSS/HTML breakout past a valid hex prefix is dropped by the KV-shape reader (getThemeRecord -> null)", async () => {
+    const env = newEnv();
+    const tamperedId = "thm_tampered_role";
+    const tampered = {
+      [tamperedId]: {
+        id: tamperedId,
+        name: "Tampered",
+        roles: {
+          ...VALID_THEME_BODY.roles,
+          brand_primary: "#fff;}</style><script>alert(1)</script>{x:1",
+        },
+        typography: VALID_THEME_BODY.typography,
+        controls: VALID_THEME_BODY.controls,
+      },
+    };
+    await env.CACHE.put("lg-funnel-themes", JSON.stringify(tampered));
+
+    expect(await getThemeRecord(env.CACHE, tamperedId)).toBeNull();
+    const all = await readThemeRecords(env.CACHE);
+    expect(all[tamperedId]).toBeUndefined();
+    expect(JSON.stringify(all)).not.toContain("</style><script>");
+
+    // Same proof through the admin route (GET /themes/:id 404s — the
+    // record simply doesn't exist as far as any reader is concerned).
+    const res = await admin.request(`${API}/themes/${tamperedId}`, jsonInit("GET"), env);
+    expect(res.status).toBe(404);
+  });
+
+  it("a role value that IS a valid hex (including a short #rgb form) still passes the shape check (no false-positive rejection)", async () => {
+    const env = newEnv();
+    const validId = "thm_valid_role";
+    const valid = {
+      [validId]: {
+        id: validId,
+        name: "Valid",
+        roles: { ...VALID_THEME_BODY.roles, brand_primary: "#fff" },
+        typography: VALID_THEME_BODY.typography,
+        controls: VALID_THEME_BODY.controls,
+      },
+    };
+    await env.CACHE.put("lg-funnel-themes", JSON.stringify(valid));
+    const record = await getThemeRecord(env.CACHE, validId);
+    expect(record?.roles.brand_primary).toBe("#fff");
   });
 });
 
