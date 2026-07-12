@@ -88,6 +88,7 @@ import {
   LEADGEN_BG_PANEL_GRADIENTS,
   LEADGEN_COLUMN_MOBILE_MODES,
   LEADGEN_COLUMN_RATIOS,
+  LEADGEN_FIELD_ACCEPT_FORMATS,
   LEADGEN_GAP_TOKENS,
   LEADGEN_GRID_SIZINGS,
   LEADGEN_MAX_CONTAINER_DEPTH,
@@ -114,99 +115,155 @@ import {
   FUNNEL_DESIGN_SCOPE_ATTR,
   funnelChromeCss,
 } from "../../public/leadgen/designs/default-funnel/styles";
+// v3.1 §3 design tokens — the ONLY color/type/spacing/radius/geometry values
+// the re-chromed shell may use; sourced here so the Gate-1b token audit can
+// verify every computed style traces to this single module (contract §13).
+import { STUDIO_COLOR, STUDIO_GEOMETRY, STUDIO_RADIUS, STUDIO_TYPE } from "./studio-tokens";
 
 // ---------------------------------------------------------------------------
-// §8.3 library grouping (by INTENT — not the catalog category) + copy
+// §5 component library (golden 102-258) — 4 intent-first groups of TILES
+// (not raw catalog types). Each tile's SVG is copied VERBATIM from the golden
+// (Appendix D asset, 46×30 viewBox); data-name carries the exact §5.5
+// synonym string (search key). defaultType is the §5.6 concrete type a
+// click/keyboard/drag insert creates; childTypes (Contact only) makes that
+// insert a 3-node Stack. This REPLACES the v2.5 six-group/43-type/live-
+// thumbnail palette (§5.1: "no thumbnails-of-text", §5.3: primitives replace
+// one-off blocks) — the retired one-off types remain fully supported on the
+// CANVAS (existing content renders + primitiveViewOfNode/
+// rewriteRetiredNodeToPrimitive migrate them, Phase-A content-schema.ts) —
+// they are simply no longer separately PLACEABLE from the palette.
 // ---------------------------------------------------------------------------
+
+interface StudioTile {
+  dataName: string;
+  label: string;
+  defaultType: ComponentType;
+  childTypes?: readonly ComponentType[];
+  svg: string;
+  // additive (m2, adversarial review): initial props for tiles whose insert
+  // needs more than a bare default-typed node — e.g. the Divider tile shares
+  // Spacer's defaultType with the Layout group's own Spacer tile, but must
+  // insert with variant:"line" so it renders a visible rule, not a bare gap.
+  defaultProps?: Readonly<Record<string, string>>;
+}
 
 interface StudioGroup {
   key: string;
   label: string;
-  types: readonly ComponentType[];
+  tiles: readonly StudioTile[];
+  defaultOpen: boolean;
 }
 
-// v2.5 08 §8.3: the six intent-first Section palette groups. The palette
-// carries ONLY `unit`/`both` scope types (§8.2 D5) — every `frame` scope type
-// (ProgressBar, StepIndicator, HeaderLogo, BackButton, DisclosureLink,
-// HeaderBar, FooterBar, BackgroundPanel) is REMOVED from the palette; the
-// dismissible callout in renderStudioLibrary points to the Quote Builder for
-// them. Lockstep-guarded by the studio test: groups = the catalog's
-// unit ∪ both set exactly once; frame types placed ZERO times. Legacy
-// frame-scope nodes already stored in content keep rendering on the canvas
-// (with the §5.4 amber badge, island-side).
-//
-// C6 note (07 §7.4 / 02 §2.4): the §8.3 table names the last group "Slide
-// navigation", but "slide" is FORBIDDEN vocabulary inside the Section Builder
-// (C6 — Quote-Builder-only term); the C6 lint leg scans every emitted studio
-// string. The group renders as "Navigation" here — deviation documented in
-// the slice report.
-// v3.1 05 §5.3 (conductor fix round — catalog lockstep, TRANSITIONAL): the
-// two new consolidated primitives are placed in the EXISTING group closest
-// to their retired predecessors' own placement (no new "Content" group this
-// round — that is Phase B's palette rebuild, contract §5.2). TextBlock joins
-// "Question copy" (CategoryLabel/HelperText, two of the 5 retired types it
-// consolidates, already live there); ImageBlock joins "Trust & help"
-// (LogoStrip, its retired predecessor, already lives there). This keeps the
-// §8.2 D5 palette lockstep (every unit∪both catalog type placed exactly
-// once) honest without inventing new group taxonomy this round.
+// The 20 verbatim golden tile SVGs (Appendix D: "data-tile data-name='…' —
+// one block per §5.5 synonym string; the SVG inside each block is the
+// tile's asset"). Copied byte-for-byte from the committed golden master —
+// never redrawn or re-spaced by eye.
+const TILE_SVG = {
+  shortText:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><line x1="9" y1="11.5" x2="9" y2="18.5" stroke="#1B3A5C" stroke-width="1.5" stroke-linecap="round"/><line x1="13" y1="15" x2="27" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  buttons:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="4" width="34" height="9" rx="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.4"/><rect x="6" y="17" width="34" height="9" rx="4.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.4"/></svg>',
+  cards:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="5" width="16" height="9" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="5" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="5" y="17" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="17" width="16" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>',
+  continueButton:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="9" width="36" height="13" rx="6.5" fill="#1B3A5C"/><line x1="13" y1="15.5" x2="27" y2="15.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M27 12l3.5 3.5-3.5 3.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  yesNo:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="9" width="17" height="13" rx="6.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="9" width="17" height="13" rx="6.5" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><path d="M9 15.5l2.2 2.2 4-4.4" stroke="#1B3A5C" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 13l6 6M36 13l-6 6" stroke="#9AA9BD" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  dropdown:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><path d="M32 13l3 3 3-3" stroke="#1B3A5C" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="9" y1="15" x2="25" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  multiSelect:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="6.5" width="8" height="8" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><path d="M8 10.5l1.6 1.6 3-3.2" stroke="#1B3A5C" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="18" y1="10.5" x2="38" y2="10.5" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/><rect x="6" y="18" width="8" height="8" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><line x1="18" y1="22" x2="34" y2="22" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  number:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><text x="10" y="19" font-family="Inter" font-size="10" font-weight="700" fill="#1B3A5C">123</text></svg>',
+  amount:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="4" y="8.5" width="38" height="13" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.5"/><text x="9" y="19" font-family="Inter" font-size="11" font-weight="800" fill="#1B3A5C">$</text><line x1="17" y1="15" x2="30" y2="15" stroke="#C2CCDA" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  date: '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="8" y="6" width="30" height="18" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><line x1="8" y1="12" x2="38" y2="12" stroke="#1B3A5C" stroke-width="1.4"/><line x1="15" y1="4" x2="15" y2="8" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round"/><line x1="31" y1="4" x2="31" y2="8" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round"/><rect x="12" y="15" width="4" height="4" rx="1" fill="#1B3A5C"/></svg>',
+  slider:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><line x1="6" y1="15" x2="40" y2="15" stroke="#C2CCDA" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="15" x2="24" y2="15" stroke="#1B3A5C" stroke-width="2" stroke-linecap="round"/><circle cx="24" cy="15" r="5" fill="#fff" stroke="#1B3A5C" stroke-width="1.6"/></svg>',
+  contact:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><circle cx="13" cy="11" r="4.5" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><path d="M6 24c0-4 4-6 7-6s7 2 7 6" fill="none" stroke="#1B3A5C" stroke-width="1.3" stroke-linecap="round"/><line x1="25" y1="10" x2="40" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="16" x2="40" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="22" x2="35" y2="22" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  address:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><path d="M14 5c4 0 6 3 6 6 0 4-6 11-6 11S8 15 8 11c0-3 2-6 6-6z" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><circle cx="14" cy="11" r="2" fill="#1B3A5C"/><line x1="25" y1="11" x2="40" y2="11" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="25" y1="17" x2="36" y2="17" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  text: '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><text x="5" y="19" font-family="Newsreader,serif" font-size="15" font-weight="600" fill="#1B3A5C">Aa</text><line x1="26" y1="10" x2="41" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="26" y1="16" x2="41" y2="16" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="26" y1="22" x2="35" y2="22" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  image:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="34" height="20" rx="3" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><circle cx="14" cy="12" r="2.4" fill="#F5C518"/><path d="M9 23l7-7 5 5 4-4 6 6" fill="none" stroke="#1B3A5C" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  divider:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><line x1="5" y1="15" x2="18" y2="15" stroke="#9AA9BD" stroke-width="1.7" stroke-linecap="round"/><circle cx="23" cy="15" r="1.7" fill="#9AA9BD"/><line x1="28" y1="15" x2="41" y2="15" stroke="#9AA9BD" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  card: '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="5" y="3" width="36" height="24" rx="4" fill="#fff" stroke="#1B3A5C" stroke-width="1.4"/><line x1="11" y1="10" x2="35" y2="10" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><line x1="11" y1="15" x2="30" y2="15" stroke="#C2CCDA" stroke-width="1.7" stroke-linecap="round"/><rect x="11" y="19" width="14" height="4" rx="2" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1"/></svg>',
+  columns:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="15" height="20" rx="3" fill="#EAF0F6" stroke="#1B3A5C" stroke-width="1.3"/><rect x="25" y="5" width="15" height="20" rx="3" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>',
+  grid: '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="5" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="6" y="17" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/><rect x="25" y="17" width="15" height="9" rx="2" fill="#fff" stroke="#9AA9BD" stroke-width="1.3"/></svg>',
+  spacer:
+    '<svg width="46" height="30" viewBox="0 0 46 30" fill="none"><rect x="6" y="5" width="34" height="20" rx="3" fill="none" stroke="#9AA9BD" stroke-width="1.3" stroke-dasharray="3 3"/><path d="M23 9v12M20 12l3-3 3 3M20 18l3 3 3-3" stroke="#1B3A5C" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+} as const;
+
+// §5.2 groups & tiles (exact order, contract table). Suggested's 4 tiles are
+// the SAME insert semantics as their Answer-fields/Content counterparts —
+// never a separate catalog (contract: "a shortcut row").
+const TILE_SHORT_TEXT: StudioTile = { dataName: "short text", label: "Short text", defaultType: "FreeTextQuestion", svg: TILE_SVG.shortText };
+const TILE_BUTTONS: StudioTile = { dataName: "buttons", label: "Buttons", defaultType: "ButtonAnswerGroup", svg: TILE_SVG.buttons };
+const TILE_CARDS: StudioTile = { dataName: "cards", label: "Cards", defaultType: "IconCardAnswerGrid", svg: TILE_SVG.cards };
+const TILE_CONTINUE: StudioTile = { dataName: "continue button", label: "Continue", defaultType: "ContinueButton", svg: TILE_SVG.continueButton };
+
 export const STUDIO_LIBRARY_GROUPS: readonly StudioGroup[] = [
   {
-    key: "question-copy",
-    label: "Question copy",
-    types: ["CategoryLabel", "QuestionHeadline", "Subheadline", "HelperText", "TextBlock"],
+    key: "suggested",
+    label: "Suggested",
+    defaultOpen: true,
+    tiles: [TILE_SHORT_TEXT, TILE_BUTTONS, TILE_CARDS, TILE_CONTINUE],
   },
   {
-    key: "choices",
-    label: "Answer choices",
-    types: [
-      "ButtonAnswerGroup",
-      "TwoButtonYesNo",
-      "IconCardAnswerGrid",
-      "ImageCardAnswerGrid",
-      "MultiChoiceCardGroup",
-      "DropdownQuestion",
-      "SearchableDropdownQuestion",
-      "OtherGroupSelector",
+    key: "answer-fields",
+    label: "Answer fields",
+    defaultOpen: true,
+    tiles: [
+      TILE_BUTTONS,
+      TILE_CARDS,
+      { dataName: "yes no", label: "Yes / No", defaultType: "TwoButtonYesNo", svg: TILE_SVG.yesNo },
+      { dataName: "dropdown", label: "Dropdown", defaultType: "DropdownQuestion", svg: TILE_SVG.dropdown },
+      { dataName: "multi-select", label: "Multi-select", defaultType: "MultiChoiceCardGroup", svg: TILE_SVG.multiSelect },
+      TILE_SHORT_TEXT,
+      { dataName: "number", label: "Number", defaultType: "NumberInputQuestion", svg: TILE_SVG.number },
+      { dataName: "amount money", label: "Amount", defaultType: "CurrencyInputQuestion", svg: TILE_SVG.amount },
+      { dataName: "date", label: "Date", defaultType: "DateQuestion", svg: TILE_SVG.date },
+      { dataName: "slider scale", label: "Slider", defaultType: "NumberRangeQuestion", svg: TILE_SVG.slider },
+      {
+        dataName: "contact name email phone",
+        label: "Contact",
+        defaultType: "Stack",
+        childTypes: ["NameFieldsGroup", "EmailInputQuestion", "PhoneInputQuestion"],
+        svg: TILE_SVG.contact,
+      },
+      { dataName: "address zip location", label: "Address", defaultType: "AddressAutocompleteQuestion", svg: TILE_SVG.address },
     ],
   },
   {
-    key: "inputs",
-    label: "Inputs",
-    types: [
-      "FreeTextQuestion",
-      "NumberInputQuestion",
-      "CurrencyInputQuestion",
-      "RangeQuestion",
-      "NumberRangeQuestion",
-      "CurrencyRangeQuestion",
-      "DateQuestion",
-      "NameFieldsGroup",
-      "EmailInputQuestion",
-      "PhoneInputQuestion",
-      "ZIPInputQuestion",
-      "AddressAutocompleteQuestion",
+    key: "content",
+    label: "Content",
+    defaultOpen: true,
+    tiles: [
+      { dataName: "text legal note reassurance disclosure", label: "Text", defaultType: "TextBlock", svg: TILE_SVG.text },
+      { dataName: "image logo picture", label: "Image / Logo", defaultType: "ImageBlock", svg: TILE_SVG.image },
+      // §5.6: Divider inserts Spacer(line) — the "line" variant prop
+      // (additive; content-schema.ts LEADGEN_SPACER_VARIANTS + the presets.ts
+      // renderSpacer branch, adversarial review m2) renders a visible center
+      // rule, distinguishing it from the Layout group's own bare-gap Spacer
+      // tile even though both share defaultType "Spacer".
+      { dataName: "divider line", label: "Divider", defaultType: "Spacer", defaultProps: { variant: "line" }, svg: TILE_SVG.divider },
     ],
   },
   {
     key: "layout",
-    label: "Inside-card layout",
-    types: ["CardPanel", "Stack", "GridContainer", "Columns", "Spacer"],
-  },
-  {
-    key: "trust",
-    label: "Trust & help — inside this question unit",
-    types: ["ReassuranceBadge", "SecureFormBadge", "TrustBar", "LogoStrip", "LegalNote", "ValidationError", "SuccessState", "ImageBlock"],
-  },
-  {
-    key: "navigation",
-    label: "Navigation",
-    types: ["ContinueButton", "AutoAdvanceButton"],
+    label: "Layout",
+    defaultOpen: false,
+    tiles: [
+      { dataName: "card panel", label: "Card", defaultType: "CardPanel", svg: TILE_SVG.card },
+      { dataName: "columns", label: "Columns", defaultType: "Columns", svg: TILE_SVG.columns },
+      { dataName: "grid", label: "Grid", defaultType: "GridContainer", svg: TILE_SVG.grid },
+      { dataName: "spacer gap", label: "Spacer", defaultType: "Spacer", svg: TILE_SVG.spacer },
+    ],
   },
 ];
-
-// §8.3 C7 scope note under the Trust & help group (verbatim).
-export const STUDIO_TRUST_SCOPE_NOTE =
-  "These travel with this Section, inside the question unit. Funnel-wide trust strips, logo rows and the legal footer are configured in the Quote Builder.";
 
 // §8.3 plain name + one-line "use when" description per type. Display names
 // and quoted descriptions follow the 08 §8.3 table VERBATIM where given;
@@ -661,6 +718,12 @@ export interface StudioMappingSummary {
   publishable: boolean;
   status: "ok" | "error";
   required_missing_total: number;
+  // v3.1 §4.1 additive: the top-bar badge reads "Mapping k / n complete" —
+  // k = required_mapped_total, n = required_fields_total (summed across every
+  // available Offer). The golden fixture hardcodes "2 / 2"; the real UI
+  // computes the true counts in the identical format (§0 fidelity-vs-function).
+  required_mapped_total: number;
+  required_fields_total: number;
 }
 
 function issueChip(count: number): string {
@@ -675,8 +738,22 @@ function issueChip(count: number): string {
 // require the explicit "No Offers exist for '<x>' yet" confirm. The SSR
 // select carries only the saved value so a legacy value never breaks; element
 // ids stay lg-section-activity / lg-section-vertical so collectSection + the
-// dirty watcher carry over unchanged. The mapping badge is island-rewritten to
-// the §8.1 "Mapping k/n Offers complete" text once the offers panel loads.
+// dirty watcher carry over unchanged. The mapping badge stays LIVE: once the
+// offers panel loads (and on every mapping edit after), updateMappingBadge()
+// recomputes the SAME Appendix-A "Mapping k / n complete" text this SSR
+// render shows, from the identical field-count source (adversarial review
+// M1 fixed a prior divergence where the client clobbered this element with
+// the §8.1 offers-panel's OWN, differently-scoped "N/M Offers complete"
+// wording — that phrase belongs to the drawer/offers-panel context only).
+// Shared select-option-with-saved-value helper — Activity/Vertical selects
+// live in the §4.2 question strip now (renderStudioSettings); Save/Archive
+// forms may grow more selects later, so this stays a module-level helper.
+function savedOption(value: string): string {
+  return value === ""
+    ? `<option value="" selected>— pick —</option>`
+    : `<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}</option>`;
+}
+
 export function renderStudioTopBar(
   view: StudioSectionView,
   summary: StudioMappingSummary,
@@ -684,37 +761,40 @@ export function renderStudioTopBar(
   initialIssueCount: number,
 ): string {
   const isNew = view.public_id === null;
-  const mappingBadge = summary.publishable
-    ? `<span class="studio-chip studio-chip-mapping badge badge-published" data-studio-mapping-badge data-publishable="true">Mapping ready</span>`
-    : `<span class="studio-chip studio-chip-mapping badge badge-archived" data-studio-mapping-badge data-publishable="false">${summary.required_missing_total} required mapping${summary.required_missing_total === 1 ? "" : "s"} missing</span>`;
-  const currentOption = (value: string): string =>
-    value === "" ? `<option value="" selected>— pick —</option>` : `<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}</option>`;
-  return `<div class="studio-topbar" data-studio-topbar>
-  <a href="/admin/leadgen/sections" class="btn btn-outline studio-back">&#8592; Sections</a>
-  <div class="form-group studio-name">
-    <label class="form-label" for="lg-section-name">Section name *</label>
-    <input id="lg-section-name" name="section_name" class="form-input" required aria-required="true" value="${escapeHtml(view.section_name)}" />
-  </div>
-  ${isNew ? "" : statusPillHtml}
-  <div class="form-group studio-activity">
-    <label class="form-label" for="lg-section-activity">Activity *</label>
-    <div class="studio-pair">
-      <select id="lg-section-activity" name="activity" class="form-input" data-studio-activity required aria-required="true">${currentOption(view.activity)}</select>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-new-activity title="Create a new activity">+ New activity&#8230;</button>
+  // v3.1 §4.1: literal format "Mapping k / n complete" (golden :47 hardcodes
+  // its fixture's "2 / 2"; the real UI computes true k/n — §0 fidelity-vs-
+  // function). Green only when k===n (contract: "green when k=n").
+  const mappingComplete = summary.required_fields_total > 0 && summary.required_mapped_total === summary.required_fields_total;
+  const mappingBadgeColor = mappingComplete ? STUDIO_COLOR.success : STUDIO_COLOR.muted;
+  const mappingBadgeBg = mappingComplete ? STUDIO_COLOR.successTintAlt : STUDIO_COLOR.issuesChipBg;
+  const mappingBadge = `<span class="studio-chip studio-chip-mapping" data-studio-mapping-badge data-publishable="${summary.publishable}" data-mapping-complete="${mappingComplete}" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${mappingBadgeColor};background:${mappingBadgeBg};padding:6px 11px;border-radius:${STUDIO_RADIUS.control}px">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4 10-11" stroke="${mappingBadgeColor}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Mapping ${summary.required_mapped_total} / ${summary.required_fields_total} complete
+  </span>`;
+  // §4.1 top bar (golden 29–57): Back · Section name (single store, inline
+  // editable) · status pill · Mapping k/n badge · issues chip · Save ·
+  // Archive. Activity/Vertical moved to the §4.2 question strip — SAME
+  // element ids there, so collectSection + the dirty watcher are unaffected.
+  return `<div class="studio-topbar" data-studio-topbar style="display:flex;align-items:center;gap:14px;height:${STUDIO_GEOMETRY.topBarHeight}px;padding:0 18px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};flex-wrap:wrap">
+  <a href="/admin/leadgen/sections" class="studio-back" style="display:flex;align-items:center;gap:7px;padding:7px 11px 7px 8px;border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;cursor:pointer;color:${STUDIO_COLOR.text2Strong};font-weight:600;font-size:13px;text-decoration:none">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Sections
+  </a>
+  <div style="width:1px;height:24px;background:${STUDIO_COLOR.linePanel}"></div>
+  <div class="form-group studio-name" style="display:flex;flex-direction:column;gap:1px;margin:0">
+    <label class="form-label" for="lg-section-name" style="font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${STUDIO_COLOR.sectionEyebrow}">Section</label>
+    <div style="display:flex;align-items:center;gap:9px">
+      <input id="lg-section-name" name="section_name" required aria-required="true" value="${escapeHtml(view.section_name)}" style="width:132px;font-size:17px;font-weight:700;color:${STUDIO_COLOR.inkStrong};border:none;border-bottom:1.5px solid transparent;padding:1px 2px;outline:none;background:transparent" />
+      ${isNew ? "" : statusPillHtml}
     </div>
   </div>
-  <div class="form-group studio-vertical">
-    <label class="form-label" for="lg-section-vertical">Vertical *</label>
-    <div class="studio-pair">
-      <select id="lg-section-vertical" name="vertical" class="form-input" data-studio-vertical required aria-required="true">${currentOption(view.vertical)}</select>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-new-vertical title="Create a new vertical">+ New vertical&#8230;</button>
-    </div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+    ${mappingBadge}
+    ${issueChip(initialIssueCount)}
+    <div style="width:1px;height:24px;background:${STUDIO_COLOR.linePanel}"></div>
+    <button type="button" id="lg-section-save" class="studio-btn-save" style="padding:9px 20px;background:${STUDIO_COLOR.navy};color:${STUDIO_COLOR.white};font-weight:700;font-size:13px;border:0;border-radius:${STUDIO_RADIUS.control}px;cursor:pointer;box-shadow:0 1px 2px rgba(27,58,92,.28)">Save</button>
+    <button type="button" id="lg-section-archive" class="studio-btn-archive"${isNew || view.status === "archived" ? " disabled" : ""} style="padding:9px 14px;background:transparent;border:0;color:${STUDIO_COLOR.archiveText};font-weight:600;font-size:13px;border-radius:${STUDIO_RADIUS.control}px;cursor:pointer">Archive</button>
   </div>
-  <span class="lg-editor-spacer"></span>
-  ${mappingBadge}
-  ${issueChip(initialIssueCount)}
-  <button type="button" id="lg-section-save" class="btn btn-primary">Save</button>
-  <button type="button" id="lg-section-archive" class="btn btn-danger"${isNew || view.status === "archived" ? " disabled" : ""}>Archive</button>
 </div>`;
 }
 
@@ -728,36 +808,116 @@ export function renderStudioTopBar(
 // for that bind is deleted; [Show] re-inserts the bound node at the top).
 // The strip never duplicates canvas content — the bound nodes and these
 // inputs are ONE store, two views (§5.2).
+// §4.2 "On answer" segmented — SSR mirror of the golden's seg() helper
+// (golden :741-745), sourced from STUDIO_COLOR so Gate-1b traces the served
+// bytes to §3. The ES5 island's segStyle() (below) hardcodes the identical
+// literals for its post-click re-render, matching the golden's own idiom of
+// hardcoded per-state style strings (Appendix D: "each returns the exact
+// active/inactive inline-style strings").
+function segStyle(active: boolean): string {
+  return active
+    ? `padding:5px 11px;font-size:12px;font-weight:700;color:${STUDIO_COLOR.navy};background:${STUDIO_COLOR.white};border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.12);white-space:nowrap`
+    : `padding:5px 11px;font-size:12px;font-weight:600;color:${STUDIO_COLOR.mutedLabel};cursor:pointer;white-space:nowrap`;
+}
+
+// §6.1 canvas-toolbar viewport segmented — SSR mirror of the golden's
+// vpSeg() helper (golden :751-755).
+function vpSegStyle(active: boolean): string {
+  return active
+    ? `display:inline-flex;align-items:center;gap:6px;padding:5px 11px;font-size:12px;font-weight:700;color:${STUDIO_COLOR.navy};background:${STUDIO_COLOR.white};border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.12)`
+    : `display:inline-flex;align-items:center;gap:6px;padding:5px 11px;font-size:12px;font-weight:600;color:${STUDIO_COLOR.faint};cursor:pointer`;
+}
+
+// §6.1 canvas-toolbar Frame-hint toggle — SSR mirror of the golden's
+// frameBtnStyle/frameDotStyle (golden :840-845). Default ON (contract §6.1
+// table + golden state.frameHint = true).
+function frameBtnStyle(on: boolean): string {
+  return on
+    ? `display:inline-flex;align-items:center;gap:7px;padding:6px 11px;font-size:12px;font-weight:600;color:${STUDIO_COLOR.navy};background:${STUDIO_COLOR.navyTint};border-radius:7px;cursor:pointer`
+    : `display:inline-flex;align-items:center;gap:7px;padding:6px 11px;font-size:12px;font-weight:600;color:${STUDIO_COLOR.faint};background:${STUDIO_COLOR.issuesChipBg};border-radius:7px;cursor:pointer`;
+}
+function frameDotStyle(on: boolean): string {
+  return on
+    ? `width:8px;height:8px;border-radius:50%;background:${STUDIO_COLOR.navy}`
+    : `width:8px;height:8px;border-radius:50%;background:${STUDIO_COLOR.breadcrumbChevron}`;
+}
+
+// §4.2 question strip (golden 59–97): row 1 = eyebrow "The question" ·
+// Activity/Vertical dropdowns (MOVED here from the top bar — same element ids
+// so collectSection + the dirty watcher are unaffected) · "On answer"
+// segmented [Wait for Continue | Go to next] (writes continue_mode) · Maps
+// status chip (informational — §9's field Maps tab is the real control). Row
+// 2 = the canonical Headline/Subheadline inputs (§5.2 single store) + the
+// exact hint copy. The legacy global address-validation checkbox is NOT part
+// of the golden strip (§9's real per-field Maps tab supersedes it, Phase C) —
+// kept working (preserve-every-mechanism) but visually subordinate, below a
+// hairline, since no golden position exists for it.
 export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured: boolean): string {
   const mapsKeyNote = mapsKeyConfigured
     ? `<span class="lg-maps-note" data-maps-key="configured">Maps key configured (operator-owned browser key) — autofill available.</span>`
     : `<span class="lg-maps-note" data-maps-key="absent">Maps key not configured — autofill disabled (§30.2 no-op).</span>`;
   const hiddenChip = (bind: "section_headline" | "section_subheadline"): string =>
-    `<span class="studio-hidden-chip" data-bound-chip="${bind}" hidden>Hidden in this question unit &#183; <button type="button" class="studio-hidden-show" data-bound-show="${bind}">Show</button></span>`;
-  return `<form id="lg-section-form" class="studio-settings" data-studio-settings data-studio-question-strip novalidate>
-  <div class="form-group">
-    <label class="form-label" for="lg-section-headline">Question headline *</label>
-    <input id="lg-section-headline" name="headline_text" class="form-input" required aria-required="true" value="${escapeHtml(view.headline_text)}" />
-    ${hiddenChip("section_headline")}
+    `<span class="studio-hidden-chip" data-bound-chip="${bind}" hidden style="display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px">Hidden in this question unit &#183; <button type="button" class="studio-hidden-show" data-bound-show="${bind}" style="border:0;background:none;color:${STUDIO_COLOR.navy};cursor:pointer;font-size:11px;padding:0;text-decoration:underline">Show</button></span>`;
+  const waitActive = view.continue_mode !== "auto_advance";
+  const dropdownChevron = (color: string): string =>
+    `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<div class="studio-settings" data-studio-settings data-studio-question-strip style="padding:${STUDIO_GEOMETRY.questionStripPadding};background:${STUDIO_COLOR.stripBg};border-bottom:1px solid ${STUDIO_COLOR.lineStrip}">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:11px;flex-wrap:wrap">
+    <span style="font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:${STUDIO_COLOR.questionEyebrow}">The question</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">Activity</span>
+      <div class="studio-pair" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:${STUDIO_COLOR.white};border:1px solid ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
+        <select id="lg-section-activity" name="activity" data-studio-activity required aria-required="true" style="border:0;background:transparent;font:inherit;color:inherit;outline:none">${savedOption(view.activity)}</select>
+        ${dropdownChevron(STUDIO_COLOR.faint)}
+        <button type="button" class="btn btn-sm btn-outline" data-studio-new-activity title="Create a new activity" style="border:0;background:none;color:${STUDIO_COLOR.faint};cursor:pointer;font-size:11px;padding:0 0 0 4px">+New&#8230;</button>
+      </div>
+      <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600;margin-left:4px">Vertical</span>
+      <div class="studio-pair" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:${STUDIO_COLOR.white};border:1px solid ${STUDIO_COLOR.lineControl};border-radius:7px;font-size:12.5px;font-weight:600">
+        <select id="lg-section-vertical" name="vertical" data-studio-vertical required aria-required="true" style="border:0;background:transparent;font:inherit;color:inherit;outline:none">${savedOption(view.vertical)}</select>
+        ${dropdownChevron(STUDIO_COLOR.faint)}
+        <button type="button" class="btn btn-sm btn-outline" data-studio-new-vertical title="Create a new vertical" style="border:0;background:none;color:${STUDIO_COLOR.faint};cursor:pointer;font-size:11px;padding:0 0 0 4px">+New&#8230;</button>
+      </div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
+      <div style="display:flex;align-items:center;gap:8px" title="The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.">
+        <span style="font-size:11px;color:${STUDIO_COLOR.faint};font-weight:600">On answer</span>
+        <div data-continue-mode-group style="display:inline-flex;background:${STUDIO_COLOR.segmentTrack};border-radius:${STUDIO_RADIUS.control}px;padding:2px">
+          <div data-continue-mode="button" role="button" tabindex="0" aria-pressed="${waitActive}" style="${segStyle(waitActive)}">Wait for Continue</div>
+          <div data-continue-mode="auto_advance" role="button" tabindex="0" aria-pressed="${!waitActive}" style="${segStyle(!waitActive)}">Go to next</div>
+        </div>
+        <span class="form-help" data-continue-frame-note style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap">The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.</span>
+      </div>
+      <div data-maps-strip-chip style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.mutedLabel};background:${STUDIO_COLOR.mapsChipBg};border:1px solid ${STUDIO_COLOR.lineControl};padding:5px 10px;border-radius:20px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" stroke="${STUDIO_COLOR.mutedLabel}" stroke-width="1.7"/><circle cx="12" cy="9" r="2.1" stroke="${STUDIO_COLOR.mutedLabel}" stroke-width="1.7"/></svg>
+        Google Maps: ${mapsKeyConfigured ? "connected" : "not connected"}
+      </div>
+    </div>
   </div>
-  <div class="form-group">
-    <label class="form-label" for="lg-section-subheadline">Subheadline</label>
-    <input id="lg-section-subheadline" name="subheadline_text" class="form-input" value="${escapeHtml(view.subheadline_text ?? "")}" />
-    ${hiddenChip("section_subheadline")}
-  </div>
-  <fieldset class="form-group">
-    <legend class="form-label">Continue behavior</legend>
-    <label class="lg-check"><input type="radio" name="continue_mode" value="button"${view.continue_mode === "button" ? " checked" : ""} /> Visitor taps Continue (validates first)</label>
-    <label class="lg-check"><input type="radio" name="continue_mode" value="auto_advance"${view.continue_mode === "auto_advance" ? " checked" : ""} /> Advance automatically on answer</label>
-    <span class="form-help" data-continue-frame-note>The Continue button&#8217;s default style and position come from the Quote&#8217;s frame.</span>
-  </fieldset>
-  <div class="form-group">
-    <label class="lg-check"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${view.address_validation_enabled ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
-    <span class="lg-maps-note" data-maps-legacy-note>Legacy GLOBAL toggle (column kept for compat) — per-field Maps config on an Address/ZIP component (Inspector &#8594; Maps tab) WINS over it when present (§8.8).</span>
-    <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key &#8658; the validation leg no-ops.</span>
-    ${mapsKeyNote}
-  </div>
-</form>
+  <form id="lg-section-form" novalidate style="display:flex;gap:16px;align-items:flex-end">
+    <div class="form-group" style="flex:1.5;margin:0">
+      <label class="form-label" for="lg-section-headline" style="display:block;font-size:11px;font-weight:700;color:${STUDIO_COLOR.mutedLabel};margin-bottom:5px">Question headline *</label>
+      <input id="lg-section-headline" name="headline_text" required aria-required="true" value="${escapeHtml(view.headline_text)}" style="width:100%;padding:10px 13px;font-size:15px;font-weight:600;color:${STUDIO_COLOR.ink};border:1px solid ${STUDIO_COLOR.stripInputBorder};border-radius:${STUDIO_RADIUS.control}px;outline:none;background:${STUDIO_COLOR.white}" />
+      ${hiddenChip("section_headline")}
+    </div>
+    <div class="form-group" style="flex:1.2;margin:0">
+      <label class="form-label" for="lg-section-subheadline" style="display:block;font-size:11px;font-weight:700;color:${STUDIO_COLOR.mutedLabel};margin-bottom:5px">Subheadline <span style="font-weight:500;color:${STUDIO_COLOR.sectionEyebrow}">&#183; optional</span></label>
+      <input id="lg-section-subheadline" name="subheadline_text" value="${escapeHtml(view.subheadline_text ?? "")}" style="width:100%;padding:10px 13px;font-size:13.5px;color:${STUDIO_COLOR.text2Strong};border:1px solid ${STUDIO_COLOR.stripInputBorder};border-radius:${STUDIO_RADIUS.control}px;outline:none;background:${STUDIO_COLOR.white}" />
+      ${hiddenChip("section_subheadline")}
+    </div>
+    <div style="flex:0 0 auto;padding-bottom:11px;font-size:11.5px;color:${STUDIO_COLOR.faintSub};display:flex;align-items:center;gap:6px;max-width:150px;line-height:1.35">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><path d="M4 7l8 5 8-5" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v0" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8"/><path d="M4 6v8" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Also shown on the canvas &#8212; edit in either place.
+    </div>
+    <div style="flex-basis:100%;height:0"></div>
+    <fieldset class="form-group" style="flex-basis:100%;margin:10px 0 0;padding:10px 0 0;border:0;border-top:1px dashed ${STUDIO_COLOR.lineHairline}">
+      <legend class="form-label" style="font-size:11px;color:${STUDIO_COLOR.faintSub}">Legacy: address / ZIP validation (§8.8 supersedes — real per-field control lives in the field&#8217;s Maps tab)</legend>
+      <label class="lg-check" style="font-size:12px;color:${STUDIO_COLOR.mutedLabel}"><input type="checkbox" id="lg-address-validation" name="address_validation_enabled"${view.address_validation_enabled ? " checked" : ""} /> Google-Maps address / ZIP validation (§12.8)</label>
+      <span class="lg-maps-note" data-maps-legacy-note>Legacy GLOBAL toggle (column kept for compat) — per-field Maps config on an Address/ZIP component (Inspector &#8594; Maps tab) WINS over it when present (§8.8).</span>
+      <span class="lg-maps-note">The Maps key is a wrangler secret (GOOGLE_MAPS_BROWSER_KEY) — never embedded in cached HTML. Absent key &#8658; the validation leg no-ops.</span>
+      ${mapsKeyNote}
+    </fieldset>
+  </form>
+</div>
 <div class="studio-bind-banner" data-bind-banner hidden role="status" aria-live="polite"></div>`;
 }
 
@@ -765,118 +925,67 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
 // §8.3 component library (left rail)
 // ---------------------------------------------------------------------------
 
-// §5.2: the two bindable palette items insert BOUND nodes; while a bound node
-// for their bind value exists they are disabled with the exact tooltip. The
-// island keeps this live (updatePaletteBindItems); SSR stamps the initial
-// state so the served page is already correct.
-const PALETTE_BIND_OF_TYPE: Partial<Record<ComponentType, "section_headline" | "section_subheadline">> = {
-  QuestionHeadline: "section_headline",
-  Subheadline: "section_subheadline",
-};
-
-function paletteBindTooltip(bind: "section_headline" | "section_subheadline"): string {
-  return bind === "section_subheadline"
-    ? "This Section already shows its subheadline"
-    : "This Section already shows its headline";
-}
-
-function collectExistingBinds(content: LeadgenSectionContent): ReadonlySet<string> {
-  const binds = new Set<string>();
-  const walk = (nodes: unknown, depth: number): void => {
-    if (!Array.isArray(nodes) || depth > LEADGEN_MAX_CONTAINER_DEPTH + 1) return;
-    for (const raw of nodes) {
-      if (typeof raw !== "object" || raw === null) continue;
-      const node = raw as { bind?: unknown; children?: unknown };
-      if (typeof node.bind === "string") binds.add(node.bind);
-      walk(node.children, depth + 1);
-    }
-  };
-  walk(content.components, 1);
-  return binds;
-}
-
-// MINOR 11 (07 §7.4 operator words): the library answer-type chip speaks
-// PLAIN WORDS derived from the catalog `produces` — never the raw identifier
-// (enum/boolean/array/object are code vocabulary). One label per produces
-// value; an unknown future value falls back to a neutral phrase rather than
-// leaking the identifier.
-const PRODUCES_CHIP_LABELS: Record<string, string> = {
-  enum: "stores one choice",
-  boolean: "stores one choice",
-  array: "stores several choices",
-  number: "stores a number",
-  currency: "stores a number",
-  string: "stores text/number/date",
-  object: "stores grouped fields",
-};
-
-function producesChipLabel(produces: string): string {
-  return PRODUCES_CHIP_LABELS[produces] ?? "stores an answer";
-}
-
-function renderLibraryItem(type: ComponentType, design: FunnelDesign, existingBinds: ReadonlySet<string>): string {
-  const meta = STUDIO_TYPE_META[type];
-  const produces = COMPONENT_CATALOG[type].produces;
-  // The thumbnail IS the component's own preset render with sample props,
-  // scaled down by CSS transform (equivalent-fidelity choice documented in
-  // the slice report; inline-SVG wrapping is not required for parity).
-  //
-  // The item wrapper MUST NOT be a <button>: preset thumbnails legitimately
-  // contain interactive markup (answer <button>s, <input>s), and nested
-  // interactive content inside a button is INVALID HTML — the browser parser
-  // closes the outer button early and shatters the whole studio layout out of
-  // the admin shell (found by the first D2 Playwright exposure). A
-  // role="button" div keeps click-to-add + drag + a11y; the thumb itself is
-  // pointer-events:none so the inner preset controls are inert.
-  const thumbHtml = renderComponent(STUDIO_SAMPLE_NODES[type], design);
-  const answerType =
-    produces === null ? "" : `<span class="studio-item-type">${escapeHtml(producesChipLabel(String(produces)))}</span>`;
-  const mapsBadge = produces === null ? "" : `<span class="studio-item-maps" data-maps-badge>maps to Offer fields</span>`;
-  const bind = PALETTE_BIND_OF_TYPE[type];
-  const bindDisabled = bind !== undefined && existingBinds.has(bind);
-  const bindAttrs =
-    bind === undefined
-      ? ""
-      : ` data-bind-item="${bind}" data-bind-disabled="${bindDisabled ? "true" : "false"}" aria-disabled="${bindDisabled ? "true" : "false"}"${bindDisabled ? ` title="${escapeHtml(paletteBindTooltip(bind))}"` : ""}`;
-  return `<div class="studio-library-item" role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(type)}"${bindAttrs} data-search-text="${escapeHtml(`${meta.label} ${meta.description}`.toLowerCase())}" aria-label="Add ${escapeHtml(meta.label)}">
-  <span class="studio-thumb" aria-hidden="true"><span class="studio-thumb-scale" data-funnel-design="${escapeHtml(design.id)}">${thumbHtml}</span></span>
-  <span class="studio-item-body">
-    <span class="studio-item-name">${escapeHtml(meta.label)}</span>
-    <span class="studio-item-desc">${escapeHtml(meta.description)}</span>
-    <span class="studio-item-meta">${answerType}${mapsBadge}</span>
-  </span>
+// §5.1 tile (golden 114-247): the exact bespoke SVG over a name only — NO
+// description, thumbnail-of-text, id string, or "maps to Offer fields"
+// badge (§5.1 binding: "removed from the palette entirely... none may be
+// added"). Tile padding/border/radius/hover from §5.1 + Appendix B, sourced
+// from STUDIO_COLOR/STUDIO_RADIUS/STUDIO_GEOMETRY. The item wrapper stays a
+// role="button" div (never <button> — nested interactive preset markup
+// inside a real button is invalid HTML, the original D2 regression this
+// idiom fixed; tiles no longer render live preset markup, but the div
+// wrapper is kept for the same drag+keyboard+a11y contract).
+function renderLibraryItem(tile: StudioTile): string {
+  const childAttr = tile.childTypes ? ` data-add-children="${escapeHtml(tile.childTypes.join(","))}"` : "";
+  // additive (m2): a tile whose insert needs starting props beyond a bare
+  // default-typed node (the Divider's variant:"line") carries them JSON-
+  // encoded — a plain drag-drop payload ('text/plain' cannot carry an object)
+  // degrades to the bare defaultType, same documented precedent as childTypes.
+  const propsAttr = tile.defaultProps ? ` data-add-props="${escapeHtml(JSON.stringify(tile.defaultProps))}"` : "";
+  return `<div class="studio-library-item" data-tile role="button" tabindex="0" draggable="true" data-add-component="${escapeHtml(tile.defaultType)}"${childAttr}${propsAttr} data-name="${escapeHtml(tile.dataName)}" aria-label="Add ${escapeHtml(tile.label)}" style="display:flex;flex-direction:column;align-items:center;gap:9px;padding:${STUDIO_GEOMETRY.tile.padding};border:1px solid ${STUDIO_COLOR.linePanel};border-radius:${STUDIO_RADIUS.tile}px;background:${STUDIO_COLOR.white};cursor:grab">
+  ${tile.svg}
+  <div class="studio-item-name" style="font-size:${STUDIO_TYPE.size.tileName}px;font-weight:600;color:${STUDIO_COLOR.text2}">${escapeHtml(tile.label)}</div>
 </div>`;
 }
 
-// §8.3: the dismissible callout that replaced the old Layout group's frame
-// items — page chrome lives in the Quote Builder. Dismissal persists in
-// localStorage (island); [Open] deep-links the Quotes tab.
+// §5.2: the dismissible callout below the Layout group — page chrome lives
+// in the Quote Builder. Dismissal persists in localStorage (island); [Open]
+// deep-links the Quotes tab.
 function renderFrameCallout(): string {
-  return `<div class="studio-frame-callout" data-studio-frame-callout role="note">
-  <span class="studio-frame-callout-copy">Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong> &#8594; <a href="/admin/leadgen/quotes" class="studio-frame-callout-open" data-studio-callout-open>Open</a></span>
-  <button type="button" class="studio-frame-callout-dismiss" data-studio-callout-dismiss aria-label="Dismiss">&#215;</button>
+  return `<div class="studio-frame-callout" data-studio-frame-callout role="note" style="margin-top:16px;padding:12px 13px;background:${STUDIO_COLOR.infoBlueTint};border:1px solid ${STUDIO_COLOR.frameCalloutBorder};border-radius:9px">
+  <div style="display:flex;align-items:flex-start;gap:9px">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto;margin-top:1px"><rect x="3" y="4" width="18" height="16" rx="2" stroke="${STUDIO_COLOR.infoBlue}" stroke-width="1.8"/><path d="M3 9h18" stroke="${STUDIO_COLOR.infoBlue}" stroke-width="1.8"/></svg>
+    <span class="studio-frame-callout-copy" style="font-size:12px;color:${STUDIO_COLOR.frameCalloutText};line-height:1.5">Looking for the page header, footer, progress bar or background? Those live in the <strong>Quote Builder</strong> &#8594; <a href="/admin/leadgen/quotes" class="studio-frame-callout-open" data-studio-callout-open style="color:${STUDIO_COLOR.navy};font-weight:700;border-bottom:1px solid ${STUDIO_COLOR.frameCalloutLinkUnderline}">Open</a></span>
+    <button type="button" class="studio-frame-callout-dismiss" data-studio-callout-dismiss aria-label="Dismiss" style="border:0;background:none;cursor:pointer;font-size:14px;line-height:1;color:inherit;padding:0 2px">&#215;</button>
+  </div>
 </div>`;
 }
 
-export function renderStudioLibrary(design: FunnelDesign, content: LeadgenSectionContent): string {
-  const existingBinds = collectExistingBinds(content);
+// §5.1 group header: chevron (rotates 0→90° open, golden's chev() helper) +
+// uppercase label; click toggles. Default open: Suggested/Answer fields/
+// Content; default collapsed: Layout.
+function chevronStyle(open: boolean): string {
+  return `transform:rotate(${open ? 90 : 0}deg)`;
+}
+
+export function renderStudioLibrary(design: FunnelDesign, _content: LeadgenSectionContent): string {
+  void design; // the tile SVGs are bespoke assets, independent of the active funnel design
   const groups = STUDIO_LIBRARY_GROUPS.map((group) => {
-    const items = group.types.map((t) => renderLibraryItem(t, design, existingBinds)).join("");
-    // C7 (§8.3): the Trust & help group carries the scope note verbatim.
-    const scopeNote =
-      group.key === "trust"
-        ? `<p class="studio-scope-note" data-trust-scope-note>${escapeHtml(STUDIO_TRUST_SCOPE_NOTE)}</p>`
-        : "";
-    // The callout replaces the old Layout group's frame items — rendered at
-    // the old group's position (after the inside-unit layout group).
+    const items = group.tiles.map(renderLibraryItem).join("");
     const callout = group.key === "layout" ? renderFrameCallout() : "";
     return `<div class="studio-library-group" data-library-group="${escapeHtml(group.key)}">
-  <h4 class="studio-library-heading">${escapeHtml(group.label)}</h4>
-  ${scopeNote}<div class="studio-library-items">${items}</div>
+  <div class="studio-library-heading" data-library-group-toggle="${escapeHtml(group.key)}" role="button" tabindex="0" aria-expanded="${group.defaultOpen}" style="display:flex;align-items:center;gap:7px;padding:${STUDIO_GEOMETRY.groupHeaderPadding};cursor:pointer;user-select:none">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style="${chevronStyle(group.defaultOpen)}"><path d="M8 5l8 7-8 7" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:${STUDIO_COLOR.faint}">${escapeHtml(group.label)}</span>
+  </div>
+  <div class="studio-library-items" data-library-items="${escapeHtml(group.key)}"${group.defaultOpen ? "" : " hidden"} style="display:grid;grid-template-columns:1fr 1fr;gap:${STUDIO_GEOMETRY.tile.gap}px">${items}</div>
 </div>${callout}`;
   }).join("");
   return `<div class="studio-library" data-studio-library aria-label="Component library">
-  <input type="search" class="form-input studio-library-search" data-studio-library-search placeholder="Search components…" aria-label="Search components" />
+  <div style="font-size:13px;font-weight:800;color:${STUDIO_COLOR.inkStrong};margin-bottom:11px">Add to this question</div>
+  <div style="position:relative;margin-bottom:15px">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="position:absolute;left:11px;top:50%;transform:translateY(-50%)"><circle cx="11" cy="11" r="7" stroke="${STUDIO_COLOR.searchIconStroke}" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="${STUDIO_COLOR.searchIconStroke}" stroke-width="2" stroke-linecap="round"/></svg>
+    <input type="search" class="studio-library-search" data-studio-library-search placeholder="Search components…" aria-label="Search components" style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;outline:none;background:${STUDIO_COLOR.searchInputBg};box-sizing:border-box" />
+  </div>
   ${groups}
 </div>`;
 }
@@ -971,15 +1080,26 @@ export function studioCanvasFrameSrcdoc(
   );
 }
 
-// §5.4 "Frame hint": a dimmed, NON-interactive, GENERIC frame skeleton around
-// the unit for spatial context — presentation-only, never editable here (the
-// real frame is Quote-Builder-owned). Toggled by [data-studio-frame-hint].
+// §6.3 "Frame hint" (golden 298-305 header / 360-365 footer): a dimmed
+// (opacity .5), NON-interactive skeleton around the unit for spatial
+// context — presentation-only, never editable here (the real frame is
+// Quote-Builder-owned). Toggled by [data-studio-frame-hint]; default ON
+// (contract §6.1 table + golden state.frameHint = true) — ships VISIBLE, not
+// hidden. The exact golden copy ("Funnel frame", "brand·logo", the
+// disclosure line) is Appendix A microcopy, not a generic gray-bar
+// placeholder.
 function renderFrameHintSkeleton(edge: "top" | "bottom"): string {
   const inner =
     edge === "top"
-      ? `<div class="studio-skel-header"><span class="studio-skel-logo"></span><span class="studio-skel-bar"></span></div><div class="studio-skel-progress"></div>`
-      : `<div class="studio-skel-footer"><span class="studio-skel-bar"></span><span class="studio-skel-bar studio-skel-bar-short"></span></div>`;
-  return `<div class="studio-frame-skeleton" data-studio-frame-skeleton="${edge}" hidden aria-hidden="true">${inner}</div>`;
+      ? `<div style="position:absolute;top:8px;left:0;display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:${STUDIO_COLOR.frameHintTagText};background:${STUDIO_COLOR.frameHintTagBg};padding:3px 8px;border-radius:${STUDIO_RADIUS.pill}px;pointer-events:auto"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="${STUDIO_COLOR.frameHintTagText}" stroke-width="2"/><path d="M8 11V8a4 4 0 018 0v3" stroke="${STUDIO_COLOR.frameHintTagText}" stroke-width="2"/></svg>Funnel frame</div>
+    <div style="display:flex;justify-content:center;padding-top:18px"><div style="font-family:${STUDIO_TYPE.family.newsreader};font-size:19px;font-weight:600;color:${STUDIO_COLOR.frameCalloutText};letter-spacing:.3px">brand<span style="color:${STUDIO_COLOR.frameHintDot}">&#183;</span>logo</div></div>
+    <div style="margin-top:14px;height:5px;border-radius:4px;background:${STUDIO_COLOR.frameHintProgressTrack};overflow:hidden"><div style="width:38%;height:100%;background:${STUDIO_COLOR.frameHintProgressFill}"></div></div>`
+      : `<div style="font-size:11px;color:${STUDIO_COLOR.frameHintTagText};line-height:1.6">Advertising disclosure &#183; Terms &#183; Privacy<br>&#169; 2026 &#183; Trusted partner network</div>`;
+  const wrapStyle =
+    edge === "top"
+      ? "position:relative;opacity:.5;pointer-events:none;padding:14px 0 20px"
+      : "opacity:.5;pointer-events:none;padding:20px 0 8px;text-align:center";
+  return `<div class="studio-frame-skeleton" data-studio-frame-skeleton="${edge}" aria-hidden="true" style="${wrapStyle}">${inner}</div>`;
 }
 
 // §6.1.2 / §7.1: ONE scope-pill implementation for BOTH hosts (toolbar +
@@ -1043,6 +1163,27 @@ function renderToolbarLayoutCluster(design: FunnelDesign): string {
   return `<span class="studio-tb-cluster" data-toolbar-cluster="layout" hidden>${groups}${choiceLayout}</span>`;
 }
 
+// §5.6 "The Accept-swap rule" — exact enumeration (contract §8.5b): "Any
+// text · Number · Amount ($) · Email · Phone · ZIP code (5 digits) · Date ·
+// Street address (8; selecting swaps the node type per §5.6)". Values are
+// LEADGEN_FIELD_ACCEPT_FORMATS (content-schema.ts, single source of truth);
+// labels are asserted copy, defined here (the toolbar is this phase's only
+// consumer — Phase C's inspector Accept dropdown will import the same
+// LEADGEN_FIELD_ACCEPT_FORMATS values and may reuse or restate these labels).
+const ACCEPT_LABELS: Record<(typeof LEADGEN_FIELD_ACCEPT_FORMATS)[number], string> = {
+  text: "Any text",
+  number: "Number",
+  currency: "Amount ($)",
+  email: "Email",
+  phone: "Phone",
+  us_zip: "ZIP code (5 digits)",
+  date: "Date",
+  street_address: "Street address",
+};
+const ACCEPT_OPTION_HTML = LEADGEN_FIELD_ACCEPT_FORMATS.map(
+  (f) => `<option value="${f}">${escapeHtml(ACCEPT_LABELS[f])}</option>`,
+).join("");
+
 // §6.1 anatomy 1–9, left → right. The toolbar is ALWAYS visible (§6.5 row 1:
 // nothing selected still shows breadcrumb(root) · pills · undo/redo ·
 // viewport); the island toggles the per-selection clusters (pure
@@ -1058,17 +1199,32 @@ function renderCanvasToolbar(design: FunnelDesign): string {
   const textRoleOptions = textRoles
     .map((r) => `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`)
     .join("");
-  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar>
+  // min-height, not height: golden's 46px is the SINGLE-cluster bar (§6.5
+  // matrix row 1 / the static mockup), but several selections (e.g. a
+  // choice-bearing container) show TWO clusters simultaneously (structure +
+  // component) — with flex-wrap, their combined width can exceed one row at
+  // real viewport widths. A fixed height would clip/overflow those wrapped
+  // rows UNDER the next sibling (the canvas surface), which then wins the
+  // hit-test and swallows clicks meant for the overflowing buttons. A
+  // min-height keeps golden's 46px look for every single-cluster selection
+  // (the common case — identical rendered height) while letting the bar
+  // grow, and the canvas correctly reflow below it, whenever it doesn't.
+  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
     <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
     ${renderScopePillsMarkup()}
-    <span class="studio-tb-cluster" data-toolbar-cluster="undo">
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="undo" disabled title="Undo (&#8984;Z)" aria-label="Undo">&#8630;</button>
-      <button type="button" class="btn btn-sm btn-outline" data-studio-act="redo" disabled title="Redo (&#8679;&#8984;Z)" aria-label="Redo">&#8631;</button>
-    </span>
-    <span class="studio-tb-cluster" data-toolbar-cluster="viewport" role="group" aria-label="Canvas viewport">
-      <button type="button" class="btn btn-sm btn-secondary active" data-canvas-viewport="desktop" aria-pressed="true">Desktop 1280</button>
-      <button type="button" class="btn btn-sm btn-secondary" data-canvas-viewport="mobile" aria-pressed="false">Mobile 375</button>
-    </span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <span class="studio-tb-cluster" data-toolbar-cluster="undo" style="display:flex;align-items:center;gap:2px;border-left:0;padding:0">
+        <button type="button" class="studio-undoredo-btn" data-studio-act="undo" disabled title="Undo (&#8984;Z)" aria-label="Undo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 7L4 12l5 5" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h11a5 5 0 015 5v1" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" class="studio-undoredo-btn" data-studio-act="redo" disabled title="Redo (&#8679;&#8984;Z)" aria-label="Redo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M15 7l5 5-5 5" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H9a5 5 0 00-5 5v1" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </span>
+      <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
+      <span class="studio-tb-cluster" data-toolbar-cluster="viewport" role="group" aria-label="Canvas viewport" style="display:inline-flex;background:${STUDIO_COLOR.segmentTrack};border-radius:${STUDIO_RADIUS.control}px;padding:2px;border-left:0">
+        <button type="button" data-canvas-viewport="desktop" aria-pressed="true" style="${vpSegStyle(true)};border:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M9 20h6M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Desktop</button>
+        <button type="button" data-canvas-viewport="mobile" aria-pressed="false" style="${vpSegStyle(false)};border:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="7" y="3" width="10" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M11 18h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Mobile</button>
+      </span>
+      <div style="width:1px;height:22px;background:${STUDIO_COLOR.linePanel}"></div>
+      <button type="button" data-studio-frame-hint aria-pressed="true" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder" style="${frameBtnStyle(true)};border:0"><span style="${frameDotStyle(true)}"></span>Frame hint</button>
+    </div>
     <span class="studio-tb-cluster" data-toolbar-cluster="structure" hidden>
       <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-up" aria-label="Move up">&#8593;</button>
       <button type="button" class="btn btn-sm btn-outline" data-studio-act="move-down" aria-label="Move down">&#8595;</button>
@@ -1093,6 +1249,15 @@ function renderCanvasToolbar(design: FunnelDesign): string {
       <span data-tb-selected-role="button" hidden><select id="lg-tb-selected-button" class="form-input studio-tb-select" data-inspector-override="buttonBackground" aria-label="Selected-state style role (button background)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
       <span data-tb-selected-role="icon" hidden><select id="lg-tb-selected-icon" class="form-input studio-tb-select" data-inspector-override="iconColor" aria-label="Selected-state style role (icon color)" title="Selected-state style role"><option value="">Selected style: inherited</option>${roleSelectOptions()}</select></span>
       <span data-toolbar-searchable-wrap hidden><button type="button" class="btn btn-sm btn-outline" data-toolbar-searchable aria-pressed="false" title="Searchable dropdown — switches the component type (§5.5)">Searchable: off</button></span>
+      <span data-toolbar-card-style-wrap hidden role="group" aria-label="Card style">
+        <button type="button" class="btn btn-sm btn-outline" data-card-style="icon">Icon</button>
+        <button type="button" class="btn btn-sm btn-outline" data-card-style="image">Image</button>
+        <button type="button" class="btn btn-sm btn-outline" data-card-style="plain">Plain</button>
+      </span>
+      <span data-toolbar-slider-format-wrap hidden><button type="button" class="btn btn-sm btn-outline" data-toolbar-slider-format aria-pressed="false" title="Amount ($) format — switches the component type (§5.6)">Format $: off</button></span>
+      <span data-toolbar-accept-wrap hidden>
+        <select id="lg-tb-accept" class="form-input studio-tb-select" data-toolbar-accept aria-label="Accept" title="Accept — the concrete stored type (§5.6 Accept-swap rule)">${ACCEPT_OPTION_HTML}</select>
+      </span>
       <span data-toolbar-input-quick hidden>
         <label class="lg-check studio-tb-check"><input type="checkbox" data-inspector-field="required" aria-label="Required" /> Required</label>
         <input id="lg-tb-placeholder" class="form-input studio-tb-select" type="text" data-inspector-field="placeholder" placeholder="Placeholder" aria-label="Placeholder" />
@@ -1124,11 +1289,9 @@ export function renderStudioCanvas(
   ctx?: { headline_text: string; subheadline_text: string | null },
 ): string {
   const empty = !Array.isArray(content.components) || content.components.length === 0;
+  // §2.2/§6.1 (golden: no separate "Canvas" heading row — the center column
+  // starts directly with the 46px toolbar, which now hosts Frame hint too).
   return `<div class="studio-canvas" data-studio-canvas>
-  <div class="studio-canvas-head">
-    <h3 class="card-title">Canvas</h3>
-    <button type="button" class="btn btn-sm btn-outline" data-studio-frame-hint aria-pressed="false" title="Show a dimmed, generic frame skeleton for spatial context — presentation-only, edited in the Quote Builder">Frame hint</button>
-  </div>
   ${renderCanvasToolbar(design)}
   <p class="studio-pending-note" data-studio-pending-note hidden role="status" aria-live="polite"></p>
   <p class="studio-refusal alert alert-error" data-studio-drop-refusal hidden role="status" aria-live="polite"></p>
@@ -1781,6 +1944,17 @@ const MAPPING_TABLE_COLUMNS = [
   "Fix",
 ] as const;
 
+// §2.1/§6-drawer (golden 370-387): a slim 42px bar — Mapping (with the same
+// k/n badge as the top bar) · Validation · "Preview in a quote" (this IS the
+// existing "preview" tab/panel — a Section preview is rendered "in a quote"
+// context, so the golden copy just renames the existing mechanism) · (right)
+// Preview-theme switcher (navigates to the Phase-D Themes manager route;
+// harmless if that route doesn't exist yet — Phase D builds it) · Expand
+// (toggles the drawer's max-height). "Design overrides" has NO golden
+// position (§9.5's role-overrides UI predates this contract and isn't named
+// in §2/Appendix A) — kept reachable (preserve-every-mechanism) as a smaller,
+// visually-subordinate 4th control so it never competes with the 3 golden
+// pills for attention.
 export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount: number): string {
   const mappingSummary = summary.publishable
     ? `<span class="badge badge-published" data-publishable="true">Publishable</span>`
@@ -1795,12 +1969,21 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
   // GET /sections/:id/offers + the live answer_maps model. Raw numeric offer
   // ids, free-text paths and raw JSON maps do NOT exist on this surface —
   // pickers only (Advanced drawer = the per-NODE raw JSON, §6.14).
-  return `<div class="studio-drawer" data-studio-drawer>
-  <div class="studio-tabs" role="tablist" aria-label="Studio drawer tabs">
-    <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Offer mapping</button>
-    <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
-    <button type="button" class="studio-tab" role="tab" data-studio-drawer-tab="design" aria-selected="false">Design overrides</button>
-    <button type="button" class="studio-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview &amp; debug</button>
+  return `<div class="studio-drawer" data-studio-drawer style="border:0;border-top:1px solid ${STUDIO_COLOR.linePanel};border-radius:0;padding:0;background:${STUDIO_COLOR.white};margin-top:16px">
+  <div class="studio-tabs" role="tablist" aria-label="Studio drawer tabs" style="display:flex;align-items:center;gap:4px;height:${STUDIO_GEOMETRY.bottomDrawerHeight}px;padding:0 14px;border-bottom:0;margin-bottom:0">
+    <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="mapping" aria-selected="false">Mapping <span style="font-size:10px;font-weight:800;color:${STUDIO_COLOR.success};background:${STUDIO_COLOR.mappingBadgeBg};padding:1px 6px;border-radius:10px;margin-left:4px">${summary.required_mapped_total}/${summary.required_fields_total}</span></button>
+    <button type="button" class="studio-tab studio-drawer-tab" role="tab" data-studio-drawer-tab="validation" aria-selected="false">Validation</button>
+    <button type="button" class="studio-tab studio-drawer-tab active" role="tab" data-studio-drawer-tab="preview" aria-selected="true">Preview in a quote</button>
+    <button type="button" class="studio-tab studio-drawer-tab-minor" role="tab" data-studio-drawer-tab="design" aria-selected="false" style="margin-left:8px;font-size:11px;color:${STUDIO_COLOR.faintSub};background:none;border:0;cursor:pointer;padding:4px 8px">Design overrides</button>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:15px">
+      <a href="/admin/leadgen/themes" data-studio-preview-theme-link style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:${STUDIO_COLOR.muted};cursor:pointer;font-weight:600;text-decoration:none">
+        <span style="width:13px;height:13px;border-radius:4px;background:${STUDIO_COLOR.navy};position:relative;display:inline-block"><span style="position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:2px;background:${STUDIO_COLOR.accent};border:1px solid ${STUDIO_COLOR.white}"></span></span>
+        Preview theme:&nbsp;<b style="color:${STUDIO_COLOR.navy}">Navy</b>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faint}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <div style="width:1px;height:20px;background:${STUDIO_COLOR.linePanel}"></div>
+      <button type="button" data-studio-drawer-expand aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:${STUDIO_COLOR.faintSub};cursor:pointer;background:none;border:0;padding:0">Expand<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="${STUDIO_COLOR.faintSub}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
   </div>
   <div class="studio-drawer-panel" data-studio-drawer-panel="mapping" hidden>
     <div class="lg-mapping-summary" data-mapping-summary data-studio-tab-mapping>${mappingSummary}${missing}<span class="form-help" data-studio-mapping-count>${answerMapCount} mapping edge${answerMapCount === 1 ? "" : "s"} on this Section</span></div>
@@ -1960,27 +2143,35 @@ export const SECTION_STUDIO_STYLES = `
 .studio-item-type{font-size:10px;color:var(--c-muted);font-variant-numeric:tabular-nums;border:1px solid var(--c-border);border-radius:4px;padding:0 4px}
 .studio-item-maps{font-size:10px;color:#0f5132;background:#d1e7dd;border-radius:4px;padding:0 4px}
 /* canvas */
-.studio-canvas-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.studio-breadcrumb{font-size:12px;color:var(--c-muted);font-variant-numeric:tabular-nums}
+.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums}
+/* v3.1 §6.1 canvas-toolbar undo/redo icon buttons (golden :277-278) */
+.studio-undoredo-btn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;border:0;background:none;padding:0}
+.studio-undoredo-btn:hover{background:#F1F3F7}
+.studio-undoredo-btn:disabled{opacity:.45;cursor:default}
+.studio-undoredo-btn:disabled:hover{background:none}
 .studio-toolbar{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
 .studio-pending-note{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px}
 .studio-refusal{margin:8px 0}
-.studio-canvas-surface{border:1px dashed var(--c-border);border-radius:8px;min-height:320px;padding:12px;position:relative;background:#fff;overflow:auto}
+/* v3.1 §2.2/§6.1 canvas surface (golden 294-296): dot-grid background,
+   34/24 padding. Not a flex row (unlike golden's single wrapped 600px
+   column) — this surface hosts an independently-sized REAL iframe (the
+   viewport itself, 1280/375 — DEV-66 load-bearing for @media) alongside the
+   decorative 600px-capped frame-hint skeletons, so each child centers via
+   its OWN margin:auto instead of one shared flex wrapper. */
+.studio-canvas-surface{border-radius:8px;min-height:320px;padding:34px 24px;position:relative;background:#EDF0F4;background-image:radial-gradient(#DCE1EA 1px,transparent 1px);background-size:22px 22px;overflow:auto}
 .studio-canvas-surface:focus-visible{outline:2px solid var(--c-primary);outline-offset:2px}
 /* DEV-66: the render region lives in the canvas srcdoc iframe — its viewport
    IS the §6.1.4 width (island swaps 1280/375); the region-decoration rules
    moved into SECTION_STUDIO_CANVAS_FRAME_CSS (inside the frame document). */
 .studio-canvas-frame{display:block;border:0;width:1280px;max-width:none;height:320px;margin:0 auto;background:#fff}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
-/* §5.4 frame-hint skeleton: dimmed, generic, NON-interactive (presentation only) */
-.studio-frame-skeleton{opacity:.35;pointer-events:none;user-select:none;margin:0 0 10px}
-.studio-frame-skeleton[data-studio-frame-skeleton="bottom"]{margin:10px 0 0}
-.studio-skel-header{display:flex;align-items:center;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
-.studio-skel-logo{width:28px;height:12px;border-radius:3px;background:var(--c-border);display:inline-block}
-.studio-skel-bar{flex:1;height:8px;border-radius:4px;background:var(--c-border);display:inline-block}
-.studio-skel-bar-short{flex:0 0 30%}
-.studio-skel-progress{height:4px;border-radius:2px;background:var(--c-border);margin-top:6px}
-.studio-skel-footer{display:flex;gap:8px;border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;background:var(--c-surface)}
+/* v3.1 §6.3 frame-hint skeleton (golden 298-305/360-365): opacity/padding/
+   pointer-events now ride the element's OWN inline style (byte-matching the
+   golden literal — Gate 1a); user-select survives as the one property the
+   golden's inline literal omits but the mechanism still needs (non-selectable
+   presentation text). Appendix B's 600px unit-column width applies HERE
+   (these decorative skeletons), not to the real 1280/375 iframe above. */
+.studio-frame-skeleton{user-select:none;max-width:600px;margin:0 auto}
 /* §5.4 amber badge rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §5.1 hidden-in-unit chips next to the strip inputs */
 .studio-hidden-chip{display:inline-block;font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:999px;padding:2px 8px;margin-top:4px}
@@ -2018,6 +2209,23 @@ export const SECTION_STUDIO_STYLES = `
 .studio-advanced-json textarea{width:100%;font-family:var(--font-mono,monospace);font-size:11px;margin:6px 0}
 .studio-rename-warning{font-size:12px}
 .studio-drawer{margin-top:16px;border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-surface)}
+/* v3.1 §2.1 bottom-drawer bar (golden 370-387) — distinct from the generic
+   .studio-tab/.studio-tab.active the Phase-C inspector strip also uses, so
+   restyling here never bleeds into the inspector tabs (they never carry
+   these classes). */
+.studio-drawer-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;font-size:12.5px;font-weight:600;color:#6B7486;border-radius:7px;cursor:pointer;background:none;border:0}
+.studio-drawer-tab:hover{background:#F1F3F7}
+.studio-drawer-tab.active{font-weight:700;color:#1B3A5C;background:#EEF2F7}
+.studio-drawer-tab-minor:hover{color:#41495B}
+.studio-drawer-tab-minor.active{color:#1B3A5C;font-weight:700}
+/* the drawer panel content area defaults to a capped, scrollable height;
+   "Expand" (data-studio-drawer-expand) lifts the cap for a fuller working view */
+.studio-drawer-panel{max-height:260px;overflow-y:auto;padding:12px 14px}
+.studio-drawer-expanded .studio-drawer-panel{max-height:none}
+/* v3.1 §4.1 top-bar hover states (golden style-hover, translated to real :hover) */
+.studio-back:hover{background:#F5F7FA;border-color:#CDD5E1}
+.studio-btn-save:hover{background:#16324f}
+.studio-btn-archive:hover{background:#FBEEEC;color:#B23A2C}
 .studio-issue-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 .studio-issue-list button{border:0;background:none;color:#842029;cursor:pointer;text-align:left;font-size:12px;padding:2px 0}
 .lg-mapping-summary{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
@@ -2082,8 +2290,11 @@ export const SECTION_STUDIO_STYLES = `
 .studio-tb-group{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
 .studio-tb-select{font-size:11px;padding:2px 4px;max-width:170px}
 .studio-tb-check{font-size:11px}
-.studio-breadcrumb button{border:0;background:none;color:var(--c-primary);cursor:pointer;font-size:12px;padding:0 2px;text-decoration:underline}
-.studio-breadcrumb .studio-crumb-current{color:inherit;text-decoration:none;font-weight:600;cursor:default}
+/* v3.1 §6.1 breadcrumb (golden 266-272): plain muted root/intermediate
+   crumbs; the CURRENT (deepest) crumb is the navy chip. */
+.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px}
+.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default}
+.studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
 .studio-toolbar-problems{font-size:11px;color:#842029}
 .studio-control-invalid{outline:2px solid #dc3545;outline-offset:1px}
 /* §6.2 inline-edit + choice-op rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
@@ -2205,6 +2416,31 @@ export const SECTION_STUDIO_SCRIPT = `
   var SELECT_CLASS = 'studio-selected-node';
 
   function markDirty() { dirty = true; }
+  // §4.2 "On answer" segmented — ES5 mirror of the golden's seg() helper
+  // (golden :741-745); the SSR-side segStyle() in the TS module sources the
+  // identical literals from studio-tokens.ts (Gate-1b traceability at the
+  // served-bytes layer). The ES5 island hardcodes them (matching the
+  // golden's OWN hardcoded-literal idiom — Appendix D: "each returns the
+  // exact active/inactive inline-style strings"); it cannot import the token
+  // module at runtime.
+  function segStyle(active) {
+    return active
+      ? 'padding:5px 11px;font-size:12px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.12);white-space:nowrap'
+      : 'padding:5px 11px;font-size:12px;font-weight:600;color:#6B7486;cursor:pointer;white-space:nowrap';
+  }
+  // Single writer for continue_mode (§5.5): both the strip's segmented
+  // control and the canvas toolbar's quick auto-advance chip write the SAME
+  // store through this one function, so the two views never drift.
+  function setContinueMode(mode) {
+    state.continue_mode = mode === 'auto_advance' ? 'auto_advance' : 'button';
+    var waitOn = state.continue_mode !== 'auto_advance';
+    var waitEl = document.querySelector('[data-continue-mode="button"]');
+    var goEl = document.querySelector('[data-continue-mode="auto_advance"]');
+    if (waitEl) { waitEl.setAttribute('style', segStyle(waitOn)); waitEl.setAttribute('aria-pressed', waitOn ? 'true' : 'false'); }
+    if (goEl) { goEl.setAttribute('style', segStyle(!waitOn)); goEl.setAttribute('aria-pressed', waitOn ? 'false' : 'true'); }
+    markDirty();
+    updateCanvasToolbar();
+  }
   function cloneJson(v) { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return {}; } }
   function trimStr(s) { if (s === undefined || s === null) { return ''; } return String(s).trim(); }
   function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
@@ -2800,6 +3036,80 @@ export const SECTION_STUDIO_SCRIPT = `
     return true;
   }
 
+  // §5.6 "Cards" type-swap — Icon / Image / Plain, matching the golden's
+  // Content-tab "Card style" setting. Choices carry over UNCHANGED (label/
+  // value/analytics_id survive every swap); type-specific choice fields
+  // (icon / imageMediaId+image_alt) simply go unread by a target type that
+  // doesn't consume them — NEVER synthesized (no fake icon/image invented).
+  var CARD_STYLE_TYPES = { icon: 'IconCardAnswerGrid', image: 'ImageCardAnswerGrid', plain: 'ButtonAnswerGroup' };
+  var CARD_STYLE_FAMILY = ['IconCardAnswerGrid', 'ImageCardAnswerGrid', 'ButtonAnswerGroup'];
+  function cardStyleOf(node) {
+    if (!node) { return null; }
+    if (node.type === 'IconCardAnswerGrid') { return 'icon'; }
+    if (node.type === 'ImageCardAnswerGrid') { return 'image'; }
+    if (node.type === 'ButtonAnswerGroup') { return 'plain'; }
+    return null;
+  }
+  function setCardStyle(node, style) {
+    var target = CARD_STYLE_TYPES[style];
+    if (!node || !target) { return false; }
+    if (CARD_STYLE_FAMILY.indexOf(node.type) === -1) { return false; }
+    if (node.type === target) { return false; }
+    node.type = target;
+    afterModelChange();
+    return true;
+  }
+
+  // §5.6 "Slider" type-swap — Format $ toggles NumberRangeQuestion <->
+  // CurrencyRangeQuestion (props/choices carry over unchanged).
+  function toggleSliderFormat(node) {
+    if (!node) { return false; }
+    if (node.type === 'NumberRangeQuestion') { node.type = 'CurrencyRangeQuestion'; }
+    else if (node.type === 'CurrencyRangeQuestion') { node.type = 'NumberRangeQuestion'; }
+    else { return false; }
+    afterModelChange();
+    return true;
+  }
+
+  // §5.6 "The Accept-swap rule" — all 8 text-input tiles insert ONE control
+  // whose Accept dropdown selects the concrete stored type, PRESERVING
+  // shared props on swap (internal_field/label/helper/icon/required survive;
+  // only the type-specific validation/format prop changes). The reverse map
+  // mirrors content-schema.ts's LEADGEN_FIELD_ACCEPT_TYPE (the ES5 island
+  // cannot import — hardcoded here matching the golden's own per-state
+  // literal idiom, Appendix D).
+  var ACCEPT_FORMAT_TYPE = {
+    text: 'FreeTextQuestion',
+    number: 'NumberInputQuestion',
+    currency: 'CurrencyInputQuestion',
+    email: 'EmailInputQuestion',
+    phone: 'PhoneInputQuestion',
+    us_zip: 'ZIPInputQuestion',
+    date: 'DateQuestion',
+    street_address: 'AddressAutocompleteQuestion'
+  };
+  var ACCEPT_TYPE_FORMAT = {
+    FreeTextQuestion: 'text',
+    NumberInputQuestion: 'number',
+    CurrencyInputQuestion: 'currency',
+    EmailInputQuestion: 'email',
+    PhoneInputQuestion: 'phone',
+    ZIPInputQuestion: 'us_zip',
+    DateQuestion: 'date',
+    AddressAutocompleteQuestion: 'street_address'
+  };
+  function acceptFormatOfNode(node) { return node ? (ACCEPT_TYPE_FORMAT[node.type] || null) : null; }
+  function setAcceptFormat(node, format) {
+    var target = ACCEPT_FORMAT_TYPE[format];
+    if (!node || !target) { return false; }
+    if (!ACCEPT_TYPE_FORMAT[node.type]) { return false; }
+    node.type = target;
+    if (!node.props) { node.props = {}; }
+    node.props.format = format;
+    afterModelChange();
+    return true;
+  }
+
   // --- §6.2 inline text editing (dblclick) commit core ---------------------------
   // Bound nodes write the STRIP store (one store, two views); plain copy nodes
   // write props.text/label; choice cards write that choice's label.
@@ -3125,7 +3435,16 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- structural mutations (§8.4) — every mutation flows through here --------
-  function addComponentAt(type, parentQid, index) {
+  // §5.6 "Contact" tile (4th param, optional): a Stack of three individually
+  // editable/deletable nodes (NameFieldsGroup + EmailInputQuestion +
+  // PhoneInputQuestion). Reuses EVERY existing insertion rule (bound-node
+  // refusal, container depth cap, pendingInsert targeting) — children are
+  // attached to the constructed node BEFORE the single afterModelChange()
+  // call, so the whole Contact group is ONE atomic history entry. defaultProps
+  // (5th param, optional, m2): shallow-merged onto the new node's props
+  // BEFORE afterModelChange — the Divider tile's variant:"line" is the first
+  // consumer.
+  function addComponentAt(type, parentQid, index, childTypes, defaultProps) {
     // §5.2: at most ONE bound node per bind value — a second insert is refused
     // with the exact palette tooltip copy (the palette item is also disabled;
     // this guard covers drag-drop and container drops too).
@@ -3149,16 +3468,27 @@ export const SECTION_STUDIO_SCRIPT = `
       return null;
     }
     var node = makeNode(type);
+    if (childTypes && childTypes.length) {
+      node.children = [];
+      var ci;
+      for (ci = 0; ci < childTypes.length; ci++) { node.children.push(makeNode(childTypes[ci])); }
+    }
+    if (defaultProps) {
+      if (!node.props) { node.props = {}; }
+      for (var dpKey in defaultProps) {
+        if (Object.prototype.hasOwnProperty.call(defaultProps, dpKey)) { node.props[dpKey] = defaultProps[dpKey]; }
+      }
+    }
     var at = (typeof index === 'number' && index >= 0 && index <= target.length) ? index : target.length;
     target.splice(at, 0, node);
     afterModelChange();
     return node;
   }
-  function insertRelative(qid, where, type) {
+  function insertRelative(qid, where, type, childTypes, defaultProps) {
     var ref = findRef(qid);
     if (!ref) { return null; }
     var parentQid = ref.parent ? ref.parent.question_id : null;
-    return addComponentAt(type, parentQid, ref.index + (where === 'after' ? 1 : 0));
+    return addComponentAt(type, parentQid, ref.index + (where === 'after' ? 1 : 0), childTypes, defaultProps);
   }
   function moveNodeTo(qid, parentQid, index) {
     var ref = findRef(qid);
@@ -3435,6 +3765,18 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   function afterModelChange() {
+    // m3 (adversarial re-review) extra robustness: ANY other model mutation
+    // proactively tears down a still-registered width-drag (the "moved then
+    // the mouseup got lost off-window" case, where the drag's OWN moved flag
+    // is already true, so a later stray mouseup would otherwise still commit
+    // a stale width). A no-op when this IS the drag's own afterModelChange
+    // call — its finishUp already nulled activeWidthDragCleanup via
+    // cleanupListeners() before reaching here. typeof-guarded (not a bare
+    // reference): this function is sliced standalone into several unrelated
+    // vitest probes that never declare activeWidthDragCleanup — a bare
+    // reference would throw ReferenceError there, in every one of them, for
+    // a concern entirely outside what they test.
+    if (typeof activeWidthDragCleanup !== 'undefined' && activeWidthDragCleanup) { activeWidthDragCleanup(); }
     markDirty();
     historyPush();
     clearRefusal();
@@ -3693,6 +4035,256 @@ export const SECTION_STUDIO_SCRIPT = `
       if (nodes[i].parentNode) { nodes[i].parentNode.insertBefore(chip, nodes[i]); }
     }
   }
+  // --- §6.2/§7 selection chrome + width-drag (golden 307-358) ------------------
+  // Measurement formula (§7.1.3, binding): stored value = the drag's measured
+  // content-box width in px, snapped to a 4px grid, clamped to [200,600] (the
+  // Appendix B unit-column width). The golden hardcodes its demo "384"; this
+  // computes the true value (§0 fidelity-vs-function).
+  var WIDTH_PX_MIN = 200, WIDTH_PX_MAX = 600, WIDTH_PX_GRID = 4;
+  function snapWidthCustomPx(px) {
+    var snapped = Math.round(px / WIDTH_PX_GRID) * WIDTH_PX_GRID;
+    return Math.max(WIDTH_PX_MIN, Math.min(WIDTH_PX_MAX, snapped));
+  }
+  function currentCustomWidthPx(node) {
+    var w = node && node.design_overrides && node.design_overrides.size && node.design_overrides.size.width;
+    if (w && typeof w === 'object' && typeof w.custom_px === 'number') { return w.custom_px; }
+    return null;
+  }
+  // §6.2 selection-chrome "kind": which of the golden's 3 variants applies.
+  // Only 'field' gets the 8 handles — golden's headline/continue selections
+  // show ONLY an outline + name tag (contract: "corner/vertical handles are
+  // presentation FOR THIS FIELD TYPE"). Containers keep their PRE-EXISTING
+  // .studio-resize-handle mechanism untouched — this is additive, not a
+  // replacement, for the 3 golden-specified selection kinds.
+  function selectionChromeKind(node) {
+    if (!node) { return null; }
+    if (node.bind === 'section_headline' || node.bind === 'section_subheadline' || node.type === 'QuestionHeadline' || node.type === 'Subheadline') { return 'headline'; }
+    if (node.type === 'ContinueButton' || node.type === 'AutoAdvanceButton') { return 'continue'; }
+    if (isContainerType(node.type)) { return null; }
+    return 'field';
+  }
+  function clearSelectionChrome(region) {
+    var chrome = region.querySelectorAll('[data-selection-chrome]');
+    var i;
+    for (i = 0; i < chrome.length; i++) { if (chrome[i].parentNode) { chrome[i].parentNode.removeChild(chrome[i]); } }
+    // Unwrap any prior selection-wrap (moves its child back to its original
+    // slot, then removes the now-empty wrapper) — the region is REBUILT from
+    // server HTML on every content re-render, but a pure selection change
+    // (selectComponent without a model mutation) does NOT re-fetch, so stale
+    // wraps from a PREVIOUS selection must be cleaned before the next one.
+    var wraps = region.querySelectorAll('[data-selection-wrap]');
+    var w, ww;
+    for (w = 0; w < wraps.length; w++) {
+      ww = wraps[w];
+      if (ww.parentNode) {
+        while (ww.firstChild) { ww.parentNode.insertBefore(ww.firstChild, ww); }
+        ww.parentNode.removeChild(ww);
+      }
+    }
+  }
+  function ensureSelectionWrap(el) {
+    var wrap = document.createElement('span');
+    wrap.setAttribute('data-selection-wrap', '1');
+    wrap.style.cssText = 'position:relative;display:inline-block;width:100%;vertical-align:top';
+    if (el.parentNode) { el.parentNode.insertBefore(wrap, el); }
+    wrap.appendChild(el);
+    return wrap;
+  }
+  // m3(a) (adversarial review): if a drag's mouseup is never delivered (the
+  // pointer released outside the browser window entirely), NEITHER onUpInner
+  // nor onUpOuter fires, so their listeners stayed attached forever — a
+  // LATER, wholly unrelated mouseup elsewhere on the page would then run
+  // THIS gesture's finishUp with its stale startX/startWidth/qid, writing a
+  // bogus custom_px and marking the section dirty. One shared, module-level
+  // reference to the current drag's cleanup: a NEW width-drag mousedown
+  // tears down any still-attached PRIOR pair before starting its own, so at
+  // most one listener pair ever exists — self-healing even when the true end
+  // of a gesture is never observed. The per-gesture dragActive flag is a
+  // second, independent guard (finishUp is a no-op after its own cleanup
+  // already ran).
+  var activeWidthDragCleanup = null;
+  function onWidthHandleMouseDown(ev) {
+    var handle = ev.target && ev.target.closest ? ev.target.closest('[data-width-handle]') : null;
+    if (!handle) { return; }
+    ev.preventDefault();
+    if (ev.stopPropagation) { ev.stopPropagation(); }
+    if (activeWidthDragCleanup) { activeWidthDragCleanup(); }
+    var qid = handle.getAttribute('data-width-handle');
+    var side = handle.getAttribute('data-handle-side');
+    var wrap = handle.parentNode;
+    var target = wrap ? wrap.querySelector('[data-question-id="' + qid + '"]') : null;
+    // §7.1.3: applyCanvasDecoration already keeps this field NON-draggable
+    // while its width handles are shown (native drag-candidate arming reads
+    // the attribute at mousedown hit-test time, before any JS runs, so
+    // toggling it here would be too late) — this restores the ordinary
+    // container/canvas drag-reorder source the instant the gesture ends,
+    // rather than waiting for the next debounced re-render.
+    var startWidth = target && target.getBoundingClientRect ? target.getBoundingClientRect().width : 0;
+    var startX = ev.clientX;
+    var innerDoc = canvasFrameDoc();
+    var startedInFrame = !!(innerDoc && handle.ownerDocument === innerDoc);
+    var dragActive = true;
+    // m3 (adversarial re-review): dragActive alone only guards against a
+    // SECOND width-drag's mousedown reusing this same closure — it does
+    // NOTHING for the reported scenario (grab a handle, release the pointer
+    // off-window so this mouseup is never delivered, then click ANYWHERE
+    // else on the page). That later, wholly unrelated mouseup still finds
+    // dragActive===true (nothing else ever sets it false) and finishUp
+    // still runs, writing a bogus custom_px from the click's position and
+    // marking the section dirty. The moved flag below requires an ACTUAL
+    // mousemove between this mousedown and whichever mouseup finishUp
+    // responds to — absent one, finishUp only cleans up (no write, no
+    // afterModelChange). This also retires the "a plain click on a handle
+    // re-snaps custom_px to the current width" quirk (a click delivers
+    // mousedown+mouseup with no intervening move either).
+    var moved = false;
+    function cleanupListeners() {
+      if (innerDoc && innerDoc.removeEventListener) {
+        innerDoc.removeEventListener('mouseup', onUpInner);
+        innerDoc.removeEventListener('mousemove', onMoveInner);
+        innerDoc.removeEventListener('mousedown', onOtherMouseDown, true);
+      }
+      document.removeEventListener('mouseup', onUpOuter);
+      document.removeEventListener('mousemove', onMoveOuter);
+      document.removeEventListener('mousedown', onOtherMouseDown, true);
+      if (activeWidthDragCleanup === cleanupListeners) { activeWidthDragCleanup = null; }
+    }
+    function finishUp(upEv, viaParent) {
+      if (!dragActive) { return; }
+      dragActive = false;
+      cleanupListeners();
+      if (target && target.setAttribute) { target.setAttribute('draggable', 'true'); }
+      if (!moved) { return; }
+      var endX = upEv.clientX;
+      var frame = canvasFrameEl();
+      if (startedInFrame && viaParent && frame && frame.getBoundingClientRect) {
+        endX = upEv.clientX - frame.getBoundingClientRect().left;
+      }
+      var deltaX = endX - startX;
+      var rawWidth = side === 'left' ? (startWidth - deltaX) : (startWidth + deltaX);
+      var clamped = snapWidthCustomPx(rawWidth);
+      var ref = findRef(qid);
+      if (!ref) { return; }
+      if (!ref.node.design_overrides) { ref.node.design_overrides = {}; }
+      if (!ref.node.design_overrides.size) { ref.node.design_overrides.size = {}; }
+      ref.node.design_overrides.size.width = { custom_px: clamped };
+      afterModelChange();
+    }
+    function onUpInner(upEv) { finishUp(upEv, false); }
+    function onUpOuter(upEv) { finishUp(upEv, true); }
+    function onMoveInner() { moved = true; }
+    function onMoveOuter() { moved = true; }
+    // Scenario D (adversarial re-review): tearing down on the NEXT
+    // selectComponent/afterModelChange fires too late for "click something
+    // that selects nothing" (a library tile, top-bar chrome) — the browser
+    // delivers mousedown, then mouseup, then click, in that order, so by the
+    // time such a click's own selectComponent/afterModelChange could run, a
+    // STALE (moved already true, terminal mouseup lost off-window) drag's
+    // OWN mouseup listener has ALREADY fired on that interceding mouseup and
+    // committed a bogus width. mousedown always precedes mouseup, so the
+    // only airtight point left is the very next mousedown, anywhere,
+    // BEFORE it can bubble to whatever handler that interaction has. Skips
+    // handle-targeted mousedowns: a fresh onWidthHandleMouseDown already
+    // tears down any prior drag itself (this function's own top) and then
+    // re-arms activeWidthDragCleanup for its OWN gesture — this listener
+    // must never immediately undo that brand new registration. Capture
+    // phase so no other handler's stopPropagation can hide the mousedown
+    // from this listener first.
+    function onOtherMouseDown(dEv) {
+      var onHandle = dEv.target && dEv.target.closest ? dEv.target.closest('[data-width-handle]') : null;
+      if (onHandle) { return; }
+      if (activeWidthDragCleanup) { activeWidthDragCleanup(); }
+    }
+    activeWidthDragCleanup = cleanupListeners;
+    if (innerDoc && innerDoc.addEventListener) {
+      innerDoc.addEventListener('mousedown', onOtherMouseDown, true);
+      innerDoc.addEventListener('mouseup', onUpInner);
+      innerDoc.addEventListener('mousemove', onMoveInner);
+    }
+    document.addEventListener('mousedown', onOtherMouseDown, true);
+    document.addEventListener('mouseup', onUpOuter);
+    document.addEventListener('mousemove', onMoveOuter);
+  }
+  // §6.2 the 8 handles (golden :338-345): exact offsets left/right -11px;
+  // rows at top -11/+19/+49. Only the two +19 side-midpoint handles are
+  // filled navy + interactive (ew-resize); the other six are white +
+  // pointer-events:none (presentation for this field type).
+  function buildHandle(top, side, interactive, qid) {
+    var el = document.createElement('span');
+    el.setAttribute('data-selection-chrome', '1');
+    var css = 'position:absolute;top:' + top + 'px;width:11px;height:11px;border-radius:3px;';
+    css += side === 'left' ? 'left:-11px;' : side === 'right' ? 'right:-11px;' : 'left:calc(50% - 5px);';
+    if (interactive) {
+      css += 'background:#1B3A5C;border:2px solid #1B3A5C;cursor:ew-resize;pointer-events:auto';
+      el.setAttribute('data-width-handle', qid);
+      el.setAttribute('data-handle-side', side);
+      el.addEventListener('mousedown', onWidthHandleMouseDown);
+    } else {
+      css += 'background:#fff;border:2px solid #1B3A5C;pointer-events:none';
+    }
+    el.setAttribute('style', css);
+    return el;
+  }
+  function decorateFieldSelection(el, qid, node) {
+    var wrap = ensureSelectionWrap(el);
+    var outline = document.createElement('div');
+    outline.setAttribute('data-selection-chrome', '1');
+    outline.style.cssText = 'position:absolute;left:-6px;right:-6px;top:-6px;height:66px;border:2px solid #1B3A5C;border-radius:12px;pointer-events:none';
+    wrap.appendChild(outline);
+    var tag = document.createElement('div');
+    tag.setAttribute('data-selection-chrome', '1');
+    tag.style.cssText = 'position:absolute;top:-30px;left:-6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap';
+    // §5.6's "Short text field" tag is scoped to the 8-value Accept-swap
+    // text-input family (acceptFormatOfNode returns non-null ONLY for those
+    // 8 types) — every OTHER field kind reaching this 8-handle chrome
+    // (Buttons/Yes-No/Dropdown/Cards/Multi-select/Slider/…) shows its own
+    // operator name, the SAME label the inspector scope header uses
+    // (typeLabel/STUDIO_TYPE_META), so the canvas tag never lies about what's
+    // selected (adversarial review M2).
+    tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node ? node.type : '')));
+    wrap.appendChild(tag);
+    var customPx = currentCustomWidthPx(node);
+    if (customPx !== null) {
+      var badge = document.createElement('div');
+      badge.setAttribute('data-selection-chrome', '1');
+      badge.style.cssText = 'position:absolute;top:-30px;right:-6px;background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
+      badge.appendChild(document.createTextNode('≈ ' + customPx + ' px · custom'));
+      wrap.appendChild(badge);
+    }
+    wrap.appendChild(buildHandle(-11, 'left', false, qid));
+    wrap.appendChild(buildHandle(-11, 'center', false, qid));
+    wrap.appendChild(buildHandle(-11, 'right', false, qid));
+    wrap.appendChild(buildHandle(19, 'left', true, qid));
+    wrap.appendChild(buildHandle(19, 'right', true, qid));
+    wrap.appendChild(buildHandle(49, 'left', false, qid));
+    wrap.appendChild(buildHandle(49, 'center', false, qid));
+    wrap.appendChild(buildHandle(49, 'right', false, qid));
+  }
+  // headline (golden :314-317) / continue (golden :352-355): outline + name
+  // tag ONLY — no handles (§6.2: handles are field-type-only presentation).
+  function decorateSimpleSelection(el, kind) {
+    var wrap = ensureSelectionWrap(el);
+    var outline = document.createElement('div');
+    outline.setAttribute('data-selection-chrome', '1');
+    outline.style.cssText = kind === 'continue'
+      ? 'position:absolute;left:-6px;right:-6px;top:-6px;bottom:-6px;border:2px solid #1B3A5C;border-radius:14px;pointer-events:none'
+      : 'position:absolute;left:-6px;right:-6px;top:-6px;bottom:-6px;border:2px solid #1B3A5C;border-radius:10px;pointer-events:none';
+    wrap.appendChild(outline);
+    var tag = document.createElement('div');
+    tag.setAttribute('data-selection-chrome', '1');
+    tag.style.cssText = 'position:absolute;top:-30px;left:-6px;background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;pointer-events:none;white-space:nowrap;display:flex;align-items:center;gap:6px';
+    if (kind === 'continue') {
+      tag.appendChild(document.createTextNode('Continue button'));
+      var chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,.18);padding:1px 6px;border-radius:10px;font-size:10px';
+      chip.appendChild(document.createTextNode('from frame'));
+      tag.appendChild(chip);
+    } else {
+      tag.appendChild(document.createTextNode('Question · shared with header'));
+    }
+    wrap.appendChild(tag);
+  }
+
   function applyCanvasDecoration() {
     var region = canvasRegion();
     if (!region) { return; }
@@ -3704,11 +4296,25 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < stale.length; i++) {
       if (stale[i].parentNode) { stale[i].parentNode.removeChild(stale[i]); }
     }
+    clearSelectionChrome(region);
     var nodes = region.querySelectorAll('[data-question-id]');
-    var qid, base, ref, labels, chip, nodeType;
+    var qid, base, ref, labels, chip, nodeType, chromeKind;
     for (i = 0; i < nodes.length; i++) {
-      nodes[i].setAttribute('draggable', 'true');
       qid = nodes[i].getAttribute('data-question-id');
+      ref = findRef(qid);
+      chromeKind = (qid === selectedQuestionId && ref) ? selectionChromeKind(ref.node) : null;
+      // §7.1.3: the selected FIELD's own input sits directly under/beside its
+      // width-drag handles. Confirmed via a real mousedown dispatched on the
+      // input itself: with draggable="true" (the container/canvas reorder
+      // mechanism's default for every [data-question-id]), that mousedown
+      // arms a NATIVE HTML5 drag on the input — a real browser behavior, not
+      // an artifact of any particular test tool. Suppress it for exactly the
+      // one node that's both selected AND field-chrome'd, so grabbing near
+      // the input while its resize handles are showing can never accidentally
+      // start a native drag instead of (or on top of) the width-drag gesture.
+      // Every other node (incl. this same field once deselected) keeps the
+      // existing reorder-by-drag mechanism.
+      nodes[i].setAttribute('draggable', chromeKind === 'field' ? 'false' : 'true');
       base = withoutClasses(nodes[i].className, [SELECT_CLASS]);
       nodes[i].className = qid === selectedQuestionId ? base + ' ' + SELECT_CLASS : base;
       // §5.4: legacy frame-scope node → amber badge (unless Keep-acknowledged
@@ -3720,7 +4326,6 @@ export const SECTION_STUDIO_SCRIPT = `
       // chip: "fills: city, state" from the config's autofill keys. Inserted
       // as a SIBLING (the ZIP node element is the <input> itself — it cannot
       // contain children).
-      ref = findRef(qid);
       labels = ref ? mapsFillLabels(ref.node) : [];
       if (labels.length > 0 && nodes[i].parentNode) {
         chip = document.createElement('span');
@@ -3731,6 +4336,12 @@ export const SECTION_STUDIO_SCRIPT = `
         chip.appendChild(document.createTextNode('fills: ' + labels.join(', ')));
         nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
       }
+      // §6.2 golden selection chrome (field 8-handles / headline / continue) —
+      // additive over the generic .studio-selected-node outline above; only
+      // for the CURRENTLY selected node, and only for these 3 golden kinds
+      // (containers keep their existing .studio-resize-handle mechanism).
+      if (chromeKind === 'field') { decorateFieldSelection(nodes[i], qid, ref.node); }
+      else if (chromeKind === 'headline' || chromeKind === 'continue') { decorateSimpleSelection(nodes[i], chromeKind); }
     }
     decorateChoiceCards(region);
     decorateMappingOverlay(region);
@@ -3823,8 +4434,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var root = document.createElement('button');
     root.type = 'button';
     root.setAttribute('data-crumb', '');
+    // §6.1 breadcrumb (golden :267, Appendix A): root text is "This section"
+    // (lowercase s) — always the muted root label, never chip-styled (the
+    // golden's chip is reserved for the CURRENT selection level).
     if (!selectedQuestionId) { root.className = 'studio-crumb-current'; }
-    root.appendChild(document.createTextNode('This Section'));
+    root.appendChild(document.createTextNode('This section'));
     root.addEventListener('click', function () { selectComponent(null); });
     crumb.appendChild(root);
     if (!selectedQuestionId) { return; }
@@ -3927,6 +4541,34 @@ export const SECTION_STUDIO_SCRIPT = `
       searchBtn.textContent = searchable ? 'Searchable: on' : 'Searchable: off';
       searchBtn.setAttribute('aria-pressed', searchable ? 'true' : 'false');
     }
+    // §5.6 "Cards" style — Icon/Image/Plain segmented, shown for the 3-type family.
+    var cardWrap = document.querySelector('[data-toolbar-card-style-wrap]');
+    var curCardStyle = cardStyleOf(node);
+    if (cardWrap) { cardWrap.hidden = curCardStyle === null; }
+    if (curCardStyle !== null) {
+      var cardBtns = document.querySelectorAll('[data-card-style]');
+      var cbi;
+      for (cbi = 0; cbi < cardBtns.length; cbi++) {
+        cardBtns[cbi].className = cardBtns[cbi].getAttribute('data-card-style') === curCardStyle ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-outline';
+      }
+    }
+    // §5.6 "Slider" Format $ toggle — shown for the 2-type range family.
+    var sliderWrap = document.querySelector('[data-toolbar-slider-format-wrap]');
+    var sliderBtn = document.querySelector('[data-toolbar-slider-format]');
+    var isSlider = !!node && (node.type === 'NumberRangeQuestion' || node.type === 'CurrencyRangeQuestion');
+    if (sliderWrap) { sliderWrap.hidden = !isSlider; }
+    if (sliderBtn && isSlider) {
+      var isCurrency = node.type === 'CurrencyRangeQuestion';
+      sliderBtn.textContent = isCurrency ? 'Format $: on' : 'Format $: off';
+      sliderBtn.setAttribute('aria-pressed', isCurrency ? 'true' : 'false');
+    }
+    // §5.6 "The Accept-swap rule" — shown for the 8-type text-input family;
+    // the select's current value reflects the node's OWN concrete type.
+    var acceptWrap = document.querySelector('[data-toolbar-accept-wrap]');
+    var acceptSel = document.querySelector('[data-toolbar-accept]');
+    var curAccept = acceptFormatOfNode(node);
+    if (acceptWrap) { acceptWrap.hidden = curAccept === null; }
+    if (acceptSel && curAccept !== null) { acceptSel.value = curAccept; }
     var textRoleSel = document.querySelector('[data-text-role]');
     if (textRoleSel && node && TEXT_ROLE_TYPES.indexOf(node.type) !== -1) {
       textRoleSel.value = node.type;
@@ -3944,7 +4586,24 @@ export const SECTION_STUDIO_SCRIPT = `
     updateHistoryButtons();
     renderToolbarProblems();
   }
+  // §6.2 "Default selection on open = the ZIP field" (contract) generalizes
+  // to: the FIRST real answer-collecting node (produces !== null), skipping
+  // bound copy nodes — the §1.2 fixture's one field happens to be the ZIP
+  // question, but this works for any Section's content.
+  function findDefaultSelectionId() {
+    var found = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (found === null && n.bind === undefined && typeMeta(n.type).produces) { found = n.question_id; }
+    });
+    return found;
+  }
   function selectComponent(qid) {
+    // m3 (adversarial re-review) extra robustness: a selection change is the
+    // other place a stale width-drag (moved, but its own mouseup was lost
+    // off-window) should be torn down proactively — see afterModelChange's
+    // matching guard for the full rationale (incl. why this is
+    // typeof-guarded: selectComponent is also sliced standalone elsewhere).
+    if (typeof activeWidthDragCleanup !== 'undefined' && activeWidthDragCleanup) { activeWidthDragCleanup(); }
     selectedQuestionId = qid || null;
     scopeState = selectedQuestionId ? 'component' : 'section';
     selectedChoiceValue = null;
@@ -5734,18 +6393,39 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- library: search + click-to-add + drag source ------------------------------
-  function addFromLibrary(type) {
+  // §5.6 the "Contact" tile's childTypes (optional): a Stack of three
+  // individually editable/deletable nodes. Every other tile passes no
+  // childTypes and behaves exactly as before. defaultProps (optional, m2):
+  // starting props beyond a bare default-typed node — the Divider tile's
+  // variant:"line" is the first consumer.
+  function addFromLibrary(type, childTypes, defaultProps) {
     var node = null;
     if (pendingInsert) {
-      node = insertRelative(pendingInsert.qid, pendingInsert.where, type);
+      node = insertRelative(pendingInsert.qid, pendingInsert.where, type, childTypes, defaultProps);
       pendingInsert = null;
       updatePendingUi();
     } else {
       var sel = selectedNode();
-      if (sel && isContainerType(sel.type)) { node = addComponentAt(type, sel.question_id, null); }
-      else { node = addComponentAt(type, null, null); }
+      if (sel && isContainerType(sel.type)) { node = addComponentAt(type, sel.question_id, null, childTypes, defaultProps); }
+      else { node = addComponentAt(type, null, null, childTypes, defaultProps); }
     }
     if (node) { selectComponent(node.question_id); }
+  }
+  // §5.6 the "Contact" tile carries data-add-children (comma-separated types)
+  // — click/keyboard build the full 3-node Stack; a plain drag-drop (whose
+  // 'text/plain' payload cannot carry a children list) degrades to an EMPTY
+  // Stack container, still clearly a real (if unpopulated) insert.
+  function libraryChildTypesOf(btn) {
+    var attr = btn.getAttribute('data-add-children');
+    return attr ? attr.split(',') : undefined;
+  }
+  // m2: data-add-props (JSON-encoded, e.g. the Divider tile's {"variant":
+  // "line"}) — same drag-drop-degrades-gracefully precedent as childTypes
+  // (the 'text/plain' payload cannot carry an object either).
+  function libraryPropsOf(btn) {
+    var attr = btn.getAttribute('data-add-props');
+    if (!attr) { return undefined; }
+    try { return JSON.parse(attr); } catch (eProps) { return undefined; }
   }
   var libraryEl = document.querySelector('[data-studio-library]');
   if (libraryEl) {
@@ -5754,7 +6434,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       // §5.2: a disabled bound item never consumes the armed insertion point.
       if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
-      addFromLibrary(btn.getAttribute('data-add-component'));
+      addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn), libraryPropsOf(btn));
     });
     // the items are role="button" divs (nested-button validity) — keep the
     // native keyboard activation contract.
@@ -5764,22 +6444,60 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!btn) { return; }
       ev.preventDefault();
       if (btn.getAttribute('data-bind-disabled') === 'true') { return; }
-      addFromLibrary(btn.getAttribute('data-add-component'));
+      addFromLibrary(btn.getAttribute('data-add-component'), libraryChildTypesOf(btn), libraryPropsOf(btn));
     });
     libraryEl.addEventListener('dragstart', function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-add-component]') : null;
       if (!btn || !ev.dataTransfer) { return; }
       ev.dataTransfer.setData('text/plain', 'add:' + btn.getAttribute('data-add-component'));
     });
+    // §5.1 group collapse/expand: chevron rotates 0→90°, click toggles.
+    function setGroupOpen(key, open) {
+      var header = libraryEl.querySelector('[data-library-group-toggle="' + key + '"]');
+      var itemsEl = libraryEl.querySelector('[data-library-items="' + key + '"]');
+      if (header) {
+        header.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var chev = header.querySelector('svg');
+        if (chev) { chev.setAttribute('style', 'transform:rotate(' + (open ? 90 : 0) + 'deg)'); }
+      }
+      if (itemsEl) { itemsEl.hidden = !open; }
+    }
+    var groupToggles = libraryEl.querySelectorAll('[data-library-group-toggle]');
+    var gt;
+    function onGroupToggleActivate() {
+      var key = this.getAttribute('data-library-group-toggle');
+      var open = this.getAttribute('aria-expanded') !== 'true';
+      setGroupOpen(key, open);
+    }
+    for (gt = 0; gt < groupToggles.length; gt++) {
+      groupToggles[gt].addEventListener('click', onGroupToggleActivate);
+      groupToggles[gt].addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onGroupToggleActivate.call(this); }
+      });
+    }
+    // §5.1/§5.5 search: case-insensitive substring of the tile's data-name,
+    // across ALL groups — while a query is active every group is forced
+    // OPEN (so a match inside a collapsed group like Layout is reachable);
+    // clearing the query restores each group to its own toggled state
+    // (read from aria-expanded, which the collapse handler above keeps live).
     var search = libraryEl.querySelector('[data-studio-library-search]');
     if (search) {
       search.addEventListener('input', function () {
         var q = trimStr(this.value).toLowerCase();
-        var items = libraryEl.querySelectorAll('[data-add-component]');
-        var i, text;
+        var items = libraryEl.querySelectorAll('[data-tile]');
+        var i, name;
         for (i = 0; i < items.length; i++) {
-          text = items[i].getAttribute('data-search-text') || '';
-          items[i].setAttribute('data-search-hidden', q !== '' && text.indexOf(q) === -1 ? 'true' : 'false');
+          name = items[i].getAttribute('data-name') || '';
+          items[i].style.display = (q === '' || name.indexOf(q) !== -1) ? '' : 'none';
+        }
+        var groupEls = libraryEl.querySelectorAll('[data-library-items]');
+        var g, key, header, wantOpen;
+        for (g = 0; g < groupEls.length; g++) {
+          if (q !== '') { groupEls[g].hidden = false; continue; }
+          key = groupEls[g].getAttribute('data-library-items');
+          header = libraryEl.querySelector('[data-library-group-toggle="' + key + '"]');
+          wantOpen = header ? header.getAttribute('aria-expanded') === 'true' : true;
+          groupEls[g].hidden = !wantOpen;
         }
       });
     }
@@ -6115,13 +6833,8 @@ export const SECTION_STUDIO_SCRIPT = `
       var autoBtn = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-autoadvance]') : null;
       if (autoBtn) {
         // reflects + toggles the Section continue mode (§5.5) — writes the
-        // SAME store the Question-strip radios own.
-        state.continue_mode = (state.continue_mode || 'button') === 'auto_advance' ? 'button' : 'auto_advance';
-        var radios = document.querySelectorAll('input[name="continue_mode"]');
-        var ri;
-        for (ri = 0; ri < radios.length; ri++) { radios[ri].checked = radios[ri].value === state.continue_mode; }
-        markDirty();
-        updateCanvasToolbar();
+        // SAME store the strip's "On answer" segmented control owns.
+        setContinueMode((state.continue_mode || 'button') === 'auto_advance' ? 'button' : 'auto_advance');
         return;
       }
       var valShortcut = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-open-validation]') : null;
@@ -6130,6 +6843,24 @@ export const SECTION_STUDIO_SCRIPT = `
       if (searchToggle) {
         var sNode = selectedNode();
         if (sNode) { toggleSearchableDropdown(sNode); }
+        return;
+      }
+      // §5.6 "Cards" style segmented [Icon|Image|Plain]. Re-select (like the
+      // Accept-swap handler) so the inspector scope header/tab set refresh
+      // to the NEW type immediately — a type swap without a re-select would
+      // leave the scope header showing the PRE-swap label until the next
+      // unrelated selection change.
+      var cardStyleBtn = ev.target && ev.target.closest ? ev.target.closest('[data-card-style]') : null;
+      if (cardStyleBtn) {
+        var cNode = selectedNode();
+        if (cNode && setCardStyle(cNode, cardStyleBtn.getAttribute('data-card-style'))) { selectComponent(selectedQuestionId); }
+        return;
+      }
+      // §5.6 "Slider" Format $ toggle — same re-select rationale.
+      var sliderToggle = ev.target && ev.target.closest ? ev.target.closest('[data-toolbar-slider-format]') : null;
+      if (sliderToggle) {
+        var rNode = selectedNode();
+        if (rNode && toggleSliderFormat(rNode)) { selectComponent(selectedQuestionId); }
         return;
       }
       // §6.6 preset menu.
@@ -6181,16 +6912,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §6.1.4 canvas viewport toggle: Desktop 1280 / Mobile 375 — SERVER-rendered
   // via the existing preview viewport param.
+  // §6.1 viewport segmented — ES5 mirror of the golden's vpSeg() (golden
+  // :751-755); same hardcoded-literal idiom as segStyle (Appendix D).
+  function vpSegStyle(active) {
+    return active
+      ? 'display:inline-flex;align-items:center;gap:6px;padding:5px 11px;font-size:12px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.12);border:0'
+      : 'display:inline-flex;align-items:center;gap:6px;padding:5px 11px;font-size:12px;font-weight:600;color:#8A93A3;cursor:pointer;border:0';
+  }
   var canvasViewportBtns = document.querySelectorAll('[data-canvas-viewport]');
   var cvb;
   for (cvb = 0; cvb < canvasViewportBtns.length; cvb++) {
     canvasViewportBtns[cvb].addEventListener('click', function () {
       canvasViewport = this.getAttribute('data-canvas-viewport') === 'mobile' ? 'mobile' : 'desktop';
       var all = document.querySelectorAll('[data-canvas-viewport]');
-      var k;
+      var k, isOn;
       for (k = 0; k < all.length; k++) {
-        var isOn = all[k] === this;
-        all[k].className = isOn ? 'btn btn-sm btn-secondary active' : 'btn btn-sm btn-secondary';
+        isOn = all[k] === this;
+        all[k].setAttribute('style', vpSegStyle(isOn));
         all[k].setAttribute('aria-pressed', isOn ? 'true' : 'false');
       }
       // DEV-66: the frame element IS the viewport — size it FIRST so the
@@ -6213,6 +6951,17 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     });
   }
+  // §5.6 "The Accept-swap rule" — the Accept dropdown selects the concrete
+  // stored type; re-select afterward so the breadcrumb/toolbar/badge reflect
+  // the new type immediately (matching the text-role handler's own idiom).
+  var acceptEl = document.querySelector('[data-toolbar-accept]');
+  if (acceptEl) {
+    acceptEl.addEventListener('change', function () {
+      if (!selectedQuestionId) { return; }
+      var aNode = selectedNode();
+      if (aNode && setAcceptFormat(aNode, this.value)) { selectComponent(selectedQuestionId); }
+    });
+  }
 
   // --- inspector + drawer tab switching ----------------------------------------------
   var inspectorTabs = document.querySelectorAll('[data-studio-inspector-tab]');
@@ -6225,15 +6974,34 @@ export const SECTION_STUDIO_SCRIPT = `
   function setDrawerTab(key) {
     var tabs = document.querySelectorAll('[data-studio-drawer-tab]');
     var panels = document.querySelectorAll('[data-studio-drawer-panel]');
-    var i, k;
+    var i, k, isMinor, base;
     for (i = 0; i < tabs.length; i++) {
       k = tabs[i].getAttribute('data-studio-drawer-tab');
-      tabs[i].className = k === key ? 'studio-tab active' : 'studio-tab';
+      // §2.1 bottom-drawer bar (golden 370-387): the 3 golden pills carry
+      // 'studio-drawer-tab'; the non-golden "Design overrides" 4th control
+      // carries 'studio-drawer-tab-minor' instead — read BEFORE overwriting
+      // so each tab keeps its own visual family across every re-render.
+      isMinor = tabs[i].className.indexOf('studio-drawer-tab-minor') !== -1;
+      base = isMinor ? 'studio-tab studio-drawer-tab-minor' : 'studio-tab studio-drawer-tab';
+      tabs[i].className = k === key ? base + ' active' : base;
       tabs[i].setAttribute('aria-selected', k === key ? 'true' : 'false');
     }
     for (i = 0; i < panels.length; i++) {
       panels[i].hidden = panels[i].getAttribute('data-studio-drawer-panel') !== key;
     }
+  }
+  // §2.1 bottom-drawer "Expand" (golden :385): toggles the drawer between its
+  // default compact height and a taller working view — presentation-only,
+  // no model change.
+  var drawerExpandBtn = document.querySelector('[data-studio-drawer-expand]');
+  if (drawerExpandBtn) {
+    drawerExpandBtn.addEventListener('click', function () {
+      var drawerEl = document.querySelector('[data-studio-drawer]');
+      if (!drawerEl) { return; }
+      var expanded = drawerEl.className.indexOf('studio-drawer-expanded') !== -1;
+      drawerEl.className = expanded ? 'studio-drawer' : 'studio-drawer studio-drawer-expanded';
+      this.setAttribute('aria-pressed', expanded ? 'false' : 'true');
+    });
   }
   var drawerTabs = document.querySelectorAll('[data-studio-drawer-tab]');
   var dt;
@@ -6923,22 +7691,41 @@ export const SECTION_STUDIO_SCRIPT = `
       offersNote("Activity/Vertical changed since the last save \\u2014 Save the Section to refresh the matching Offers (currently showing '" + offersData.activity + "' / '" + offersData.vertical + "').");
     } else { offersNote(''); }
   }
+  // v3.1 §4.1 (adversarial review M1): the top-bar badge's contract is the
+  // Appendix-A "Mapping k / n complete" FIELD-count — k/n are
+  // required_mapped_total/required_fields_total SUMMED ACROSS every offer
+  // that's "in play" (has a mapping edge OR is explicitly selected), exactly
+  // mirroring the server's rebuildDerivedIndexes (src/leadgen/sections.ts):
+  // an offer contributes its FULL schema required-field count once it has
+  // ANY edge, not a per-offer "1 offer = 1 unit" count (the §8.1 offers-
+  // panel's OWN "N/M Offers complete" wording is a DIFFERENT, offer-scoped
+  // concept that belongs to that panel, never this shared top-bar element).
+  // offerLiveState() already derives the identical per-offer required_total/
+  // required_mapped (edge-mirrored, DEV-65c) — this only needed to SUM them
+  // instead of counting offers, and stop writing the drawer's wording here.
   function updateMappingBadge() {
     var badge = document.querySelector('[data-studio-mapping-badge]');
     if (!badge || !offersData) { return; }
     var list = offersList();
-    var total = 0, complete = 0, i, live;
+    var total = 0, mapped = 0, i, live;
     for (i = 0; i < list.length; i++) {
       live = offerLiveState(list[i]);
-      if (live.state === 'not_selected') { continue; }
-      total += 1;
-      if (live.state === 'complete') { complete += 1; }
+      if (!live.selected) { continue; }
+      total += live.required_total;
+      mapped += live.required_mapped;
     }
-    badge.textContent = 'Mapping ' + complete + '/' + total + ' Offers complete';
-    badge.setAttribute('data-mapping-complete', String(complete));
+    var complete = total > 0 && mapped === total;
+    badge.textContent = 'Mapping ' + mapped + ' / ' + total + ' complete';
+    badge.setAttribute('data-mapping-complete', complete ? 'true' : 'false');
     badge.setAttribute('data-mapping-total', String(total));
-    badge.setAttribute('data-publishable', complete === total ? 'true' : 'false');
-    badge.className = 'studio-chip studio-chip-mapping badge ' + (complete === total ? 'badge-published' : 'badge-archived');
+    badge.setAttribute('data-publishable', complete ? 'true' : 'false');
+    // mirror renderStudioTopBar's own color logic (studio-tokens STUDIO_COLOR
+    // success/successTintAlt/muted/issuesChipBg) so the badge's green/neutral
+    // state stays live-accurate — className is left untouched (the SSR badge
+    // never carried a badge-published/badge-archived class to toggle; the
+    // color pair alone is the state indicator, same as the initial render).
+    badge.style.color = complete ? '#0E7C3A' : '#5A6470';
+    badge.style.background = complete ? '#E9F4EE' : '#F1F3F7';
   }
   function offerStateLabel(name) {
     if (name === 'not_selected') { return 'not selected'; }
@@ -7894,12 +8681,22 @@ export const SECTION_STUDIO_SCRIPT = `
       markDirty();
     });
   }
-  var continueRadios = document.querySelectorAll('input[name="continue_mode"]');
-  var ci;
-  for (ci = 0; ci < continueRadios.length; ci++) {
-    continueRadios[ci].addEventListener('change', function () {
-      if (this.checked) { state.continue_mode = this.value; markDirty(); }
-    });
+  // §4.2 "On answer" segmented (golden :72-75) — replaces the old native
+  // radio pair; click OR keyboard (Enter/Space, role="button" tabindex="0")
+  // on either segment writes continue_mode through the single setContinueMode
+  // writer shared with the canvas-toolbar auto-advance chip.
+  var continueSegEls = document.querySelectorAll('[data-continue-mode]');
+  var csi;
+  function onContinueSegActivate() { setContinueMode(this.getAttribute('data-continue-mode')); }
+  function onContinueSegKey(ev) {
+    if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+      ev.preventDefault();
+      setContinueMode(this.getAttribute('data-continue-mode'));
+    }
+  }
+  for (csi = 0; csi < continueSegEls.length; csi++) {
+    continueSegEls[csi].addEventListener('click', onContinueSegActivate);
+    continueSegEls[csi].addEventListener('keydown', onContinueSegKey);
   }
 
   // --- Save (POST create / PATCH update) — the UNCHANGED old-island body shape ------------
@@ -8100,12 +8897,11 @@ export const SECTION_STUDIO_SCRIPT = `
   renderBoundChips();
   updatePaletteBindItems();
   renderBindBanner();
-  renderScopeHeader();
   updateCanvasEmpty();
-  applyCanvasDecoration();
-  populateInspector();
-  renderBreadcrumb();
-  updateCanvasToolbar();
+  // §6.2 default selection on open (contract: "the ZIP field" — generalized
+  // to the first real answer node); selectComponent() already covers
+  // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
+  selectComponent(findDefaultSelectionId());
   populateSectionOverrides();
   loadComponentPresets();
   loadFramePickerQuotes();

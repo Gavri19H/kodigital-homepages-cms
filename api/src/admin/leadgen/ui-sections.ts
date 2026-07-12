@@ -107,10 +107,14 @@ export function mappingSummaryOf(
   answerMaps: readonly AnswerMapApiRow[],
 ): MappingSummary {
   let requiredMissing = 0;
+  let requiredMappedTotal = 0;
+  let requiredFieldsTotal = 0;
   let publishable = true;
   for (const o of availableOffers) {
     const total = o.required_fields_total ?? 0;
     const mapped = o.required_fields_mapped ?? 0;
+    requiredFieldsTotal += total;
+    requiredMappedTotal += mapped;
     if (total > mapped) requiredMissing += total - mapped;
     if (o.mapping_state === "invalid" || total > mapped) publishable = false;
   }
@@ -120,7 +124,14 @@ export function mappingSummaryOf(
   for (const m of answerMaps) {
     if (m.mapping_status !== "complete") publishable = false;
   }
-  return { publishable, status: publishable ? "ok" : "error", required_missing_total: requiredMissing };
+  return {
+    publishable,
+    status: publishable ? "ok" : "error",
+    required_missing_total: requiredMissing,
+    // v3.1 §4.1: the top-bar "Mapping k / n complete" badge's real numbers.
+    required_mapped_total: requiredMappedTotal,
+    required_fields_total: requiredFieldsTotal,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +358,13 @@ interface EditorData {
 }
 
 // An empty summary for the /new editor (no offers, nothing to publish yet).
-const EMPTY_SUMMARY: MappingSummary = { publishable: true, status: "ok", required_missing_total: 0 };
+const EMPTY_SUMMARY: MappingSummary = {
+  publishable: true,
+  status: "ok",
+  required_missing_total: 0,
+  required_mapped_total: 0,
+  required_fields_total: 0,
+};
 
 // The #lg-section-data JSON state blob. Serialized + `<`-escaped so a hostile
 // author value can never break out of the <script type="application/json">.

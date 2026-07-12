@@ -330,6 +330,97 @@ function isCssRuleLiteral(text: string): boolean {
   return text.includes("{") && text.includes("}") && text.includes(":");
 }
 
+// v3.1 §6.2/§7 (Section-studio re-chrome): a BARE CSS declaration-list — no
+// wrapping selector/braces — is the SAME "style injection, not copy" shape,
+// just without the braces. This is the golden master's OWN per-state
+// style-helper idiom (seg()/segFull()/vpSeg()/tab()/fieldBoxStyle()/
+// fieldWrapStyle()/frameBtnStyle()/… every one of these golden helpers
+// returns exactly "prop:value;prop:value;…", applied via a style attribute)
+// — the ES5 island re-implements each as a function returning the identical
+// string, so these literals are style injection through .setAttribute('style',
+// …) / .style.cssText, never rendered as visible operator text. Structural,
+// not value-based (unlike ISLAND_HEX_ALLOW): the WHOLE literal must parse as
+// 2+ semicolon-separated `key:value` declarations, where each key is a bare
+// LOWERCASE-hyphenated CSS-property-shaped token (no spaces, no capitals —
+// real CSS properties are never "Color"/"Type"/"Field") — a real sentence
+// with a colon ("See docs: https://x") never matches because "See docs"
+// contains a space, so this cannot be used to smuggle real operator copy
+// through on shape alone.
+function isCssDeclarationListLiteral(text: string): boolean {
+  const parts = text
+    .split(";")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  if (parts.length < 2) return false;
+  return parts.every((p) => /^[a-z-]+:.+$/.test(p));
+}
+
+// Adversarial review m1: shape alone is not enough — "Color: #1B3A5C; Size: M"
+// and "Type: FreeTextQuestion; Field: zip" both LOOK like declaration lists.
+// (The tightened lowercase-key shape above already rejects both of those two
+// examples, since real CSS properties are never capitalized — but shape is
+// still only a necessary, not sufficient, condition.) The exemption now ALSO
+// requires the literal's OWN originating usage — read from the real island
+// source, never assumed — to actually flow into a style sink: either a direct
+// assignment (`X.style.cssText = …` / `X.setAttribute('style', …)`) or this
+// codebase's own multi-part concatenation idiom (`var css = '…'; css += '…';`,
+// later passed to one of those sinks — buildHandle's per-state literal is
+// exactly this shape). The sink pattern is looked for within a fixed lookbehind
+// window (not "back to the nearest `;`/`{`/`}`" — a bare declaration-list
+// literal routinely CONTAINS its own internal `;` between declarations, which
+// would make that boundary search stop INSIDE a prior sibling literal instead
+// of at the real statement start; a ternary's second+ branch is exactly this
+// case). A fixed window is a heuristic, not a parser — same order of rigor as
+// the pre-existing DEV-66c toast-hex context check — but it correctly
+// recognizes every real shape in this file (direct/concat/ternary) without
+// being fooled by a prior literal's own punctuation.
+const CSS_SINK_CONTEXT_RE = /\.style\.cssText\s*=|\.setAttribute\(\s*['"]style['"]\s*,|\bcss\w*\s*\+?=/i;
+const SINK_LOOKBEHIND_CHARS = 400;
+function flowsToStyleSink(lit: IslandLiteral, islandSrc: string): boolean {
+  const windowStart = Math.max(0, lit.index - SINK_LOOKBEHIND_CHARS);
+  return CSS_SINK_CONTEXT_RE.test(islandSrc.slice(windowStart, lit.index));
+}
+// The golden's OWN "returns a style string" helper idiom (segStyle/
+// vpSegStyle/… — Appendix D, cited above): the literal sits in a
+// `return cond ? 'A' : 'B';` inside a helper function, and the ACTUAL style
+// sink is wherever the CALLER later does `el.setAttribute('style',
+// segStyle(x))` — potentially far away in the source, sometimes a different
+// function entirely. Fixed lookbehind window again (not a boundary search):
+// "return" is a JS keyword that can never appear as text WITHIN a css
+// declaration-list string, so unlike `;` it is never confused by a literal's
+// OWN internal punctuation — but the FIRST branch of a two-branch ternary
+// sits entirely BETWEEN "return" and the SECOND branch's literal, and that
+// first branch's own semicolons would defeat any "nothing but the ternary
+// condition in between" boundary check just as badly. A fixed window is the
+// same order of rigor as the sink check above, and covers every real
+// segStyle/vpSegStyle-shaped helper in this file.
+const RETURN_LOOKBEHIND_CHARS = 400;
+function isReturnedDeclarationList(lit: IslandLiteral, islandSrc: string): boolean {
+  const windowStart = Math.max(0, lit.index - RETURN_LOOKBEHIND_CHARS);
+  return /\breturn\b/.test(islandSrc.slice(windowStart, lit.index));
+}
+// A BARE hex value (no declaration-list shape — just "#1B3A5C" standing
+// alone) assigned DIRECTLY to a CSSStyleDeclaration property
+// (`el.style.color = '#…'`) is the SAME style-injection concept through a
+// DIFFERENT, non-cssText sink — used where only one property should change
+// without clobbering the element's other inline styles (a cssText
+// re-assignment would). A short, unanchored lookbehind window (not "the sink
+// pattern must be the LAST thing before the literal" — a ternary's second
+// branch, e.g. `el.style.color = complete ? '#0E7C3A' : '#5A6470'`, has the
+// ternary's own `: ` immediately before it, not the assignment itself).
+const STYLE_PROPERTY_SINK_RE = /\.style\.[a-zA-Z]+\s*=/;
+const HEX_ONLY_RE = /^#[0-9a-fA-F]{3,8}$/;
+function isStyleSinkBareHex(lit: IslandLiteral, islandSrc: string): boolean {
+  if (!HEX_ONLY_RE.test(lit.text)) return false;
+  const windowStart = Math.max(0, lit.index - 80);
+  return STYLE_PROPERTY_SINK_RE.test(islandSrc.slice(windowStart, lit.index));
+}
+function isStyleSinkDeclarationList(lit: IslandLiteral, islandSrc: string): boolean {
+  if (isStyleSinkBareHex(lit, islandSrc)) return true;
+  if (!isCssDeclarationListLiteral(lit.text)) return false;
+  return flowsToStyleSink(lit, islandSrc) || isReturnedDeclarationList(lit, islandSrc);
+}
+
 // Documented island allowlist — each entry names its reason. DEV-66c: an
 // entry may additionally be CONTEXT-SCOPED via `context(lit, islandSrc)` —
 // the exemption then applies ONLY where the literal originates (its usage
@@ -524,7 +615,11 @@ describeDb("15 §15.2 hex-lint — no hex literals on normal-mode operator surfa
           continue;
         }
         HEX_RE.lastIndex = 0;
-        if (isCssRuleLiteral(lit.text)) continue; // style injection, not copy
+        if (isCssRuleLiteral(lit.text)) continue; // style injection, not copy (braced CSS rule)
+        // m1 (adversarial review): shape alone is not enough — the bare
+        // declaration-list exemption is now ALSO usage-context gated (the
+        // literal must actually flow to a style sink in its real source).
+        if (isStyleSinkDeclarationList(lit, p.islands[lit.island] ?? "")) continue;
         // DEV-66c: the allowlist is value + ORIGINATING-CONTEXT scoped — the
         // toast hexes pass only at their showToast assignment site.
         if (isAllowedIslandHex(lit, p.islands[lit.island] ?? "")) continue;
@@ -569,5 +664,114 @@ describeDb("15 §15.2 hex-lint — no hex literals on normal-mode operator surfa
       }
     }
     expect(liveToastSites, "the admin-shell toast hexes are actually present (probe grounded)").toBeGreaterThan(0);
+  });
+
+  it("v3.1 §6.2/§7: a bare CSS declaration-list (no braces) is style injection, not copy — but real prose with a colon is NOT exempted", () => {
+    // positive: the golden's own seg()/fieldBoxStyle()/… idiom — a bare
+    // "prop:value;prop:value;…" string with no wrapping selector/braces.
+    expect(
+      isCssDeclarationListLiteral(
+        "padding:5px 11px;font-size:12px;font-weight:700;color:#1B3A5C;background:#fff;border-radius:6px;cursor:pointer;white-space:nowrap",
+      ),
+    ).toBe(true);
+    expect(isCssDeclarationListLiteral("width:38px;height:22px;border-radius:20px;background:#1B3A5C")).toBe(true);
+    // a lone declaration (no semicolon) still requires 2+ parts to count —
+    // guards against a coincidental single "word:word".
+    expect(isCssDeclarationListLiteral("color:#1B3A5C")).toBe(false);
+    // negative: real operator-facing sentences that happen to contain a
+    // colon must NEVER be swallowed by this exemption — the KEY-shaped
+    // require (letters/hyphens only, no space) is what protects this.
+    expect(isCssDeclarationListLiteral("Brand color: #1a2b3c is now active")).toBe(false);
+    expect(isCssDeclarationListLiteral("See docs: https://example.com; Note: uses #ff0000")).toBe(false);
+    expect(isCssDeclarationListLiteral("Custom colors must be a color value like #1a2b3c.")).toBe(false);
+  });
+
+  it("m1 (adversarial review): the declaration-list exemption is usage-context gated — shape alone is not enough", () => {
+    // positive: a real DIRECT style-sink usage (.style.cssText =).
+    const directSrc =
+      "outline.style.cssText = 'position:absolute;left:-6px;right:-6px;top:-6px;height:66px;border:2px solid #1B3A5C;border-radius:12px;pointer-events:none';";
+    const directLit = stringLiterals([directSrc]).find((l) => l.text.includes("#1B3A5C"))!;
+    expect(directLit, "probe extracted the direct-cssText literal").toBeTruthy();
+    expect(isStyleSinkDeclarationList(directLit, directSrc)).toBe(true);
+
+    // positive: this codebase's own multi-part concatenation idiom
+    // (buildHandle's real shape) — the literal sits behind a `css +=`, several
+    // characters before the EVENTUAL el.setAttribute('style', css) sink call.
+    const concatSrc =
+      "var css = 'position:absolute;top:' + top + 'px;'; " +
+      "if (interactive) { css += 'background:#1B3A5C;border:2px solid #1B3A5C;cursor:ew-resize;pointer-events:auto'; } " +
+      "el.setAttribute('style', css);";
+    const concatLit = stringLiterals([concatSrc]).find((l) => l.text.indexOf("background:#1B3A5C") === 0)!;
+    expect(concatLit, "probe extracted the css+= literal").toBeTruthy();
+    expect(isStyleSinkDeclarationList(concatLit, concatSrc)).toBe(true);
+
+    // positive: a ternary-branched cssText assignment — BOTH branches
+    // recognized (the sink pattern is searched anywhere in the enclosing
+    // statement, not only immediately before the literal).
+    const ternarySrc =
+      "outline.style.cssText = kind === 'continue' ? 'background:#1B3A5C;color:#fff' : 'background:#fff;color:#1B3A5C';";
+    const ternaryLits = stringLiterals([ternarySrc]).filter((l) => l.text.indexOf("#1B3A5C") !== -1);
+    expect(ternaryLits.length, "both ternary branches extracted").toBe(2);
+    for (const l of ternaryLits) {
+      expect(isStyleSinkDeclarationList(l, ternarySrc), `branch '${l.text}' recognized`).toBe(true);
+    }
+
+    // negative: shape rejects it outright — "Color"/"Size" are never real
+    // (lowercase) CSS property names, even wrapped in a style-sink-shaped
+    // assignment.
+    const fakeStyleSrc = "el.style.cssText = 'Color: #1B3A5C; Size: M';";
+    const fakeLit = stringLiterals([fakeStyleSrc]).find((l) => l.text.includes("#1B3A5C"))!;
+    expect(fakeLit, "probe extracted the fake literal").toBeTruthy();
+    expect(isCssDeclarationListLiteral(fakeLit.text), "shape alone already rejects capitalized keys").toBe(false);
+    expect(isStyleSinkDeclarationList(fakeLit, fakeStyleSrc), "NOT exempted even inside a real style-sink assignment").toBe(
+      false,
+    );
+
+    // negative: correctly-SHAPED (lowercase) declaration list with NO
+    // style-sink usage anywhere nearby — proves the context gate does real
+    // work, not just theater alongside an already-sufficient shape gate.
+    const noSinkSrc = "var debugLabel = 'color:#1B3A5C;background:#fff'; console.log(debugLabel);";
+    const noSinkLit = stringLiterals([noSinkSrc]).find((l) => l.text.includes("#1B3A5C"))!;
+    expect(noSinkLit, "probe extracted the no-sink literal").toBeTruthy();
+    expect(isCssDeclarationListLiteral(noSinkLit.text), "shape alone WOULD pass").toBe(true);
+    expect(isStyleSinkDeclarationList(noSinkLit, noSinkSrc), "context gate rejects a non-style-sink variable").toBe(false);
+
+    // positive: the golden's OWN "returns a style string" helper idiom
+    // (segStyle/vpSegStyle's real shape) — BOTH ternary branches recognized,
+    // even though the actual .setAttribute('style', …) sink call happens in
+    // a DIFFERENT function entirely, far from either literal.
+    const returnHelperSrc =
+      "function segStyle(active) { return active ? 'padding:5px;color:#1B3A5C' : 'padding:5px;color:#6B7486'; } " +
+      "function apply(el, on) { el.setAttribute('style', segStyle(on)); }";
+    const returnLits = stringLiterals([returnHelperSrc]).filter((l) => /^padding:5px;color:#/.test(l.text));
+    expect(returnLits.length, "both segStyle-shaped branches extracted").toBe(2);
+    for (const l of returnLits) {
+      expect(isStyleSinkDeclarationList(l, returnHelperSrc), `helper branch '${l.text}' recognized`).toBe(true);
+    }
+    // negative: shape rejects a capitalized-key "return" literal too — being
+    // inside a return statement is necessary but not sufficient; it still
+    // has to look like real CSS.
+    const returnFakeSrc = "function label() { return 'Type: FreeTextQuestion; Field: zip'; }";
+    const returnFakeLit = stringLiterals([returnFakeSrc])[0]!;
+    expect(returnFakeLit, "probe extracted the fake return literal").toBeTruthy();
+    expect(isStyleSinkDeclarationList(returnFakeLit, returnFakeSrc), "shape rejects it even inside a return").toBe(false);
+
+    // positive: a BARE hex value assigned directly to a style PROPERTY (not
+    // cssText) — the non-destructive "change just one property" idiom
+    // updateMappingBadge uses. Both ternary branches recognized.
+    const barePropSrc = "badge.style.color = complete ? '#0E7C3A' : '#5A6470';";
+    const barePropLits = stringLiterals([barePropSrc]);
+    expect(barePropLits.length, "both bare-hex branches extracted").toBe(2);
+    for (const l of barePropLits) {
+      expect(isStyleSinkDeclarationList(l, barePropSrc), `bare-hex branch '${l.text}' recognized`).toBe(true);
+    }
+    // negative: the SAME bare hex value, assigned to a plain variable — never
+    // exempted just because it happens to look like a hex color.
+    const barePropNoSinkSrc = "var accent = '#0E7C3A';";
+    const barePropNoSinkLit = stringLiterals([barePropNoSinkSrc])[0]!;
+    expect(barePropNoSinkLit, "probe extracted the plain-variable literal").toBeTruthy();
+    expect(isStyleSinkDeclarationList(barePropNoSinkLit, barePropNoSinkSrc), "NOT exempted outside a .style.* sink").toBe(
+      false,
+    );
   });
 });

@@ -167,8 +167,13 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     const affects = page.locator("[data-scope-affects]");
     const tab = (key: string) => page.locator(`[data-studio-inspector-tab="${key}"]`);
 
-    // section scope before any selection
-    await expect(scopeName).toHaveText("This Section (question unit)");
+    // v3.1 §6.2 "Default selection on open" (contract-mandated, Phase B):
+    // the studio now opens with the FIRST real answer node already selected
+    // (never a bare "This Section" scope) — for this fixture that is the
+    // ImageCardAnswerGrid ("q_cards"), which precedes the ZIP field in
+    // seedSectionBuilder's content array. This supersedes the pre-v3.1
+    // "nothing selected on open" assumption.
+    await expect(scopeName).toHaveText("Image answer cards");
 
     // ZIP component → component scope header + ZIP's tab set (Maps present)
     await canvas(page).locator(`${CANVAS} [data-component-type="ZIPInputQuestion"]`).click();
@@ -493,8 +498,14 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     for (const type of frameTypes) {
       await expect(library.locator(`[data-add-component="${type}"]`), `${type} must not be placeable`).toHaveCount(0);
     }
-    // …while unit items remain placeable
-    await expect(library.locator('[data-add-component="ImageCardAnswerGrid"]')).toHaveCount(1);
+    // …while unit items remain placeable. v3.1 §5.2/§5.6: "Cards" is now one
+    // tile whose default insert is IconCardAnswerGrid (ImageCardAnswerGrid is
+    // reached via the Card-style swap, not its own data-add-component tile)
+    // — check the tile itself, in the Answer-fields group (its Suggested
+    // duplicate would make a bare data-add-component count ambiguous).
+    await expect(
+      library.locator('[data-library-group="answer-fields"] [data-tile][data-name="cards"]'),
+    ).toHaveCount(1);
     await expect(library.locator('[data-add-component="ContinueButton"]')).toHaveCount(1);
 
     // the callout redirects page chrome to the Quote Builder
@@ -521,6 +532,14 @@ test.describe.serial("LeadGen v2.5 Section Builder — §15.3 rows", () => {
     await expect(badge.locator("[data-frame-keep]")).toHaveText("Keep (legacy)");
     await expect(badge).toContainText("activation blocks on this element unless that funnel’s Advanced legacy override allows it");
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-c-09a-amber-badge.png` });
+
+    // v3.1 §6.2 default selection now auto-selects the first REAL
+    // answer-collecting node on open (here: the section's TwoButtonYesNo),
+    // which leaves scope at 'component' — return to 'This Section' scope
+    // explicitly (`.first()`: §6.1.2 "ONE pill implementation, two hosts" —
+    // toolbar + inspector both render it) so the section-level usage line
+    // (not the per-component affects text) is what's actually asserted below.
+    await page.locator('[data-scope-pill="section"]').first().click();
 
     // wait for the §7.1 usage line — the single-funnel Move needs the loaded
     // usage rows (this Section is used by exactly ONE funnel)

@@ -12,7 +12,9 @@
 //     silent empty list.
 //   ③ Map answers to TWO Offers via PICKERS ONLY (path select + question
 //     dropdown; no typed ids/paths): per-row status flips to complete, the
-//     top-bar badge live-updates to "Mapping 2/2 Offers complete", the save
+//     top-bar badge live-updates through the Appendix-A "Mapping k / n
+//     complete" field-count (2 / 2, then 3 / 3 — never the offers-panel's
+//     own differently-scoped "N/M Offers complete" wording), the save
 //     round-trips and the fresh SSR page re-derives the same verdict.
 //   ④ Create-question-for-field: the boolean schema field spawns a pre-bound
 //     TwoButtonYesNo on the canvas with the path-derived internal_field and
@@ -214,7 +216,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await page.screenshot({ path: `${SHOT_DIR}/02-e9-empty-state.png` });
   });
 
-  test('③ map answers to TWO Offers via pickers only: statuses flip, the badge live-updates to 2/2 and survives the save round trip', async ({ page }) => {
+  test('③ map answers to TWO Offers via pickers only: statuses flip, the top-bar badge live-updates through 2 / 2 then 3 / 3 (field-count, Appendix A — never the offers-panel\'s own "N/M Offers complete" wording) and survives the save round trip', async ({ page }) => {
     test.setTimeout(90_000);
     const offerA = await createStudioOffer(page.request, `Map Offer A ${uniq}`, ACT_A, VERT_A, [
       { path: 'data.insured', type: 'boolean', required: true, internal_field: 'currently_insured' },
@@ -255,18 +257,30 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
     await grid.locator('[data-map-row="data.zip"] select[data-map-question]').selectOption('zip');
     await expect(grid.locator('[data-map-row="data.zip"] [data-map-state]')).toHaveAttribute('data-map-state', 'complete');
     await expect(rowA.locator('[data-offer-mapping-state]')).toHaveAttribute('data-offer-mapping-state', 'complete');
-    // the top-bar badge live-updates from the panel state (§8.1)
-    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 1/1 Offers complete');
+    // M1 (adversarial review): the top-bar badge LIVE-updates (updateMappingBadge,
+    // called from renderOffersPanel on every mapping edit) to the Appendix-A
+    // "Mapping k / n complete" FIELD-count — offer A alone contributes its 2
+    // required fields, both now mapped, so k=n=2. This asserts the SETTLED
+    // live DOM text (the offers panel is already loaded and interacted with
+    // above), never the SSR snapshot — the badge must NEVER read the offers
+    // panel's own "N/M Offers complete" wording (that phrase belongs to a
+    // DIFFERENT, offer-scoped concept in the drawer, not this shared element).
+    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 2 / 2 complete');
 
-    // offer B: one required field → complete → badge 2/2
+    // offer B: its one required field also becomes mapped+complete — the
+    // field-count sum grows to offer A's 2 + offer B's 1 = 3 / 3.
     await rowB.getByRole('button', { name: 'Map fields' }).click();
     await grid.locator('[data-map-row="lead.zip_code"] select[data-map-question]').selectOption('zip');
     await expect(rowB.locator('[data-offer-mapping-state]')).toHaveAttribute('data-offer-mapping-state', 'complete');
-    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 2/2 Offers complete');
-    await page.screenshot({ path: `${SHOT_DIR}/03-two-offers-mapped-badge-2-2.png` });
+    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 3 / 3 complete');
+    await page.screenshot({ path: `${SHOT_DIR}/03-two-offers-mapped-badge-3-3.png` });
 
     // save → the editor reloads (same URL) → the SERVER re-derived the same
-    // verdict and the fresh page's panel re-renders complete/complete + 2/2
+    // verdict (SSR renders "Mapping 3 / 3 complete" from required_mapped_total/
+    // required_fields_total) and the fresh page's offers panel re-fetch
+    // (loadOffers → updateMappingBadge) recomputes the IDENTICAL field-count
+    // sum — SSR and the post-load client-recomputed value agree, closing the
+    // M1 divergence to one source.
     await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
     await page.locator('[data-studio-drawer-tab="mapping"]').click();
     await expect(page.locator(`tr[data-studio-offer-row="${offerA.public_id}"] [data-offer-mapping-state]`)).toHaveAttribute(
@@ -277,7 +291,7 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
       'data-offer-mapping-state',
       'complete',
     );
-    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 2/2 Offers complete');
+    await expect(page.locator('[data-studio-mapping-badge]')).toHaveText('Mapping 3 / 3 complete');
     await page.screenshot({ path: `${SHOT_DIR}/04-mapping-persisted-after-save.png` });
   });
 
@@ -482,5 +496,230 @@ test.describe.serial('LeadGen Section Studio — §8.12 browser flows (E1, E2, E
       'maps section cleared',
     );
     expect(cleared.content_json.components.find((c) => c.question_id === 'q_zip')?.props?.['maps']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v3.1 Section Builder redesign (contract-v3.1, Phase B) — golden-chrome
+// browser flows: library search + group collapse (§5.1/§5.5), default
+// selection + the field's 8-handle chrome (§6.2), the §7 width-drag
+// measurement writing a REAL custom_px, and the Frame-hint toggle (§6.3).
+// Each test seeds its OWN Section (independent — no .serial needed).
+// ---------------------------------------------------------------------------
+
+test.describe('LeadGen Section Studio v3.1 — golden-chrome browser flows (§5/§6/§7)', () => {
+  test('§5.5 library search filters tiles by data-name across ALL groups, force-opening the collapsed Layout group', async ({ page }) => {
+    const section = await createStudioSection(page.request, `V31 Search ${uniq}`, ACT_A, `v31-search-${uniq}`);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const search = page.locator('[data-studio-library-search]');
+    const layoutItems = page.locator('[data-library-items="layout"]');
+    const spacerTile = page.locator('[data-tile][data-name="spacer gap"]');
+    const shortTextTiles = page.locator('[data-tile][data-name="short text"]');
+
+    // Layout starts collapsed (default per §5.1); its tiles exist but the
+    // group container is hidden.
+    await expect(layoutItems).toBeHidden();
+    // Unrelated tiles (2 "Short text" instances — Suggested + Answer fields)
+    // are visible before any search.
+    await expect(shortTextTiles).toHaveCount(2);
+    for (const el of await shortTextTiles.all()) await expect(el).toBeVisible();
+
+    await search.fill('spacer');
+    // Layout is FORCED open so the match is reachable, even though it was
+    // collapsed a moment ago.
+    await expect(layoutItems).toBeVisible();
+    await expect(spacerTile).toBeVisible();
+    // Non-matching tiles (e.g. "Short text") are hidden while the query is active.
+    for (const el of await shortTextTiles.all()) await expect(el).toBeHidden();
+
+    await search.fill('');
+    // Clearing restores Layout to its own toggled state (still collapsed —
+    // the user never manually opened it).
+    await expect(layoutItems).toBeHidden();
+    for (const el of await shortTextTiles.all()) await expect(el).toBeVisible();
+    await page.screenshot({ path: `${SHOT_DIR}/v31-01-library-search.png` });
+  });
+
+  test('§5.1 group header chevron toggles open/closed independent of search', async ({ page }) => {
+    const section = await createStudioSection(page.request, `V31 Group Toggle ${uniq}`, ACT_A, `v31-toggle-${uniq}`);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const layoutHeader = page.locator('[data-library-group-toggle="layout"]');
+    const layoutItems = page.locator('[data-library-items="layout"]');
+    const suggestedHeader = page.locator('[data-library-group-toggle="suggested"]');
+    const suggestedItems = page.locator('[data-library-items="suggested"]');
+
+    await expect(layoutHeader).toHaveAttribute('aria-expanded', 'false');
+    await expect(layoutItems).toBeHidden();
+    await layoutHeader.click();
+    await expect(layoutHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(layoutItems).toBeVisible();
+
+    await expect(suggestedHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(suggestedItems).toBeVisible();
+    await suggestedHeader.click();
+    await expect(suggestedHeader).toHaveAttribute('aria-expanded', 'false');
+    await expect(suggestedItems).toBeHidden();
+    await page.screenshot({ path: `${SHOT_DIR}/v31-02-group-toggle.png` });
+  });
+
+  test('§6.2 default selection on open = the first real answer field; selecting shows the 8-handle field chrome (never on the bound headline)', async ({ page }) => {
+    // Explicit fixture: bound headline+subheadline first (skipped by the
+    // default-selection rule — they carry `bind`, not a real answer), THEN
+    // the ONE real answer field (ZIP) — mirrors the §1.2 fixture's own
+    // "default = the ZIP field" wording unambiguously (mappableContent()'s
+    // OWN default order puts a TwoButtonYesNo before the ZIP field, which
+    // would otherwise become the default here instead).
+    const section = await createStudioSection(page.request, `V31 Default Sel ${uniq}`, ACT_A, `v31-defsel-${uniq}`, {
+      headline_text: 'What is your ZIP code?',
+      content_json: {
+        components: [
+          { type: 'QuestionHeadline', question_id: 'q_bound_headline', bind: 'section_headline' },
+          { type: 'Subheadline', question_id: 'q_bound_subheadline', bind: 'section_subheadline' },
+          // ZIP stays FIRST among real-answer nodes so it — not the Yes/No
+          // pair below — remains findDefaultSelectionId()'s pick; q_ins only
+          // exists to prove M2 (a non-text-input field's name tag).
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+          {
+            type: 'TwoButtonYesNo',
+            question_id: 'q_ins',
+            internal_field: 'currently_insured',
+            answer_type: 'boolean',
+            props: { yesLabel: 'Yes', noLabel: 'No' },
+          },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
+    // Default selection = the ZIP field (this fixture's FIRST real answer
+    // node) — its wrapper carries the 8-handle chrome immediately on load,
+    // with no click required. ZIP is one of the §5.6 8-value Accept-swap
+    // text-input types, so its OWN name tag is the unified "Short text field".
+    const zipWrap = canvas.locator('[data-question-id="q_zip"]').locator('xpath=..');
+    await expect(zipWrap.locator('[data-width-handle]')).toHaveCount(2); // only the 2 side-midpoints are interactive
+    await expect(zipWrap.locator('[data-selection-chrome]')).toHaveCount(10); // outline(1) + name tag(1) + 8 handles (no custom badge yet)
+    await expect(canvas.locator('text=Short text field')).toBeVisible();
+
+    // M2 (adversarial review): a NON-text-input field showing the SAME
+    // 8-handle chrome must carry ITS OWN operator name — never the literal
+    // "Short text field" (selectionChromeKind returns 'field' for ANY
+    // non-headline/continue/container node, but the §5.6 tag wording is
+    // scoped to the 8-value Accept-swap family only).
+    const insWrap = canvas.locator('[data-question-id="q_ins"]').locator('xpath=..');
+    await canvas.locator('[data-question-id="q_ins"]').click();
+    await expect(insWrap.locator('[data-width-handle]')).toHaveCount(2);
+    await expect(insWrap.locator('text=Yes / No')).toBeVisible();
+    await expect(insWrap.locator('text=Short text field')).toHaveCount(0);
+
+    // selecting the bound headline shows the SIMPLE chrome (outline + tag),
+    // never the 8 handles.
+    const headline = canvas.locator('[data-question-id="q_bound_headline"], .lg-headline').first();
+    await headline.click();
+    await expect(canvas.locator('text=Question · shared with header')).toBeVisible();
+    await expect(canvas.locator('[data-width-handle]')).toHaveCount(0);
+    await page.screenshot({ path: `${SHOT_DIR}/v31-03-default-selection-chrome.png` });
+  });
+
+  test('§7.1.3 dragging a width handle writes a REAL measured, snapped, clamped custom_px — never the golden\'s fake 384', async ({ page }) => {
+    // Explicit fixture (matches the default-selection test above): the
+    // GENERIC createStudioSection default (mappableContent()) puts a
+    // TwoButtonYesNo BEFORE the ZIP field, which is a different, unrelated
+    // ambiguity this test must not depend on — give it its OWN unambiguous
+    // ZIP-only content so `[data-question-id="q_zip"]` is deterministically
+    // present the moment the canvas loads.
+    const section = await createStudioSection(page.request, `V31 Width Drag ${uniq}`, ACT_A, `v31-widthdrag-${uniq}`, {
+      content_json: {
+        components: [
+          { type: 'QuestionHeadline', question_id: 'q_bound_headline', bind: 'section_headline' },
+          { type: 'Subheadline', question_id: 'q_bound_subheadline', bind: 'section_subheadline' },
+          { type: 'ZIPInputQuestion', question_id: 'q_zip', internal_field: 'zip', answer_type: 'string', props: { placeholder: 'ZIP code' } },
+        ],
+      },
+    });
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const canvas = page.frameLocator('#lg-studio-canvas-frame').locator('#lg-studio-canvas-render');
+    await canvas.locator('[data-question-id="q_zip"]').click(); // ensure selected (also the default)
+
+    const rightHandle = canvas.locator('[data-width-handle][data-handle-side="right"]');
+    await expect(rightHandle).toBeVisible();
+
+    // The width-drag gesture is a CUSTOM (non-native) drag: onWidthHandleMouseDown
+    // reads the 'mousedown' clientX, requires an ACTUAL intervening 'mousemove'
+    // (adversarial re-review m3(a-2): a mousedown+mouseup with NO real movement
+    // must never commit a width — that's what let a lost-mouseup-then-unrelated-
+    // click silently write a bogus custom_px), then the eventual 'mouseup'
+    // clientX — no native HTML5 drag involved. Raw CDP-level page.mouse.move()
+    // sequences that land inside this same-origin SRCDOC iframe reproducibly
+    // hang here (confirmed independent of this feature: even a neutral,
+    // non-interactive point in the canvas hangs the SAME way on the second
+    // page.mouse.move() call — an environment/CDP limitation with nested
+    // same-origin-iframe raw pointer injection, not a product bug). Dispatching
+    // real MouseEvents directly via the DOM (bypassing CDP's Input domain
+    // entirely) exercises the EXACT SAME JS listeners with the EXACT SAME
+    // event shape a real drag delivers, without depending on CDP pointer
+    // injection fidelity this environment doesn't have for nested iframes.
+    const dragDeltaPx = 60;
+    const drag = await rightHandle.evaluate((el, deltaX) => {
+      const r = el.getBoundingClientRect();
+      const clientY = r.top + r.height / 2;
+      const startClientX = r.left + r.width / 2;
+      const doc = el.ownerDocument;
+      const view = doc.defaultView as Window;
+      el.dispatchEvent(new MouseEvent('mousedown', { clientX: startClientX, clientY, bubbles: true, cancelable: true, view }));
+      const midClientX = startClientX + deltaX / 2;
+      doc.dispatchEvent(new MouseEvent('mousemove', { clientX: midClientX, clientY, bubbles: true, cancelable: true, view }));
+      const endClientX = startClientX + deltaX;
+      doc.dispatchEvent(new MouseEvent('mouseup', { clientX: endClientX, clientY, bubbles: true, cancelable: true, view }));
+      return { startClientX, endClientX };
+    }, dragDeltaPx);
+    expect(drag.endClientX - drag.startClientX, 'dispatched delta matches the requested drag').toBe(dragDeltaPx);
+
+    // the canvas badge shows the REAL measured value in the golden's format
+    // ("≈ {value} px · custom") — never the fixture's literal "384".
+    const badge = canvas.locator('text=/≈ \\d+ px · custom/');
+    await expect(badge).toBeVisible({ timeout: 5_000 });
+    const badgeText = await badge.textContent();
+    const match = badgeText?.match(/≈ (\d+) px/);
+    expect(match, `badge reads a real number: "${badgeText}"`).not.toBeNull();
+    const px = Number(match![1]);
+    expect(px % 4, 'snapped to the 4px grid').toBe(0);
+    expect(px).toBeGreaterThanOrEqual(200);
+    expect(px).toBeLessThanOrEqual(600);
+    await page.screenshot({ path: `${SHOT_DIR}/v31-04-width-drag-custom-badge.png` });
+
+    // persists: the saved node carries design_overrides.size.width.custom_px
+    await Promise.all([page.waitForEvent('load'), page.locator('#lg-section-save').click()]);
+    const detail = await json<{ content_json: { components: Array<{ question_id: string; design_overrides?: { size?: { width?: { custom_px?: number } } } }> } }>(
+      await page.request.get(`${LG_API}/sections/${section.public_id}`),
+      'width-drag section detail',
+    );
+    const zipNode = detail.content_json.components.find((c) => c.question_id === 'q_zip');
+    expect(zipNode?.design_overrides?.size?.width?.custom_px).toBe(px);
+  });
+
+  test('§6.1/§6.3 the canvas toolbar Frame-hint toggle (default ON) shows/hides the dimmed non-interactive skeleton', async ({ page }) => {
+    const section = await createStudioSection(page.request, `V31 Frame Hint ${uniq}`, ACT_A, `v31-framehint-${uniq}`);
+    await page.goto(`/admin/leadgen/sections/${section.public_id}/edit`, { waitUntil: 'domcontentloaded' });
+
+    const frameHintBtn = page.locator('[data-studio-frame-hint]');
+    const topSkeleton = page.locator('[data-studio-frame-skeleton="top"]');
+    // default ON (contract §6.1 "toggle (default ON)" — a v3.1 fix over the
+    // pre-existing default-OFF behavior)
+    await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(topSkeleton).toBeVisible();
+    await expect(topSkeleton).toContainText('Funnel frame');
+
+    await frameHintBtn.click();
+    await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(topSkeleton).toBeHidden();
+
+    await frameHintBtn.click();
+    await expect(frameHintBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(topSkeleton).toBeVisible();
+    await page.screenshot({ path: `${SHOT_DIR}/v31-05-frame-hint-toggle.png` });
   });
 });

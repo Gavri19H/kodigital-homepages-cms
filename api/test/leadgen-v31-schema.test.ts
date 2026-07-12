@@ -12,14 +12,17 @@ import { describe, expect, it } from "vitest";
 import {
   validateSectionContent,
   resolveFieldSize,
+  acceptFormatOfType,
   LEADGEN_FIELD_LEADING_ICONS,
   LEADGEN_FIELD_ACCEPT_FORMATS,
+  LEADGEN_FIELD_ACCEPT_TYPE,
   LEADGEN_SIZE_WIDTH_PRESETS,
   LEADGEN_SIZE_HEIGHT_PRESETS,
   type LeadgenComponentNode,
   type LeadgenSizeThemeControls,
   type LeadgenSizeOverride,
 } from "../src/public/leadgen/components/content-schema";
+import { COMPONENT_CATALOG, type ComponentType } from "../src/public/leadgen/components/registry";
 
 const content = (components: unknown[]): unknown => ({ components });
 const codesOf = (result: ReturnType<typeof validateSectionContent>): string[] =>
@@ -428,5 +431,50 @@ describe("v3.1 §7.1/§7.2/§12 — resolveFieldSize (pure resolver)", () => {
     const resolved = resolveFieldSize({ width: { custom_px: 599 } }, controls);
     // 599/4=149.75 -> rounds to 150 -> 600 (already the max, no clamp needed)
     expect(resolved.width).toEqual({ mode: "custom", px: 600 });
+  });
+});
+
+// v3.1 §5.6 Phase B slice 5 (additive, this Section Studio phase): the
+// Accept-format <-> concrete-type reverse map every text-input tile's
+// Accept dropdown needs (Section Studio's toolbar + Phase C's inspector
+// both consume it — additive-only, no existing export changed).
+describe("v3.1 §5.6 — LEADGEN_FIELD_ACCEPT_TYPE reverse map (Accept-swap rule)", () => {
+  it("maps every one of the 8 Accept values to its EXACT concrete type per the §5.6 table", () => {
+    expect(LEADGEN_FIELD_ACCEPT_TYPE).toEqual({
+      text: "FreeTextQuestion",
+      number: "NumberInputQuestion",
+      currency: "CurrencyInputQuestion",
+      email: "EmailInputQuestion",
+      phone: "PhoneInputQuestion",
+      us_zip: "ZIPInputQuestion",
+      date: "DateQuestion",
+      street_address: "AddressAutocompleteQuestion",
+    });
+    // every key is exactly LEADGEN_FIELD_ACCEPT_FORMATS, in the same set
+    expect(Object.keys(LEADGEN_FIELD_ACCEPT_TYPE).sort()).toEqual([...LEADGEN_FIELD_ACCEPT_FORMATS].sort());
+  });
+
+  it("every mapped type is a REAL catalog entry (no typo'd type name slips through)", () => {
+    for (const type of Object.values(LEADGEN_FIELD_ACCEPT_TYPE)) {
+      expect(COMPONENT_CATALOG[type as ComponentType], `${type} is a real catalog entry`).toBeDefined();
+    }
+  });
+
+  it("acceptFormatOfType is the exact inverse of LEADGEN_FIELD_ACCEPT_TYPE", () => {
+    for (const format of LEADGEN_FIELD_ACCEPT_FORMATS) {
+      expect(acceptFormatOfType(LEADGEN_FIELD_ACCEPT_TYPE[format])).toBe(format);
+    }
+  });
+
+  it("a type OUTSIDE the 8-value Accept family (e.g. a choice/container type) has no Accept format", () => {
+    expect(acceptFormatOfType("ButtonAnswerGroup")).toBeUndefined();
+    expect(acceptFormatOfType("CardPanel")).toBeUndefined();
+    expect(acceptFormatOfType("IconCardAnswerGrid")).toBeUndefined();
+  });
+
+  it("§11.3 worked example round-trips: a ZIPInputQuestion's Accept format is us_zip, matching its stored props.format", () => {
+    // the contract's own §11.3 example: {"type":"ZIPInputQuestion", "props":{"format":"us_zip", ...}}
+    expect(acceptFormatOfType("ZIPInputQuestion")).toBe("us_zip");
+    expect(LEADGEN_FIELD_ACCEPT_TYPE["us_zip"]).toBe("ZIPInputQuestion");
   });
 });
