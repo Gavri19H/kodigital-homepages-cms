@@ -88,13 +88,23 @@ import { renderSectionComponents, type LeadgenSectionRenderCtx } from "./compone
 import { renderLegacyShell, renderQuoteFrame, LG_BANNERS_MOUNT_HTML } from "./designs/frame";
 import { effectiveFrame, validateFrameConfig } from "./designs/frames";
 import type { EffectiveFrameConfig, FrameOverrides, StoredFrameConfig } from "./designs/frames";
-import { resolveTokens, validateTheme } from "./designs/theme";
+import { resolveTokens, validateTheme, winningThemeId } from "./designs/theme";
 import type {
   EffectiveFunnelDesign,
   EffectiveTokens,
   ThemeJson,
+  ThemeRecord,
+  ThemeRecordControls,
   VariantThemeOverrides,
 } from "./designs/theme";
+// v3.1 §10.1/§12 (fix round): the live runtime path resolves a funnel/
+// variant's {theme_id} exactly like the admin preview paths do — ONE KV read
+// per cold render, hoisted here (the nearest async caller) since
+// resolveFrameComposition below stays a PURE, synchronous function (theme.ts's
+// own discipline: "PURE — no DB, no Hono, no admin imports", extended here to
+// "no KV either"). theme-store.ts is the PUBLIC module the admin CRUD
+// (themes-handlers.ts) ALSO reads through — one KV reader, never two.
+import { getThemeRecord } from "./designs/theme-store";
 import { toFunnelId, toFunnelVariantId } from "../../leadgen/funnel";
 import { resolveBrowserMapsKey } from "../../leadgen/maps";
 // §16.2 sticky assignment reads the SAME ko_sid session cookie the listicle
@@ -381,9 +391,19 @@ export interface LeadgenFrameComposition {
   effectiveTokens: EffectiveTokens;
 }
 
+// v3.1 §10.1/§12 (fix round, ADDITIVE 3rd param): `themeRecord` is the
+// ALREADY-FETCHED KV record for whichever theme_id won (variant frame_
+// overrides_json.theme_id over funnel theme_json.theme_id, winningThemeId) —
+// this function performs NO KV I/O itself (stays synchronous/pure); the
+// caller resolves it (resolveThemeRecordFor below, on the live path; the
+// admin preview/quote-builder call sites do the equivalent). Absent (undefined/
+// null) is BYTE-IDENTICAL to today: a NULL/legacy-inline theme_json resolves
+// exactly as before, since resolveTokens's 4th arg only changes anything when
+// non-null AND the 2nd arg is a {theme_id} ref.
 export function resolveFrameComposition(
   source: LeadgenFrameSource,
   design: FunnelDesign,
+  themeRecord?: ThemeRecord | null,
 ): LeadgenFrameComposition | null {
   const rawFrame = parseJsonRecordColumn(source.frame_config_json ?? null);
   if (rawFrame === null) return null; // legacy funnel — exact current behavior (03 §3.1)
@@ -424,7 +444,7 @@ export function resolveFrameComposition(
     }
   }
 
-  const effectiveTokens = resolveTokens(design, theme, overridesTheme);
+  const effectiveTokens = resolveTokens(design, theme, overridesTheme, themeRecord ?? null);
   const { frame } = effectiveFrame(frameValidation.config as StoredFrameConfig, null, frameOverrides);
   return { frame, effectiveTokens };
 }
@@ -438,6 +458,25 @@ function frameSourceOf(resolved: ResolvedActivatedFunnel): LeadgenFrameSource {
   };
 }
 
+// v3.1 §10.1/§12 (fix round): resolve the WINNING theme_id (variant overrides
+// > funnel, winningThemeId — mirrors the existing variant-over-funnel palette
+// precedence one layer up) for a frame source and fetch its KV record — AT
+// MOST ONE KV read, called once per cold render (see the two call sites
+// below, both already gated behind a `cached === null` check exactly like
+// loadAnswerMapVersions). Degrades to null (never throws) when: neither side
+// carries a theme_id (legacy inline / no theme), or the id no longer exists
+// in the store (deleted theme) — resolveFrameComposition/resolveTokens then
+// fall back to the legacy default look, the SAME degrade path a NULL theme
+// already takes today. A public funnel is NEVER 500'd by an unknown/deleted
+// theme_id.
+async function resolveThemeRecordFor(env: Env, source: LeadgenFrameSource): Promise<ThemeRecord | null> {
+  const funnelTheme = parseJsonRecordColumn(source.theme_json ?? null);
+  const variantOverrides = parseJsonRecordColumn(source.frame_overrides_json ?? null);
+  const id = winningThemeId(funnelTheme, variantOverrides);
+  if (id === null) return null;
+  return getThemeRecord(env.CACHE, id);
+}
+
 // The ordered `<section data-lg-section …>` list — wrapper contract EXACTLY
 // per 03 §3.2 (data-lg-section + data-lg-section-id + data-lg-index +
 // data-screen-label="{i+1:02d} · {headline}", first section not hidden), each
@@ -447,10 +486,20 @@ function frameSourceOf(resolved: ResolvedActivatedFunnel): LeadgenFrameSource {
 // configured). EXPORTED: the admin composed-variant preview (quotes-handlers
 // renderComposedVariantPreview) renders its slot content through THIS function
 // — preview and runtime section markup can never drift (13 §13.5 leg 1).
+// v3.1 §7/§12 (ADDITIVE 4th param, adversarial review MAJOR-1): the
+// composition's resolved theme_controls (EffectiveTokens.theme_controls) —
+// undefined for a legacy/NULL-theme funnel (byte-identical). Threaded into
+// EVERY section's ctx so the §7 field-size resolver's "funnel theme
+// default" tier (fieldSizeStyle in components/presets.ts) reads the REAL
+// resolved controls instead of always falling back to its own
+// DEFAULT_SIZE_THEME_CONTROLS constant — this was the dead-deliverable gap
+// (resolveTokens computed theme_controls but no production caller threaded
+// it into LeadgenSectionRenderCtx).
 export function renderVariantSectionsHtml(
   sections: readonly ResolvedFunnelSection[],
   design: FunnelDesign | EffectiveFunnelDesign,
   frame: EffectiveFrameConfig | null,
+  themeControls?: ThemeRecordControls,
 ): string {
   const presetDesign = design as FunnelDesign;
   return sections
@@ -467,6 +516,9 @@ export function renderVariantSectionsHtml(
       if (frame !== null) {
         ctx.continue_placement = frame.section_slot.continue_placement;
         ctx.continue_style_role = frame.section_slot.continue_style_role;
+      }
+      if (themeControls !== undefined) {
+        ctx.theme_controls = themeControls;
       }
       const label = `${String(i + 1).padStart(2, "0")} · ${rs.section.headline_text}`;
       return (
@@ -518,6 +570,7 @@ function renderFunnelShell(
   resolved: ResolvedActivatedFunnel,
   design: FunnelDesign,
   answerMapVersions: Readonly<Record<string, string>>,
+  themeRecord: ThemeRecord | null,
 ): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
@@ -532,7 +585,7 @@ function renderFunnelShell(
   // free on that path: the pin proves css/config/design_tokens bytes
   // unchanged). resolveTokens keeps design.id, so the scope selector is the
   // same string on both paths.
-  const composition = resolveFrameComposition(frameSourceOf(resolved), design);
+  const composition = resolveFrameComposition(frameSourceOf(resolved), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
   const chromeCss =
@@ -548,6 +601,7 @@ function renderFunnelShell(
     resolved.sections,
     effectiveDesign,
     composition === null ? null : composition.frame,
+    composition === null ? undefined : composition.effectiveTokens.theme_controls,
   );
 
   // (b) the SAME LeadgenPublicConfig JSON /lg/config serves, baked in-request
@@ -684,7 +738,13 @@ export async function serveFunnelShell(
     // resolve time on the COLD path only (a cache hit already carries them
     // baked into #lg-config).
     const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
-    pristine = renderFunnelShell(resolved, design, answerMapVersions);
+    // v3.1 §10.1/§12: the SAME cold-path-only discipline for the theme_id KV
+    // read — a cache hit already carries whatever theme was baked in at
+    // write time (a theme_json/frame_overrides_json EDIT bumps content_version,
+    // §3.1, which busts this cache key; a THEME RECORD content edit does not —
+    // see the open concern in the phase report).
+    const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
+    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
@@ -741,10 +801,13 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
     // R6 (v2.4 03 §3.8): per-section answer_mapping_version markers, read at
     // resolve time on the COLD path (the cached body already bakes them).
     const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
+    // v3.1 §10.1/§12: the theme_id KV read — cold path only, mirrors the
+    // shell's own placement exactly (resolveThemeRecordFor's doc comment).
+    const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
     // v2.5 §13.3: the config route carries the SAME design tokens the shell
     // bakes — the EFFECTIVE design on the frame path, the base design on the
     // legacy path (one resolver, no drift).
-    const composition = resolveFrameComposition(frameSourceOf(resolved), design);
+    const composition = resolveFrameComposition(frameSourceOf(resolved), design, themeRecord);
     const effectiveDesign = composition === null ? design : composition.effectiveTokens.design;
     // buildPublicConfig is the RED-LINE strip point: it copies only whitelisted
     // public fields, so no provider endpoint / token ref / bid strategy / raw

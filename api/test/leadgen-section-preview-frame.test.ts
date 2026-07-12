@@ -167,8 +167,20 @@ function makeKvStub(): KVNamespace {
     async delete(key: string): Promise<void> {
       store.delete(key);
     },
-    async list(): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor: string }> {
-      return { keys: [...store.keys()].map((name) => ({ name })), list_complete: true, cursor: "" };
+    // Real Cloudflare KV list() filters by `options.prefix` — the LIVE §28
+    // cache-invalidation sweep (invalidate.ts deleteByPrefix) relies on this
+    // to scope its list+delete to `lg-shell:`/`lg-config:` keys ONLY. A stub
+    // that ignored `prefix` would report EVERY key as matching an unrelated
+    // prefix sweep — a TEST-FIDELITY gap that never happens against real KV,
+    // where the prefix filter is enforced server-side (found + fixed while
+    // building the v3.1 Themes KV store, leadgen-v31-themes*.test.ts).
+    async list(options?: {
+      prefix?: string;
+      cursor?: string;
+    }): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor: string }> {
+      const prefix = options?.prefix ?? "";
+      const keys = [...store.keys()].filter((k) => k.startsWith(prefix));
+      return { keys: keys.map((name) => ({ name })), list_complete: true, cursor: "" };
     },
   } as unknown as KVNamespace;
 }

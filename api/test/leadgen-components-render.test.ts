@@ -261,8 +261,12 @@ describe("validateSectionContent — per-node rejects", () => {
   });
 
   it("accepts every curated override key with token values", () => {
-    const overrides: Record<string, string | number> = {};
-    for (const k of CURATED_DESIGN_OVERRIDE_KEYS) overrides[k] = k === "columns" ? 3 : "#1B3A5C";
+    // v3.1 §7.2: `size` is the one object-shaped curated key (added by the
+    // conductor fix round) — every other key stays a scalar token value.
+    const overrides: Record<string, string | number | { width: string }> = {};
+    for (const k of CURATED_DESIGN_OVERRIDE_KEYS) {
+      overrides[k] = k === "columns" ? 3 : k === "size" ? { width: "full" } : "#1B3A5C";
+    }
     const c = {
       components: [
         { type: "IconCardAnswerGrid", question_id: "g", internal_field: "biz", design_overrides: overrides, choices: [{ label: "LLC", value: "llc", analytics_id: "a", icon: "x" }] },
@@ -351,6 +355,9 @@ const NODE_SPECS: Record<ComponentType, LeadgenComponentNode> = {
   Spacer: { type: "Spacer", question_id: "q", props: { size: "l" } },
   HeaderBar: { type: "HeaderBar", question_id: "q", props: { logoMediaId: "media_logo", logoAlt: "Acme", back: true, secure: true, cta: { label: "Call now", tel: "+1 800 555 1212" } } },
   FooterBar: { type: "FooterBar", question_id: "q", props: { legalHtml: "Terms apply", trustMessages: ["SSL secured"], links: [{ label: "Privacy", href: "/privacy" }] } },
+  // v3.1 05 §5.3 Text/Image primitives (conductor fix round — catalog lockstep).
+  TextBlock: { type: "TextBlock", question_id: "q", props: { role: "heading", text: "How much?" } },
+  ImageBlock: { type: "ImageBlock", question_id: "q", props: { source: "auto_logo", siteName: "Acme" } },
 };
 
 const ALL_TYPES = Object.keys(COMPONENT_CATALOG) as ComponentType[];

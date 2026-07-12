@@ -80,14 +80,22 @@ import {
   contrastRatioAA,
   resolveTokens,
   validateTheme,
+  winningThemeId,
   WCAG_AA_MIN_CONTRAST,
 } from "../../public/leadgen/designs/theme";
 import type {
   FunnelTokenRole,
   Problem,
   ThemeJson,
+  ThemeRecord,
   VariantThemeOverrides,
 } from "../../public/leadgen/designs/theme";
+// v3.1 §10.1: a variant's frame_overrides_json.theme_id assignment (A/B
+// theme override) needs "theme_id must exist in the store"; §12 (fix round):
+// the composed quote/variant preview resolves the SAME theme_id the live path
+// does — both read through theme-store.ts (the public KV module; avoids a
+// public→admin import edge from serve.ts).
+import { getThemeRecord, themeRecordExists } from "../../public/leadgen/designs/theme-store";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 import {
   invalidateOnQuoteActivation,
@@ -1211,7 +1219,12 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
           });
         }
       }
-      const { theme: themePart, ...frameParts } = raw;
+      // v3.1 §10.1: `theme_id` is a NEW top-level key (frame_overrides_json.
+      // theme_id) — an A/B assignment of a KV lg-funnel-themes record,
+      // distinct from the existing `theme.palette` ad hoc override above.
+      // Extracted BEFORE validateFrameConfig for the SAME reason `theme` is
+      // (else it would reject theme_id as an unrecognised frame group).
+      const { theme: themePart, theme_id: themeIdPart, ...frameParts } = raw;
       overridesProblems.push(...validateFrameConfig(frameParts).problems);
       if (themePart !== undefined) {
         if (!isRecord(themePart)) {
@@ -1225,7 +1238,27 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
           overridesProblems.push(...validateTheme(themePart).problems);
         }
       }
+      if (themeIdPart !== undefined) {
+        if (typeof themeIdPart !== "string" || themeIdPart.trim() === "") {
+          overridesProblems.push({
+            path: "frame_overrides.theme_id",
+            scope: "theme",
+            severity: "error",
+            message: "theme_id must be a non-empty theme id.",
+          });
+        } else if (!(await themeRecordExists(c.env.CACHE, themeIdPart))) {
+          overridesProblems.push({
+            path: "frame_overrides.theme_id",
+            scope: "theme",
+            severity: "error",
+            message: `Theme '${themeIdPart}' does not exist.`,
+          });
+        }
+      }
       if (!overridesProblems.some((p) => p.severity === "error")) {
+        // `raw` (not `frameParts`) — theme_id (and `theme`) ride the
+        // persisted JSON unchanged; they were only split out above for
+        // validation scoping (additive key, existing keys preserved).
         overridesJson = JSON.stringify(raw);
       }
     }
@@ -1665,6 +1698,13 @@ export interface ComposedVariantPreviewInput {
   // the full pages[] (lazy per-step fetch for long funnels). Clamped into
   // [1..section_count]. Absent → the full pages[] exactly as before.
   page?: number;
+  // v3.1 §10.1/§12 (fix round, ADDITIVE): the ALREADY-FETCHED KV record for
+  // whichever theme_id wins (variant frame_overrides_json.theme_id over
+  // funnel theme_json.theme_id — winningThemeId, respecting draftTheme/
+  // draftFrameOverrides when given). This function stays synchronous/pure —
+  // composedVariantPreviewResponse (its async caller) resolves the id and
+  // fetches the record. Absent/null = today's behavior unchanged.
+  themeRecord?: ThemeRecord | null;
 }
 
 export interface ComposedVariantPreview {
@@ -1805,6 +1845,7 @@ export function renderComposedVariantPreview(
             : JSON.stringify(input.draftFrameOverrides),
     },
     design,
+    input.themeRecord ?? null,
   );
   // Phase-A contract: a mode-less call still reports "no composed frame".
   if (composition === null && input.mode === undefined) return null;
@@ -1872,10 +1913,16 @@ export function renderComposedVariantPreview(
     };
   }
 
+  // v3.1 §7/§12 (adversarial review MAJOR-1): thread the resolved theme_
+  // controls into the composed-variant preview's sectionCtx too — the SAME
+  // resolveTokens output the live /lg path now feeds (serve.ts renderFunnel
+  // Shell), so "runtime, quote preview, and section-in-frame preview share
+  // identical resolution" holds for the §7 field-size tier as well.
   const allSectionsHtml = renderVariantSectionsHtml(
     resolvedSections,
     effectiveDesign,
     composition === null ? null : composition.frame,
+    composition === null ? undefined : composition.effectiveTokens.theme_controls,
   );
 
   if (input.mode === "all") {
@@ -2113,6 +2160,19 @@ async function composedVariantPreviewResponse(
     visibleIndex = at;
   }
 
+  // v3.1 §10.1/§12 (fix round): resolve the WINNING theme_id (winningThemeId)
+  // over the SAME effective theme_json/frame_overrides_json the renderer
+  // itself substitutes (draftTheme/draftFrameOverrides win when given,
+  // undefined falls back to the stored column, null means "nothing") — one KV
+  // read, hoisted here since renderComposedVariantPreview stays synchronous.
+  // "quote preview... share[s] identical resolution" with the live path.
+  const effectiveThemeJsonForTheme: unknown =
+    draftTheme === undefined ? parseJsonColumn(owner.funnel.theme_json ?? null) : draftTheme;
+  const effectiveOverridesForTheme: unknown =
+    draftFrameOverrides === undefined ? parseJsonColumn(variant.frame_overrides_json ?? null) : draftFrameOverrides;
+  const winningId = winningThemeId(effectiveThemeJsonForTheme, effectiveOverridesForTheme);
+  const themeRecord: ThemeRecord | null = winningId !== null ? await getThemeRecord(c.env.CACHE, winningId) : null;
+
   const preview = renderComposedVariantPreview({
     quote: owner.quote,
     funnel: owner.funnel,
@@ -2125,6 +2185,7 @@ async function composedVariantPreviewResponse(
     draftTheme,
     draftFrameOverrides,
     page,
+    themeRecord,
   });
   // With `mode` set the renderer never yields null (legacy funnels compose
   // through the pinned legacy shell) — this guard is type narrowing only.

@@ -1,0 +1,792 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadGen CMS — Section Builder &amp; Themes Build Contract v3.1 (Design-Locked, source-validated)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1A1F36;--muted:#5A6470;--faint:#8A93A3;--line:#D2D9E5;--line2:#E7EBF1;--navy:#1B3A5C;--accent:#F5C518;--code:#f4f6fa;--go:#0E7C3A;--gosoft:#E4F2E9;--amber:#8a6d00;--ambersoft:#FDF4E3;--blue:#2E6BB0;--bluesoft:#EAF1F8;--red:#B23A2C;}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{background:#e9ebf0;color:var(--ink);font-family:Inter,system-ui,Arial,sans-serif;line-height:1.62;font-size:14.5px}
+a{color:var(--navy)}a:hover{color:#0F2A45}
+.wrap{max-width:1000px;margin:0 auto;padding:0 0 120px}
+.sheet{background:#fff;padding:52px 62px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.cover{padding:74px 62px 52px;background:var(--navy);color:#fff}
+.cover .eyebrow{font-size:12px;letter-spacing:4px;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:18px}
+.cover h1{font-size:41px;line-height:1.07;margin:0 0 14px;letter-spacing:-1px;font-weight:800}
+.cover p{font-size:16px;color:#c7d2e0;max-width:760px;margin:0 0 22px}
+.cover .meta{display:flex;flex-wrap:wrap;gap:8px}
+.cover .chip{font-family:"Roboto Mono",monospace;font-size:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);padding:6px 11px;border-radius:6px}
+.status{margin-top:22px;display:inline-block;background:var(--accent);color:#1A1F36;font-weight:800;font-size:13px;letter-spacing:1px;text-transform:uppercase;padding:8px 14px;border-radius:6px}
+h2.sec{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--navy);font-weight:800;margin:0 0 4px}
+h2.title{font-size:29px;font-weight:800;letter-spacing:-.5px;margin:2px 0 20px;line-height:1.12}
+h3{font-size:19px;font-weight:700;margin:34px 0 10px;letter-spacing:-.2px}
+h4{font-size:15px;font-weight:700;margin:22px 0 8px;color:#25324a}
+p{margin:0 0 13px}
+code{font-family:"Roboto Mono",monospace;font-size:12.5px;background:var(--code);border:1px solid #e4e9f1;padding:1.5px 6px;border-radius:5px;color:#2b3b57}
+.k{font-family:"Roboto Mono",monospace;font-size:12px;background:#eef1f7;padding:1px 6px;border-radius:4px;color:#33507a}
+table{border-collapse:collapse;width:100%;margin:14px 0 20px;font-size:13px}
+th,td{border:1px solid #e2e7f0;padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f5f7fb;font-weight:700;color:#26354f;font-size:11.5px;letter-spacing:.3px;text-transform:uppercase}
+td code{font-size:11.5px}
+tr:nth-child(even) td{background:#fbfcfe}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin:4px 0}
+.callout{border-radius:10px;padding:15px 18px;margin:16px 0;font-size:13.5px;line-height:1.55}
+.c-navy{background:#eef2f7;border:1px solid #d7e0ec}
+.c-amber{background:var(--ambersoft);border:1px solid #F0DCA9;color:#6d5600}
+.c-go{background:var(--gosoft,#eaf6ef);border:1px solid #cfe8db;color:#1e6b41}
+.c-blue{background:var(--bluesoft);border:1px solid #cfe0f2;color:#274d70}
+.lede{font-size:16px;color:#3a4256;border-left:3px solid var(--accent);padding:2px 0 2px 16px;margin:0 0 22px}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-right:6px}
+.toc{background:#fff;padding:26px 62px 34px;border-bottom:2px solid var(--line)}
+.toc h2{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--faint);font-weight:800;margin:0 0 14px}
+.toc ol{columns:2;column-gap:44px;font-size:13.5px;padding-left:20px}
+.toc a{font-weight:600;text-decoration:none}
+.pill{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:20px;vertical-align:middle}
+.pill-c1{background:#e7edf5;color:#2f557f}.pill-c2{background:#FBF0CF;color:#8a6d00}.pill-c3{background:#E4F2E9;color:#0E7C3A}
+hr{border:none;border-top:1px solid #e6eaf1;margin:30px 0}
+.mono-block{font-family:"Roboto Mono",monospace;font-size:12px;background:#0f1c2e;color:#d7e2f0;padding:16px 18px;border-radius:8px;overflow-x:auto;line-height:1.5;white-space:pre;margin:14px 0}
+.mono-block .cm{color:#7f93ad}.mono-block .st{color:#e0c06a}.mono-block .kw{color:#7fb0e0}
+@media print{body{background:#fff}.sheet,.cover,.toc{box-shadow:none}.wrap{max-width:none}.sheet{padding:34px 0}.cover{padding:40px 0}.toc{padding:20px 0}}
+</style></head>
+<body><div class="wrap">
+
+<div class="cover">
+  <div class="eyebrow">LeadGen CMS · Implementation Contract</div>
+  <h1>Section Builder &amp; Themes — Design-Locked Build Contract v3.1</h1>
+  <p>A byte-for-byte build specification pinned to the <b>accepted</b> Section Builder redesign. v3.1 closes every gap found in the v3.0 self-audit: the golden-master source ships <i>inside</i> the contract package, every tile/type mapping is one-to-one, all copy and geometry are enumerated, storage is validated line-by-line against the repo source, and everything not present in the approved design is explicitly marked <b>PROPOSED</b> instead of silently invented.</p>
+  <div class="meta">
+    <span class="chip">repo Gavri19H/kodigital-homepages-cms</span>
+    <span class="chip">worker kodigital-homepages-cms-worker</span>
+    <span class="chip">visual golden master: Section Builder Redesign.dc.html</span>
+    <span class="chip">supersedes-scope: v2.5.1 §05–§10</span>
+    <span class="chip">v3.1 · source-validated (ui-section-studio.ts · sections-handlers.ts)</span>
+    <span class="chip">golden source shipped: contract-v3.1/golden/</span>
+  </div>
+  <div class="status">Design accepted · Ready for build · Zero-deviation enforced</div>
+</div>
+
+<nav class="toc">
+  <h2>Contract map</h2>
+  <ol>
+    <li><a href="#s0">How this contract guarantees zero deviation</a></li>
+    <li><a href="#s1">Scope, sources of truth &amp; preserve list</a></li>
+    <li><a href="#s2">Screen architecture &amp; geometry</a></li>
+    <li><a href="#s3">Design tokens (color, type, spacing, radius)</a></li>
+    <li><a href="#s4">Top bar &amp; Question strip</a></li>
+    <li><a href="#s5">Component library</a></li>
+    <li><a href="#s6">Canvas &amp; context toolbar</a></li>
+    <li><a href="#s7">Sizing model: presets vs manual custom <span class="pill pill-c1">Concern 1</span></a></li>
+    <li><a href="#s8">Scope-aware inspector</a></li>
+    <li><a href="#s9">Google Maps validation <span class="pill pill-c3">Concern 3</span></a></li>
+    <li><a href="#s10">Themes &amp; the Themes manager <span class="pill pill-c2">Concern 2</span></a></li>
+    <li><a href="#s11">Data model &amp; storage mapping</a></li>
+    <li><a href="#s12">Runtime composition parity</a></li>
+    <li><a href="#s13">Acceptance &amp; fidelity harness</a></li>
+    <li><a href="#sA">Appendix A — Exact microcopy (string assertions)</a></li>
+    <li><a href="#sB">Appendix B — Geometry constants</a></li>
+    <li><a href="#sC">Appendix C — Traceability matrix</a></li>
+    <li><a href="#sD">Appendix D — Golden-master source (verbatim, element index)</a></li>
+    <li><a href="#s14">Change log v3.0 → v3.1 (audit fixes)</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s0">
+<h2 class="sec">Section 0</h2><h2 class="title">How this contract guarantees zero deviation</h2>
+<p class="lede">One approved design + this enumerated spec + an automated fidelity harness = a build that cannot silently drift. Every visible pixel, every string, and every stored value has exactly one defined source, and CI blocks any merge that diverges.</p>
+
+<h4>0.1 The three normative artifacts (precedence is explicit)</h4>
+<table>
+<tr><th>#</th><th>Artifact</th><th>Authoritative for</th><th>On conflict</th></tr>
+<tr><td>A</td><td><b>Visual golden master</b> — <code>Section Builder Redesign.dc.html</code> (committed to <code>docs/leadgen/redesign-contract-v3/golden/</code>)</td><td>Layout, spacing, color, iconography, the rendered look of every panel and state</td><td>The rendered DC wins for anything <i>visual</i></td></tr>
+<tr><td>B</td><td><b>This contract</b> (v3.0)</td><td>Behavior, state machine, storage mapping, copy, validation, acceptance</td><td>This document wins for anything <i>behavioral or persisted</i></td></tr>
+<tr><td>C</td><td><b>Prior binding contracts</b> — v2.5.1 (and its cited v2.4 / v2.3.7 amendments)</td><td>Architecture that is <i>not</i> re-opened here (auction, payload, analytics, activation)</td><td>Remains binding except where §1.3 explicitly amends</td></tr>
+<tr><td>D</td><td><b>Golden-master source copy</b> — <code>contract-v3.1/golden/golden-master-source.dc.html</code> (byte-identical copy of A, shipped in this package with its runtime)</td><td>The literal markup: every inline style string, every tile SVG, every state style. Builders <b>copy these strings, never reinterpret them</b>. Appendix D indexes each element.</td><td>Same bytes as A</td></tr>
+</table>
+<p>There is no fourth source. If a builder needs a value not found in A or B, that is a contract gap — it is raised and resolved by amending B, never invented in code.</p>
+
+<h4>0.2 Definition of done</h4>
+<ul>
+<li>Every row of the <a href="#sC">Appendix C traceability matrix</a> has a passing automated test.</li>
+<li>The four fidelity gates in <a href="#s13">§13</a> are green in CI: <b>visual-regression</b>, <b>string</b>, <b>geometry</b>, <b>behavior/storage</b>.</li>
+<li>No control writes any field not named in <a href="#s11">§11</a>. No screen renders any string not listed in <a href="#sA">Appendix A</a> (for the fixed-fixture Section "Zip / Insurance / Car").</li>
+<li>Zero new runtime, payload, analytics, auction, or activation behavior beyond what §1.3 amends.</li>
+</ul>
+
+<div class="callout c-navy"><b>Interpretation rule.</b> Wherever this contract says “exact”, it means literally: the harness asserts the value. Wherever it says “operator words” or lists copy in <code>“quotes”</code>, that string is asserted verbatim. Wherever a pixel or token appears in a table, it is a constant, not a suggestion.</div>
+<div class="callout c-blue"><b>Fidelity vs function (v3.1 rule).</b> The golden master fakes some logic — its undo, drag-measurement and theme editing are visual stand-ins. Binding split: <b>affordances &amp; pixels are design-locked</b> (Artifact D — copy the chrome verbatim); <b>logic is contract-locked</b> (§6–§10 define the real behavior behind each affordance). Where the DC hardcodes a demo value (e.g. “≈ 384 px”), the contract's formula wins and the real UI renders the true measured value in the identical format. Anything labelled <span class="pill pill-c2">PROPOSED</span> is <i>not</i> in the approved design: implement storage/behavior as specified but add <b>no visible UI</b> for it without a design addendum.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s1">
+<h2 class="sec">Section 1</h2><h2 class="title">Scope, sources of truth &amp; preserve list</h2>
+
+<h4>1.1 What is being built</h4>
+<p>The redesigned <b>Section Builder</b> at <code>/admin/leadgen/sections/:id/edit</code> (evolving <code>ui-section-studio.ts</code>), plus a new <b>Themes manager</b> reachable from it. The build delivers exactly the accepted design: a four-region editor (top bar, Question strip, three-panel body, bottom drawer), a re-scoped component library, a direct-manipulation canvas, a scope-aware inspector, a per-field Google Maps validation surface, and a full-screen Themes manager with A/B assignment.</p>
+
+<h4>1.2 The fixed acceptance fixture</h4>
+<p>All string and geometry assertions are taken against the design's canonical demo state, which the build must reproduce exactly when seeded with it:</p>
+<table>
+<tr><th>Field</th><th>Value</th></tr>
+<tr><td>Section name</td><td><code>Zip</code>, status <code>Active</code></td></tr>
+<tr><td>Activity / Vertical</td><td><code>Insurance</code> / <code>Car</code></td></tr>
+<tr><td>Question headline / Subheadline</td><td>“What's your ZIP code?” / “Rates differ by up to 40% based on ZIP code”</td></tr>
+<tr><td>Content nodes</td><td>bound headline + subheadline, one text-input control stored as <code>ZIPInputQuestion</code> (its Accept = “ZIP code (5 digits)”, §5.6 — inspector name is always “Short text field”), one bound Continue</td></tr>
+<tr><td>Mapping</td><td>2 / 2 Offers complete (Provider A → <code>Zip</code>, Provider B → <code>PostalCode</code>)</td></tr>
+<tr><td>Preview theme</td><td><code>Navy</code> (funnel “Auto Insurance”, Variant A)</td></tr>
+</table>
+
+<h4>1.3 What does NOT change (binding preserve list)</h4>
+<p>This contract is <b>additive and UI-scoped</b>. It amends v2.5.1 §05 (Section Builder), §06 (canvas/toolbar), §07 (inspector), §08 (component library), §09 (theme/token), §10 (branding) to the exact accepted design. It does <b>not</b> alter: <code>leadgen_*</code> tables except the additive columns in <a href="#s11">§11</a>; Offer payload schemas; <code>leadgen_section_answer_maps</code> semantics; Quote→Funnel→Funnel Variant identity; auction configs + engine; runtime event schema; the 9 analytics mirrors; <code>/lg/config</code> + <code>/lg/attempt</code> + attempt signing; site-level activation; server-rendered sections + hydration architecture; the “no arbitrary CSS / no raw JSON in normal flows” rules.</p>
+
+<div class="callout c-amber"><b>Kickoff precondition.</b> Re-verify HEAD of <code>main</code> before build; the storage mapping in §11 assumes migration <code>0041</code> has not yet landed. A newer <code>main</code> with conflicting JSON columns must be reconciled against §11 before any code is written.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s2">
+<h2 class="sec">Section 2</h2><h2 class="title">Screen architecture &amp; geometry</h2>
+<p>The editor is a fixed four-row column. All values below are asserted (Appendix B). The admin shell already provides the outer chrome; these regions live inside the page content area and are responsive down to 1280 by letting the center canvas flex — the left (292) and right (344) rails are fixed.</p>
+
+<h4>2.1 Region stack (top → bottom)</h4>
+<table>
+<tr><th>Region</th><th>Height / width</th><th>Notes</th></tr>
+<tr><td>Top bar</td><td>height <code>56px</code>, full width</td><td>Back · Section name+status · (right) mapping badge · issues chip · Save · Archive</td></tr>
+<tr><td>Question strip</td><td>auto, bg <code>#F7F9FB</code>, border-bottom <code>#E7EBF1</code></td><td>Row 1: label + Activity/Vertical + On-answer segmented + Maps status. Row 2: Headline + Subheadline inputs + hint</td></tr>
+<tr><td>Body</td><td><code>flex:1</code>, bg <code>#EDF0F4</code></td><td>Left library <code>292px</code> · Center canvas <code>flex</code> · Right inspector <code>344px</code></td></tr>
+<tr><td>Bottom drawer bar</td><td>height <code>42px</code></td><td>Mapping (2/2) · Validation · Preview in a quote · (right) Preview-theme switcher · Expand</td></tr>
+</table>
+
+<h4>2.2 Center column internals</h4>
+<ul>
+<li>Canvas toolbar: height <code>46px</code> — breadcrumb (left) · undo/redo · viewport toggle · frame-hint toggle (right).</li>
+<li>Canvas surface: dot-grid background (<code>radial-gradient(#DCE1EA 1px, transparent 1px)</code>, <code>22px</code> pitch), scrollable, content centered.</li>
+<li>Unit column width <code>600px</code>; question card radius <code>16px</code>, padding <code>44px 46px 40px</code>, shadow <code>0 8px 28px rgba(20,32,54,.10)</code>, border <code>#E9EDF3</code>.</li>
+</ul>
+<h4>2.3 Responsive rule (locked)</h4>
+<p>The design exists at ≥1280px only: rails stay fixed (292 / 344), the center flexes, minimum center = 600px unit column + 48px gutters. <b>Below 1280 no design exists</b> — do not invent a collapsed layout; smaller viewports require a design addendum. This prevents improvised (deviating) responsive behavior.</p>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s3">
+<h2 class="sec">Section 3</h2><h2 class="title">Design tokens</h2>
+<p>These are the <b>only</b> values the admin UI may use. They are the literal constants from the golden master. Publish them as a single admin token module (constants, not a theme — the funnel <i>Themes</i> in §10 are a separate, data-driven concept).</p>
+
+<h4>3.1 Color</h4>
+<table>
+<tr><th>Token</th><th>Hex</th><th>Use</th></tr>
+<tr><td>ink</td><td><span class="swatch" style="background:#1A1F36"></span><code>#1A1F36</code></td><td>Primary text</td></tr>
+<tr><td>ink-strong</td><td><span class="swatch" style="background:#111726"></span><code>#111726</code></td><td>Section name, screen titles</td></tr>
+<tr><td>text-2</td><td><span class="swatch" style="background:#2A3346"></span><code>#2A3346</code> / <code>#41495B</code></td><td>Control labels, tile names</td></tr>
+<tr><td>muted</td><td><span class="swatch" style="background:#5A6470"></span><code>#5A6470</code> / <code>#6B7486</code></td><td>Secondary labels</td></tr>
+<tr><td>faint</td><td><span class="swatch" style="background:#8A93A3"></span><code>#8A93A3</code> / <code>#98A1B0</code> / <code>#9BA3B1</code></td><td>Meta, section eyebrows, placeholders</td></tr>
+<tr><td>line</td><td><span class="swatch" style="background:#E4E8EF"></span><code>#E4E8EF</code> / <code>#E1E6EE</code> / <code>#EEF1F6</code></td><td>Panel borders, dividers, control borders</td></tr>
+<tr><td>app-bg</td><td><span class="swatch" style="background:#EDF0F4"></span><code>#EDF0F4</code></td><td>Body gutter / canvas surface</td></tr>
+<tr><td>page</td><td><span class="swatch" style="background:#D9DEE6"></span><code>#D9DEE6</code></td><td>Behind the app frame</td></tr>
+<tr><td>navy (brand)</td><td><span class="swatch" style="background:#1B3A5C"></span><code>#1B3A5C</code></td><td>Primary buttons, selection outline, active pill/tab text, handles</td></tr>
+<tr><td>navy-hover</td><td><span class="swatch" style="background:#16324f"></span><code>#16324f</code></td><td>Primary hover</td></tr>
+<tr><td>navy-tint</td><td><span class="swatch" style="background:#EAF0F6"></span><code>#EAF0F6</code></td><td>Selected/active tints, breadcrumb chip</td></tr>
+<tr><td>accent</td><td><span class="swatch" style="background:#F5C518"></span><code>#F5C518</code></td><td>Suggested star, active inspector-tab underline (2px), affects-line star</td></tr>
+<tr><td>success</td><td><span class="swatch" style="background:#0E7C3A"></span><code>#0E7C3A</code> on <code>#E4F2E9</code>/<code>#E9F4EE</code></td><td>Active pill, mapping-complete, checks</td></tr>
+<tr><td>info-blue</td><td><span class="swatch" style="background:#2E6BB0"></span><code>#2E6BB0</code> on <code>#EAF1F8</code></td><td>Frame callouts, “from frame” notes</td></tr>
+<tr><td>warn</td><td><span class="swatch" style="background:#B8860B"></span><code>#B8860B</code>/<code>#8A6D00</code> on <code>#FDF4E3</code></td><td>Maps “pick a job” warning</td></tr>
+<tr><td>danger</td><td><span class="swatch" style="background:#B23A2C"></span><code>#B23A2C</code></td><td>Archive hover, “Hide” action</td></tr>
+</table>
+<div class="callout c-amber"><b>Yellow discipline.</b> <code>#F5C518</code> is the design-system signature accent (IMDb yellow) and appears <i>only</i> as: the Suggested star, the active inspector-tab underline, and the affects-line star. Primary actions are always navy. Do not expand accent usage.</div>
+<h4>3.1b Multi-hex disambiguation (which shade goes where — asserted)</h4>
+<table>
+<tr><th>Shade</th><th>Exact uses (from Artifact D)</th></tr>
+<tr><td><code>#5A6470</code></td><td>chrome icon strokes, top-bar chip text, drawer inactive tabs</td></tr>
+<tr><td><code>#6B7486</code></td><td>form-control labels, unselected segmented text</td></tr>
+<tr><td><code>#8A93A3</code></td><td>group eyebrows, inactive scope pills, inactive inspector tabs, dropdown chevrons</td></tr>
+<tr><td><code>#98A1B0</code></td><td>sub-copy under controls, Advanced chip text</td></tr>
+<tr><td><code>#9BA3B1</code></td><td>inspector section eyebrows only</td></tr>
+<tr><td><code>#E4E8EF</code></td><td>panel borders; top-bar/toolbar/drawer dividers</td></tr>
+<tr><td><code>#E1E6EE</code></td><td>input &amp; dropdown control borders</td></tr>
+<tr><td><code>#EEF1F6</code></td><td>inspector hairlines, inherited-row borders</td></tr>
+<tr><td><code>#E7EBF1</code></td><td>question-strip bottom border, Maps job-row &amp; Rules card borders</td></tr>
+</table>
+<p>When in doubt, the element's verbatim style string in Artifact D is the answer — never pick a “close” shade.</p>
+
+<h4>3.2 Type</h4>
+<table>
+<tr><th>Family</th><th>Where</th></tr>
+<tr><td><b>Inter</b> 400–800</td><td>All admin chrome, labels, controls, tile names</td></tr>
+<tr><td><b>Newsreader</b> (serif) 500–600</td><td>The <i>rendered funnel preview</i> headline on the canvas, the frame-hint logo, and the “Aa” Text-tile glyph only — never admin chrome</td></tr>
+<tr><td><b>Roboto Mono</b> 400–600</td><td>Advanced ids/tokens only (<code>zip</code>, <code>q_zip</code>, <code>cmp_zip1</code>, hex chips)</td></tr>
+</table>
+<p><b>Font licensing (locked):</b> Inter, Newsreader and Roboto Mono are OFL Google Fonts — no substitution permitted. Newsreader is the admin-preview serif; the runtime funnel's serif is theme-owned (§10.4) and defaults to Newsreader.</p>
+<p>Key sizes (px): section eyebrow 10.5–11 / 800 / uppercase / letter-spacing 1.1–1.4; control label 12 / 600; tile name 12.5 / 600; body meta 11.5–12; inspector title 15.5 / 800; canvas funnel headline 31 / Newsreader 600; Themes editor title 21 / 800.</p>
+
+<h4>3.3 Spacing &amp; radius</h4>
+<p>4px grid. Radii: controls/inputs <code>8px</code>; tiles/cards <code>9–10px</code>; question card <code>16px</code>; continue button <code>11px</code>; pills/chips <code>20px</code>; theme swatches <code>10px</code>; resize handles <code>3px</code>. Segmented controls: track <code>#EDF0F5</code>, <code>2px</code> pad, selected pill white + <code>0 1px 2px rgba(16,24,40,.1)</code>.</p>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s4">
+<h2 class="sec">Section 4</h2><h2 class="title">Top bar &amp; Question strip</h2>
+
+<h4>4.1 Top bar</h4>
+<table>
+<tr><th>Element</th><th>Spec</th><th>Writes</th></tr>
+<tr><td>← Sections</td><td>ghost button, back to list</td><td>—</td></tr>
+<tr><td>Section name</td><td>inline editable input, 17/700, underline-on-focus navy; eyebrow “SECTION” above</td><td><code>leadgen_sections.name</code></td></tr>
+<tr><td>Status pill</td><td>“Active” green pill (<code>#0E7C3A</code>/<code>#E4F2E9</code>) with 6px dot</td><td><code>leadgen_sections.status</code> (read)</td></tr>
+<tr><td>Mapping badge</td><td>“Mapping k / n complete”, green when k=n; check glyph</td><td>derived from answer maps (read)</td></tr>
+<tr><td>Issues chip</td><td>“No issues” neutral; becomes count when validation problems exist</td><td>derived (read)</td></tr>
+<tr><td>Save</td><td>navy solid button</td><td><code>PATCH /sections/:id</code></td></tr>
+<tr><td>Archive</td><td>ghost, danger on hover</td><td><code>status=archived</code></td></tr>
+</table>
+
+<h4>4.2 Question strip (canonical headline — the F1 fix)</h4>
+<ul>
+<li><b>Row 1:</b> eyebrow “The question” · Activity dropdown (<code>Insurance</code>) · Vertical dropdown (<code>Car</code>) · “On answer” segmented [<b>Wait for Continue</b> | Go to next] · Maps status chip “Google Maps: connected”.</li>
+<li><b>Row 2:</b> “Question headline” input (flex 1.5) + “Subheadline · optional” input (flex 1.2) + hint “Also shown on the canvas — edit in either place.”</li>
+</ul>
+<div class="callout c-navy"><b>One value, two views (binding).</b> The strip's Headline/Subheadline inputs and the canvas bound nodes are a single store: <code>leadgen_sections.headline_text</code> / <code>subheadline_text</code>. Typing in the strip live-updates the canvas; inline-editing the bound canvas node updates the strip. There is <b>no</b> second text field anywhere, and the palette contains <b>no</b> headline/subheadline tiles (§5.4). “On answer” writes <code>continue_mode</code> (<code>button</code> | <code>auto_advance</code>). The Maps status chip is <i>informational</i> — the real control is the field's Maps tab (§9); per-field config wins over the legacy global toggle.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s5">
+<h2 class="sec">Section 5</h2><h2 class="title">Component library (left rail, 292px)</h2>
+<p class="lede">Clean icon-tile grid: crisp component preview + short name only — no descriptions, no thumbnails-of-text, no id strings. Groups are intent-first and collapsible. This is the accepted answer to “the picker is an unreadable long list.”</p>
+
+<h4>5.1 Presentation (binding)</h4>
+<ul>
+<li>Header “Add to this question” (13/800) + search input “Search components” with leading magnifier.</li>
+<li>Tiles: 2-column grid, gap 8px; each tile = the <b>exact bespoke preview SVG copied verbatim from Artifact D</b> (46×30 viewBox, navy <code>#1B3A5C</code> strokes, <code>#EAF0F6</code> tint fills, <code>#9AA9BD</code>/<code>#C2CCDA</code> secondary strokes) centered over a name (12.5/600). Tile padding <code>13px 8px 10px</code>, border <code>#E4E8EF</code>, radius 9px; hover = border navy + bg <code>#F7F9FC</code> + shadow <code>0 2px 6px rgba(16,24,40,.07)</code>; cursor <code>grab</code>. <b>The 20 SVGs are design assets, never redrawn</b> — Appendix D indexes them.</li>
+<li>The one-line “use when…” description and “maps to Offer fields” badge are <b>removed from the palette entirely</b> — the golden master shows no tooltips and none may be added. Descriptions exist only in this contract and as search synonyms (§5.5); mapping status lives in the inspector. Tiles carry the exact <code>data-name</code> synonym strings of §5.5.</li>
+<li><b>Search</b> filters tiles by name (case-insensitive substring) across all groups.</li>
+<li>Group header = chevron (rotates 0→90° open) + uppercase label; click toggles. Default open: Suggested, Answer fields, Content. Default collapsed: Layout.</li>
+</ul>
+
+<h4>5.2 Groups &amp; tiles (exact order)</h4>
+<table>
+<tr><th>Group</th><th>Tiles (in order) → type</th></tr>
+<tr><td><b>Suggested</b> <span class="k">★ accent star</span></td><td>Short text · Buttons · Cards · Continue — a shortcut row with <b>identical insert semantics</b> to the same tiles below (§5.6); never a different catalog</td></tr>
+<tr><td><b>Answer fields</b> <span class="k">“how visitors answer”</span></td><td>Buttons · Cards · Yes / No · Dropdown · Multi-select · Short text · Number · Amount · Date · Slider · Contact · Address — exactly these 12, in this order; one deterministic insert per tile (§5.6)</td></tr>
+<tr><td><b>Content</b></td><td>Text→<code>TextBlock</code> (role-typed) · Image / Logo→<code>ImageBlock</code> (auto-logo option) · Divider→<code>Divider/Spacer</code></td></tr>
+<tr><td><b>Layout</b></td><td>Card→<code>CardPanel</code> · Columns→<code>Columns</code> · Grid→<code>GridContainer</code> · Spacer→<code>Spacer</code></td></tr>
+</table>
+<p>Below Layout: dismissible frame callout — “Header, footer, progress &amp; background belong to the whole funnel — set them once in the <b>Quote Builder</b>. Open →”.</p>
+
+<h4>5.3 The two structural changes vs today (accepted)</h4>
+<p><b>(a) Merge of “Answer choices” + “Inputs”.</b> The old top-level split is removed; every answer control lives in one <b>Answer fields</b> group ordered by frequency. The choice-vs-typed distinction survives only as inspector behavior, never as palette taxonomy.</p>
+<p><b>(b) Primitives replace one-off blocks.</b> <code>CategoryLabel</code>, <code>QuestionHeadline</code>, <code>Subheadline</code>, <code>HelperText</code>, <code>LegalNote</code>, <code>ReassuranceBadge</code>, <code>SecureFormBadge</code>, <code>SuccessState</code> collapse into a single <b>Text</b> primitive whose Style→“Role” selects the treatment (Heading / Body / Category label / Helper / Legal / Reassurance / Secure badge). <code>LogoStrip</code>/manual logo collapse into the <b>Image / Logo</b> primitive with an “Auto-fill: site logo” toggle. The Section palette therefore ships exactly the tiles in §5.2 — no others.</p>
+<table>
+<tr><th>Retired one-off type</th><th>Becomes</th></tr>
+<tr><td>CategoryLabel, HelperText</td><td>Text · Role = Category label / Helper</td></tr>
+<tr><td>LegalNote</td><td>Text · Role = Legal / fine print</td></tr>
+<tr><td>ReassuranceBadge, SecureFormBadge</td><td>Text · Role = Reassurance / Secure badge (optional leading icon)</td></tr>
+<tr><td>HeaderLogo / LogoStrip (in-unit)</td><td>Image / Logo · Source = Auto site logo</td></tr>
+<tr><td>SuccessState</td><td>Not a palette tile — a section-level completion state (Quote Builder / success view), out of the unit palette</td></tr>
+</table>
+<div class="callout c-navy"><b>Migration.</b> Existing sections that contain a retired one-off node render byte-identically until edited; on load they map to the equivalent primitive + role (the renderer keeps the old preset). Save rewrites the node to the primitive form. No content is lost; no runtime output changes.</div>
+
+<h4>5.4 No disabled tiles (accepted)</h4>
+<p>The palette never shows a disabled/greyed tile. Headline &amp; Subheadline are not palette items — they are seeded bound nodes edited in the Question strip (§4.2) and inline on canvas. If a bound node is hidden, a “Show headline” chip appears next to the strip input to re-insert it; the palette is unaffected.</p>
+
+<h4>5.5 Search synonyms (exact <code>data-name</code> strings — asserted)</h4>
+<p>Search filters on case-insensitive substring of these verbatim strings (they are the golden master's <code>data-name</code> values): Short text → <code>short text</code> · Buttons → <code>buttons</code> · Cards → <code>cards</code> · Continue → <code>continue button</code> · Yes / No → <code>yes no</code> · Dropdown → <code>dropdown</code> · Multi-select → <code>multi-select</code> · Number → <code>number</code> · Amount → <code>amount money</code> · Date → <code>date</code> · Slider → <code>slider scale</code> · Contact → <code>contact name email phone</code> · Address → <code>address zip location</code> · Text → <code>text legal note reassurance disclosure</code> · Image / Logo → <code>image logo picture</code> · Divider → <code>divider line</code> · Card → <code>card panel</code> · Columns → <code>columns</code> · Grid → <code>grid</code> · Spacer → <code>spacer gap</code>. So typing “legal” finds Text; “zip” finds Address; “email” finds Contact.</p>
+
+<h4>5.6 Insert semantics — one deterministic action per tile (closes the v3.0 ambiguity)</h4>
+<table>
+<tr><th>Tile</th><th>Insert (exact)</th><th>Concrete type(s)</th></tr>
+<tr><td>Short text</td><td>one text-input control, Accept = Any text</td><td><code>FreeTextQuestion</code></td></tr>
+<tr><td>Number</td><td>same control, Accept = Number</td><td><code>NumberInputQuestion</code></td></tr>
+<tr><td>Amount</td><td>same control, Accept = Amount ($)</td><td><code>CurrencyInputQuestion</code></td></tr>
+<tr><td>Date</td><td>same control, Accept = Date</td><td><code>DateQuestion</code></td></tr>
+<tr><td>Address</td><td>same control, Accept = Street address (Places)</td><td><code>AddressAutocompleteQuestion</code></td></tr>
+<tr><td>Buttons</td><td>answer button group, 2 starter choices</td><td><code>ButtonAnswerGroup</code></td></tr>
+<tr><td>Yes / No</td><td>boolean pair, labels Yes/No</td><td><code>TwoButtonYesNo</code></td></tr>
+<tr><td>Cards</td><td>card grid, Card style = Icon (Content tab setting “Card style: Icon / Image / Plain” swaps type)</td><td><code>IconCardAnswerGrid</code> ⇄ <code>ImageCardAnswerGrid</code> ⇄ <code>ButtonAnswerGroup</code></td></tr>
+<tr><td>Multi-select</td><td>multi-choice card group</td><td><code>MultiChoiceCardGroup</code></td></tr>
+<tr><td>Dropdown</td><td>dropdown; “Searchable” toggle swaps type</td><td><code>DropdownQuestion</code> ⇄ <code>SearchableDropdownQuestion</code></td></tr>
+<tr><td>Slider</td><td>range; Format $ swaps to currency range</td><td><code>NumberRangeQuestion</code> ⇄ <code>CurrencyRangeQuestion</code></td></tr>
+<tr><td>Contact</td><td>a Stack of three nodes (each individually editable/deletable)</td><td><code>NameFieldsGroup</code> + <code>EmailInputQuestion</code> + <code>PhoneInputQuestion</code></td></tr>
+<tr><td>Text / Image / Divider / Card / Columns / Grid / Spacer / Continue</td><td>one node each</td><td><code>TextBlock</code> · <code>ImageBlock</code> · <code>Spacer(line)</code> · <code>CardPanel</code> · <code>Columns</code> · <code>GridContainer</code> · <code>Spacer</code> · <code>ContinueButton</code></td></tr>
+</table>
+<div class="callout c-navy"><b>The Accept-swap rule (binding).</b> All text-input tiles insert ONE control whose <b>Accept</b> dropdown selects the concrete stored type, preserving shared props on swap: Any text→<code>FreeTextQuestion</code> · Number→<code>NumberInputQuestion</code> · Amount ($)→<code>CurrencyInputQuestion</code> · Email→<code>EmailInputQuestion</code> · Phone→<code>PhoneInputQuestion</code> · ZIP code (5 digits)→<code>ZIPInputQuestion</code> · Date→<code>DateQuestion</code> · Street address→<code>AddressAutocompleteQuestion</code>. The inspector name is always “Short text field”. This is why the fixture's field is a <code>ZIPInputQuestion</code> yet was inserted as “Short text”.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s6">
+<h2 class="sec">Section 6</h2><h2 class="title">Canvas &amp; context toolbar</h2>
+
+<h4>6.1 Toolbar (46px)</h4>
+<table>
+<tr><th>Cluster</th><th>Spec</th></tr>
+<tr><td>Breadcrumb</td><td>“This section › <i>selection</i>”; the selection crumb is a navy chip on <code>#EAF0F6</code> and reads exactly: <code>Short text</code> (field) / <code>Question</code> (headline) / <code>Continue</code> (button)</td></tr>
+<tr><td>Undo / Redo</td><td>in-memory history ≥30 steps, ⌘Z / ⇧⌘Z, cleared on Save (per v2.5.1 §6.1)</td></tr>
+<tr><td>Viewport</td><td>segmented [Desktop | Mobile] — server-rendered via existing <code>viewport</code> preview param, never CSS-scaled</td></tr>
+<tr><td>Frame hint</td><td>toggle (default ON); draws a dimmed, non-interactive frame skeleton (§6.3)</td></tr>
+</table>
+
+<h4>6.2 Selection &amp; direct manipulation (accepted)</h4>
+<ul>
+<li>Click any node → selection: 2px navy outline (inset −6px), a name tag at top-left (“Short text field” / “Question · shared with header” / “Continue button · <span class="k">from frame</span>”), and resize handles.</li>
+<li>Default selection on open = the ZIP field.</li>
+<li><b>Eight handles</b> (4 corners + 4 edge midpoints), 11×11px, radius 3, white with 2px navy border. The two <b>side-midpoint</b> handles are <b>filled navy</b> and interactive (cursor <code>ew-resize</code>) — dragging them resizes width (§7); corner/vertical handles are presentation for this field type. Exact geometry (Artifact D): handle offsets <code>left/right −11px</code>; rows at <code>top −11 / +19 / +49</code>; selection outline <code>inset −6px, 2px #1B3A5C, radius 12</code>; name tag at <code>top −30, left −6, radius 6 6 6 0</code>; custom badge at <code>top −30, right −6, radius 6 6 0 6</code>.</li>
+<li>Inline text editing on double-click for bound headline/subheadline/labels/helper (writes the bound column or node props). Per-choice selection selects the choice, not the component.</li>
+<li>Selecting a node retargets the inspector and resets its active tab to <b>Content</b>.</li>
+</ul>
+
+<h4>6.3 Frame hint (scope communication)</h4>
+<p>When ON, a dimmed (opacity .5), non-interactive skeleton renders above the unit (a centered “brand·logo” in Newsreader + a progress bar) and below it (advertising disclosure / legal footer text), each tagged “Funnel frame”. It is presentation-only — never editable here; it exists to make the unit-vs-frame boundary visible. The unit card itself is the only editable surface in Build mode.</p>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s7">
+<h2 class="sec">Section 7 · <span class="pill pill-c1">Concern 1 — resolved</span></h2><h2 class="title">Sizing model: presets vs manual custom</h2>
+<p class="lede">Presets are the funnel's shared size <i>language</i>; a manual drag is an explicit, deliberate one-off that <b>overrides</b> the preset for that one field. This is the accepted resolution of the preset-vs-manual conflict.</p>
+
+<h4>7.1 The rule (normative state machine)</h4>
+<ol>
+<li>A field's Width and Height each resolve in priority order: <b>node override → funnel theme default → design default</b>. With no override, the field inherits the theme's <b>Field height</b> / width defaults (§10.4).</li>
+<li>The Style tab exposes Width as segmented <b>[S · M · L · Full]</b> and Height as <b>[Small · Medium · Large]</b>. Selecting a preset writes that preset name to the node and clears any custom value.</li>
+<li><b>Dragging a side handle on the canvas</b> sets the width to a numeric <b>Custom</b> value and overrides the preset. On entering Custom: all preset segments deselect; a highlighted “Custom · ≈ <i>N</i> px” chip appears in the Style tab with a <b>Reset</b> control; a live “≈ <i>N</i> px · custom” badge appears at the field's top-right on the canvas; the field renders at the custom width. <b>Measurement formula (binding):</b> stored value = the drag's measured content-box width in px, snapped to a 4px grid, clamped to <code>[200, 600]</code>; the badge and chip render “≈ {value} px”. The golden master hardcodes the demo value 384 (= 64% of the 600 column) because it fakes the drag — the real UI measures and shows the true value in the identical format (§0 fidelity-vs-function rule).</li>
+<li><b>Reset</b> removes the custom value → the field re-inherits the theme preset (demo resets to <code>Full</code>). Reset is the only way back to the shared language; presets and custom are mutually exclusive per axis.</li>
+</ol>
+
+<h4>7.2 Storage (binding)</h4>
+<div class="mono-block"><span class="cm">// component node in leadgen_sections.content_json → node.design_overrides</span>
+{
+  <span class="st">"size"</span>: {
+    <span class="st">"width"</span>:  <span class="kw">"full"</span> | <span class="kw">"s"</span> | <span class="kw">"m"</span> | <span class="kw">"l"</span> | { <span class="st">"custom_px"</span>: 384 },
+    <span class="st">"height"</span>: <span class="kw">"medium"</span> | <span class="kw">"small"</span> | <span class="kw">"large"</span> | { <span class="st">"custom_px"</span>: 56 }
+  }
+}
+<span class="cm">// absent key  = inherit theme default (the shared language)</span>
+<span class="cm">// string      = named preset (still inherits the preset's resolved px from the theme)</span>
+<span class="cm">// {custom_px} = manual override; wins over preset AND theme; Reset deletes the key</span></div>
+<p>Custom px is clamped to the unit column and snapped to a 4px grid. No raw CSS is ever written; the renderer maps preset names to the theme's resolved sizes and <code>custom_px</code> to an explicit width, so runtime and both preview paths stay byte-identical (§12).</p>
+
+<h4>7.3 Copy (asserted)</h4>
+<ul>
+<li>Style note: “Presets keep every question in the funnel consistent. Drag a handle on the canvas for a one-off size — it becomes <b>Custom</b> and overrides the preset here.”</li>
+<li>Custom chip: “Custom · ≈ 384 px” + sub “Set by dragging on the canvas — overrides the preset” + “Reset”.</li>
+<li>Style header right meta: “from theme: Navy”.</li>
+</ul>
+<div class="callout c-navy"><b>Open decision carried into build.</b> v3.0 ships <b>width</b> as the manually-resizable axis (side handles); height is preset-only unless the product owner opts height into custom (top/bottom handles) — the storage shape above already supports it, so enabling height is a UI-only change, no schema impact.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s8">
+<h2 class="sec">Section 8</h2><h2 class="title">Scope-aware inspector (right rail, 344px)</h2>
+<p class="lede">Rich like a pro builder, but non-technical: it always says what you're editing, what it affects, offers real controls, shows inherited values honestly, and hides ids/JSON under Advanced.</p>
+
+<h4>8.1 Scope header (always first)</h4>
+<ul>
+<li>Eyebrow “Editing” → an icon + <b>selection name</b> (operator words) + a one-line “what it is”.</li>
+<li>Scope pills: <b>Funnel frame</b> (ghost, deep-links to Quote Builder, carries ↗) · <b>This section</b> (ghost) · <b>This element</b> (active navy) · (Choice pill appears only when a choice is selected).</li>
+<li>Affects line on <code>#FBFBF3</code>/<code>#F0EAC9</code> with the accent star — the blast-radius sentence.</li>
+</ul>
+<table>
+<tr><th>Selection</th><th>Name</th><th>“what it is”</th><th>Affects line (asserted)</th></tr>
+<tr><td>ZIP field</td><td>Short text field</td><td>Collects the visitor's ZIP</td><td>“Changes here affect <b>this question only</b>, everywhere this section is reused.”</td></tr>
+<tr><td>Headline</td><td>Question headline</td><td>The main ask of this question</td><td>“This is the same text as the <b>Question headline</b> box up top — editing either updates both.”</td></tr>
+<tr><td>Continue</td><td>Continue button</td><td>Moves to the next question</td><td>“Color, size &amp; position come from the <b>funnel frame</b>. Here you can override just the label.”</td></tr>
+</table>
+
+<h4>8.2 Dynamic tabs (never a fixed strip)</h4>
+<table>
+<tr><th>Selection</th><th>Tabs shown (in order)</th></tr>
+<tr><td>Answer/input field</td><td><b>Content · Style · Rules · Maps* · Offers</b> <span class="k">*Maps only for ZIP/Address types</span></td></tr>
+<tr><td>Bound headline / subheadline / Text</td><td><b>Content · Style</b></td></tr>
+<tr><td>Continue button</td><td><b>Content · Style</b></td></tr>
+</table>
+<p>Active tab = navy text + 2px accent underline. An “Advanced” disclosure sits at the bottom of every selection, collapsed by default.</p>
+
+<h4>8.3 Content tab — field (exact controls &amp; storage)</h4>
+<table>
+<tr><th>Group</th><th>Control</th><th>Demo value</th><th>Writes</th></tr>
+<tr><td rowspan="4">Basics</td><td>Field label (“only you see this”)</td><td>ZIP code</td><td><code>node.props.label</code></td></tr>
+<tr><td>Placeholder</td><td>Enter your ZIP code</td><td><code>node.props.placeholder</code></td></tr>
+<tr><td>Helper text</td><td>We never share this</td><td><code>node.props.helper</code></td></tr>
+<tr><td>Leading icon (picker)</td><td>Location pin</td><td><code>node.props.icon</code></td></tr>
+<tr><td rowspan="2">Behavior</td><td>Required toggle + “Visitors must answer before they can continue.”</td><td>on</td><td><code>node.props.required</code></td></tr>
+<tr><td>When answered [Wait for Continue | Go to next]</td><td>Wait</td><td>reflects <code>continue_mode</code></td></tr>
+<tr><td rowspan="2">Answer format</td><td>Accept (dropdown)</td><td>ZIP code (5 digits)</td><td><code>node.props.format</code></td></tr>
+<tr><td>“If it's wrong, say” (error override)</td><td>Please enter a valid ZIP code</td><td><code>node.props.error_text</code></td></tr>
+<tr><td>Connect to Offers</td><td>green card “This answer fills <b>Zip</b> on all 2 Offers.” + Review mapping →</td><td>read</td><td>from answer maps</td></tr>
+</table>
+
+<h4>8.4 Content tab — headline &amp; continue (accepted copy)</h4>
+<ul>
+<li><b>Headline:</b> Headline + Subheadline inputs (the shared store) + info “Same text as the header box above — one source, two places to edit.” + a danger-tinted “Hide in this question” with sub “The text is kept — you can show it again anytime.”</li>
+<li><b>Continue:</b> blue callout “The button's look &amp; position are set once for the whole funnel. Open Quote Builder →” + editable “Button label” (writes <code>node.props.label</code>) + an “Inherited from the frame” group listing <b>Color = Brand primary</b> and <b>Position = Bottom, full width</b>, each with an <span class="k">inherited</span> tag.</li>
+</ul>
+
+<h4>8.5 Style tab (any visual selection)</h4>
+<p>Width/Height per §7; Appearance → Corners [Sharp | Rounded | Pill]; Border color as role swatches [Neutral | Brand | Accent] — <b>no hex anywhere on this tab</b>; theme note “Colors are theme roles, not fixed shades — change the theme once and every question updates. Manage theme →” (opens the Themes manager, §10). Writes <code>node.design_overrides</code> as role names / preset enums only.</p>
+
+<h4>8.5b Style tab contents per selection (closes the v3.0 gap)</h4>
+<table>
+<tr><th>Selection</th><th>Style tab shows (exactly)</th></tr>
+<tr><td>Answer/input field</td><td>Width [S·M·L·Full] + Custom/Reset · Height [Small·Medium·Large] · Corners [Sharp·Rounded·Pill] · Border color roles [Neutral·Brand·Accent] · theme note</td></tr>
+<tr><td>Text / bound headline</td><td>Role [Heading · Body · Category label · Helper · Legal · Reassurance · Secure badge] · Size step [S·M·L within role] · Align [Left·Center·Right] · Text color role [Text·Brand·Muted] — <b>no</b> width/corners/border controls</td></tr>
+<tr><td>Continue button</td><td>Read-only inherited list only (Color · Position · Size, each tagged <span class="k">inherited</span>) — <b>no editable visual controls</b>; the frame owns them</td></tr>
+</table>
+<p><b>Enumerations (exact, asserted):</b> Leading-icon picker = Location pin · Calendar · Dollar · Phone · Email · Lock · Person · Home · Car · Shield · Star · None (12). Accept options = Any text · Number · Amount ($) · Email · Phone · ZIP code (5 digits) · Date · Street address (8; selecting swaps the node type per §5.6). No other options may appear.</p>
+
+<h4>8.6 Rules tab (field)</h4>
+<p>Visual IF/THEN. Default row “Always show” (green dot). “Add a condition” builds sentence-rendered rows, e.g. “Show this when <span class="k">Currently insured</span> is <span class="k">Yes</span>”. No JSON. Uses the existing dependency evaluator over this section's internal fields.</p>
+
+<h4>8.7 Offers tab (field)</h4>
+<p>Per-Offer destination rows — Provider A → <code>Zip</code> (✓), Provider B → <code>PostalCode</code> (✓) — plus “Open full mapping →”. There is <b>no universal provider value</b>; values are per Offer (v2.5.1 C1). Writes <code>leadgen_section_answer_maps</code>.</p>
+
+<h4>8.8 Advanced (collapsed, per selection)</h4>
+<p>Read-mostly, mono chips: Internal field <code>zip</code>, Analytics label <code>q_zip</code>, Component id <code>cmp_zip1</code>; opening emits the console-only <code>section_advanced_opened</code> event. Renaming the internal field carries the mapping-impact warning. This is the <b>only</b> place ids/JSON/hex appear.</p>
+
+<div class="callout c-navy"><b>Language rules (asserted).</b> On all normal surfaces the UI must never render: raw type names, column names, token keys, hex strings, id prefixes, or the word “JSON”; in the Section Builder the word “slide” is also forbidden (say “section”/“question unit”). Every destructive/wide-effect control states its consequence inline. Inherited values render as real values + an <span class="k">inherited</span> tag + source, with a Reset affordance once overridden.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s9">
+<h2 class="sec">Section 9 · <span class="pill pill-c3">Concern 3 — resolved</span></h2><h2 class="title">Google Maps validation (field Maps tab)</h2>
+<p class="lede">A Maps toggle that, when on, <b>requires</b> the operator to declare what Maps is for. Turning it on with no job selected is surfaced as an amber warning and does nothing at runtime.</p>
+
+<h4>9.1 UI (exact)</h4>
+<ul>
+<li>Header “Google Maps”. Toggle “Validate with Google Maps” (demo: ON) + sub “Uses this site's Maps key. Per-field settings win over the funnel's global toggle.”</li>
+<li>When on: “What should Maps do? · pick at least one”, then three checkbox rows (multi-select, whole row clickable, navy check-box when on):
+<table>
+<tr><th>Job</th><th>Sub-copy (asserted)</th><th>Runtime effect</th></tr>
+<tr><td>Validate the answer</td><td>“Allow only valid US ZIP codes. An invalid ZIP blocks the Continue button.”</td><td>Client + server validation leg; invalid ⇒ Continue disabled, error_text shown</td></tr>
+<tr><td>Use in auction rules</td><td>“Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. Open auction rules →”</td><td><span class="pill pill-c2">PROPOSED</span> Emits a resolved location facet (state/city/ZIP) consumable by <b>auction answer rules</b> — no change to the auction engine, only a new available facet. <b>Prerequisite:</b> the facet plumbing does not exist yet; UI ships per design, the facet lands behind it, and the “Open auction rules →” link targets the existing rules screen.</td></tr>
+<tr><td>Auto-complete the address</td><td>“Fill this field and the other address fields in this section (city, state, street) from the ZIP.”</td><td>Places autocomplete fills this + sibling address fields in the unit</td></tr>
+</table></li>
+<li>If on and zero jobs selected: amber banner “Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime.”</li>
+</ul>
+
+<h4>9.2 Storage &amp; enforcement (binding)</h4>
+<div class="mono-block"><span class="cm">// on Address/ZIP node.props</span>
+<span class="st">"maps"</span>: {
+  <span class="st">"enabled"</span>: <span class="kw">true</span>,
+  <span class="st">"jobs"</span>: { <span class="st">"validate"</span>: <span class="kw">true</span>, <span class="st">"auction"</span>: <span class="kw">false</span>, <span class="st">"autocomplete"</span>: <span class="kw">false</span> }
+}</div>
+<h4>9.3 Enforcement &amp; key handling</h4>
+<ul>
+<li>Save with <code>maps.enabled</code> and zero jobs → <code>problems[]</code> warning <code>maps_no_job</code> (path-precise); the builder shows the amber banner. Activation preflight escalates it to a <b>blocking error</b> (same pattern as <code>frame_scope_component</code>, v2.5.1 C2).</li>
+<li>The <b>Validate</b> job wins over the legacy global toggle — the existing <code>leadgen_sections.address_validation_enabled</code> column (verified: <code>sections-handlers.ts:154, 819–822</code>; save-body field list in <code>ui-section-studio.ts:37</code>) — wherever both are present (per-field precedence, v2.5.1 §12.8). The strip chip (§4.2) reports key status only and never toggles.</li>
+<li>Maps key is the wrangler secret <code>GOOGLE_MAPS_BROWSER_KEY</code> (operator-owned browser key) — never embedded in cached HTML. Absent key ⇒ validate/autocomplete legs no-op; the auction facet still derives server-side.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s10">
+<h2 class="sec">Section 10 · <span class="pill pill-c2">Concern 2 — resolved</span></h2><h2 class="title">Themes &amp; the Themes manager</h2>
+<p class="lede">A theme is a reusable, named look &amp; feel owned at the funnel level and <b>A/B-testable within one quote</b>. The Section Builder previews a (reused) section under any theme; a full Themes manager is where themes are defined — including the shared size language that §7's presets read.</p>
+<div class="callout c-amber"><b>LOCKED vs PROPOSED in this section.</b> Everything visible — layout, copy, the three fixture themes, roles, typography, size language, A/B panel — is design-locked. The <b>storage model</b> (KV theme records, <code>theme_id</code> references) is <span class="pill pill-c2">PROPOSED</span>: it is the contract's implementation choice, validated as additive against the repo, but it was never rendered in the approved design. Changing it needs a contract amendment, not a design one.</div>
+
+<h4>10.1 Model (additive — no new table)</h4>
+<ul>
+<li>Themes are reusable records in a KV namespace <code>lg-funnel-themes</code> (admin-scoped, same pattern as the v2.5.1 §6.6 component-presets KV). Each record: <code>{ id, name, roles, typography, controls, spacing }</code>.</li>
+<li>A <b>funnel</b> sets its default theme via <code>leadgen_funnels.theme_json = { theme_id }</code>. A <b>funnel variant</b> overrides it for A/B via <code>leadgen_funnel_variants.frame_overrides_json.theme_id</code>. Two variants of one funnel with different <code>theme_id</code>s = an A/B theme test in a single quote.</li>
+<li>“Used by” is computed by scanning funnels/variants for the <code>theme_id</code> — no back-reference stored.</li>
+<li>Both <code>theme_json</code> and <code>frame_overrides_json</code> are the additive columns from migration <code>0041</code> (§11). <code>NULL</code> ⇒ legacy default look; zero backfill.</li>
+</ul>
+
+<h4>10.2 Entry points &amp; shell</h4>
+<p>Opened from the Style tab “Manage theme →” and the bottom-drawer “Preview theme: <b>Navy</b>” switcher. The manager is a full-screen overlay matching the editor frame (<code>1440×944</code>), with a “← Back to section” top bar, title “Themes · one look &amp; feel per funnel · A/B-testable in a quote”, and a navy “New theme” button.</p>
+
+<h4>10.3 Three-column layout</h4>
+<ul>
+<li><b>Left (300px) — theme list:</b> cards for <code>Navy</code> (badge “LIVE · A”), <code>Bold Yellow</code> (“A/B · B”), <code>Minimal</code> (“DRAFT”), each showing a 4-swatch strip; selected card = 2px navy border. Footer note “<b>A/B testing:</b> assign different themes to two variants of the same funnel to see which converts better.”</li>
+<li><b>Center — editor</b> (§10.4).</li>
+<li><b>Right (320px) — A/B assignment</b> (§10.5).</li>
+</ul>
+
+<h4>10.4 Editor sections (exact)</h4>
+<table>
+<tr><th>Section</th><th>Controls</th><th>Writes (theme record)</th></tr>
+<tr><td>Colors — semantic roles</td><td>Brand primary · Accent · Page background · Card · Text · Success — labelled swatches, <b>no hex</b></td><td><code>roles.*</code></td></tr>
+<tr><td>Typography</td><td>Headline font (Newsreader) · Body font (Inter)</td><td><code>typography.headline_font</code> / <code>body_font</code></td></tr>
+<tr><td><b>Buttons &amp; inputs — the shared size language</b></td><td>Field height [Small · <b>Medium</b> · Large] · Button size [S · <b>M</b> · L] · Corners [Sharp · <b>Rounded</b> · Pill]</td><td><code>controls.field_height</code> / <code>button_size</code> / <code>corners</code></td></tr>
+<tr><td>Spacing <span class="pill pill-c2">PROPOSED</span></td><td>density [Compact · Cozy · Roomy] — <b>not present in the golden master</b>; do NOT render without a design addendum (storage key reserved)</td><td><code>spacing</code></td></tr>
+<tr><td>Advanced — exact hex &amp; tokens</td><td>collapsed; mono chips e.g. <code>brand #1B3A5C</code></td><td>raw <code>roles.*</code> hex</td></tr>
+</table>
+<p>Role note (asserted): “Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.” Size-language note (asserted): “Every question inherits these. A section can override a single field on its canvas — that field then shows as <b>Custom</b>.” This is the single source of the §7 presets: a field with no <code>size</code> override resolves to <code>controls.field_height</code>; a manual drag writes <code>custom_px</code> that overrides it.</p>
+<div class="mono-block">// KV lg-funnel-themes → one record per theme
+{
+  "id": "thm_navy", "name": "Navy",
+  "roles": { "brand_primary":"#1B3A5C","accent":"#F5C518","page_bg":"#F4F6F9",
+             "card":"#FFFFFF","text":"#1A1F36","success":"#0E7C3A","error":"#B23A2C" },
+  "typography": { "headline_font":"Newsreader","body_font":"Inter","base_px":16 },
+  "controls":   { "field_height":"medium","button_size":"m","corners":"rounded" },
+  "spacing": "cozy"
+}
+// leadgen_funnels.theme_json           -> { "theme_id":"thm_navy" }   (funnel default)
+// funnel_variants.frame_overrides_json -> { "theme_id":"thm_bold" }   (A/B override)</div>
+
+<h4>10.5 A/B assignment panel (asserted)</h4>
+<p>“IN THIS QUOTE / Auto Insurance”, then “A/B test · Theme”: Variant A → Navy <b>60%</b>, Variant B → Bold Yellow <b>40%</b>, with a proportional traffic bar; note “Both variants share the same questions — only the theme differs. Promote the winner to 100% from the quote's A/B tab.” Then “Other funnels using this theme → Home Insurance · Variant A”.</p>
+<p><b>Fixture-value rule:</b> 60% / 40%, “Auto Insurance”, “Home Insurance · Variant A” and “No others yet.” are <b>fixture data</b>, not hardcodes — the panel renders live variant splits and computed usage; the strings assert only under the §1.2 fixture.</p>
+
+<h4>10.6 Preview switcher (section reuse)</h4>
+<p>Because a section is reused across funnels/themes, the Section Builder's “Preview theme” switcher re-renders the unit under any theme via the composition preview (§12) with the chosen <code>theme_id</code>; default <code>Navy</code>. The section stores no theme — it always inherits whichever theme renders it.</p>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s11">
+<h2 class="sec">Section 11</h2><h2 class="title">Data model &amp; storage mapping</h2>
+<p>Every control's destination, in one place. If a control is not here, it does not persist; if a field is not here, no control writes it.</p>
+
+<h4>11.0 Validated against repo source (v3.1 — line-cited)</h4>
+<table>
+<tr><th>Claim</th><th>Evidence</th><th>Verdict</th></tr>
+<tr><td>Node shape <code>{type, question_id, internal_field?, props?, choices?, choiceDisplay?}</code></td><td><code>ui-section-studio.ts:199–242</code> (STUDIO_SAMPLE_NODES)</td><td>Confirmed — §11.3 uses it verbatim</td></tr>
+<tr><td><code>node.design_overrides</code> exists at node level</td><td><code>ui-section-studio.ts:2028, 2106–2110</code></td><td>Confirmed — <code>size</code> is a new key inside an existing object</td></tr>
+<tr><td>Choice fields <code>label,value,analytics_id,icon,imageMediaId,description</code></td><td><code>ui-section-studio.ts:192–197, 2525</code></td><td>Confirmed — D8 additions are additive</td></tr>
+<tr><td>Save body incl. <code>address_validation_enabled</code>, <code>content_json</code>, <code>design_overrides_json</code></td><td><code>ui-section-studio.ts:37</code>; <code>sections-handlers.ts:739, 819–822, 880–884</code></td><td>Confirmed — §9 names the legacy column correctly</td></tr>
+<tr><td>Existing props reused: <code>placeholder</code> (ZIP:233), <code>label/loadingLabel</code> (Continue:235), <code>columns</code> (grids:214–215)</td><td>same file</td><td>Confirmed — new props (<code>helper, icon, format, error_text, maps, role, source</code>) are marked NEW in §11.3</td></tr>
+<tr><td><code>leadgen_funnels</code> JSON columns for theme/frame</td><td>absent from schema (v2.5.1 §01 evidence)</td><td>Requires migration 0041 — <span class="pill pill-c2">PROPOSED</span>, additive</td></tr>
+</table>
+
+<h4>11.1 Additive migration 0041 (from v2.5.1 D2 — unchanged)</h4>
+<table>
+<tr><th>Table</th><th>Added column</th><th>Holds</th></tr>
+<tr><td><code>leadgen_funnels</code></td><td><code>frame_config_json</code></td><td>page-frame regions (Quote Builder)</td></tr>
+<tr><td><code>leadgen_funnels</code></td><td><code>theme_json</code></td><td><code>{ theme_id }</code> — funnel default theme</td></tr>
+<tr><td><code>leadgen_funnel_variants</code></td><td><code>frame_overrides_json</code></td><td>A/B frame + <code>theme_id</code> overrides</td></tr>
+</table>
+<p>No other schema change. <code>leadgen_sections</code> keeps <code>name, status, headline_text, subheadline_text, content_json, design_overrides_json, continue_mode</code>.</p>
+
+<h4>11.2 KV namespaces (additive, no migration)</h4>
+<ul><li><code>lg-funnel-themes</code> — theme library (§10.4).</li><li><code>lg-component-presets</code> — existing named component presets (v2.5.1 §6.6).</li></ul>
+
+<h4>11.3 Content node shape (in <code>content_json</code>)</h4>
+<div class="mono-block">{
+  "type": "ZIPInputQuestion",            // concrete type selected by Accept (§5.6)
+  "question_id": "q_zip",                // node-level (source: STUDIO_SAMPLE_NODES)
+  "internal_field": "zip",               // node-level — NOT inside props
+  "bind": "section_headline",            // only on bound headline/subheadline nodes
+  "props": {
+    "placeholder": "Enter your ZIP code",             // existing prop (source :233)
+    "label": "ZIP code",                               // NEW (additive)
+    "helper": "We never share this",                   // NEW
+    "icon": "location",                                // NEW (§8.5b picker enum)
+    "required": true,                                  // NEW
+    "format": "us_zip",                                // NEW (Accept enum, §5.6)
+    "error_text": "Please enter a valid ZIP code",     // NEW
+    "role": "heading",                                 // TextBlock only — NEW
+    "source": "auto_logo",                             // ImageBlock only — NEW
+    "maps": { "enabled": true, "jobs": { "validate": true, "auction": false, "autocomplete": false } }  // NEW (§9)
+  },
+  "design_overrides": {                                // existing node object (source :2028/:2106)
+    "size": { "width": "full", "height": "medium" },   // NEW key · string=preset · {"custom_px":384}=manual · absent=inherit theme
+    "border_color": "neutral", "corners": "rounded"    // role/enum names only — never hex
+  }
+}</div>
+
+<h4>11.4 Choice schema extension (v2.5.1 D8 — additive)</h4>
+<p><code>LeadgenChoice</code> gains optional <code>title, subtitle, badge, emoji, image_alt, disabled, aria_label</code>. Validator: <code>image_alt</code> required when a choice image is set; <code>emoji</code> and <code>icon</code> mutually exclusive.</p>
+
+<h4>11.5 Consolidated control → storage</h4>
+<table>
+<tr><th>UI control</th><th>Storage</th></tr>
+<tr><td>Section name / status</td><td><code>leadgen_sections.name</code> / <code>.status</code></td></tr>
+<tr><td>Headline / Subheadline (strip &amp; bound nodes)</td><td><code>headline_text</code> / <code>subheadline_text</code> (single store)</td></tr>
+<tr><td>On answer segmented</td><td><code>continue_mode</code></td></tr>
+<tr><td>Field Content controls</td><td><code>content_json</code> node <code>props.*</code></td></tr>
+<tr><td>Width/Height presets &amp; custom (§7)</td><td>node <code>design_overrides.size</code></td></tr>
+<tr><td>Style corners / border color roles</td><td>node <code>design_overrides</code> (enum/role)</td></tr>
+<tr><td>Maps toggle + jobs (§9)</td><td>node <code>props.maps</code></td></tr>
+<tr><td>Rules (IF/THEN)</td><td>existing dependency store</td></tr>
+<tr><td>Offers mapping</td><td><code>leadgen_section_answer_maps</code> (per Offer)</td></tr>
+<tr><td>Theme roles / typography / size language / spacing</td><td><code>lg-funnel-themes</code> record</td></tr>
+<tr><td>Funnel default theme / variant A-B theme</td><td><code>theme_json</code> / <code>frame_overrides_json.theme_id</code></td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s12">
+<h2 class="sec">Section 12</h2><h2 class="title">Runtime composition parity</h2>
+<p>The build reuses the one composition path (v2.5.1 §13): a visitor sees <code>QuoteFrame(siteBranding, theme, frameConfig &oplus; variantOverrides, progressState) &compose; SectionQuestionUnit(currentSection)</code>. The same renderer serves runtime, the Quote preview, and the Section-in-frame preview — byte-identically.</p>
+<ul>
+<li>The Section preview endpoint (<code>POST /sections/preview</code>) gains a <code>theme_id</code> param feeding the “Preview theme” switcher (§10.6); no other preview change.</li>
+<li>Size resolution is identical in all three paths: preset name → <code>theme.controls</code> resolved px; <code>{custom_px}</code> → explicit px; absent → theme default. No CSS is authored by any control.</li>
+<li>Color resolution: role name → <code>theme.roles</code> hex at render time, so a theme edit reskins every question with no per-node rewrite.</li>
+<li>Maps jobs map to the existing validation / autocomplete / auction-facet legs; the auction engine and payload are untouched (§1.3).</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s13">
+<h2 class="sec">Section 13</h2><h2 class="title">Acceptance &amp; fidelity harness</h2>
+<p class="lede">Four CI gates make deviation a failing build. All are constructed against the fixed fixture (§1.2) and the committed golden master.</p>
+
+<h4>Gate 1 — Design parity (mechanical, same-stack)</h4>
+<p>v3.0's cross-stack pixel diff was not mechanically achievable; v3.1 replaces it with three enforceable checks: <b>(a) markup parity</b> — for every element in the Appendix D index, assert tag structure, attributes and the verbatim inline-style string (or its computed-style equivalent) against Artifact D; <b>(b) token audit</b> — computed styles across the built UI may only resolve to §3 values, per the §3.1b placement map; <b>(c) baseline snapshots</b> — at design sign-off the built UI's own screenshots of the 7 required states (Build default, headline selected, continue selected, custom-resized, Maps tab, Themes Navy, Themes Bold Yellow) become the frozen baseline; subsequent builds pixel-diff against <i>that</i> (≤0.1%, dynamic content masked).</p>
+
+<h4>Gate 2 — String</h4>
+<p>Assert every Appendix A string renders in its region; assert the forbidden vocabulary (raw type names, column names, token keys, hex, id prefixes, “JSON”, “slide”) is <b>absent</b> from all normal surfaces (present only under Advanced / theme Advanced).</p>
+
+<h4>Gate 3 — Geometry</h4>
+<p>Assert Appendix B constants: rail widths (292 / 344 / 300 / 320), region heights (56 / 46 / 42), unit column 600, and the token hex set.</p>
+
+<h4>Gate 4 — Behavior &amp; storage</h4>
+<table>
+<tr><th>Probe</th><th>Expected</th></tr>
+<tr><td>Tab visibility per selection</td><td>field = Content/Style/Rules/Maps/Offers; headline &amp; continue = Content/Style only</td></tr>
+<tr><td>Drag side handle</td><td>writes <code>design_overrides.size.width = {custom_px}</code>; presets deselect; Custom chip + canvas badge show</td></tr>
+<tr><td>Reset (custom)</td><td>deletes the <code>custom_px</code> key; width re-inherits theme preset</td></tr>
+<tr><td>Maps on, 0 jobs</td><td>amber banner shown; Save emits <code>maps_no_job</code>; activation blocks</td></tr>
+<tr><td>Theme switch (list card)</td><td>editor re-skins (roles/name/use), preview reflects <code>theme_id</code></td></tr>
+<tr><td>Headline single-store</td><td>strip edit ↔ canvas bound node stay identical; no second text field exists</td></tr>
+<tr><td>Palette integrity</td><td>no disabled tile; no headline/subheadline tile; Answer fields is one merged group</td></tr>
+<tr><td>Primitive collapse</td><td>legal/reassurance/secure are <code>Text</code>+role; auto-logo is <code>Image</code>+source; no one-off types placeable</td></tr>
+</table>
+<p>All probes are Playwright fixtures built <b>through the UI</b> (v2.5.1 §15.3). CI blocks merge on any red gate.</p>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="sA">
+<h2 class="sec">Appendix A</h2><h2 class="title">Exact microcopy (string assertions)</h2>
+<p>Verbatim strings the build must render for the §1.2 fixture. Curly apostrophes as shown.</p>
+<h4>Top bar &amp; strip</h4>
+<ul><li>“Section”, “Active”, “Mapping 2 / 2 complete”, “No issues”, “Save”, “Archive”</li>
+<li>“The question”, “Activity”, “Vertical”, “On answer”, “Wait for Continue”, “Go to next”, “Google Maps: connected”</li>
+<li>“Question headline”, “Subheadline · optional”, “Also shown on the canvas — edit in either place.”</li></ul>
+<h4>Library</h4>
+<ul><li>“Add to this question”, “Search components”, “Suggested”, “Answer fields”, “how visitors answer”, “Content”, “Layout”</li>
+<li>Tiles: Short text, Buttons, Cards, Continue, Yes / No, Dropdown, Multi-select, Number, Amount, Date, Slider, Contact, Address, Text, Image / Logo, Divider, Card, Columns, Grid, Spacer</li>
+<li>“Legal notes, reassurance lines &amp; secure badges are just Text — pick a style in its settings. No separate blocks.”</li>
+<li>“Header, footer, progress &amp; background belong to the whole funnel — set them once in the Quote Builder. Open →”</li></ul>
+<h4>Canvas / toolbar</h4>
+<ul><li>“This section”, “Short text”, “Question”, “Continue”, “Desktop”, “Mobile”, “Frame hint”, “Funnel frame”</li>
+<li>“Short text field”, “Question · shared with header”, “Continue button”, “from frame”, “≈ 384 px · custom”</li>
+<li>Drawer: “Mapping”, “Validation”, “Preview in a quote”, “Preview theme:”, “Expand”</li></ul>
+<h4>Inspector</h4>
+<ul><li>“Editing”, “Funnel frame”, “This section”, “This element”</li>
+<li>Names: “Short text field” / “Question headline” / “Continue button”; “what it is” + affects lines per §8.1 table</li>
+<li>Tabs: “Content”, “Style”, “Rules”, “Maps”, “Offers”</li>
+<li>Field: “Basics”, “Field label”, “only you see this”, “Placeholder”, “Helper text”, “Leading icon”, “Location pin”, “Behavior”, “Required”, “Visitors must answer before they can continue.”, “When answered”, “Answer format”, “Accept”, “ZIP code (5 digits)”, “If it's wrong, say”, “This answer fills Zip on all 2 Offers.”, “Review mapping →”</li>
+<li>Style: “Size &amp; width”, “from theme: Navy”, “Width”, “Height”, “Custom · ≈ 384 px”, “Set by dragging on the canvas — overrides the preset”, “Reset”, “Presets keep every question in the funnel consistent. Drag a handle on the canvas for a one-off size — it becomes Custom and overrides the preset here.”, “Appearance”, “Corners”, “Sharp/Rounded/Pill”, “Border color”, “Neutral/Brand/Accent”, “Colors are theme roles, not fixed shades — change the theme once and every question updates. Manage theme →”</li>
+<li>Maps: “Google Maps”, “Validate with Google Maps”, “Uses this site's Maps key. Per-field settings win over the funnel's global toggle.”, “What should Maps do? · pick at least one”, “Validate the answer”, “Use in auction rules”, “Auto-complete the address”, “Pick at least one job for Maps, or turn it off — otherwise it does nothing at runtime.”</li>
+<li>Advanced: “Advanced”, “Internal field”, “Analytics label”, “Component id”, “zip”, “q_zip”, “cmp_zip1”</li></ul>
+<h4>Themes manager</h4>
+<ul><li>“Back to section”, “Themes”, “one look &amp; feel per funnel · A/B-testable in a quote”, “New theme”, “Your themes”, “LIVE · A”, “A/B · B”, “DRAFT”</li>
+<li>“Colors — semantic roles”, “Brand primary”, “Accent”, “Page background”, “Card”, “Text”, “Success”, “Typography”, “Headline font”, “Body font”</li>
+<li>“Buttons &amp; inputs — the shared size language”, “Field height”, “Button size”, “Corners”, “Every question inherits these. A section can override a single field on its canvas — that field then shows as Custom.”</li>
+<li>“Advanced — exact hex &amp; tokens”, “In this quote”, “Auto Insurance”, “A/B test · Theme”, “Variant A”, “Variant B”, “Other funnels using this theme”</li></ul>
+<h4>Canvas funnel preview (rendered unit content — added in v3.1)</h4>
+<ul><li>“What's your ZIP code?”, “Rates differ by up to 40% based on ZIP code”, “Enter your ZIP code”, “We never share this”, “View My Quote”</li>
+<li>Frame hint: “brand·logo”, “Funnel frame”, “Advertising disclosure · Terms · Privacy”, “© 2026 · Trusted partner network”</li></ul>
+<h4>Rules &amp; Offers tabs (added in v3.1)</h4>
+<ul><li>“When to show this”, “Always show”, “Add a condition”, “Show this when”, “Currently insured”, “Yes”</li>
+<li>“Where this answer goes”, “Provider A”, “Provider B”, “Insurance · Car”, “Zip”, “PostalCode”, “Open full mapping →”, “For developers. Renaming these can unlink Offer mappings.”</li></ul>
+<h4>Themes manager — remainder (added in v3.1)</h4>
+<ul><li>“Assigned to Auto Insurance · Variant A”, “Assigned to Auto Insurance · Variant B · A/B test”, “Not assigned to a funnel yet”</li>
+<li>Role sublabels: “buttons · progress · selected”, “highlights · recommended”, “behind the card”, “question surface”, “headings &amp; body”, “reassurance · valid”</li>
+<li>“Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.”, “Both variants share the same questions — only the theme differs. Promote the winner to 100% from the quote's A/B tab.”, “A/B testing: assign different themes to two variants of the same funnel to see which converts better.”, “Home Insurance · Variant A”, “No others yet.”, “for developers”, “brand #1B3A5C”</li></ul>
+<div class="callout c-navy"><b>Completeness rule (v3.1).</b> This appendix now covers every string in the golden master for the §1.2 fixture. If a builder finds a golden-master string not listed here, that is a contract gap: add it to this appendix — never improvise a variant.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="sB">
+<h2 class="sec">Appendix B</h2><h2 class="title">Geometry constants</h2>
+<table>
+<tr><th>Constant</th><th>Value</th></tr>
+<tr><td>App frame</td><td>1440 × 944</td></tr>
+<tr><td>Top bar height</td><td>56</td></tr>
+<tr><td>Canvas toolbar height</td><td>46</td></tr>
+<tr><td>Bottom drawer height</td><td>42</td></tr>
+<tr><td>Left library width</td><td>292</td></tr>
+<tr><td>Right inspector width</td><td>344</td></tr>
+<tr><td>Themes list / A-B panel width</td><td>300 / 320</td></tr>
+<tr><td>Unit column width</td><td>600</td></tr>
+<tr><td>Question card</td><td>radius 16 · padding 44/46/40 · shadow 0 8px 28px rgba(20,32,54,.10)</td></tr>
+<tr><td>Canvas dot grid</td><td>#DCE1EA 1px dots · 22px pitch</td></tr>
+<tr><td>Selection</td><td>2px navy outline inset −6 · 8 handles 11px · side handles filled navy, ew-resize</td></tr>
+<tr><td>Radii</td><td>controls 8 · tiles 9 · cards 10 · card 16 · continue 11 · pills 20 · swatches 10 · handles 3</td></tr>
+<tr><td>Active tab underline</td><td>2px #F5C518</td></tr>
+<tr><td>Tile padding / grid</td><td>13 8 10 · 2 columns · gap 8</td></tr>
+<tr><td>Group header padding</td><td>12 2 9 (16px top for subsequent groups)</td></tr>
+<tr><td>Inspector paddings</td><td>header 16 18 13 · body 4 18 20 · tabs strip 0 16</td></tr>
+<tr><td>Question strip padding</td><td>14 20 16</td></tr>
+<tr><td>Input paddings</td><td>strip inputs 10 13 · inspector inputs 9 11 · search 9 12 9 34</td></tr>
+<tr><td>Toggle</td><td>38×22 track · 18px knob · on #1B3A5C / off #CBD3DF (strip variant 34×19/15)</td></tr>
+<tr><td>Checkbox (Maps jobs)</td><td>20×20 · radius 6 · on filled #1B3A5C + white check / off 1.6px #C7CFDB</td></tr>
+<tr><td>Everything else</td><td><b>defer to Artifact D verbatim style strings</b> — this table is the quick set, not the exhaustive one</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="sC">
+<h2 class="sec">Appendix C</h2><h2 class="title">Traceability matrix</h2>
+<p>Design element → contract section → storage → enforcing gate. Every row must be green at done.</p>
+<table>
+<tr><th>Design element</th><th>§</th><th>Storage</th><th>Gate</th></tr>
+<tr><td>Four-region shell &amp; geometry</td><td>2</td><td>—</td><td>1, 3</td></tr>
+<tr><td>Token set (color/type/space)</td><td>3</td><td>admin token module</td><td>1, 3</td></tr>
+<tr><td>Canonical headline (strip ↔ canvas)</td><td>4</td><td><code>headline_text</code>/<code>subheadline_text</code></td><td>2, 4</td></tr>
+<tr><td>Icon-tile library, merged Answer fields</td><td>5</td><td>—</td><td>1, 2, 4</td></tr>
+<tr><td>Primitive collapse (Text/Image)</td><td>5.3</td><td><code>props.role</code>/<code>props.source</code></td><td>4</td></tr>
+<tr><td>No disabled / no headline tiles</td><td>5.4</td><td>—</td><td>4</td></tr>
+<tr><td>Direct-manipulation selection + handles</td><td>6</td><td>—</td><td>1, 4</td></tr>
+<tr><td>Frame hint</td><td>6.3</td><td>—</td><td>1</td></tr>
+<tr><td>Presets vs manual custom + Reset <span class="pill pill-c1">C1</span></td><td>7</td><td><code>design_overrides.size</code></td><td>1, 4</td></tr>
+<tr><td>Scope header, pills, affects lines</td><td>8.1</td><td>—</td><td>2</td></tr>
+<tr><td>Dynamic tab matrix</td><td>8.2</td><td>—</td><td>4</td></tr>
+<tr><td>Field Content controls</td><td>8.3</td><td>node <code>props</code></td><td>2, 4</td></tr>
+<tr><td>Inheritance tags (continue/style)</td><td>8.4-8.5</td><td>theme (read)</td><td>2</td></tr>
+<tr><td>Role-based color, no hex</td><td>8.5</td><td><code>design_overrides</code> roles</td><td>2, 4</td></tr>
+<tr><td>Offers per-Offer mapping</td><td>8.7</td><td><code>section_answer_maps</code></td><td>4</td></tr>
+<tr><td>Advanced (ids/JSON only here)</td><td>8.8</td><td>read-mostly</td><td>2</td></tr>
+<tr><td>Google Maps jobs + warning <span class="pill pill-c3">C3</span></td><td>9</td><td><code>props.maps</code></td><td>2, 4</td></tr>
+<tr><td>Themes manager + roles + size language <span class="pill pill-c2">C2</span></td><td>10</td><td><code>lg-funnel-themes</code></td><td>1, 2, 4</td></tr>
+<tr><td>A/B theme per variant</td><td>10.1, 10.5</td><td><code>theme_json</code>/<code>frame_overrides_json</code></td><td>4</td></tr>
+<tr><td>Preview-theme switcher</td><td>10.6</td><td>preview <code>theme_id</code></td><td>1, 4</td></tr>
+<tr><td>Runtime = preview parity</td><td>12</td><td>shared renderer</td><td>4</td></tr>
+<tr><td>Search synonyms (data-name)</td><td>5.5</td><td>—</td><td>2, 4</td></tr>
+<tr><td>Insert semantics / Accept-swap</td><td>5.6</td><td>node <code>type</code> swap</td><td>4</td></tr>
+<tr><td>Style tab per selection + enumerations</td><td>8.5b</td><td>node <code>props</code>/<code>design_overrides</code></td><td>2, 4</td></tr>
+<tr><td>Markup parity vs Artifact D</td><td>13 Gate 1a</td><td>—</td><td>1</td></tr>
+<tr><td>Source-validated schema claims</td><td>11.0</td><td>cited lines</td><td>4</td></tr>
+</table>
+<hr>
+<p style="color:#8A93A3;font-size:12.5px">End of contract v3.1. Golden master: <code>Section Builder Redesign.dc.html</code> · shipped copy: <code>contract-v3.1/golden/golden-master-source.dc.html</code>. On adoption, copy this package to <code>docs/leadgen/redesign-contract-v3/</code> and track in the traceability doc.</p>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="sD">
+<h2 class="sec">Appendix D</h2><h2 class="title">Golden-master source — verbatim element index</h2>
+<p class="lede">The shipped source copy IS the pixel spec. This index tells a zero-context builder where to find each element's verbatim markup, inline-style string and SVG inside <code>contract-v3.1/golden/golden-master-source.dc.html</code>. Copy the strings; never redraw or re-space by eye.</p>
+<table>
+<tr><th>Element</th><th>Find in source (exact search string)</th></tr>
+<tr><td>App frame / page</td><td><code>&lt;div style="width:1440px;height:944px</code></td></tr>
+<tr><td>Top bar</td><td><code>============ TOP BAR ============</code></td></tr>
+<tr><td>Question strip</td><td><code>============ QUESTION STRIP ============</code></td></tr>
+<tr><td>Library panel + search</td><td><code>---- LEFT: COMPONENT LIBRARY ----</code></td></tr>
+<tr><td>All 20 tile SVGs</td><td><code>data-tile data-name="…"</code> — one block per §5.5 synonym string; the SVG inside each block is the tile's asset</td></tr>
+<tr><td>Frame callout</td><td><code>&lt;!-- FRAME CALLOUT --&gt;</code></td></tr>
+<tr><td>Canvas toolbar</td><td><code>&lt;!-- CANVAS TOOLBAR --&gt;</code></td></tr>
+<tr><td>Canvas surface / dot grid</td><td><code>&lt;!-- CANVAS SURFACE --&gt;</code></td></tr>
+<tr><td>Frame hint header / footer</td><td><code>FRAME HINT: HEADER</code> / <code>FRAME HINT: FOOTER</code></td></tr>
+<tr><td>Question unit card</td><td><code>THE QUESTION UNIT (editable)</code></td></tr>
+<tr><td>Selection chrome + 8 handles + tags</td><td><code>&lt;!-- selection chrome for field --&gt;</code></td></tr>
+<tr><td>Bottom drawer + theme switcher</td><td><code>&lt;!-- BOTTOM DRAWER BAR --&gt;</code></td></tr>
+<tr><td>Inspector scope header / pills / affects</td><td><code>&lt;!-- scope header --&gt;</code>, <code>&lt;!-- scope pills --&gt;</code>, <code>&lt;!-- affects line --&gt;</code></td></tr>
+<tr><td>Tab strip + each tab body</td><td><code>&lt;!-- tabs --&gt;</code>; bodies at <code>===== CONTENT TAB =====</code>, <code>===== STYLE TAB =====</code>, <code>===== RULES TAB =====</code>, <code>===== MAPS TAB =====</code>, <code>===== OFFERS TAB =====</code>, <code>ADVANCED (always, collapsed)</code></td></tr>
+<tr><td>Themes manager (all three columns)</td><td><code>&lt;!-- themes top bar --&gt;</code>, <code>LEFT: theme list</code>, <code>CENTER: editor</code>, <code>RIGHT: A/B assignment</code></td></tr>
+<tr><td>Interaction-state styles (segmented, toggles, tabs, checkbox, theme cards, viewport, frame-hint button, field focus/selected)</td><td>logic-class helpers in the same file: <code>seg(</code>, <code>segFull(</code>, <code>vpSeg(</code>, <code>tab(</code>, <code>cb(</code>, <code>themeCard(</code>, <code>pal(</code>, <code>mapsToggleStyle</code>, <code>reqToggleStyle</code>, <code>fieldBoxStyle</code>, <code>fieldWrapStyle</code>, <code>frameBtnStyle</code> — each returns the exact active/inactive style strings</td></tr>
+</table>
+<div class="callout c-go"><b>Parity assertion (feeds Gate 1a).</b> For every row above, the built UI must produce an element whose computed box, colors, radii, typography and (where applicable) SVG path data equal the source block. The index is exhaustive for the §1.2 fixture.</div>
+</div>
+
+<!-- ============================================================ -->
+<div class="sheet" id="s14">
+<h2 class="sec">Section 14</h2><h2 class="title">Change log v3.0 → v3.1 (audit fixes)</h2>
+<table>
+<tr><th>#</th><th>v3.0 defect (self-audit)</th><th>v3.1 fix</th></tr>
+<tr><td>1</td><td>Golden master was a reference picture; cross-stack pixel diff unachievable</td><td>Source copy ships as Artifact D + element index; Gate 1 redefined as markup-parity + token-audit + same-stack baselines (§0, §13, App. D)</td></tr>
+<tr><td>2</td><td>Tile→type mappings ambiguous (Cards, Contact, dual “Short text”)</td><td>§5.6 one deterministic insert per tile + the Accept-swap rule; fixture explained (§1.2)</td></tr>
+<tr><td>3</td><td>Contract contradicted design: “preset-rendered” icons, invented tooltips</td><td>§5.1 rewritten — verbatim bespoke SVGs, tooltips forbidden</td></tr>
+<tr><td>4</td><td>Missing exactness: spacings, handle geometry, multi-hex ambiguity, option lists, headline Style tab</td><td>§3.1b placement map · §6.2 geometry · §8.5b per-selection Style + icon/Accept enums · App. B extended · App. D defers-to-source rule</td></tr>
+<tr><td>5</td><td>Schema asserted but unvalidated; internal_field mis-placed</td><td>§11.0 line-cited validation; §11.3 corrected node (node-level <code>question_id</code>/<code>internal_field</code>; NEW props marked); legacy column named <code>address_validation_enabled</code> (§9)</td></tr>
+<tr><td>6</td><td>Invented material presented as design-locked (theme storage, Spacing section, 60/40 hardcode, auction facet)</td><td>PROPOSED pills + no-visible-UI rule (§0, §9.1, §10.1, §10.4); fixture-value rule (§10.5)</td></tr>
+<tr><td>7</td><td>Appendix A incomplete; responsive + fidelity-vs-function unresolved</td><td>App. A completed + completeness rule; §2.3 responsive lock; §0 fidelity-vs-function rule; §7.1 real measurement formula</td></tr>
+</table>
+<p><b>Residual honesty note:</b> “100% / zero deviation” is now defined, enforceable and testable — <i>for the §1.2 fixture and the seven required states</i>. States outside the approved design (empty sections, error states, sub-1280 viewports, non-fixture data) are explicitly out of scope and require design addenda — that is the mechanism that keeps them from becoming silent deviations.</p>
+</div>
+
+</div></body></html>

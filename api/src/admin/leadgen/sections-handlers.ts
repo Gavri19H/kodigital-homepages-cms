@@ -36,6 +36,12 @@ import {
   renderQuoteFrame,
 } from "../../public/leadgen/designs/frame";
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
+// v3.1 §10.6/§12: the preview theme_id override re-uses the SAME PURE
+// resolveTokens the runtime/composed-preview path already calls (theme.ts);
+// getThemeRecord is the KV `lg-funnel-themes` lookup (themes-handlers.ts owns
+// the store — this handler only reads it, never writes).
+import { resolveTokens, winningThemeId, type EffectiveTokens } from "../../public/leadgen/designs/theme";
+import { getThemeRecord } from "../../public/leadgen/designs/theme-store";
 // §8.5 layout containers: question/mapping/ZIP walks consume the canonical
 // flattened projection; ONLY the renderer receives the full tree (it recurses).
 // v2.5 06 §6.6: named component presets validate against the SAME curated
@@ -1102,6 +1108,7 @@ async function resolveSectionPreviewFrame(
   db: D1Database,
   raw: unknown,
   explicitDesignId: string | null,
+  cache: KVNamespace,
 ): Promise<SectionPreviewFrameResult> {
   if (!isRecord(raw)) {
     return {
@@ -1209,6 +1216,19 @@ async function resolveSectionPreviewFrame(
   // Layer-1 base: the request's explicit design_id when sent (honored
   // in-frame), else the variant's stored design, else the registry default.
   const design = getFunnelDesign(explicitDesignId ?? variant?.funnel_design_id ?? null);
+  // v3.1 §10.1/§12 (fix round): resolve the funnel/variant's OWN assigned
+  // theme_id (winningThemeId — variant frame_overrides_json.theme_id over
+  // funnel theme_json.theme_id) the SAME way the live path does, so a
+  // section-in-frame preview with NO explicit theme_id override (§10.6, the
+  // separate mechanism in previewSectionHandler below) still matches what a
+  // real visitor would see — "runtime, quote preview, and section-in-frame
+  // preview share identical resolution." An unknown/deleted id degrades to
+  // null (never throws), same as the live path.
+  const naturalThemeId = winningThemeId(
+    parseJsonColumn(funnel.theme_json ?? null),
+    parseJsonColumn(variant?.frame_overrides_json ?? null),
+  );
+  const naturalThemeRecord = naturalThemeId !== null ? await getThemeRecord(cache, naturalThemeId) : null;
   const composition = resolveFrameComposition(
     {
       frame_config_json: funnel.frame_config_json,
@@ -1216,6 +1236,7 @@ async function resolveSectionPreviewFrame(
       frame_overrides_json: variant?.frame_overrides_json ?? null,
     },
     design,
+    naturalThemeRecord,
   );
   return {
     kind: "ok",
@@ -1267,6 +1288,31 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
   // design drives the wrapper attribute, the CSS scope, and the echo below —
   // this replaces the previous getFunnelDesign(null) hardcode.
   const design = getFunnelDesign(typeof rawDesignId === "string" ? rawDesignId : null);
+
+  // --- v3.1 §10.6/§12 preview theme_id (ADDITIVE) ----------------------------
+  // Optional operator override for the Section Builder's "Preview theme"
+  // switcher: re-renders THIS unit under a chosen KV `lg-funnel-themes`
+  // record via the identical resolveTokens the composed frame_context branch
+  // below already calls (§12 parity — one token-resolution function, never a
+  // second rendering system). Absent theme_id → themeTokens stays null and
+  // every downstream read below falls back to its pre-existing source
+  // (frame composition, then the plain resolved design) — BYTE-IDENTICAL to
+  // today.
+  const rawThemeId = body["theme_id"];
+  if (rawThemeId !== undefined && rawThemeId !== null && typeof rawThemeId !== "string") {
+    return c.json({ error: "Validation failed", fields: { theme_id: "theme_id must be a string" } }, 400);
+  }
+  let themeTokens: EffectiveTokens | null = null;
+  if (typeof rawThemeId === "string" && rawThemeId.trim() !== "") {
+    const themeRecord = await getThemeRecord(c.env.CACHE, rawThemeId.trim());
+    if (themeRecord === null) {
+      return c.json(
+        { error: "Validation failed", fields: { theme_id: `theme '${rawThemeId}' does not exist` } },
+        400,
+      );
+    }
+    themeTokens = resolveTokens(design, { theme_id: themeRecord.id }, null, themeRecord);
+  }
 
   const rawViewport = body["viewport"];
   if (rawViewport !== undefined && rawViewport !== null && rawViewport !== "desktop" && rawViewport !== "mobile") {
@@ -1320,6 +1366,7 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       c.env.DB,
       body["frame_context"],
       typeof rawDesignId === "string" ? rawDesignId : null,
+      c.env.CACHE,
     );
     if (resolvedFrame.kind === "invalid") {
       return c.json({ error: "Validation failed", fields: resolvedFrame.fields }, 400);
@@ -1333,10 +1380,31 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
       sectionCtx.continue_style_role = frame.composition.frame.section_slot.continue_style_role;
     }
   }
-  // The design the UNIT renders under: the frame's effective (layers 1–3
-  // baked) design when composed; the resolved base otherwise. On the
-  // unit-only path this IS `design` — bytes unchanged.
-  const renderDesign = (frame?.composition?.effectiveTokens.design ?? design) as FunnelDesign;
+  // v3.1 §7/§12 (adversarial review MAJOR-1): thread the resolved theme_
+  // controls into sectionCtx too — the explicit theme_id override
+  // (themeTokens) wins over the frame's natural resolution, mirroring the
+  // SAME precedence renderDesign already applies below, and scoped to
+  // `frame !== null` for the SAME reason (a theme_id override has no effect
+  // outside the composed branch — see the renderDesign comment above).
+  if (frame !== null) {
+    const themeControls = themeTokens?.theme_controls ?? frame.composition?.effectiveTokens.theme_controls;
+    if (themeControls !== undefined) sectionCtx.theme_controls = themeControls;
+  }
+  // The design the UNIT renders under. theme_id (§10.6 "Preview theme"
+  // switcher) applies ONLY inside the composed frame_context branch — §10.6
+  // says the switcher re-renders "via the composition preview (§12)", and
+  // scoping it there keeps the frame branch's markup + its own CSS custom-
+  // property sheet (below, both now read `themeTokens ?? …effectiveTokens`)
+  // consistent with EACH OTHER. The unit-only tail's CSS is built from the
+  // plain `design` (unchanged, existing code) — applying theme_id to
+  // `renderDesign` only in that path would bake themed values into inline
+  // markup while the accompanying stylesheet stayed untthemed, a mismatch.
+  // theme_id is still validated (an unknown id 400s) even without
+  // frame_context; it just has no visual effect there — an open item for a
+  // later phase if the Studio ever needs preview-theme without a frame.
+  const renderDesign = (frame !== null
+    ? (themeTokens?.design ?? frame.composition?.effectiveTokens.design ?? design)
+    : design) as FunnelDesign;
 
   // §12.3/§14.9 conditional-dependency preview: the answers BASIS is the
   // legacy `sample_answers` record overlaid by `sim.answers` overlaid by the
@@ -1452,7 +1520,11 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
             bannersMountHtml: LG_BANNERS_MOUNT_HTML,
           })
         : renderQuoteFrame({
-            effectiveTokens: frame.composition.effectiveTokens,
+            // theme_id (an explicit operator override) wins over whatever
+            // the frame's stored funnel/variant theme_json would otherwise
+            // resolve to (§10.6 parity with the Style-tab "Manage theme"
+            // override intent).
+            effectiveTokens: themeTokens ?? frame.composition.effectiveTokens,
             frame: frame.composition.frame,
             siteBranding: frame.branding,
             sectionsHtml,
@@ -1475,7 +1547,9 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
     const css =
       frame.composition === null
         ? funnelChromeCss(frame.design, scope)
-        : funnelChromeCss(frame.composition.effectiveTokens.design, scope, { frameRegions: true });
+        : funnelChromeCss((themeTokens ?? frame.composition.effectiveTokens).design, scope, {
+            frameRegions: true,
+          });
     const preview: Record<string, unknown> = {
       css,
       desktop: composed,
