@@ -55,6 +55,82 @@
 // PLAYWRIGHT HARD LESSON (dispatch instruction): run THIS FILE ONLY —
 // `npx playwright test test-ui/leadgen-v31-gate1c-baselines.spec.ts --workers=1 --reporter=line`
 // — never the full `npm run test:ui` (parks the harness).
+//
+// STABILITY FIX (fresh-environment flake, root-caused by direct code trace —
+// NOT a guess): a FRESH environment (killed strays + wiped local D1 +
+// migrate+seed + brand-new `wrangler dev`) occasionally failed state
+// 01-build-default at changed-pixel ratio ~0.0082 (0.82%), while back-to-back
+// runs in an already-warm environment always measured ratio=0. Root cause,
+// confirmed by reading ui-section-studio.ts's client island (NOT masked —
+// this is a deterministic, waitable settle, not run-to-run-varying content):
+// the island's unconditional "first paint" boot sequence
+// (`selectComponent(...); ...; loadOffers(); loadUsage(); loadThemesList();
+// ...; runPreview();`) fires SEVERAL fetches on EVERY load of
+// /admin/leadgen/sections/:id/edit — states 1-5 all land there. One of them,
+// `loadUsage()`, GETs .../usage and its resolved callback calls
+// `renderFramePreviewEmpty()`, which flips
+// `[data-frame-preview-empty]` — SSR'd `hidden` (renderPreviewPanel(),
+// ui-section-studio.ts) inside the DEFAULT-VISIBLE "Preview in a quote"
+// drawer tab (renderStudioDrawer's `data-studio-drawer-panel="preview"` has
+// NO `hidden` attribute, i.e. it's the tab shown on load, no click needed)
+// — to VISIBLE the moment it confirms zero usage. This fixture's sections
+// are NEVER attached to any funnel/quote, so usage is ALWAYS confirmed zero
+// and the paragraph ALWAYS ends up shown — a 100%-deterministic SETTLED
+// value; only its TIMING races a fixed wait (fast/warm server: always
+// resolved well inside a short wait, ratio=0 every time; a genuinely cold
+// Worker boot: occasionally still unresolved at capture time, so the
+// visible text block is absent — a real, sizeable rendered-text region,
+// consistent with an 0.82% delta). Because the settled value never varies,
+// the correct fix is to WAIT for it (captured in waitForStudioSettled below
+// + an explicit per-test assertion), not to mask it — masking is for content
+// that legitimately varies even once settled (ids/timestamps), which this
+// is not. waitForStudioSettled additionally waits for network-idle (a single
+// blanket net over the OTHER unconditional on-load fetches —
+// loadComponentPresets/loadFramePickerQuotes/loadActivities/loadVerticals/
+// loadOffers/loadThemesList/runPreview — rather than hand-tracing each one's
+// visible side effects individually; confirmed safe: neither this file's
+// island nor ui-theme-manager.ts's ES5 island run any setInterval/
+// EventSource/WebSocket that would keep the network non-idle forever),
+// `document.fonts.ready` (parity with leadgen-visual.spec.ts's own
+// determinism idiom — a no-op here since no admin page loads an external
+// webfont (confirmed: zero `@font-face`/`fonts.googleapis` references under
+// src/admin/), kept for discipline-parity and defense against any future
+// admin webfont), and an injected transition/animation-disabling stylesheet
+// (defense in depth on top of screenshot()'s own `animations:"disabled"` —
+// belt, not replacement — covering e.g. the real 300ms `.studio-scope-header`
+// background-color transition renderScopeHeader's "scope-flash" triggers on
+// an actual selection change, per §7.2; confirmed NOT itself a source of
+// this bug, since loadUsage's re-invocation of renderScopeHeader keeps the
+// same selected node (`changed` stays false → no flash) — the injected style
+// is precautionary, not a second root cause).
+//
+// SECOND FINDING (surfaced BY the wait fix, via a diff-highlight image — not
+// a guess): once capture reliably waits for settle, states 1-4 (never state
+// 5 — see below) stabilized to a small but NON-ZERO ratio (~0.00035-0.0004,
+// still comfortably <=0.001). A diff-highlight render (baseline vs fresh
+// evidence, same 3-channel/8 threshold as pixelDiffRatio, red = differs)
+// isolated it to ONE 771x21px text line at the very bottom of the page: the
+// default-visible "Preview in a quote" drawer's "Events that would fire"
+// panel (§8.9/§9.1), which lists an initial `quote_view` event whose JSON
+// payload includes `"session_id":"<uuid>"` — genuinely, unavoidably random
+// PER PAGE LOAD (appendPreviewEvents/onPreviewMessage,
+// ui-section-studio.ts) — no wait can settle a value that is regenerated
+// differently every time by design. This is exactly the contract's own
+// "dynamic content masked" carve-out (an id, not a timing race), so it is
+// MASKED (Playwright's screenshot `mask:` option — confirmed to apply to
+// plain page.screenshot(), not just toHaveScreenshot) at
+// `[data-studio-events-list]` (appendPreviewEvents' own mount point,
+// ui-section-studio.ts:8050 — every event row lives inside this one `<ol>`;
+// nothing dynamic renders outside it), not waited-for. Applied uniformly in
+// captureBaseline (harmless where the selector is absent, e.g. the
+// Themes-manager pages — Playwright ignores a mask locator that resolves to
+// zero elements). State 5 (Maps tab) measured ratio=0 in the same runs
+// (confirmed by direct crop-and-view of its evidence PNG: the events line
+// simply isn't in the same y-band there, most likely because selecting the
+// Maps inspector tab changes the row height above the drawer) — but the
+// SAME session_id mechanism applies structurally to every state 1-5 (same
+// drawer, same preview panel), so state 5 gets the identical mask rather
+// than relying on it happening not to collide this time.
 
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -238,13 +314,32 @@ async function pixelDiffRatio(page: Page, aPng: Buffer, bPng: Buffer): Promise<n
   );
 }
 
+// Determinism before every capture (file-header "STABILITY FIX" note has the
+// full diagnosis): network-idle is one blanket wait over EVERY admin studio
+// page's unconditional on-load fetches (confirmed safe — no setInterval/
+// EventSource/WebSocket anywhere in ui-section-studio.ts or
+// ui-theme-manager.ts that would keep the network non-idle forever);
+// document.fonts.ready mirrors leadgen-visual.spec.ts's own idiom (a no-op
+// here — no admin page loads an external webfont — kept for parity/defense);
+// the injected stylesheet hard-disables transitions/animations (belt, on top
+// of screenshot()'s own animations:"disabled") so no in-flight CSS
+// transition (e.g. the real 300ms .studio-scope-header background-color
+// transition) can be caught mid-frame.
+async function waitForStudioSettled(page: Page): Promise<void> {
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => document.fonts.ready);
+  await page.addStyleTag({
+    content: "*, *::before, *::after { transition: none !important; animation: none !important; caret-color: transparent !important; }",
+  });
+}
+
 async function captureBaseline(page: Page, name: string): Promise<void> {
   // Settle: no in-flight focus ring / transition before capture.
   await page.evaluate(() => {
     const active = document.activeElement as HTMLElement | null;
     if (active && typeof active.blur === "function") active.blur();
   });
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(300); // mirrors leadgen-visual.spec.ts's own post-blur settle buffer (300ms)
 
   // PLAIN (non-fullPage) screenshot — CONFIRMED REQUIRED, not a style choice
   // (see the `test.use({viewport...})` comment above for the full
@@ -265,7 +360,11 @@ async function captureBaseline(page: Page, name: string): Promise<void> {
   // convention already treats periodic `db:migrate:local`+`seed:local`
   // resets as a normal operator step (see this file's header), which keeps
   // this bounded in practice.
-  const shot = await page.screenshot({ animations: "disabled" });
+  // mask: [data-studio-events-list] — the ONE genuinely dynamic region (a
+  // per-page-load random session_id inside a debug event-log line; see
+  // "SECOND FINDING" file-header note). Absent on the Themes-manager pages
+  // (states 6/7) — a mask locator matching zero elements is a no-op.
+  const shot = await page.screenshot({ animations: "disabled", mask: [page.locator("[data-studio-events-list]")] });
   writeFileSync(join(EVIDENCE_DIR, `${name}.png`), shot); // evidence every run
 
   const baselinePath = join(BASELINE_DIR, `${name}.png`);
@@ -287,43 +386,57 @@ async function captureBaseline(page: Page, name: string): Promise<void> {
 test.describe.serial("Gate 1c — 7 frozen baseline states", () => {
   test("1. Build default", async ({ page }) => {
     await page.goto(`/admin/leadgen/sections/${fx.defaultSection.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     await page.frameLocator("#lg-studio-canvas-frame").locator('[data-component-type="ZIPInputQuestion"]').first().waitFor();
+    // The confirmed race (file-header note): loadUsage()'s on-load fetch
+    // flips this from SSR `hidden` to visible once zero usage is confirmed
+    // (always true for this never-attached fixture) — wait for the SETTLED
+    // value instead of racing a fixed timeout.
+    await expect(page.locator("[data-frame-preview-empty]")).toBeVisible();
     await captureBaseline(page, "01-build-default");
   });
 
   test("2. Headline selected", async ({ page }) => {
     await page.goto(`/admin/leadgen/sections/${fx.defaultSection.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     const canvas = page.frameLocator("#lg-studio-canvas-frame").locator("#lg-studio-canvas-render");
     await canvas.locator('[data-component-type="QuestionHeadline"]').click();
     await expect(page.locator("[data-scope-editing-name]")).toHaveText("Question headline");
+    await expect(page.locator("[data-frame-preview-empty]")).toBeVisible();
     await captureBaseline(page, "02-headline-selected");
   });
 
   test("3. Continue selected", async ({ page }) => {
     await page.goto(`/admin/leadgen/sections/${fx.defaultSection.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     const canvas = page.frameLocator("#lg-studio-canvas-frame").locator("#lg-studio-canvas-render");
     await canvas.locator('[data-component-type="ContinueButton"]').click();
     await expect(page.locator("[data-scope-editing-name]")).toHaveText("Continue button");
+    await expect(page.locator("[data-frame-preview-empty]")).toBeVisible();
     await captureBaseline(page, "03-continue-selected");
   });
 
   test("4. Custom-resized (ZIP field pre-seeded with design_overrides.size.width.custom_px)", async ({ page }) => {
     await page.goto(`/admin/leadgen/sections/${fx.customSection.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     const canvas = page.frameLocator("#lg-studio-canvas-frame").locator("#lg-studio-canvas-render");
     await canvas.locator('[data-component-type="ZIPInputQuestion"]').click();
     // the canvas custom badge ("≈ {n} px · custom") confirms the resized
     // state actually rendered before capturing — a calibration guard so a
     // silently-broken custom_px render doesn't freeze a misleading baseline.
     await expect(canvas.locator("text=/≈ \\d+ px · custom/")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("[data-frame-preview-empty]")).toBeVisible();
     await captureBaseline(page, "04-custom-resized");
   });
 
   test("5. Maps tab", async ({ page }) => {
     await page.goto(`/admin/leadgen/sections/${fx.defaultSection.public_id}/edit`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     const canvas = page.frameLocator("#lg-studio-canvas-frame").locator("#lg-studio-canvas-render");
     await canvas.locator('[data-component-type="ZIPInputQuestion"]').click();
     await page.locator('[data-studio-inspector-tab="maps"]').click();
     await expect(page.locator('[data-studio-panel="maps"]')).toBeVisible();
+    await expect(page.locator("[data-frame-preview-empty]")).toBeVisible();
     await captureBaseline(page, "05-maps-tab");
   });
 
@@ -343,6 +456,7 @@ test.describe.serial("Gate 1c — 7 frozen baseline states", () => {
     // full-editor 2600px viewport set at file level.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/admin/leadgen/themes?theme=${fx.navyThemeId}`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     await expect(page.locator(".tm-shell")).toBeVisible();
     await captureBaseline(page, "06-themes-navy");
   });
@@ -350,6 +464,7 @@ test.describe.serial("Gate 1c — 7 frozen baseline states", () => {
   test("7. Themes — Bold Yellow", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/admin/leadgen/themes?theme=${fx.boldThemeId}`, { waitUntil: "domcontentloaded" });
+    await waitForStudioSettled(page);
     await expect(page.locator(".tm-shell")).toBeVisible();
     await captureBaseline(page, "07-themes-bold-yellow");
   });
