@@ -18,6 +18,8 @@
     "verify:required-secrets": "tsx scripts/verify/required-secrets.ts",
     "verify:worker-config": "tsx scripts/verify/worker-config.ts",
     "verify:leadgen-runtime": "tsx scripts/verify/leadgen-runtime.ts",
+    "verify:jargon": "node scripts/jargon-scan.mjs",
+    "verify:golden-regions": "node scripts/golden-allowlist.mjs",
     "verify:all": "npm run verify:no-legacy-prod-refs && npm run verify:infra && npm run verify:worker-config && npm run verify:leadgen-runtime",
     "smoke:cms-domain": "tsx scripts/smoke/cms-domain.ts",
     "smoke:local": "curl -fsS http://localhost:8787/health",
