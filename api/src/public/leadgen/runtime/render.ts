@@ -82,6 +82,32 @@ export function applySelectionClasses(questionEl: Element, value: unknown): void
   }
 }
 
+// S2-3 (register §C): a range slider's visible value text + filled track must
+// move as the visitor drags. The SSR renderRange paints the INITIAL value/fill;
+// nothing updated them on `input` until this hook. The value text is rebuilt
+// byte-identically to the server's formatRangeValue (data-currency prefix, then
+// Number#toLocaleString("en-US") grouping), and the fill width uses the same
+// (value-min)/(max-min) percentage the server clamps. Reads min/max off the
+// input's own attributes (getAttribute, not the HTMLInputElement.min property,
+// so the fake-DOM unit harness exercises the identical path).
+export function updateRangeDisplay(input: HTMLInputElement): void {
+  const wrap = input.closest(".lg-range");
+  if (wrap === null) return;
+  const min = Number(input.getAttribute("min") ?? 0);
+  const max = Number(input.getAttribute("max") ?? 100);
+  const val = Number(input.value);
+  if (!Number.isFinite(val)) return;
+  // A range input's own .value is always clamped by the browser into
+  // [min,max], so (val-min)/span is already in [0,1] — no extra clamp needed.
+  const span = max - min;
+  const pct = span > 0 ? Math.round(((val - min) / span) * 100) : 0;
+  const fill = wrap.querySelector(".lg-range-fill");
+  if (fill instanceof HTMLElement) fill.style.width = `${pct}%`;
+  const valueEl = wrap.querySelector(".lg-range-value");
+  if (valueEl !== null) valueEl.textContent = (wrap.getAttribute("data-currency") ?? "") + val.toLocaleString("en-US");
+  input.setAttribute("aria-valuenow", `${val}`);
+}
+
 // Progress over the VISIBLE dependency-satisfied sections (§3.5.2):
 // mode "step" → "N / M" text; mode "percent" → width on an inner
 // [data-lg-progress-bar] (when present) + a percent label. Both stamp

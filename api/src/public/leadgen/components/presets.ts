@@ -564,12 +564,21 @@ function renderRange(
   const minLabel = propStr(node, "minLabel") ?? formatRangeValue(min, format, currency);
   const maxLabel = propStr(node, "maxLabel") ?? formatRangeValue(max, format, currency);
   return (
-    `<div class="lg-range"${hydration(node)} data-format="${format}">` +
+    // S2-3 (register §C): data-currency rides the wrapper so the runtime's
+    // updateRangeDisplay can rebuild the live value text (`{currency}{grouped}`)
+    // byte-identically to this server paint (formatRangeValue) as the slider
+    // moves. Emitted only for the currency format; number format leaves it off
+    // (empty prefix).
+    `<div class="lg-range"${hydration(node)} data-format="${format}"${attr("data-currency", format === "currency" ? currency : undefined)}>` +
     `<div class="lg-range-value"${style({ color: rq.valueColor, "font-family": rq.valueFontFamily })}>${esc(displayValue)}</div>` +
     `<div class="lg-range-track"${style({ "background-color": rq.unfilledTrackColor })}>` +
     `<div class="lg-range-fill"${style({ width: `${pct}%`, "background-color": filled })}></div>` +
     `</div>` +
-    `<input class="lg-range-input" type="range" role="slider"` +
+    // S2-3: data-lg-input marks the range so the engine's delegated input
+    // listener records the dragged value AND drives updateRangeDisplay live.
+    // min/max/step/value are the native slider semantics (unchanged); the
+    // runtime reads min/max off these attributes to recompute the fill.
+    `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
     ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
     attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
@@ -934,8 +943,16 @@ export function renderDropdownQuestion(node: LeadgenComponentNode, design: Defau
     .join("");
   // Base border lives in the scoped chrome CSS (.lg-input) — not inline — so
   // the :focus / [aria-invalid] state rules win by cascade (no !important).
+  // E1-NEW-1 (register §E.2): data-lg-input marks the <select> so the engine's
+  // delegated change listener (engine.ts) routes its value into
+  // recordUserAnswer — a native <select> emits `change` (not a bubbling option
+  // click the [data-lg-choice] delegate could see), so WITHOUT this hook the
+  // dropdown was mute in live funnels. The per-option data-lg-choice attrs stay
+  // (they feed applySelectionClasses on restore for choice-projecting nodes);
+  // they are inert for the click delegate because native option selection never
+  // reaches the root click listener as an option-targeted event.
   return (
-    `<select class="lg-input lg-dropdown"${hydration(node)}` +
+    `<select class="lg-input lg-dropdown"${hydration(node)} data-lg-input` +
     `>` +
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
@@ -965,7 +982,11 @@ export function renderSearchableDropdownQuestion(node: LeadgenComponentNode, _de
     `<div class="lg-searchable-dropdown"${hydration(node)} data-lg-searchable>` +
     `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search` +
     ` placeholder="Search…" aria-label="Search options">` +
-    `<select class="lg-input lg-dropdown">` +
+    // E1-NEW-1: data-lg-input on the real <select> (same rationale as
+    // renderDropdownQuestion) so a searchable dropdown records its answer via
+    // the engine change listener. The search input above is a filter only
+    // (data-lg-dropdown-search) and deliberately carries NO data-lg-input.
+    `<select class="lg-input lg-dropdown" data-lg-input>` +
     `<option value="" disabled${def === undefined ? " selected" : ""}>${esc(placeholder)}</option>` +
     options +
     `</select>` +

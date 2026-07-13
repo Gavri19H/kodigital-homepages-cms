@@ -212,6 +212,22 @@ runtime answer-recording test per input component (slider class).
 
 ## E. REMEDIATION MISSION (approved 2026-07-13) — defect→phase map
 
+**Phase status:** R0 **MERGED** (PR #109 → main @ 9cd252f, 2026-07-13; adversarial review SHIP
+after 2 fix rounds). Rows closed by R0: S4-B1 (headline strip at golden proportions, two-rule fix)
++ the M1/M5/M6 gate primitives + engine.ts encoding + firefox gesture lane.
+R1 (runtime answer integrity) **SHIP** (2026-07-14; adversarial review FIX-FIRST → both blockers
+fixed in-phase → SHIP on independent re-verification). Rows closed: E1-NEW-1 (dropdowns record —
+data-lg-input + engine chain), S2-3 (slider records + live value/fill; step honored), E1-NEW-4
+(Yes/No default paints selected), E1-NEW-3 (count validation client AND server — server at the
+normalizeAnswers seam after the reviewer refuted the conductor's deferral), E1-C1 (error_text
+surfaces, XSS-safe: textContent client + <-escaped server config), E1-C2 (letters/digits
+presets → anchored regex, client/server parity). Permanent gates added: catalog-enumerated
+answer-recording matrix (70 tests), REAL POST /lg/auction round-trip with client-authentic string
+answers (9 tests, F8-compliant), firefox real-input gesture spec (3 tests, E4 network-verified
+beacon). Bundle 40,908/40,960 (52 B headroom — LIVE CONSTRAINT for R3/R4b). Suite: vitest
+5,001/5,001 (358) · playwright 221 listed, 214 green + 7 gate-1c report-only (pixel ratio
+byte-identical to R0's intended delta — zero drift from R1).
+
 Plan: `~/.claude/plans/use-the-claude-design-mcp-elegant-alpaca.md` (post-roast v2 — adversarially
 roasted; 4 blockers amended; wider-product seams verified). Phases:
 R0 foundation → R1 runtime answers → R2 canvas → R3 inspector (48 types) → R4a pipeline UX →
@@ -244,7 +260,7 @@ in R6.
 |---|---|---|
 | E1-NEW-1 | Dropdown + SearchableDropdown never record answers (`<select>` lacks `data-lg-input`; engine gate engine.ts:630) | R1 |
 | E1-NEW-2 | Choice editor: 9–12 dead fields/row for ButtonAnswerGroup/Dropdown/SearchableDropdown/OtherGroup; 7 for MultiChoice; 1–2 for card grids (shared ungated `buildChoiceRow`, studio:6273/6321-6409) | R3 |
-| E1-NEW-3 | MultiChoice min/max selection count validated NOWHERE (array answers skip scalar branch, runtime/validation.ts:138-158; no server rule) | R1 |
+| E1-NEW-3 | MultiChoice min/max selection count validated NOWHERE (array answers skip scalar branch, runtime/validation.ts:138-158; no server rule) | **R1 (client + server)** — the plan-assigned server file (`leadgen/validation.ts`) proved offer-config-only; real seam = `normalizeAnswers` (src/leadgen/answers.ts). Conductor initially deferred the server mirror to R4b; the R1 adversarial review REFUTED that deferral (scripted clients bypass min/max entirely; binding-plan violation) → delivered in R1's fix round with fail-before/pass-after through the real POST /lg/auction harness |
 | E1-NEW-4 | TwoButtonYesNo default recorded (+beacon) but never shown — `component.choices!==undefined` guard, engine.ts:900-913 | R1 |
 | E1-NEW-5 | Other-group enable/label/searchable dead for both dropdown types (renderers never call readChoiceDisplay) | R3 (hide) |
 | E1-NEW-6 | Toolbar Placeholder quick-input dead for Range/CurrencyRange/NumberRange/TwoButtonYesNo/NameFieldsGroup | R3 (gate) |

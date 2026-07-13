@@ -152,10 +152,21 @@ interface FieldSpec {
   answerType: LeadgenAnswerType;
   hasDefault: boolean;
   defaultValue: unknown;
+  // §12.7 array-answer SELECTION-COUNT bounds (MultiChoiceCardGroup
+  // props.min/max — registry.ts "min<=count<=max"). Read here (the only place
+  // with node access); enforced in normalizeAnswers against the already-
+  // array-typed normalized value, so a non-array answerType never triggers a
+  // spurious count check even though every node's min/max is read uniformly.
+  minCount?: number;
+  maxCount?: number;
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function asStringArray(value: unknown, fallback: readonly string[]): string[] {
@@ -192,6 +203,8 @@ function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
         answerType,
         hasDefault: node.props?.["default"] !== undefined,
         defaultValue: node.props?.["default"],
+        minCount: asFiniteNumber(node.props?.["min"]),
+        maxCount: asFiniteNumber(node.props?.["max"]),
       },
     ];
   }
@@ -267,6 +280,18 @@ export function normalizeAnswers(
       }
 
       if (normalized === undefined) continue; // invalid raw / invalid default
+      // Adversarial-review BLOCKER 2: an array-typed (MultiChoice) answer whose
+      // SELECTION COUNT falls outside its authored min/max is invalid — the
+      // SAME drop discipline as any other unusable value above (never a new
+      // rejection channel). This is the RED LINE 3 server-side enforcement: a
+      // scripted client posting straight to /lg/auction cannot bypass min/max
+      // by skipping the browser's own (client-only) validateValue check.
+      if (Array.isArray(normalized)) {
+        const count = normalized.length;
+        const tooFew = spec.minCount !== undefined && count < spec.minCount;
+        const tooMany = spec.maxCount !== undefined && count > spec.maxCount;
+        if (tooFew || tooMany) continue;
+      }
       answers[spec.field] = normalized;
       sources[spec.field] = source;
     }

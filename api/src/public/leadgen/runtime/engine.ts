@@ -776,6 +776,11 @@ export class LgEngine {
       section_public_id: section?.section_public_id ?? "",
     };
     const write = this.store.recordUserAnswer(internalField, value, meta);
+    // S2-3 (register §C): a range slider moves its own visible value text +
+    // filled track live as it is dragged (input fires continuously).
+    if (input instanceof HTMLInputElement && input.type === "range") {
+      render.updateRangeDisplay(input);
+    }
     // Editing clears the field's stale error immediately.
     const sectionEl = this.currentSectionEl();
     if (sectionEl !== null) render.setFieldError(sectionEl, internalField, null);
@@ -907,7 +912,17 @@ export class LgEngine {
         const questionEl = sectionEl.querySelector(
           `[data-lg-question="${component.question_id.replace(/["\\\]]/g, "\\$&")}"]`,
         );
-        if (questionEl !== null && component.choices !== undefined) {
+        // E1-NEW-4 (register §E.2): paint the selected state for ANY answered
+        // question on entry (restored OR default_applied). The old `component
+        // .choices !== undefined` guard skipped TwoButtonYesNo — config-dto
+        // never projects `choices` for it (its yes/no buttons carry data-lg-
+        // choice but no choice array), so its default fired an
+        // answer_default_applied beacon yet NEVER showed selected.
+        // applySelectionClasses is a safe no-op on a question with no
+        // [data-lg-choice] children (text/select/range), so dropping the guard
+        // is both the fix and byte-lean (no regression for choice-array types,
+        // which already matched entry.value against their choices).
+        if (questionEl !== null) {
           render.applySelectionClasses(questionEl, entry.value);
         }
       }
